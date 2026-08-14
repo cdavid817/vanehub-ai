@@ -221,6 +221,25 @@ mod tests {
     }
 
     #[test]
+    fn persists_and_restores_context_quality_retention_without_a_parallel_store() {
+        let (_directory, _database, repository) = fixture();
+        let mutation =
+            DesktopSettingMutation::parse("contextQualityRetentionDays", "90").expect("retention");
+
+        repository
+            .save_setting(&mutation, "2026-08-14T12:00:00Z")
+            .expect("save retention");
+
+        assert!(repository
+            .load_settings()
+            .expect("settings")
+            .contains(&StoredDesktopSetting {
+                key: DesktopSettingKey::ContextQualityRetentionDays,
+                value: "90".to_string(),
+            }));
+    }
+
+    #[test]
     fn upsert_keeps_created_at_and_updates_value_and_timestamp() {
         let (_directory, database, repository) = fixture();
         let mutation = DesktopSettingMutation::parse("fontSize", "16px").expect("mutation");

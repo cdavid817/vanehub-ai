@@ -6,7 +6,7 @@ mod stderr_drain;
 mod windows_job;
 
 pub(crate) use managed_child::{ManagedChild, ManagedTokioChild};
-pub(crate) use stderr_drain::{BlockingStderrDrain, TokioStderrDrain};
+pub(crate) use stderr_drain::{BlockingStderrDrain, StderrCapture, TokioStderrDrain};
 
 use crate::platform::network;
 use process_wrap::std as process_std;

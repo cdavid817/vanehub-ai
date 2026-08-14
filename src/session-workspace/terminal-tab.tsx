@@ -2,17 +2,23 @@ import { useTranslation } from "react-i18next";
 import type { ChatMessage } from "../types/chat";
 import { cn } from "../lib/utils";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
+import { BuiltinToolActivity } from "./builtin-tool-activity";
+import { ArtifactPanel } from "./artifact-panel";
+import { DelegationPanel } from "./delegation-panel";
 export { toolUseCount } from "./terminal-utils";
 
-export function TerminalTab({ messages, partial }: { messages: ChatMessage[]; partial: boolean }) {
+export function TerminalTab({ builtinToolsAvailable = false, messages, partial, sessionId = null, targetRoot = "" }: { builtinToolsAvailable?: boolean; messages: ChatMessage[]; partial: boolean; sessionId?: string | null; targetRoot?: string }) {
   const { i18n, t } = useTranslation();
   const entries = messages.flatMap((message) =>
     (message.toolUse ?? []).map((tool) => ({ message, tool })),
   );
-  if (entries.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.terminal.empty")} />;
   return (
     <div className="grid gap-3 overflow-y-auto pr-1">
+      {builtinToolsAvailable && sessionId ? <BuiltinToolActivity sessionId={sessionId} /> : null}
+      {builtinToolsAvailable && sessionId ? <ArtifactPanel sessionId={sessionId} /> : null}
+      {builtinToolsAvailable && sessionId ? <DelegationPanel defaultTargetRoot={targetRoot} sessionId={sessionId} /> : null}
       {partial ? <PartialNotice /> : null}
+      {entries.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.terminal.empty")} /> : null}
       {entries.map(({ message, tool }) => (
         <article className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3" key={`${message.id}-${tool.id}`}>
           <div className="flex items-center justify-between gap-3">

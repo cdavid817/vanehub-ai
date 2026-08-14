@@ -59,6 +59,13 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
+import type {
+  ContextQualityHistoryPage,
+  ContextQualityHistoryQuery,
+  ContextQualitySummary,
+  ContextQualitySummaryQuery,
+} from "../types/context-quality";
+import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
@@ -160,6 +167,7 @@ import {
   normalizeLspWorkspaceTrustList,
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
+import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -196,6 +204,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  ...tauriBuiltinToolClient,
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },
@@ -263,6 +272,16 @@ export const tauriAgentClient: AgentService = {
 
   listAllMemories() {
     return invoke<AgentMemory[]>("list_agent_memories");
+  },
+
+  listContextQualityHistory(input: ContextQualityHistoryQuery) {
+    return invoke<ContextQualityHistoryPage>("list_context_quality_history", { input })
+      .catch((error: unknown) => Promise.reject(normalizeContextQualityError(error)));
+  },
+
+  getContextQualitySummary(input: ContextQualitySummaryQuery) {
+    return invoke<ContextQualitySummary>("get_context_quality_summary", { input })
+      .catch((error: unknown) => Promise.reject(normalizeContextQualityError(error)));
   },
 
   deleteAgentMemory(memoryId: string) {

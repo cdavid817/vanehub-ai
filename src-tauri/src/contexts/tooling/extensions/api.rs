@@ -1,5 +1,7 @@
 use crate::contexts::tooling::extensions::application::ExtensionApplicationService;
 
+#[cfg(test)]
+pub(crate) use crate::contexts::tooling::extensions::application::PADDLEOCR_INFERENCE_PROTOCOL_VERSION;
 pub(crate) use crate::contexts::tooling::extensions::application::{
     ExtensionApplicationError as ExtensionError, ExtensionInstallPreview,
     ExtensionOperationRequest, ExtensionOverview, PreparedExtensionOperation,

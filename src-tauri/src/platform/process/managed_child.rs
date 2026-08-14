@@ -32,6 +32,15 @@ impl ManagedChild {
         args: &[String],
         environment: &BTreeMap<String, String>,
     ) -> Result<Self, ProcessError> {
+        Self::spawn_in(executable, args, environment, None)
+    }
+
+    pub(crate) fn spawn_in(
+        executable: &str,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        current_dir: Option<&std::path::Path>,
+    ) -> Result<Self, ProcessError> {
         let mut command = super::std_command(executable)?;
         command
             .args(args)
@@ -39,6 +48,9 @@ impl ManagedChild {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(current_dir) = current_dir {
+            command.current_dir(current_dir);
+        }
         let mut command = process_std::CommandWrap::from(command);
         add_std_containment(&mut command);
         let mut child = command

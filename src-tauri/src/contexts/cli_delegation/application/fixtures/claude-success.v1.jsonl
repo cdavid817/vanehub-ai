@@ -1,0 +1,4 @@
+{"type":"system","session_id":"fixture-claude"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"read-1","name":"Read","input":{"path":"README.md"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"read-1","content":"sanitized"}]}}
+{"type":"result","subtype":"success","is_error":false,"structured_output":{"schema_version":1,"outcome":"completed","summary":"Fixture completed.","findings":[],"actions_taken":["Inspected README"],"verification_claims":[],"risks":[],"follow_ups":[],"limitations":[]},"usage":{"input_tokens":10,"output_tokens":5}}

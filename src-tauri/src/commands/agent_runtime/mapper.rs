@@ -539,6 +539,11 @@ mod tests {
     use crate::contexts::agent_runtime::api::{
         AgentLaunchView, LaunchWorkflowResult, MessageTokenUsage, ReadinessView, WorkflowView,
     };
+    use crate::contexts::agent_runtime::domain::{
+        ContextAssessmentMeasurementQuality, ContextAssessmentOutcome, ContextQualityAssessment,
+        ContextQualityAssessmentInput, ContextQualityAssessmentPage,
+        ContextQualityAssessmentRecord, ContextQualitySummary,
+    };
     use std::collections::BTreeMap;
 
     #[test]
@@ -693,5 +698,57 @@ mod tests {
         assert_eq!(value["state"], "running");
         assert_eq!(value["capability"], "native");
         assert!(value.get("terminal_id").is_none());
+    }
+
+    #[test]
+    fn context_quality_contract_flattens_records_and_exposes_coverage() {
+        let assessment = ContextQualityAssessment::new(ContextQualityAssessmentInput {
+            generation_correlation: "generation-contract",
+            decision_sequence: 2,
+            outcome: ContextAssessmentOutcome::Compacted,
+            path: None,
+            reason: None,
+            trigger_source: None,
+            before_characters: 100,
+            after_characters: 60,
+            before_tokens: Some(25),
+            after_tokens: Some(15),
+            measurement_quality: ContextAssessmentMeasurementQuality::Reported,
+            invariants: None,
+            context_policy_version: "policy-v1",
+            optimizer_version: "optimizer-v1",
+            verifier_version: "verifier-v1",
+        });
+        let page = serde_json::to_value(super::super::context_quality_mapper::history_to_dto(
+            ContextQualityAssessmentPage {
+                items: vec![ContextQualityAssessmentRecord {
+                    session_correlation: Some("session-contract".to_string()),
+                    recorded_at: "2026-08-14T00:00:00Z".to_string(),
+                    assessment,
+                }],
+                next_cursor: Some("cursor-contract".to_string()),
+            },
+        ))
+        .expect("serialize context quality page");
+        let summary = serde_json::to_value(super::super::context_quality_mapper::summary_to_dto(
+            7,
+            ContextQualitySummary {
+                evaluated: 4,
+                token_measurement_count: 3,
+                ..ContextQualitySummary::default()
+            },
+        ))
+        .expect("serialize context quality summary");
+
+        assert_eq!(page["items"][0]["sessionCorrelation"], "session-contract");
+        assert_eq!(page["items"][0]["savedCharacters"], 40);
+        assert_eq!(page["nextCursor"], "cursor-contract");
+        assert_eq!(summary["rangeDays"], 7);
+        assert_eq!(summary["qualityCoverage"]["charactersOnly"], 1);
+        assert_eq!(
+            summary["qualityCoverage"]["tokenCoverageBasisPoints"],
+            7_500
+        );
+        assert!(summary.get("quality_coverage").is_none());
     }
 }

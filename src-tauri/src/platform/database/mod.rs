@@ -212,6 +212,20 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("managed IM binding migration");
+        let context_quality_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 70",
+                [],
+                |row| row.get(0),
+            )
+            .expect("OnePiece context quality migration");
+        let context_quality_schema_objects: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'context_quality_assessments' OR name LIKE 'context_quality_assessments_%_idx'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("OnePiece context quality schema");
         let lsp_migration: String = connection
             .query_row(
                 "SELECT name FROM schema_migrations WHERE version = 58",
@@ -234,7 +248,15 @@ mod tests {
             )
             .expect("Skill evolution evidence migration");
 
-        assert_eq!(migration_count, 67);
+        let native_tool_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 68",
+                [],
+                |row| row.get(0),
+            )
+            .expect("native tool persistence migration");
+
+        assert_eq!(migration_count, 70);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -256,9 +278,15 @@ mod tests {
         assert_eq!(stable_participant_migration, "stable-session-participants");
         assert_eq!(plan_agent_loop_migration, "onepiece-plan-agent-loop");
         assert_eq!(managed_im_binding_migration, "managed-im-session-bindings");
+        assert_eq!(
+            context_quality_migration,
+            "onepiece-context-quality-history"
+        );
+        assert_eq!(context_quality_schema_objects, 5);
         assert_eq!(lsp_migration, "lsp-code-intelligence-foundation");
         assert_eq!(effective_skill_migration, "effective-skill-runtime");
         assert_eq!(evidence_migration, "skill-evolution-evidence-foundation");
+        assert_eq!(native_tool_migration, "onepiece-native-tool-persistence");
     }
 
     #[test]
@@ -290,7 +318,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 67);
+        assert_eq!(migration_count, 70);
     }
 
     #[test]

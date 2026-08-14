@@ -8,6 +8,7 @@ import type * as SkillContracts from "./skill";
 import type * as SkillOverlayContracts from "./skill-overlay";
 import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
+import type * as OnePieceToolContracts from "./onepiece-tools";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
 import type * as ChatTypes from "../types/chat";
@@ -40,11 +41,14 @@ import {
   SKILL_RUNTIME_LAYERS as frontendSkillLayers,
 } from "../types/skill";
 import type * as OperationTypes from "../types/operation";
+import type * as OnePieceToolTypes from "../types/onepiece-tools";
 import type * as ObservabilityTypes from "../types/execution-observability";
 import type * as LoopContracts from "./loop";
 import type * as LoopTypes from "../types/loop";
 import type * as SessionWorkspaceContracts from "./session-workspace";
 import type * as SessionWorkspaceTypes from "../types/session-workspace";
+import type * as ContextQualityContracts from "./context-quality";
+import type * as ContextQualityTypes from "../types/context-quality";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -228,6 +232,21 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
 ];
 
+type OnePieceToolAssertions = [
+  Assert<Equal<OnePieceToolContracts.OnePieceToolCapability, OnePieceToolTypes.OnePieceToolCapability>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolReadiness, OnePieceToolTypes.OnePieceToolReadiness>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolOperation, OnePieceToolTypes.OnePieceToolOperation>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolApproval, OnePieceToolTypes.OnePieceToolApproval>>,
+  Assert<Equal<OnePieceToolContracts.ArtifactSummary, OnePieceToolTypes.ArtifactSummary>>,
+  Assert<Equal<OnePieceToolContracts.ArtifactDetail, OnePieceToolTypes.ArtifactDetail>>,
+  Assert<Equal<OnePieceToolContracts.DelegationAttempt, OnePieceToolTypes.DelegationAttempt>>,
+  Assert<Equal<OnePieceToolContracts.DelegationView, OnePieceToolTypes.DelegationView>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetView, OnePieceToolTypes.ChangeSetView>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetApplyAttempt, OnePieceToolTypes.ChangeSetApplyAttempt>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetRecoveryState, OnePieceToolTypes.ChangeSetRecoveryState>>,
+  Assert<Equal<OnePieceToolContracts.BrowserHumanHandoff, OnePieceToolTypes.BrowserHumanHandoff>>,
+];
+
 type ObservabilityAssertions = [
   Assert<Equal<ObservabilityContracts.CapturePolicy, ObservabilityTypes.CapturePolicy>>,
   Assert<Equal<ObservabilityContracts.OtlpProtocol, ObservabilityTypes.OtlpProtocol>>,
@@ -327,17 +346,28 @@ type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.ShellEvent, SessionWorkspaceTypes.ShellEvent>>,
 ];
 
+type ContextQualityAssertions = [
+  Assert<Equal<ContextQualityContracts.ContextQualityRangeDays, ContextQualityTypes.ContextQualityRangeDays>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityAssessment, ContextQualityTypes.ContextQualityAssessment>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityHistoryQuery, ContextQualityTypes.ContextQualityHistoryQuery>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityHistoryPage, ContextQualityTypes.ContextQualityHistoryPage>>,
+  Assert<Equal<ContextQualityContracts.ContextQualitySummary, ContextQualityTypes.ContextQualitySummary>>,
+  Assert<Equal<ContextQualityContracts.ContextQualitySafeError, ContextQualityTypes.ContextQualitySafeError>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as ChatAssertions);
 void (0 as unknown as TokenUsageAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
 void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
+void (0 as unknown as ContextQualityAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

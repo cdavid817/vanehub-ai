@@ -156,6 +156,8 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       "networkProxyBypass",
       "launchOnStartup",
       "defaultPolicyTemplate",
+      "automaticContextCompactionEnabled",
+      "contextQualityRetentionDays",
     ];
     for (const key of resettableKeys) {
       if (key === "launchOnStartup") await settingsService.setLaunchOnStartup(defaultAppSettings.launchOnStartup);

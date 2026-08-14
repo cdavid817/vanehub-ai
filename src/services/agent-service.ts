@@ -254,8 +254,15 @@ import type {
   LspWorkspaceTrust,
   LspWorkspaceTrustUpdate,
 } from "../types/lsp";
+import type {
+  ContextQualityHistoryPage,
+  ContextQualityHistoryQuery,
+  ContextQualitySummary,
+  ContextQualitySummaryQuery,
+} from "../types/context-quality";
+import type { BuiltinToolService } from "./builtin-tool-service";
 
-export interface AgentService {
+export interface AgentService extends BuiltinToolService {
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
@@ -277,6 +284,8 @@ export interface AgentService {
   listAllMemories(): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   resetAllMemories(): Promise<void>;
+  listContextQualityHistory(input: ContextQualityHistoryQuery): Promise<ContextQualityHistoryPage>;
+  getContextQualitySummary(input: ContextQualitySummaryQuery): Promise<ContextQualitySummary>;
   // Configuration, index status and rebuild are all global: retrieval applies to every agent,
   // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;

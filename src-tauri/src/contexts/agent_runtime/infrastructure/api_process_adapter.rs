@@ -1,10 +1,14 @@
 use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, locations_outcome};
+use super::context_projection::ContextWireShape;
+use super::context_projection::PreparedContextProjection;
+use super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
     ToolExecutionOutcome, OUTPUT_MODE_FILES,
 };
-use super::{anthropic_provider, openai_compatible_provider};
+use super::SqliteNativeToolRepository;
+use super::{anthropic_provider, model_context_catalog, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
     plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
@@ -15,10 +19,16 @@ use crate::contexts::agent_runtime::application::{
     AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
     AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest,
     AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, MemorySource, PersonalizationSettings,
-    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, ToolApprovalDecision,
-    ToolApprovalPort, ToolDefinition, ToolUseBlock, UtilityDelegationApplicationService,
+    ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput, ContextAnalysisService,
+    ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
+    NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
+    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, StoredToolOperation,
+    StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
+    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
     FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
     GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
@@ -26,7 +36,17 @@ use crate::contexts::agent_runtime::application::{
     MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
     SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
-use crate::contexts::agent_runtime::domain::{UtilityDelegationLimits, UtilityDelegationRequest};
+use crate::contexts::agent_runtime::domain::{
+    build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
+    AutomaticCompactionState, CompactionBypassReason, CompactionPath, CompactionTriggerSource,
+    ContextAssessmentInvariants, ContextAssessmentOutcome, ContextAssessmentPath,
+    ContextAssessmentReason, ContextAssessmentTriggerSource, ContextCompactionEvidence,
+    ContextOptimizationBudget, ContextQualityAssessment, ContextQualityAssessmentInput,
+    ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason, OptimizationActionKind,
+    OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor, UtilityDelegationLimits,
+    UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
+    CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, STRUCTURED_SUMMARY_PROMPT,
+};
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::contexts::sessions::api::{
     AccountingUnit, MeasurementKind, MeasurementQuality, NewModelInvocation, NewUsageObservation,
@@ -52,6 +72,8 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
+use tauri::Emitter;
 
 const HISTORY_LIMIT: i64 = 50;
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -68,6 +90,7 @@ const APPROVAL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// pessimistic ~1 char/token ratio, leaving headroom for system/tool-definition overhead and the
 /// response's own `DEFAULT_MAX_TOKENS`.
 const COMPACTION_TRIGGER_CHARACTERS: usize = 60_000;
+const OPTIMIZER_TARGET_CHARACTERS: u64 = 45_000;
 /// How many of the most recent turns stay untouched (verbatim) when compaction triggers;
 /// everything older is replaced by one synthetic summary turn.
 const COMPACTION_KEEP_RECENT_TURNS: usize = 6;
@@ -166,7 +189,11 @@ pub(crate) struct RuntimeAgentApiAdapter {
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
+    context_quality: Option<Arc<ContextQualityRecorder>>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
     evidence: RuntimeEvidenceProjector,
@@ -255,7 +282,11 @@ impl RuntimeAgentApiAdapter {
             code_intelligence,
             workspace_mutations,
             personalization,
+            context_quality: None,
             accounting: None,
+            native_tools: NativeToolRegistry::empty(),
+            native_tool_operations: None,
+            native_tool_events: None,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
             evidence: RuntimeEvidenceProjector::disabled(),
@@ -278,6 +309,29 @@ impl RuntimeAgentApiAdapter {
 
     pub(crate) fn with_accounting(mut self, accounting: SessionsApi) -> Self {
         self.accounting = Some(accounting);
+        self
+    }
+
+    pub(crate) fn with_context_quality_recorder(
+        mut self,
+        recorder: Arc<ContextQualityRecorder>,
+    ) -> Self {
+        self.context_quality = Some(recorder);
+        self
+    }
+
+    pub(crate) fn with_native_tool_registry(mut self, native_tools: NativeToolRegistry) -> Self {
+        self.native_tools = native_tools;
+        self
+    }
+
+    pub(crate) fn with_native_tool_operations(
+        mut self,
+        repository: Arc<SqliteNativeToolRepository>,
+        app: tauri::AppHandle,
+    ) -> Self {
+        self.native_tool_operations = Some(repository);
+        self.native_tool_events = Some(app);
         self
     }
 }
@@ -366,9 +420,13 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let code_intelligence = self.code_intelligence.clone();
         let workspace_mutations = self.workspace_mutations.clone();
         let personalization = self.personalization.clone();
+        let context_quality = self.context_quality.clone();
         let evidence = self.evidence.clone();
         let utility_delegation = self.utility_delegation.clone();
         let accounting = self.accounting.clone();
+        let native_tools = self.native_tools.clone();
+        let native_tool_operations = self.native_tool_operations.clone();
+        let native_tool_events = self.native_tool_events.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -387,7 +445,11 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 code_intelligence,
                 workspace_mutations,
                 personalization,
+                context_quality,
                 accounting,
+                native_tools,
+                native_tool_operations,
+                native_tool_events,
                 sink,
                 pending_approvals,
                 evidence,
@@ -465,7 +527,11 @@ fn run_generation(
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
+    context_quality: Option<Arc<ContextQualityRecorder>>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
     evidence: RuntimeEvidenceProjector,
@@ -492,9 +558,13 @@ fn run_generation(
         code_intelligence.as_ref(),
         workspace_mutations.as_ref(),
         personalization.as_ref(),
+        context_quality.as_deref(),
         utility_delegation.as_ref(),
         &mut observed_skill_revisions,
         accounting.as_ref(),
+        &native_tools,
+        native_tool_operations.as_deref(),
+        native_tool_events.as_ref(),
     );
     project_native_outcomes(
         &evidence,
@@ -640,11 +710,13 @@ fn reviewed_stream_usage_strategy(config: &ApiProviderConfig) -> bool {
 /// format-agnostic.
 type BuildRequestBody =
     fn(&str, &[Value], &[ToolDefinition], Option<&str>, &GenerationOptions) -> Value;
+type ProjectRequestContext = fn(&Value) -> PreparedContextProjection;
 
 pub(crate) struct WireFormat {
     endpoint: String,
     history_to_turns: fn(&[AgentMessage]) -> Vec<Value>,
     build_request_body: BuildRequestBody,
+    project_request_context: ProjectRequestContext,
     translate_sse_data: fn(&str, &mut ToolCallAccumulator) -> Option<GenerationProcessEvent>,
     build_reply_turns: fn(&str, &[ExecutedToolCall]) -> Vec<Value>,
     failure_from_http_status: fn(u16, &str) -> GenerationProcessFailure,
@@ -842,6 +914,82 @@ fn bounded_hash(value: &str) -> String {
         .collect()
 }
 
+fn record_context_snapshot(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    request_sequence: u32,
+    snapshot: &ContextSnapshot,
+) {
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Debug,
+        category: "agent.context.measurement".to_string(),
+        message: context_snapshot_diagnostic(request_sequence, snapshot),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: Some(request.execution_context.run_id.as_str().to_string()),
+        trace_id: Some(request.execution_context.trace_id.as_str().to_string()),
+        span_id: Some(request.execution_context.span_id.as_str().to_string()),
+        occurred_at: clock.now(),
+    });
+}
+
+pub(crate) fn context_snapshot_diagnostic(
+    request_sequence: u32,
+    snapshot: &ContextSnapshot,
+) -> String {
+    let capacity = snapshot
+        .capacity
+        .as_ref()
+        .map(|value| value.context_window_tokens.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let disagreement = snapshot
+        .compaction_decision
+        .should_compact
+        .is_some_and(|shadow| shadow != snapshot.active_character_compaction);
+    let class_count = |class| {
+        snapshot
+            .components
+            .iter()
+            .filter(|component| component.semantic_class == class)
+            .count()
+    };
+    format!(
+            "snapshot={} estimator={} policy={} sequence={} request_hash={} quality={:?} characters={} tokens={} capacity={} reserved={:?} remaining={:?} utilization_bps={:?} components={} rounds={} classes=system:{},schemas:{},user:{},assistant:{},tool_requests:{},tool_results:{},attachments:{},memory:{},unknown:{} legacy_character_compact={} token_compact={:?} token_threshold={:?} token_reason={:?} disagreement={} disagreement_reason={} overflows={}",
+            snapshot.version,
+            snapshot.estimator_version,
+            snapshot.policy_version,
+            request_sequence,
+            snapshot.request_fingerprint,
+            snapshot.quality,
+            snapshot.characters,
+            snapshot.tokens.map_or_else(|| "unknown".to_string(), |value| value.to_string()),
+            capacity,
+            snapshot.reserved_tokens,
+            snapshot.remaining_tokens,
+            snapshot.utilization_basis_points,
+            snapshot.components.len(),
+            snapshot.rounds.len(),
+            class_count(SemanticClass::SystemInstruction),
+            class_count(SemanticClass::ToolSchema),
+            class_count(SemanticClass::UserIntent),
+            class_count(SemanticClass::AssistantResponse),
+            class_count(SemanticClass::ToolRequest),
+            class_count(SemanticClass::ToolResult),
+            class_count(SemanticClass::Attachment),
+            class_count(SemanticClass::Memory),
+            class_count(SemanticClass::Unknown),
+            snapshot.active_character_compaction,
+            snapshot.compaction_decision.should_compact,
+            snapshot.compaction_decision.threshold_tokens,
+            snapshot.compaction_decision.reason,
+            disagreement,
+            if disagreement { "legacy-character-production-token" } else { "none" },
+            snapshot.overflow_count,
+        )
+}
+
 /// `Err` carries a plain diagnostic message rather than `GenerationProcessEvent` — that enum
 /// has a large `ToolLifecycle`/`RichBlock`-sized variant, and this function's only failure case
 /// is a short, statically-known string, so the caller wraps it into a `Failed` event itself.
@@ -857,6 +1005,7 @@ pub(crate) fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, 
             endpoint: format!("{}/chat/completions", base_url.trim_end_matches('/')),
             history_to_turns: openai_compatible_provider::history_to_turns,
             build_request_body: openai_compatible_provider::build_request_body,
+            project_request_context: openai_compatible_provider::project_request_context,
             translate_sse_data: openai_compatible_provider::translate_sse_data,
             build_reply_turns: openai_compatible_provider::build_reply_turns,
             failure_from_http_status: openai_compatible_provider::failure_from_http_status,
@@ -881,6 +1030,7 @@ pub(crate) fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, 
             endpoint,
             history_to_turns: anthropic_provider::history_to_turns,
             build_request_body: anthropic_provider::build_request_body,
+            project_request_context: anthropic_provider::project_request_context,
             translate_sse_data: anthropic_provider::translate_sse_data,
             build_reply_turns: anthropic_provider::build_reply_turns,
             failure_from_http_status: anthropic_provider::failure_from_http_status,
@@ -945,7 +1095,11 @@ fn execute(
         &NOOP_WORKSPACE_MUTATIONS,
         personalization,
         None,
+        None,
         &mut ignored_observations,
+        None,
+        &NativeToolRegistry::empty(),
+        None,
         None,
     )
 }
@@ -970,9 +1124,13 @@ fn execute_with_code_intelligence(
     code_intelligence: &dyn AgentCodeIntelligencePort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
     personalization: &dyn AgentPersonalizationPort,
+    context_quality: Option<&ContextQualityRecorder>,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
     accounting: Option<&SessionsApi>,
+    native_tools: &NativeToolRegistry,
+    native_tool_operations: Option<&SqliteNativeToolRepository>,
+    native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -993,10 +1151,12 @@ fn execute_with_code_intelligence(
         Ok(wire_format) => wire_format,
         Err(message) => return failed_configuration(agent_id, message),
     };
-    let system = resolve_system_prompt_with_observations(
+    let generation_personalization =
+        resolve_personalization_settings(personalization, logging, clock, request);
+    let system = resolve_system_prompt_with_settings(
         agent_id,
         core_instructions,
-        personalization,
+        &generation_personalization,
         skills,
         memories,
         logging,
@@ -1051,7 +1211,7 @@ fn execute_with_code_intelligence(
     let code_intelligence_available = code_intelligence_context
         .as_ref()
         .is_some_and(|context| code_intelligence.is_available(context));
-    let tools = resolve_tool_catalog_with_code_intelligence(
+    let mut tools = resolve_tool_catalog_with_code_intelligence(
         request,
         mcp,
         logging,
@@ -1061,16 +1221,33 @@ fn execute_with_code_intelligence(
         code_search_available,
         code_intelligence_available,
     );
-    let mut tools = tools;
     if utility_delegation.is_some() && !plan_mode {
         tools.push(delegate_utility_skill_tool_definition());
     }
+    tools.extend(
+        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
+            agent_id: request.agent.id.clone(),
+            session_id: request.session.id.clone(),
+            generation_id: request.operation_id.clone(),
+            canonical_workspace: request.session.folder.as_deref().map(Into::into),
+            execution_mode: if plan_mode {
+                NativeToolExecutionMode::Plan
+            } else {
+                NativeToolExecutionMode::Execute
+            },
+            readiness: native_tools.readiness_snapshot(),
+        }),
+    );
     let generation_options = generation_options_from_configuration(
         &request.configuration,
         reviewed_stream_usage_strategy(&provider_config),
     );
     let mut turns = (wire_format.history_to_turns)(&recent);
     let mut request_sequence = 0u32;
+    let mut context_usage_anchor: Option<UsageAnchor> = None;
+    let mut automatic_compaction_state = AutomaticCompactionState::with_user_preference(
+        generation_personalization.automatic_context_compaction_enabled,
+    );
     if let Some(failure) = maybe_compact_accounted(
         &mut turns,
         &wire_format,
@@ -1078,6 +1255,8 @@ fn execute_with_code_intelligence(
         &api_key,
         &provider_config.model_id,
         &provider_config,
+        &tools,
+        &generation_options,
         system.as_deref(),
         &cancelled,
         sink,
@@ -1089,6 +1268,10 @@ fn execute_with_code_intelligence(
         tool_assisted_session,
         accounting,
         &mut request_sequence,
+        context_usage_anchor.as_ref(),
+        &mut automatic_compaction_state,
+        context_quality,
+        generation_personalization.context_quality_retention_days,
     ) {
         return failure;
     }
@@ -1121,6 +1304,27 @@ fn execute_with_code_intelligence(
             system.as_deref(),
             &generation_options,
         );
+        let projection = (wire_format.project_request_context)(&body);
+        let mut context_snapshot = ContextAnalysisService::analyze(
+            ContextAnalysisInput {
+                provider_id: provider_config.source_provider_id.clone(),
+                model_id: provider_config.model_id.clone(),
+                request_fingerprint: projection.request_fingerprint,
+                characters: projection.characters,
+                components: projection.components,
+                rounds: projection.rounds,
+                token_estimate_complete: projection.token_estimate_complete,
+                capacity: model_context_catalog::resolve_capacity(
+                    provider_config.source_provider_id.as_deref(),
+                    &provider_config.model_id,
+                ),
+                active_character_compaction: should_compact(turns_character_count(&turns)),
+                invocation_sequence: sequence,
+                overflow_count: projection.overflow_count,
+            },
+            context_usage_anchor.as_ref(),
+        );
+        record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
         let estimated_input_characters = value_character_count(&body);
@@ -1268,6 +1472,23 @@ fn execute_with_code_intelligence(
             clock,
             logging,
         );
+        if round_usage.as_ref().is_some_and(|usage| {
+            ContextAnalysisService::finalize_reported_snapshot(
+                &mut context_snapshot,
+                usage.input_tokens,
+            )
+        }) {
+            record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
+        }
+        context_usage_anchor = round_usage.as_ref().and_then(|usage| {
+            ContextAnalysisService::finalize_anchor(
+                &context_snapshot,
+                provider_config.source_provider_id.as_deref(),
+                &provider_config.model_id,
+                sequence,
+                usage.input_tokens,
+            )
+        });
 
         let tool_calls = accumulator.take_completed();
         if tool_calls.is_empty() {
@@ -1280,6 +1501,41 @@ fn execute_with_code_intelligence(
                 return failed_non_retryable("Generation was cancelled.");
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
+            if native_tools.handler(&tool_use.name).is_some() {
+                let outcome = match execute_registered_native_tool(
+                    &mut tool_use,
+                    &input,
+                    request,
+                    cancelled.clone(),
+                    native_tools,
+                    native_tool_operations,
+                    native_tool_events,
+                    permissions,
+                    pending_approvals,
+                    sink,
+                    plan_mode,
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(failure) => return failure,
+                };
+                if cancelled.load(Ordering::SeqCst) {
+                    return failed_non_retryable("Generation was cancelled.");
+                }
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error));
+                continue;
+            }
             let (permission_action, permission_resource) =
                 permission_action_and_resource(&tool_use.name, &input);
             let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -1416,6 +1672,8 @@ fn execute_with_code_intelligence(
             &api_key,
             &provider_config.model_id,
             &provider_config,
+            &tools,
+            &generation_options,
             system.as_deref(),
             &cancelled,
             sink,
@@ -1427,6 +1685,10 @@ fn execute_with_code_intelligence(
             tool_assisted_session,
             accounting,
             &mut request_sequence,
+            context_usage_anchor.as_ref(),
+            &mut automatic_compaction_state,
+            context_quality,
+            generation_personalization.context_quality_retention_days,
         ) {
             return failure;
         }
@@ -1457,14 +1719,48 @@ fn should_compact(character_count: usize) -> bool {
     character_count > COMPACTION_TRIGGER_CHARACTERS
 }
 
-fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
+fn compaction_notice_block(
+    message_id: &str,
+    turns_before: usize,
+    evidence: &ContextCompactionEvidence,
+) -> Value {
+    let token_value = |value: Option<u64>| {
+        value.map_or_else(|| "Unavailable".to_string(), |value| value.to_string())
+    };
     json!({
         "id": format!("compaction-{message_id}-{turns_before}"),
         "kind": "card",
         "v": 1,
         "title": "Conversation compacted",
-        "bodyMarkdown": "Earlier turns in this conversation were summarized to stay within the model's context window.",
+        "bodyMarkdown": "Earlier context was compacted. This evidence contains measurements only and excludes conversation content.",
         "tone": "info",
+        "fields": [
+            { "label": "Before characters", "value": evidence.before_characters.to_string() },
+            { "label": "After characters", "value": evidence.after_characters.to_string() },
+            { "label": "Characters saved", "value": evidence.saved_characters.to_string() },
+            { "label": "Before tokens", "value": token_value(evidence.before_tokens) },
+            { "label": "After tokens", "value": token_value(evidence.after_tokens) },
+            { "label": "Tokens saved", "value": token_value(evidence.saved_tokens) },
+            { "label": "Measurement quality", "value": format!("{} → {}", evidence.before_quality, evidence.after_quality) },
+            { "label": "Trigger source", "value": evidence.trigger_source },
+            { "label": "Compaction path", "value": evidence.compaction_path },
+            { "label": "Policy version", "value": evidence.policy_version },
+        ],
+        "meta": {
+            "evidenceKind": "context-compaction",
+            "attemptId": evidence.attempt_id,
+            "beforeCharacters": evidence.before_characters,
+            "afterCharacters": evidence.after_characters,
+            "savedCharacters": evidence.saved_characters,
+            "beforeTokens": evidence.before_tokens,
+            "afterTokens": evidence.after_tokens,
+            "savedTokens": evidence.saved_tokens,
+            "beforeQuality": evidence.before_quality,
+            "afterQuality": evidence.after_quality,
+            "triggerSource": evidence.trigger_source,
+            "compactionPath": evidence.compaction_path,
+            "policyVersion": evidence.policy_version,
+        },
     })
 }
 
@@ -1599,8 +1895,8 @@ fn resolve_personalization_settings(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 fn resolve_system_prompt(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
@@ -1625,6 +1921,7 @@ fn resolve_system_prompt(
     )
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn resolve_system_prompt_with_observations(
     agent_id: &str,
@@ -1639,7 +1936,32 @@ fn resolve_system_prompt_with_observations(
 ) -> Option<String> {
     let personalization_settings =
         resolve_personalization_settings(personalization, logging, clock, request);
-    let custom_instructions_section = format_custom_instructions_section(&personalization_settings);
+    resolve_system_prompt_with_settings(
+        agent_id,
+        core_instructions,
+        &personalization_settings,
+        skills,
+        memories,
+        logging,
+        clock,
+        request,
+        observed_skill_revisions,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_system_prompt_with_settings(
+    agent_id: &str,
+    core_instructions: &dyn AgentCoreInstructionsPort,
+    personalization_settings: &PersonalizationSettings,
+    skills: &dyn AgentSkillPort,
+    memories: &dyn AgentMemoryPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
+) -> Option<String> {
+    let custom_instructions_section = format_custom_instructions_section(personalization_settings);
     let core_section = match core_instructions.instructions_for(agent_id) {
         Ok(Some(core)) => {
             let _ = logging.record(AgentLog {
@@ -1815,14 +2137,15 @@ fn format_custom_instructions_section(settings: &PersonalizationSettings) -> Opt
     settings.custom_instructions_block()
 }
 
-/// If `turns`' accumulated size crosses the trigger threshold, replaces everything except the
-/// most recent `COMPACTION_KEEP_RECENT_TURNS` turns with one synthetic summary turn and emits a
-/// visible `RichBlock` notice. Leaves `turns` untouched when below threshold, when there's
-/// nothing old enough to summarize, or when the summarization call itself fails — a failed
-/// summarization attempt falls back to sending the request uncompacted rather than breaking the
-/// generation. `system`, if present, is forwarded to the summarization call itself (it must never
-/// be written into `turns`, or it would be eligible to be summarized away — see design.md
-/// Decision 2 in `add-agent-skill-support`).
+#[derive(Debug)]
+enum AutomaticCompactionOutcome {
+    NotEligible,
+    Bypassed,
+    Compacted(CompactionPath),
+    Failed,
+    TerminalFailure(Box<GenerationProcessEvent>),
+}
+
 #[allow(clippy::too_many_arguments)]
 fn maybe_compact_accounted(
     turns: &mut Vec<Value>,
@@ -1831,6 +2154,8 @@ fn maybe_compact_accounted(
     api_key: &str,
     model: &str,
     provider_config: &ApiProviderConfig,
+    tools: &[ToolDefinition],
+    generation_options: &GenerationOptions,
     system: Option<&str>,
     cancelled: &AtomicBool,
     sink: &dyn AgentProcessEventSink,
@@ -1842,13 +2167,711 @@ fn maybe_compact_accounted(
     tool_assisted: bool,
     accounting: Option<&SessionsApi>,
     request_sequence: &mut u32,
+    usage_anchor: Option<&UsageAnchor>,
+    state: &mut AutomaticCompactionState,
+    context_quality: Option<&ContextQualityRecorder>,
+    context_quality_retention_days: i64,
 ) -> Option<GenerationProcessEvent> {
-    if !should_compact(turns_character_count(turns)) || turns.len() <= COMPACTION_KEEP_RECENT_TURNS
+    let outcome = run_automatic_compaction(
+        turns,
+        wire_format,
+        client,
+        api_key,
+        model,
+        provider_config,
+        tools,
+        generation_options,
+        system,
+        cancelled,
+        sink,
+        logging,
+        clock,
+        request,
+        memories,
+        personalization,
+        tool_assisted,
+        accounting,
+        request_sequence,
+        usage_anchor,
+        state,
+        context_quality,
+        context_quality_retention_days,
+    );
+    match outcome {
+        AutomaticCompactionOutcome::TerminalFailure(failure) => Some(*failure),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_automatic_compaction(
+    turns: &mut Vec<Value>,
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    provider_config: &ApiProviderConfig,
+    tools: &[ToolDefinition],
+    generation_options: &GenerationOptions,
+    system: Option<&str>,
+    cancelled: &AtomicBool,
+    sink: &dyn AgentProcessEventSink,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    memories: &dyn AgentMemoryPort,
+    personalization: &dyn AgentPersonalizationPort,
+    tool_assisted: bool,
+    accounting: Option<&SessionsApi>,
+    request_sequence: &mut u32,
+    usage_anchor: Option<&UsageAnchor>,
+    state: &mut AutomaticCompactionState,
+    context_quality: Option<&ContextQualityRecorder>,
+    context_quality_retention_days: i64,
+) -> AutomaticCompactionOutcome {
+    let turn_characters = turns_character_count(turns) as u64;
+    let character_decision = should_compact(turn_characters as usize);
+    let body = (wire_format.build_request_body)(
+        &provider_config.model_id,
+        turns,
+        tools,
+        system,
+        generation_options,
+    );
+    let snapshot = prepared_context_snapshot(
+        wire_format,
+        &body,
+        provider_config,
+        *request_sequence,
+        character_decision,
+        usage_anchor,
+    );
+    let decision = select_authoritative_compaction(
+        &snapshot.compaction_decision,
+        snapshot.active_character_compaction,
+    );
+    let decision_sequence = *request_sequence;
+    if !decision.should_compact {
+        record_compaction_control(
+            logging,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            decision.source,
+            "not-eligible",
+            None,
+            state,
+            turn_characters,
+        );
+        return AutomaticCompactionOutcome::NotEligible;
+    }
+    if turns.len() <= COMPACTION_KEEP_RECENT_TURNS {
+        record_compaction_control(
+            logging,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            decision.source,
+            "insufficient-context",
+            None,
+            state,
+            turn_characters,
+        );
+        record_context_quality_assessment(
+            context_quality,
+            context_quality_retention_days,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            &snapshot,
+            decision.source,
+            ContextAssessmentOutcome::Bypassed,
+            None,
+            Some(ContextAssessmentReason::InsufficientReclaimableContext),
+            None,
+        );
+        return AutomaticCompactionOutcome::Bypassed;
+    }
+    if let Some(reason) = state.bypass_reason(request.automatic_compaction, turn_characters) {
+        record_compaction_control(
+            logging,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            decision.source,
+            "bypassed",
+            Some(reason),
+            state,
+            turn_characters,
+        );
+        record_context_quality_assessment(
+            context_quality,
+            context_quality_retention_days,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            &snapshot,
+            decision.source,
+            ContextAssessmentOutcome::Bypassed,
+            None,
+            Some(reason.into()),
+            None,
+        );
+        return AutomaticCompactionOutcome::Bypassed;
+    }
+    let original_turns = turns.clone();
+    let (outcome, fallback_reason) = match optimize_compaction_accounted(
+        &original_turns,
+        &snapshot,
+        wire_format,
+        client,
+        api_key,
+        provider_config,
+        tools,
+        generation_options,
+        system,
+        cancelled,
+        accounting,
+        request,
+        request_sequence,
+        clock,
+        logging,
+    ) {
+        Ok(candidate) => {
+            *turns = candidate;
+            (
+                AutomaticCompactionOutcome::Compacted(CompactionPath::Optimizer),
+                None,
+            )
+        }
+        Err(reason) => {
+            record_optimizer_fallback(logging, clock, request, *request_sequence, reason);
+            let fallback_outcome = compatibility_compact_accounted(
+                turns,
+                wire_format,
+                client,
+                api_key,
+                model,
+                provider_config,
+                system,
+                cancelled,
+                logging,
+                clock,
+                request,
+                memories,
+                personalization,
+                tool_assisted,
+                accounting,
+                request_sequence,
+            );
+            (fallback_outcome, Some(reason))
+        }
+    };
+    if let AutomaticCompactionOutcome::Compacted(path) = &outcome {
+        let turns_before = original_turns.len();
+        let post_body = (wire_format.build_request_body)(
+            &provider_config.model_id,
+            turns,
+            tools,
+            system,
+            generation_options,
+        );
+        let post_snapshot = prepared_context_snapshot(
+            wire_format,
+            &post_body,
+            provider_config,
+            decision_sequence,
+            should_compact(turns_character_count(turns)),
+            usage_anchor,
+        );
+        let assessment = record_context_quality_assessment(
+            context_quality,
+            context_quality_retention_days,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            &post_snapshot,
+            decision.source,
+            if *path == CompactionPath::Optimizer {
+                ContextAssessmentOutcome::Compacted
+            } else {
+                ContextAssessmentOutcome::Fallback
+            },
+            Some((*path).into()),
+            fallback_reason.map(Into::into),
+            (*path == CompactionPath::Optimizer).then_some(ContextAssessmentInvariants::passed()),
+        );
+        let evidence = ContextCompactionEvidence::project(
+            &snapshot,
+            &post_snapshot,
+            decision.source,
+            *path,
+            assessment.attempt_id.clone(),
+        );
+        if sink
+            .handle(GenerationProcessEvent::RichBlock(compaction_notice_block(
+                &request.message_id,
+                turns_before,
+                &evidence,
+            )))
+            .is_err()
+        {
+            return AutomaticCompactionOutcome::TerminalFailure(Box::new(failed_retryable(
+                "Agent generation event handling failed.",
+            )));
+        }
+    }
+    if matches!(outcome, AutomaticCompactionOutcome::Failed) {
+        record_context_quality_assessment(
+            context_quality,
+            context_quality_retention_days,
+            clock,
+            request,
+            decision_sequence,
+            &snapshot,
+            &snapshot,
+            decision.source,
+            ContextAssessmentOutcome::Failed,
+            Some(ContextAssessmentPath::Compatibility),
+            Some(
+                fallback_reason
+                    .map(Into::into)
+                    .unwrap_or(ContextAssessmentReason::ProviderFailure),
+            ),
+            None,
+        );
+    }
+    match &outcome {
+        AutomaticCompactionOutcome::Compacted(_) => {
+            state.record_success(turns_character_count(turns) as u64);
+        }
+        AutomaticCompactionOutcome::Failed => state.record_failure(),
+        _ => {}
+    }
+    record_compaction_control(
+        logging,
+        clock,
+        request,
+        *request_sequence,
+        &snapshot,
+        decision.source,
+        match &outcome {
+            AutomaticCompactionOutcome::Compacted(_) => "compacted",
+            AutomaticCompactionOutcome::Failed => "failed",
+            AutomaticCompactionOutcome::TerminalFailure(_) => "terminal-failure",
+            AutomaticCompactionOutcome::NotEligible => "not-eligible",
+            AutomaticCompactionOutcome::Bypassed => "bypassed",
+        },
+        None,
+        state,
+        turn_characters,
+    );
+    outcome
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_context_quality_assessment(
+    recorder: Option<&ContextQualityRecorder>,
+    retention_days: i64,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    decision_sequence: u32,
+    before: &ContextSnapshot,
+    after: &ContextSnapshot,
+    trigger_source: CompactionTriggerSource,
+    outcome: ContextAssessmentOutcome,
+    path: Option<ContextAssessmentPath>,
+    reason: Option<ContextAssessmentReason>,
+    invariants: Option<ContextAssessmentInvariants>,
+) -> ContextQualityAssessment {
+    let recorded_at = clock.now();
+    let assessment = ContextQualityAssessment::new(ContextQualityAssessmentInput {
+        generation_correlation: request.execution_context.run_id.as_str(),
+        decision_sequence: u64::from(decision_sequence),
+        outcome,
+        path,
+        reason,
+        trigger_source: Some(ContextAssessmentTriggerSource::from(trigger_source)),
+        before_characters: before.characters,
+        after_characters: after.characters,
+        before_tokens: before.tokens,
+        after_tokens: after.tokens,
+        measurement_quality: before.quality.into(),
+        invariants,
+        context_policy_version: AUTOMATIC_COMPACTION_POLICY_VERSION,
+        optimizer_version: CONTEXT_OPTIMIZER_VERSION,
+        verifier_version: CONTEXT_VERIFIER_VERSION,
+    });
+    if let Some(recorder) = recorder {
+        recorder.record_with_retention_days(
+            &ContextQualityAssessmentRecord {
+                session_correlation: None,
+                recorded_at,
+                assessment: assessment.clone(),
+            },
+            retention_days,
+            CONTEXT_QUALITY_HISTORY_HARD_LIMIT,
+        );
+    }
+    assessment
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optimize_compaction_accounted(
+    original_turns: &[Value],
+    original: &ContextSnapshot,
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    provider_config: &ApiProviderConfig,
+    tools: &[ToolDefinition],
+    generation_options: &GenerationOptions,
+    system: Option<&str>,
+    cancelled: &AtomicBool,
+    accounting: Option<&SessionsApi>,
+    request: &GenerationProcessRequest,
+    request_sequence: &mut u32,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) -> Result<Vec<Value>, FallbackReason> {
+    let original_body = (wire_format.build_request_body)(
+        &provider_config.model_id,
+        original_turns,
+        tools,
+        system,
+        generation_options,
+    );
+    let target_characters = OPTIMIZER_TARGET_CHARACTERS.min(original.characters.saturating_sub(1));
+    let target_tokens = original
+        .tokens
+        .map(|tokens| tokens.saturating_mul(target_characters) / original.characters.max(1));
+    let plan = build_optimization_plan(
+        original,
+        ContextOptimizationBudget {
+            original_characters: original.characters,
+            original_tokens: original.tokens,
+            target_characters,
+            target_tokens,
+        },
+    )
+    .map_err(|_| FallbackReason::InvalidPlan)?;
+    if plan.outcome == OptimizationOutcome::InsufficientReclaimableContext {
+        return Err(FallbackReason::InsufficientReclaimableContext);
+    }
+    if plan
+        .actions
+        .iter()
+        .any(|action| action.kind == OptimizationActionKind::ReplaceReinjectable)
     {
-        return None;
+        return Err(FallbackReason::ReinjectionUnavailable);
+    }
+    let shape = context_wire_shape(provider_config);
+    let summary = if let Some(boundary) = plan.summary_boundary.as_ref() {
+        let selected = build_structured_summary_turns(&original_body, shape, boundary)
+            .map_err(|_| FallbackReason::ReconstructionFailed)?;
+        let sequence = *request_sequence;
+        *request_sequence = request_sequence.saturating_add(1);
+        summarize_turns_accounted(
+            wire_format,
+            client,
+            api_key,
+            provider_config,
+            None,
+            &selected,
+            STRUCTURED_SUMMARY_PROMPT,
+            cancelled,
+            accounting,
+            request,
+            UsagePurpose::ContextCompaction,
+            sequence,
+            clock,
+            logging,
+        )
+        .map_err(|_| FallbackReason::SummaryFailed)?
+        .ok_or(FallbackReason::SummaryFailed)?
+    } else {
+        String::new()
+    };
+    let candidate_body = reconstruct_candidate(
+        &original_body,
+        shape,
+        &plan,
+        (!summary.is_empty()).then_some(summary.as_str()),
+        &[],
+    )
+    .map_err(|_| FallbackReason::ReconstructionFailed)?;
+    let candidate = optimizer_snapshot(
+        wire_format,
+        &candidate_body,
+        provider_config,
+        *request_sequence,
+    );
+    let verification = verify_optimization_candidate(original, &candidate, &plan, &[]);
+    if !verification.accepted {
+        return Err(FallbackReason::VerificationFailed);
+    }
+    record_optimizer_success(
+        logging,
+        clock,
+        request,
+        *request_sequence,
+        &plan,
+        original,
+        &candidate,
+    );
+    candidate_turns(&candidate_body, shape, system).ok_or(FallbackReason::ReconstructionFailed)
+}
+
+fn record_optimizer_success(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    request_sequence: u32,
+    plan: &crate::contexts::agent_runtime::domain::ContextOptimizationPlan,
+    original: &ContextSnapshot,
+    candidate: &ContextSnapshot,
+) {
+    let action_count = |kind| {
+        plan.actions
+            .iter()
+            .filter(|action| action.kind == kind)
+            .count()
+    };
+    let class_count = |class| {
+        original
+            .components
+            .iter()
+            .filter(|component| component.retention_class == class)
+            .count()
+    };
+    let fingerprints = plan
+        .actions
+        .iter()
+        .flat_map(|action| action.source_fingerprints.iter())
+        .take(8)
+        .map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Info,
+        category: "session.runtime.api.context-optimizer".to_string(),
+        message: format!(
+            "optimizer={} verifier={} sequence={} result=accepted actions={} discard={} reinject={} microcompact={} summarize={} classes=protected:{},verbatim:{},summarizable:{},microcompactable:{},reinjectable:{},discardable:{} before_quality={:?} before_characters={} before_tokens={:?} after_quality={:?} after_characters={} after_tokens={:?} saved_characters={} fingerprints={} original_hash={} candidate_hash={} protocol_complete=true coverage_complete=true",
+            CONTEXT_OPTIMIZER_VERSION,
+            CONTEXT_VERIFIER_VERSION,
+            request_sequence,
+            plan.actions.len(),
+            action_count(OptimizationActionKind::DiscardTransient),
+            action_count(OptimizationActionKind::ReplaceReinjectable),
+            action_count(OptimizationActionKind::MicrocompactToolResult),
+            action_count(OptimizationActionKind::SummarizeRound),
+            class_count(RetentionClass::Protected),
+            class_count(RetentionClass::Verbatim),
+            class_count(RetentionClass::Summarizable),
+            class_count(RetentionClass::Microcompactable),
+            class_count(RetentionClass::Reinjectable),
+            class_count(RetentionClass::Discardable),
+            original.quality,
+            original.characters,
+            original.tokens,
+            candidate.quality,
+            candidate.characters,
+            candidate.tokens,
+            original.characters.saturating_sub(candidate.characters),
+            fingerprints,
+            original.request_fingerprint,
+            candidate.request_fingerprint,
+        ),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
+}
+
+fn record_optimizer_fallback(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    request_sequence: u32,
+    reason: FallbackReason,
+) {
+    let stage = match reason {
+        FallbackReason::InvalidPlan | FallbackReason::InsufficientReclaimableContext => "planning",
+        FallbackReason::ReductionFailed => "reduction",
+        FallbackReason::ReinjectionUnavailable => "reinjection",
+        FallbackReason::SummaryFailed => "summary",
+        FallbackReason::ReconstructionFailed => "reconstruction",
+        FallbackReason::VerificationFailed => "verification",
+    };
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Warn,
+        category: "session.runtime.api.context-optimizer".to_string(),
+        message: format!(
+            "optimizer={} verifier={} sequence={} result=fallback stage={} reason={:?}",
+            CONTEXT_OPTIMIZER_VERSION, CONTEXT_VERIFIER_VERSION, request_sequence, stage, reason,
+        ),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_compaction_control(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    request_sequence: u32,
+    snapshot: &ContextSnapshot,
+    source: CompactionTriggerSource,
+    result: &'static str,
+    bypass_reason: Option<CompactionBypassReason>,
+    state: &AutomaticCompactionState,
+    turn_characters: u64,
+) {
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Debug,
+        category: "agent.context.compaction.control".to_string(),
+        message: format!(
+            "policy={} sequence={} result={} trigger_source={:?} quality={:?} tokens={:?} token_threshold={:?} request_characters={} turn_characters={} legacy_character_compact={} token_compact={:?} bypass_reason={:?} cooldown_growth={} consecutive_failures={} circuit_open={}",
+            AUTOMATIC_COMPACTION_POLICY_VERSION,
+            request_sequence,
+            result,
+            source,
+            snapshot.quality,
+            snapshot.tokens,
+            snapshot.compaction_decision.threshold_tokens,
+            snapshot.characters,
+            turn_characters,
+            snapshot.active_character_compaction,
+            snapshot.compaction_decision.should_compact,
+            bypass_reason,
+            state.growth_since_success(turn_characters),
+            state.consecutive_failures(),
+            state.circuit_open(),
+        ),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: Some(request.execution_context.run_id.as_str().to_string()),
+        trace_id: Some(request.execution_context.trace_id.as_str().to_string()),
+        span_id: Some(request.execution_context.span_id.as_str().to_string()),
+        occurred_at: clock.now(),
+    });
+}
+
+fn optimizer_snapshot(
+    wire_format: &WireFormat,
+    body: &Value,
+    provider_config: &ApiProviderConfig,
+    invocation_sequence: u32,
+) -> ContextSnapshot {
+    prepared_context_snapshot(
+        wire_format,
+        body,
+        provider_config,
+        invocation_sequence,
+        true,
+        None,
+    )
+}
+
+fn prepared_context_snapshot(
+    wire_format: &WireFormat,
+    body: &Value,
+    provider_config: &ApiProviderConfig,
+    invocation_sequence: u32,
+    character_decision: bool,
+    usage_anchor: Option<&UsageAnchor>,
+) -> ContextSnapshot {
+    let projection = (wire_format.project_request_context)(body);
+    ContextAnalysisService::analyze(
+        ContextAnalysisInput {
+            provider_id: provider_config.source_provider_id.clone(),
+            model_id: provider_config.model_id.clone(),
+            request_fingerprint: projection.request_fingerprint,
+            characters: projection.characters,
+            components: projection.components,
+            rounds: projection.rounds,
+            token_estimate_complete: projection.token_estimate_complete,
+            capacity: model_context_catalog::resolve_capacity(
+                provider_config.source_provider_id.as_deref(),
+                &provider_config.model_id,
+            ),
+            active_character_compaction: character_decision,
+            invocation_sequence,
+            overflow_count: projection.overflow_count,
+        },
+        usage_anchor,
+    )
+}
+
+fn context_wire_shape(provider_config: &ApiProviderConfig) -> ContextWireShape {
+    if provider_config.interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+        ContextWireShape::OpenAiCompatible
+    } else {
+        ContextWireShape::Anthropic
+    }
+}
+
+fn candidate_turns(
+    body: &Value,
+    shape: ContextWireShape,
+    system: Option<&str>,
+) -> Option<Vec<Value>> {
+    let mut messages = body.get("messages")?.as_array()?.clone();
+    if shape == ContextWireShape::OpenAiCompatible
+        && system.is_some()
+        && messages
+            .first()
+            .and_then(|message| message.get("role"))
+            .and_then(Value::as_str)
+            == Some("system")
+    {
+        messages.remove(0);
+    }
+    Some(messages)
+}
+
+/// Preserves the pre-optimizer summary-only compaction path as an untouched compatibility
+/// fallback. Optimizer-first orchestration calls this only with the original turns.
+#[allow(clippy::too_many_arguments)]
+fn compatibility_compact_accounted(
+    turns: &mut Vec<Value>,
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    provider_config: &ApiProviderConfig,
+    system: Option<&str>,
+    cancelled: &AtomicBool,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    memories: &dyn AgentMemoryPort,
+    personalization: &dyn AgentPersonalizationPort,
+    tool_assisted: bool,
+    accounting: Option<&SessionsApi>,
+    request_sequence: &mut u32,
+) -> AutomaticCompactionOutcome {
+    if turns.len() <= COMPACTION_KEEP_RECENT_TURNS {
+        return AutomaticCompactionOutcome::Failed;
     }
     let split_at = turns.len() - COMPACTION_KEEP_RECENT_TURNS;
-    let turns_before = turns.len();
     let compaction_sequence = *request_sequence;
     *request_sequence = request_sequence.saturating_add(1);
     let summary = match summarize_turns_accounted(
@@ -1883,7 +2906,7 @@ fn maybe_compact_accounted(
                 span_id: None,
                 occurred_at: clock.now(),
             });
-            return None;
+            return AutomaticCompactionOutcome::Failed;
         }
     };
     // Piggybacks on compaction's own trigger as a cost/latency control (design.md) — runs only
@@ -1919,16 +2942,7 @@ fn maybe_compact_accounted(
     let mut compacted = vec![json!({ "role": "user", "content": summary })];
     compacted.extend(turns.split_off(split_at));
     *turns = compacted;
-    if sink
-        .handle(GenerationProcessEvent::RichBlock(compaction_notice_block(
-            &request.message_id,
-            turns_before,
-        )))
-        .is_err()
-    {
-        return Some(failed_retryable("Agent generation event handling failed."));
-    }
-    None
+    AutomaticCompactionOutcome::Compacted(CompactionPath::Compatibility)
 }
 
 #[cfg(test)]
@@ -1949,14 +2963,20 @@ fn maybe_compact(
     personalization: &dyn AgentPersonalizationPort,
     tool_assisted: bool,
 ) -> Option<GenerationProcessEvent> {
+    if !should_compact(turns_character_count(turns)) {
+        return None;
+    }
     let config = ApiProviderConfig {
+        source_provider_id: None,
         model_id: model.to_string(),
         interface_format: "anthropic".to_string(),
         base_url: None,
         auto_approve_tools: false,
     };
     let mut request_sequence = 0;
-    maybe_compact_accounted(
+    let before_characters = turns_character_count(turns) as u64;
+    let turns_before = turns.len();
+    match compatibility_compact_accounted(
         turns,
         wire_format,
         client,
@@ -1965,7 +2985,6 @@ fn maybe_compact(
         &config,
         system,
         cancelled,
-        sink,
         logging,
         clock,
         request,
@@ -1974,7 +2993,39 @@ fn maybe_compact(
         tool_assisted,
         None,
         &mut request_sequence,
-    )
+    ) {
+        AutomaticCompactionOutcome::Compacted(path) => {
+            let after_characters = turns_character_count(turns) as u64;
+            let evidence = ContextCompactionEvidence {
+                attempt_id: "ctxq-compatibility-test".to_string(),
+                before_characters,
+                after_characters,
+                saved_characters: before_characters.saturating_sub(after_characters),
+                before_tokens: None,
+                after_tokens: None,
+                saved_tokens: None,
+                before_quality: "characters-only",
+                after_quality: "characters-only",
+                trigger_source: "character-fallback",
+                compaction_path: path.as_str(),
+                policy_version: crate::contexts::agent_runtime::domain::CONTEXT_POLICY_VERSION,
+            };
+            if sink
+                .handle(GenerationProcessEvent::RichBlock(compaction_notice_block(
+                    &request.message_id,
+                    turns_before,
+                    &evidence,
+                )))
+                .is_err()
+            {
+                Some(failed_retryable("Agent generation event handling failed."))
+            } else {
+                None
+            }
+        }
+        AutomaticCompactionOutcome::TerminalFailure(failure) => Some(*failure),
+        _ => None,
+    }
 }
 
 /// Calls the model once to reduce `turns_to_summarize` to short text per `instruction`, reusing
@@ -2243,6 +3294,7 @@ fn extract_memories(
     request: &GenerationProcessRequest,
 ) {
     let config = ApiProviderConfig {
+        source_provider_id: None,
         model_id: model.to_string(),
         interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
         base_url: None,
@@ -2548,6 +3600,328 @@ fn execute_skill_read(
     }
 }
 
+struct NativeToolOperationRecorder {
+    repository: Option<SqliteNativeToolRepository>,
+    events: Option<tauri::AppHandle>,
+    record: Mutex<StoredToolOperation>,
+}
+
+impl std::fmt::Debug for NativeToolOperationRecorder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeToolOperationRecorder")
+            .finish_non_exhaustive()
+    }
+}
+
+impl NativeToolOperationRecorder {
+    fn new(
+        repository: Option<&SqliteNativeToolRepository>,
+        events: Option<&tauri::AppHandle>,
+        request: &GenerationProcessRequest,
+        tool_use: &ToolUseBlock,
+    ) -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        let recorder = Self {
+            repository: repository.cloned(),
+            events: events.cloned(),
+            record: Mutex::new(StoredToolOperation {
+                contract_version: 1,
+                id: tool_use.id.clone(),
+                session_id: request.session.id.clone(),
+                generation_id: request.operation_id.clone(),
+                tool_name: tool_use.name.clone(),
+                status: StoredToolOperationStatus::Queued,
+                progress_sequence: 0,
+                progress_message: None,
+                result_artifact_ids: Vec::new(),
+                error_code: None,
+                created_at: now.clone(),
+                updated_at: now,
+            }),
+        };
+        recorder.persist();
+        recorder
+    }
+
+    fn transition(
+        &self,
+        status: StoredToolOperationStatus,
+        message: Option<String>,
+        artifact_ids: Vec<String>,
+        error_code: Option<String>,
+    ) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record.progress_sequence.saturating_add(1);
+            record.status = status;
+            record.progress_message = message;
+            record.result_artifact_ids = artifact_ids;
+            record.error_code = error_code;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+
+    fn persist(&self) {
+        let Ok(record) = self.record.lock().map(|record| record.clone()) else {
+            return;
+        };
+        if let Some(repository) = &self.repository {
+            let _ = repository.save_operation(&record);
+        }
+        if let Some(events) = &self.events {
+            let _ = events.emit("builtin-tool-operation", operation_event(&record));
+        }
+    }
+}
+
+impl NativeToolProgressSink for NativeToolOperationRecorder {
+    fn publish(&self, progress: NativeToolProgress) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record
+                .progress_sequence
+                .saturating_add(1)
+                .max(progress.sequence.saturating_add(2));
+            record.status = if progress.phase == NativeToolProgressPhase::AwaitingHuman {
+                StoredToolOperationStatus::AwaitingHuman
+            } else {
+                StoredToolOperationStatus::Running
+            };
+            record.progress_message = progress.message;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
+fn execute_registered_native_tool(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    request: &GenerationProcessRequest,
+    cancelled: Arc<AtomicBool>,
+    registry: &NativeToolRegistry,
+    operations: Option<&SqliteNativeToolRepository>,
+    events: Option<&tauri::AppHandle>,
+    permissions: &dyn AgentPermissionPort,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+    plan_mode: bool,
+) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+    let recorder = Arc::new(NativeToolOperationRecorder::new(
+        operations, events, request, tool_use,
+    ));
+    let authority = ToolEligibilityContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        canonical_workspace: request.session.folder.as_deref().map(Into::into),
+        execution_mode: if plan_mode {
+            NativeToolExecutionMode::Plan
+        } else {
+            NativeToolExecutionMode::Execute
+        },
+        readiness: registry.readiness_snapshot(),
+    };
+    let execution = NativeToolExecutionContext {
+        call_id: tool_use.id.clone(),
+        session_id: authority.session_id.clone(),
+        generation_id: authority.generation_id.clone(),
+        agent_id: authority.agent_id.clone(),
+        canonical_workspace: authority.canonical_workspace.clone(),
+        deadline: Instant::now() + REQUEST_TIMEOUT,
+        cancelled: cancelled.clone(),
+        progress: recorder.clone(),
+    };
+    let dispatcher = NativeToolDispatcher::new(registry.clone());
+    let prepared = match dispatcher.prepare(NativeToolDispatchRequest {
+        tool_name: tool_use.name.clone(),
+        input: input.clone(),
+        authority,
+        execution,
+    }) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let project_key = request.session.folder.as_deref().unwrap_or("");
+    let mut witness = match dispatcher.authorize(&prepared, permissions, project_key) {
+        Ok(witness) => witness,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    if witness.status == NativeToolAuthorizationStatus::AwaitingApproval {
+        recorder.transition(
+            StoredToolOperationStatus::AwaitingApproval,
+            None,
+            Vec::new(),
+            None,
+        );
+        tool_use.status = "awaiting_approval".to_owned();
+        if sink
+            .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+            .is_err()
+        {
+            return Err(failed_retryable("Agent generation event handling failed."));
+        }
+        match await_approval(&tool_use.id, &cancelled, pending_approvals) {
+            ApprovalOutcome::Approved => {
+                witness.status = NativeToolAuthorizationStatus::Allowed;
+            }
+            ApprovalOutcome::Denied => {
+                recorder.transition(
+                    StoredToolOperationStatus::Failed,
+                    None,
+                    Vec::new(),
+                    Some("permission_denied".to_owned()),
+                );
+                return Ok(native_dispatch_error("Denied by user.".to_owned()));
+            }
+            ApprovalOutcome::Cancelled => {
+                recorder.transition(
+                    StoredToolOperationStatus::Cancelled,
+                    None,
+                    Vec::new(),
+                    Some("cancelled".to_owned()),
+                );
+                return Err(failed_non_retryable(
+                    "Generation was cancelled while a tool call was awaiting approval.",
+                ));
+            }
+        }
+    }
+    recorder.transition(StoredToolOperationStatus::Running, None, Vec::new(), None);
+    tool_use.status = "running".to_owned();
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    let result = match dispatcher.execute_authorized(prepared, &witness) {
+        Ok(result) => result,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let is_error = result.status != NativeToolResultStatus::Succeeded;
+    recorder.transition(
+        stored_status(&result),
+        None,
+        artifact_ids(&result),
+        result.error_code.map(|code| code.as_str().to_owned()),
+    );
+    let output = match (result.output, result.safe_error) {
+        (Some(value), _) => serde_json::to_string(&value)
+            .unwrap_or_else(|_| "The native tool result could not be encoded.".to_owned()),
+        (None, Some(message)) => message,
+        (None, None) => "The native tool returned no result.".to_owned(),
+    };
+    Ok(ToolExecutionOutcome { output, is_error })
+}
+
+fn stored_status(result: &NativeToolResultEnvelope) -> StoredToolOperationStatus {
+    match result.status {
+        NativeToolResultStatus::Succeeded => StoredToolOperationStatus::Succeeded,
+        NativeToolResultStatus::Cancelled => StoredToolOperationStatus::Cancelled,
+        _ => StoredToolOperationStatus::Failed,
+    }
+}
+
+fn artifact_ids(result: &NativeToolResultEnvelope) -> Vec<String> {
+    fn visit(value: &Value, ids: &mut Vec<String>) {
+        if ids.len() >= 64 {
+            return;
+        }
+        match value {
+            Value::String(value) if value.starts_with("artifact-") => {
+                if !ids.contains(value) {
+                    ids.push(value.clone());
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, ids)),
+            Value::Object(values) => values.values().for_each(|value| visit(value, ids)),
+            _ => {}
+        }
+    }
+
+    let mut ids = Vec::new();
+    if let Some(output) = &result.output {
+        visit(output, &mut ids);
+    }
+    ids
+}
+
+fn operation_event(record: &StoredToolOperation) -> Value {
+    let progress = record.progress_message.as_ref().map(|message| {
+        json!({
+            "phase": message,
+            "completedUnits": record.progress_sequence,
+            "totalUnits": Value::Null,
+            "messageCode": Value::Null
+        })
+    });
+    json!({
+        "kind": "snapshot",
+        "operation": {
+            "id": record.id,
+            "agentId": "onepiece",
+            "sessionId": record.session_id,
+            "capability": native_tool_capability(&record.tool_name),
+            "operation": record.tool_name,
+            "status": match record.status {
+                StoredToolOperationStatus::AwaitingApproval => "queued",
+                other => other.as_str(),
+            },
+            "progress": progress,
+            "artifactIds": record.result_artifact_ids,
+            "errorCode": record.error_code,
+            "simulated": false,
+            "createdAt": record.created_at,
+            "updatedAt": record.updated_at
+        }
+    })
+}
+
+fn native_tool_capability(tool_name: &str) -> &'static str {
+    match tool_name {
+        "browser" => "browser",
+        "web_search" | "web_fetch" => "web",
+        "code_execution" => "code_execution",
+        "ocr" => "ocr",
+        "artifact" => "artifact",
+        "delegate_cli" | "apply_delegation_changes" => "delegation",
+        _ => "filesystem",
+    }
+}
+
+fn native_dispatch_error(message: String) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: message,
+        is_error: true,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn execute_tool_call(
@@ -2802,27 +4176,25 @@ fn execute_tool_call_impl(
     plan_mode: bool,
     skills: &dyn AgentSkillPort,
 ) -> ToolExecutionOutcome {
-    if matches!(
-        name,
-        LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME
-    ) {
+    let registered_handler = ExistingToolHandlerRegistry::resolve(name);
+    if registered_handler == Some(ExistingToolHandler::SkillRead) {
         return execute_skill_read(name, input, workspace_folder, skills);
     }
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
     // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
-    if name == REMEMBER_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Remember) {
         return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
     // plan-mode restriction. It also needs no `agent_id`/`workspace_folder`: memories are one
     // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
-    if name == RECALL_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Recall) {
         return execute_recall(input, retrieval);
     }
-    if name == SEARCH_CODE_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::SearchCode) {
         let Some(folder) = workspace_folder else {
             return ToolExecutionOutcome {
                 output: "Code search is unavailable because this session has no workspace folder."
@@ -2843,24 +4215,24 @@ fn execute_tool_call_impl(
     // is *told* it can do. This is the actual enforcement boundary: nothing stops a model from
     // requesting a tool/operation it was never offered (hallucination, or prompt injection from
     // earlier tool output), so every one of these is re-checked here regardless of the catalog.
-    if plan_mode && name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Mcp) {
         return plan_mode_denial("MCP tools");
     }
     // MCP tools are similarly folder-independent: a user-scoped MCP server has no project
     // affiliation at all, so a folder-less session can still reach it (`add-agent-mcp-tools`).
     // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
     // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
-    if name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if registered_handler == Some(ExistingToolHandler::Mcp) {
         let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input, cancelled);
         return ToolExecutionOutcome {
             output: outcome.output,
             is_error: outcome.is_error,
         };
     }
-    if plan_mode && name == SHELL_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Shell) {
         return plan_mode_denial("Shell commands");
     }
-    if plan_mode && name == EDIT_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Edit) {
         return plan_mode_denial("Editing files");
     }
     let Some(folder) = workspace_folder else {
@@ -2869,13 +4241,7 @@ fn execute_tool_call_impl(
             is_error: true,
         };
     };
-    if matches!(
-        name,
-        FIND_DEFINITION_TOOL_NAME
-            | FIND_REFERENCES_TOOL_NAME
-            | GET_HOVER_TOOL_NAME
-            | GET_DIAGNOSTICS_TOOL_NAME
-    ) {
+    if registered_handler == Some(ExistingToolHandler::CodeIntelligence) {
         let Some(code_intelligence) = code_intelligence else {
             return ToolExecutionOutcome {
                 output: "Code intelligence is unavailable for this session.".to_owned(),
@@ -2884,15 +4250,15 @@ fn execute_tool_call_impl(
         };
         return execute_code_intelligence_tool(name, input, folder, cancelled, code_intelligence);
     }
-    match name {
-        SHELL_TOOL_NAME => {
+    match registered_handler {
+        Some(ExistingToolHandler::Shell) => {
             let command = input
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             execute_shell(command, folder, cancelled)
         }
-        FILE_TOOL_NAME => {
+        Some(ExistingToolHandler::File) => {
             let operation = input
                 .get("operation")
                 .and_then(Value::as_str)
@@ -2919,7 +4285,7 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        GREP_TOOL_NAME => {
+        Some(ExistingToolHandler::Grep) => {
             let context = match parse_optional_non_negative_integer_arg(input, "context") {
                 Ok(context) => context.unwrap_or(0),
                 Err(outcome) => return outcome,
@@ -2951,7 +4317,7 @@ fn execute_tool_call_impl(
                 cancelled,
             )
         }
-        GLOB_TOOL_NAME => execute_glob(
+        Some(ExistingToolHandler::Glob) => execute_glob(
             input
                 .get("pattern")
                 .and_then(Value::as_str)
@@ -2960,7 +4326,7 @@ fn execute_tool_call_impl(
             folder,
             cancelled,
         ),
-        EDIT_TOOL_NAME => {
+        Some(ExistingToolHandler::Edit) => {
             let path = input
                 .get("path")
                 .and_then(Value::as_str)
@@ -2986,8 +4352,8 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        other => ToolExecutionOutcome {
-            output: format!("Unknown tool \"{other}\"."),
+        _ => ToolExecutionOutcome {
+            output: format!("Unknown tool \"{name}\"."),
             is_error: true,
         },
     }
@@ -3273,7 +4639,7 @@ mod tests {
         AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation,
         AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
         AgentSession, AgentView, AgentWorkspaceMutation, CliProfileSnapshot,
-        GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
+        ContextQualityRepository, GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -3341,6 +4707,66 @@ mod tests {
     use std::net::{TcpListener, TcpStream};
     use std::sync::atomic::AtomicUsize;
 
+    #[test]
+    fn native_tool_operation_event_projects_frontend_contract() {
+        let record = StoredToolOperation {
+            contract_version: 1,
+            id: "call-1".to_owned(),
+            session_id: "session-1".to_owned(),
+            generation_id: "generation-1".to_owned(),
+            tool_name: "web_fetch".to_owned(),
+            status: StoredToolOperationStatus::AwaitingApproval,
+            progress_sequence: 2,
+            progress_message: Some("approval".to_owned()),
+            result_artifact_ids: vec!["artifact-1".to_owned()],
+            error_code: None,
+            created_at: "100".to_owned(),
+            updated_at: "101".to_owned(),
+        };
+
+        let event = operation_event(&record);
+
+        assert_eq!(
+            event.pointer("/kind").and_then(Value::as_str),
+            Some("snapshot")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/capability")
+                .and_then(Value::as_str),
+            Some("web")
+        );
+        assert_eq!(
+            event.pointer("/operation/status").and_then(Value::as_str),
+            Some("queued")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/artifactIds/0")
+                .and_then(Value::as_str),
+            Some("artifact-1")
+        );
+    }
+
+    #[test]
+    fn native_tool_result_collects_unique_bounded_artifact_ids() {
+        let result = NativeToolResultEnvelope {
+            contract_version: 1,
+            status: NativeToolResultStatus::Succeeded,
+            output: Some(json!({
+                "artifact_id": "artifact-1",
+                "nested": ["artifact-1", {"id": "artifact-2"}],
+                "untrusted": "not-an-artifact"
+            })),
+            error_code: None,
+            safe_error: None,
+            truncated: false,
+            metadata: BTreeMap::new(),
+        };
+
+        assert_eq!(artifact_ids(&result), vec!["artifact-1", "artifact-2"]);
+    }
+
     #[derive(Default)]
     struct FakeCredentials {
         value: Option<String>,
@@ -3392,6 +4818,7 @@ mod tests {
     fn anthropic_config(model_id: &str) -> FakeConfig {
         FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: model_id.to_string(),
                 interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
                 base_url: None,
@@ -3403,6 +4830,7 @@ mod tests {
     fn openai_compatible_config(model_id: &str, base_url: Option<&str>) -> FakeConfig {
         FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: model_id.to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: base_url.map(str::to_string),
@@ -3474,6 +4902,82 @@ mod tests {
     #[derive(Default)]
     struct RecordingLogging {
         logs: Mutex<Vec<AgentLog>>,
+    }
+
+    #[derive(Default)]
+    struct RecordingQualityRepository {
+        records: Mutex<Vec<ContextQualityAssessmentRecord>>,
+    }
+
+    impl ContextQualityRepository for RecordingQualityRepository {
+        fn append_and_prune(
+            &self,
+            record: &ContextQualityAssessmentRecord,
+            _retention_cutoff: &str,
+            _hard_limit: u64,
+        ) -> Result<(), AgentRuntimeApplicationError> {
+            self.records.lock().expect("records").push(record.clone());
+            Ok(())
+        }
+
+        fn list(
+            &self,
+            _since: &str,
+            _cursor: Option<&str>,
+            _limit: u32,
+        ) -> Result<
+            crate::contexts::agent_runtime::domain::ContextQualityAssessmentPage,
+            AgentRuntimeApplicationError,
+        > {
+            unreachable!("coordinator recording does not query history")
+        }
+
+        fn summarize(
+            &self,
+            _since: &str,
+        ) -> Result<
+            crate::contexts::agent_runtime::domain::ContextQualitySummary,
+            AgentRuntimeApplicationError,
+        > {
+            unreachable!("coordinator recording does not query summaries")
+        }
+    }
+
+    struct FailingQualityRepository;
+
+    impl ContextQualityRepository for FailingQualityRepository {
+        fn append_and_prune(
+            &self,
+            _record: &ContextQualityAssessmentRecord,
+            _retention_cutoff: &str,
+            _hard_limit: u64,
+        ) -> Result<(), AgentRuntimeApplicationError> {
+            Err(AgentRuntimeApplicationError::ContextQuality(
+                "private-prompt sk-sensitive".to_string(),
+            ))
+        }
+
+        fn list(
+            &self,
+            _since: &str,
+            _cursor: Option<&str>,
+            _limit: u32,
+        ) -> Result<
+            crate::contexts::agent_runtime::domain::ContextQualityAssessmentPage,
+            AgentRuntimeApplicationError,
+        > {
+            unreachable!("coordinator recording does not query history")
+        }
+
+        fn summarize(
+            &self,
+            _since: &str,
+        ) -> Result<
+            crate::contexts::agent_runtime::domain::ContextQualitySummary,
+            AgentRuntimeApplicationError,
+        > {
+            unreachable!("coordinator recording does not query summaries")
+        }
     }
 
     impl AgentLoggingPort for RecordingLogging {
@@ -4061,6 +5565,8 @@ mod tests {
                 long_context: false,
             },
             effective_prompt: "hello".to_string(),
+            automatic_compaction:
+                crate::contexts::agent_runtime::domain::AutomaticCompactionMode::Automatic,
             role_briefing: None,
             cli_profile: CliProfileSnapshot {
                 executable: String::new(),
@@ -4504,6 +6010,7 @@ mod tests {
         request.session.folder = Some(directory.path().to_string_lossy().to_string());
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
@@ -4624,6 +6131,7 @@ mod tests {
         let request = sample_request("api");
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
@@ -4684,6 +6192,7 @@ mod tests {
         request.session.folder = Some("fixture-project".to_string());
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
@@ -4762,6 +6271,7 @@ mod tests {
         request.session.folder = Some("fixture-project".to_string());
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
@@ -4839,6 +6349,7 @@ mod tests {
         request.session.folder = Some("fixture-project".to_string());
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
@@ -4905,6 +6416,7 @@ mod tests {
     #[test]
     fn wire_format_for_openai_compatible_builds_chat_completions_endpoint() {
         let config = ApiProviderConfig {
+            source_provider_id: None,
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://api.deepseek.com/v1/".to_string()),
@@ -4922,6 +6434,7 @@ mod tests {
         let mut request = onepiece_request();
         request.configuration.provider_id = Some("profile-primary".to_string());
         let config = ApiProviderConfig {
+            source_provider_id: None,
             model_id: "gpt-5".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
@@ -4975,6 +6488,7 @@ mod tests {
     #[test]
     fn wire_format_for_anthropic_uses_official_endpoint_by_default() {
         let config = ApiProviderConfig {
+            source_provider_id: None,
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
@@ -4987,6 +6501,7 @@ mod tests {
     #[test]
     fn wire_format_for_anthropic_uses_configured_provider_endpoint() {
         let config = ApiProviderConfig {
+            source_provider_id: None,
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: Some("https://api.deepseek.com/anthropic".to_string()),
@@ -5099,6 +6614,60 @@ mod tests {
             false,
         );
         assert!(outcome.is_error);
+    }
+
+    struct NativeOcrPort;
+
+    impl crate::contexts::agent_runtime::application::OcrInferencePort for NativeOcrPort {
+        fn execute_ocr(
+            &self,
+            _: crate::contexts::agent_runtime::application::NativeToolPortRequest,
+        ) -> crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+            crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+                contract_version: 1,
+                status: NativeToolResultStatus::Succeeded,
+                output: Some(json!({"text": "native-ocr"})),
+                error_code: None,
+                safe_error: None,
+                truncated: false,
+                metadata: BTreeMap::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn registered_native_tool_uses_dispatcher_and_production_tool_loop_projection() {
+        let registry = NativeToolRegistry::try_new(vec![Arc::new(
+            crate::contexts::agent_runtime::application::OcrNativeToolHandler::new(Arc::new(
+                NativeOcrPort,
+            )),
+        )])
+        .expect("registry");
+        let mut tool_use = ToolUseBlock {
+            id: "call-ocr-1".to_owned(),
+            name: "ocr".to_owned(),
+            input: None,
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let request = onepiece_request();
+        let outcome = execute_registered_native_tool(
+            &mut tool_use,
+            &json!({"artifact_id": "artifact-source", "languages": ["en"]}),
+            &request,
+            not_cancelled(),
+            &registry,
+            None,
+            None,
+            &FakePermissions::with_override(Action::new("ocr.read"), Effect::Allow),
+            &no_pending_approvals(),
+            &CapturingSink::default(),
+            false,
+        )
+        .expect("dispatch");
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("native-ocr"));
+        assert_eq!(tool_use.status, "running");
     }
 
     #[test]
@@ -7357,8 +8926,20 @@ mod tests {
 
     fn openai_compatible_wire_format(base_url: &str) -> WireFormat {
         wire_format_for(&ApiProviderConfig {
+            source_provider_id: None,
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some(base_url.to_string()),
+            auto_approve_tools: false,
+        })
+        .expect("wire format")
+    }
+
+    fn anthropic_wire_format(base_url: &str) -> WireFormat {
+        wire_format_for(&ApiProviderConfig {
+            source_provider_id: Some("anthropic".to_string()),
+            model_id: "claude-haiku-4-5".to_string(),
+            interface_format: "anthropic".to_string(),
             base_url: Some(base_url.to_string()),
             auto_approve_tools: false,
         })
@@ -7674,6 +9255,864 @@ mod tests {
         assert!(sink.events.lock().expect("events").is_empty());
     }
 
+    fn run_optimizer_compaction(
+        turns: &mut Vec<Value>,
+        wire_format: &WireFormat,
+        client: &reqwest::blocking::Client,
+        config: &ApiProviderConfig,
+        sink: &dyn AgentProcessEventSink,
+        personalization: &dyn AgentPersonalizationPort,
+    ) -> Option<GenerationProcessEvent> {
+        run_optimizer_compaction_with_logging(
+            turns,
+            wire_format,
+            client,
+            config,
+            sink,
+            personalization,
+            &NoopLogging,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_optimizer_compaction_with_logging(
+        turns: &mut Vec<Value>,
+        wire_format: &WireFormat,
+        client: &reqwest::blocking::Client,
+        config: &ApiProviderConfig,
+        sink: &dyn AgentProcessEventSink,
+        personalization: &dyn AgentPersonalizationPort,
+        logging: &dyn AgentLoggingPort,
+        context_quality: Option<&ContextQualityRecorder>,
+    ) -> Option<GenerationProcessEvent> {
+        let mut request_sequence = 0;
+        let mut compaction_state = AutomaticCompactionState::default();
+        maybe_compact_accounted(
+            turns,
+            wire_format,
+            client,
+            "sk-test",
+            &config.model_id,
+            config,
+            &[],
+            &GenerationOptions::disabled(),
+            None,
+            &not_cancelled(),
+            sink,
+            logging,
+            &FixedClock,
+            &sample_request("api"),
+            &FakeMemories::default(),
+            personalization,
+            false,
+            None,
+            &mut request_sequence,
+            None,
+            &mut compaction_state,
+            context_quality,
+            30,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_controlled_compaction(
+        turns: &mut Vec<Value>,
+        wire_format: &WireFormat,
+        config: &ApiProviderConfig,
+        request: &GenerationProcessRequest,
+        system: Option<&str>,
+        state: &mut AutomaticCompactionState,
+        logging: &dyn AgentLoggingPort,
+    ) -> AutomaticCompactionOutcome {
+        run_controlled_compaction_with_quality(
+            turns,
+            wire_format,
+            config,
+            request,
+            system,
+            state,
+            logging,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_controlled_compaction_with_quality(
+        turns: &mut Vec<Value>,
+        wire_format: &WireFormat,
+        config: &ApiProviderConfig,
+        request: &GenerationProcessRequest,
+        system: Option<&str>,
+        state: &mut AutomaticCompactionState,
+        logging: &dyn AgentLoggingPort,
+        context_quality: Option<&ContextQualityRecorder>,
+    ) -> AutomaticCompactionOutcome {
+        let client = blocking_http_client(Duration::from_secs(1)).expect("client");
+        let mut request_sequence = 0;
+        run_automatic_compaction(
+            turns,
+            wire_format,
+            &client,
+            "sk-test",
+            &config.model_id,
+            config,
+            &[],
+            &GenerationOptions::disabled(),
+            system,
+            &not_cancelled(),
+            &CapturingSink::default(),
+            logging,
+            &FixedClock,
+            request,
+            &FakeMemories::default(),
+            &NoopPersonalization,
+            false,
+            None,
+            &mut request_sequence,
+            None,
+            state,
+            context_quality,
+            30,
+        )
+    }
+
+    fn seven_turns(old_content: String) -> Vec<Value> {
+        let mut turns = vec![json!({ "role": "user", "content": old_content })];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+        turns
+    }
+
+    #[test]
+    fn token_aware_false_overrides_character_trigger_for_both_wire_formats() {
+        let cases = [
+            (
+                ApiProviderConfig {
+                    source_provider_id: Some("anthropic".to_string()),
+                    model_id: "claude-haiku-4-5".to_string(),
+                    interface_format: "anthropic".to_string(),
+                    base_url: Some("http://127.0.0.1:1".to_string()),
+                    auto_approve_tools: false,
+                },
+                anthropic_wire_format("http://127.0.0.1:1"),
+            ),
+            (
+                ApiProviderConfig {
+                    source_provider_id: Some("openai".to_string()),
+                    model_id: "gpt-5.4".to_string(),
+                    interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                    base_url: Some("http://127.0.0.1:1".to_string()),
+                    auto_approve_tools: false,
+                },
+                openai_compatible_wire_format("http://127.0.0.1:1"),
+            ),
+        ];
+        for (config, wire_format) in cases {
+            let mut turns = seven_turns("x".repeat(COMPACTION_TRIGGER_CHARACTERS + 1));
+            let original = turns.clone();
+            let outcome = run_controlled_compaction(
+                &mut turns,
+                &wire_format,
+                &config,
+                &sample_request("api"),
+                None,
+                &mut AutomaticCompactionState::default(),
+                &NoopLogging,
+            );
+            assert!(matches!(outcome, AutomaticCompactionOutcome::NotEligible));
+            assert_eq!(turns, original);
+        }
+    }
+
+    #[test]
+    fn complete_request_tokens_can_trigger_below_turn_character_threshold() {
+        let config = ApiProviderConfig {
+            source_provider_id: Some("anthropic".to_string()),
+            model_id: "claude-haiku-4-5".to_string(),
+            interface_format: "anthropic".to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let mut turns = seven_turns("old".to_string());
+        assert!(!should_compact(turns_character_count(&turns)));
+        let mut state = AutomaticCompactionState::default();
+        let outcome = run_controlled_compaction(
+            &mut turns,
+            &anthropic_wire_format("http://127.0.0.1:1"),
+            &config,
+            &sample_request("api"),
+            Some(&"s".repeat(700_000)),
+            &mut state,
+            &NoopLogging,
+        );
+        assert!(matches!(outcome, AutomaticCompactionOutcome::Failed));
+        assert_eq!(state.consecutive_failures(), 1);
+    }
+
+    #[test]
+    fn suppression_cooldown_and_open_circuit_bypass_summary_calls() {
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "unknown-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
+        let content = format!(
+            "private-prompt Authorization Bearer sk-sensitive {}",
+            "x".repeat(COMPACTION_TRIGGER_CHARACTERS + 1)
+        );
+        let turns = seven_turns(content);
+
+        let mut suppressed_request = sample_request("api");
+        suppressed_request.automatic_compaction =
+            crate::contexts::agent_runtime::domain::AutomaticCompactionMode::Suppressed;
+        let logging = RecordingLogging::default();
+        let mut suppressed_turns = turns.clone();
+        assert!(matches!(
+            run_controlled_compaction(
+                &mut suppressed_turns,
+                &wire_format,
+                &config,
+                &suppressed_request,
+                None,
+                &mut AutomaticCompactionState::default(),
+                &logging,
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+
+        let mut preference_suppressed_turns = turns.clone();
+        assert!(matches!(
+            run_controlled_compaction(
+                &mut preference_suppressed_turns,
+                &wire_format,
+                &config,
+                &sample_request("api"),
+                None,
+                &mut AutomaticCompactionState::with_user_preference(false),
+                &logging,
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+
+        let current_characters = turns_character_count(&turns) as u64;
+        let mut cooldown = AutomaticCompactionState::default();
+        cooldown.record_success(current_characters);
+        let mut cooldown_turns = turns.clone();
+        assert!(matches!(
+            run_controlled_compaction(
+                &mut cooldown_turns,
+                &wire_format,
+                &config,
+                &sample_request("api"),
+                None,
+                &mut cooldown,
+                &logging,
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+
+        let mut open = AutomaticCompactionState::default();
+        open.record_failure();
+        open.record_failure();
+        let mut open_turns = turns.clone();
+        assert!(matches!(
+            run_controlled_compaction(
+                &mut open_turns,
+                &wire_format,
+                &config,
+                &sample_request("api"),
+                None,
+                &mut open,
+                &logging,
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+        assert_eq!(suppressed_turns, turns);
+        assert_eq!(preference_suppressed_turns, turns);
+        assert_eq!(cooldown_turns, turns);
+        assert_eq!(open_turns, turns);
+
+        let messages = logging
+            .logs
+            .lock()
+            .expect("logs")
+            .iter()
+            .map(|log| log.message.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(messages.contains("RequestSuppressed"));
+        assert!(messages.contains("UserPreferenceSuppressed"));
+        assert!(messages.contains("Cooldown"));
+        assert!(messages.contains("CircuitOpen"));
+        for forbidden in ["private-prompt", "Authorization", "Bearer", "sk-sensitive"] {
+            assert!(!messages.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn coordinator_records_exactly_one_bypass_assessment_after_eligibility() {
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "unknown-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let mut request = sample_request("api");
+        request.automatic_compaction =
+            crate::contexts::agent_runtime::domain::AutomaticCompactionMode::Suppressed;
+        let mut turns = seven_turns("x".repeat(COMPACTION_TRIGGER_CHARACTERS + 1));
+        let repository = Arc::new(RecordingQualityRepository::default());
+        let recorder = ContextQualityRecorder::new(
+            repository.clone(),
+            Arc::new(NoopLogging),
+            Arc::new(FixedClock),
+        );
+
+        assert!(matches!(
+            run_controlled_compaction_with_quality(
+                &mut turns,
+                &openai_compatible_wire_format("http://127.0.0.1:1"),
+                &config,
+                &request,
+                None,
+                &mut AutomaticCompactionState::default(),
+                &NoopLogging,
+                Some(&recorder),
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+        let records = repository.records.lock().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].assessment.outcome,
+            ContextAssessmentOutcome::Bypassed
+        );
+        assert_eq!(
+            records[0].assessment.reason,
+            Some(ContextAssessmentReason::RequestSuppressed)
+        );
+    }
+
+    #[test]
+    fn coordinator_persistence_failure_does_not_change_the_final_outcome() {
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "unknown-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let mut request = sample_request("api");
+        request.automatic_compaction =
+            crate::contexts::agent_runtime::domain::AutomaticCompactionMode::Suppressed;
+        let mut turns = seven_turns("x".repeat(COMPACTION_TRIGGER_CHARACTERS + 1));
+        let logging = Arc::new(RecordingLogging::default());
+        let recorder = ContextQualityRecorder::new(
+            Arc::new(FailingQualityRepository),
+            logging.clone(),
+            Arc::new(FixedClock),
+        );
+
+        assert!(matches!(
+            run_controlled_compaction_with_quality(
+                &mut turns,
+                &openai_compatible_wire_format("http://127.0.0.1:1"),
+                &config,
+                &request,
+                None,
+                &mut AutomaticCompactionState::default(),
+                logging.as_ref(),
+                Some(&recorder),
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+        let logs = logging.logs.lock().expect("logs");
+        assert!(logs
+            .iter()
+            .any(|log| log.category == "agent.context.quality.persistence"));
+        let serialized = format!("{logs:?}");
+        assert!(!serialized.contains("private-prompt"));
+        assert!(!serialized.contains("sk-sensitive"));
+    }
+
+    #[test]
+    fn consecutive_runtime_failures_open_the_generation_circuit() {
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "unknown-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
+        let request = sample_request("api");
+        let original = seven_turns("x".repeat(COMPACTION_TRIGGER_CHARACTERS + 1));
+        let mut state = AutomaticCompactionState::default();
+        let repository = Arc::new(RecordingQualityRepository::default());
+        let recorder = ContextQualityRecorder::new(
+            repository.clone(),
+            Arc::new(NoopLogging),
+            Arc::new(FixedClock),
+        );
+        for expected_failures in 1..=2 {
+            let mut turns = original.clone();
+            assert!(matches!(
+                run_controlled_compaction_with_quality(
+                    &mut turns,
+                    &wire_format,
+                    &config,
+                    &request,
+                    None,
+                    &mut state,
+                    &NoopLogging,
+                    Some(&recorder),
+                ),
+                AutomaticCompactionOutcome::Failed
+            ));
+            assert_eq!(state.consecutive_failures(), expected_failures);
+            assert_eq!(turns, original);
+        }
+        assert!(state.circuit_open());
+        let mut turns = original.clone();
+        assert!(matches!(
+            run_controlled_compaction_with_quality(
+                &mut turns,
+                &wire_format,
+                &config,
+                &request,
+                None,
+                &mut state,
+                &NoopLogging,
+                Some(&recorder),
+            ),
+            AutomaticCompactionOutcome::Bypassed
+        ));
+        assert_eq!(turns, original);
+        let records = repository.records.lock().expect("records");
+        assert_eq!(records.len(), 3);
+        assert_eq!(
+            records[0].assessment.outcome,
+            ContextAssessmentOutcome::Failed
+        );
+        assert_eq!(
+            records[1].assessment.outcome,
+            ContextAssessmentOutcome::Failed
+        );
+        assert_eq!(
+            records[2].assessment.outcome,
+            ContextAssessmentOutcome::Bypassed
+        );
+        assert_eq!(
+            records[2].assessment.reason,
+            Some(ContextAssessmentReason::CircuitOpen)
+        );
+    }
+
+    #[test]
+    fn optimizer_never_runs_below_the_character_threshold() {
+        let mut turns = vec![json!({ "role": "user", "content": "small" })];
+        let original = turns.clone();
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
+        let client = blocking_http_client(Duration::from_secs(1)).expect("client");
+        let sink = CapturingSink::default();
+        assert!(run_optimizer_compaction(
+            &mut turns,
+            &wire_format,
+            &client,
+            &config,
+            &sink,
+            &NoopPersonalization,
+        )
+        .is_none());
+        assert_eq!(turns, original);
+        assert!(sink.events.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn optimizer_microcompacts_without_a_summary_call() {
+        let mut turns = vec![
+            json!({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-large",
+                    "type": "function",
+                    "function": { "name": "read", "arguments": "{}" }
+                }]
+            }),
+            json!({
+                "role": "tool",
+                "tool_call_id": "call-large",
+                "content": "x".repeat(COMPACTION_TRIGGER_CHARACTERS + 10_000)
+            }),
+        ];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
+        let client = blocking_http_client(Duration::from_secs(1)).expect("client");
+        let sink = CapturingSink::default();
+        assert!(run_optimizer_compaction(
+            &mut turns,
+            &wire_format,
+            &client,
+            &config,
+            &sink,
+            &NoopPersonalization,
+        )
+        .is_none());
+        assert!(turns
+            .iter()
+            .any(|turn| turn.to_string().contains("OnePiece compacted tool result")));
+        assert!(turns_character_count(&turns) < COMPACTION_TRIGGER_CHARACTERS);
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        let GenerationProcessEvent::RichBlock(block) = &events[0] else {
+            panic!("expected compaction evidence");
+        };
+        assert_eq!(block["meta"]["evidenceKind"], "context-compaction");
+        assert_eq!(block["meta"]["compactionPath"], "optimizer");
+        assert_eq!(block["meta"]["triggerSource"], "character-fallback");
+        assert!(
+            block["meta"]["beforeCharacters"].as_u64().unwrap()
+                > block["meta"]["afterCharacters"].as_u64().unwrap()
+        );
+        assert!(block["meta"]["savedCharacters"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn coordinator_records_one_compacted_assessment_and_reuses_its_evidence_correlation() {
+        let sensitive = "private-prompt Authorization Bearer sk-sensitive";
+        let mut turns = vec![
+            json!({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-quality",
+                    "type": "function",
+                    "function": { "name": "read", "arguments": "{}" }
+                }]
+            }),
+            json!({
+                "role": "tool",
+                "tool_call_id": "call-quality",
+                "content": format!("{}{}", sensitive, "x".repeat(COMPACTION_TRIGGER_CHARACTERS + 10_000))
+            }),
+        ];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let sink = CapturingSink::default();
+        let repository = Arc::new(RecordingQualityRepository::default());
+        let recorder = ContextQualityRecorder::new(
+            repository.clone(),
+            Arc::new(NoopLogging),
+            Arc::new(FixedClock),
+        );
+        assert!(run_optimizer_compaction_with_logging(
+            &mut turns,
+            &openai_compatible_wire_format("http://127.0.0.1:1"),
+            &blocking_http_client(Duration::from_secs(1)).expect("client"),
+            &config,
+            &sink,
+            &NoopPersonalization,
+            &NoopLogging,
+            Some(&recorder),
+        )
+        .is_none());
+
+        let records = repository.records.lock().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].assessment.outcome,
+            ContextAssessmentOutcome::Compacted
+        );
+        assert_eq!(
+            records[0].assessment.path,
+            Some(ContextAssessmentPath::Optimizer)
+        );
+        let events = sink.events.lock().expect("events");
+        let GenerationProcessEvent::RichBlock(block) = &events[0] else {
+            panic!("expected compaction evidence");
+        };
+        assert_eq!(block["meta"]["attemptId"], records[0].assessment.attempt_id);
+        assert_eq!(
+            block["meta"]["beforeQuality"],
+            records[0].assessment.measurement_quality.as_str()
+        );
+        assert_eq!(
+            block["meta"]["beforeTokens"].as_u64(),
+            records[0].assessment.before_tokens
+        );
+        let serialized = serde_json::to_string(&records[0].assessment).expect("assessment");
+        assert!(!serialized.contains(sensitive));
+        assert!(!serialized.contains("sk-sensitive"));
+    }
+
+    #[test]
+    fn optimizer_evidence_is_bounded_and_excludes_context_and_credentials() {
+        let secret = "secret-tool-output Authorization: Bearer sk-sensitive";
+        let mut turns = vec![
+            json!({
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call-secret",
+                    "type": "function",
+                    "function": { "name": "read", "arguments": "{\"credential\":\"raw\"}" }
+                }]
+            }),
+            json!({
+                "role": "tool",
+                "tool_call_id": "call-secret",
+                "content": format!("{}{}", secret, "x".repeat(COMPACTION_TRIGGER_CHARACTERS + 10_000))
+            }),
+        ];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("private-prompt-{index}") }));
+        }
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
+        let client = blocking_http_client(Duration::from_secs(1)).expect("client");
+        let sink = CapturingSink::default();
+        let logging = RecordingLogging::default();
+        assert!(run_optimizer_compaction_with_logging(
+            &mut turns,
+            &wire_format,
+            &client,
+            &config,
+            &sink,
+            &NoopPersonalization,
+            &logging,
+            None,
+        )
+        .is_none());
+        let logs = logging.logs.lock().unwrap();
+        let log = logs
+            .iter()
+            .find(|log| log.category == "session.runtime.api.context-optimizer")
+            .expect("optimizer evidence");
+        assert!(log.message.contains("result=accepted"));
+        assert!(log.message.contains("microcompact=1"));
+        for forbidden in [
+            secret,
+            "sk-sensitive",
+            "private-prompt",
+            "credential",
+            "Authorization",
+            "Bearer",
+            "raw",
+        ] {
+            assert!(!log.message.contains(forbidden));
+        }
+        assert!(log.message.len() < 2_000);
+        let events = sink.events.lock().unwrap();
+        let GenerationProcessEvent::RichBlock(block) = &events[0] else {
+            panic!("expected compaction evidence");
+        };
+        let serialized = block.to_string();
+        assert_eq!(block["meta"]["compactionPath"], "optimizer");
+        assert!(block["meta"]["beforeTokens"].is_number());
+        assert!(block["meta"]["afterTokens"].is_number());
+        for forbidden in [
+            secret,
+            "sk-sensitive",
+            "private-prompt",
+            "credential",
+            "Authorization",
+            "Bearer",
+            "raw",
+        ] {
+            assert!(!serialized.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn optimizer_structured_summary_uses_one_tool_free_call() {
+        let structured = [
+            ("PRIMARY INTENT", "Continue safely."),
+            ("TECHNICAL CONSTRAINTS", "Preserve protocol."),
+            ("DECISIONS", "Use optimizer."),
+            ("FILES AND CODE AREAS", "api_process_adapter.rs"),
+            ("ERRORS AND FIXES", "None."),
+            ("COMPLETED WORK", "Old work."),
+            ("PENDING WORK", "Recent work."),
+            ("IMMEDIATE NEXT ACTION", "Continue."),
+        ]
+        .into_iter()
+        .map(|(heading, content)| format!("## {heading}\n{content}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+        let event = json!({
+            "choices": [{"index": 0, "delta": {"content": structured}, "finish_reason": null}]
+        })
+        .to_string();
+        let (address, server) = http_fixture("200 OK", sse_body(&[&event, "[DONE]"]));
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some(address.clone()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let sink = CapturingSink::default();
+        let mut turns = vec![
+            json!({ "role": "user", "content": "x".repeat(35_000) }),
+            json!({ "role": "assistant", "content": "y".repeat(35_000) }),
+        ];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+        assert!(run_optimizer_compaction(
+            &mut turns,
+            &wire_format,
+            &client,
+            &config,
+            &sink,
+            &NoopPersonalization,
+        )
+        .is_none());
+        let request = server.join().expect("summary request");
+        let body = request_json_body(&request);
+        assert!(body.get("tools").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.to_string().contains("PRIMARY INTENT"));
+        assert!(turns[0]
+            .to_string()
+            .contains("structured continuation summary"));
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn malformed_optimizer_summary_falls_back_using_original_turns() {
+        let malformed_event = json!({
+            "choices": [{"index": 0, "delta": {"content": "not structured"}, "finish_reason": null}]
+        })
+        .to_string();
+        let compatibility_event = json!({
+            "choices": [{"index": 0, "delta": {"content": "Compatibility summary."}, "finish_reason": null}]
+        })
+        .to_string();
+        let (address, server) = http_fixture_sequence(
+            "200 OK",
+            vec![
+                sse_body(&[&malformed_event, "[DONE]"]),
+                sse_body(&[&compatibility_event, "[DONE]"]),
+            ],
+        );
+        let config = ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some(address.clone()),
+            auto_approve_tools: false,
+        };
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let sink = CapturingSink::default();
+        let old_request = "x".repeat(35_000);
+        let old_answer = "y".repeat(35_000);
+        let mut turns = vec![
+            json!({ "role": "user", "content": old_request.clone() }),
+            json!({ "role": "assistant", "content": old_answer.clone() }),
+        ];
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+        let personalization = FixedPersonalization(PersonalizationSettings {
+            custom_instructions_about_user: String::new(),
+            custom_instructions_style_rules: String::new(),
+            custom_instructions_enabled: true,
+            memory_enabled: false,
+            memory_tool_assisted_chats_enabled: false,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
+        });
+        let repository = Arc::new(RecordingQualityRepository::default());
+        let recorder = ContextQualityRecorder::new(
+            repository.clone(),
+            Arc::new(NoopLogging),
+            Arc::new(FixedClock),
+        );
+        assert!(run_optimizer_compaction_with_logging(
+            &mut turns,
+            &wire_format,
+            &client,
+            &config,
+            &sink,
+            &personalization,
+            &NoopLogging,
+            Some(&recorder),
+        )
+        .is_none());
+        let requests = server.join().expect("optimizer and compatibility requests");
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            let body = request_json_body(request);
+            body.get("tools").is_none() && body.get("reasoning_effort").is_none()
+        }));
+        assert_eq!(turns[0]["content"], "Compatibility summary.");
+        assert!(!turns
+            .iter()
+            .any(|turn| turn.to_string().contains("not structured")));
+        assert!(!turns
+            .iter()
+            .any(|turn| turn.to_string().contains(&old_request)));
+        assert!(!turns
+            .iter()
+            .any(|turn| turn.to_string().contains(&old_answer)));
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+        let records = repository.records.lock().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].assessment.outcome,
+            ContextAssessmentOutcome::Fallback
+        );
+        assert_eq!(
+            records[0].assessment.path,
+            Some(ContextAssessmentPath::Compatibility)
+        );
+        let events = sink.events.lock().expect("events");
+        let GenerationProcessEvent::RichBlock(block) = &events[0] else {
+            panic!("expected compaction evidence");
+        };
+        assert_eq!(block["meta"]["attemptId"], records[0].assessment.attempt_id);
+    }
+
     #[test]
     fn maybe_compact_replaces_older_turns_and_emits_a_rich_block_notice_when_triggered() {
         let (address, server) = http_fixture(
@@ -7730,6 +10169,15 @@ mod tests {
             GenerationProcessEvent::RichBlock(block) => {
                 assert_eq!(block["kind"], "card");
                 assert_eq!(block["tone"], "info");
+                assert_eq!(block["meta"]["evidenceKind"], "context-compaction");
+                assert_eq!(block["meta"]["compactionPath"], "compatibility");
+                assert_eq!(block["meta"]["beforeQuality"], "characters-only");
+                assert!(block["meta"]["beforeTokens"].is_null());
+                assert!(block["meta"]["afterTokens"].is_null());
+                assert!(block["meta"]["savedCharacters"].as_u64().unwrap() > 0);
+                assert!(block["fields"].as_array().unwrap().iter().any(|field| {
+                    field["label"] == "Before tokens" && field["value"] == "Unavailable"
+                }));
             }
             other => panic!("expected RichBlock, got {other:?}"),
         }
@@ -7989,6 +10437,7 @@ mod tests {
         request.session.folder = Some(directory.path().to_string_lossy().to_string());
         let config = FakeConfig {
             provider_config: Some(ApiProviderConfig {
+                source_provider_id: None,
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),

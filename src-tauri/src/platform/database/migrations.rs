@@ -409,6 +409,24 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "skill-evolution-evidence-foundation",
         crate::contexts::skill_evolution_evidence::infrastructure::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        68,
+        "onepiece-native-tool-persistence",
+        crate::contexts::agent_runtime::infrastructure::apply_native_tool_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        69,
+        "onepiece-artifact-catalog-metadata",
+        crate::contexts::artifacts::infrastructure::apply_artifact_catalog_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        70,
+        "onepiece-context-quality-history",
+        apply_context_quality_history_migration,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -476,6 +494,53 @@ fn apply_session_recovery_performance_migration(conn: &Connection) -> Result<(),
                 OR lifecycle_state IN ('starting', 'running')
                 OR recovery_status = 'reconciling'
               );
+        "#,
+    )?;
+    Ok(())
+}
+
+fn apply_context_quality_history_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE context_quality_assessments (
+            attempt_id TEXT PRIMARY KEY NOT NULL,
+            session_correlation TEXT,
+            decision_sequence INTEGER NOT NULL CHECK (decision_sequence >= 0),
+            recorded_at TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK (outcome IN ('compacted', 'bypassed', 'fallback', 'failed')),
+            path TEXT CHECK (path IS NULL OR path IN ('optimizer', 'compatibility')),
+            reason TEXT,
+            trigger_source TEXT CHECK (
+                trigger_source IS NULL OR trigger_source IN ('token-aware', 'character-fallback')
+            ),
+            before_characters INTEGER NOT NULL CHECK (before_characters >= 0),
+            after_characters INTEGER NOT NULL CHECK (after_characters >= 0),
+            saved_characters INTEGER NOT NULL CHECK (saved_characters >= 0),
+            before_tokens INTEGER CHECK (before_tokens IS NULL OR before_tokens >= 0),
+            after_tokens INTEGER CHECK (after_tokens IS NULL OR after_tokens >= 0),
+            saved_tokens INTEGER CHECK (saved_tokens IS NULL OR saved_tokens >= 0),
+            measurement_quality TEXT NOT NULL CHECK (
+                measurement_quality IN (
+                    'reported', 'reported-plus-estimated-delta', 'estimated', 'characters-only'
+                )
+            ),
+            protocol_complete INTEGER CHECK (protocol_complete IS NULL OR protocol_complete IN (0, 1)),
+            protected_retained INTEGER CHECK (protected_retained IS NULL OR protected_retained IN (0, 1)),
+            verbatim_retained INTEGER CHECK (verbatim_retained IS NULL OR verbatim_retained IN (0, 1)),
+            reinjection_complete INTEGER CHECK (reinjection_complete IS NULL OR reinjection_complete IN (0, 1)),
+            assessment_version TEXT NOT NULL,
+            context_policy_version TEXT NOT NULL,
+            optimizer_version TEXT NOT NULL,
+            verifier_version TEXT NOT NULL
+        );
+        CREATE INDEX context_quality_assessments_recorded_at_idx
+            ON context_quality_assessments(recorded_at DESC, attempt_id DESC);
+        CREATE INDEX context_quality_assessments_session_idx
+            ON context_quality_assessments(session_correlation, recorded_at DESC);
+        CREATE INDEX context_quality_assessments_outcome_idx
+            ON context_quality_assessments(outcome, recorded_at DESC);
+        CREATE INDEX context_quality_assessments_policy_idx
+            ON context_quality_assessments(context_policy_version, recorded_at DESC);
         "#,
     )?;
     Ok(())
@@ -709,6 +774,9 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (65, "managed-im-session-bindings"),
     (66, "unified-todo-board"),
     (67, "skill-evolution-evidence-foundation"),
+    (68, "onepiece-native-tool-persistence"),
+    (69, "onepiece-artifact-catalog-metadata"),
+    (70, "onepiece-context-quality-history"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1613,7 +1681,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (66, 67));
+        assert_eq!(migration_state, (69, 70));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -61,6 +61,7 @@ impl OnePiecePlanningPort for RuntimeOnePiecePlanningAdapter {
         }
         .ok_or_else(readiness_error)?;
         let provider = ApiProviderConfig {
+            source_provider_id: profile.source_provider_id.clone(),
             model_id: profile.model_id.clone(),
             interface_format: profile.interface_format.clone(),
             base_url: profile.base_url.clone(),

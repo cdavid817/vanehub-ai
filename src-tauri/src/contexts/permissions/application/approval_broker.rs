@@ -150,6 +150,11 @@ impl ApprovalBroker {
         } else {
             AuditDecider::StaleGeneration
         };
+        let scope = if request.action.as_str() == "delegation.apply" {
+            Scope::Once
+        } else {
+            scope
+        };
         if delivered && scope.is_remembered() {
             self.grants.create(&Grant {
                 id: self.ids.next_id("grant"),
@@ -426,6 +431,28 @@ mod tests {
         broker
             .finalize(&request.id, ApprovalDecision::Approve, Scope::Once, true)
             .unwrap();
+        assert!(grants.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delegation_apply_cannot_create_a_remembered_grant() {
+        let (broker, grants, _audit, _events) = broker(60);
+        let request = broker
+            .create_pending(
+                "onepiece",
+                Action::new("delegation.apply"),
+                Resource::new("changeset/artifact-1"),
+                "session-1",
+                "generation-1",
+                "call-1",
+                "project-1",
+            )
+            .unwrap();
+
+        broker
+            .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
+            .unwrap();
+
         assert!(grants.0.lock().unwrap().is_empty());
     }
 

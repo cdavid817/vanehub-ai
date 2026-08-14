@@ -10,6 +10,15 @@ use crate::contexts::agent_runtime::application::{
 };
 use serde_json::{json, Value};
 
+pub(crate) fn project_request_context(
+    body: &Value,
+) -> super::context_projection::PreparedContextProjection {
+    super::context_projection::project_request(
+        body,
+        super::context_projection::ContextWireShape::Anthropic,
+    )
+}
+
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
 /// formats need to build a reply turn from.
 type ExecutedToolCall = (ToolUseBlock, String, bool);

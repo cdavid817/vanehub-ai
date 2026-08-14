@@ -49,6 +49,16 @@ test.describe("CLI parameter settings", () => {
     await expect(page.getByRole("heading", { name: "CLI Parameter Management" })).toBeVisible();
     await expect(page.getByText("Safe argument preview")).toBeVisible();
     await page.getByRole("button", { name: "OnePiece" }).click();
+    const automaticCompaction = page.getByRole("switch", { name: "Automatic context compaction" });
+    await expect(automaticCompaction).toHaveAttribute("aria-checked", "true");
+    await automaticCompaction.focus();
+    await page.keyboard.press("Space");
+    await expect(automaticCompaction).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText(/Changes apply to subsequent OnePiece generations/)).toBeVisible();
+    await page.reload();
+    await page.getByText(/^CLI Parameters$/).click();
+    await page.getByRole("button", { name: "OnePiece" }).click();
+    await expect(page.getByRole("switch", { name: "Automatic context compaction" })).toHaveAttribute("aria-checked", "false");
     await page.getByRole("combobox", { name: "Automatic project code indexing" }).selectOption("local");
     await expect(page.getByText("Tree-sitter and FTS5 stay on this device", { exact: false })).toBeVisible();
     const codexButton = page.getByRole("button", { name: "Codex CLI" });

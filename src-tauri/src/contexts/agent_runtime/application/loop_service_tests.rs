@@ -173,6 +173,7 @@ impl ApiAgentGateway for FakeWorld {
             return Ok(None);
         }
         Ok(Some(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "test-model".to_string(),
             interface_format: "anthropic".to_string(),
             base_url: None,
