@@ -538,9 +538,12 @@ const byName = (name: string): SlashCommand => {
 
 describe("runtime commands", () => {
   it("applies only to OnePiece sessions in this phase", () => {
+    // Runtime commands never read capabilities, but appliesTo's signature requires it
+    // (types.ts), so every call site — including this generic sweep — must supply one.
+    const capabilities = { hasAssociatedPlan: false };
     for (const command of RUNTIME_COMMANDS) {
-      expect(command.appliesTo(session("onepiece"))).toBe(true);
-      expect(command.appliesTo(session("claude-code"))).toBe(false);
+      expect(command.appliesTo(session("onepiece"), capabilities)).toBe(true);
+      expect(command.appliesTo(session("claude-code"), capabilities)).toBe(false);
     }
   });
 
@@ -1475,8 +1478,9 @@ describe("/help", () => {
   });
 
   it("is available in any OnePiece session", () => {
-    expect(HELP_COMMAND.appliesTo(session("onepiece"))).toBe(true);
-    expect(HELP_COMMAND.appliesTo(session("claude-code"))).toBe(false);
+    const capabilities = { hasAssociatedPlan: false };
+    expect(HELP_COMMAND.appliesTo(session("onepiece"), capabilities)).toBe(true);
+    expect(HELP_COMMAND.appliesTo(session("claude-code"), capabilities)).toBe(false);
   });
 });
 ```
@@ -2823,4 +2827,4 @@ AGENTS.md 要求任何新功能先在 `openspec/changes/` 下起 proposal 并通
 - **修正 1（按键即执行命令）**：初稿把 `slash.dispatch` 接到了 `onChange`，那会在每敲一个字符时执行一次命令。已拆成两个入口——`updateSuggestions`（按键调用，只刷新补全）与 `dispatch`（提交调用，唯一有副作用的入口），并在 Task 10 补了 `never executes a command from updateSuggestions` 回归用例
 - **修正 2（不存在的上报方法）**：初稿的 `onError` 调用了 `model.reportSlashCommandFailure`，但 `use-main-layout-model.ts` 并未导出该方法，且该文件是 298/300 行、无豁免、不能加行。已改为在 composer 内复用 `createChatOperationFailureEvent` + `notify` + `reportClientLogEvent`，与 `use-main-layout-model.ts:66-76` 的既有路径一致
 - **类型一致性**：`SlashCommand`、`CommandContext`、`CommandOutput`、`CommandMessage`、`SlashCommandNavigation`、`SlashCommandDestination`、`DispatchResult` 在 Task 3 与 Task 10 定义一次，后续任务全部按同名引用；`loadUsageSummary` 的返回结构在 Task 3（类型）、Task 5（消费）、Task 12（实现）三处一致
-- **修正 3（模块级可变状态）**：初稿让 `/plan` 的可用性依赖 `navigation-commands.ts` 里的模块级 `associatedPlanAvailable`，由 hook 在**渲染期**调 `setAssociatedPlanAvailability` 同步。三重问题：模块级可变状态、渲染期副作用、测试相互污染。已改为 `appliesTo(session, capabilities)` 显式接收 `CommandCapabilities`，谓词恢复为纯函数；`completeDraft` 也顺带去掉了那个未使用的 `draft` 参数
+- **修正 3（模块级可变状态）**：初稿让 `/plan` 的可用性依赖 `navigation-commands.ts` 里的模块级 `associatedPlanAvailable`，由 hook 在**渲染期**调 `setAssociatedPlanAvailability` 同步。三重问题：模块级可变状态、渲染期副作用、测试相互污染。已改为 `appliesTo(session, capabilities)` 显式接收 `CommandCapabilities`；`completeDraft` 也顺带去掉了那个未使用的 `draft` 参数。注意措辞：双参数**并不能让类型系统强制纯粹性**——TS 的函数类型拦不住闭包捕获模块级变量。它真正做到的是把唯一已知的非 session 事实显式供上，从而移除了伸手拿全局变量的理由。纯粹性因此是纪律，写命令时仍需自觉
