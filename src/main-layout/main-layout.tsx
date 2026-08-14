@@ -118,6 +118,7 @@ export function MainLayout({
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<{ tab: SessionTabId; nonce: number } | null>(null);
+  const [slashTabRequestSessionId, setSlashTabRequestSessionId] = useState(model.activeSessionId);
   const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
@@ -127,6 +128,16 @@ export function MainLayout({
   const activatedSessionIdRef = useRef<string | null>(null);
   const effectiveInfoPanelCollapsed = conversationFocusMode || infoPanelCollapsed;
   const effectiveSessionSidebarCollapsed = conversationFocusMode || sessionSidebarCollapsed;
+
+  // A stale slash-tab request must not survive a session switch, or SessionTabs' own sessionId
+  // effect (declared after its reset-to-chat sibling) re-applies it right back. This has to clear
+  // during render, not in an Effect: React runs a child's effects before its parent's in the same
+  // commit, so an Effect here would still lose that race for the switch right after the slash
+  // command — SessionTabs would already have re-applied the stale tab before this Effect ran.
+  if (model.activeSessionId !== slashTabRequestSessionId) {
+    setSlashTabRequestSessionId(model.activeSessionId);
+    if (slashTabRequest) setSlashTabRequest(null);
+  }
 
   useEffect(() => {
     if (sessionSidebarRef.current) sessionSidebarRef.current.inert = effectiveSessionSidebarCollapsed;
@@ -232,6 +243,8 @@ export function MainLayout({
         openAssociatedPlan: model.chatConfig.associatedPlanRun ? openAssociatedPlan : null,
         openDestination: (target) => {
           if (target === "todo-board") setWorkBoardVisited(true);
+          // Mirrors the sidebar's Plans handler so `/plans` doesn't leave a stale inspected run id.
+          if (target === "plans") setPlanInspectionRunId(null);
           if (target === "plans") setPlanCenterVisited(true);
           if (target === "loops") setLoopCenterVisited(true);
           setDestination(target);
