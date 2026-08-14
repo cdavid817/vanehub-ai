@@ -79,7 +79,7 @@ async function openSettings(page: Page, section: string, heading: string): Promi
  */
 async function fillCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
   await page.getByRole("button", { name: /^(新建|New)$/ }).click();
-  const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
+  const dialog = page.getByRole("dialog");
   await expect(
     dialog.getByRole("heading", { name: text(locale, "创建会话", "Create Session") }),
   ).toBeVisible();
@@ -122,7 +122,7 @@ async function createSession(
   await dialog
     .getByRole("button", { name: text(locale, "创建", "Create"), exact: true })
     .click();
-  await expect(page.locator(".fixed.inset-0").locator(".ucd-panel")).toHaveCount(0, {
+  await expect(page.getByRole("dialog")).toHaveCount(0, {
     timeout: 15_000,
   });
   const shell = page.locator("main").first();
@@ -287,7 +287,7 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
       .getByRole("button", { name: text(locale, "定时任务", "Scheduled tasks"), exact: true })
       .first()
       .click();
-    const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
+    const dialog = page.getByRole("dialog");
     await expect(
       dialog.getByRole("heading", { name: text(locale, "定时任务", "Scheduled tasks") }),
     ).toBeVisible();

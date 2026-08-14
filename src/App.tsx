@@ -2,6 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
+import {
+  parseWorkspaceLocation,
+  recallWorkspacePath,
+  rememberWorkspaceLocation,
+  workspacePath,
+  type WorkspaceLocation,
+} from "./main-layout/workspace-route";
 import { SettingsShell } from "./settings/settings-shell";
 import { SettingsProvider } from "./settings/settings-provider";
 import { ThemeProvider } from "./theme/theme-provider";
@@ -9,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { settingsService } from "./services/runtime-settings-client";
 import { NotificationProvider } from "./notifications/notification-provider";
 import { floatingAssistantService } from "./services/runtime-floating-assistant-client";
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,11 +41,33 @@ function RouteErrorFallback({ error }: { error: unknown }) {
   );
 }
 
+/**
+ * One route for every workspace URL. Destinations are read from the path inside `MainLayout`
+ * rather than being separate route elements, because React Router unmounts the previous element
+ * on navigation and the workspace depends on visited destinations staying mounted.
+ */
 function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
+  const workspaceLocation = useMemo(() => parseWorkspaceLocation(location.pathname), [location.pathname]);
 
-  return <MainLayout onConfigureOnePiece={() => navigate("/settings?section=agent-configurations&agentConfig=onepiece")} onOpenSettings={(pageId) => navigate(pageId ? `/settings?section=${pageId}` : "/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
+  useEffect(() => rememberWorkspaceLocation(workspaceLocation), [workspaceLocation]);
+
+  // Takes a whole location so it depends only on `navigate`. An inline arrow closing over the
+  // current location would change every render and re-fire the layout's reconciliation effect.
+  const navigateWorkspace = useCallback(
+    (next: WorkspaceLocation, options?: { replace?: boolean }) => navigate(workspacePath(next), options),
+    [navigate],
+  );
+
+  return (
+    <MainLayout
+      location={workspaceLocation}
+      onConfigureOnePiece={() => navigate("/settings?section=agent-configurations&agentConfig=onepiece")}
+      onNavigate={navigateWorkspace}
+      onOpenSettings={(pageId) => navigate(pageId ? `/settings?section=${pageId}` : "/settings")}
+    />
+  );
 }
 
 function AppRoutes() {
@@ -49,8 +78,8 @@ function AppRoutes() {
     let cleanup: (() => void) | undefined;
     void floatingAssistantService.subscribeEvents((event) => {
       if (event.kind !== "main-action") return;
-      if (event.action === "new-session") navigate("/workspace?createSession=1");
-      else if (event.action === "current-session") navigate("/workspace");
+      if (event.action === "new-session") navigate(workspacePath({ destination: "sessions", creatingSession: true }));
+      else if (event.action === "current-session") navigate(recallWorkspacePath());
       else navigate("/settings");
     }).then((unsubscribe) => {
       if (active) cleanup = unsubscribe;
@@ -64,11 +93,16 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route element={<WorkspaceRoute />} path="/workspace" />
+      <Route element={<WorkspaceRoute />} path="/workspace/*" />
       <Route element={<SettingsRoute />} path="/settings" />
-      <Route element={<Navigate replace to="/workspace" />} path="*" />
+      <Route element={<LaunchRedirect />} path="*" />
     </Routes>
   );
+}
+
+/** Resumes where the previous session stopped instead of always landing on an empty workspace. */
+function LaunchRedirect() {
+  return <Navigate replace to={recallWorkspacePath()} />;
 }
 
 function SettingsRoute() {
