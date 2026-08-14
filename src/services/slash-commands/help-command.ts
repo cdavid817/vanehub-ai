@@ -16,7 +16,7 @@ export const HELP_COMMAND: SlashCommand = {
       // resolve it before the outer interpolation — default i18next would not.
       messages: context.listAvailableCommands().map((command) => ({
         key: "slash.output.helpEntry",
-        params: { invocation: invocation(command), description: `slash.command.${command.name}.description` },
+        params: { invocation: invocation(command), descriptionKey: `slash.command.${command.name}.description` },
       })),
     },
   }),

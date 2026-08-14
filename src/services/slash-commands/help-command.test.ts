@@ -24,8 +24,8 @@ describe("/help", () => {
       output: {
         titleKey: "slash.output.helpTitle", tone: "info",
         messages: [
-          { key: "slash.output.helpEntry", params: { invocation: "/mode <inherit|plan|execute>", description: "slash.command.mode.description" } },
-          { key: "slash.output.helpEntry", params: { invocation: "/status", description: "slash.command.status.description" } },
+          { key: "slash.output.helpEntry", params: { invocation: "/mode <inherit|plan|execute>", descriptionKey: "slash.command.mode.description" } },
+          { key: "slash.output.helpEntry", params: { invocation: "/status", descriptionKey: "slash.command.status.description" } },
         ],
       },
     });
