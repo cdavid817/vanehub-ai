@@ -84,6 +84,67 @@ pub(crate) fn apply_session_source_schema(connection: &Connection) -> Result<(),
     Ok(())
 }
 
+pub(crate) fn apply_session_binding_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    for (column, definition) in [
+        ("state", "TEXT NOT NULL DEFAULT 'active'"),
+        ("completion_notifications", "INTEGER NOT NULL DEFAULT 0"),
+        ("delivery_credential_ref", "TEXT"),
+        ("updated_at", "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'"),
+    ] {
+        if !table_has_column(connection, "im_session_bindings", column)? {
+            connection.execute(
+                &format!("ALTER TABLE im_session_bindings ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
+    connection.execute_batch(
+        r#"
+        UPDATE im_session_bindings SET updated_at = created_at
+        WHERE updated_at = '1970-01-01T00:00:00Z';
+        UPDATE im_session_bindings SET state = 'paused'
+        WHERE rowid IN (
+            SELECT rowid FROM (
+                SELECT rowid,
+                       row_number() OVER (
+                           PARTITION BY session_id ORDER BY created_at, connector, external_chat_hash
+                       ) AS binding_rank
+                FROM im_session_bindings
+                WHERE state = 'active'
+            )
+            WHERE binding_rank > 1
+        );
+        CREATE INDEX IF NOT EXISTS idx_im_bindings_session_state
+            ON im_session_bindings(session_id, state, created_at);
+        CREATE TABLE IF NOT EXISTS im_pairing_intents (
+            id TEXT PRIMARY KEY,
+            connector TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            replace_existing INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(connector, code_hash),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_im_pairing_session
+            ON im_pairing_intents(session_id, connector, created_at);
+        CREATE INDEX IF NOT EXISTS idx_im_pairing_expiry
+            ON im_pairing_intents(expires_at);
+        CREATE TABLE IF NOT EXISTS im_notification_deliveries (
+            message_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            connector TEXT NOT NULL,
+            delivered_at TEXT NOT NULL,
+            PRIMARY KEY (message_id, session_id, connector),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        "#,
+    )?;
+    Ok(())
+}
+
 fn migrate_legacy_wechat_id(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
         r#"
@@ -278,5 +339,54 @@ mod tests {
             )
             .expect("public config");
         assert_eq!(public_config, "{}");
+    }
+
+    #[test]
+    fn managed_binding_migration_preserves_legacy_rows() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+                CREATE TABLE sessions (id TEXT PRIMARY KEY);
+                INSERT INTO sessions (id) VALUES ('session-1');
+                CREATE TABLE im_session_bindings (
+                    connector TEXT NOT NULL,
+                    external_chat_hash TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (connector, external_chat_hash),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                INSERT INTO im_session_bindings
+                    (connector, external_chat_hash, session_id, created_at)
+                VALUES ('telegram', 'hash-only', 'session-1', '2026-08-12T00:00:00Z');
+                INSERT INTO im_session_bindings
+                    (connector, external_chat_hash, session_id, created_at)
+                VALUES ('feishu', 'second-hash', 'session-1', '2026-08-12T00:01:00Z');
+                "#,
+            )
+            .expect("legacy schema");
+
+        apply_session_binding_schema(&connection).expect("binding migration");
+        let migrated: (String, i64, String) = connection
+            .query_row(
+                "SELECT state, completion_notifications, updated_at FROM im_session_bindings",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migrated row");
+        assert_eq!(
+            migrated,
+            ("active".to_string(), 0, "2026-08-12T00:00:00Z".to_string())
+        );
+        let paused: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM im_session_bindings WHERE state = 'paused'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("paused duplicate");
+        assert_eq!(paused, 1);
     }
 }

@@ -58,6 +58,7 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
+import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
   ContinueLoopInput,
@@ -777,12 +778,20 @@ export const tauriAgentClient: AgentService = {
     const statistics = await invoke<unknown>("get_usage_statistics", {
       range: input.range,
     });
-    return normalizeTauriUsageStatistics(statistics, input.range);
+    return normalizeTauriUsageStatistics(statistics);
   },
 
   async getSessionUsageSummary(sessionId: string) {
     const summary = await invoke<unknown>("get_session_usage_summary", { sessionId });
     return normalizeTauriSessionUsageSummary(summary);
+  },
+
+  getTokenUsageSummary(input) {
+    return invoke<TokenUsageSummary>("get_token_usage_summary", { input });
+  },
+
+  getTokenUsageDetails(input) {
+    return invoke<TokenUsageDetailsPage>("get_token_usage_details", { input });
   },
 
   async stopGeneration(sessionId: string) {

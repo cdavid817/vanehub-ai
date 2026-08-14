@@ -445,3 +445,157 @@ pub(crate) struct SessionUsageSummary {
     pub(crate) response_count: i64,
     pub(crate) generated_at: String,
 }
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenUsageSummaryInput {
+    pub(crate) session_id: Option<String>,
+    pub(crate) message_id: Option<String>,
+    pub(crate) generation_id: Option<String>,
+    pub(crate) agent_id: Option<String>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) model_id: Option<String>,
+    pub(crate) purpose: Option<String>,
+    pub(crate) quality: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) range_start: Option<String>,
+    pub(crate) range_end: Option<String>,
+    pub(crate) breakdown_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenDimensions {
+    pub(crate) input: i64,
+    pub(crate) output: i64,
+    pub(crate) cached_input: i64,
+    pub(crate) cache_write_input: i64,
+    pub(crate) reasoning_output: i64,
+    pub(crate) provider_total: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageMeasure {
+    pub(crate) unit: String,
+    pub(crate) dimensions: TokenDimensions,
+    pub(crate) headline_total: Option<i64>,
+    pub(crate) call_count: i64,
+    pub(crate) observation_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageQualityTotals {
+    pub(crate) reported: UsageMeasure,
+    pub(crate) reported_derived: UsageMeasure,
+    pub(crate) estimated: UsageMeasure,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageEntityCounts {
+    pub(crate) calls: i64,
+    pub(crate) generations: i64,
+    pub(crate) sessions: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageDailyPoint {
+    pub(crate) local_date: String,
+    pub(crate) totals: UsageQualityTotals,
+    pub(crate) counts: UsageEntityCounts,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageBreakdownEntry {
+    pub(crate) key: String,
+    pub(crate) totals: UsageQualityTotals,
+    pub(crate) counts: UsageEntityCounts,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageBreakdown {
+    pub(crate) dimension: String,
+    pub(crate) entries: Vec<UsageBreakdownEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenUsageSummary {
+    pub(crate) schema_version: u32,
+    pub(crate) totals: UsageQualityTotals,
+    pub(crate) user_response: UsageQualityTotals,
+    pub(crate) internal: UsageQualityTotals,
+    pub(crate) counts: UsageEntityCounts,
+    pub(crate) daily: Vec<UsageDailyPoint>,
+    pub(crate) breakdowns: Vec<UsageBreakdown>,
+    pub(crate) generated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenUsageDetailsInput {
+    pub(crate) session_id: Option<String>,
+    pub(crate) agent_id: Option<String>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) model_id: Option<String>,
+    pub(crate) purpose: Option<String>,
+    pub(crate) quality: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) after_id: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ModelInvocation {
+    pub(crate) id: String,
+    pub(crate) generation_id: Option<String>,
+    pub(crate) run_id: Option<String>,
+    pub(crate) operation_id: Option<String>,
+    pub(crate) session_id: String,
+    pub(crate) message_id: Option<String>,
+    pub(crate) agent_id: String,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) endpoint_id: Option<String>,
+    pub(crate) model_id: Option<String>,
+    pub(crate) interaction_kind: String,
+    pub(crate) purpose: String,
+    pub(crate) request_sequence: u32,
+    pub(crate) attempt: u32,
+    pub(crate) status: String,
+    pub(crate) started_at: String,
+    pub(crate) completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageObservation {
+    pub(crate) id: String,
+    pub(crate) invocation_id: String,
+    pub(crate) quality: String,
+    pub(crate) unit: String,
+    pub(crate) measurement_kind: String,
+    pub(crate) dimensions: TokenDimensions,
+    pub(crate) cache_overlap: String,
+    pub(crate) reasoning_overlap: String,
+    pub(crate) normalization_version: String,
+    pub(crate) source: String,
+    pub(crate) source_revision: Option<String>,
+    pub(crate) event_at: Option<String>,
+    pub(crate) observed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenUsageDetailsPage {
+    pub(crate) schema_version: u32,
+    pub(crate) invocations: Vec<ModelInvocation>,
+    pub(crate) observations: Vec<UsageObservation>,
+    pub(crate) next_cursor: Option<String>,
+}

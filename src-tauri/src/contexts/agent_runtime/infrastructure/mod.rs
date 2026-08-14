@@ -33,6 +33,8 @@ mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
 mod onepiece_model_discovery;
+#[cfg(test)]
+mod onepiece_planning;
 mod openai_compatible_provider;
 mod permission_adapter;
 mod personalization_gateway;
@@ -48,7 +50,7 @@ mod skill_gateway;
 mod sqlite_repository;
 mod terminal_observability;
 mod terminal_process;
-mod terminal_usage_ingestion;
+mod terminal_usage_ledger;
 mod terminal_wrapper;
 mod tool_call_accumulator;
 mod tools;
@@ -65,7 +67,7 @@ pub(crate) use code_intelligence_adapter::{
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
-pub(crate) use events::TauriAgentRuntimeEventAdapter;
+pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
 pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;

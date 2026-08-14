@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type * as AgentContracts from "./agent";
 import type * as ChatContracts from "./chat";
+import type * as TokenUsageContracts from "./token-usage";
 import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
 import type * as SkillContracts from "./skill";
@@ -10,6 +11,7 @@ import type * as OperationContracts from "./operation";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
 import type * as ChatTypes from "../types/chat";
+import type * as TokenUsageTypes from "../types/token-usage";
 import type * as McpTypes from "../types/mcp";
 import {
   MCP_ERROR_CODES as contractMcpErrorCodes,
@@ -127,6 +129,13 @@ type ChatAssertions = [
   Assert<Equal<ChatContracts.UsageStatisticsRange, ChatTypes.UsageStatisticsRange>>,
   Assert<Equal<ChatContracts.UsageStatistics, ChatTypes.UsageStatistics>>,
   Assert<Equal<ChatContracts.SessionUsageSummary, ChatTypes.SessionUsageSummary>>,
+];
+
+type TokenUsageAssertions = [
+  Assert<Equal<TokenUsageContracts.TokenUsageSummaryQuery, TokenUsageTypes.TokenUsageSummaryQuery>>,
+  Assert<Equal<TokenUsageContracts.TokenUsageDetailsQuery, TokenUsageTypes.TokenUsageDetailsQuery>>,
+  Assert<Equal<TokenUsageContracts.TokenUsageSummary, TokenUsageTypes.TokenUsageSummary>>,
+  Assert<Equal<TokenUsageContracts.TokenUsageDetailsPage, TokenUsageTypes.TokenUsageDetailsPage>>,
 ];
 
 type McpAssertions = [
@@ -320,6 +329,7 @@ type SessionWorkspaceAssertions = [
 
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as ChatAssertions);
+void (0 as unknown as TokenUsageAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);

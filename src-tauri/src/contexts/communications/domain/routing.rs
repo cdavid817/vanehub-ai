@@ -1,6 +1,30 @@
 use super::{CommunicationsDomainError, ConnectorKind};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum BindingState {
+    Active,
+    Paused,
+}
+
+impl BindingState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "paused" => Some(Self::Paused),
+            _ => None,
+        }
+    }
+}
+
 fn required(
     value: impl Into<String>,
     kind: &'static str,
@@ -65,12 +89,65 @@ impl ChatBindingKey {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChatBinding {
     key: ChatBindingKey,
     session_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionBinding {
+    pub(crate) connector: ConnectorKind,
+    pub(crate) session_id: String,
+    pub(crate) state: BindingState,
+    pub(crate) completion_notifications: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+impl SessionBinding {
+    pub(crate) fn is_active(&self) -> bool {
+        self.state == BindingState::Active
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PairingIntent {
+    pub(crate) id: String,
+    pub(crate) connector: ConnectorKind,
+    pub(crate) session_id: String,
+    pub(crate) code_hash: String,
+    pub(crate) salt: String,
+    pub(crate) expires_at: String,
+    pub(crate) created_at: String,
+    pub(crate) replace_existing: bool,
+}
+
+impl PairingIntent {
+    pub(crate) fn new(
+        id: impl Into<String>,
+        connector: ConnectorKind,
+        session_id: impl Into<String>,
+        digest: (impl Into<String>, impl Into<String>),
+        window: (impl Into<String>, impl Into<String>),
+        replace_existing: bool,
+    ) -> Result<Self, CommunicationsDomainError> {
+        Ok(Self {
+            id: required(id, "Pairing intent id")?,
+            connector,
+            session_id: required(session_id, "Pairing session id")?,
+            code_hash: required(digest.0, "Pairing code hash")?,
+            salt: required(digest.1, "Pairing salt")?,
+            expires_at: required(window.0, "Pairing expiry")?,
+            created_at: required(window.1, "Pairing creation time")?,
+            replace_existing,
+        })
+    }
+}
+
+#[cfg(test)]
 impl ChatBinding {
     pub(crate) fn new(
         key: ChatBindingKey,
@@ -193,6 +270,29 @@ mod tests {
         assert_eq!(binding.key().external_chat_id(), "chat-1");
         assert_eq!(binding.session_id(), "session-1");
         assert!(ChatBindingKey::new(ConnectorKind::WeCom, "\n").is_err());
+    }
+
+    #[test]
+    fn pairing_intents_require_safe_non_empty_metadata() {
+        let intent = PairingIntent::new(
+            "pair-1",
+            ConnectorKind::Telegram,
+            "session-1",
+            ("hash", "salt"),
+            ("2026-08-12T01:05:00Z", "2026-08-12T01:00:00Z"),
+            false,
+        )
+        .expect("intent");
+        assert_eq!(intent.connector, ConnectorKind::Telegram);
+        assert!(PairingIntent::new(
+            " ",
+            ConnectorKind::Telegram,
+            "session-1",
+            ("hash", "salt"),
+            ("2026-08-12T01:05:00Z", "2026-08-12T01:00:00Z"),
+            false,
+        )
+        .is_err());
     }
 
     #[test]

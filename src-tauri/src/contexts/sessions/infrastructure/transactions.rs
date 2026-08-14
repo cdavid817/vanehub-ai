@@ -1,6 +1,6 @@
 use super::rows::{load_message, load_session, recovery_repository_error, repository_error};
 use super::sqlite_repository::{enum_storage_value, insert_message, update_message};
-use super::usage::upsert_usage;
+use super::usage_accounting::persist_completed_invocation;
 use super::SqliteSessionsRepository;
 use crate::contexts::sessions::application::{
     AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, ClaimRecoveryCandidateRequest,
@@ -247,8 +247,8 @@ impl SessionTransactionPort for SqliteSessionsRepository {
             ));
         }
         update_message(&transaction, &request.message)?;
-        if let Some(usage) = &request.usage {
-            upsert_usage(&transaction, usage)?;
+        if let Some(usage) = &request.invocation_usage {
+            persist_completed_invocation(&transaction, usage)?;
         }
         let changed = transaction
             .execute(
@@ -586,13 +586,16 @@ impl SessionTransactionPort for SqliteSessionsRepository {
     fn complete_message(
         &self,
         message: &MessageRecord,
-        usage: Option<&MessageUsageRecord>,
+        _usage: Option<&MessageUsageRecord>,
+        invocation_usage: Option<
+            &crate::contexts::sessions::application::CompletedInvocationAccounting,
+        >,
     ) -> Result<MessageRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction().map_err(repository_error)?;
         update_message(&transaction, message)?;
-        if let Some(usage) = usage {
-            upsert_usage(&transaction, usage)?;
+        if let Some(usage) = invocation_usage {
+            persist_completed_invocation(&transaction, usage)?;
         }
         transaction.commit().map_err(repository_error)?;
         Ok(message.clone())

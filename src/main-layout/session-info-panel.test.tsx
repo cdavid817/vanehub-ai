@@ -6,6 +6,7 @@ import "../i18n";
 import { activateAppLanguage } from "../i18n";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
+import type { TokenUsageSummary, UsageMeasure, UsageQualityTotals } from "../types/token-usage";
 import type { Skill } from "../types/skill";
 import { SessionInfoPanel } from "./session-info-panel";
 
@@ -94,7 +95,7 @@ function renderPanel(
     thinking: true,
     longContext: false,
   });
-  queryClient.setQueryData(["session-usage-summary", activeSession.id], usage);
+  queryClient.setQueryData(["token-usage-summary", "session", activeSession.id], ledgerSummary(usage));
   queryClient.setQueryData(["skill-overview", { scope: "global", workspacePath: null }], {
     skills: [skill("global-codex", true, ["codex-cli"], "global")],
     stats: { total: 1, enabled: 1, mounted: 1 },
@@ -124,12 +125,42 @@ function renderPanel(
   );
 }
 
+function ledgerMeasure(unit: "tokens" | "characters", total: number, calls: number): UsageMeasure {
+  return { unit, dimensions: { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0, reasoningOutput: 0, providerTotal: total }, headlineTotal: total, callCount: calls, observationCount: calls };
+}
+
+function ledgerQuality(usage: SessionUsageSummary): UsageQualityTotals {
+  return {
+    reported: ledgerMeasure("tokens", usage.reported.totalTokens, usage.coverage.reportedResponses),
+    reportedDerived: ledgerMeasure("tokens", 0, 0),
+    estimated: ledgerMeasure("characters", usage.estimated.totalCharacters, usage.coverage.estimatedResponses),
+  };
+}
+
+function ledgerSummary(usage: SessionUsageSummary): TokenUsageSummary {
+  const totals = ledgerQuality(usage);
+  return {
+    schemaVersion: 1,
+    totals,
+    userResponse: totals,
+    internal: {
+      reported: ledgerMeasure("tokens", 0, 0),
+      reportedDerived: ledgerMeasure("tokens", 0, 0),
+      estimated: ledgerMeasure("characters", 0, 0),
+    },
+    counts: { calls: usage.responseCount, generations: usage.responseCount, sessions: usage.responseCount > 0 ? 1 : 0 },
+    daily: [],
+    breakdowns: [{ dimension: "purpose", entries: usage.responseCount > 0 ? [{ key: "assistant-initial", totals, counts: { calls: usage.responseCount, generations: usage.responseCount, sessions: 1 } }] : [] }],
+    generatedAt: usage.generatedAt,
+  };
+}
+
 describe("SessionInfoPanel", () => {
   beforeEach(async () => {
     await activateAppLanguage("en");
   });
 
-  it("renders the optimized three-tab information panel and selected model", () => {
+  it("renders the session information panel with IM management and selected model", () => {
     const html = renderPanel({
       sessionId: "session-info-fixture",
       reported: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheCreationTokens: 2, totalTokens: 35 },
@@ -142,6 +173,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Basic Info");
     expect(html).toContain("Token Usage");
     expect(html).toContain("Skill");
+    expect(html).toContain('id="info-tab-im"');
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");
@@ -149,7 +181,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Codex CLI");
     expect(html).not.toContain('data-testid="session-roster-editor"');
     expect(html).not.toContain('id="info-tab-members"');
-    expect(html).toContain("grid-cols-3");
+    expect(html).toContain("grid-cols-4");
     expect(html).not.toContain("Collapse");
     expect(html).not.toContain("Expand info panel");
   });
@@ -174,7 +206,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Member Information");
     expect(html).toContain('id="info-tab-members"');
     expect(html).toContain('data-testid="info-pane-members"');
-    expect(html).toContain("grid-cols-4");
+    expect(html).toContain("grid-cols-5");
     const memberPane = html.indexOf('data-testid="info-pane-members"');
     const editor = html.indexOf('data-testid="session-roster-editor"');
     const basicPane = html.indexOf('data-testid="info-pane-basic"');
@@ -195,8 +227,8 @@ describe("SessionInfoPanel", () => {
       generatedAt: "2026-07-20T00:00:00.000Z",
     });
 
-    expect(html).toContain("No reported tokens yet");
-    expect(html).toContain("Estimated Responses");
+    expect(html).toContain("Estimated characters");
+    expect(html).toContain("Invocation details");
     expect(html).not.toContain("Code Index");
     expect(html).toContain("2,000");
   });
@@ -212,7 +244,7 @@ describe("SessionInfoPanel", () => {
     }, { agentId: "onepiece", interactionMode: "api" });
 
     expect(html).toContain("Code Index");
-    expect(html).toContain("grid-cols-4");
+    expect(html).toContain("grid-cols-5");
   });
 
   it("normalizes Windows extended-length workspace paths for display", () => {
@@ -242,8 +274,6 @@ describe("SessionInfoPanel", () => {
       generatedAt: "2026-07-20T00:00:00.000Z",
     });
 
-    expect(html).toContain("12");
-    expect(html).toContain("34");
     expect(html).toContain("46");
   });
 

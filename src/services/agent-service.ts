@@ -133,6 +133,12 @@ export interface PurgeEvidenceOutcome {
   deletedSeeds: number;
   deletedFeedback: number;
 }
+import type {
+  TokenUsageDetailsPage,
+  TokenUsageDetailsQuery,
+  TokenUsageSummary,
+  TokenUsageSummaryQuery,
+} from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
   ContinueLoopInput,
@@ -389,6 +395,8 @@ export interface AgentService {
   purgeSkillEvolutionEvidence(input: PurgeEvidenceInput): Promise<PurgeEvidenceOutcome>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
+  getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
+  getTokenUsageDetails(input: TokenUsageDetailsQuery): Promise<TokenUsageDetailsPage>;
   stopGeneration(sessionId: string): Promise<void>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;

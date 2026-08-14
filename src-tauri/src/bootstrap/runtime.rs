@@ -200,6 +200,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,
+        completion_events,
     } = super::assemble_agent_runtime_api(super::AgentRuntimeDependencies {
         database: database.clone(),
         app: app.handle().clone(),
@@ -244,6 +245,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     session_recovery
         .run_startup_with_retry(100)
         .map_err(boxed_message)?;
+    let task_orchestration_api = super::assemble_task_orchestration_api(
+        database.clone(),
+        sessions_api.clone(),
+        agent_runtime_api.clone(),
+        workspace_api.clone(),
+        operations_api.clone(),
+        fallback_log_directory.clone(),
+    )
+    .map_err(boxed_message)?;
     agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
@@ -269,6 +279,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     .map_err(boxed_message)?;
     let communications_api = communications.api;
     let wechat_authorization_api = communications.wechat_authorization;
+    completion_events
+        .attach_completion_hook(Arc::new(CommunicationsCompletionHook {
+            api: communications_api.clone(),
+        }))
+        .map_err(boxed_message)?;
 
     app.manage(operations_api);
     app.manage(code_intelligence_api.clone());
@@ -283,6 +298,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     app.manage(workspace_api);
+    app.manage(task_orchestration_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
@@ -344,6 +360,25 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         }
     });
     Ok(())
+}
+
+struct CommunicationsCompletionHook {
+    api: crate::contexts::communications::api::CommunicationsApi,
+}
+
+impl crate::contexts::agent_runtime::infrastructure::AgentCompletionHook
+    for CommunicationsCompletionHook
+{
+    fn completed(&self, session_id: &str, message_id: &str, originated_from_im: bool) {
+        let api = self.api.clone();
+        let session_id = session_id.to_string();
+        let message_id = message_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            let _ = api
+                .notify_session_completion(&session_id, &message_id, originated_from_im)
+                .await;
+        });
+    }
 }
 
 fn start_communications_maintenance_job(

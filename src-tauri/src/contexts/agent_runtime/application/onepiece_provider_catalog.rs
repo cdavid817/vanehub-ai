@@ -41,6 +41,12 @@ struct EndpointEntry {
     auth_strategy: String,
     source: String,
     model_discovery: ModelDiscoveryEntry,
+    #[serde(default = "opportunistic_usage_strategy")]
+    stream_usage_strategy: String,
+}
+
+fn opportunistic_usage_strategy() -> String {
+    "opportunistic".to_string()
 }
 
 fn catalog() -> CatalogDocument {
@@ -60,6 +66,7 @@ fn to_preset(version: u32, entry: CatalogEntry) -> OnePieceProviderPreset {
             source: endpoint.source,
             model_discovery_strategy: endpoint.model_discovery.strategy,
             model_discovery_url: endpoint.model_discovery.url,
+            stream_usage_strategy: endpoint.stream_usage_strategy,
         })
         .collect::<Vec<_>>();
     let default_endpoint = endpoints

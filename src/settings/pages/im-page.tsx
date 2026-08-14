@@ -1,34 +1,21 @@
-import { MessagesSquare, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, MessagesSquare, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import type { ImConnectorHealth, ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
-import { normalizeDisplayPath } from "../../lib/session-path";
-import { orderByAgentPriority } from "../../lib/agent-display-order";
-import { agentService } from "../../services/runtime-agent-client";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
-import type { AgentRegistryEntry, KnownProject } from "../../types/agent";
 import { ImConnectorRow } from "./im/im-connector-row";
-import { routingMatchesSaved, validateRouting } from "./im/im-form";
-import { ImRoutingSection } from "./im/im-routing-section";
 import { ImWeChatAuthorization } from "./im/im-wechat-authorization";
 import { PageHeader } from "./page-parts";
 
 type PendingByKind = Partial<Record<ImConnectorKind, string>>;
 
-export function ImPage({ searchTerm }: { searchTerm: string }) {
+export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; searchTerm: string }) {
   const { t } = useTranslation();
   const isWebRuntime = detectRuntimeKind() !== "tauri";
   const [connectors, setConnectors] = useState<ImConnectorView[]>([]);
-  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
-  const [projects, setProjects] = useState<KnownProject[]>([]);
-  const [agentId, setAgentId] = useState("");
-  const [projectPath, setProjectPath] = useState("");
-  const [savedRouting, setSavedRouting] = useState<{ agentId: string; projectPath: string } | null>(null);
-  const [routingErrors, setRoutingErrors] = useState<{ agentId?: string; projectPath?: string }>({});
   const [pending, setPending] = useState<PendingByKind>({});
-  const [routingPending, setRoutingPending] = useState(false);
   const [authorization, setAuthorization] = useState<WeChatAuthorization | null>(null);
   const [authorizationPending, setAuthorizationPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -39,40 +26,19 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
     setError(null);
     setLoading(true);
     try {
-      const [viewsResult, routingResult, agentListResult, knownProjectsResult] = await Promise.allSettled([
-        imService.listConnectors(), imService.getRouting(), agentService.listAgents(), agentService.listKnownProjects(),
-      ]);
-      const loadErrors = [viewsResult, routingResult, agentListResult, knownProjectsResult]
+      const [viewsResult] = await Promise.allSettled([imService.listConnectors()]);
+      const loadErrors = [viewsResult]
         .filter((result): result is PromiseRejectedResult => result.status === "rejected")
         .map((result) => imErrorMessage(result.reason, t));
       if (viewsResult.status === "fulfilled") setConnectors(viewsResult.value);
       else setConnectors([]);
-      if (routingResult.status === "fulfilled") {
-        setAgentId(routingResult.value?.agentId ?? "");
-        const normalizedProjectPath = routingResult.value?.projectPath ? normalizeDisplayPath(routingResult.value.projectPath) : "";
-        setProjectPath(normalizedProjectPath);
-        setSavedRouting(routingResult.value ? { ...routingResult.value, projectPath: normalizedProjectPath } : null);
-      } else {
-        setSavedRouting(null);
-      }
-      const agentList = agentListResult.status === "fulfilled" ? agentListResult.value : [];
-      setAgents(orderByAgentPriority(
-        agentList.filter((agent) => (
-          agent.supportedInteractionModes.includes("cli")
-          && (agent.availabilityState === "available" || isWebRuntime)
-        )),
-        (agent) => agent.id,
-      ));
-      setProjects(knownProjectsResult.status === "fulfilled"
-        ? knownProjectsResult.value.map((project) => ({ ...project, path: normalizeDisplayPath(project.path) }))
-        : []);
       setError(loadErrors[0] ?? null);
     } catch (reason) {
       setError(imErrorMessage(reason, t));
     } finally {
       setLoading(false);
     }
-  }, [isWebRuntime, t]);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -91,36 +57,6 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
       unsubscribe?.();
     };
   }, []);
-  const routingReady = useMemo(() => routingMatchesSaved(agentId, projectPath, savedRouting), [agentId, projectPath, savedRouting]);
-
-  async function saveRouting() {
-    const validation = validateRouting(agentId, projectPath);
-    setRoutingErrors(validation);
-    if (Object.keys(validation).length > 0) return;
-    setRoutingPending(true);
-    setError(null);
-    try {
-      const normalized = await imService.saveRouting({ agentId, projectPath });
-      const normalizedProjectPath = normalizeDisplayPath(normalized.projectPath);
-      setAgentId(normalized.agentId);
-      setProjectPath(normalizedProjectPath);
-      setSavedRouting({ ...normalized, projectPath: normalizedProjectPath });
-      setNotice(t("im.notice.routingSaved"));
-    } catch (reason) {
-      setError(imErrorMessage(reason, t));
-    } finally {
-      setRoutingPending(false);
-    }
-  }
-
-  async function browseProject() {
-    const path = await agentService.selectProjectDirectory().catch((reason: unknown) => {
-      setError(imErrorMessage(reason, t));
-      return null;
-    });
-    if (path) setProjectPath(normalizeDisplayPath(path));
-  }
-
   async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>): Promise<boolean> {
     setPending((current) => ({ ...current, [kind]: action }));
     setError(null);
@@ -170,12 +106,12 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
         title={t("im.title")}
       />
       {isWebRuntime ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{t("im.webNotice")}</div> : null}
+      <div className="ucd-muted-panel flex flex-wrap items-center justify-between gap-3 rounded-lg p-3 text-sm">
+        <p className="text-muted-foreground">{t("im.sessionBindingGuidance")}</p>
+        {onReturn ? <Button onClick={onReturn} size="sm" variant="outline"><ArrowLeft aria-hidden="true" />{t("im.openSession")}</Button> : null}
+      </div>
       {error ? <div aria-live="assertive" className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
       {notice ? <div aria-live="polite" className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
-      <ImRoutingSection
-        agentId={agentId} agents={agents} errors={routingErrors} onAgentChange={setAgentId} onBrowse={() => void browseProject()}
-        onProjectChange={setProjectPath} onSave={() => void saveRouting()} pending={routingPending} projectPath={projectPath} projects={projects}
-      />
       <div className="space-y-3">
         {loading ? <div className="ucd-panel rounded-lg p-6 text-sm text-muted-foreground">{t("im.loading")}</div> : connectors.map((view) => (
           <ImConnectorRow
@@ -183,7 +119,6 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
             key={view.descriptor.kind}
             onAction={(action, credentials) => connectorAction(view.descriptor.kind, action, credentials)}
             pendingAction={pending[view.descriptor.kind] ?? null}
-            routingReady={routingReady}
             searchTerm={searchTerm}
             view={view}
           />

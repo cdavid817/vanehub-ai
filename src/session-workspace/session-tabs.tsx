@@ -18,6 +18,7 @@ import { SessionConversationHeader } from "./session-conversation-header";
 export interface ConversationVisibilityControls {
   infoPanelExpanded: boolean;
   onToggleInfoPanel: () => void;
+  onOpenIm: () => void;
   onToggleSessionList: () => void;
   onToggleWorkspaceTabs: () => void;
   sessionListExpanded: boolean;
@@ -130,6 +131,7 @@ export function SessionTabs({
       <SessionConversationHeader
         actions={visibilityControls ? <ConversationOverflowMenu {...visibilityControls} /> : null}
         isStreaming={isStreaming}
+        onOpenIm={visibilityControls?.onOpenIm}
         session={activeSession}
       />
       {recoveryNotice}

@@ -15,11 +15,11 @@ const modern: UsageStatistics = {
 
 describe("normalizeTauriUsageStatistics", () => {
   it("preserves the current desktop response contract", () => {
-    expect(normalizeTauriUsageStatistics(modern, "last30Days")).toBe(modern);
+    expect(normalizeTauriUsageStatistics(modern)).toBe(modern);
   });
 
-  it("converts the legacy flat desktop response without leaving missing coverage", () => {
-    const result = normalizeTauriUsageStatistics({
+  it("rejects the unreleased flat response instead of fabricating modern coverage", () => {
+    expect(() => normalizeTauriUsageStatistics({
       range: "all",
       totalTokens: 42,
       inputTokens: 15,
@@ -27,21 +27,11 @@ describe("normalizeTauriUsageStatistics", () => {
       countedMessages: 2,
       countedSessions: 1,
       generatedAt: "2026-07-18T00:00:00.000Z",
-    }, "all");
-
-    expect(result.reported).toMatchObject({ inputTokens: 15, outputTokens: 27, totalTokens: 42 });
-    expect(result.coverage).toEqual({
-      reportedResponses: 2,
-      estimatedResponses: 0,
-      totalResponses: 2,
-      reportedPercent: 100,
-    });
-    expect(result.daily).toEqual([]);
-    expect(result.byAgent).toEqual([]);
+    })).toThrow("invalid usage-statistics response");
   });
 
   it("rejects malformed desktop responses so the query error UI can handle them", () => {
-    expect(() => normalizeTauriUsageStatistics(undefined, "today")).toThrow(
+    expect(() => normalizeTauriUsageStatistics(undefined)).toThrow(
       "invalid usage-statistics response",
     );
   });

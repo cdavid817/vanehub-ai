@@ -3,7 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import {
   imConnectorConfigSchema,
   imConnectorHealthSchema,
+  imPairingStartSchema,
   imRoutingSchema,
+  imSessionBindingSchema,
+  imSessionBindingViewSchema,
   parseImConnectorViews,
   parseImRouting,
   parseWeChatAuthorization,
@@ -48,6 +51,38 @@ export const tauriImClient: ImService = {
 
   resetBindings(kind?: ImConnectorKind) {
     return invoke<void>("reset_im_bindings", { kind: kind ?? null });
+  },
+
+  async getSessionBinding(sessionId) {
+    return imSessionBindingViewSchema.parse(
+      await invoke<unknown>("get_im_session_binding", { sessionId }),
+    );
+  },
+
+  async beginPairing(sessionId, connector, replaceExisting = false) {
+    return imPairingStartSchema.parse(
+      await invoke<unknown>("begin_im_pairing", { sessionId, connector, replaceExisting }),
+    );
+  },
+
+  cancelPairing(sessionId, connector) {
+    return invoke<boolean>("cancel_im_pairing", { sessionId, connector });
+  },
+
+  async setBindingPaused(sessionId, paused) {
+    return imSessionBindingSchema.parse(
+      await invoke<unknown>("set_im_binding_paused", { sessionId, paused }),
+    );
+  },
+
+  async setCompletionNotifications(sessionId, enabled) {
+    return imSessionBindingSchema.parse(
+      await invoke<unknown>("set_im_completion_notifications", { sessionId, enabled }),
+    );
+  },
+
+  removeSessionBinding(sessionId) {
+    return invoke<boolean>("remove_im_session_binding", { sessionId });
   },
 
   async subscribeLifecycle(handler) {

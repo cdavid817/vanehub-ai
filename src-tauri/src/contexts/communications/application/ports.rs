@@ -3,8 +3,9 @@ use super::{
     CommunicationsOperation, ConnectorCredential, ConnectorRuntimeDefinition,
 };
 use crate::contexts::communications::domain::{
-    ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig, ConnectorHealth,
-    ConnectorKind, InboundEventIdentity, RoutingSettings,
+    BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
+    ConnectorHealth, ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings,
+    SessionBinding,
 };
 use async_trait::async_trait;
 
@@ -57,6 +58,87 @@ pub(crate) trait CommunicationsRepository: Send + Sync {
         checkpoint: &ConnectorCheckpoint,
         updated_at: &str,
     ) -> Result<(), CommunicationsApplicationError>;
+
+    fn binding_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError>;
+
+    fn binding_for_chat(
+        &self,
+        key: &ChatBindingKey,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError>;
+
+    fn save_pairing_intent(
+        &self,
+        intent: &PairingIntent,
+    ) -> Result<(), CommunicationsApplicationError>;
+
+    fn pairing_intents(
+        &self,
+        connector: ConnectorKind,
+        now: &str,
+    ) -> Result<Vec<PairingIntent>, CommunicationsApplicationError>;
+
+    fn consume_pairing_intent(
+        &self,
+        intent_id: &str,
+        key: &ChatBindingKey,
+        now: &str,
+        replace: bool,
+        delivery_credential_ref: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError>;
+
+    fn binding_delivery_reference(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, CommunicationsApplicationError>;
+
+    fn replacement_delivery_references(
+        &self,
+        session_id: &str,
+        key: &ChatBindingKey,
+    ) -> Result<Vec<String>, CommunicationsApplicationError>;
+
+    fn cancel_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<bool, CommunicationsApplicationError>;
+
+    fn set_binding_state(
+        &self,
+        session_id: &str,
+        state: BindingState,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError>;
+
+    fn set_completion_notifications(
+        &self,
+        session_id: &str,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError>;
+
+    fn remove_session_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, CommunicationsApplicationError>;
+
+    fn claim_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+        delivered_at: &str,
+    ) -> Result<bool, CommunicationsApplicationError>;
+
+    fn release_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError>;
 }
 
 pub(crate) trait CommunicationsCredentialPort: Send + Sync {
@@ -72,6 +154,21 @@ pub(crate) trait CommunicationsCredentialPort: Send + Sync {
     ) -> Result<ConnectorCredential, CommunicationsApplicationError>;
 
     fn delete(&self, kind: ConnectorKind) -> Result<(), CommunicationsApplicationError>;
+
+    fn store_delivery_handle(
+        &self,
+        kind: ConnectorKind,
+        binding_id: &str,
+        handle: &str,
+    ) -> Result<String, CommunicationsApplicationError>;
+
+    fn load_delivery_handle(
+        &self,
+        reference: &str,
+    ) -> Result<Option<zeroize::Zeroizing<String>>, CommunicationsApplicationError>;
+
+    fn delete_delivery_handle(&self, reference: &str)
+        -> Result<(), CommunicationsApplicationError>;
 }
 
 #[async_trait]
@@ -96,6 +193,13 @@ pub(crate) trait CommunicationsTransportPort: Send + Sync {
     ) -> Result<(), CommunicationsApplicationError>;
 
     async fn shutdown(&self) -> Result<(), CommunicationsApplicationError>;
+
+    async fn send_notification(
+        &self,
+        kind: ConnectorKind,
+        chat_id: &str,
+        text: &str,
+    ) -> Result<(), CommunicationsApplicationError>;
 }
 
 pub(crate) trait CommunicationsAgentExecutionPort: Send + Sync {
@@ -111,15 +215,9 @@ pub(crate) trait CommunicationsAgentExecutionPort: Send + Sync {
 }
 
 pub(crate) trait CommunicationsSessionBindingPort: Send + Sync {
-    fn find(&self, key: &ChatBindingKey) -> Result<Option<String>, CommunicationsApplicationError>;
-
-    fn create_if_missing(
-        &self,
-        key: &ChatBindingKey,
-        routing: &RoutingSettings,
-    ) -> Result<String, CommunicationsApplicationError>;
-
     fn reset(&self, kind: Option<ConnectorKind>) -> Result<(), CommunicationsApplicationError>;
+
+    fn exists(&self, session_id: &str) -> Result<bool, CommunicationsApplicationError>;
 }
 
 pub(crate) trait CommunicationsOperationPort: Send + Sync {

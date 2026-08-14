@@ -124,6 +124,7 @@ pub(crate) fn assemble_shared_agent_registry(
 pub(crate) struct AgentRuntimeAssembly {
     pub(crate) api: AgentRuntimeApi,
     pub(crate) telemetry_lifecycle: ExecutionTelemetryLifecycle,
+    pub(crate) completion_events: Arc<TauriAgentRuntimeEventAdapter>,
 }
 
 type ExecutionExporterSet = (
@@ -175,6 +176,7 @@ pub(crate) fn assemble_agent_runtime_api(
             skills: dependencies.skills.clone(),
         },
     ));
+    let accounting = dependencies.sessions.clone();
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(
         dependencies.skills.clone(),
@@ -233,7 +235,8 @@ pub(crate) fn assemble_agent_runtime_api(
             agent_personalization.clone(),
         )
         .with_evidence(dependencies.evidence.clone())
-        .with_utility_delegation(utility_delegation),
+        .with_utility_delegation(utility_delegation)
+        .with_accounting(accounting.clone()),
     );
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
@@ -253,6 +256,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let terminal_runtime = Arc::new(PortablePtyAgentTerminalRuntime::new(
         events.clone(),
         sessions.clone(),
+        accounting,
         logging.clone(),
         clock.clone(),
         TerminalExecutionObservability::new(
@@ -306,7 +310,7 @@ pub(crate) fn assemble_agent_runtime_api(
         logging: logging.clone(),
         clock: clock.clone(),
         events: events.clone(),
-        terminal_events: events,
+        terminal_events: events.clone(),
     });
     let expert_roles = ExpertRoleApplicationService::new(ExpertRoleApplicationPorts {
         repository: expert_role_repository,
@@ -392,8 +396,10 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_scheduler,
             expert_roles,
             seat_turns,
+            guarded_validation,
         }),
         telemetry_lifecycle,
+        completion_events: events,
     })
 }
 

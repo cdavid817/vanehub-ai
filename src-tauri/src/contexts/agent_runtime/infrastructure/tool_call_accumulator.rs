@@ -3,7 +3,7 @@
 //! SSE chunks, keyed by a numeric index — this is the one piece of genuinely stateful logic in
 //! an otherwise pure-function translation layer, so it is isolated here and unit-tested alone.
 
-use crate::contexts::agent_runtime::application::ToolUseBlock;
+use crate::contexts::agent_runtime::application::{ReportedUsageTotals, ToolUseBlock};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -18,6 +18,7 @@ struct PendingToolCall {
 pub(crate) struct ToolCallAccumulator {
     pending: BTreeMap<u32, PendingToolCall>,
     completed: Vec<ToolUseBlock>,
+    usage: Option<ReportedUsageTotals>,
 }
 
 impl ToolCallAccumulator {
@@ -65,6 +66,14 @@ impl ToolCallAccumulator {
     /// Drains and returns every tool call finalized so far, in the order they completed.
     pub(crate) fn take_completed(&mut self) -> Vec<ToolUseBlock> {
         std::mem::take(&mut self.completed)
+    }
+
+    pub(crate) fn update_usage(&mut self, usage: ReportedUsageTotals) {
+        self.usage = Some(usage);
+    }
+
+    pub(crate) fn take_usage(&mut self) -> Option<ReportedUsageTotals> {
+        self.usage.take()
     }
 }
 

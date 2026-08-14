@@ -11,7 +11,7 @@ pub(crate) use invocation::{
 };
 pub(crate) use output::{
     output_parser_for_format, ProviderOutputEvent, ProviderReportedUsage, ProviderToolEvent,
-    ProviderToolPhase,
+    ProviderToolPhase, ProviderUsageOverlap,
 };
 pub(crate) use session_capture::{
     codex_session_root, find_codex_rollout_since, find_gemini_chat_session,

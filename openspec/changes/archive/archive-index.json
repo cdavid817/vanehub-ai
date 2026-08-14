@@ -2195,6 +2195,58 @@
                                           ]
                      },
                      {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "complete-onepiece-plan-agent-loop",
+                         "path":  "openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-execution-observability",
+                                              "frontend-runtime-architecture",
+                                              "onepiece-native-agent",
+                                              "plan-execution-runtime",
+                                              "plan-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "establish-fine-grained-token-accounting",
+                         "path":  "openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "api-agent-runtime",
+                                              "onepiece-native-agent",
+                                              "settings-usage-statistics-ui",
+                                              "token-accounting",
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "optimize-im-session-binding",
+                         "path":  "openspec/changes/archive/2026-08-13-optimize-im-session-binding/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "im-connector-management",
+                                              "im-session-binding-ui",
+                                              "settings-im-management-ui"
+                                          ]
+                     },
+                     {
                          "archivedOn":  "2026-08-14",
                          "changeName":  "add-skill-evolution-evidence-pipeline",
                          "path":  "openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/",

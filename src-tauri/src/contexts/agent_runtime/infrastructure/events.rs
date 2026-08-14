@@ -4,21 +4,61 @@ use crate::contexts::agent_runtime::application::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
+
+pub(crate) trait AgentCompletionHook: Send + Sync {
+    fn completed(&self, session_id: &str, message_id: &str, originated_from_im: bool);
+}
 
 #[derive(Clone)]
 pub(crate) struct TauriAgentRuntimeEventAdapter {
     app: AppHandle,
+    completion_hook: Arc<RwLock<Option<Arc<dyn AgentCompletionHook>>>>,
 }
 
 impl TauriAgentRuntimeEventAdapter {
     pub(crate) fn new(app: AppHandle) -> Self {
-        Self { app }
+        Self {
+            app,
+            completion_hook: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub(crate) fn attach_completion_hook(
+        &self,
+        hook: Arc<dyn AgentCompletionHook>,
+    ) -> Result<(), String> {
+        let mut current = self
+            .completion_hook
+            .write()
+            .map_err(|_| "agent-completion-hook-lock-failed".to_string())?;
+        if current.is_some() {
+            return Err("agent-completion-hook-already-attached".to_string());
+        }
+        *current = Some(hook);
+        Ok(())
     }
 }
 
 impl AgentEventPort for TauriAgentRuntimeEventAdapter {
     fn publish(&self, event: AgentEvent) -> Result<(), AgentRuntimeApplicationError> {
+        if let AgentEvent::MessageCompleted {
+            session_id,
+            message_id,
+            originated_from_im,
+            ..
+        } = &event
+        {
+            if let Some(hook) = self
+                .completion_hook
+                .read()
+                .ok()
+                .and_then(|current| current.clone())
+            {
+                hook.completed(session_id, message_id, *originated_from_im);
+            }
+        }
         let Some(event) = chat_event(event) else {
             return Ok(());
         };
@@ -253,6 +293,7 @@ fn chat_event(event: AgentEvent) -> Option<ChatStreamEvent> {
             session_id,
             message_id,
             token_usage,
+            originated_from_im: _,
         } => Some(ChatStreamEvent::Completed {
             session_id,
             message_id,
@@ -350,6 +391,7 @@ mod tests {
                 input: 10,
                 output: 20,
             }),
+            originated_from_im: false,
         }))
         .expect("serialize chat event");
 

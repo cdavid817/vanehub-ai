@@ -335,8 +335,8 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
                 "SELECT COUNT(*) FROM agent_memories WHERE agent_id = ?1",
             ),
             (
-                "usage records",
-                "SELECT COUNT(*) FROM usage_records WHERE agent_id = ?1",
+                "model invocations",
+                "SELECT COUNT(*) FROM model_invocations WHERE agent_id = ?1",
             ),
             (
                 "Loop definitions as worker",
@@ -828,22 +828,15 @@ mod tests {
         connection
             .execute(
                 r#"
-                INSERT INTO messages (id, session_id, role, created_at, updated_at)
-                VALUES ('fixture-message', 'usage-session', 'assistant', '2026-01-01', '2026-01-01')
-                "#,
-                [],
-            )
-            .expect("seed usage message");
-        connection
-            .execute(
-                r#"
-                INSERT INTO usage_records
-                    (message_id, session_id, agent_id, accounting_kind, unit, source, occurred_at)
-                VALUES ('fixture-message', 'usage-session', ?1, 'reported', 'tokens', 'test', '2026-01-01')
+                INSERT INTO model_invocations
+                    (id, session_id, agent_id, interaction_kind, purpose, request_sequence,
+                     attempt, status, started_at, completed_at)
+                VALUES ('fixture-invocation', 'usage-session', ?1, 'native-api',
+                        'assistant-initial', 0, 0, 'succeeded', '2026-01-01', '2026-01-01')
                 "#,
                 params![agent_id],
             )
-            .expect("seed usage record");
+            .expect("seed model invocation");
     }
 
     fn seed_loop_definition(
@@ -1009,7 +1002,7 @@ mod tests {
         for (table, predicate, expected) in [
             ("sessions", "agent_id = 'onepiece'", 2),
             ("agent_memories", "agent_id = 'onepiece'", 1),
-            ("usage_records", "agent_id = 'onepiece'", 1),
+            ("model_invocations", "agent_id = 'onepiece'", 1),
             ("loop_definitions", "worker_agent_id = 'onepiece'", 1),
             ("skill_api_agent_bindings", "agent_id = 'onepiece'", 1),
         ] {

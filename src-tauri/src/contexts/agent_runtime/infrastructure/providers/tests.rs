@@ -3,7 +3,7 @@ use super::{
     apply_configuration_overrides, apply_policy_template_overrides, build_interactive_invocation,
     build_invocation, build_invocation_with_role, force_gemini_standard_approval_flag,
     output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
-    ProviderToolEvent, ProviderToolPhase, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
+    ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
 };
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
@@ -105,6 +105,30 @@ struct ParameterFixture {
     thinking: bool,
     base: BTreeMap<String, Value>,
     expected: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageEdgeCaseFixture {
+    name: String,
+    agent_id: String,
+    line: String,
+    expected: UsageEdgeCaseExpectation,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageEdgeCaseExpectation {
+    kind: String,
+    input: Option<i64>,
+    output: Option<i64>,
+    cache_read: Option<i64>,
+    cache_write: Option<i64>,
+    reasoning: Option<i64>,
+    total: Option<i64>,
+    source_identity: Option<String>,
+    source_revision: Option<String>,
+    failure_kind: Option<String>,
 }
 
 #[test]
@@ -496,9 +520,16 @@ fn output_fixtures_cover_every_stable_provider() {
                 ProviderOutputEvent::Empty,
                 ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
                     input_tokens: 12,
-                    output_tokens: 8,
+                    output_tokens: 5,
                     cache_read_tokens: 2,
                     cache_creation_tokens: 0,
+                    reasoning_output_tokens: 3,
+                    provider_total_tokens: Some(22),
+                    cache_overlap: ProviderUsageOverlap::Exclusive,
+                    reasoning_overlap: ProviderUsageOverlap::Exclusive,
+                    normalization_version: "antigravity-result-usage-v2",
+                    source_identity: Some("antigravity-conversation".to_string()),
+                    ..ProviderReportedUsage::default()
                 })),
             ],
         ),
@@ -518,7 +549,7 @@ fn output_fixtures_cover_every_stable_provider() {
 #[test]
 fn claude_code_completion_line_reports_usage() {
     let event = output_parser_for("claude-code").parse_line(
-        r#"{"type":"result","usage":{"input_tokens":120,"output_tokens":340,"cache_creation_input_tokens":50,"cache_read_input_tokens":900}}"#,
+        r#"{"type":"result","usage":{"input_tokens":120,"output_tokens":340,"cache_creation_input_tokens":50,"cache_read_input_tokens":900,"total_tokens":1410}}"#,
     );
     assert_eq!(
         event,
@@ -527,8 +558,108 @@ fn claude_code_completion_line_reports_usage() {
             output_tokens: 340,
             cache_read_tokens: 900,
             cache_creation_tokens: 50,
+            provider_total_tokens: Some(1410),
+            cache_overlap: ProviderUsageOverlap::Exclusive,
+            reasoning_overlap: ProviderUsageOverlap::Subset,
+            normalization_version: "claude-code-result-usage-v1",
+            ..ProviderReportedUsage::default()
         }))
     );
+}
+
+#[test]
+fn managed_cli_usage_edge_fixture_covers_bounded_verified_shapes() {
+    let fixtures: Vec<UsageEdgeCaseFixture> =
+        serde_json::from_str(include_str!("fixtures/usage-edge-cases.json"))
+            .expect("usage edge fixtures");
+    assert_eq!(fixtures.len(), 10);
+    let mut revisions = Vec::new();
+
+    for fixture in fixtures {
+        assert!(fixture.name.len() <= 64, "{}", fixture.name);
+        assert!(fixture.line.len() <= 1_024, "{}", fixture.name);
+        let event = output_parser_for(&fixture.agent_id).parse_line(&fixture.line);
+
+        match fixture.expected.kind.as_str() {
+            "usage" => {
+                let ProviderOutputEvent::Completed(Some(usage)) = event else {
+                    panic!("{} expected usage, got {event:?}", fixture.name);
+                };
+                assert_eq!(
+                    usage.input_tokens,
+                    fixture.expected.input.expect("expected input"),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.output_tokens,
+                    fixture.expected.output.expect("expected output"),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.cache_read_tokens,
+                    fixture.expected.cache_read.expect("expected cache read"),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.cache_creation_tokens,
+                    fixture.expected.cache_write.expect("expected cache write"),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.reasoning_output_tokens,
+                    fixture.expected.reasoning.expect("expected reasoning"),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.provider_total_tokens, fixture.expected.total,
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.source_identity.as_deref(),
+                    fixture.expected.source_identity.as_deref(),
+                    "{}",
+                    fixture.name
+                );
+                assert_eq!(
+                    usage.source_revision.as_deref(),
+                    fixture.expected.source_revision.as_deref(),
+                    "{}",
+                    fixture.name
+                );
+                if fixture.name.starts_with("opencode-revision-") {
+                    revisions.push((usage.source_identity, usage.source_revision));
+                }
+            }
+            "no-usage" => assert_eq!(
+                event,
+                ProviderOutputEvent::Completed(None),
+                "{}",
+                fixture.name
+            ),
+            "failure" => {
+                let ProviderOutputEvent::Failed(failure) = event else {
+                    panic!("{} expected failure, got {event:?}", fixture.name);
+                };
+                let expected_kind = match fixture.expected.failure_kind.as_deref() {
+                    Some("retryable") => GenerationProcessFailureKind::Retryable,
+                    Some("non-retryable") => GenerationProcessFailureKind::NonRetryable,
+                    other => panic!("{} has unknown failure kind: {other:?}", fixture.name),
+                };
+                assert_eq!(failure.kind, expected_kind, "{}", fixture.name);
+            }
+            other => panic!("{} has unknown expectation kind: {other}", fixture.name),
+        }
+    }
+
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(revisions[0].0, revisions[1].0);
+    assert_ne!(revisions[0].1, revisions[1].1);
 }
 
 #[test]
@@ -543,17 +674,23 @@ fn claude_code_all_zero_usage_is_treated_as_absent() {
 }
 
 #[test]
-fn codex_cli_completion_line_folds_reasoning_into_output() {
+fn codex_cli_completion_line_preserves_non_additive_usage_dimensions() {
     let event = output_parser_for("codex-cli").parse_line(
-        r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":200,"cache_write_input_tokens":30,"output_tokens":100,"reasoning_output_tokens":40}}"#,
+        r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":200,"cache_write_input_tokens":30,"output_tokens":100,"reasoning_output_tokens":40,"total_tokens":600}}"#,
     );
     assert_eq!(
         event,
         ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
             input_tokens: 500,
-            output_tokens: 140,
+            output_tokens: 100,
             cache_read_tokens: 200,
             cache_creation_tokens: 30,
+            reasoning_output_tokens: 40,
+            provider_total_tokens: Some(600),
+            cache_overlap: ProviderUsageOverlap::Subset,
+            reasoning_overlap: ProviderUsageOverlap::Subset,
+            normalization_version: "codex-turn-completed-usage-v1",
+            ..ProviderReportedUsage::default()
         }))
     );
 }
@@ -569,7 +706,7 @@ fn codex_cli_all_zero_usage_is_treated_as_absent() {
 #[test]
 fn gemini_cli_completion_line_reports_usage() {
     let event = output_parser_for("gemini-cli").parse_line(
-        r#"{"type":"result","stats":{"input_tokens":80,"output_tokens":200,"cached":15,"total_tokens":295}}"#,
+        r#"{"type":"result","stats":{"input_tokens":80,"output_tokens":200,"cached":15,"total_tokens":305,"models":{"gemini-2.5-pro":{"input_tokens":80,"output_tokens":200,"cached":15,"input":65,"total_tokens":305}}}}"#,
     );
     assert_eq!(
         event,
@@ -578,6 +715,34 @@ fn gemini_cli_completion_line_reports_usage() {
             output_tokens: 200,
             cache_read_tokens: 15,
             cache_creation_tokens: 0,
+            provider_total_tokens: Some(305),
+            cache_overlap: ProviderUsageOverlap::Subset,
+            reasoning_overlap: ProviderUsageOverlap::Exclusive,
+            normalization_version: "gemini-result-stream-stats-v1",
+            model_id: Some("gemini-2.5-pro".to_string()),
+            ..ProviderReportedUsage::default()
+        }))
+    );
+}
+
+#[test]
+fn gemini_cli_model_stats_preserve_explicit_thoughts_when_available() {
+    let event = output_parser_for("gemini-cli").parse_line(
+        r#"{"type":"result","stats":{"models":{"gemini-2.5-pro":{"input_tokens":80,"output_tokens":200,"cached":15,"thoughts":25,"total_tokens":305}}}}"#,
+    );
+    assert_eq!(
+        event,
+        ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+            input_tokens: 80,
+            output_tokens: 200,
+            cache_read_tokens: 15,
+            reasoning_output_tokens: 25,
+            provider_total_tokens: Some(305),
+            cache_overlap: ProviderUsageOverlap::Subset,
+            reasoning_overlap: ProviderUsageOverlap::Exclusive,
+            normalization_version: "gemini-result-stream-stats-v1",
+            model_id: Some("gemini-2.5-pro".to_string()),
+            ..ProviderReportedUsage::default()
         }))
     );
 }
@@ -590,19 +755,39 @@ fn gemini_cli_all_zero_usage_is_treated_as_absent() {
 }
 
 #[test]
-fn opencode_completion_line_folds_reasoning_into_output() {
+fn opencode_completion_line_preserves_usage_and_step_revision() {
     let event = output_parser_for("opencode").parse_line(
-        r#"{"type":"step_finish","part":{"type":"step-finish","tokens":{"total":900,"input":600,"output":150,"reasoning":50,"cache":{"read":80,"write":20}},"cost":0.01}}"#,
+        r#"{"type":"step_finish","timestamp":1720000000123,"sessionID":"ses_one","part":{"id":"prt_step_one","sessionID":"ses_one","messageID":"msg_one","type":"step-finish","tokens":{"total":900,"input":600,"output":150,"reasoning":50,"cache":{"read":80,"write":20}},"cost":0.01}}"#,
     );
     assert_eq!(
         event,
         ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
             input_tokens: 600,
-            output_tokens: 200,
+            output_tokens: 150,
             cache_read_tokens: 80,
             cache_creation_tokens: 20,
+            reasoning_output_tokens: 50,
+            provider_total_tokens: Some(900),
+            cache_overlap: ProviderUsageOverlap::Exclusive,
+            reasoning_overlap: ProviderUsageOverlap::Exclusive,
+            normalization_version: "opencode-step-finish-tokens-v1",
+            source_identity: Some("prt_step_one".to_string()),
+            source_revision: Some("1720000000123".to_string()),
+            ..ProviderReportedUsage::default()
         }))
     );
+}
+
+#[test]
+fn opencode_unsafe_step_identity_and_revision_are_not_retained() {
+    let event = output_parser_for("opencode").parse_line(
+        r#"{"type":"step_finish","revision":"../../unsafe value","part":{"id":"../private path","type":"step-finish","tokens":{"total":4,"input":1,"output":1,"reasoning":1,"cache":{"read":1,"write":0}}}}"#,
+    );
+    let ProviderOutputEvent::Completed(Some(usage)) = event else {
+        panic!("expected reported usage");
+    };
+    assert_eq!(usage.source_identity, None);
+    assert_eq!(usage.source_revision, None);
 }
 
 #[test]
@@ -739,17 +924,32 @@ fn antigravity_result_event_maps_status_and_diagnostic() {
 }
 
 #[test]
-fn antigravity_success_folds_thinking_tokens_into_output() {
+fn antigravity_success_preserves_verified_usage_dimensions() {
     let line = r#"{"event":"result","result":{"conversation_id":"c-1","status":"SUCCESS","response":"hi","error":"","usage":{"input_tokens":10,"output_tokens":4,"thinking_tokens":6,"cache_read_tokens":3,"total_tokens":23}}}"#;
 
     match output_parser_for("antigravity-cli").parse_line(line) {
         ProviderOutputEvent::Completed(Some(usage)) => {
             assert_eq!(usage.input_tokens, 10);
-            assert_eq!(usage.output_tokens, 10, "thinking tokens fold into output");
+            assert_eq!(usage.output_tokens, 4);
+            assert_eq!(usage.reasoning_output_tokens, 6);
             assert_eq!(usage.cache_read_tokens, 3);
+            assert_eq!(usage.provider_total_tokens, Some(23));
+            assert_eq!(usage.cache_overlap, ProviderUsageOverlap::Exclusive);
+            assert_eq!(usage.reasoning_overlap, ProviderUsageOverlap::Exclusive);
+            assert_eq!(usage.source_identity.as_deref(), Some("c-1"));
         }
         other => panic!("expected a completion carrying usage, got {other:?}"),
     }
+}
+
+#[test]
+fn antigravity_success_with_all_zero_usage_is_treated_as_absent() {
+    let line = r#"{"event":"result","result":{"conversation_id":"c-1","status":"SUCCESS","response":"","error":"","usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}"#;
+
+    assert_eq!(
+        output_parser_for("antigravity-cli").parse_line(line),
+        ProviderOutputEvent::Completed(None)
+    );
 }
 
 #[test]

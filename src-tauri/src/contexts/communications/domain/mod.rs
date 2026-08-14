@@ -18,8 +18,10 @@ pub(crate) use delivery::{
     NormalizedInbound, OutboundText, MAX_PENDING_PER_CHAT,
 };
 pub(crate) use error::CommunicationsDomainError;
+#[cfg(test)]
+pub(crate) use routing::ChatBinding;
 pub(crate) use routing::{
-    ChatBinding, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, InboundEventIdentity,
-    RoutingSettings,
+    BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, InboundEventIdentity,
+    PairingIntent, RoutingSettings, SessionBinding,
 };
 pub(crate) use status::{ConnectorHealth, ConnectorLifecycle, ConnectorStatus};

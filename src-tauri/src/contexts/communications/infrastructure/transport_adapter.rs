@@ -242,6 +242,18 @@ impl CommunicationsTransportPort for CommunicationsTransportAdapter {
     async fn shutdown(&self) -> Result<(), CommunicationsApplicationError> {
         self.runtime.shutdown().await.map_err(runtime_error)
     }
+
+    async fn send_notification(
+        &self,
+        kind: ConnectorKind,
+        chat_id: &str,
+        text: &str,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.runtime
+            .send_notification(kind, chat_id, text)
+            .await
+            .map_err(runtime_error)
+    }
 }
 
 async fn test_isolated_adapter(

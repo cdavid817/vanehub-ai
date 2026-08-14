@@ -24,6 +24,7 @@ import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import type { SettingsPageId } from "../settings/settings-pages";
 import { seatsFromSession } from "../services/session-seats";
 import { SessionRecoveryNotice } from "../session-workspace/session-recovery-notice";
+import { useMediaQuery } from "../hooks/use-media-query";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
@@ -32,6 +33,9 @@ const defaultSessionSidebarWidth = 220;
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
+type PlanCenterProps = { onRunAssociated?: (runId: string) => void; originatingSessionId?: string | null; requestedRunId?: string | null };
+const loadPlanCenter: LazyFeatureLoader<PlanCenterProps> = () => import("../plan-center/plan-center")
+  .then((module) => ({ default: module.PlanCenter }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -95,16 +99,20 @@ export function MainLayout({
   const model = useMainLayoutModel();
   const { t } = useTranslation();
   const { notify } = useNotifications();
+  const narrowLayout = useMediaQuery("(max-width: 900px)");
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
-  const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
+  const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(narrowLayout);
+  const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [destination, setDestination] = useState<"sessions" | "loops">("sessions");
+  const [destination, setDestination] = useState<"sessions" | "loops" | "plans">("sessions");
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
+  const [planCenterVisited, setPlanCenterVisited] = useState(false);
+  const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
@@ -136,6 +144,10 @@ export function MainLayout({
       setSessionActivationKey((value) => value + 1);
     }
   }, [model.activeSessionId]);
+
+  useEffect(() => {
+    if (narrowLayout) setInfoPanelCollapsed(true);
+  }, [narrowLayout]);
 
   function startSessionSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
     if (effectiveSessionSidebarCollapsed) return;
@@ -199,7 +211,13 @@ export function MainLayout({
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
   const apiComposer = !loopInspection && usesStructuredChat ? (
-    <ApiSessionComposer model={model} />
+    <ApiSessionComposer model={model} onOpenPlan={() => {
+      const run = model.chatConfig.associatedPlanRun;
+      if (!run) return;
+      setPlanInspectionRunId(run.id);
+      setPlanCenterVisited(true);
+      setDestination("plans");
+    }} />
   ) : null;
 
   return (
@@ -219,6 +237,7 @@ export function MainLayout({
               expandSessions: t("layout.activityBar.expandSessions"),
               collapseSessions: t("layout.activityBar.collapseSessions"),
               loops: t("layout.activityBar.loops"),
+              plans: t("layout.activityBar.plans"),
               scheduledTasks: t("layout.activityBar.scheduledTasks"),
               settings: t("layout.activityBar.settings"),
               help: t("layout.activityBar.help"),
@@ -227,6 +246,11 @@ export function MainLayout({
             onLoops={() => {
               setLoopCenterVisited(true);
               setDestination("loops");
+            }}
+            onPlans={() => {
+              setPlanInspectionRunId(null);
+              setPlanCenterVisited(true);
+              setDestination("plans");
             }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onSessions={() => {
@@ -327,6 +351,11 @@ export function MainLayout({
                         setInfoPanelCollapsed(false);
                       } else setInfoPanelCollapsed(true);
                     },
+                    onOpenIm: () => {
+                      if (conversationFocusMode) setConversationFocusMode(false);
+                      setRequestedInfoTab("im");
+                      setInfoPanelCollapsed(false);
+                    },
                     onToggleSessionList: () => {
                       if (effectiveSessionSidebarCollapsed) {
                         if (conversationFocusMode) setConversationFocusMode(false);
@@ -348,8 +377,9 @@ export function MainLayout({
               activeSession={displayedSession}
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
+              onOpenImSettings={() => onOpenSettings("im")}
               onOpenSkillSettings={() => onOpenSettings("skills")}
-              requestedTab={loopInspection?.target.surface === "usage" ? "usage" : null}
+              requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
             />
           </div>
           <section
@@ -362,6 +392,23 @@ export function MainLayout({
                 className="h-full min-h-0 flex-1"
                 componentProps={{ onInspect: inspectLoopSession }}
                 loader={loadLoopCenter}
+              />
+            ) : null}
+          </section>
+          <section
+            aria-label={t("layout.activityBar.plans")}
+            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "plans" ? "flex" : "hidden")}
+            id="plan-center"
+          >
+            {planCenterVisited ? (
+              <LazyFeature
+                className="h-full min-h-0 flex-1"
+                componentProps={{
+                  onRunAssociated: model.chatConfig.activateAssociatedPlanRun,
+                  originatingSessionId: model.activeSession?.agentId === "onepiece" ? model.activeSession.id : null,
+                  requestedRunId: planInspectionRunId,
+                }}
+                loader={loadPlanCenter}
               />
             ) : null}
           </section>

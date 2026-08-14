@@ -10,20 +10,16 @@ use crate::contexts::communications::application::{
     CommunicationsLogLevel, CommunicationsLoggingPort, CommunicationsOperation,
     CommunicationsOperationPort, CommunicationsSessionBindingPort,
 };
-use crate::contexts::communications::domain::{
-    ChatBinding, ChatBindingKey, ConnectorKind, RoutingSettings,
-};
+use crate::contexts::communications::domain::{ConnectorKind, RoutingSettings};
 use crate::contexts::operations::api::{
     DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
     OperationsApi,
 };
-use crate::contexts::sessions::api::{
-    NewSessionRequest, NewSessionWorkspace, SessionActivation, SessionOwner, SessionsApi,
-};
+use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use chrono::{Duration, Utc};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct CommunicationsAgentExecutionAdapter {
@@ -172,79 +168,27 @@ fn unavailable_agent() -> CommunicationsApplicationError {
 pub(crate) struct CommunicationsSessionBindingAdapter {
     repository: SqliteCommunicationsRepository,
     sessions: SessionsApi,
-    clock: Arc<dyn CommunicationsClockPort>,
-    creation_lock: Mutex<()>,
 }
 
 impl CommunicationsSessionBindingAdapter {
-    pub(crate) fn new(
-        repository: SqliteCommunicationsRepository,
-        sessions: SessionsApi,
-        clock: Arc<dyn CommunicationsClockPort>,
-    ) -> Self {
+    pub(crate) fn new(repository: SqliteCommunicationsRepository, sessions: SessionsApi) -> Self {
         Self {
             repository,
             sessions,
-            clock,
-            creation_lock: Mutex::new(()),
         }
     }
 }
 
 impl CommunicationsSessionBindingPort for CommunicationsSessionBindingAdapter {
-    fn find(&self, key: &ChatBindingKey) -> Result<Option<String>, CommunicationsApplicationError> {
-        self.repository.find_binding(key)
-    }
-
-    fn create_if_missing(
-        &self,
-        key: &ChatBindingKey,
-        routing: &RoutingSettings,
-    ) -> Result<String, CommunicationsApplicationError> {
-        let _guard = self
-            .creation_lock
-            .lock()
-            .map_err(|_| CommunicationsApplicationError::failure("binding-lock-failed"))?;
-        if let Some(session_id) = self.repository.find_binding(key)? {
-            return Ok(session_id);
-        }
-        let owner = SessionOwner::connector(key.connector().as_str()).map_err(|_| {
-            CommunicationsApplicationError::user_visible(
-                "session-create-failed",
-                "VaneHub could not create a session for this chat.",
-            )
-        })?;
-        let session = self
-            .sessions
-            .prepare_creation(NewSessionRequest {
-                agent_id: routing.agent_id.clone(),
-                seats: Vec::new(),
-                interaction_mode: InteractionMode::Cli.as_str().to_string(),
-                title: Some(format!("{} IM", key.connector().as_str())),
-                workspace: NewSessionWorkspace {
-                    project_path: Some(routing.project_path.clone()),
-                    ..Default::default()
-                },
-                owner,
-                activation: SessionActivation::PreserveActive,
-            })
-            .and_then(|prepared| self.sessions.execute_creation(prepared))
-            .map_err(|_| {
-                CommunicationsApplicationError::user_visible(
-                    "session-create-failed",
-                    "VaneHub could not create a session for this chat.",
-                )
-            })?;
-        let session_id = session.id().to_string();
-        self.repository.save_binding(
-            &ChatBinding::new(key.clone(), session_id.clone())?,
-            &self.clock.now_rfc3339(),
-        )?;
-        Ok(session_id)
-    }
-
     fn reset(&self, kind: Option<ConnectorKind>) -> Result<(), CommunicationsApplicationError> {
         self.repository.reset_bindings(kind).map(|_| ())
+    }
+
+    fn exists(&self, session_id: &str) -> Result<bool, CommunicationsApplicationError> {
+        self.sessions
+            .find(session_id)
+            .map(|session| session.is_some())
+            .map_err(|_| CommunicationsApplicationError::failure("session-lookup-failed"))
     }
 }
 

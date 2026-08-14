@@ -18,6 +18,7 @@ export function UsageAccountingNote({ generatedAt, language }: UsageAccountingNo
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
           <div className="space-y-2 text-sm leading-6 text-muted-foreground">
             <p>{t("usage.accounting.reported")}</p>
+            <p>{t("usage.accounting.derived")}</p>
             <p>{t("usage.accounting.estimated")}</p>
             <p>{t("usage.accounting.limitations")}</p>
           </div>

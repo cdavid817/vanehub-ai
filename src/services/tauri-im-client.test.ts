@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
 import { tauriImClient } from "./tauri-im-client";
+import { webImClient } from "./web-im-client";
 
 describe("Tauri IM client contract", () => {
   beforeEach(() => {
@@ -58,5 +59,34 @@ describe("Tauri IM client contract", () => {
     listener?.({ payload: { kind: "telegram", lifecycle: "connected", generation: 2, updatedAt: "2026-01-01" } });
     listener?.({ payload: { kind: "unknown", lifecycle: "connected", generation: -1, updatedAt: 1 } });
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Tauri and Web adapters method-for-method compatible", () => {
+    expect(Object.keys(tauriImClient).sort()).toEqual(Object.keys(webImClient).sort());
+  });
+
+  it("maps session pairing and binding commands through validated contracts", async () => {
+    invoke
+      .mockResolvedValueOnce({
+        connector: "telegram",
+        sessionId: "session-1",
+        code: "ABCD2345",
+        expiresAt: "2026-08-12T10:10:00Z",
+        replaceExisting: false,
+      })
+      .mockResolvedValueOnce({ binding: null, pendingConnector: "telegram" });
+
+    await expect(tauriImClient.beginPairing("session-1", "telegram")).resolves.toMatchObject({
+      code: "ABCD2345",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(1, "begin_im_pairing", {
+      connector: "telegram",
+      replaceExisting: false,
+      sessionId: "session-1",
+    });
+    await expect(tauriImClient.getSessionBinding("session-1")).resolves.toEqual({
+      binding: null,
+      pendingConnector: "telegram",
+    });
   });
 });

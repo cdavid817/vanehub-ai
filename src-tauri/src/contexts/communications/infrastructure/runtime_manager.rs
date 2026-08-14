@@ -212,6 +212,36 @@ impl ConnectorRuntimeManager {
         )
     }
 
+    pub(crate) async fn send_notification(
+        &self,
+        kind: ConnectorKind,
+        chat_id: &str,
+        text: &str,
+    ) -> Result<(), ConnectorRuntimeError> {
+        let connector = self
+            .connectors
+            .read()
+            .await
+            .get(&kind)
+            .cloned()
+            .ok_or_else(|| ConnectorRuntimeError::new("connector-not-registered"))?;
+        let connected = connector.state.lock().await.status.is_connected();
+        if !connected {
+            return Err(ConnectorRuntimeError::new("connector-not-connected"));
+        }
+        for part in split_text(text, connector.adapter.max_outbound_chars()) {
+            connector
+                .adapter
+                .send_text(OutboundText {
+                    chat_id: chat_id.to_string(),
+                    text: part,
+                    reply_context: None,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     fn with_limits_and_events(
         handler: Arc<dyn InboundAgent>,
         lifecycle_events: Arc<dyn ConnectorLifecycleEventPort>,

@@ -1,21 +1,28 @@
 use super::application::SessionsApplicationService;
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
-    CreateMessageRequest, DurableGenerationStartRequest, DurableGenerationTerminalRequest,
-    FailMessageRequest, FileReferenceInput, GenerationStartResult, GenerationTerminalResult,
-    GenerationTerminalStatus, LoopRoleSessionRequest, MessageRecord, MessageTokenUsage,
-    MessageUsageRecord, NewRemoteWorkspace, NewSessionRequest, NewSessionWorkspace, NewWorktree,
-    PreparedNewSessionCreation, RuntimeMessageSnapshot, RuntimeSessionSnapshot,
-    SessionChatConfiguration, SessionCreationOperation, SessionExportFormat, SessionExportRequest,
-    SessionExportResult, SessionListScope, SessionMaintenanceResult, SessionRecord,
-    SessionRecoveryProjection, SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
+    CompletedInvocationAccounting, CreateMessageRequest, DurableGenerationStartRequest,
+    DurableGenerationTerminalRequest, FailMessageRequest, FileReferenceInput,
+    GenerationStartResult, GenerationTerminalResult, GenerationTerminalStatus,
+    InvocationDetailQuery, LoopRoleSessionRequest, MessageRecord, MessageTokenUsage,
+    MessageUsageRecord, NewModelInvocation, NewRemoteWorkspace, NewSessionRequest,
+    NewSessionWorkspace, NewUsageObservation, NewWorktree, PreparedNewSessionCreation,
+    RuntimeMessageSnapshot, RuntimeSessionSnapshot, SessionChatConfiguration,
+    SessionCreationOperation, SessionExportFormat, SessionExportRequest, SessionExportResult,
+    SessionListScope, SessionMaintenanceResult, SessionRecord, SessionRecoveryProjection,
+    SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
     SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
-    SessionsApplicationError as SessionsError, UpdateSessionSeatsRequest, UsageStatisticsRange,
+    SessionsApplicationError as SessionsError, TokenUsageObservation, UpdateSessionSeatsRequest,
+    UsageAccountingSummary, UsageBreakdownDimension, UsageCursor, UsageCursorAdvance,
+    UsageDetailPage, UsageEntityCounts, UsageMeasureAggregate, UsageQualityAggregate,
+    UsageStatisticsRange, UsageSummaryQuery,
 };
 pub(crate) use super::domain::{
-    LoopSessionRole, RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode,
-    RecoveryTrigger, SessionActivation, SessionLifecycle, SessionOwner, SessionRecoveryReport,
-    SessionRecoveryStatus, SessionSeat, SessionSeatRoleSnapshot,
+    AccountingUnit, LoopSessionRole, MeasurementKind, MeasurementQuality, RecoveryDecision,
+    RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
+    SessionLifecycle, SessionOwner, SessionRecoveryReport, SessionRecoveryStatus, SessionSeat,
+    SessionSeatRoleSnapshot, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose,
+    UsageStatus,
 };
 use serde_json::Value;
 
@@ -25,6 +32,44 @@ pub(crate) struct SessionsApi {
 }
 
 impl SessionsApi {
+    pub(crate) fn start_model_invocation(
+        &self,
+        invocation: &NewModelInvocation,
+    ) -> Result<super::application::ModelInvocationRecord, SessionsError> {
+        self.service.start_model_invocation(invocation)
+    }
+
+    pub(crate) fn finalize_model_invocation(
+        &self,
+        invocation_id: &str,
+        status: UsageStatus,
+        completed_at: &str,
+    ) -> Result<super::application::ModelInvocationRecord, SessionsError> {
+        self.service
+            .finalize_model_invocation(invocation_id, status, completed_at)
+    }
+
+    pub(crate) fn record_token_observation(
+        &self,
+        observation: &NewUsageObservation,
+    ) -> Result<TokenUsageObservation, SessionsError> {
+        self.service.record_token_observation(observation)
+    }
+
+    pub(crate) fn advance_usage_cursor(
+        &self,
+        advance: &UsageCursorAdvance,
+    ) -> Result<UsageCursor, SessionsError> {
+        self.service.advance_usage_cursor(advance)
+    }
+
+    pub(crate) fn find_usage_cursor(
+        &self,
+        source_id: &str,
+    ) -> Result<Option<UsageCursor>, SessionsError> {
+        self.service.find_usage_cursor(source_id)
+    }
+
     pub(crate) fn recovery_summary(
         &self,
         session_id: &str,
@@ -240,6 +285,7 @@ impl SessionsApi {
             .map(|record| record.as_ref().map(RuntimeMessageSnapshot::from_record))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn create_message(
         &self,
         request: CreateMessageRequest,
@@ -372,12 +418,18 @@ impl SessionsApi {
         self.service.session_usage_summary(session_id)
     }
 
-    pub(crate) fn terminal_usage_message_id(
+    pub(crate) fn token_usage_summary(
         &self,
-        session_id: &str,
-        agent_id: &str,
-    ) -> Result<Option<String>, SessionsError> {
-        self.service.terminal_usage_message_id(session_id, agent_id)
+        query: &UsageSummaryQuery,
+    ) -> Result<UsageAccountingSummary, SessionsError> {
+        self.service.token_usage_summary(query)
+    }
+
+    pub(crate) fn token_usage_details(
+        &self,
+        query: &InvocationDetailQuery,
+    ) -> Result<UsageDetailPage, SessionsError> {
+        self.service.invocation_usage_details(query)
     }
 
     pub(crate) fn run_maintenance(

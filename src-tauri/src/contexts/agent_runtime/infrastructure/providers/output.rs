@@ -14,16 +14,29 @@ pub(crate) enum ProviderOutputEvent {
     Empty,
 }
 
-/// Per-CLI reported token usage parsed from a provider's own "turn complete" line, in
-/// the CLI's native shape. Reasoning/thinking output tokens (codex-cli, opencode) are
-/// already folded into `output_tokens` at parse time — see
-/// `add-reported-usage-ingestion` design.md Decision 3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ProviderUsageOverlap {
+    Subset,
+    Exclusive,
+    #[default]
+    Unknown,
+}
+
+/// Provider-native completion usage with explicit, versioned dimension semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ProviderReportedUsage {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_read_tokens: i64,
     pub(crate) cache_creation_tokens: i64,
+    pub(crate) reasoning_output_tokens: i64,
+    pub(crate) provider_total_tokens: Option<i64>,
+    pub(crate) cache_overlap: ProviderUsageOverlap,
+    pub(crate) reasoning_overlap: ProviderUsageOverlap,
+    pub(crate) normalization_version: &'static str,
+    pub(crate) model_id: Option<String>,
+    pub(crate) source_identity: Option<String>,
+    pub(crate) source_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,14 +203,20 @@ fn fallback_diagnostic(diagnostic: &str, status: &str) -> String {
 
 fn antigravity_usage(payload: &Value) -> Option<ProviderReportedUsage> {
     let usage = payload.get("usage")?;
-    let read = |key: &str| usage.get(key).and_then(Value::as_i64).unwrap_or_default();
-    // Thinking tokens fold into output, matching how codex-cli, opencode, and gemini-cli already
-    // account for reasoning tokens.
-    Some(ProviderReportedUsage {
-        input_tokens: read("input_tokens"),
-        output_tokens: read("output_tokens") + read("thinking_tokens"),
-        cache_read_tokens: read("cache_read_tokens"),
+    // The verified v1.1.11 result total equals fresh input + output + thinking + cache read, so
+    // these fields are exclusive rather than subsets or values that should be folded together.
+    non_degenerate(ProviderReportedUsage {
+        input_tokens: non_negative_i64(usage, "input_tokens"),
+        output_tokens: non_negative_i64(usage, "output_tokens"),
+        cache_read_tokens: non_negative_i64(usage, "cache_read_tokens"),
         cache_creation_tokens: 0,
+        reasoning_output_tokens: non_negative_i64(usage, "thinking_tokens"),
+        provider_total_tokens: optional_non_negative_i64(usage, "total_tokens"),
+        cache_overlap: ProviderUsageOverlap::Exclusive,
+        reasoning_overlap: ProviderUsageOverlap::Exclusive,
+        normalization_version: "antigravity-result-usage-v2",
+        source_identity: bounded_safe_identity(payload.get("conversation_id")),
+        ..ProviderReportedUsage::default()
     })
 }
 
@@ -371,6 +390,8 @@ fn non_degenerate(usage: ProviderReportedUsage) -> Option<ProviderReportedUsage>
         && usage.output_tokens == 0
         && usage.cache_read_tokens == 0
         && usage.cache_creation_tokens == 0
+        && usage.reasoning_output_tokens == 0
+        && usage.provider_total_tokens.unwrap_or_default() == 0
     {
         None
     } else {
@@ -382,6 +403,53 @@ fn non_negative_i64(value: &Value, key: &str) -> i64 {
     value.get(key).and_then(Value::as_i64).unwrap_or(0).max(0)
 }
 
+fn optional_non_negative_i64(value: &Value, key: &str) -> Option<i64> {
+    value
+        .get(key)
+        .and_then(Value::as_i64)
+        .map(|count| count.max(0))
+}
+
+fn gemini_model_stat(stats: &Value, key: &str) -> Option<i64> {
+    let models = stats.get("models")?.as_object()?;
+    let mut found = false;
+    let total = models.values().fold(0_i64, |total, model| {
+        model
+            .get(key)
+            .and_then(Value::as_i64)
+            .map_or(total, |count| {
+                found = true;
+                total.saturating_add(count.max(0))
+            })
+    });
+    found.then_some(total)
+}
+
+fn gemini_stat(stats: &Value, key: &str) -> i64 {
+    stats
+        .get(key)
+        .and_then(Value::as_i64)
+        .map(|count| count.max(0))
+        .or_else(|| gemini_model_stat(stats, key))
+        .unwrap_or_default()
+}
+
+fn gemini_model_id(stats: &Value) -> Option<String> {
+    let models = stats.get("models")?.as_object()?;
+    let mut names = models.keys();
+    let name = names.next()?;
+    if names.next().is_some()
+        || name.is_empty()
+        || name.len() > 128
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_/:".contains(character))
+    {
+        return None;
+    }
+    Some(name.clone())
+}
+
 /// claude-code `result` line: `{"usage":{"input_tokens","output_tokens","cache_creation_input_tokens","cache_read_input_tokens"}}`.
 fn claude_usage(value: &Value) -> Option<ProviderReportedUsage> {
     let usage = value.get("usage")?;
@@ -390,19 +458,28 @@ fn claude_usage(value: &Value) -> Option<ProviderReportedUsage> {
         output_tokens: non_negative_i64(usage, "output_tokens"),
         cache_read_tokens: non_negative_i64(usage, "cache_read_input_tokens"),
         cache_creation_tokens: non_negative_i64(usage, "cache_creation_input_tokens"),
+        provider_total_tokens: optional_non_negative_i64(usage, "total_tokens"),
+        cache_overlap: ProviderUsageOverlap::Exclusive,
+        reasoning_overlap: ProviderUsageOverlap::Subset,
+        normalization_version: "claude-code-result-usage-v1",
+        ..ProviderReportedUsage::default()
     })
 }
 
 /// codex-cli `turn.completed` line: `{"usage":{"input_tokens","cached_input_tokens","cache_write_input_tokens","output_tokens","reasoning_output_tokens"}}`.
-/// Reasoning output tokens are folded into `output_tokens` (Decision 3).
 fn codex_usage(value: &Value) -> Option<ProviderReportedUsage> {
     let usage = value.get("usage")?;
     non_degenerate(ProviderReportedUsage {
         input_tokens: non_negative_i64(usage, "input_tokens"),
-        output_tokens: non_negative_i64(usage, "output_tokens")
-            + non_negative_i64(usage, "reasoning_output_tokens"),
+        output_tokens: non_negative_i64(usage, "output_tokens"),
         cache_read_tokens: non_negative_i64(usage, "cached_input_tokens"),
         cache_creation_tokens: non_negative_i64(usage, "cache_write_input_tokens"),
+        reasoning_output_tokens: non_negative_i64(usage, "reasoning_output_tokens"),
+        provider_total_tokens: optional_non_negative_i64(usage, "total_tokens"),
+        cache_overlap: ProviderUsageOverlap::Subset,
+        reasoning_overlap: ProviderUsageOverlap::Subset,
+        normalization_version: "codex-turn-completed-usage-v1",
+        ..ProviderReportedUsage::default()
     })
 }
 
@@ -411,20 +488,46 @@ fn codex_usage(value: &Value) -> Option<ProviderReportedUsage> {
 fn gemini_usage(value: &Value) -> Option<ProviderReportedUsage> {
     let stats = value.get("stats")?;
     non_degenerate(ProviderReportedUsage {
-        input_tokens: non_negative_i64(stats, "input_tokens"),
-        output_tokens: non_negative_i64(stats, "output_tokens"),
-        cache_read_tokens: non_negative_i64(stats, "cached"),
+        input_tokens: gemini_stat(stats, "input_tokens"),
+        output_tokens: gemini_stat(stats, "output_tokens"),
+        cache_read_tokens: gemini_stat(stats, "cached"),
         cache_creation_tokens: 0,
+        reasoning_output_tokens: gemini_stat(stats, "thoughts"),
+        provider_total_tokens: optional_non_negative_i64(stats, "total_tokens")
+            .or_else(|| gemini_model_stat(stats, "total_tokens")),
+        cache_overlap: ProviderUsageOverlap::Subset,
+        reasoning_overlap: ProviderUsageOverlap::Exclusive,
+        normalization_version: "gemini-result-stream-stats-v1",
+        model_id: gemini_model_id(stats),
+        ..ProviderReportedUsage::default()
     })
 }
 
-/// opencode `step_finish`/`step-finish` line: `{"part":{"tokens":{"total","input","output","reasoning","cache":{"read","write"}}}}`.
-/// Reasoning output tokens are folded into `output_tokens` (Decision 3).
+fn bounded_safe_identity(value: Option<&Value>) -> Option<String> {
+    let identity = value?.as_str()?.trim();
+    (!identity.is_empty()
+        && identity.len() <= 128
+        && identity
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_:/".contains(character)))
+    .then(|| identity.to_string())
+}
+
+fn opencode_revision(value: &Value) -> Option<String> {
+    value
+        .get("timestamp")
+        .and_then(Value::as_u64)
+        .map(|timestamp| timestamp.to_string())
+        .or_else(|| bounded_safe_identity(value.get("revision")))
+}
+
+/// opencode `step_finish`/`step-finish` line: `{"timestamp":...,"part":{"id":...,"tokens":{"total","input","output","reasoning","cache":{"read","write"}}}}`.
+/// OpenCode normalizes these categories as exclusive dimensions before emitting the part.
 fn opencode_usage(value: &Value) -> Option<ProviderReportedUsage> {
     let tokens = value.pointer("/part/tokens")?;
     non_degenerate(ProviderReportedUsage {
         input_tokens: non_negative_i64(tokens, "input"),
-        output_tokens: non_negative_i64(tokens, "output") + non_negative_i64(tokens, "reasoning"),
+        output_tokens: non_negative_i64(tokens, "output"),
         cache_read_tokens: tokens
             .pointer("/cache/read")
             .and_then(Value::as_i64)
@@ -435,6 +538,14 @@ fn opencode_usage(value: &Value) -> Option<ProviderReportedUsage> {
             .and_then(Value::as_i64)
             .unwrap_or(0)
             .max(0),
+        reasoning_output_tokens: non_negative_i64(tokens, "reasoning"),
+        provider_total_tokens: optional_non_negative_i64(tokens, "total"),
+        cache_overlap: ProviderUsageOverlap::Exclusive,
+        reasoning_overlap: ProviderUsageOverlap::Exclusive,
+        normalization_version: "opencode-step-finish-tokens-v1",
+        source_identity: bounded_safe_identity(value.pointer("/part/id")),
+        source_revision: opencode_revision(value),
+        ..ProviderReportedUsage::default()
     })
 }
 

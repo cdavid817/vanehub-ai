@@ -374,6 +374,7 @@ pub(crate) struct GenerationTerminalRequest {
     pub(crate) message: MessageRecord,
     pub(crate) terminal_status: GenerationTerminalStatus,
     pub(crate) usage: Option<MessageUsageRecord>,
+    pub(crate) invocation_usage: Option<super::CompletedInvocationAccounting>,
     pub(crate) finished_at: String,
 }
 
@@ -395,6 +396,7 @@ pub(crate) struct DurableGenerationTerminalRequest {
     pub(crate) rich_blocks: Option<Vec<Value>>,
     pub(crate) token_usage: Option<MessageTokenUsage>,
     pub(crate) usage: Option<MessageUsageRecord>,
+    pub(crate) invocation_usage: Option<super::CompletedInvocationAccounting>,
     pub(crate) error: Option<String>,
 }
 
@@ -488,6 +490,7 @@ pub(crate) struct CompleteMessageRequest {
     pub(crate) rich_blocks: Option<Vec<Value>>,
     pub(crate) token_usage: Option<MessageTokenUsage>,
     pub(crate) usage: Option<MessageUsageRecord>,
+    pub(crate) invocation_usage: Option<super::CompletedInvocationAccounting>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

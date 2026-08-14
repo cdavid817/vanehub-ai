@@ -48,6 +48,7 @@ export function SettingsShell({
               isActive: page.id === activePageId,
               navigationTarget: page.id === activePageId ? navigationTarget : null,
               onNavigate: handleSelectPage,
+              onReturn,
               searchTerm: page.id === activePageId ? searchTerm : "",
             };
             return (

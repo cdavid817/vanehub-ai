@@ -1,0 +1,62 @@
+[
+  {
+    "name": "successful-claude-result",
+    "agentId": "claude-code",
+    "line": "{\"type\":\"result\",\"usage\":{\"input_tokens\":12,\"output_tokens\":5,\"cache_creation_input_tokens\":2,\"cache_read_input_tokens\":3,\"total_tokens\":22}}",
+    "expected": { "kind": "usage", "input": 12, "output": 5, "cacheRead": 3, "cacheWrite": 2, "reasoning": 0, "total": 22 }
+  },
+  {
+    "name": "cache-only-claude-result",
+    "agentId": "claude-code",
+    "line": "{\"type\":\"result\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":7,\"cache_read_input_tokens\":11,\"total_tokens\":18}}",
+    "expected": { "kind": "usage", "input": 0, "output": 0, "cacheRead": 11, "cacheWrite": 7, "reasoning": 0, "total": 18 }
+  },
+  {
+    "name": "all-zero-codex-result",
+    "agentId": "codex-cli",
+    "line": "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":0}}",
+    "expected": { "kind": "no-usage" }
+  },
+  {
+    "name": "malformed-gemini-usage",
+    "agentId": "gemini-cli",
+    "line": "{\"type\":\"result\",\"stats\":{\"input_tokens\":\"invalid\",\"output_tokens\":null,\"cached\":{},\"total_tokens\":[]}}",
+    "expected": { "kind": "no-usage" }
+  },
+  {
+    "name": "opencode-revision-one",
+    "agentId": "opencode",
+    "line": "{\"type\":\"step_finish\",\"timestamp\":1720000000001,\"part\":{\"id\":\"prt_revision\",\"type\":\"step-finish\",\"tokens\":{\"total\":20,\"input\":10,\"output\":4,\"reasoning\":2,\"cache\":{\"read\":3,\"write\":1}}}}",
+    "expected": { "kind": "usage", "input": 10, "output": 4, "cacheRead": 3, "cacheWrite": 1, "reasoning": 2, "total": 20, "sourceIdentity": "prt_revision", "sourceRevision": "1720000000001" }
+  },
+  {
+    "name": "opencode-revision-two",
+    "agentId": "opencode",
+    "line": "{\"type\":\"step_finish\",\"timestamp\":1720000000002,\"part\":{\"id\":\"prt_revision\",\"type\":\"step-finish\",\"tokens\":{\"total\":23,\"input\":11,\"output\":5,\"reasoning\":3,\"cache\":{\"read\":3,\"write\":1}}}}",
+    "expected": { "kind": "usage", "input": 11, "output": 5, "cacheRead": 3, "cacheWrite": 1, "reasoning": 3, "total": 23, "sourceIdentity": "prt_revision", "sourceRevision": "1720000000002" }
+  },
+  {
+    "name": "missing-gemini-usage",
+    "agentId": "gemini-cli",
+    "line": "{\"type\":\"result\"}",
+    "expected": { "kind": "no-usage" }
+  },
+  {
+    "name": "failed-codex-result",
+    "agentId": "codex-cli",
+    "line": "{\"type\":\"turn.failed\",\"error\":{\"code\":\"permission_denied\",\"message\":\"request rejected\"}}",
+    "expected": { "kind": "failure", "failureKind": "non-retryable" }
+  },
+  {
+    "name": "cancelled-antigravity-result",
+    "agentId": "antigravity-cli",
+    "line": "{\"event\":\"result\",\"result\":{\"status\":\"CANCELED\",\"error\":\"cancelled by caller\"}}",
+    "expected": { "kind": "failure", "failureKind": "non-retryable" }
+  },
+  {
+    "name": "retryable-codex-result",
+    "agentId": "codex-cli",
+    "line": "{\"type\":\"turn.failed\",\"error\":{\"code\":\"transport_error\",\"message\":\"connection interrupted\"}}",
+    "expected": { "kind": "failure", "failureKind": "retryable" }
+  }
+]

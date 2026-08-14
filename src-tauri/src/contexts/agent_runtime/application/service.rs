@@ -1,18 +1,19 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
     format_memory_section, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
-    AgentEvent, AgentEventPort, AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
+    AgentEvent, AgentEventPort, AgentGenerationPort, AgentInvocationUsage, AgentLog, AgentLogLevel,
+    AgentLoggingPort, AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
     AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
     AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
-    AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView,
-    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot,
-    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
-    DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
-    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
-    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
-    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap,
+    AgentUsageRecord, AgentView, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
+    CliProfileSnapshot, CompleteAgentMessage, ConversationHistoryPort,
+    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationStart, EffectivePrompt,
+    EffectivePromptGateway, EmbeddingEndpointView, GenerationLease, GenerationProcessEvent,
+    GenerationProcessRequest, LaunchWorkflowResult, LoopGenerationControlPort,
+    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
+    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
@@ -1469,6 +1470,8 @@ impl AgentRuntimeApplicationService {
             seat_ownership,
             record_user_message,
         } = input;
+        let originated_from_im =
+            matches!(&source, super::AgentMessageSource::InstantMessage { .. });
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
                 "execution observability settings are unavailable".to_string(),
@@ -2063,6 +2066,7 @@ impl AgentRuntimeApplicationService {
                 is_cli_kind: agent.launch().kind_str() == "cli",
                 folder: session.folder.clone(),
                 user_prompt: prompt.clone(),
+                originated_from_im,
             },
         ));
         if let Err(error) = self
@@ -2428,6 +2432,7 @@ struct GenerationEventHandler {
     is_cli_kind: bool,
     folder: Option<String>,
     user_prompt: String,
+    originated_from_im: bool,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -2448,6 +2453,7 @@ struct GenerationEventHandlerInput {
     is_cli_kind: bool,
     folder: Option<String>,
     user_prompt: String,
+    originated_from_im: bool,
 }
 
 // Streaming deltas are persisted for crash/live-reload durability only — the terminal
@@ -2528,6 +2534,7 @@ impl GenerationEventHandler {
             is_cli_kind: input.is_cli_kind,
             folder: input.folder,
             user_prompt: input.user_prompt,
+            originated_from_im: input.originated_from_im,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -2777,20 +2784,35 @@ impl GenerationEventHandler {
         // character-count estimate; an all-zero/degenerate payload is normalized to
         // `None` upstream in `output.rs`, so any `Some(...)` reaching here is genuine.
         // See `add-reported-usage-ingestion` design.md Decisions 2 and 4.
+        let occurred_at = self.ports.clock.now();
+        let source_identity = reported_usage
+            .as_ref()
+            .and_then(|reported| reported.source_identity.clone());
+        let source_revision = reported_usage
+            .as_ref()
+            .and_then(|reported| reported.source_revision.clone());
         let usage = match reported_usage {
             Some(reported) => AgentUsageRecord {
                 message_id: self.message_id.clone(),
                 session_id: self.session_id.clone(),
                 agent_id: self.agent_id.clone(),
                 provider_id: self.configuration.provider_id.clone(),
-                model_id: self.configuration.model_id.clone(),
+                model_id: reported
+                    .model_id
+                    .clone()
+                    .or_else(|| self.configuration.model_id.clone()),
                 accounting_kind: AgentUsageAccountingKind::Reported,
                 input_count: reported.input_tokens,
                 output_count: reported.output_tokens,
                 cache_read_count: reported.cache_read_tokens,
                 cache_creation_count: reported.cache_creation_tokens,
+                reasoning_output_count: reported.reasoning_output_tokens,
+                provider_total_count: reported.provider_total_tokens,
+                cache_overlap: reported.cache_overlap,
+                reasoning_overlap: reported.reasoning_overlap,
+                normalization_version: reported.normalization_version.to_string(),
                 source: "cli-reported".to_string(),
-                occurred_at: self.ports.clock.now(),
+                occurred_at: occurred_at.clone(),
             },
             None => AgentUsageRecord {
                 message_id: self.message_id.clone(),
@@ -2803,9 +2825,39 @@ impl GenerationEventHandler {
                 output_count: token_usage.output,
                 cache_read_count: 0,
                 cache_creation_count: 0,
+                reasoning_output_count: 0,
+                provider_total_count: None,
+                cache_overlap: AgentUsageOverlap::Subset,
+                reasoning_overlap: AgentUsageOverlap::Subset,
+                normalization_version: "character-count-v1".to_string(),
                 source: "character-count".to_string(),
-                occurred_at: self.ports.clock.now(),
+                occurred_at: occurred_at.clone(),
             },
+        };
+        let invocation_id = source_identity.as_ref().map_or_else(
+            || format!("managed-cli:{}:invocation", self.message_id),
+            |identity| format!("managed-cli:{}:step:{identity}:invocation", self.message_id),
+        );
+        let observation_id = match (source_identity.as_deref(), source_revision.as_deref()) {
+            (Some(identity), Some(revision)) => format!(
+                "managed-cli:{}:step:{identity}:revision:{revision}:observation",
+                self.message_id
+            ),
+            (Some(identity), None) => format!(
+                "managed-cli:{}:step:{identity}:observation",
+                self.message_id
+            ),
+            (None, _) => format!("managed-cli:{}:observation", self.message_id),
+        };
+        let invocation_usage = AgentInvocationUsage {
+            observation_id,
+            invocation_id,
+            generation_id: self.message_id.clone(),
+            run_id: self.root_context.run_id.as_str().to_string(),
+            operation_id: self.operation_id.clone(),
+            source_identity,
+            source_revision,
+            usage,
         };
         self.ports.sessions.complete_message(CompleteAgentMessage {
             message_id: self.message_id.clone(),
@@ -2815,7 +2867,9 @@ impl GenerationEventHandler {
             tool_use: current.tool_use,
             rich_blocks: current.rich_blocks,
             token_usage: Some(token_usage.clone()),
-            usage: Some(usage),
+            usage: None,
+            invocation_usage: (self.configuration.interaction_mode != InteractionMode::Api)
+                .then_some(invocation_usage),
         })?;
         let _ = self
             .ports
@@ -2841,6 +2895,7 @@ impl GenerationEventHandler {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             token_usage: Some(token_usage),
+            originated_from_im: self.originated_from_im,
         });
         self.deliver_loop_terminal(
             LoopRoleGenerationOutcome::Completed,

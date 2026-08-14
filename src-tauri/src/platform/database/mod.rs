@@ -198,6 +198,20 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("stable participant migration");
+        let plan_agent_loop_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 62",
+                [],
+                |row| row.get(0),
+            )
+            .expect("OnePiece Plan Agent loop migration");
+        let managed_im_binding_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 65",
+                [],
+                |row| row.get(0),
+            )
+            .expect("managed IM binding migration");
         let lsp_migration: String = connection
             .query_row(
                 "SELECT name FROM schema_migrations WHERE version = 58",
@@ -220,7 +234,7 @@ mod tests {
             )
             .expect("Skill evolution evidence migration");
 
-        assert_eq!(migration_count, 62);
+        assert_eq!(migration_count, 66);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -240,6 +254,8 @@ mod tests {
             "plan-and-code-index-reconciliation"
         );
         assert_eq!(stable_participant_migration, "stable-session-participants");
+        assert_eq!(plan_agent_loop_migration, "onepiece-plan-agent-loop");
+        assert_eq!(managed_im_binding_migration, "managed-im-session-bindings");
         assert_eq!(lsp_migration, "lsp-code-intelligence-foundation");
         assert_eq!(effective_skill_migration, "effective-skill-runtime");
         assert_eq!(evidence_migration, "skill-evolution-evidence-foundation");
@@ -274,7 +290,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 62);
+        assert_eq!(migration_count, 66);
     }
 
     #[test]

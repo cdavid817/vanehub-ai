@@ -8,14 +8,18 @@ pub(crate) use error::CommunicationsApplicationError;
 pub(crate) use models::{
     AgentExecutionRequest, AgentExecutionResult, CommunicationsLog, CommunicationsLogLevel,
     CommunicationsOperation, ConnectorCredential, ConnectorRuntimeDefinition,
-    ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome, SaveConnectorRequest,
+    ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome, PairingStartResult,
+    SaveConnectorRequest, SessionBindingSnapshot,
 };
 pub(crate) use ports::{
     CommunicationsAgentExecutionPort, CommunicationsClockPort, CommunicationsCredentialPort,
     CommunicationsLoggingPort, CommunicationsOperationPort, CommunicationsRepository,
     CommunicationsSessionBindingPort, CommunicationsTransportPort,
 };
-pub(crate) use service::{CommunicationsApplicationPorts, CommunicationsApplicationService};
+pub(crate) use service::{
+    CommunicationsApplicationPorts, CommunicationsApplicationService, CommunicationsCopy,
+    CommunicationsCopyProvider,
+};
 
 #[cfg(test)]
 mod tests;

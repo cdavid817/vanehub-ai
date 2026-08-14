@@ -1,4 +1,4 @@
-import type { UsageStatistics } from "../../../types/chat";
+import type { TokenUsageSummary } from "../../../types/token-usage";
 
 export const usagePollingInterval = 30_000;
 
@@ -11,6 +11,6 @@ export function usageRefetchInterval(isActive: boolean): number | false {
   return isActive ? usagePollingInterval : false;
 }
 
-export function preserveUsageData(previous: UsageStatistics | undefined) {
+export function preserveUsageData(previous: TokenUsageSummary | undefined) {
   return previous;
 }
