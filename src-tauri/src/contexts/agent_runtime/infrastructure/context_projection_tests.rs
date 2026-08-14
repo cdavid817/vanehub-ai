@@ -139,7 +139,7 @@ fn estimator_is_deterministic_monotonic_multilingual_and_degrades_unknown_blocks
                 .components
                 .iter()
                 .map(|part| part.estimated_tokens.unwrap_or(0))
-                .sum()
+                .sum::<u64>()
     );
 
     let unknown =
