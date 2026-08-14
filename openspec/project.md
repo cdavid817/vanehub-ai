@@ -47,19 +47,30 @@ The Tauri native runtime MUST remain a single-crate, domain-oriented modular mon
 
 ### Bounded contexts
 
+This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly these directories, and adding one MUST add its row here in the same change.
+
 | Context | Ownership |
 | --- | --- |
 | `agent_runtime` | Agent registry, interaction modes, provider invocation, workflow state, and generation lifecycle |
-| `sessions` | Sessions, messages, categories, chat configuration, export, maintenance, and usage records/read models |
+| `sessions` | Sessions, messages, categories, chat configuration, export, maintenance, scheduled tasks, and usage records/read models |
 | `workspaces` | Local/remote projects, worktrees, bounded file/Git inspection, and session shell lifecycle |
 | `tooling` | CLI lifecycle and the MCP, SDK, extension, plugin integration, Skill, and Prompt Hook subdomains |
 | `communications` | IM connector configuration, credentials, protocol adapters, routing, and delivery lifecycle |
 | `desktop` | App settings, startup, data/log directory actions, floating assistant, and window/tray lifecycle |
 | `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts |
+| `permissions` | Permission policy evaluation, approval brokering, risk classification, and the Claude Code hook wait registry |
+| `task_orchestration` | Plan drafts, plan runs, attempt execution and verification, plan worktrees, and recovery evidence |
+| `code_intelligence` | LSP server configuration, discovery, workspace trust, negotiated capabilities, and normalized diagnostics/hover/locations |
+| `retrieval` | Retrieval configuration, embedding models, code and document indexing, index status, and search |
+| `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings |
+| `ssh_connections` | SSH connection profiles, host-key trust, credential loading, and the pooled remote runtime |
+| `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage |
+| `work_board` | Work items, their stages and priorities, and idempotent reconciliation of Sessions, Plans, and Scheduled Tasks into cards |
 
 - Every new or materially changed native business rule, use case, persistence model, external integration, and Tauri command MUST have one owning context.
 - `tooling` subdomains MUST keep separate domain models and application APIs. A subdomain MAY be promoted to a peer context through an approved architecture decision when it has independent language, lifecycle, or transaction ownership.
-- Usage reporting remains a `sessions` read model while usage records are owned by assistant messages.
+- Usage reporting remains a `sessions` read model while usage records are owned by assistant messages. Scheduled tasks are owned by `sessions` because a task's purpose is to start one; `task_orchestration` owns plan execution, which is a different lifecycle.
+- A context whose behavior is genuinely stateless persistence MAY omit `domain/` and `application/`, per the ceremony rule above. `work_board` is the current example: it exposes `api.rs` over `models.rs` and `infrastructure.rs` with no aggregate to protect. Adding invariants to such a context MUST add the missing layers rather than growing `api.rs`.
 - Cross-context calls MUST use the owning context's published `api` facade, immutable contract, or explicit event. A context MUST NOT import another context's repository, infrastructure adapter, private aggregate, or command DTO.
 - A shared kernel MUST stay minimal and contain only stable identifiers or value types with documented consumers and invariant ownership. General utilities and I/O helpers belong to `platform`, not the shared domain model.
 
