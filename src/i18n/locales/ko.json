@@ -3236,5 +3236,13 @@
   "todoBoard.source.plan": "Plan",
   "todoBoard.source.plan_run": "Plan 실행",
   "todoBoard.source.scheduled_task": "예약 작업",
-  "todoBoard.project.all": "모든 프로젝트"
+  "todoBoard.project.all": "모든 프로젝트",
+  "slash.output.applied": "적용됨",
+  "slash.output.mode": "실행 모드: {{value}}",
+  "slash.output.reasoning": "추론 깊이: {{value}}",
+  "slash.output.thinking": "사고: {{value}}",
+  "slash.output.streaming": "스트리밍: {{value}}",
+  "slash.output.longcontext": "긴 컨텍스트: {{value}}",
+  "slash.error.title": "명령 실행 실패",
+  "slash.error.badArgument": "/{{command}} 에는 다음 중 하나가 필요합니다: {{allowed}}"
 }

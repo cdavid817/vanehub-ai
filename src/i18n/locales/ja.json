@@ -3236,5 +3236,13 @@
   "todoBoard.source.plan": "プラン",
   "todoBoard.source.plan_run": "プラン実行",
   "todoBoard.source.scheduled_task": "スケジュールタスク",
-  "todoBoard.project.all": "すべてのプロジェクト"
+  "todoBoard.project.all": "すべてのプロジェクト",
+  "slash.output.applied": "適用しました",
+  "slash.output.mode": "実行モード: {{value}}",
+  "slash.output.reasoning": "推論の深さ: {{value}}",
+  "slash.output.thinking": "思考: {{value}}",
+  "slash.output.streaming": "ストリーミング: {{value}}",
+  "slash.output.longcontext": "ロングコンテキスト: {{value}}",
+  "slash.error.title": "コマンドが失敗しました",
+  "slash.error.badArgument": "/{{command}} には次のいずれかを指定してください: {{allowed}}"
 }

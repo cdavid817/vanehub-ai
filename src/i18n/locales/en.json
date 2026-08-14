@@ -3236,5 +3236,13 @@
   "todoBoard.source.plan": "Plan",
   "todoBoard.source.plan_run": "Plan run",
   "todoBoard.source.scheduled_task": "Scheduled task",
-  "todoBoard.project.all": "All projects"
+  "todoBoard.project.all": "All projects",
+  "slash.output.applied": "Applied",
+  "slash.output.mode": "Execution mode: {{value}}",
+  "slash.output.reasoning": "Reasoning depth: {{value}}",
+  "slash.output.thinking": "Thinking: {{value}}",
+  "slash.output.streaming": "Streaming: {{value}}",
+  "slash.output.longcontext": "Long context: {{value}}",
+  "slash.error.title": "Command failed",
+  "slash.error.badArgument": "/{{command}} expects one of: {{allowed}}"
 }

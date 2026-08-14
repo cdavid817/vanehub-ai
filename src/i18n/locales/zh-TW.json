@@ -3236,5 +3236,13 @@
   "todoBoard.source.plan": "Plan",
   "todoBoard.source.plan_run": "Plan 執行",
   "todoBoard.source.scheduled_task": "定時任務",
-  "todoBoard.project.all": "所有專案"
+  "todoBoard.project.all": "所有專案",
+  "slash.output.applied": "已套用",
+  "slash.output.mode": "執行模式：{{value}}",
+  "slash.output.reasoning": "推理深度：{{value}}",
+  "slash.output.thinking": "思考：{{value}}",
+  "slash.output.streaming": "串流輸出：{{value}}",
+  "slash.output.longcontext": "長上下文：{{value}}",
+  "slash.error.title": "指令執行失敗",
+  "slash.error.badArgument": "/{{command}} 需要下列其中一個值：{{allowed}}"
 }

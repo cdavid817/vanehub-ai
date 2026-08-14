@@ -3236,5 +3236,13 @@
   "todoBoard.source.plan": "计划",
   "todoBoard.source.plan_run": "计划运行",
   "todoBoard.source.scheduled_task": "定时任务",
-  "todoBoard.project.all": "全部项目"
+  "todoBoard.project.all": "全部项目",
+  "slash.output.applied": "已应用",
+  "slash.output.mode": "执行模式：{{value}}",
+  "slash.output.reasoning": "推理深度：{{value}}",
+  "slash.output.thinking": "思考：{{value}}",
+  "slash.output.streaming": "流式输出：{{value}}",
+  "slash.output.longcontext": "长上下文：{{value}}",
+  "slash.error.title": "命令执行失败",
+  "slash.error.badArgument": "/{{command}} 需要下列取值之一：{{allowed}}"
 }
