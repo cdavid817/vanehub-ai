@@ -98,7 +98,8 @@ const RECOVERY_NATIVE_COMMANDS: [(&str, &str); 3] = [
 fn every_migrated_session_command_keeps_registration_frontend_and_error_boundaries() {
     let native_registration = concat!(
         include_str!("../core_registry.rs"),
-        include_str!("../builtin_tool_registry.rs")
+        include_str!("../builtin_tool_registry.rs"),
+        include_str!("../supplemental_registry.rs")
     );
     let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
 
@@ -124,7 +125,8 @@ fn every_migrated_session_command_keeps_registration_frontend_and_error_boundari
 fn recovery_commands_are_registered_one_per_file_with_safe_errors() {
     let native_registration = concat!(
         include_str!("../core_registry.rs"),
-        include_str!("../builtin_tool_registry.rs")
+        include_str!("../builtin_tool_registry.rs"),
+        include_str!("../supplemental_registry.rs")
     );
     let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
     for (command, handler) in RECOVERY_NATIVE_COMMANDS {

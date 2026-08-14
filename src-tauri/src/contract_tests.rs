@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 fn command_registration_source() -> &'static str {
     concat!(
         include_str!("commands/core_registry.rs"),
-        include_str!("commands/builtin_tool_registry.rs")
+        include_str!("commands/builtin_tool_registry.rs"),
+        include_str!("commands/supplemental_registry.rs")
     )
 }
 

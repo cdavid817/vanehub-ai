@@ -1627,7 +1627,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (66, 67));
+        assert_eq!(migration_state, (68, 69));
 
         migrate(&connection).expect("upgrade migration");
 

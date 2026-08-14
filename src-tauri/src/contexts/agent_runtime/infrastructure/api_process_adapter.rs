@@ -987,6 +987,7 @@ fn execute(
         personalization,
         None,
         &mut ignored_observations,
+        None,
         &NativeToolRegistry::empty(),
         None,
         None,
