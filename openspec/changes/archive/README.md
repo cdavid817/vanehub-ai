@@ -165,5 +165,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 | 2026-08-14 | add-utility-skill-delegation-runtime | effective-skill-runtime, settings-skill-management-ui, skill-management, utility-skill-delegation-runtime | `openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/` |
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
+| 2026-08-15 | add-agent-task-list | agent-task-list, agent-tool-execution | `openspec/changes/archive/2026-08-15-add-agent-task-list/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

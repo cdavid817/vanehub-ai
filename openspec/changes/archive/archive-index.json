@@ -2410,6 +2410,20 @@
                                               "onepiece-tool-governance",
                                               "onepiece-web-research"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-task-list",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-task-list/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-task-list",
+                                              "agent-tool-execution"
+                                          ]
                      }
                  ]
 }
