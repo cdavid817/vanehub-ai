@@ -3265,5 +3265,17 @@
   "slash.command.terminal.description": "터미널 탭 열기",
   "slash.command.shell.description": "셸 탭 열기",
   "slash.command.traces.description": "트레이스 탭 열기",
-  "slash.command.report.description": "리포트 탭 열기"
+  "slash.command.report.description": "리포트 탭 열기",
+  "slash.output.helpTitle": "사용 가능한 명령",
+  "slash.output.helpEntry": "{{invocation}} — {{description}}",
+  "slash.command.help.description": "사용 가능한 명령 목록 표시",
+  "slash.command.mode.description": "실행 모드 설정",
+  "slash.command.reasoning.description": "추론 깊이 설정",
+  "slash.command.thinking.description": "사고 켜기/끄기",
+  "slash.command.streaming.description": "스트리밍 켜기/끄기",
+  "slash.command.longcontext.description": "긴 컨텍스트 켜기/끄기",
+  "slash.command.export.description": "이 세션 내보내기",
+  "slash.command.stop.description": "현재 생성 중지",
+  "slash.command.status.description": "현재 런타임 스위치 표시",
+  "slash.command.usage.description": "이 세션의 토큰 사용량 표시"
 }

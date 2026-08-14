@@ -3265,5 +3265,17 @@
   "slash.command.terminal.description": "Open the terminal tab",
   "slash.command.shell.description": "Open the shell tab",
   "slash.command.traces.description": "Open the traces tab",
-  "slash.command.report.description": "Open the report tab"
+  "slash.command.report.description": "Open the report tab",
+  "slash.output.helpTitle": "Available commands",
+  "slash.output.helpEntry": "{{invocation}} — {{description}}",
+  "slash.command.help.description": "List available commands",
+  "slash.command.mode.description": "Set the execution mode",
+  "slash.command.reasoning.description": "Set the reasoning depth",
+  "slash.command.thinking.description": "Toggle thinking",
+  "slash.command.streaming.description": "Toggle streaming",
+  "slash.command.longcontext.description": "Toggle long context",
+  "slash.command.export.description": "Export this session",
+  "slash.command.stop.description": "Stop the current generation",
+  "slash.command.status.description": "Show the current runtime switches",
+  "slash.command.usage.description": "Show token usage for this session"
 }

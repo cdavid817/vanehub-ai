@@ -3265,5 +3265,17 @@
   "slash.command.terminal.description": "打开终端页签",
   "slash.command.shell.description": "打开 Shell 页签",
   "slash.command.traces.description": "打开追踪页签",
-  "slash.command.report.description": "打开报告页签"
+  "slash.command.report.description": "打开报告页签",
+  "slash.output.helpTitle": "可用命令",
+  "slash.output.helpEntry": "{{invocation}} — {{description}}",
+  "slash.command.help.description": "列出可用命令",
+  "slash.command.mode.description": "设置执行模式",
+  "slash.command.reasoning.description": "设置推理深度",
+  "slash.command.thinking.description": "切换思考开关",
+  "slash.command.streaming.description": "切换流式输出",
+  "slash.command.longcontext.description": "切换长上下文",
+  "slash.command.export.description": "导出当前会话",
+  "slash.command.stop.description": "停止当前生成",
+  "slash.command.status.description": "显示当前运行时开关",
+  "slash.command.usage.description": "显示本会话的 Token 用量"
 }
