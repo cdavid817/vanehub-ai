@@ -49,6 +49,12 @@ export function FileReferencePreviewDialog({
     () => (file?.status === "text" && file.content ? highlightFileLines(path, file.content) : []),
     [file, path],
   );
+  // Measured on the raw text, not the highlighted markup: the latter is mostly span tags
+  // and would overstate the width several times over.
+  const widestLine = useMemo(
+    () => (file?.content ?? "").split("\n").reduce((widest, line) => Math.max(widest, line.length), 0),
+    [file],
+  );
   const range = selectionToRange(selection);
   const rangeLabel = describeLineRange(range);
   // Oversized and binary files could already be referenced whole before previews existed,
@@ -68,9 +74,16 @@ export function FileReferencePreviewDialog({
       ) : (
         <MeasuredVirtualList
           ariaLabel={t("chat.filePreview.lines")}
-          className="h-[55vh] rounded-lg border border-border bg-[hsl(var(--panel-muted))] font-mono text-xs"
+          className="h-[55vh] overflow-x-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] font-mono text-xs"
+          // The widest line decides how far the list scrolls. Rows are absolutely
+          // positioned, so they cannot establish this width themselves; `ch` is exact
+          // here because the list is monospaced.
+          contentStyle={{ minWidth: `calc(${widestLine}ch + 4.5rem)` }}
           estimateSize={() => 20}
           getItemKey={(line) => String(line.number)}
+          // Rows size to their longest line rather than the viewport, which is what lets
+          // the list scroll sideways instead of wrapping code.
+          itemClassName="w-max min-w-full"
           items={lines}
           overscan={20}
           renderItem={(line) => (

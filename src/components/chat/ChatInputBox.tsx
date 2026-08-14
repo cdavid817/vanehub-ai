@@ -4,13 +4,18 @@ import { useTranslation } from "react-i18next";
 import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
 import { useComposerMention } from "../../hooks/use-composer-mention";
 import { cn } from "../../lib/utils";
+import { LazyFeature } from "../lazy-feature";
+
+// The preview pulls in highlight.js, which is far too heavy to sit in the main bundle for
+// a dialog most messages never open. It loads on first use instead.
+const loadPreviewDialog = () =>
+  import("./FileReferencePreviewDialog").then((module) => ({ default: module.FileReferencePreviewDialog }));
 import { formatMentionRange, type MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { FileReferenceLines } from "./FileReferenceLines";
-import { FileReferencePreviewDialog } from "./FileReferencePreviewDialog";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
 
 export function ChatInputBox({
@@ -123,18 +128,21 @@ export function ChatInputBox({
   return (
     <div className="shrink-0 bg-transparent px-3 py-3">
       {pendingPreview && sessionId ? (
-        <FileReferencePreviewDialog
-          name={pendingPreview.name}
-          onAttach={(range) => {
-            attachReference(pendingPreview, range);
-            setPendingPreview(null);
+        <LazyFeature
+          componentProps={{
+            name: pendingPreview.name,
+            onAttach: (range: MentionLineRange) => {
+              attachReference(pendingPreview, range);
+              setPendingPreview(null);
+            },
+            onCancel: () => {
+              setPendingPreview(null);
+              textAreaRef.current?.focus();
+            },
+            path: pendingPreview.path,
+            sessionId,
           }}
-          onCancel={() => {
-            setPendingPreview(null);
-            textAreaRef.current?.focus();
-          }}
-          path={pendingPreview.path}
-          sessionId={sessionId}
+          loader={loadPreviewDialog}
         />
       ) : null}
       <div
@@ -147,7 +155,11 @@ export function ChatInputBox({
         {...dropTarget.handlers}
       >
         {dropTarget.isDropTarget ? (
-          <p className="pointer-events-none absolute inset-x-0 top-0 z-10 rounded-t-xl bg-primary/10 px-3 py-1 text-center text-xs font-medium text-primary" role="status">
+          // Above the composer rather than over its top edge: that edge is where attached
+          // reference chips live, and covering them hides what is already attached while
+          // dragging the next one. Mention completion occupies the same slot but never at
+          // the same time as a drag.
+          <p className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 w-full rounded-md bg-primary/10 px-3 py-1.5 text-center text-xs font-medium text-primary" role="status">
             {t("chat.dropFileHint")}
           </p>
         ) : null}

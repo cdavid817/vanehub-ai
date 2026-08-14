@@ -71,6 +71,22 @@ test.describe("file reference picker", () => {
     await expect(chips.getByText("L3-380")).toBeVisible();
   });
 
+  test("keeps a long line unwrapped and scrolls the preview sideways", async ({ page }) => {
+    await createComposerSession(page, "长行预览会话");
+
+    await page.getByPlaceholder(/输入指令/).fill("@long-module");
+    await page.getByRole("button", { name: "src/long-module.ts" }).click();
+    await expect(page.getByTestId("preview-line-1")).toBeVisible();
+
+    const list = page.getByTestId("file-preview-lines");
+    // Wrapping would keep every row inside the viewport width; scrolling sideways is only
+    // possible because the long line stays on one line, which is what preserves code
+    // indentation and keeps row heights uniform for the virtualizer.
+    await expect
+      .poll(async () => list.evaluate((element) => element.scrollWidth > element.clientWidth))
+      .toBe(true);
+  });
+
   test("drags a file out of the Files tab onto the composer", async ({ page }) => {
     await createComposerSession(page, "拖拽引用会话");
 
