@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { SeatMentionOption } from "../components/chat/SeatMentionCompletion";
 import {
   composerMentionToken,
@@ -29,6 +29,7 @@ export function useComposerMention({
   participantMentions: SeatMentionOption[];
   value: string;
 }) {
+  const [pendingPreview, setPendingPreview] = useState<FileSearchMatch | null>(null);
   const token = composerMentionToken(value);
   const parsed = token === null ? null : parseComposerMention(token);
   const mentionQuery = parsed?.path.toLowerCase() ?? null;
@@ -51,6 +52,11 @@ export function useComposerMention({
   return {
     fileSuggestions,
     participantSuggestions,
+    // A candidate chosen without a typed range is not attached yet — it waits here while
+    // the user picks lines in the preview. This is part of the mention lifecycle, so it
+    // lives with the rest of it rather than in the composer component.
+    pendingPreview,
+    setPendingPreview,
     // A range already typed before a candidate is picked must survive the selection,
     // otherwise choosing from completion would silently discard it.
     mentionRange,

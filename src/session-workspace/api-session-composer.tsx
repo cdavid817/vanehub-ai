@@ -37,6 +37,7 @@ export function ApiSessionComposer({ model, onOpenPlan }: { model: MainLayoutMod
       onRemoveFileReference={model.removeFileReference}
       onStop={model.stop}
       onSubmit={model.submit}
+      sessionId={model.activeSession?.id ?? null}
       value={model.draft}
     />
   );

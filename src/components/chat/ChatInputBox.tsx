@@ -8,6 +8,7 @@ import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { FileReferenceLines } from "./FileReferenceLines";
+import { FileReferencePreviewDialog } from "./FileReferencePreviewDialog";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
 
 export function ChatInputBox({
@@ -37,6 +38,7 @@ export function ChatInputBox({
   onSubmit,
   onRemoveFileReference,
   participantMentions = [],
+  sessionId = null,
   value,
 }: {
   agents: AgentRegistryEntry[];
@@ -65,12 +67,14 @@ export function ChatInputBox({
   onSubmit: () => void;
   onRemoveFileReference: (referenceId: string) => void;
   participantMentions?: SeatMentionOption[];
+  /** Needed to read a candidate's content for the preview; without one, selection attaches directly. */
+  sessionId?: string | null;
   value: string;
 }) {
   const { t } = useTranslation();
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
-  const { applyMention, fileSuggestions, mentionRange, participantSuggestions } = useComposerMention({
+  const { applyMention, fileSuggestions, mentionRange, participantSuggestions, pendingPreview, setPendingPreview } = useComposerMention({
     disabled,
     fileReferenceCandidates,
     fileReferences,
@@ -78,10 +82,21 @@ export function ChatInputBox({
     value,
   });
 
-  function selectReference(candidate: FileSearchMatch) {
-    onAddFileReference(candidate, mentionRange);
-    onChange(applyMention(`${candidate.path}${formatMentionRange(mentionRange)}`));
+  function attachReference(candidate: FileSearchMatch, range: MentionLineRange) {
+    onAddFileReference(candidate, range);
+    onChange(applyMention(`${candidate.path}${formatMentionRange(range)}`));
     textAreaRef.current?.focus();
+  }
+
+  function selectReference(candidate: FileSearchMatch) {
+    // A range typed by hand already says which lines are meant, so previewing would only
+    // ask the user to say it twice.
+    if (mentionRange.startLine !== undefined) {
+      attachReference(candidate, mentionRange);
+      return;
+    }
+    if (sessionId) setPendingPreview(candidate);
+    else attachReference(candidate, {});
   }
 
   function selectParticipant(mentionHandle: string) {
@@ -99,6 +114,21 @@ export function ChatInputBox({
 
   return (
     <div className="shrink-0 bg-transparent px-3 py-3">
+      {pendingPreview && sessionId ? (
+        <FileReferencePreviewDialog
+          name={pendingPreview.name}
+          onAttach={(range) => {
+            attachReference(pendingPreview, range);
+            setPendingPreview(null);
+          }}
+          onCancel={() => {
+            setPendingPreview(null);
+            textAreaRef.current?.focus();
+          }}
+          path={pendingPreview.path}
+          sessionId={sessionId}
+        />
+      ) : null}
       <div
         className="relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30"
         data-testid="wechat-style-composer"

@@ -51,6 +51,7 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "highlight.js": "~11.11.0",
     "i18next": "^26.3.6",
     "katex": "^0.18.1",
     "lucide-react": "^1.29.0",
