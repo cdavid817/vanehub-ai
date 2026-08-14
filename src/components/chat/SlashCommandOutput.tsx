@@ -29,7 +29,7 @@ export function SlashCommandOutput({
   return (
     <div
       className={cn(
-        "ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-2 text-xs shadow-lg",
+        "ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-2 text-xs shadow-lg",
         // `ucd-panel` sets border/background/color as unlayered CSS, which beats Tailwind's
         // `@layer utilities` by cascade-layer rules regardless of specificity (same reason
         // notification-center.tsx needs `!` to override it) — so the tone override must be

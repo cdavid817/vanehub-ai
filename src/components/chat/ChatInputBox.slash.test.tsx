@@ -60,4 +60,35 @@ describe("ChatInputBox slash command surfaces", () => {
     await user.click(screen.getByRole("button", { name: "Dismiss command output" }));
     expect(onDismissSlashCommandOutput).toHaveBeenCalled();
   });
+
+  it("keeps the output panel and the completion dropdown both present and interactive together", async () => {
+    // Reachable by running /status, leaving its output open, then typing "/" again: output
+    // state and the suggestion query are independent, so both props can be non-empty at once.
+    const onDismissSlashCommandOutput = vi.fn();
+    const onSelectSlashCommand = vi.fn();
+    const { user } = renderBox({
+      onDismissSlashCommandOutput,
+      onSelectSlashCommand,
+      slashCommandOutput: { titleKey: "slash.output.applied", tone: "info", messages: [] },
+      slashCommandSuggestions: [command("status")],
+    });
+
+    const outputPanel = screen.getByTestId("slash-command-output");
+    const suggestionButton = screen.getByRole("button", { name: /\/status/ });
+    const dismissButton = screen.getByRole("button", { name: "Dismiss command output" });
+
+    // jsdom performs no layout, so this cannot prove the two panels don't visually overlap.
+    // It proves the structural fix instead: the output panel no longer carries its own
+    // positioning class, and it shares one positioned ancestor with the completion panel
+    // rather than each claiming the same coordinates independently.
+    expect(outputPanel.className.includes("absolute")).toBe(false);
+    const sharedWrapper = outputPanel.closest(".absolute");
+    expect(sharedWrapper).not.toBeNull();
+    expect(sharedWrapper?.contains(suggestionButton)).toBe(true);
+
+    await user.click(suggestionButton);
+    expect(onSelectSlashCommand).toHaveBeenCalledWith("status");
+    await user.click(dismissButton);
+    expect(onDismissSlashCommandOutput).toHaveBeenCalled();
+  });
 });
