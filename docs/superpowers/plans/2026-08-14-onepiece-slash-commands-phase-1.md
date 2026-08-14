@@ -423,6 +423,12 @@ export interface CommandContext {
     }>;
   };
   navigate: SlashCommandNavigation;
+  /**
+   * Commands that absorb an infrastructure failure to show a specific message must still
+   * report it — a swallowed rejection is invisible to the dispatcher's error path, and a
+   * backend outage would otherwise leave no trace anywhere but the user's screen.
+   */
+  reportFailure: (source: string, reason: unknown) => void;
   /** Supplied by the dispatcher so `/help` can enumerate siblings without a circular import. */
   listAvailableCommands: () => SlashCommand[];
 }
@@ -2188,6 +2194,9 @@ export function useSlashCommands(input: {
 
     const context: CommandContext = {
       session, config, isStreaming, chat, actions, navigate,
+      // Same channel the dispatcher's own catch uses, so a failure a command chose to absorb
+      // lands in the log alongside one it let escape.
+      reportFailure: onError,
       listAvailableCommands: () => available,
     };
 
