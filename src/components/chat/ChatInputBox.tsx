@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
 import { useComposerMention } from "../../hooks/use-composer-mention";
+import { cn } from "../../lib/utils";
 import { formatMentionRange, type MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { FileSearchMatch } from "../../types/session-workspace";
@@ -82,6 +84,12 @@ export function ChatInputBox({
     value,
   });
 
+  const dropTarget = useComposerDropTarget({
+    disabled: Boolean(disabled) || isStreaming,
+    // A dropped or pasted path names a file, not a region, so it attaches whole.
+    onAttachPath: (path) => onAddFileReference({ name: path.split("/").pop() ?? path, path }, {}),
+  });
+
   function attachReference(candidate: FileSearchMatch, range: MentionLineRange) {
     onAddFileReference(candidate, range);
     onChange(applyMention(`${candidate.path}${formatMentionRange(range)}`));
@@ -130,9 +138,19 @@ export function ChatInputBox({
         />
       ) : null}
       <div
-        className="relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30"
+        className={cn(
+          "relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30",
+          dropTarget.isDropTarget && "border-primary ring-1 ring-ring/40",
+        )}
+        data-drop-target={dropTarget.isDropTarget ? "true" : undefined}
         data-testid="wechat-style-composer"
+        {...dropTarget.handlers}
       >
+        {dropTarget.isDropTarget ? (
+          <p className="pointer-events-none absolute inset-x-0 top-0 z-10 rounded-t-xl bg-primary/10 px-3 py-1 text-center text-xs font-medium text-primary" role="status">
+            {t("chat.dropFileHint")}
+          </p>
+        ) : null}
         {participantSuggestions.length || fileSuggestions.length ? (
           <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
             <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
