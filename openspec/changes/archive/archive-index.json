@@ -2248,6 +2248,23 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-skill-evolution-evidence-pipeline",
+                         "path":  "openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "chat-experience",
+                                              "settings-skill-management-ui",
+                                              "skill-evolution-evidence",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-unified-todo-board",
                          "path":  "openspec/changes/archive/2026-08-14-add-unified-todo-board/",
                          "artifacts":  [
@@ -2261,6 +2278,22 @@
                                               "scheduled-task-management",
                                               "session-management",
                                               "unified-todo-board"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "add-utility-skill-delegation-runtime",
+                         "path":  "openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "effective-skill-runtime",
+                                              "settings-skill-management-ui",
+                                              "skill-management",
+                                              "utility-skill-delegation-runtime"
                                           ]
                      }
                  ]

@@ -39,6 +39,7 @@ const effectiveSkill: Skill = {
   origin: "migrated",
   trust: "trusted",
   availability: "available",
+  delegationCapability: { supported: false, reason: "not-utility" },
   immutable: false,
   shadowedDefinitions: [{
     layer: "system",
@@ -75,7 +76,7 @@ describe("Tauri effective Skill adapter", () => {
       } satisfies SkillPreview);
 
     await expect(tauriAgentClient.listSkills({ scope: "global" })).resolves.toMatchObject({
-      skills: [{ layer: "user", usage: { viewCount: 4 }, shadowedDefinitions: [{ layer: "system" }] }],
+      skills: [{ layer: "user", delegationCapability: { supported: false, reason: "not-utility" }, usage: { viewCount: 4 }, shadowedDefinitions: [{ layer: "system" }] }],
     });
     await expect(tauriAgentClient.previewSkill("code-review", { scope: "global" })).resolves.toMatchObject({
       path: "skill://code-review/",

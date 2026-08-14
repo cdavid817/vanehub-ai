@@ -77,6 +77,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
     let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    let evidence_logging: Arc<dyn DiagnosticLogPort> = Arc::new(UnifiedLoggingAdapter::active(
+        fallback_log_directory.clone(),
+    ));
+    let skill_evolution_evidence_api =
+        crate::contexts::skill_evolution_evidence::api::SkillEvolutionEvidenceApi::new(
+            database.clone(),
+            evidence_logging,
+        );
     crate::contexts::desktop::infrastructure::install_main_webview_recovery(
         app.handle(),
         fallback_log_directory.clone(),
@@ -210,6 +218,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         code_intelligence: code_intelligence_responder,
         workspace_mutations: workspace_mutations.clone(),
         desktop_settings: desktop_settings_api.clone(),
+        evidence: skill_evolution_evidence_api.projector(),
     })
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
@@ -252,6 +261,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let execution_retention_database = database.clone();
     let communications_maintenance_database = database.clone();
     app.manage(database.clone());
+    app.manage(skill_evolution_evidence_api);
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),
     ));

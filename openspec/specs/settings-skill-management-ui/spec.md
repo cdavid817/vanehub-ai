@@ -103,7 +103,7 @@ The Skills settings page SHALL use the settings top-bar query as its single keyw
 - **THEN** the page SHALL restore the default filters and sort order while preserving the selected Agent or inventory view
 
 ### Requirement: Skill card controls
-Each effective Skill inventory row SHALL use a progressive information hierarchy that keeps identity, enabled state, effective layer, Skill type, description, and the context-specific primary operation immediately scannable. Delivery, origin, trust, version, usage, compatibility, resource, and shadowing details SHALL remain available through bounded secondary text or the associated detail inspector. Mutation controls SHALL reflect whether the selected definition is mutable.
+Each effective Skill inventory row SHALL use a progressive information hierarchy that keeps identity, enabled state, effective layer, Skill type, description, and the context-specific primary operation immediately scannable. Delivery, origin, trust, version, usage, compatibility, resource, shadowing, and Utility delegation capability details SHALL remain available through bounded secondary text or the associated detail inspector. Mutation controls SHALL reflect whether the selected definition is mutable.
 
 #### Scenario: Compact inventory remains bounded by Agent count
 - **WHEN** the overview contains many compatible Agents
@@ -145,7 +145,7 @@ Each effective Skill inventory row SHALL use a progressive information hierarchy
 
 #### Scenario: Source and version labels
 - **WHEN** an effective Skill row renders
-- **THEN** its source, delivery, origin, trust, effective layer, type, availability, and version SHALL remain available without opening the `SKILL.md` preview
+- **THEN** its source, delivery, origin, trust, effective layer, type, availability, version, and delegation capability SHALL remain available without opening the `SKILL.md` preview
 - **AND** unavailable, compatibility-defaulted, immutable, and shadowing states SHALL be expressed with concise text and an icon or label rather than color alone
 
 #### Scenario: Present immutable System definition
@@ -153,8 +153,13 @@ Each effective Skill inventory row SHALL use a progressive information hierarchy
 - **THEN** it SHALL present a concise read-only indication and SHALL NOT offer edit or delete actions
 - **AND** the full immutability explanation SHALL remain available in the detail inspector
 
+#### Scenario: Utility delegation available
+- **WHEN** a Utility Skill can be delegated by the active native runtime
+- **THEN** its row SHALL present a concise delegatable status and SHALL NOT offer Role Skill load or eager-injection actions
+- **AND** the detail inspector SHALL identify the supported native runtime boundary
+
 #### Scenario: Utility delegation unavailable
-- **WHEN** a Utility Skill cannot yet be delegated
+- **WHEN** a Utility Skill cannot be delegated by the active runtime
 - **THEN** its row SHALL present a concise unavailable reason and SHALL NOT offer an action that treats it as an active Role Skill
 - **AND** the full reason SHALL remain available in the detail inspector
 
@@ -432,3 +437,70 @@ The UI SHALL display a paginated, bounded history timeline with action, actor, s
 #### Scenario: Revert active mutation
 - **WHEN** a user confirms revert for an active mutation using current witnesses
 - **THEN** the page SHALL submit a revert operation, refresh effective content and history, and show the newly created revision
+
+### Requirement: Per-Skill evidence Evolution area
+Skill details SHALL provide an evidence-only Evolution area showing collection state, the runtime-event-to-signal-to-seed funnel, extractor counts, attribution distribution, source-Agent distribution, category and polarity distribution, retention, quota, and dropped counts. It SHALL clearly state that target selection and Skill modification are not active in this change.
+
+#### Scenario: Evidence funnel displayed
+- **WHEN** a user opens Evolution for a Skill with retained evidence
+- **THEN** the page SHALL show bounded event, signal, grouped, and seed counts with their time range and collection status
+
+#### Scenario: Correlated CLI evidence displayed
+- **WHEN** evidence includes correlated, weak, or unattributed CLI signals
+- **THEN** the UI SHALL distinguish each attribution class and explain which classes cannot drive automatic targeting
+
+#### Scenario: Collection degraded
+- **WHEN** queue drops, storage failure, retention failure, or quota pressure degraded evidence collection
+- **THEN** the area SHALL show a safe status and affected counts without implying the originating Agent tasks failed
+
+#### Scenario: No evidence
+- **WHEN** a Skill has no retained evidence
+- **THEN** the area SHALL show an explanatory empty state, active source coverage, and retention policy rather than fabricated metrics
+
+### Requirement: Evidence signal and seed inspection
+The Evolution area SHALL provide bounded filters and read-only detail for sanitized signals and candidate seeds, including source kind, stable Agent, workspace, extractor and sanitizer version, category, polarity, severity, attribution rationale, Skill revision, lineage, and occurrence time.
+
+#### Scenario: Inspect signal
+- **WHEN** a user opens one signal
+- **THEN** the detail SHALL show sanitized bounded evidence and safe source references without raw prompts, transcripts, commands, tool results, files, credentials, or full paths
+
+#### Scenario: Inspect seed lineage
+- **WHEN** a user opens one candidate seed
+- **THEN** the detail SHALL show grouping reason, readiness, attribution limits, source distribution, and contributing sanitized signals
+
+#### Scenario: Filter evidence
+- **WHEN** a user combines source Agent, extractor, attribution, category, polarity, severity, readiness, and time filters
+- **THEN** the page SHALL preserve the canonical Skill and workspace scope and update bounded counts and results through the service boundary
+
+### Requirement: Evidence privacy and retention presentation
+The Evolution area SHALL display the active sanitizer version, metadata-only or redacted-summary mode, twelve redaction classes, 90-day retention, quota status, and dropped or expired counts using localized explanations.
+
+#### Scenario: Privacy details opened
+- **WHEN** a user opens evidence privacy details
+- **THEN** the page SHALL explain what is retained and explicitly identify prohibited raw content that is not copied into evidence storage
+
+#### Scenario: Quota pressure displayed
+- **WHEN** evidence was discarded because of quota pressure
+- **THEN** the page SHALL show bounded discard counts and retention priority without exposing discarded content
+
+### Requirement: Scoped evidence purge UI
+The Evolution area SHALL provide a localized confirmation flow for purging evidence by current Skill and workspace, plus navigation to broader purge scope when available. It SHALL explain that source conversations, traces, logs, usage, Skills, and Overlays remain unchanged.
+
+#### Scenario: Confirm Skill purge
+- **WHEN** a user confirms purge for the current Skill scope
+- **THEN** the page SHALL submit the operation through the frontend service boundary, prevent duplicate submission, and refresh evidence only after success
+
+#### Scenario: Purge fails
+- **WHEN** purge fails
+- **THEN** the dialog SHALL remain open with a safe actionable error and existing evidence SHALL remain visible
+
+#### Scenario: Purge accessibility
+- **WHEN** the purge dialog opens or closes
+- **THEN** it SHALL expose a localized accessible name, contain keyboard focus, support safe dismissal, and restore focus to its trigger
+
+### Requirement: Evidence UI adapter parity
+Desktop and Web/mock Skills settings SHALL consume the same frontend evidence contracts and render equivalent healthy, empty, correlated-CLI, degraded, quota-pressure, lineage, and purge states.
+
+#### Scenario: Web evidence simulation
+- **WHEN** the Web/mock adapter emits representative evidence summaries and seed lineage
+- **THEN** the UI SHALL render the same scope, privacy, attribution, filtering, and purge semantics as equivalent desktop data

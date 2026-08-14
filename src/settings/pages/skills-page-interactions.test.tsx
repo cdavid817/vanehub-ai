@@ -13,7 +13,10 @@ const serviceMocks = vi.hoisted(() => ({
   createSkill: vi.fn(),
   deleteSkill: vi.fn(),
   getSkillOverlayDetail: vi.fn(),
+  getSkillEvolutionSeedLineage: vi.fn(),
   getSkillOverview: vi.fn(),
+  purgeSkillEvolutionEvidence: vi.fn(),
+  querySkillEvolutionEvidence: vi.fn(),
   importSkill: vi.fn(),
   loadSkill: vi.fn(),
   previewSkill: vi.fn(),
@@ -168,6 +171,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   setWideDetailsLayout(false);
   serviceMocks.getSkillOverview.mockResolvedValue(overview);
+  serviceMocks.querySkillEvolutionEvidence.mockResolvedValue({
+    signalCount: 0,
+    seedCount: 0,
+    distributions: {},
+    signals: [],
+    seeds: [],
+    pipeline: { collectionEnabled: true, status: "healthy", queueDepth: 0, failureCount: 0 },
+    retentionDays: 90,
+    signalQuota: 10_000,
+    seedQuota: 2_000,
+    byteQuota: 64 * 1024 * 1024,
+    droppedCount: 0,
+    expiredCount: 0,
+  });
+  serviceMocks.getSkillEvolutionSeedLineage.mockResolvedValue(null);
   serviceMocks.previewSkill.mockResolvedValue({
     id: skill.id,
     scope: "global",
@@ -389,6 +407,7 @@ describe("SkillsPage interactions", () => {
       id: "utility-skill",
       metadata: { ...skill.metadata, id: "utility-skill", name: "Utility Skill", type: "utility" as const, delivery: "on-demand" as const },
       availability: "unsupported" as const,
+      delegationCapability: { supported: true, reason: "available" as const },
     } satisfies Skill;
     serviceMocks.getSkillOverview.mockResolvedValue({
       ...overview,
@@ -463,10 +482,10 @@ describe("SkillsPage interactions", () => {
 
     const utilityRow = screen.getByText("Utility Skill").closest("article");
     if (!utilityRow) throw new Error("Utility row not found");
-    expect(within(utilityRow).getByText("暂不可委托")).toBeTruthy();
-    expect(within(utilityRow).queryByText(/委托执行尚未开放/)).toBeNull();
+    expect(within(utilityRow).getByText("可委托执行")).toBeTruthy();
+    expect(within(utilityRow).queryByText(/受支持的原生 API Agent/)).toBeNull();
     await user.click(within(utilityRow).getByRole("button", { name: "查看 Utility Skill 详情" }));
-    expect(await screen.findByText(/委托执行尚未开放/)).toBeTruthy();
+    expect(await screen.findByText(/受支持的原生 API Agent 可以委托/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "关闭" }));
     await user.click(screen.getByRole("button", { name: /API Agent/ }));
     const agentUtilityRow = screen.getByText("Utility Skill").closest("article");

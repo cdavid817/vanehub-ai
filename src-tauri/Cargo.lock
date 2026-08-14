@@ -6625,6 +6625,7 @@ dependencies = [
  "dirs 6.0.0",
  "futures-util",
  "globset",
+ "hmac 0.13.0",
  "http",
  "ignore",
  "json5",

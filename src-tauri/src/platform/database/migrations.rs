@@ -403,6 +403,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "unified-todo-board",
         crate::contexts::work_board::infrastructure::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        67,
+        "skill-evolution-evidence-foundation",
+        crate::contexts::skill_evolution_evidence::infrastructure::apply_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -702,6 +708,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (64, "fine-grained-token-accounting"),
     (65, "managed-im-session-bindings"),
     (66, "unified-todo-board"),
+    (67, "skill-evolution-evidence-foundation"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1606,7 +1613,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (65, 66));
+        assert_eq!(migration_state, (66, 67));
 
         migrate(&connection).expect("upgrade migration");
 

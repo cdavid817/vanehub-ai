@@ -8,6 +8,7 @@ mod loop_progress;
 mod provider;
 mod seat_roster;
 mod seat_turn;
+mod utility_delegation;
 mod workflow;
 
 pub(crate) use catalog::{
@@ -43,6 +44,11 @@ pub(crate) use seat_roster::{
 };
 pub(crate) use seat_turn::{
     apply_human_handoff, next_turn_targets, parse_human_handoff, ChainEndReason,
+};
+pub(crate) use utility_delegation::{
+    UtilityDelegationAttempt, UtilityDelegationCounts, UtilityDelegationLimits,
+    UtilityDelegationRequest, UtilityDelegationResult, UtilityDelegationSnapshot,
+    UtilityDelegationTerminal,
 };
 pub(crate) use workflow::{AgentLifecycle, AgentReadiness, AgentWorkflow};
 

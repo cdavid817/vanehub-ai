@@ -1030,6 +1030,7 @@ describe("webAgentClient", () => {
     expect(utility).toMatchObject({
       metadata: { type: "utility" },
       availability: "unsupported",
+      delegationCapability: { supported: false, reason: "native-runtime-unavailable" },
       immutable: true,
     });
     expect(project.skills).toEqual(expect.arrayContaining([

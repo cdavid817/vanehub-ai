@@ -10,6 +10,7 @@ use crate::contexts::agent_runtime::application::{
     LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
+    UtilityDelegationApplicationPorts, UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
@@ -17,11 +18,13 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
-    NativeSeatTurnCoordinator, OsApiCredentialAdapter, PermissionsPortAdapter,
-    PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
-    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    NativeSeatTurnCoordinator, NativeUtilityChildExecutor, OsApiCredentialAdapter,
+    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
+    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
+    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
+    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
+    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
+    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
     SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
     StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
     TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
@@ -40,6 +43,7 @@ use crate::contexts::operations::api::{
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
+use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::tooling::mcp::api::McpApi;
@@ -75,6 +79,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) code_intelligence: Arc<dyn AgentCodeIntelligenceResponderPort>,
     pub(crate) workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     pub(crate) desktop_settings: DesktopSettingsApi,
+    pub(crate) evidence: RuntimeEvidenceProjector,
 }
 
 #[derive(Clone)]
@@ -166,10 +171,17 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.database.clone(),
         )),
         provider_registry.clone(),
+        RuntimeProcessEvidenceDependencies {
+            evidence: dependencies.evidence.clone(),
+            skills: dependencies.skills.clone(),
+        },
     ));
     let accounting = dependencies.sessions.clone();
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
-    let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
+    let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(
+        dependencies.skills.clone(),
+        dependencies.evidence.clone(),
+    ));
     let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
         dependencies.database.clone(),
     ));
@@ -189,6 +201,22 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.code_intelligence,
         ),
     );
+    let utility_projector = Arc::new(RuntimeUtilityLifecycleProjector::new(
+        dependencies.evidence.clone(),
+        logging.clone(),
+        telemetry.clone(),
+    ));
+    let utility_delegation =
+        UtilityDelegationApplicationService::new(UtilityDelegationApplicationPorts {
+            resolver: agent_skills.clone(),
+            executor: Arc::new(NativeUtilityChildExecutor::new(
+                api_credentials.clone(),
+                repository.clone(),
+            )),
+            lifecycle: utility_projector.clone(),
+            evidence: utility_projector,
+            clock: clock.clone(),
+        });
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(
             api_credentials.clone(),
@@ -206,6 +234,8 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.workspace_mutations,
             agent_personalization.clone(),
         )
+        .with_evidence(dependencies.evidence.clone())
+        .with_utility_delegation(utility_delegation)
         .with_accounting(accounting.clone()),
     );
     let tool_approvals = api_processes.clone();
@@ -288,7 +318,7 @@ pub(crate) fn assemble_agent_runtime_api(
         ids: Arc::new(UuidExpertRoleIds),
         builtins: builtin_expert_roles(),
     });
-    let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database));
+    let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database.clone()));
     let loop_projects = Arc::new(WorkspaceLoopProjectAdapter::new(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
     let loops = LoopApplicationService::new(LoopApplicationPorts {
@@ -328,6 +358,10 @@ pub(crate) fn assemble_agent_runtime_api(
             processes: guarded_validation.clone(),
             observer: loop_observer.clone(),
             clock: clock.clone(),
+            evidence: Arc::new(RuntimeLoopVerificationEvidenceAdapter::new(
+                dependencies.evidence.clone(),
+                dependencies.database.clone(),
+            )),
         });
     let loop_verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
         iterations: loop_repository.clone(),

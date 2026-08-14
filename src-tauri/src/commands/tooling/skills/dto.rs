@@ -136,9 +136,27 @@ pub(crate) struct Skill {
     pub(crate) origin: SkillOrigin,
     pub(crate) trust: SkillTrust,
     pub(crate) availability: SkillAvailability,
+    #[serde(default)]
+    pub(crate) delegation_capability: SkillDelegationCapability,
     pub(crate) immutable: bool,
     pub(crate) shadowed_definitions: Vec<SkillShadowSummary>,
     pub(crate) usage: SkillUsageSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillDelegationCapability {
+    pub(crate) supported: bool,
+    pub(crate) reason: String,
+}
+
+impl Default for SkillDelegationCapability {
+    fn default() -> Self {
+        Self {
+            supported: false,
+            reason: "not-utility".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

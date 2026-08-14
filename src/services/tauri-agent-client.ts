@@ -58,7 +58,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
@@ -750,6 +750,32 @@ export const tauriAgentClient: AgentService = {
       limit: input.limit ?? null,
       beforeId: input.beforeId ?? null,
     });
+  },
+
+  async saveMessageFeedback(input) {
+    const saved = await invoke<{
+      messageId: string;
+      revision: number;
+      state: MessageFeedback["state"] | null;
+      correctionNote: string | null;
+    }>("save_message_feedback", { input });
+    return {
+      state: saved.state,
+      revision: saved.revision,
+      ...(saved.correctionNote ? { correctionNote: saved.correctionNote } : {}),
+    };
+  },
+
+  querySkillEvolutionEvidence(input) {
+    return invoke("query_skill_evolution_evidence", { input });
+  },
+
+  getSkillEvolutionSeedLineage(seedId, input) {
+    return invoke("get_skill_evolution_seed_lineage", { seedId, input });
+  },
+
+  purgeSkillEvolutionEvidence(input) {
+    return invoke("purge_skill_evolution_evidence", { input });
   },
 
   async getUsageStatistics(input) {

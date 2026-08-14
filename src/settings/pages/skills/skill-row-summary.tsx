@@ -1,4 +1,4 @@
-import { LockKeyhole, TriangleAlert } from "lucide-react";
+import { CircleCheck, LockKeyhole, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import type { Skill, SkillCompatibleAgent } from "../../../types/skill";
@@ -19,7 +19,8 @@ export function SkillRowSummary({ skill, agent, bindingState, selected }: {
       <Badge className="max-w-32 truncate" title={t(`skills.type.${skill.metadata.type ?? "role"}`)} tone={skill.metadata.type === "utility" ? "warning" : "muted"}>{t(`skills.type.${skill.metadata.type ?? "role"}`)}</Badge>
       {bindingState ? <Badge tone={bindingState === "available" ? "muted" : "default"}>{t(`skills.binding.${bindingState}`)}</Badge> : null}
       {skill.immutable ? <CompactState icon={LockKeyhole} label={t("skills.immutable.compact")} /> : null}
-      {skill.metadata.type === "utility" && skill.availability === "unsupported" ? <CompactState icon={TriangleAlert} label={t("skills.utility.compactUnavailable")} warning /> : null}
+      {skill.metadata.type === "utility" && skill.delegationCapability?.supported ? <CompactState icon={CircleCheck} label={t("skills.utility.compactAvailable")} /> : null}
+      {skill.metadata.type === "utility" && !skill.delegationCapability?.supported ? <CompactState icon={TriangleAlert} label={t("skills.utility.compactUnavailable")} warning /> : null}
       {skill.availability !== "available" && !(skill.metadata.type === "utility" && skill.availability === "unsupported") ? <Badge tone="warning">{t(`skills.availability.${skill.availability}`)}</Badge> : null}
       {selected ? <span className="sr-only">{t("skills.details.selected")}</span> : null}
     </div>

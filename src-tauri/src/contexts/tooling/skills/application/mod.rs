@@ -40,7 +40,8 @@ pub(crate) use models::{
     SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
     SkillResourceReadResult, SkillScopeQuery, SkillShadowSummary, SkillSourceRefresh, SkillStats,
     SkillSyncResult, SkillUpdateRequest, SkillUsageActivity, SkillUsageIdentity,
-    SkillUsageMutation, SkillUsageRead, SkillUsageSummary, BUILTIN_RECONCILIATION_VERSION,
+    SkillUsageMutation, SkillUsageRead, SkillUsageSummary, UtilitySkillExecutionSnapshot,
+    UtilitySkillResolutionOutcome, BUILTIN_RECONCILIATION_VERSION,
 };
 #[allow(unused_imports)]
 pub(crate) use overlay_logging::{

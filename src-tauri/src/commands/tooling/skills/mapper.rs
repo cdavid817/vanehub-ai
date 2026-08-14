@@ -104,6 +104,11 @@ pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
         origin: origin_to_dto(effective.origin),
         trust: trust_to_dto(effective.trust),
         availability: availability_to_dto(effective.availability),
+        delegation_capability: delegation_capability(
+            effective.skill_type,
+            effective.trust,
+            effective.availability,
+        ),
         immutable: effective.immutable,
         shadowed_definitions: effective.shadowed.into_iter().map(shadow_to_dto).collect(),
         usage: dto::SkillUsageSummary {
@@ -113,6 +118,30 @@ pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
             last_used_at: effective.usage.last_used_at,
             revision_witness: effective.usage.revision_witness,
         },
+    }
+}
+
+fn delegation_capability(
+    skill_type: skill::SkillType,
+    trust: skill::SkillTrust,
+    availability: skill::SkillAvailability,
+) -> dto::SkillDelegationCapability {
+    if skill_type != skill::SkillType::Utility {
+        return dto::SkillDelegationCapability::default();
+    }
+    let supported = trust == skill::SkillTrust::Trusted
+        && matches!(
+            availability,
+            skill::SkillAvailability::Available | skill::SkillAvailability::Unsupported
+        );
+    dto::SkillDelegationCapability {
+        supported,
+        reason: if supported {
+            "available"
+        } else {
+            "skill-unavailable"
+        }
+        .to_string(),
     }
 }
 
@@ -523,6 +552,32 @@ fn failure_to_dto(failure: skill::SkillFailure) -> dto::SkillFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utility_delegation_capability_requires_trust_and_runtime_availability() {
+        assert_eq!(
+            delegation_capability(
+                skill::SkillType::Utility,
+                skill::SkillTrust::Trusted,
+                skill::SkillAvailability::Unsupported,
+            ),
+            dto::SkillDelegationCapability {
+                supported: true,
+                reason: "available".to_string(),
+            }
+        );
+        assert_eq!(
+            delegation_capability(
+                skill::SkillType::Utility,
+                skill::SkillTrust::Untrusted,
+                skill::SkillAvailability::Available,
+            ),
+            dto::SkillDelegationCapability {
+                supported: false,
+                reason: "skill-unavailable".to_string(),
+            }
+        );
+    }
     use crate::contexts::tooling::skills::application::{
         ManagedSkillSource, SkillAccessRefusalReason, SkillAgentBinding,
     };
@@ -669,6 +724,10 @@ mod tests {
                 "origin": "created",
                 "trust": "trusted",
                 "availability": "available",
+                "delegationCapability": {
+                    "supported": false,
+                    "reason": "not-utility"
+                },
                 "immutable": false,
                 "shadowedDefinitions": [],
                 "usage": {

@@ -4,7 +4,6 @@ test("orders Settings destinations around common setup and customization workflo
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
 
-  const labels = await page.locator("nav button").allTextContents();
   const expected = [
     "基础配置",
     "Agent 配置",
@@ -24,6 +23,11 @@ test("orders Settings destinations around common setup and customization workflo
     "使用统计",
     "关于",
   ];
+  const navigation = page.locator("nav");
+  for (const label of expected) {
+    await expect(navigation.getByRole("button", { name: label, exact: true })).toBeAttached();
+  }
+  const labels = await navigation.getByRole("button").allTextContents();
   const positions = expected.map((label) => labels.findIndex((entry) => entry.trim() === label));
   expect(positions.every((position) => position >= 0)).toBe(true);
   expect(positions).toEqual([...positions].sort((left, right) => left - right));

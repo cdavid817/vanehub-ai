@@ -1,6 +1,8 @@
 use crate::contexts::tooling::skills::application::{
     SkillApplicationService, SkillOverlayApplicationService,
 };
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 pub(crate) use crate::contexts::tooling::skills::application::{
     OverlayApplicationError as OverlayError, OverlayDetail, OverlayHistoryPage,
@@ -13,6 +15,7 @@ pub(crate) use crate::contexts::tooling::skills::application::{
     SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
     SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
     SkillScopeQuery, SkillShadowSummary, SkillSyncResult, SkillUpdateRequest,
+    UtilitySkillResolutionOutcome,
 };
 pub(crate) use crate::contexts::tooling::skills::domain::{
     SkillAvailability, SkillDelivery, SkillDomainError, SkillDriftIssueType, SkillId, SkillKey,
@@ -24,6 +27,19 @@ pub(crate) use crate::contexts::tooling::skills::domain::{
 pub(crate) struct SkillApi {
     service: SkillApplicationService,
     overlays: Option<SkillOverlayApplicationService>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CliSkillEvidenceEntry {
+    pub(crate) skill_id: String,
+    pub(crate) revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CliSkillEvidenceSnapshot {
+    pub(crate) manifest_hash: Option<String>,
+    pub(crate) mounted: Vec<CliSkillEvidenceEntry>,
+    pub(crate) configured_binding_ids: Vec<String>,
 }
 
 impl SkillApi {
@@ -153,6 +169,70 @@ impl SkillApi {
         self.service.list_skills(query)
     }
 
+    pub(crate) fn cli_evidence_snapshot(
+        &self,
+        agent_id: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<CliSkillEvidenceSnapshot, SkillError> {
+        let mut records = BTreeMap::new();
+        let global = SkillLocation::new(SkillScope::Global, None)
+            .map_err(|error| SkillError::Validation(error.to_string()))?;
+        for record in self.list(SkillScopeQuery { location: global })?.skills {
+            records.insert(record.key.id.as_str().to_string(), record);
+        }
+        if let Some(workspace_path) = workspace_path {
+            let workspace = SkillLocation::new(SkillScope::Workspace, Some(workspace_path))
+                .map_err(|error| SkillError::Validation(error.to_string()))?;
+            for record in self
+                .list(SkillScopeQuery {
+                    location: workspace,
+                })?
+                .skills
+            {
+                records.insert(record.key.id.as_str().to_string(), record);
+            }
+        }
+        let mut configured_binding_ids = Vec::new();
+        let mut mounted = Vec::new();
+        for (skill_id, record) in records {
+            if !record.enabled {
+                continue;
+            }
+            if let Some(binding) = record
+                .bindings
+                .iter()
+                .find(|binding| binding.agent_id == agent_id)
+            {
+                configured_binding_ids.push(skill_id.clone());
+                if binding.mounted {
+                    mounted.push(CliSkillEvidenceEntry {
+                        skill_id,
+                        revision: record.managed_source.content_hash,
+                    });
+                }
+            }
+        }
+        let manifest_hash = (!mounted.is_empty()).then(|| {
+            let mut digest = Sha256::new();
+            for skill in &mounted {
+                digest.update(skill.skill_id.as_bytes());
+                digest.update(b":");
+                digest.update(skill.revision.as_bytes());
+                digest.update(b"\n");
+            }
+            digest
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        });
+        Ok(CliSkillEvidenceSnapshot {
+            manifest_hash,
+            mounted,
+            configured_binding_ids,
+        })
+    }
+
     pub(crate) fn list_mount_paths(&self) -> Result<Vec<SkillAgentMountPath>, SkillError> {
         self.service.list_mount_paths()
     }
@@ -262,6 +342,15 @@ impl SkillApi {
         request: SkillLoadRequest,
     ) -> Result<SkillLoadOutcome, SkillError> {
         self.service.load_skill_for_agent(request)
+    }
+
+    pub(crate) fn resolve_utility_for_execution(
+        &self,
+        id_or_alias: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<UtilitySkillResolutionOutcome, SkillError> {
+        self.service
+            .resolve_utility_for_execution(id_or_alias, workspace_path)
     }
 
     pub(crate) fn read_resource_for_agent(

@@ -366,6 +366,7 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
         updated_at: message.updated_at,
         session_sequence: message.session_sequence,
         execution_run_id: message.execution_run_id,
+        feedback: None,
     }
 }
 

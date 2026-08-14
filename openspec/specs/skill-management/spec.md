@@ -81,15 +81,19 @@ The system SHALL provide the six existing built-in Skills as immutable System pa
 - **AND** SHALL remove it only through a recoverable, idempotent migration step after retaining the state needed for rollback
 
 ### Requirement: Effective Skill lifecycle responses
-Skill management list, preview, binding, enablement, drift, and restore responses SHALL identify canonical Skill id, effective layer, origin, type, delivery, availability, shadowed definitions, and compatibility state when applicable.
+Skill management list, preview, binding, enablement, drift, and restore responses SHALL identify canonical Skill id, effective layer, origin, type, delivery, availability, shadowed definitions, compatibility state, and delegation capability when applicable.
 
 #### Scenario: Higher layer shadows built-in
 - **WHEN** a User-layer Skill shadows a System package with the same canonical id
 - **THEN** management responses SHALL identify the User definition as effective and the System definition as shadowed
 
+#### Scenario: Supported Utility shown as delegatable
+- **WHEN** an effective Utility Skill is valid and native delegated execution is supported
+- **THEN** management responses SHALL identify it as available for delegation without treating it as a Role Skill
+
 #### Scenario: Unsupported Utility shown safely
-- **WHEN** a Utility Skill is present before delegated execution is supported
-- **THEN** management responses SHALL retain it in inventory with an unavailable reason rather than silently treating it as a Role Skill
+- **WHEN** a Utility Skill is present in a runtime without delegated execution support
+- **THEN** management responses SHALL retain it in inventory with a runtime-specific unavailable reason rather than silently treating it as a Role Skill
 
 ### Requirement: Runtime adapter parity for effective Skills
 The frontend service boundary, desktop adapter, and Web/mock adapter SHALL expose compatible effective Skill response shapes and operations. React components SHALL NOT call native commands directly.
@@ -362,4 +366,45 @@ Skill list, detail, preview, usage, resource, and drift responses SHALL include 
 #### Scenario: Conflicted Overlay summary
 - **WHEN** an applicable Overlay needs reconciliation
 - **THEN** its response SHALL expose a bounded conflict count and safe reason while returning the fallback effective content selected by Overlay governance
+
+### Requirement: Skill evolution evidence summaries
+Skill management detail responses SHALL provide read-only bounded evolution evidence summaries containing collection status, signal and seed counts, extractor distribution, attribution distribution, source-Agent distribution, categories, polarities, severities, first and last occurrence, retention, quota, and dropped counts for the canonical Skill and workspace context.
+
+#### Scenario: Skill has verified evidence
+- **WHEN** a Skill has retained verified signals and candidate seeds
+- **THEN** its detail response SHALL identify verified counts and seed readiness without claiming that any change has been generated or applied
+
+#### Scenario: Skill has correlated CLI evidence
+- **WHEN** a Skill has only correlated CLI evidence
+- **THEN** the response SHALL label it human-review-only and SHALL not present it as automatically targetable
+
+#### Scenario: Skill has no evidence
+- **WHEN** no retained evidence is associated with a Skill
+- **THEN** the response SHALL return a valid empty evidence state and collection status
+
+### Requirement: Bounded Skill signal and seed queries
+The Skill management service SHALL provide cursor-paginated queries for sanitized signals and candidate seeds filtered by canonical Skill id, workspace, stable source Agent id, extractor, attribution, category, polarity, severity, readiness, and time range.
+
+#### Scenario: Query recent signals
+- **WHEN** a client requests recent signals for one canonical Skill and workspace
+- **THEN** the service SHALL return newest-first sanitized summaries, lineage fields, and a continuation cursor without prohibited raw content
+
+#### Scenario: Inspect seed
+- **WHEN** a client requests one accessible candidate seed
+- **THEN** the service SHALL return its deterministic grouping metadata and bounded contributing signal summaries
+
+#### Scenario: Cross-workspace query refused
+- **WHEN** a request attempts to read Project evidence from another inaccessible workspace
+- **THEN** the service SHALL reject or isolate the request without exposing that workspace's evidence
+
+### Requirement: Scoped evidence purge service
+The Skill management service SHALL provide confirmed evidence purge operations globally and by workspace, canonical Skill id, source Agent id, time range, and evidence kind. Purge responses SHALL report deleted signal and seed counts without deleting source runtime data or Skill content.
+
+#### Scenario: Purge Skill evidence
+- **WHEN** a confirmed purge for one Skill succeeds
+- **THEN** the response SHALL report deleted signals and rebuilt or deleted seeds and the refreshed Skill evidence summary SHALL be consistent
+
+#### Scenario: Web purge simulation
+- **WHEN** Web/mock mode receives a scoped purge request
+- **THEN** it SHALL update only its simulated evidence state through the same service contract
 
