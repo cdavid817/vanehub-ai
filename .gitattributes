@@ -5,3 +5,8 @@
 # System Skill package hashes are computed from canonical LF bytes. Keep checkout
 # bytes stable on Windows so embedded documents verify against the manifest.
 src-tauri/resources/skills/system/** text eol=lf
+
+# Skill tool manifest fixtures are embedded with include_str! and matched against
+# substrings written with LF. CRLF in the checkout makes those replacements match
+# nothing, so a rejection test silently asserts against an unmodified manifest.
+src-tauri/tests/fixtures/skill-tools/** text eol=lf

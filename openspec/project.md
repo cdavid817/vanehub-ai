@@ -54,7 +54,7 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `agent_runtime` | Agent registry, interaction modes, provider invocation, workflow state, and generation lifecycle |
 | `sessions` | Sessions, messages, categories, chat configuration, export, maintenance, scheduled tasks, and usage records/read models |
 | `workspaces` | Local/remote projects, worktrees, bounded file/Git inspection, and session shell lifecycle |
-| `tooling` | CLI lifecycle and the MCP, SDK, extension, plugin integration, Skill, and Prompt Hook subdomains |
+| `tooling` | CLI lifecycle and the MCP, SDK, extension, plugin integration, Skill, Skill tool, and Prompt Hook subdomains |
 | `communications` | IM connector configuration, credentials, protocol adapters, routing, and delivery lifecycle |
 | `desktop` | App settings, startup, data/log directory actions, floating assistant, and window/tray lifecycle |
 | `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts |

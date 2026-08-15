@@ -5,6 +5,7 @@ import type * as TokenUsageContracts from "./token-usage";
 import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
 import type * as SkillContracts from "./skill";
+import type * as SkillConfigurationContracts from "./skill-configuration";
 import type * as SkillOverlayContracts from "./skill-overlay";
 import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
@@ -24,6 +25,7 @@ import {
 } from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
+import type * as SkillConfigurationTypes from "../types/skill-configuration";
 import type * as SkillOverlayTypes from "../types/skill-overlay";
 import type * as SkillOverlayReconciliationTypes from "../types/skill-overlay-reconciliation";
 import {
@@ -334,6 +336,53 @@ type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillMountMigrationReport, SkillTypes.SkillMountMigrationReport>>,
 ];
 
+type SkillConfigurationAssertions = [
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationScope, SkillConfigurationTypes.SkillConfigurationScope>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationProvenance, SkillConfigurationTypes.SkillConfigurationProvenance>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationSecretState, SkillConfigurationTypes.SkillConfigurationSecretState>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationDrift, SkillConfigurationTypes.SkillConfigurationDrift>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationReadiness, SkillConfigurationTypes.SkillConfigurationReadiness>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurableState, SkillConfigurationTypes.SkillConfigurableState>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationCleanupState, SkillConfigurationTypes.SkillConfigurationCleanupState>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationConsumption, SkillConfigurationTypes.SkillConfigurationConsumption>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationScalarType, SkillConfigurationTypes.SkillConfigurationScalarType>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationFieldKind, SkillConfigurationTypes.SkillConfigurationFieldKind>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationFieldType, SkillConfigurationTypes.SkillConfigurationFieldType>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationValue, SkillConfigurationTypes.SkillConfigurationValue>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationValueEntry, SkillConfigurationTypes.SkillConfigurationValueEntry>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationConstraints, SkillConfigurationTypes.SkillConfigurationConstraints>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationPresentation, SkillConfigurationTypes.SkillConfigurationPresentation>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationGroupDescriptor, SkillConfigurationTypes.SkillConfigurationGroupDescriptor>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationFieldDescriptor, SkillConfigurationTypes.SkillConfigurationFieldDescriptor>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationDescriptor, SkillConfigurationTypes.SkillConfigurationDescriptor>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationProperty, SkillConfigurationTypes.SkillConfigurationProperty>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationScopeState, SkillConfigurationTypes.SkillConfigurationScopeState>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationResolution, SkillConfigurationTypes.SkillConfigurationResolution>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRecordState, SkillConfigurationTypes.SkillConfigurationRecordState>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRuntimeSupport, SkillConfigurationTypes.SkillConfigurationRuntimeSupport>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationView, SkillConfigurationTypes.SkillConfigurationView>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRecovery, SkillConfigurationTypes.SkillConfigurationRecovery>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRejectionCode, SkillConfigurationTypes.SkillConfigurationRejectionCode>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRejection, SkillConfigurationTypes.SkillConfigurationRejection>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationSaveResult, SkillConfigurationTypes.SkillConfigurationSaveResult>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationSaveOutcome, SkillConfigurationTypes.SkillConfigurationSaveOutcome>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationResolutionOutcome, SkillConfigurationTypes.SkillConfigurationResolutionOutcome>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRetentionOutcome, SkillConfigurationTypes.SkillConfigurationRetentionOutcome>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationSecretIntent, SkillConfigurationTypes.SkillConfigurationSecretIntent>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationSecretIntentInput, SkillConfigurationTypes.SkillConfigurationSecretIntentInput>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationWriteInput, SkillConfigurationTypes.SkillConfigurationWriteInput>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationScopeInput, SkillConfigurationTypes.SkillConfigurationScopeInput>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationRetention, SkillConfigurationTypes.SkillConfigurationRetention>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationObsoleteAction, SkillConfigurationTypes.SkillConfigurationObsoleteAction>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationObsoleteFieldChoice, SkillConfigurationTypes.SkillConfigurationObsoleteFieldChoice>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationReconciliationPlan, SkillConfigurationTypes.SkillConfigurationReconciliationPlan>>,
+  Assert<Equal<SkillConfigurationContracts.SkillConfigurationReconciliationInput, SkillConfigurationTypes.SkillConfigurationReconciliationInput>>,
+  // The Skill contract re-exports the configuration surface, so a name that lands in only one of
+  // the two barrels would compile here and diverge for every consumer that imports from "./skill".
+  Assert<Equal<SkillContracts.SkillConfigurationView, SkillTypes.SkillConfigurationView>>,
+  Assert<Equal<SkillContracts.SkillConfigurationSaveOutcome, SkillTypes.SkillConfigurationSaveOutcome>>,
+];
+
 type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.DirectoryListing, SessionWorkspaceTypes.DirectoryListing>>,
   Assert<Equal<SessionWorkspaceContracts.DocumentListing, SessionWorkspaceTypes.DocumentListing>>,
@@ -368,6 +417,7 @@ void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
+void (0 as unknown as SkillConfigurationAssertions);
 void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 void (0 as unknown as ContextQualityAssertions);

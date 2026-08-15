@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "nested",
+      "description": "Nests its input schema past the supported depth budget.",
+      "capabilities": [],
+      "input": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "object",
+                    "properties": {
+                      "d": {
+                        "type": "object",
+                        "properties": {
+                          "e": {
+                            "type": "object",
+                            "properties": { "f": { "type": "string" } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/nested.wasm",
+        "export": "run",
+        "hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
+  ]
+}

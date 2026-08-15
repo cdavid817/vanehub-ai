@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "escape",
+      "description": "Points its module outside the Skill package.",
+      "capabilities": [],
+      "input": { "type": "object", "properties": {} },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/../../../../evil.wasm",
+        "export": "run",
+        "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  ]
+}

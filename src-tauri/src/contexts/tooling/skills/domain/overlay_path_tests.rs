@@ -68,6 +68,10 @@ fn hidden_components_reserved_devices_and_alternate_streams_are_rejected() {
 fn only_supported_top_level_directories_and_bounded_paths_are_accepted() {
     assert_eq!(
         validate_overlay_path("scripts/tool.md"),
+        Err(OverlayPathError::ReservedExecutablePath)
+    );
+    assert_eq!(
+        validate_overlay_path("bin/tool.md"),
         Err(OverlayPathError::UnsupportedTopLevel)
     );
     assert_eq!(
@@ -123,5 +127,33 @@ fn links_must_resolve_inside_an_allowed_overlay_resource_directory() {
             .expect("in-bound link")
             .as_str(),
         "references/team.md"
+    );
+}
+
+#[test]
+fn executable_skill_tool_content_is_refused_by_name_however_it_is_addressed() {
+    for path in [
+        "scripts/tools.json",
+        "scripts/modules/score.wasm",
+        "scripts/modules/nested/score.wasm",
+        "scripts/tools.json.sig",
+        "scripts/anything.md",
+    ] {
+        assert_eq!(
+            validate_overlay_path(path),
+            Err(OverlayPathError::ReservedExecutablePath),
+            "{path} must be reserved"
+        );
+    }
+    // A link may not resolve onto reserved content either. The resolved path is revalidated, and
+    // the reserved refusal survives the escape mapping rather than being flattened into
+    // `LinkEscape`, so the diagnostic names the actual reason.
+    assert_eq!(
+        validate_overlay_link_target("references/link.md", "../scripts/tools.json"),
+        Err(OverlayPathError::ReservedExecutablePath)
+    );
+    assert_eq!(
+        validate_overlay_link_target("references/link.md", "../scripts/modules/score.wasm"),
+        Err(OverlayPathError::ReservedExecutablePath)
     );
 }

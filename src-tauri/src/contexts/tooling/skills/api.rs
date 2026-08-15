@@ -1,6 +1,8 @@
 use crate::contexts::tooling::skills::application::{
     SkillApplicationService, SkillOverlayApplicationService,
 };
+use crate::contexts::tooling::skills::configuration_facade::SkillConfigurationFacade;
+use crate::contexts::tooling::skills::infrastructure::require_base_revision;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -10,23 +12,48 @@ pub(crate) use crate::contexts::tooling::skills::application::{
     OverlayMutationOutcome, OverlayMutationRequest, OverlayPreview, OverlayPromotionRequest,
     OverlayReconciliationPreview, OverlayReconciliationRequest, OverlaySummary, SkillAccessRefusal,
     SkillAgentKind, SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry,
-    SkillCreateRequest, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDriftReport,
-    SkillFailure, SkillImportRequest, SkillListResult, SkillLoadOutcome, SkillLoadRequest,
-    SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
-    SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
-    SkillScopeQuery, SkillShadowSummary, SkillSyncResult, SkillUpdateRequest,
-    UtilitySkillResolutionOutcome,
+    SkillCreateRequest, SkillDelegationSummary, SkillDiscoveryRequest, SkillDiscoveryResult,
+    SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillLoadOutcome,
+    SkillLoadRequest, SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent,
+    SkillRecord, SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome,
+    SkillResourceReadRequest, SkillScopeQuery, SkillShadowSummary, SkillSyncResult,
+    SkillUpdateRequest, UtilitySkillResolutionOutcome,
+};
+pub(crate) use crate::contexts::tooling::skills::application::{
+    SkillConfigurableState, SkillConfigurationOverview,
 };
 pub(crate) use crate::contexts::tooling::skills::domain::{
-    SkillAvailability, SkillDelivery, SkillDomainError, SkillDriftIssueType, SkillId, SkillKey,
-    SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillScope, SkillSource,
+    SkillAvailability, SkillConfigDrift, SkillConfigField, SkillConfigFieldType, SkillConfigGroup,
+    SkillConfigPresentation, SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness,
+    SkillConfigRevision, SkillConfigScalarType, SkillConfigSchema, SkillConfigScope,
+    SkillConfigValue, SkillDelegationCapabilityId, SkillDelivery, SkillDomainError,
+    SkillDriftIssueType, SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata,
+    SkillMountPath, SkillOrigin, SkillScope, SkillSecretIntent, SkillSecretState, SkillSource,
     SkillTrust, SkillType,
+};
+pub(crate) use crate::contexts::tooling::skills::infrastructure::{
+    consumption_for_binding, ConfigurationConsumption, DeletionRetention, ObsoleteFieldChoice,
+    ReconciliationPlan, ResolvedSkillConfiguration, ScopeConfigurationState, SecretRecovery,
+    SkillConfigCleanupState, SkillConfigurationError, SkillConfigurationRequest,
+    SkillConfigurationSaveResult, StoredSkillConfiguration,
 };
 
 #[derive(Clone)]
 pub(crate) struct SkillApi {
     service: SkillApplicationService,
     overlays: Option<SkillOverlayApplicationService>,
+    configuration: Option<SkillConfigurationFacade>,
+}
+
+/// What the Configuration surface needs in one response: whether this revision is configurable at
+/// all, the normalized schema when it is, and the resolved effective state. Assembled here rather
+/// than by the caller so a schema and the values validated against it always come from the same
+/// read of the winning revision.
+pub(crate) struct SkillConfigurationView {
+    pub(crate) overview: SkillConfigurationOverview,
+    pub(crate) schema: Option<SkillConfigSchema>,
+    pub(crate) resolved: Option<ResolvedSkillConfiguration>,
+    pub(crate) workspace_identity: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +74,7 @@ impl SkillApi {
         Self {
             service,
             overlays: None,
+            configuration: None,
         }
     }
 
@@ -55,10 +83,21 @@ impl SkillApi {
         self
     }
 
+    pub(crate) fn with_configuration(mut self, configuration: SkillConfigurationFacade) -> Self {
+        self.configuration = Some(configuration);
+        self
+    }
+
     fn overlays(&self) -> Result<&SkillOverlayApplicationService, SkillError> {
         self.overlays
             .as_ref()
             .ok_or_else(|| SkillError::Repository("Overlay service is unavailable".to_string()))
+    }
+
+    fn configuration(&self) -> Result<&SkillConfigurationFacade, SkillError> {
+        self.configuration.as_ref().ok_or_else(|| {
+            SkillError::Repository("Skill configuration service is unavailable".to_string())
+        })
     }
 
     pub(crate) fn overlay_detail(
@@ -378,6 +417,207 @@ impl SkillApi {
     pub(crate) fn select_workspace_directory(&self) -> Result<Option<String>, SkillError> {
         self.service.select_workspace_directory()
     }
+
+    pub(crate) fn configuration_view(
+        &self,
+        key: SkillKey,
+    ) -> Result<SkillConfigurationView, SkillError> {
+        let workspace_identity = workspace_identity(&key);
+        let context = self.service.configuration_context(&key)?;
+        let resolved = match context.schema.as_ref() {
+            Some(schema) => Some(self.configuration()?.read(
+                schema,
+                key.id.as_str(),
+                &workspace_identity,
+            )?),
+            None => None,
+        };
+        Ok(SkillConfigurationView {
+            overview: context.overview,
+            schema: context.schema,
+            resolved,
+            workspace_identity: (!workspace_identity.is_empty()).then_some(workspace_identity),
+        })
+    }
+
+    pub(crate) fn preview_configuration(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+    ) -> Result<Result<ResolvedSkillConfiguration, SkillConfigurationError>, SkillError> {
+        let (schema, base_revision) = self.configuration_schema(key)?;
+        if let Err(error) = require_base_revision(&base_revision, request) {
+            return Ok(Err(error));
+        }
+        Ok(self.configuration()?.preview(&schema, request))
+    }
+
+    pub(crate) fn save_configuration(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+    ) -> Result<Result<SkillConfigurationSaveResult, SkillConfigurationError>, SkillError> {
+        let (schema, base_revision) = self.configuration_schema(key)?;
+        if let Err(error) = require_base_revision(&base_revision, request) {
+            return Ok(Err(error));
+        }
+        match self.configuration()?.save(&schema, request) {
+            Err(error) => Ok(Err(error)),
+            Ok(result) => Ok(Ok(self.rescope_preview(&schema, key, result)?)),
+        }
+    }
+
+    /// Removes one non-secret property from one scope. A secret is refused here on purpose: its
+    /// reset destroys a credential rather than a stored value, so it has to be asked for through
+    /// the operation that says so.
+    pub(crate) fn reset_configuration_property(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+        property_key: &str,
+    ) -> Result<Result<SkillConfigurationSaveResult, SkillConfigurationError>, SkillError> {
+        self.reset_configured_property(key, request, property_key, false)
+    }
+
+    pub(crate) fn clear_configuration_secret(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+        property_key: &str,
+    ) -> Result<Result<SkillConfigurationSaveResult, SkillConfigurationError>, SkillError> {
+        self.reset_configured_property(key, request, property_key, true)
+    }
+
+    pub(crate) fn reconcile_configuration(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+        plan: &ReconciliationPlan,
+    ) -> Result<Result<SkillConfigurationSaveResult, SkillConfigurationError>, SkillError> {
+        let (schema, base_revision) = self.configuration_schema(key)?;
+        if let Err(error) = require_base_revision(&base_revision, request) {
+            return Ok(Err(error));
+        }
+        match self.configuration()?.reconcile(&schema, request, plan) {
+            Err(error) => Ok(Err(error)),
+            Ok(result) => Ok(Ok(self.rescope_preview(&schema, key, result)?)),
+        }
+    }
+
+    pub(crate) fn reset_configuration_scope(
+        &self,
+        key: &SkillKey,
+        scope: SkillConfigScope,
+    ) -> Result<Result<ResolvedSkillConfiguration, SkillConfigurationError>, SkillError> {
+        let (schema, _) = self.configuration_schema(key)?;
+        let configuration = self.configuration()?;
+        let workspace_identity = workspace_identity(key);
+        // A User record is keyed by the empty workspace identity, so clearing it has to address
+        // that row rather than the one belonging to the caller's workspace.
+        let record_identity = match scope {
+            SkillConfigScope::User => String::new(),
+            SkillConfigScope::Project => workspace_identity.clone(),
+        };
+        match configuration.reset_scope(&schema, key.id.as_str(), scope, &record_identity) {
+            Err(error) => Ok(Err(error)),
+            Ok(_) => Ok(Ok(configuration.read(
+                &schema,
+                key.id.as_str(),
+                &workspace_identity,
+            )?)),
+        }
+    }
+
+    /// Deliberately does not resolve a schema: retention is decided while a Skill is being deleted,
+    /// when its package may already be unreadable, and the stored rows still have to be dealt with.
+    pub(crate) fn apply_configuration_retention(
+        &self,
+        key: &SkillKey,
+        retention: DeletionRetention,
+    ) -> Result<Result<SecretRecovery, SkillConfigurationError>, SkillError> {
+        Ok(self.configuration()?.apply_deletion_retention(
+            key.id.as_str(),
+            &workspace_identity(key),
+            retention,
+        ))
+    }
+
+    fn reset_configured_property(
+        &self,
+        key: &SkillKey,
+        request: &SkillConfigurationRequest,
+        property_key: &str,
+        expect_secret: bool,
+    ) -> Result<Result<SkillConfigurationSaveResult, SkillConfigurationError>, SkillError> {
+        let (schema, base_revision) = self.configuration_schema(key)?;
+        if let Err(error) = require_base_revision(&base_revision, request) {
+            return Ok(Err(error));
+        }
+        match schema.field(property_key) {
+            None => {
+                return Ok(Err(SkillConfigurationError::UnknownProperty {
+                    key: property_key.to_string(),
+                }))
+            }
+            Some(field) if field.secret != expect_secret => {
+                return Ok(Err(SkillConfigurationError::NotConfigurable {
+                    key: property_key.to_string(),
+                }))
+            }
+            Some(_) => {}
+        }
+        match self
+            .configuration()?
+            .reset_property(&schema, request, property_key)
+        {
+            Err(error) => Ok(Err(error)),
+            Ok(result) => Ok(Ok(self.rescope_preview(&schema, key, result)?)),
+        }
+    }
+
+    fn configuration_schema(
+        &self,
+        key: &SkillKey,
+    ) -> Result<(SkillConfigSchema, String), SkillError> {
+        let context = self.service.configuration_context(key)?;
+        let schema = context.schema.ok_or_else(|| {
+            SkillError::Validation(format!(
+                "Skill declares no supported configuration schema: {}",
+                key.id.as_str()
+            ))
+        })?;
+        let base_revision = context.overview.base_revision.ok_or_else(|| {
+            SkillError::Validation(format!(
+                "Skill configuration has no effective base revision: {}",
+                key.id.as_str()
+            ))
+        })?;
+        Ok((schema, base_revision))
+    }
+
+    /// A User-scope write carries no workspace identity, so the preview resolved by the write path
+    /// cannot see a Project override. Re-resolving against the caller's workspace is what keeps the
+    /// returned effective value the one that will actually apply there.
+    fn rescope_preview(
+        &self,
+        schema: &SkillConfigSchema,
+        key: &SkillKey,
+        mut result: SkillConfigurationSaveResult,
+    ) -> Result<SkillConfigurationSaveResult, SkillError> {
+        let workspace_identity = workspace_identity(key);
+        if workspace_identity != result.record.workspace_identity {
+            result.preview =
+                self.configuration()?
+                    .read(schema, key.id.as_str(), &workspace_identity)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Project records are keyed by the canonical workspace path; the empty string is the User key and
+/// also what a Global management scope resolves to.
+fn workspace_identity(key: &SkillKey) -> String {
+    key.location.workspace_path.clone().unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

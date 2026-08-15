@@ -1,19 +1,23 @@
 ## 1. Runtime contracts and dependency gates
 
-- [ ] 1.1 Add the `skill_tools` Rust context with domain ids, canonical tool keys, manifest version, implementation kind, capability, limit, trust, validation, lifecycle, quarantine, and diagnostic models.
-- [ ] 1.2 Define application ports for manifest discovery, integrity verification, schema validation, trust persistence, module execution, agent catalog contribution, permission dispatch, usage tracking, and unified logging.
-- [ ] 1.3 Specify and test the versioned `scripts/tools.json` contract, bounded JSON Schema subset, normalized ids, declarative templates, module exports, capability declarations, and centrally capped limits.
+- [x] 1.1 Add the `skill_tools` Rust context with domain ids, canonical tool keys, manifest version, implementation kind, capability, limit, trust, validation, lifecycle, quarantine, and diagnostic models.
+- [x] 1.2 Define application ports for manifest discovery, integrity verification, schema validation, trust persistence, module execution, agent catalog contribution, permission dispatch, usage tracking, and unified logging.
+- [x] 1.3 Specify and test the versioned `scripts/tools.json` contract, bounded JSON Schema subset, normalized ids, declarative templates, module exports, capability declarations, and centrally capped limits.
 - [ ] 1.4 Evaluate, pin, license-check, and advisory-check the JSON Schema and WebAssembly dependencies; document feature flags and keep declarative-only operation available when the module runtime is disabled.
-- [ ] 1.5 Add contract fixtures for valid manifests and adversarial cases including traversal, duplicate ids, oversized/deep schemas, hash mismatch, forbidden implementation kinds, unknown versions, and undeclared files.
+  - Partial. The feature flag (`skill-tool-module-runtime`, default off) and declarative-only operation are implemented and tested. No dependency is added or pinned yet, and license/advisory review is not done: `cargo-deny` and `cargo-audit` are not installed on this toolchain, and the JSON Schema subset is validated in-house, so the engine choice belongs with the section 4 adapter that consumes it.
+- [x] 1.5 Add contract fixtures for valid manifests and adversarial cases including traversal, duplicate ids, oversized/deep schemas, hash mismatch, forbidden implementation kinds, unknown versions, and undeclared files.
 
 ## 2. Discovery, integrity, and persistence
 
-- [ ] 2.1 Implement path-contained discovery from only the winning effective Skill revision and ignore tool content from shadowed revisions.
-- [ ] 2.2 Implement manifest/module hashing, capability digests, import/export inspection, file and aggregate size limits, and immutable effective revision witnesses.
-- [ ] 2.3 Add SQLite migrations and repositories for revision-bound trust, enablement, validation, quarantine, failure counters, and bounded diagnostic summaries.
-- [ ] 2.4 Add corruption recovery and migration-equivalence tests so existing Skill records and Skills without tool manifests retain their current behavior.
-- [ ] 2.5 Extend effective Skill overview models with bounded tool inventory, integrity, trust, enablement, validation, and quarantine summaries without returning executable bytes.
-- [ ] 2.6 Harden Overlay path validation and effective-content assembly so manifests, modules, hashes, and executable paths cannot be added or changed by patches, learning blocks, files, or evolution auto-apply.
+- [x] 2.1 Implement path-contained discovery from only the winning effective Skill revision and ignore tool content from shadowed revisions.
+- [x] 2.2 Implement manifest/module hashing, capability digests, import/export inspection, file and aggregate size limits, and immutable effective revision witnesses.
+- [x] 2.3 Add SQLite migrations and repositories for revision-bound trust, enablement, validation, quarantine, failure counters, and bounded diagnostic summaries.
+  - Migration `skill-tool-runtime-foundation` is written as version **73**, which is provisional. `main` ends at 71 and 72 is claimed by an unmerged change, so this branch carries a real gap that `assert_migration_history_is_dense` rejects: standalone it fails 362 database-touching tests. Renumber to `main`'s maximum plus one at integration and update all five sites (`migrations.rs` call and `EXPECTED_MIGRATIONS`, `migrations.rs` `migration_state` assertion, `migration_fixture_tests::expected_versions`, and the `WHERE version =` probe in `skill_tools/infrastructure/tests.rs`). Verified green at a dense number: 3052 passed, 0 failed.
+- [x] 2.4 Add corruption recovery and migration-equivalence tests so existing Skill records and Skills without tool manifests retain their current behavior.
+- [x] 2.5 Extend effective Skill overview models with bounded tool inventory, integrity, trust, enablement, validation, and quarantine summaries without returning executable bytes.
+  - The model field and its projection are implemented and tested. It is populated from an empty default until the registry snapshot in 6.6 supplies real inventory, which is also the correct value for every Skill that ships no tool manifest.
+- [x] 2.6 Harden Overlay path validation and effective-content assembly so manifests, modules, hashes, and executable paths cannot be added or changed by patches, learning blocks, files, or evolution auto-apply.
+  - Evolution auto-apply has no implementation in the codebase yet; when it lands it must route mutations through the same `validate_overlay_path` gate every other Overlay path already uses.
 
 ## 3. Declarative tool execution
 

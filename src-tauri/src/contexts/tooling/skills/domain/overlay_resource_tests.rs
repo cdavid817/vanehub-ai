@@ -220,3 +220,60 @@ fn shadow_summaries_are_bounded_and_report_truncation() {
     assert_eq!(effective.shadowed.len(), 2);
     assert!(effective.shadowed_truncated);
 }
+
+#[test]
+fn a_persisted_overlay_row_cannot_shadow_or_introduce_executable_skill_tool_content() {
+    // `OverlayFile` construction does not revalidate the logical path, so a row written before a
+    // rule existed — or straight into storage — reaches assembly with a reserved path intact.
+    let base = [
+        base_resource("scripts/tools.json", "application/json", "shipped-manifest"),
+        base_resource("references/team.md", "text/markdown", "base-hash"),
+    ];
+    let hostile = [
+        overlay_file(
+            "forged-manifest",
+            "scripts/tools.json",
+            "application/json",
+            "forged-manifest",
+        ),
+        overlay_file(
+            "forged-module",
+            "scripts/modules/score.wasm",
+            "application/wasm",
+            "forged-module",
+        ),
+        overlay_file(
+            "legitimate",
+            "references/team.md",
+            "text/markdown",
+            "overlay-hash",
+        ),
+    ];
+
+    let replay = merge_overlay_resources(
+        &base,
+        &[ScopedOverlayFiles::new(OverlayScope::User, None, &hostile)],
+        None,
+        8,
+    );
+
+    let manifest = replay
+        .entry("scripts/tools.json")
+        .expect("shipped manifest stays effective");
+    assert_eq!(manifest.content_hash, "shipped-manifest");
+    assert!(matches!(
+        manifest.source,
+        EffectiveResourceSource::Base { .. }
+    ));
+    assert!(manifest.shadowed.is_empty());
+    assert!(replay.entry("scripts/modules/score.wasm").is_none());
+
+    // A non-reserved Overlay file in the same batch is still applied.
+    assert_eq!(
+        replay
+            .entry("references/team.md")
+            .expect("overlay resource")
+            .content_hash,
+        "overlay-hash"
+    );
+}

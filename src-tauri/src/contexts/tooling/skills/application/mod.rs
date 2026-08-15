@@ -1,3 +1,4 @@
+mod config_overview;
 mod effective_catalog;
 mod error;
 mod models;
@@ -14,6 +15,8 @@ mod progressive;
 mod service;
 
 #[cfg(test)]
+mod config_overview_tests;
+#[cfg(test)]
 mod overlay_logging_tests;
 #[cfg(test)]
 mod overlay_promotion_tests;
@@ -22,6 +25,11 @@ mod overlay_service_tests;
 #[cfg(test)]
 mod tests;
 
+#[allow(unused_imports)]
+pub(crate) use config_overview::{
+    SkillConfigurableState, SkillConfigurationContext, SkillConfigurationOverview,
+    SkillScopedConfigSummary,
+};
 pub(crate) use effective_catalog::{
     normalize_utility_availability, preview_package, resolve_effective_catalog,
 };
@@ -31,13 +39,14 @@ pub(crate) use models::{
     BuiltinReconciliationState, EffectiveCatalogCacheKey, EffectiveSkill, ManagedSkillSource,
     SkillAccessRefusal, SkillAccessRefusalReason, SkillAgentBinding, SkillAgentKind,
     SkillAgentMountPath, SkillBackupEntry, SkillCompatibleAgent, SkillCreateRequest,
-    SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument,
-    SkillDriftReport, SkillEffectiveMetadata, SkillFailure, SkillFilesystemTransaction,
-    SkillImportRequest, SkillImportedSource, SkillListResult, SkillLoadOutcome, SkillLoadRequest,
-    SkillLoadResult, SkillLogAction, SkillLogEvent, SkillLogLevel, SkillMountMigrationReport,
-    SkillMountRepair, SkillOverview, SkillPackageDescriptor, SkillPackagePreview,
-    SkillPackageResource, SkillPreview, SkillPromptForAgent, SkillRecord, SkillResourceDocument,
-    SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
+    SkillDelegationSummary, SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult,
+    SkillDocument, SkillDriftReport, SkillEffectiveMetadata, SkillFailure,
+    SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillListResult,
+    SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction, SkillLogEvent,
+    SkillLogLevel, SkillMountMigrationReport, SkillMountRepair, SkillOverview,
+    SkillPackageDescriptor, SkillPackagePreview, SkillPackageResource, SkillPreview,
+    SkillPromptForAgent, SkillRecord, SkillResourceDocument, SkillResourceEntry,
+    SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
     SkillResourceReadResult, SkillScopeQuery, SkillShadowSummary, SkillSourceRefresh, SkillStats,
     SkillSyncResult, SkillUpdateRequest, SkillUsageActivity, SkillUsageIdentity,
     SkillUsageMutation, SkillUsageRead, SkillUsageSummary, UtilitySkillExecutionSnapshot,

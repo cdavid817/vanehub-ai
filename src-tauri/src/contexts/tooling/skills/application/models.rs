@@ -1,7 +1,12 @@
+use super::config_overview::SkillConfigurationOverview;
+use crate::contexts::tooling::skill_tools::api::SkillToolInventorySummary;
 use crate::contexts::tooling::skills::domain::{
-    SkillAvailability, SkillCompatibilityDefaults, SkillDelivery, SkillDriftIssue, SkillId,
-    SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillSource,
-    SkillTrust, SkillType,
+    evaluate_delegation_eligibility, SkillAvailability, SkillCompatibilityDefaults,
+    SkillDelegationAgentRuntime, SkillDelegationCapabilityId, SkillDelegationContract,
+    SkillDelegationDeclaration, SkillDelegationEligibility, SkillDelegationLimitField,
+    SkillDelegationLimits, SkillDelegationRequestedLimits, SkillDelegationUnavailableReason,
+    SkillDelivery, SkillDriftIssue, SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata,
+    SkillMountPath, SkillOrigin, SkillSource, SkillTrust, SkillType,
 };
 use std::collections::BTreeMap;
 
@@ -369,6 +374,18 @@ impl SkillRecord {
             immutable: layer == SkillLayer::System,
             shadowed: Vec::new(),
             usage: SkillUsageSummary::default(),
+            // This path runs on a record rebuilt from the registry, whose metadata carries no
+            // frontmatter block. Reporting not-configurable here would hide a configurable
+            // Skill's settings, so the question stays unanswered until the effective package
+            // resolves it.
+            configuration: SkillConfigurationOverview::not_evaluated(),
+            tools: SkillToolInventorySummary::default(),
+            delegation: SkillDelegationSummary::evaluate(
+                self.metadata.skill_type,
+                trust,
+                availability,
+                &self.metadata.delegation,
+            ),
         }
     }
 }
@@ -393,6 +410,92 @@ pub(crate) struct SkillEffectiveMetadata {
     pub(crate) immutable: bool,
     pub(crate) shadowed: Vec<SkillShadowSummary>,
     pub(crate) usage: SkillUsageSummary,
+    pub(crate) configuration: SkillConfigurationOverview,
+    /// Bounded Skill tool inventory for this effective revision.
+    ///
+    /// Empty for every Skill that ships no tool manifest, which is what keeps existing Skills
+    /// behaving exactly as before. Carries integrity hashes and governance status but no
+    /// executable bytes: `skill_tools` owns reading and running the implementations, and this
+    /// projection exists so the Skill overview can report them without that ability.
+    pub(crate) tools: SkillToolInventorySummary,
+    /// `None` for Role Skills so management responses never imply a Role can be delegated.
+    pub(crate) delegation: Option<SkillDelegationSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillDelegationSummary {
+    pub(crate) supported: bool,
+    pub(crate) unavailable_reason: Option<SkillDelegationUnavailableReason>,
+    pub(crate) declared_capabilities: Vec<SkillDelegationCapabilityId>,
+    pub(crate) effective_capabilities: Vec<SkillDelegationCapabilityId>,
+    pub(crate) requested_limits: SkillDelegationRequestedLimits,
+    pub(crate) effective_limits: Option<SkillDelegationLimits>,
+    pub(crate) capped_limits: Vec<SkillDelegationLimitField>,
+    pub(crate) uses_platform_default: bool,
+    pub(crate) read_only: bool,
+    pub(crate) history: SkillDelegationHistorySummary,
+}
+
+/// Bounded counters only. Attempt bodies, tasks, and results are never summarized here; the
+/// paginated history query owns those safe projections.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillDelegationHistorySummary {
+    pub(crate) attempt_count: u64,
+    pub(crate) last_attempt_at: Option<String>,
+    pub(crate) last_status: Option<String>,
+}
+
+impl SkillDelegationSummary {
+    pub(crate) fn evaluate(
+        skill_type: SkillType,
+        trust: SkillTrust,
+        availability: SkillAvailability,
+        declaration: &SkillDelegationDeclaration,
+    ) -> Option<Self> {
+        match evaluate_delegation_eligibility(skill_type, trust, availability, declaration) {
+            SkillDelegationEligibility::NotApplicable => None,
+            SkillDelegationEligibility::Available(contract) => Some(Self {
+                supported: true,
+                unavailable_reason: None,
+                read_only: contract.is_read_only(),
+                declared_capabilities: contract.declared_capabilities,
+                effective_capabilities: contract.effective_capabilities,
+                requested_limits: contract.requested_limits,
+                effective_limits: Some(contract.effective_limits),
+                capped_limits: contract.capped_limits,
+                uses_platform_default: contract.uses_platform_default,
+                history: SkillDelegationHistorySummary::default(),
+            }),
+            SkillDelegationEligibility::Unavailable { reason, contract } => Some(Self {
+                supported: false,
+                unavailable_reason: Some(reason),
+                read_only: contract
+                    .as_ref()
+                    .is_some_and(SkillDelegationContract::is_read_only),
+                declared_capabilities: contract
+                    .as_ref()
+                    .map(|contract| contract.declared_capabilities.clone())
+                    .unwrap_or_default(),
+                effective_capabilities: contract
+                    .as_ref()
+                    .map(|contract| contract.effective_capabilities.clone())
+                    .unwrap_or_default(),
+                requested_limits: contract
+                    .as_ref()
+                    .map(|contract| contract.requested_limits)
+                    .unwrap_or_default(),
+                effective_limits: contract.as_ref().map(|contract| contract.effective_limits),
+                capped_limits: contract
+                    .as_ref()
+                    .map(|contract| contract.capped_limits.clone())
+                    .unwrap_or_default(),
+                uses_platform_default: contract
+                    .as_ref()
+                    .is_some_and(|contract| contract.uses_platform_default),
+                history: SkillDelegationHistorySummary::default(),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -484,6 +587,7 @@ pub(crate) struct SkillCompatibleAgent {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) kind: SkillAgentKind,
+    pub(crate) delegation_runtime: SkillDelegationAgentRuntime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -622,6 +726,15 @@ pub(crate) enum SkillLogAction {
     DetectDrift,
     SyncDrift,
     OverlayValidation,
+    ConfigurationValidate,
+    ConfigurationSave,
+    ConfigurationReset,
+    ConfigurationSecretMutation,
+    ConfigurationDrift,
+    ConfigurationReconcile,
+    ConfigurationDelete,
+    ConfigurationRetention,
+    ConfigurationCleanup,
 }
 
 impl SkillLogAction {
@@ -648,6 +761,15 @@ impl SkillLogAction {
             Self::DetectDrift => "detect-drift",
             Self::SyncDrift => "sync-drift",
             Self::OverlayValidation => "overlay-validation",
+            Self::ConfigurationValidate => "configuration-validate",
+            Self::ConfigurationSave => "configuration-save",
+            Self::ConfigurationReset => "configuration-reset",
+            Self::ConfigurationSecretMutation => "configuration-secret-mutation",
+            Self::ConfigurationDrift => "configuration-drift",
+            Self::ConfigurationReconcile => "configuration-reconcile",
+            Self::ConfigurationDelete => "configuration-delete",
+            Self::ConfigurationRetention => "configuration-retention",
+            Self::ConfigurationCleanup => "configuration-cleanup",
         }
     }
 
@@ -663,6 +785,18 @@ impl SkillLogAction {
                 | Self::DetectDrift
                 | Self::SeedBuiltins
                 | Self::OverlayValidation
+                // Configuration values do not change which Skill revision wins or what schema it
+                // declares, so they cannot invalidate the package catalog. Revisit if the
+                // effective overview ever derives its scoped summaries from stored records.
+                | Self::ConfigurationValidate
+                | Self::ConfigurationSave
+                | Self::ConfigurationReset
+                | Self::ConfigurationSecretMutation
+                | Self::ConfigurationDrift
+                | Self::ConfigurationReconcile
+                | Self::ConfigurationDelete
+                | Self::ConfigurationRetention
+                | Self::ConfigurationCleanup
         )
     }
 }

@@ -1,4 +1,8 @@
-use super::{SkillCompatibilityDefaults, SkillDelivery, SkillDomainError, SkillId, SkillType};
+use super::config_schema::{parse_config_schema, SkillConfigSchema, SkillConfigSchemaError};
+use super::{
+    SkillCompatibilityDefaults, SkillDelegationDeclaration, SkillDelivery, SkillDomainError,
+    SkillId, SkillType,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SkillMetadata {
@@ -12,6 +16,14 @@ pub(crate) struct SkillMetadata {
     pub(crate) skill_type: SkillType,
     pub(crate) delivery: SkillDelivery,
     pub(crate) compatibility_defaults: SkillCompatibilityDefaults,
+    /// Held as the raw frontmatter block rather than a normalized schema so that an unsupported
+    /// schema marks configuration unavailable for the revision without failing the Skill load,
+    /// and so the schema stays part of the document's content hash.
+    pub(crate) config_schema_block: Option<String>,
+    /// The `delegation` frontmatter block as declared. An invalid block does not fail metadata
+    /// parsing: the Skill must stay in inventory with a repairable unavailable reason instead of
+    /// disappearing from management surfaces.
+    pub(crate) delegation: SkillDelegationDeclaration,
 }
 
 impl SkillMetadata {
@@ -81,6 +93,8 @@ impl SkillMetadata {
             skill_type: skill_type.unwrap_or(SkillType::Role),
             delivery: delivery.unwrap_or(SkillDelivery::Eager),
             compatibility_defaults,
+            config_schema_block: None,
+            delegation: SkillDelegationDeclaration::default(),
         };
         if metadata.name.trim().is_empty()
             || metadata.description.trim().is_empty()
@@ -90,6 +104,32 @@ impl SkillMetadata {
             return Err(SkillDomainError::MissingMetadataFields);
         }
         Ok(metadata)
+    }
+
+    pub(crate) fn with_config_schema_block(mut self, block: Option<String>) -> Self {
+        self.config_schema_block = block;
+        self
+    }
+
+    // Consumed by the effective-Skill overview contracts, which land with the read models rather
+    // than with parsing.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn is_configurable(&self) -> bool {
+        self.config_schema_block.is_some()
+    }
+
+    /// Returns `None` when the Skill declares no schema, and `Some(Err(_))` when it declares one
+    /// that is not supported. Callers must not treat the two alike: the second marks
+    /// configuration unavailable for this revision and must not fall back to a permissive schema.
+    pub(crate) fn config_schema(
+        &self,
+    ) -> Option<Result<SkillConfigSchema, SkillConfigSchemaError>> {
+        self.config_schema_block.as_deref().map(parse_config_schema)
+    }
+
+    pub(crate) fn with_delegation(mut self, delegation: SkillDelegationDeclaration) -> Self {
+        self.delegation = delegation;
+        self
     }
 }
 

@@ -1,6 +1,10 @@
 mod binding;
 mod catalog;
 mod classification;
+mod config_document;
+mod config_schema;
+mod config_state;
+mod delegation;
 mod drift;
 mod error;
 mod identity;
@@ -18,6 +22,14 @@ mod overlay_scope_replay;
 mod overlay_text_scanner;
 mod source;
 
+#[cfg(test)]
+mod config_document_tests;
+#[cfg(test)]
+mod config_schema_tests;
+#[cfg(test)]
+mod config_state_tests;
+#[cfg(test)]
+mod delegation_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]
@@ -42,6 +54,24 @@ pub(crate) use catalog::{builtin_definition, builtin_definitions, BuiltinSkillDe
 pub(crate) use classification::{
     resolve_skill_identity, SkillAvailability, SkillCompatibilityDefaults, SkillDelivery,
     SkillIdentityCandidate, SkillLayer, SkillLookupOutcome, SkillOrigin, SkillTrust, SkillType,
+};
+#[allow(unused_imports)]
+pub(crate) use config_schema::{
+    parse_config_schema, validate_value, SkillConfigField, SkillConfigFieldType, SkillConfigGroup,
+    SkillConfigPresentation, SkillConfigScalarType, SkillConfigSchema, SkillConfigSchemaError,
+    SkillConfigValue,
+};
+#[allow(unused_imports)]
+pub(crate) use config_state::{
+    classify_drift, readiness_for, resolve_effective, RedactedSecret, SkillConfigDrift,
+    SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness, SkillConfigRevision,
+    SkillConfigScope, SkillConfigSnapshot, SkillSecretIntent, SkillSecretState,
+};
+pub(crate) use delegation::{
+    evaluate_delegated_assignment, evaluate_delegation_eligibility, RawSkillDelegation,
+    SkillDelegationAgentRuntime, SkillDelegationCapabilityId, SkillDelegationContract,
+    SkillDelegationDeclaration, SkillDelegationEligibility, SkillDelegationLimitField,
+    SkillDelegationLimits, SkillDelegationRequestedLimits, SkillDelegationUnavailableReason,
 };
 pub(crate) use drift::{
     detect_drift, RegisteredSkillInspection, SkillBindingInspection, SkillDriftInspection,

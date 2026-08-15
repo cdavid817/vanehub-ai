@@ -1,4 +1,4 @@
-//! CLI, MCP, SDK, extension, plugin, Skill, and Prompt Hook subdomains.
+//! CLI, MCP, SDK, extension, plugin, Skill, Skill tool, and Prompt Hook subdomains.
 
 pub(crate) mod api;
 pub(crate) mod cli;
@@ -9,4 +9,5 @@ pub(crate) mod mcp;
 pub(crate) mod plugin_integrations;
 pub(crate) mod prompt_hooks;
 pub(crate) mod sdk;
+pub(crate) mod skill_tools;
 pub(crate) mod skills;

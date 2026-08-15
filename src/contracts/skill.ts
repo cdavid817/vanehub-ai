@@ -281,5 +281,6 @@ export interface SkillMountMigrationReport {
   failed: Array<{ skillId: string; reason: string }>;
 }
 
+export type * from "./skill-configuration";
 export type * from "./skill-overlay";
 export type * from "./skill-overlay-reconciliation";

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "greedy",
+      "description": "Requests more memory and wall time than the central ceiling allows.",
+      "capabilities": [],
+      "limits": { "memoryBytes": 1073741824, "wallTimeMs": 600000, "hostCalls": 4096 },
+      "input": { "type": "object", "properties": {} },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/greedy.wasm",
+        "export": "run",
+        "hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    }
+  ]
+}
