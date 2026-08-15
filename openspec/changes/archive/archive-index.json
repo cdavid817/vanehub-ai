@@ -2413,6 +2413,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-image-input",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-image-input/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-image-input",
+                                              "agent-provider-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
                          "changeName":  "add-agent-task-list",
                          "path":  "openspec/changes/archive/2026-08-15-add-agent-task-list/",
                          "artifacts":  [

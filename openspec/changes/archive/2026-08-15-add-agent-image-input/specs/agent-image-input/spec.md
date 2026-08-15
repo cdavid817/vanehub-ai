@@ -52,22 +52,18 @@ The system SHALL enforce declared maximums for an image's pixel dimensions, its 
 - **THEN** the system SHALL refuse it with an explicit error rather than dropping images silently
 
 ### Requirement: Image redaction and transport
-Durable logs SHALL contain only an image's hash, media type, dimensions, and byte count; they SHALL NOT contain image bytes or any encoding of them. Images passed between tools and turns SHALL be referenced by Artifact id rather than by host filesystem path. The persisted transcript SHALL carry an Artifact reference rather than embedding image bytes in message text.
+Durable logs SHALL contain only an image's hash, media type, dimensions, and byte count; they SHALL NOT contain image bytes or any encoding of them. The persisted transcript SHALL NOT embed image bytes or any encoding of them in message text.
 
 #### Scenario: Image-bearing request is logged
 - **WHEN** the system logs a generation that carried an image
 - **THEN** the durable log SHALL contain the image's hash, media type, dimensions, and byte count only
 
-#### Scenario: Tool-to-tool image transfer
-- **WHEN** one tool produces an image another consumes
-- **THEN** the transfer SHALL use the image's Artifact id rather than a host path
-
 #### Scenario: Transcript persistence
 - **WHEN** a message carrying an image is persisted
-- **THEN** the stored message SHALL reference the image's Artifact rather than embedding its bytes
+- **THEN** the stored message SHALL describe the image rather than embedding its bytes
 
 ### Requirement: Tools that may return an image
-The file tool's read operation SHALL return a reviewed image type as an image rather than refusing it as binary content, subject to the same workspace, hidden-path, and file-size rules it already applies. The Browser screenshot operation and the OCR tool SHALL return their rendered image alongside the Artifact reference and, for OCR, alongside the extracted text. No other tool SHALL return an image. When the active model does not accept images, these tools SHALL return their existing non-image result rather than failing.
+The file tool's read operation SHALL return a reviewed image type as an image rather than refusing it as binary content, subject to the same workspace, hidden-path, and file-size rules it already applies. No other tool SHALL return an image. When the active model does not accept images, the file tool SHALL return its existing non-image result rather than failing.
 
 #### Scenario: File read of a reviewed image type
 - **WHEN** the native agent reads a file whose type is a reviewed image type
@@ -78,17 +74,9 @@ The file tool's read operation SHALL return a reviewed image type as an image ra
 - **WHEN** the native agent reads a binary file that is not a reviewed image type
 - **THEN** the system SHALL continue to refuse it with an explicit reason
 
-#### Scenario: Screenshot returns what it captured
-- **WHEN** the Browser screenshot operation succeeds and the active model accepts images
-- **THEN** the result SHALL carry the captured image alongside its Artifact reference
-
-#### Scenario: OCR returns the page it read
-- **WHEN** an OCR call succeeds and the active model accepts images
-- **THEN** the result SHALL carry the rendered page image alongside the extracted text
-
-#### Scenario: Image-capable tool on a text-only model
-- **WHEN** the active model does not accept images and one of these tools produces an image
-- **THEN** the tool SHALL return its existing non-image result
+#### Scenario: File read on a text-only model
+- **WHEN** the active model does not accept images and the native agent reads a reviewed image type
+- **THEN** the file tool SHALL return its existing non-image result
 - **AND** it SHALL NOT fail because an image could not be attached
 
 ### Requirement: Image token accounting

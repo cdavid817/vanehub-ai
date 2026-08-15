@@ -786,6 +786,17 @@ fn api_invocation_snapshot(
     }
 }
 
+/// The character-count estimate for a request body, or `None` when the body carries an image.
+///
+/// The estimator counts characters, and a base64 image payload is millions of them, so an
+/// image-bearing request would report a wildly inflated input estimate. An image's real cost
+/// depends on the provider's own tiling of its dimensions and is not derivable from length at
+/// all, so reduced reported coverage beats a confident wrong number
+/// (`add-agent-image-input`).
+fn estimated_input_characters(body: &Value, images_in_request: usize) -> Option<usize> {
+    (images_in_request == 0).then(|| value_character_count(body))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn finish_api_invocation(
     accounting: Option<&SessionsApi>,
@@ -1343,7 +1354,7 @@ fn execute_with_code_intelligence(
         record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
-        let estimated_input_characters = value_character_count(&body);
+        let estimated_input_characters = estimated_input_characters(&body, images_in_request);
         let response = match request_builder
             .header("content-type", "application/json")
             .json(&body)
@@ -1483,7 +1494,7 @@ fn execute_with_code_intelligence(
             invocation.as_ref(),
             request,
             round_usage.as_ref(),
-            Some((estimated_input_characters, assistant_text.chars().count())),
+            estimated_input_characters.map(|input| (input, assistant_text.chars().count())),
             UsageStatus::Succeeded,
             clock,
             logging,
@@ -8022,6 +8033,23 @@ mod tests {
             refusals, 3,
             "calls past the budget are refused, not attached"
         );
+    }
+
+    /// A base64 image payload is millions of characters, so leaving the estimator running on an
+    /// image-bearing body would record a confident, wildly wrong input number.
+    #[test]
+    fn character_estimation_is_suppressed_once_a_request_carries_an_image() {
+        let body = json!({"messages": [{"role": "user", "content": "hello"}]});
+
+        let text_only =
+            estimated_input_characters(&body, 0).expect("a text-only body is estimated");
+        assert!(text_only > 0);
+        assert_eq!(
+            estimated_input_characters(&body, 1),
+            None,
+            "an image-bearing request reports reduced coverage instead of a length-derived guess"
+        );
+        assert_eq!(estimated_input_characters(&body, 8), None);
     }
 
     #[test]

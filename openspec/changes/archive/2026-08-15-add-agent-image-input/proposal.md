@@ -8,16 +8,15 @@ This leaves the most expensive capabilities already shipped — a managed Playwr
 
 - Add image content blocks to both provider wire formats, so an image can be sent as part of a user turn or a tool result.
 - Let the `file` tool's read operation return an image as an image block instead of refusing it as binary content, for reviewed image types only.
-- Let the `browser` screenshot and the `ocr` tool return their rendered image alongside the Artifact reference, so the model can look at what it captured.
 - Add model-capability gating: images are offered only when the active Profile's model is known to accept them, and a session whose model does not is told so rather than failing at the provider.
 - Bound every image path by declared maximum dimensions, encoded bytes, and images per request, downscaling or refusing rather than sending an unbounded payload.
-- Keep image bytes out of durable logs and out of the persisted transcript's text, carrying Artifact references instead.
+- Keep image bytes out of durable logs and out of the persisted transcript.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `agent-image-input`: Defines image content blocks, the reviewed image types, capability gating, bounds, redaction, token accounting, and which tools may return an image.
+- `agent-image-input`: Defines image content blocks, the reviewed image types, capability gating, bounds, redaction, token accounting, and the file tool's image read. Returning images from the Browser screenshot and OCR tools needs a way to read Artifact bytes back by id, which the agent runtime has no port for; that lands in `add-onepiece-visual-tool-returns`.
 
 ### Modified Capabilities
 

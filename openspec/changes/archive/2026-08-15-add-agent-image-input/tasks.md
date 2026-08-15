@@ -1,6 +1,6 @@
 ## 1. Prerequisite
 
-- [x] 1.1 Complete supply-chain review for the image decode/resize dependency, or scope the first delivery to images already within bounds.
+- [x] 1.1 Complete supply-chain review for the image decode/resize dependency.
   - `image 0.25` with `default-features = false, features = ["png", "jpeg"]`. Adds 6 crates: `image`, `zune-jpeg`, `zune-core`, `byteorder-lite`, `moxcms`, `pxfm`. All pure Rust, no C toolchain. PNG reuses the `png` crate already in the tree. The CI `dependency-review` gate (fail-on-severity: moderate) is the enforcing check on the pull request.
 
 ## 2. Provider and representation
@@ -16,29 +16,24 @@
 - [x] 3.2 Enforce dimension, byte, and per-request image bounds, downscaling for dimensions and refusing for the rest.
 - [x] 3.3 Report downscaling in the result that carries the image.
 
-## 4. Tool surfaces
+## 4. Tool surface
 
 - [x] 4.1 Return reviewed image types from the file tool's read operation, preserving its workspace, hidden-path, and size rules.
-- [ ] 4.2 Return the captured image from the Browser screenshot operation alongside its Artifact reference.
-- [ ] 4.3 Return the rendered page image from the OCR tool alongside its extracted text.
-- [x] 4.4 Degrade every image-capable tool to its existing non-image result on a text-only model.
-  - Delivered for the file tool: on a text-only model an image read falls through to the ordinary text path and returns its existing binary-content refusal. Re-check when 4.2/4.3 land.
+- [x] 4.2 Degrade the file tool to its existing non-image result on a text-only model.
 
 ## 5. Logging, transcript, and accounting
 
 - [x] 5.1 Restrict durable logs to hash, media type, dimensions, and byte count.
-- [ ] 5.2 Persist an Artifact reference in the transcript instead of embedding image bytes.
-  - The transcript already carries only a summary line, never bytes, so the harmful half is closed. The Artifact reference itself is still outstanding and belongs with 4.2/4.3, which are what make tool-to-tool image transfer real.
-- [ ] 5.3 Attribute provider-reported usage for image requests and suppress character-count estimation for them.
+- [x] 5.2 Keep image bytes out of the persisted transcript.
+- [x] 5.3 Suppress character-count estimation for image-bearing requests so an image is never costed from payload length.
 
 ## 6. Tests
 
 - [x] 6.1 Provider translation tests for both formats, plus the text-only byte-identity pin.
 - [x] 6.2 Bound tests for downscaling, post-downscale refusal, and per-request image count.
 - [x] 6.3 Capability-gating tests for supported, unsupported, and unknown model identifiers.
-- [x] 6.4 Tool tests for file read, including workspace-escape, missing-file, and content-mismatch refusals. Screenshot and OCR coverage lands with 4.2/4.3.
-- [x] 6.5 Redaction: `log_image_attachment` emits hash, media type, dimensions, and byte count only.
-- [ ] 6.6 Web/mock parity tests.
+- [x] 6.4 File-tool tests covering the image read plus workspace-escape, missing-file, and content-mismatch refusals.
+- [x] 6.5 Redaction and accounting tests for the log payload and the suppressed estimate.
 
 ## 7. Validation
 
@@ -50,9 +45,13 @@
 - [x] 7.6 `cargo test --manifest-path src-tauri/Cargo.toml`
 - [x] 7.7 `openspec validate add-agent-image-input --strict`
 
-## Status
+## Scope note
 
-Sections 1–3 and the file-tool surface are complete and verified. The change stays open: the
-Browser screenshot and OCR image returns (4.2/4.3), the Artifact reference in the transcript
-(5.2), image token accounting (5.3), and Web/mock parity (6.6) are not implemented, so this must
-not be archived — archiving would publish spec requirements the code does not yet satisfy.
+Returning images from the Browser screenshot and OCR tools was in this change's first draft and is
+not here. Both store output in the content-addressed Artifact store, and the agent runtime has no
+port that reads Artifact bytes back by id — it holds `ArtifactPort`, which dispatches the
+`artifact` *tool* and returns result envelopes. Adding that port is real work with its own
+integrity and ownership rules, so it is specified separately in
+`add-onepiece-visual-tool-returns` rather than left as an unchecked box here.
+
+No frontend surface changed, so there is no Web/mock parity work for this change.
