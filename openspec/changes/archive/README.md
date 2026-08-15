@@ -170,6 +170,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
 | 2026-08-15 | add-agent-image-input | agent-image-input, agent-provider-runtime | `openspec/changes/archive/2026-08-15-add-agent-image-input/` |
+| 2026-08-15 | add-agent-plan-exit-request | agent-chat-configuration, agent-plan-exit-request | `openspec/changes/archive/2026-08-15-add-agent-plan-exit-request/` |
 | 2026-08-15 | add-agent-task-list | agent-task-list, agent-tool-execution | `openspec/changes/archive/2026-08-15-add-agent-task-list/` |
 | 2026-08-15 | add-agent-user-question | agent-tool-execution, agent-user-question | `openspec/changes/archive/2026-08-15-add-agent-user-question/` |
 | 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |

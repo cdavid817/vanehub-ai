@@ -2482,6 +2482,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-plan-exit-request",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-plan-exit-request/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-plan-exit-request"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
                          "changeName":  "add-agent-task-list",
                          "path":  "openspec/changes/archive/2026-08-15-add-agent-task-list/",
                          "artifacts":  [
