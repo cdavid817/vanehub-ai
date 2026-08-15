@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use super::{OverlayFile, OverlayMutationState, OverlayScope, SkillLayer};
+use super::{validate_overlay_path, OverlayFile, OverlayMutationState, OverlayScope, SkillLayer};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +149,13 @@ pub(crate) fn apply_overlay_resource_scope(
         .collect::<BTreeMap<_, _>>();
     for file in files {
         if file.state() != OverlayMutationState::Active {
+            continue;
+        }
+        // Assembly replays *persisted* Overlay rows, which may predate a validation rule or have
+        // been written straight into storage. Re-checking the path here means a row that should
+        // never have existed cannot shadow a base resource — in particular a Skill tool manifest,
+        // module, or hash — just because it survived long enough to be read back.
+        if validate_overlay_path(&file.logical_path).is_err() {
             continue;
         }
         let previous = resources.remove(&file.logical_path);

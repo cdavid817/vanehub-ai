@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "swapped",
+      "description": "Binds a hash that will not match the shipped module bytes.",
+      "capabilities": [],
+      "input": { "type": "object", "properties": {} },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/swapped.wasm",
+        "export": "run",
+        "hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "wide",
+      "description": "Declares more input properties than the schema budget allows.",
+      "capabilities": [],
+      "input": {
+        "type": "object",
+        "properties": {
+          "f00": { "type": "string" }, "f01": { "type": "string" }, "f02": { "type": "string" },
+          "f03": { "type": "string" }, "f04": { "type": "string" }, "f05": { "type": "string" },
+          "f06": { "type": "string" }, "f07": { "type": "string" }, "f08": { "type": "string" },
+          "f09": { "type": "string" }, "f10": { "type": "string" }, "f11": { "type": "string" },
+          "f12": { "type": "string" }, "f13": { "type": "string" }, "f14": { "type": "string" },
+          "f15": { "type": "string" }, "f16": { "type": "string" }, "f17": { "type": "string" },
+          "f18": { "type": "string" }, "f19": { "type": "string" }, "f20": { "type": "string" },
+          "f21": { "type": "string" }, "f22": { "type": "string" }, "f23": { "type": "string" },
+          "f24": { "type": "string" }, "f25": { "type": "string" }, "f26": { "type": "string" },
+          "f27": { "type": "string" }, "f28": { "type": "string" }, "f29": { "type": "string" },
+          "f30": { "type": "string" }, "f31": { "type": "string" }, "f32": { "type": "string" }
+        }
+      },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/wide.wasm",
+        "export": "run",
+        "hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    }
+  ]
+}

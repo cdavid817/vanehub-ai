@@ -17,6 +17,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = []
 desktop-e2e = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
+# Optional WebAssembly runtime for Skill tool modules (`add-sandboxed-skill-tool-runtime`).
+# Off by default and carrying no dependency yet: declarative Skill tools are fully functional
+# without it, so the pinned engine is added only in section 4, after its supply-chain review.
+# Discovery, integrity, trust, and governance all work with this off — a `wasm` tool is then
+# reported as `module-runtime-unavailable` rather than silently missing from the inventory.
+skill-tool-module-runtime = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

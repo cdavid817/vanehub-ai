@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "complexity-score",
+      "description": "Scores a function body without touching the host.",
+      "capabilities": [],
+      "limits": { "memoryBytes": 8388608, "fuel": 1000000 },
+      "input": {
+        "type": "object",
+        "properties": { "source": { "type": "string" } },
+        "required": ["source"]
+      },
+      "output": {
+        "type": "object",
+        "properties": { "score": { "type": "number" } },
+        "required": ["score"]
+      },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/complexity.wasm",
+        "export": "score",
+        "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ]
+}

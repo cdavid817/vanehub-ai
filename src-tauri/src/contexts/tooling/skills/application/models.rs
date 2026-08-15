@@ -1,4 +1,5 @@
 use super::config_overview::SkillConfigurationOverview;
+use crate::contexts::tooling::skill_tools::api::SkillToolInventorySummary;
 use crate::contexts::tooling::skills::domain::{
     SkillAvailability, SkillCompatibilityDefaults, SkillDelivery, SkillDriftIssue, SkillId,
     SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillSource,
@@ -375,6 +376,7 @@ impl SkillRecord {
             // Skill's settings, so the question stays unanswered until the effective package
             // resolves it.
             configuration: SkillConfigurationOverview::not_evaluated(),
+            tools: SkillToolInventorySummary::default(),
         }
     }
 }
@@ -400,6 +402,13 @@ pub(crate) struct SkillEffectiveMetadata {
     pub(crate) shadowed: Vec<SkillShadowSummary>,
     pub(crate) usage: SkillUsageSummary,
     pub(crate) configuration: SkillConfigurationOverview,
+    /// Bounded Skill tool inventory for this effective revision.
+    ///
+    /// Empty for every Skill that ships no tool manifest, which is what keeps existing Skills
+    /// behaving exactly as before. Carries integrity hashes and governance status but no
+    /// executable bytes: `skill_tools` owns reading and running the implementations, and this
+    /// projection exists so the Skill overview can report them without that ability.
+    pub(crate) tools: SkillToolInventorySummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

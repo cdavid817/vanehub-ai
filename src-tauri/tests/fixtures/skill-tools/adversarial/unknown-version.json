@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "diff-summary",
+      "description": "A future manifest whose safety fields this build cannot interpret.",
+      "capabilities": ["tool:read_file"],
+      "input": { "type": "object", "properties": { "path": { "type": "string" } } },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "declarative",
+        "target": "tool:read_file",
+        "template": { "path": { "$input": "path" } }
+      }
+    }
+  ]
+}

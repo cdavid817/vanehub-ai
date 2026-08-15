@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "expressive",
+      "description": "Smuggles shell expansion and a conditional into a call template.",
+      "capabilities": ["tool:run_command"],
+      "input": { "type": "object", "properties": { "path": { "type": "string" } } },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "declarative",
+        "target": "tool:run_command",
+        "template": {
+          "command": { "$const": "cat", "$if": "always" },
+          "argument": { "$input": "path" }
+        }
+      }
+    }
+  ]
+}

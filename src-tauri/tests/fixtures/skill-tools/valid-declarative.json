@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "diff-summary",
+      "description": "Summarizes a unified diff for the review checklist.",
+      "capabilities": ["tool:read_file"],
+      "limits": { "wallTimeMs": 3000, "hostCalls": 2 },
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "maxLength": 512 },
+          "mode": { "type": "string", "enum": ["fast", "full"] }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" },
+          "findings": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["summary"]
+      },
+      "implementation": {
+        "kind": "declarative",
+        "target": "tool:read_file",
+        "template": {
+          "path": { "$input": "path" },
+          "encoding": { "$const": "utf-8" }
+        }
+      }
+    },
+    {
+      "id": "checklist",
+      "description": "Returns the team review checklist.",
+      "capabilities": ["tool:read_file"],
+      "input": { "type": "object", "properties": {} },
+      "output": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "string" } } } },
+      "implementation": {
+        "kind": "declarative",
+        "target": "tool:read_file",
+        "template": {
+          "path": { "$const": "references/checklist.md" }
+        }
+      }
+    }
+  ]
+}

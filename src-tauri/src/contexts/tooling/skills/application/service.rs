@@ -1623,6 +1623,10 @@ impl SkillApplicationService {
                     Some(package.revision.clone()),
                     package.workspace_path.is_some(),
                 ),
+                // Populated by the Skill tool registry once catalog assembly lands
+                // (`add-sandboxed-skill-tool-runtime`, section 6); an empty inventory is the
+                // correct value for every Skill that ships no tool manifest.
+                tools: Default::default(),
             }),
         })
     }

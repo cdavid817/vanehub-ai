@@ -439,6 +439,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "skill-configuration-records",
         crate::contexts::tooling::skills::infrastructure::apply_skill_configuration_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        73,
+        "skill-tool-runtime-foundation",
+        crate::contexts::tooling::skill_tools::infrastructure::apply_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -791,6 +797,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (70, "onepiece-context-quality-history"),
     (71, "goal-management"),
     (72, "skill-configuration-records"),
+    (73, "skill-tool-runtime-foundation"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1695,7 +1702,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (71, 72));
+        assert_eq!(migration_state, (72, 73));
 
         migrate(&connection).expect("upgrade migration");
 

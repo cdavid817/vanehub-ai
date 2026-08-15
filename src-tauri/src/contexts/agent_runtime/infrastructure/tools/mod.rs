@@ -11,6 +11,7 @@ mod edit_tool;
 mod file_tool;
 mod glob_tool;
 mod grep_tool;
+mod notebook;
 mod shell_tool;
 mod task_list;
 mod walk;
@@ -23,6 +24,7 @@ pub(crate) use edit_tool::execute_edit;
 pub(crate) use file_tool::{execute_file, execute_file_image_read, is_reviewed_image_path};
 pub(crate) use glob_tool::execute_glob;
 pub(crate) use grep_tool::{execute_grep, GrepRequest, OUTPUT_MODE_FILES};
+pub(crate) use notebook::{execute_notebook, NotebookRequest};
 pub(crate) use shell_tool::execute_shell;
 pub(crate) use task_list::{
     prompt_section as task_list_prompt_section, render as render_task_list,
