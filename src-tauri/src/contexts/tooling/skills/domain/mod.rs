@@ -2,6 +2,7 @@ mod binding;
 mod catalog;
 mod classification;
 mod config_document;
+mod config_schema;
 mod drift;
 mod error;
 mod identity;
@@ -21,6 +22,8 @@ mod source;
 
 #[cfg(test)]
 mod config_document_tests;
+#[cfg(test)]
+mod config_schema_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]

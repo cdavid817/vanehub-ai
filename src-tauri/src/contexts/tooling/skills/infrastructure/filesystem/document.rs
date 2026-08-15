@@ -23,8 +23,15 @@ pub(crate) fn compose(document: &SkillDocument) -> String {
         .map(|alias| format!("  - {}", alias.as_str()))
         .collect::<Vec<_>>()
         .join("\n");
+    // Emitted verbatim: rewriting a Skill must not renormalize the schema, because the block is
+    // part of the content hash that stored configuration is bound to.
+    let config_schema = match document.metadata.config_schema_block.as_deref() {
+        Some("") => "config_schema:\n".to_string(),
+        Some(block) => format!("config_schema:\n{block}\n"),
+        None => String::new(),
+    };
     format!(
-        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntype: {}\ndelivery: {}\ntriggers:\n{}\naliases:\n{}\n---\n\n# {}\n\n{}\n",
+        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntype: {}\ndelivery: {}\ntriggers:\n{}\naliases:\n{}\n{}---\n\n# {}\n\n{}\n",
         document.metadata.id.as_str(),
         document.metadata.name,
         document.metadata.description,
@@ -34,6 +41,7 @@ pub(crate) fn compose(document: &SkillDocument) -> String {
         document.metadata.delivery.as_str(),
         triggers,
         aliases,
+        config_schema,
         document.metadata.name,
         document.body.trim()
     )
@@ -41,11 +49,16 @@ pub(crate) fn compose(document: &SkillDocument) -> String {
 
 pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationError> {
     let normalized = content.replace("\r\n", "\n");
-    let frontmatter = normalized
+    let raw_frontmatter = normalized
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---"))
         .map(|(frontmatter, _)| frontmatter)
         .ok_or_else(|| validation_error("SKILL.md requires frontmatter"))?;
+    // Lifted out before the line loop below, which trims indentation and would otherwise read the
+    // schema's nested keys as top-level frontmatter.
+    let (config_schema_block, frontmatter) =
+        extract_indented_block(raw_frontmatter, "config_schema");
+    let frontmatter = frontmatter.as_str();
     let mut id = String::new();
     let mut name = String::new();
     let mut description = String::new();
@@ -115,7 +128,38 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
         skill_type,
         delivery,
     )
+    .map(|metadata| metadata.with_config_schema_block(config_schema_block))
     .map_err(|error| validation_error(error.to_string()))
+}
+
+/// Splits `key:`'s indented block out of the frontmatter, returning it alongside the frontmatter
+/// with those lines removed. A bare `key:` yields `Some("")`, which the schema layer rejects as an
+/// unsupported declaration rather than silently reading as "no schema".
+fn extract_indented_block(frontmatter: &str, key: &str) -> (Option<String>, String) {
+    let header = format!("{key}:");
+    let mut block: Option<String> = None;
+    let mut remaining: Vec<&str> = Vec::new();
+    let mut lines = frontmatter.lines().peekable();
+    while let Some(line) = lines.next() {
+        let is_header = block.is_none()
+            && line == header
+            && !line.starts_with(|character: char| character.is_whitespace());
+        if !is_header {
+            remaining.push(line);
+            continue;
+        }
+        let mut collected: Vec<&str> = Vec::new();
+        while let Some(next) = lines.peek() {
+            let indented = next.starts_with(' ') || next.starts_with('\t');
+            if !indented {
+                break;
+            }
+            collected.push(next);
+            lines.next();
+        }
+        block = Some(collected.join("\n"));
+    }
+    (block, remaining.join("\n"))
 }
 
 pub(crate) fn parse_document(content: &str) -> Result<SkillDocument, SkillApplicationError> {
@@ -258,6 +302,73 @@ mod tests {
         assert_eq!(parsed.skill_type, SkillType::Role);
         assert_eq!(parsed.delivery, SkillDelivery::OnDemand);
         assert_eq!(parsed.compatibility_defaults, Default::default());
+    }
+
+    const WITH_SCHEMA: &str = "---\nid: configured-skill\nname: Configured\ndescription: Has settings\ncategory: test\nversion: 1.0.0\nconfig_schema:\n  properties:\n    endpoint:\n      type: string\n      default: https://example.com\n    api_key:\n      type: string\n      x-vanehub-secret: true\ntriggers:\n  - configured\n---\n\nBody";
+
+    #[test]
+    fn config_schema_block_is_parsed_without_leaking_into_other_frontmatter_keys() {
+        let metadata = parse(WITH_SCHEMA).expect("metadata");
+
+        assert!(metadata.is_configurable());
+        // The schema's nested keys must not have been read as frontmatter fields.
+        assert_eq!(metadata.name, "Configured");
+        assert_eq!(metadata.category, "test");
+        assert_eq!(metadata.triggers, vec!["configured"]);
+
+        let schema = metadata
+            .config_schema()
+            .expect("declared")
+            .expect("supported schema");
+        assert_eq!(schema.fields.len(), 2);
+        assert!(schema.field("api_key").expect("api_key").secret);
+    }
+
+    #[test]
+    fn skill_without_config_schema_stays_unconfigurable() {
+        let metadata = parse(
+            "---\nid: plain-skill\nname: Plain\ndescription: None\ncategory: test\nversion: 1.0.0\n---\n\nBody",
+        )
+        .expect("metadata");
+
+        assert!(!metadata.is_configurable());
+        assert!(metadata.config_schema().is_none());
+    }
+
+    #[test]
+    fn unsupported_config_schema_loads_the_skill_but_reports_no_usable_schema() {
+        let metadata = parse(
+            "---\nid: broken-skill\nname: Broken\ndescription: Bad schema\ncategory: test\nversion: 1.0.0\nconfig_schema:\n  properties:\n    field:\n      type: date\n---\n\nBody",
+        )
+        .expect("Skill still loads");
+
+        assert!(metadata.is_configurable());
+        assert!(metadata.config_schema().expect("declared").is_err());
+    }
+
+    #[test]
+    fn config_schema_survives_a_compose_parse_round_trip() {
+        let metadata = parse(WITH_SCHEMA).expect("metadata");
+        let document = SkillDocument {
+            metadata: metadata.clone(),
+            body: "Body".to_string(),
+        };
+
+        let reparsed = parse(&compose(&document)).expect("round trip");
+
+        assert_eq!(reparsed.config_schema_block, metadata.config_schema_block);
+        assert_eq!(
+            reparsed
+                .config_schema()
+                .expect("declared")
+                .expect("supported")
+                .hash,
+            metadata
+                .config_schema()
+                .expect("declared")
+                .expect("supported")
+                .hash
+        );
     }
 
     #[test]
