@@ -1,12 +1,15 @@
 use super::*;
+use crate::contexts::tooling::skills::domain::RawSkillDelegation;
 use crate::contexts::tooling::skills::domain::{
     builtin_definitions, replay_overlay_scope_chain, BaseSkillResource, OverlayBaseWitness,
     OverlayDocument, OverlayFile, OverlayPatch, OverlayScope, OverlayScopeReplayInput,
     OverlayTrust, RegisteredSkillInspection, SkillAvailability, SkillBindingInspection,
-    SkillBindingPlan, SkillDelivery, SkillDomainError, SkillDriftInspection, SkillDriftIssue,
-    SkillDriftIssueType, SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata,
-    SkillMountObservation, SkillMountPath, SkillOrigin, SkillScope, SkillSource,
-    SkillSourceInspection, SkillTrust, SkillType, UnregisteredSkillInspection,
+    SkillBindingPlan, SkillDelegationAgentRuntime, SkillDelegationCapabilityId,
+    SkillDelegationDeclaration, SkillDelegationLimits, SkillDelegationUnavailableReason,
+    SkillDelivery, SkillDomainError, SkillDriftInspection, SkillDriftIssue, SkillDriftIssueType,
+    SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountObservation,
+    SkillMountPath, SkillOrigin, SkillScope, SkillSource, SkillSourceInspection, SkillTrust,
+    SkillType, UnregisteredSkillInspection,
 };
 use crate::test_support::TempDirectory;
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +23,8 @@ struct RepositoryState {
     synchronization_count: usize,
     api_agent_bindings: BTreeSet<(SkillKey, String)>,
     api_agents: BTreeSet<String>,
+    /// Registered API Agents whose runtime cannot carry the native delegation tool.
+    api_agents_without_delegation: BTreeSet<String>,
 }
 
 impl Default for RepositoryState {
@@ -38,6 +43,7 @@ impl Default for RepositoryState {
             synchronization_count: 0,
             api_agent_bindings: BTreeSet::new(),
             api_agents: BTreeSet::new(),
+            api_agents_without_delegation: BTreeSet::new(),
         }
     }
 }
@@ -146,6 +152,7 @@ impl SkillRepository for FakeRepository {
                 id: configuration.agent_id.clone(),
                 display_name: configuration.agent_id.clone(),
                 kind: SkillAgentKind::Cli,
+                delegation_runtime: SkillDelegationAgentRuntime::Cli,
             })
             .collect::<Vec<_>>();
         agents.extend(
@@ -156,6 +163,11 @@ impl SkillRepository for FakeRepository {
                     id: agent_id.clone(),
                     display_name: agent_id.clone(),
                     kind: SkillAgentKind::Api,
+                    delegation_runtime: if state.api_agents_without_delegation.contains(agent_id) {
+                        SkillDelegationAgentRuntime::UnsupportedApi
+                    } else {
+                        SkillDelegationAgentRuntime::NativeApi
+                    },
                 }),
         );
         Ok(agents)
@@ -1403,6 +1415,181 @@ fn metadata(value: &str) -> SkillMetadata {
         vec![value.to_string()],
     )
     .expect("metadata")
+}
+
+fn utility_record(value: &str, tools: &[&str]) -> SkillRecord {
+    let mut record = record(value, global(), SkillSource::User, true, &[]);
+    record.metadata.skill_type = SkillType::Utility;
+    if !tools.is_empty() {
+        record.metadata = record
+            .metadata
+            .with_delegation(SkillDelegationDeclaration::declared(RawSkillDelegation {
+                tools: tools.iter().map(|tool| (*tool).to_string()).collect(),
+                fields: BTreeMap::new(),
+            }));
+    }
+    record
+}
+
+fn register_api_agent_without_delegation(fixture: &Fixture, agent_id: &str) {
+    let mut state = fixture.repository.state.lock().expect("repository state");
+    state.api_agents.insert(agent_id.to_string());
+    state
+        .api_agents_without_delegation
+        .insert(agent_id.to_string());
+}
+
+#[test]
+fn utility_assignment_is_accepted_only_by_native_api_agents() {
+    let fixture = Fixture::new();
+    register_known_agent(&fixture, "onepiece");
+    let utility = utility_record("code-explorer", &["file-read"]);
+    fixture.repository.insert(utility.clone());
+
+    fixture
+        .service
+        .bind_skill_to_api_agent(utility.key.clone(), "onepiece".to_string())
+        .expect("native API assignment");
+
+    assert_eq!(
+        fixture
+            .service
+            .list_api_agent_bindings(utility.key)
+            .expect("bindings"),
+        vec!["onepiece".to_string()]
+    );
+}
+
+#[test]
+fn utility_assignment_is_refused_for_cli_and_non_delegating_api_runtimes() {
+    let fixture = Fixture::new();
+    register_api_agent_without_delegation(&fixture, "legacy-api-agent");
+    let utility = utility_record("code-explorer", &["file-read"]);
+    fixture.repository.insert(utility.clone());
+
+    let error = fixture
+        .service
+        .bind_skill_to_api_agent(utility.key.clone(), "legacy-api-agent".to_string())
+        .expect_err("unsupported API runtime");
+    assert!(matches!(
+        error,
+        SkillApplicationError::Validation(message)
+            if message.contains(SkillDelegationUnavailableReason::UnsupportedApiRuntime.as_str())
+    ));
+
+    // CLI Agents are not registered as API Agents at all, so the delegated assignment never
+    // reaches the runtime check and their mount bindings stay untouched.
+    let cli_error = fixture
+        .service
+        .bind_skill_to_api_agent(utility.key.clone(), "claude-code".to_string())
+        .expect_err("CLI Agent");
+    assert!(matches!(cli_error, SkillApplicationError::Validation(_)));
+    assert!(fixture
+        .service
+        .list_api_agent_bindings(utility.key)
+        .expect("bindings")
+        .is_empty());
+}
+
+#[test]
+fn role_assignment_behavior_is_unchanged_by_delegation_eligibility() {
+    let fixture = Fixture::new();
+    register_api_agent_without_delegation(&fixture, "legacy-api-agent");
+    let role = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(role.clone());
+
+    fixture
+        .service
+        .bind_skill_to_api_agent(role.key.clone(), "legacy-api-agent".to_string())
+        .expect("Role prompt binding is unaffected");
+
+    assert_eq!(
+        fixture
+            .service
+            .list_api_agent_bindings(role.key)
+            .expect("bindings"),
+        vec!["legacy-api-agent".to_string()]
+    );
+}
+
+#[test]
+fn legacy_utility_association_stays_visible_with_delegation_marked_unavailable() {
+    let fixture = Fixture::new();
+    register_api_agent_without_delegation(&fixture, "legacy-api-agent");
+    let utility = utility_record("code-explorer", &["file-read"]);
+    fixture.repository.insert(utility.clone());
+    // Simulate a record written before delegation eligibility existed.
+    fixture
+        .repository
+        .state
+        .lock()
+        .expect("repository state")
+        .api_agent_bindings
+        .insert((utility.key.clone(), "legacy-api-agent".to_string()));
+
+    let overview = fixture
+        .service
+        .skill_overview(SkillScopeQuery { location: global() })
+        .expect("overview");
+
+    assert_eq!(
+        overview.api_agent_bindings.get("code-explorer"),
+        Some(&vec!["legacy-api-agent".to_string()])
+    );
+    let agent = overview
+        .agents
+        .iter()
+        .find(|agent| agent.id == "legacy-api-agent")
+        .expect("legacy Agent stays listed");
+    assert!(!agent.delegation_runtime.supports_delegation());
+}
+
+#[test]
+fn utility_delegation_summary_reports_capabilities_limits_and_reasons() {
+    let available = utility_record("code-explorer", &["file-read", "content-search"])
+        .effective_metadata()
+        .delegation
+        .expect("Utility carries a delegation summary");
+    assert!(available.supported);
+    assert_eq!(available.unavailable_reason, None);
+    assert_eq!(
+        available.declared_capabilities,
+        vec![
+            SkillDelegationCapabilityId::FileRead,
+            SkillDelegationCapabilityId::ContentSearch
+        ]
+    );
+    assert_eq!(
+        available.effective_limits,
+        Some(SkillDelegationLimits::PLATFORM)
+    );
+    assert!(available.read_only);
+    assert_eq!(available.history.attempt_count, 0);
+
+    let defaulted = utility_record("plain-utility", &[])
+        .effective_metadata()
+        .delegation
+        .expect("Utility carries a delegation summary");
+    assert!(defaulted.supported);
+    assert!(defaulted.uses_platform_default);
+
+    let invalid = utility_record("broken-utility", &["launch-rockets"])
+        .effective_metadata()
+        .delegation
+        .expect("invalid Utility stays in inventory");
+    assert!(!invalid.supported);
+    assert_eq!(
+        invalid.unavailable_reason,
+        Some(SkillDelegationUnavailableReason::UnknownCapability)
+    );
+    assert!(invalid.declared_capabilities.is_empty());
+
+    assert!(
+        record("fixture-skill", global(), SkillSource::User, true, &[])
+            .effective_metadata()
+            .delegation
+            .is_none()
+    );
 }
 
 fn record(

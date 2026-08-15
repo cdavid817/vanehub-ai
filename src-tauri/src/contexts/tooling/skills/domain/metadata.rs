@@ -1,4 +1,7 @@
-use super::{SkillCompatibilityDefaults, SkillDelivery, SkillDomainError, SkillId, SkillType};
+use super::{
+    SkillCompatibilityDefaults, SkillDelegationDeclaration, SkillDelivery, SkillDomainError,
+    SkillId, SkillType,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SkillMetadata {
@@ -12,6 +15,10 @@ pub(crate) struct SkillMetadata {
     pub(crate) skill_type: SkillType,
     pub(crate) delivery: SkillDelivery,
     pub(crate) compatibility_defaults: SkillCompatibilityDefaults,
+    /// The `delegation` frontmatter block as declared. An invalid block does not fail metadata
+    /// parsing: the Skill must stay in inventory with a repairable unavailable reason instead of
+    /// disappearing from management surfaces.
+    pub(crate) delegation: SkillDelegationDeclaration,
 }
 
 impl SkillMetadata {
@@ -81,6 +88,7 @@ impl SkillMetadata {
             skill_type: skill_type.unwrap_or(SkillType::Role),
             delivery: delivery.unwrap_or(SkillDelivery::Eager),
             compatibility_defaults,
+            delegation: SkillDelegationDeclaration::default(),
         };
         if metadata.name.trim().is_empty()
             || metadata.description.trim().is_empty()
@@ -90,6 +98,11 @@ impl SkillMetadata {
             return Err(SkillDomainError::MissingMetadataFields);
         }
         Ok(metadata)
+    }
+
+    pub(crate) fn with_delegation(mut self, delegation: SkillDelegationDeclaration) -> Self {
+        self.delegation = delegation;
+        self
     }
 }
 

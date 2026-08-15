@@ -3,13 +3,13 @@ use super::{
     AgentMountConfiguration, BuiltinCleanupStatus, BuiltinReconciliationOutcome,
     BuiltinReconciliationState, EffectiveSkillCatalogPort, OverlayAppliedSkillSnapshotPort,
     SkillAccessRefusal, SkillAccessRefusalReason, SkillAgentMountPath, SkillApiBindingRepository,
-    SkillApplicationError, SkillClockPort, SkillCreateRequest, SkillDiscoveryEntry,
-    SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument, SkillDriftReport,
-    SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort, SkillFilesystemTransaction,
-    SkillImportRequest, SkillImportedSource, SkillLegacySourcePort, SkillListResult,
-    SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction, SkillLogEvent,
-    SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair, SkillOverview,
-    SkillPackageMaterializer, SkillPackageReader, SkillPreview, SkillPromptForAgent,
+    SkillApplicationError, SkillClockPort, SkillCreateRequest, SkillDelegationSummary,
+    SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument,
+    SkillDriftReport, SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort,
+    SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillLegacySourcePort,
+    SkillListResult, SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction,
+    SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair,
+    SkillOverview, SkillPackageMaterializer, SkillPackageReader, SkillPreview, SkillPromptForAgent,
     SkillReconciliationRepository, SkillRecord, SkillRepository, SkillResourceReadOutcome,
     SkillResourceReadRequest, SkillResourceReadResult, SkillScopeQuery, SkillShadowSummary,
     SkillSourceProbe, SkillStats, SkillSyncResult, SkillUpdateRequest, SkillUsageActivity,
@@ -20,9 +20,10 @@ use super::{
 };
 use crate::contexts::tooling::skills::domain::{
     builtin_definition, builtin_definitions, builtin_restore_plan, default_mount_path,
-    deletion_policy, detect_drift, plan_binding_change, plan_enablement, resolve_skill_identity,
-    source_for_user_create, validate_create_identity, validate_update_identity,
-    BuiltinSkillDefinition, SkillAvailability, SkillDomainError, SkillDriftIssueType, SkillId,
+    deletion_policy, detect_drift, evaluate_delegated_assignment, plan_binding_change,
+    plan_enablement, resolve_skill_identity, source_for_user_create, validate_create_identity,
+    validate_update_identity, BuiltinSkillDefinition, SkillAvailability,
+    SkillDelegationAgentRuntime, SkillDomainError, SkillDriftIssueType, SkillId,
     SkillIdentityCandidate, SkillKey, SkillLayer, SkillLocation, SkillLookupOutcome, SkillMetadata,
     SkillMountPath, SkillOrigin, SkillScope, SkillSource, SkillTrust, SkillType,
 };
@@ -1099,6 +1100,7 @@ impl SkillApplicationService {
     ) -> Result<(), SkillApplicationError> {
         let record = self.load(key)?;
         self.ensure_api_agent(agent_id)?;
+        self.ensure_delegated_assignment_supported(&record, agent_id)?;
         if self.repository.get(key)?.is_none() {
             self.repository
                 .save_skills(std::slice::from_ref(&record), &[])?;
@@ -1115,6 +1117,31 @@ impl SkillApplicationService {
                 "Unknown Agent id: {agent_id}"
             )))
         }
+    }
+
+    /// Role Skills keep their existing prompt-binding behavior; only a Utility assignment means
+    /// "this Agent may delegate to it", and that requires a runtime carrying the delegation tool.
+    fn ensure_delegated_assignment_supported(
+        &self,
+        record: &SkillRecord,
+        agent_id: &str,
+    ) -> Result<(), SkillApplicationError> {
+        if record.metadata.skill_type != SkillType::Utility {
+            return Ok(());
+        }
+        let runtime = self
+            .repository
+            .compatible_agents()?
+            .into_iter()
+            .find(|agent| agent.id == agent_id)
+            .map(|agent| agent.delegation_runtime)
+            .unwrap_or(SkillDelegationAgentRuntime::Cli);
+        evaluate_delegated_assignment(runtime).map_err(|reason| {
+            SkillApplicationError::Validation(format!(
+                "Utility Skill delegation is not supported for Agent {agent_id}: {}",
+                reason.as_str()
+            ))
+        })
     }
 
     pub(crate) fn preview_skill(
@@ -1600,6 +1627,12 @@ impl SkillApplicationService {
                     })
                     .collect(),
                 usage: SkillUsageSummary::default(),
+                delegation: SkillDelegationSummary::evaluate(
+                    package.metadata.skill_type,
+                    package.trust,
+                    availability,
+                    &package.metadata.delegation,
+                ),
             }),
         })
     }
@@ -2125,17 +2158,28 @@ impl SkillApplicationService {
                 record.key.id.as_str().to_string(),
             ));
         }
+        // Editors that predate the delegation contract submit metadata without it. Recomposing
+        // the document from that metadata would silently strip a declared contract, so an absent
+        // incoming declaration means "unchanged" rather than "removed".
+        let metadata = if request.metadata.delegation.is_absent() {
+            request
+                .metadata
+                .clone()
+                .with_delegation(record.metadata.delegation.clone())
+        } else {
+            request.metadata.clone()
+        };
         self.transact(|transaction| {
             record.managed_source = self.filesystem.replace_source(
                 transaction,
                 &record,
                 &SkillDocument {
-                    metadata: request.metadata.clone(),
+                    metadata: metadata.clone(),
                     body: request.body.clone(),
                 },
                 &request.expected_content_hash,
             )?;
-            record.metadata = request.metadata.clone();
+            record.metadata = metadata.clone();
             record.updated_at = self.clock.now();
             self.repository.save_skills(&[record.clone()], &[])?;
             Ok(record.clone())

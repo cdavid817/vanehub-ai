@@ -146,8 +146,29 @@ pub(crate) struct Skill {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillDelegationCapability {
+    /// Coarse legacy discriminant kept inside its existing frontend union
+    /// (`available` / `not-utility` / `skill-unavailable`). `unavailable_reason` carries the
+    /// specific, repairable cause.
     pub(crate) supported: bool,
     pub(crate) reason: String,
+    #[serde(default)]
+    pub(crate) unavailable_reason: Option<String>,
+    #[serde(default)]
+    pub(crate) declared_capabilities: Vec<String>,
+    #[serde(default)]
+    pub(crate) effective_capabilities: Vec<String>,
+    #[serde(default)]
+    pub(crate) requested_limits: SkillDelegationRequestedLimits,
+    #[serde(default)]
+    pub(crate) effective_limits: Option<SkillDelegationLimits>,
+    #[serde(default)]
+    pub(crate) capped_limits: Vec<String>,
+    #[serde(default)]
+    pub(crate) uses_platform_default: bool,
+    #[serde(default)]
+    pub(crate) read_only: bool,
+    #[serde(default)]
+    pub(crate) history: SkillDelegationHistorySummary,
 }
 
 impl Default for SkillDelegationCapability {
@@ -155,8 +176,43 @@ impl Default for SkillDelegationCapability {
         Self {
             supported: false,
             reason: "not-utility".to_string(),
+            unavailable_reason: None,
+            declared_capabilities: Vec::new(),
+            effective_capabilities: Vec::new(),
+            requested_limits: SkillDelegationRequestedLimits::default(),
+            effective_limits: None,
+            capped_limits: Vec::new(),
+            uses_platform_default: false,
+            read_only: false,
+            history: SkillDelegationHistorySummary::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillDelegationRequestedLimits {
+    pub(crate) max_rounds: Option<u16>,
+    pub(crate) timeout_seconds: Option<u32>,
+    pub(crate) max_context_chars: Option<u32>,
+    pub(crate) max_output_chars: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillDelegationLimits {
+    pub(crate) max_rounds: u16,
+    pub(crate) timeout_seconds: u32,
+    pub(crate) max_context_chars: u32,
+    pub(crate) max_output_chars: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillDelegationHistorySummary {
+    pub(crate) attempt_count: u64,
+    pub(crate) last_attempt_at: Option<String>,
+    pub(crate) last_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -228,6 +284,10 @@ pub(crate) struct SkillCompatibleAgent {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) kind: SkillAgentKind,
+    /// Whether this Agent can hold a delegated Utility assignment. CLI Agents and API runtimes
+    /// without the native delegation tool stay listed so existing associations remain repairable.
+    #[serde(default)]
+    pub(crate) supports_utility_delegation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

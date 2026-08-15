@@ -1,6 +1,7 @@
 mod binding;
 mod catalog;
 mod classification;
+mod delegation;
 mod drift;
 mod error;
 mod identity;
@@ -18,6 +19,8 @@ mod overlay_scope_replay;
 mod overlay_text_scanner;
 mod source;
 
+#[cfg(test)]
+mod delegation_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]
@@ -42,6 +45,12 @@ pub(crate) use catalog::{builtin_definition, builtin_definitions, BuiltinSkillDe
 pub(crate) use classification::{
     resolve_skill_identity, SkillAvailability, SkillCompatibilityDefaults, SkillDelivery,
     SkillIdentityCandidate, SkillLayer, SkillLookupOutcome, SkillOrigin, SkillTrust, SkillType,
+};
+pub(crate) use delegation::{
+    evaluate_delegated_assignment, evaluate_delegation_eligibility, RawSkillDelegation,
+    SkillDelegationAgentRuntime, SkillDelegationCapabilityId, SkillDelegationContract,
+    SkillDelegationDeclaration, SkillDelegationEligibility, SkillDelegationLimitField,
+    SkillDelegationLimits, SkillDelegationRequestedLimits, SkillDelegationUnavailableReason,
 };
 pub(crate) use drift::{
     detect_drift, RegisteredSkillInspection, SkillBindingInspection, SkillDriftInspection,
