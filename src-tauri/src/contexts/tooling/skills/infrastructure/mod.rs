@@ -2,6 +2,7 @@ mod configuration_repository;
 mod configuration_resolution;
 mod configuration_schema;
 mod configuration_secrets;
+mod configuration_service;
 mod effective_cache;
 mod effective_catalog;
 mod filesystem;
@@ -33,6 +34,11 @@ pub(crate) use configuration_schema::apply_skill_configuration_schema;
 pub(crate) use configuration_secrets::{
     secret_alias, SecretRecovery, SecretSlotState, SkillConfigurationSecrets, SkillSecretFailure,
     SkillSecretStore, StagedSecrets,
+};
+#[allow(unused_imports)]
+pub(crate) use configuration_service::{
+    preview, save, validate_request, SkillConfigurationError, SkillConfigurationRequest,
+    SkillConfigurationSaveResult, MAX_CONFIGURATION_PAYLOAD_BYTES,
 };
 pub(crate) use effective_cache::{
     EffectiveSkillDerivedCache, EffectiveSkillRuntimeCacheInvalidator,
