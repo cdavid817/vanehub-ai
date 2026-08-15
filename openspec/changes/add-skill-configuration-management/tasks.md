@@ -24,10 +24,10 @@
 
 ## 4. Validation, preview, and reconciliation services
 
-- [ ] 4.1 Implement authoritative validate, effective-preview, save, reset-property, reset-scope, secret-clear, reconcile, and deletion-retention application operations.
-- [ ] 4.2 Validate exact schema hash, base revision, stored revision, keys, types, formats, constraints, scope, payload size, and required readiness before mutation.
+- [x] 4.1 Implement authoritative validate, effective-preview, save, reset-property, reset-scope, secret-clear, reconcile, and deletion-retention application operations.
+- [x] 4.2 Validate exact schema hash, base revision, stored revision, keys, types, formats, constraints, scope, payload size, and required readiness before mutation.
 - [x] 4.3 Preserve prior state and unsaved-compatible error detail for unknown keys, stale revisions, schema changes, credential failures, repository failures, and invalid workspace identity.
-- [ ] 4.4 Implement explicit reconciliation that lets users map or discard obsolete non-secret fields and clear incompatible credential slots without silent conversion.
+- [x] 4.4 Implement explicit reconciliation that lets users map or discard obsolete non-secret fields and clear incompatible credential slots without silent conversion.
 - [ ] 4.5 Emit redacted unified-log events for validation, save, reset, secret mutation, drift, reconciliation, archive, restore, delete, retention, and cleanup.
 
 ## 5. Runtime snapshots and activation

@@ -51,6 +51,10 @@ pub(crate) enum SkillConfigurationError {
         expected: String,
         actual: String,
     },
+    BaseRevisionChanged {
+        expected: String,
+        actual: String,
+    },
     Stale {
         current: Option<Box<StoredSkillConfiguration>>,
     },
@@ -64,6 +68,9 @@ pub(crate) enum SkillConfigurationError {
     },
     RecoveryRequired {
         properties: Vec<String>,
+    },
+    ReconciliationIncomplete {
+        key: String,
     },
 }
 
@@ -139,6 +146,22 @@ pub(crate) fn validate_request(
         }
     }
     Ok(())
+}
+
+/// The schema hash alone does not pin the revision: two Skill revisions can carry an identical
+/// `config_schema` and still differ in the instructions the values feed. Binding the base revision
+/// as well is what makes a stored record traceable to the exact Skill it was configured against.
+pub(crate) fn require_base_revision(
+    effective_base_revision: &str,
+    request: &SkillConfigurationRequest,
+) -> Result<(), SkillConfigurationError> {
+    if effective_base_revision == request.base_revision {
+        return Ok(());
+    }
+    Err(SkillConfigurationError::BaseRevisionChanged {
+        expected: effective_base_revision.to_string(),
+        actual: request.base_revision.clone(),
+    })
 }
 
 /// Preview without writing. The caller sees exactly what a save would resolve to, including
@@ -240,6 +263,207 @@ pub(crate) fn save<S: SkillSecretStore>(
         record,
         recovery,
     })
+}
+
+/// Removes one property from one scope. Routed through the same save path so the reset is a
+/// compare-and-swap like any other write; a reset that races a concurrent edit is stale rather
+/// than silently discarding the newer value.
+pub(crate) fn reset_property<S: SkillSecretStore>(
+    repository: &SqliteSkillConfigurationRepository,
+    secrets: &SkillConfigurationSecrets<S>,
+    schema: &SkillConfigSchema,
+    request: &SkillConfigurationRequest,
+    key: &str,
+) -> Result<SkillConfigurationSaveResult, SkillConfigurationError> {
+    let Some(field) = schema.field(key) else {
+        return Err(SkillConfigurationError::UnknownProperty {
+            key: key.to_string(),
+        });
+    };
+    let mut reset = request.clone();
+    if field.secret {
+        // Resetting a secret is clearing its credential, not deleting a stored value.
+        reset.secret_intents = vec![(key.to_string(), SkillSecretIntent::Clear)];
+    } else {
+        reset.values.retain(|(stored, _)| stored != key);
+    }
+    save(repository, secrets, schema, &reset)
+}
+
+/// Deletes the scope's record and its credentials. Absence is what makes the effective value fall
+/// through to the next scope, so an empty record would not be the same thing.
+pub(crate) fn reset_scope<S: SkillSecretStore>(
+    repository: &SqliteSkillConfigurationRepository,
+    secrets: &SkillConfigurationSecrets<S>,
+    schema: &SkillConfigSchema,
+    skill_id: &str,
+    scope: SkillConfigScope,
+    workspace_identity: &str,
+) -> Result<ResolvedSkillConfiguration, SkillConfigurationError> {
+    if scope == SkillConfigScope::Project
+        && require_canonical_workspace(workspace_identity).is_err()
+    {
+        return Err(SkillConfigurationError::InvalidWorkspace);
+    }
+    let record_id = format!("{skill_id}:{}:{workspace_identity}", scope.as_str());
+    let existing = repository
+        .load(skill_id, scope, workspace_identity)
+        .map_err(repository_failure)?;
+    if let Some(record) = &existing {
+        let intents = record
+            .secret_keys
+            .iter()
+            .map(|key| (key.clone(), SkillSecretIntent::Clear))
+            .collect::<Vec<_>>();
+        let staged = secrets.stage(&record_id, &intents).map_err(|failure| {
+            SkillConfigurationError::CredentialFailure {
+                key: failure.property_key,
+                reason: failure.reason,
+            }
+        })?;
+        repository
+            .reset_scope(skill_id, scope, workspace_identity)
+            .map_err(repository_failure)?;
+        if let SecretRecovery::Incomplete { properties } = staged.finalize() {
+            return Err(SkillConfigurationError::RecoveryRequired { properties });
+        }
+    }
+    let remaining = repository
+        .load_all_scopes(skill_id, workspace_identity)
+        .map_err(repository_failure)?;
+    Ok(resolve_from_records(schema, &remaining))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ObsoleteFieldChoice {
+    /// Move the stored value to a property that still exists. The value is revalidated against
+    /// the target, so a rename into an incompatible type is refused rather than coerced.
+    MapTo(String),
+    Discard,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ReconciliationPlan {
+    pub(crate) fields: Vec<(String, ObsoleteFieldChoice)>,
+    pub(crate) clear_secrets: Vec<String>,
+}
+
+/// Explicit reconciliation after a schema change. Every obsolete field needs a decision; nothing
+/// is converted, renamed, or dropped on the user's behalf, which is the whole point of requiring
+/// a plan rather than migrating automatically.
+pub(crate) fn reconcile<S: SkillSecretStore>(
+    repository: &SqliteSkillConfigurationRepository,
+    secrets: &SkillConfigurationSecrets<S>,
+    schema: &SkillConfigSchema,
+    request: &SkillConfigurationRequest,
+    plan: &ReconciliationPlan,
+) -> Result<SkillConfigurationSaveResult, SkillConfigurationError> {
+    let existing = repository
+        .load(
+            &request.skill_id,
+            request.scope,
+            &request.workspace_identity,
+        )
+        .map_err(repository_failure)?;
+    let stored = existing.map(|record| record.values).unwrap_or_default();
+
+    let mut values = Vec::new();
+    for (key, value) in &stored {
+        if schema.field(key).is_some_and(|field| !field.secret) {
+            values.push((key.clone(), value.clone()));
+            continue;
+        }
+        let Some((_, choice)) = plan.fields.iter().find(|(planned, _)| planned == key) else {
+            // Leaving it out would be a silent discard, and keeping it would be a silent carry.
+            return Err(SkillConfigurationError::ReconciliationIncomplete { key: key.clone() });
+        };
+        match choice {
+            ObsoleteFieldChoice::Discard => {}
+            ObsoleteFieldChoice::MapTo(target) => {
+                values.retain(|(existing, _)| existing != target);
+                values.push((target.clone(), value.clone()));
+            }
+        }
+    }
+
+    let mut reconciled = request.clone();
+    reconciled.values = values;
+    reconciled.secret_intents = plan
+        .clear_secrets
+        .iter()
+        .map(|key| (key.clone(), SkillSecretIntent::Clear))
+        .collect();
+    save(repository, secrets, schema, &reconciled)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeletionRetention {
+    Retain,
+    Delete,
+}
+
+/// Deleting a configured Skill needs an explicit decision. Retain keeps the rows recoverable if
+/// the same identity returns; Delete removes them and attempts credential cleanup, reporting an
+/// explicit recovery state rather than claiming success it cannot verify.
+pub(crate) fn apply_deletion_retention<S: SkillSecretStore>(
+    repository: &SqliteSkillConfigurationRepository,
+    secrets: &SkillConfigurationSecrets<S>,
+    skill_id: &str,
+    workspace_identity: &str,
+    retention: DeletionRetention,
+) -> Result<SecretRecovery, SkillConfigurationError> {
+    let records = repository
+        .load_all_scopes(skill_id, workspace_identity)
+        .map_err(repository_failure)?;
+    if retention == DeletionRetention::Retain {
+        repository
+            .mark_orphaned(skill_id)
+            .map_err(repository_failure)?;
+        return Ok(SecretRecovery::Clean);
+    }
+
+    let mut failed = Vec::new();
+    for record in &records {
+        let record_id = format!(
+            "{skill_id}:{}:{}",
+            record.scope.as_str(),
+            record.workspace_identity
+        );
+        let intents = record
+            .secret_keys
+            .iter()
+            .map(|key| (key.clone(), SkillSecretIntent::Clear))
+            .collect::<Vec<_>>();
+        match secrets.stage(&record_id, &intents) {
+            Ok(staged) => {
+                if let SecretRecovery::Incomplete { properties } = staged.finalize() {
+                    failed.extend(properties);
+                }
+            }
+            Err(failure) => failed.push(failure.property_key),
+        }
+    }
+    repository.purge(skill_id).map_err(repository_failure)?;
+    if failed.is_empty() {
+        return Ok(SecretRecovery::Clean);
+    }
+    // The rows are gone but some credentials survived; the cleanup state records that a
+    // maintenance pass still has work to do.
+    repository
+        .set_cleanup_state(
+            skill_id,
+            super::configuration_repository::SkillConfigCleanupState::Failed,
+        )
+        .map_err(repository_failure)?;
+    Ok(SecretRecovery::Incomplete { properties: failed })
+}
+
+fn repository_failure(
+    error: crate::contexts::tooling::skills::application::SkillApplicationError,
+) -> SkillConfigurationError {
+    SkillConfigurationError::RepositoryFailure {
+        reason: error.to_string(),
+    }
 }
 
 fn projected_secret_keys(

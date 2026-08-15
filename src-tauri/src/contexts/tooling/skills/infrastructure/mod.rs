@@ -37,7 +37,9 @@ pub(crate) use configuration_secrets::{
 };
 #[allow(unused_imports)]
 pub(crate) use configuration_service::{
-    preview, save, validate_request, SkillConfigurationError, SkillConfigurationRequest,
+    apply_deletion_retention, preview, reconcile, require_base_revision, reset_property,
+    reset_scope, save, validate_request, DeletionRetention, ObsoleteFieldChoice,
+    ReconciliationPlan, SkillConfigurationError, SkillConfigurationRequest,
     SkillConfigurationSaveResult, MAX_CONFIGURATION_PAYLOAD_BYTES,
 };
 pub(crate) use effective_cache::{

@@ -1,11 +1,14 @@
 use super::{
-    preview, save, validate_request, SkillConfigurationError, SkillConfigurationRequest,
+    apply_deletion_retention, preview, reconcile, require_base_revision, reset_property,
+    reset_scope, save, validate_request, DeletionRetention, ObsoleteFieldChoice,
+    ReconciliationPlan, SkillConfigurationError, SkillConfigurationRequest,
     MAX_CONFIGURATION_PAYLOAD_BYTES,
 };
 use crate::contexts::tooling::skills::domain::{
     parse_config_schema, SkillConfigProvenance, SkillConfigSchema, SkillConfigScope,
     SkillConfigValue, SkillSecretIntent,
 };
+use crate::contexts::tooling::skills::infrastructure::SecretRecovery;
 use crate::contexts::tooling::skills::infrastructure::{
     SkillConfigurationSecrets, SkillSecretStore, SqliteSkillConfigurationRepository,
 };
@@ -312,4 +315,261 @@ fn a_credential_failure_reports_the_property_without_the_value() {
             .expect("load"),
         None
     );
+}
+
+#[test]
+fn a_request_bound_to_a_superseded_base_revision_is_rejected() {
+    let request = request(Vec::new());
+
+    assert!(require_base_revision("rev-1", &request).is_ok());
+    // Two Skill revisions can share a config_schema and still differ in the instructions the
+    // values feed, so the schema hash alone is not enough to pin the revision.
+    assert!(matches!(
+        require_base_revision("rev-2", &request),
+        Err(SkillConfigurationError::BaseRevisionChanged { .. })
+    ));
+}
+
+#[test]
+fn resetting_a_property_leaves_the_rest_and_re_resolves_the_inherited_value() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    let first = save(
+        &repository,
+        &secrets,
+        &schema,
+        &request(vec![
+            ("endpoint".to_string(), text("kept")),
+            ("retries".to_string(), SkillConfigValue::Integer(7)),
+        ]),
+    )
+    .expect("save");
+
+    let mut follow_up = request(vec![
+        ("endpoint".to_string(), text("kept")),
+        ("retries".to_string(), SkillConfigValue::Integer(7)),
+    ]);
+    follow_up.expected_revision = Some(first.record.stored_revision);
+    let result =
+        reset_property(&repository, &secrets, &schema, &follow_up, "retries").expect("reset");
+
+    assert_eq!(
+        result.record.values,
+        vec![("endpoint".to_string(), text("kept"))]
+    );
+    // Falls back to the schema default rather than becoming unset.
+    assert_eq!(
+        result
+            .preview
+            .properties
+            .iter()
+            .find(|property| property.key == "retries")
+            .expect("retries")
+            .provenance,
+        SkillConfigProvenance::SchemaDefault
+    );
+}
+
+#[test]
+fn resetting_a_scope_removes_its_record_and_clears_its_credentials() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    let mut seed = request(vec![("endpoint".to_string(), text("stored"))]);
+    seed.secret_intents = vec![(
+        "api_key".to_string(),
+        SkillSecretIntent::Replace(SECRET.to_string()),
+    )];
+    save(&repository, &secrets, &schema, &seed).expect("save");
+
+    let resolved = reset_scope(
+        &repository,
+        &secrets,
+        &schema,
+        "configured-skill",
+        SkillConfigScope::User,
+        "",
+    )
+    .expect("reset scope");
+
+    assert_eq!(
+        repository
+            .load("configured-skill", SkillConfigScope::User, "")
+            .expect("load"),
+        None
+    );
+    assert!(secrets
+        .store_for_tests()
+        .entries
+        .lock()
+        .expect("entries")
+        .is_empty());
+    assert_eq!(
+        resolved
+            .properties
+            .iter()
+            .find(|property| property.key == "endpoint")
+            .expect("endpoint")
+            .provenance,
+        SkillConfigProvenance::SchemaDefault
+    );
+}
+
+#[test]
+fn reconciliation_refuses_to_decide_for_the_user() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    // A value for a property this schema no longer has.
+    repository
+        .save(
+            &crate::contexts::tooling::skills::infrastructure::SkillConfigurationSave {
+                skill_id: "configured-skill".to_string(),
+                scope: SkillConfigScope::User,
+                workspace_identity: String::new(),
+                schema_hash: schema.hash.clone(),
+                base_revision: "rev-1".to_string(),
+                expected_revision: None,
+                values: vec![("obsolete".to_string(), text("carried"))],
+                secret_keys: Vec::new(),
+                validation_state:
+                    crate::contexts::tooling::skills::domain::SkillConfigDrift::MigrationRequired,
+            },
+        )
+        .expect("seed obsolete record");
+
+    let mut follow_up = request(Vec::new());
+    follow_up.expected_revision =
+        Some(crate::contexts::tooling::skills::domain::SkillConfigRevision::new(1));
+
+    let error = reconcile(
+        &repository,
+        &secrets,
+        &schema,
+        &follow_up,
+        &ReconciliationPlan::default(),
+    )
+    .expect_err("an unaddressed obsolete field must not be resolved silently");
+
+    assert!(matches!(
+        error,
+        SkillConfigurationError::ReconciliationIncomplete { key } if key == "obsolete"
+    ));
+}
+
+#[test]
+fn reconciliation_maps_or_discards_only_what_the_plan_says() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    repository
+        .save(
+            &crate::contexts::tooling::skills::infrastructure::SkillConfigurationSave {
+                skill_id: "configured-skill".to_string(),
+                scope: SkillConfigScope::User,
+                workspace_identity: String::new(),
+                schema_hash: schema.hash.clone(),
+                base_revision: "rev-1".to_string(),
+                expected_revision: None,
+                values: vec![
+                    ("old_endpoint".to_string(), text("carried")),
+                    ("dropped".to_string(), text("gone")),
+                ],
+                secret_keys: Vec::new(),
+                validation_state:
+                    crate::contexts::tooling::skills::domain::SkillConfigDrift::MigrationRequired,
+            },
+        )
+        .expect("seed");
+
+    let mut follow_up = request(Vec::new());
+    follow_up.expected_revision =
+        Some(crate::contexts::tooling::skills::domain::SkillConfigRevision::new(1));
+    let result = reconcile(
+        &repository,
+        &secrets,
+        &schema,
+        &follow_up,
+        &ReconciliationPlan {
+            fields: vec![
+                (
+                    "old_endpoint".to_string(),
+                    ObsoleteFieldChoice::MapTo("endpoint".to_string()),
+                ),
+                ("dropped".to_string(), ObsoleteFieldChoice::Discard),
+            ],
+            clear_secrets: Vec::new(),
+        },
+    )
+    .expect("reconcile");
+
+    assert_eq!(
+        result.record.values,
+        vec![("endpoint".to_string(), text("carried"))]
+    );
+}
+
+#[test]
+fn deletion_can_retain_the_records_for_a_returning_skill() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    save(
+        &repository,
+        &secrets,
+        &schema,
+        &request(vec![("endpoint".to_string(), text("kept"))]),
+    )
+    .expect("save");
+
+    let recovery = apply_deletion_retention(
+        &repository,
+        &secrets,
+        "configured-skill",
+        "",
+        DeletionRetention::Retain,
+    )
+    .expect("retain");
+
+    assert_eq!(recovery, SecretRecovery::Clean);
+    let retained = repository
+        .load("configured-skill", SkillConfigScope::User, "")
+        .expect("load")
+        .expect("record survives");
+    assert!(retained.orphaned_at.is_some());
+    assert_eq!(
+        retained.values,
+        vec![("endpoint".to_string(), text("kept"))]
+    );
+}
+
+#[test]
+fn deletion_can_remove_the_records_and_their_credentials() {
+    let (_directory, repository, secrets) = harness();
+    let schema = schema();
+    let mut seed = request(vec![("endpoint".to_string(), text("kept"))]);
+    seed.secret_intents = vec![(
+        "api_key".to_string(),
+        SkillSecretIntent::Replace(SECRET.to_string()),
+    )];
+    save(&repository, &secrets, &schema, &seed).expect("save");
+
+    let recovery = apply_deletion_retention(
+        &repository,
+        &secrets,
+        "configured-skill",
+        "",
+        DeletionRetention::Delete,
+    )
+    .expect("delete");
+
+    assert_eq!(recovery, SecretRecovery::Clean);
+    assert_eq!(
+        repository
+            .load("configured-skill", SkillConfigScope::User, "")
+            .expect("load"),
+        None
+    );
+    assert!(secrets
+        .store_for_tests()
+        .entries
+        .lock()
+        .expect("entries")
+        .is_empty());
 }
