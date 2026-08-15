@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines meaning-based recall over the shared memory pool and over indexed workspace code, including how each source is scoped, reconciled, and kept from surfacing content that no longer exists. Retrieval is an enhancement: its failure degrades recall, never a generation.
-
 ## Requirements
 ### Requirement: Retrieval searches the shared host-level memory pool
 The system SHALL search the same host-level memory pool that recency-based memory injection draws from (`agent-memory-shared-pool`), and SHALL NOT restrict recall by agent id or workspace folder. Agent id and workspace folder SHALL be recorded on an index row as provenance only, and SHALL NOT be exposed as recall tool input.
@@ -63,12 +62,20 @@ The system SHALL restrict vector recall to rows whose stored embedding model equ
 - **AND** the system SHALL re-queue that row for background re-indexing
 
 ### Requirement: Retrieval tool is registered only when configured
-The system SHALL offer the recall tool to the model only when an embedding source is configured.
+
+The system SHALL offer the recall tool to the model only when an embedding source is configured. Memory injection SHALL NOT depend on that configuration: with no embedding source configured, the memory index SHALL still be injected and relevance selection SHALL still run, so that an installation without retrieval keeps a working memory feature.
 
 #### Scenario: No embedding configured
+
 - **WHEN** no embedding source is configured
 - **THEN** the recall tool SHALL NOT appear in the tool catalog
-- **AND** existing recency-based memory injection SHALL continue unchanged
+- **AND**, replacing this scenario's previous guarantee that recency-based memory injection continues unchanged, index injection and relevance-selected body injection SHALL both continue to operate
+
+#### Scenario: Embedding configured
+
+- **WHEN** an embedding source is configured
+- **THEN** the recall tool SHALL appear in the tool catalog
+- **AND** it SHALL remain the content-driven search path, complementary to the description-driven relevance selection rather than replaced by it
 
 ### Requirement: Retrieval logging excludes sensitive content
 The system SHALL NOT persist memory content, raw query text, credentials, or provider response bodies to logs.

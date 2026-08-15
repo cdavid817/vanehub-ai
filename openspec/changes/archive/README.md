@@ -171,5 +171,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
 | 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
 | 2026-08-15 | migrate-agent-memory-to-file-store | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/` |
+| 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
