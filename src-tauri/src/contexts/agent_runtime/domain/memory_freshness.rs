@@ -1,7 +1,3 @@
-// The staleness half is consumed by task 5.2, which attaches the caveat to injected bodies.
-// The age half is already used by the selection manifest.
-#![allow(dead_code)]
-
 use std::time::{Duration, SystemTime};
 
 /// A memory younger than this carries no staleness caveat. A caveat on something written an hour

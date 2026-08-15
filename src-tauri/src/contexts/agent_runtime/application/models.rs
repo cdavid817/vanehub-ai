@@ -1,7 +1,8 @@
 use super::loop_models::LoopVerificationCommandView;
 use crate::contexts::agent_runtime::domain::{
-    AgentAvailability, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
-    AutomaticCompactionMode, InteractionMode, MemoryType,
+    memory_staleness_caveat, render_memory_age, AgentAvailability, AgentDefinition, AgentLifecycle,
+    AgentOrigin, AgentReadiness, AgentWorkflow, AutomaticCompactionMode, InteractionMode,
+    MemoryType,
 };
 use crate::contexts::execution_observability::api::ExecutionContext;
 use serde::Serialize;
@@ -1562,15 +1563,31 @@ fn truncation_notice(dropped: usize, byte_capped: bool) -> String {
 ///
 /// Separate from the index because the two have different lifetimes: the index reflects the pool,
 /// while this reflects one generation's judgment about it.
-// Wired by task 3.2, which places the selection's output in the system prompt behind the index.
-#[allow(dead_code)]
-pub(crate) fn format_memory_bodies(memories: &[AgentMemory]) -> Option<String> {
+///
+/// Each body carries its age in words, and one past the staleness threshold additionally carries
+/// the verify-before-asserting caveat. The age is rendered rather than stamped because a raw
+/// timestamp needs date arithmetic to interpret, and that interpretation is the step that has to
+/// happen for age to affect behavior at all. The caveat is withheld from fresh memories on
+/// purpose: a caveat on something written an hour ago is noise, and noise trains the model to skim
+/// past caveats generally, including the ones that matter.
+pub(crate) fn format_memory_bodies(
+    memories: &[AgentMemory],
+    now: std::time::SystemTime,
+) -> Option<String> {
     if memories.is_empty() {
         return None;
     }
     let entries = memories
         .iter()
-        .map(|memory| format!("### {}\n{}", memory.name, memory.content))
+        .map(|memory| {
+            let age = render_memory_age(memory.modified_at, now)
+                .map(|age| format!(" ({age})"))
+                .unwrap_or_default();
+            let caveat = memory_staleness_caveat(memory.modified_at, now)
+                .map(|caveat| format!("{caveat}\n"))
+                .unwrap_or_default();
+            format!("### {}{age}\n{caveat}{}", memory.name, memory.content)
+        })
         .collect::<Vec<_>>()
         .join("\n\n");
     Some(format!(

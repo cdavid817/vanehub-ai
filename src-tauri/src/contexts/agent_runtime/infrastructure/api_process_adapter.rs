@@ -2149,7 +2149,10 @@ fn select_memory_bodies(
         })
         .collect::<Vec<_>>();
     mark_surfaced(&request.session.id, &selected);
-    crate::contexts::agent_runtime::application::format_memory_bodies(&selected)
+    crate::contexts::agent_runtime::application::format_memory_bodies(
+        &selected,
+        std::time::SystemTime::now(),
+    )
 }
 
 fn format_system_prompt(
@@ -9010,6 +9013,47 @@ mod tests {
         assert!(section.contains("## Second"));
         assert!(!section.contains("NoRoom"));
         assert_eq!(logging.logs.lock().expect("logs").len(), 2);
+    }
+
+    #[test]
+    fn an_injected_body_carries_its_age_and_only_a_stale_one_carries_the_caveat() {
+        use crate::contexts::agent_runtime::application::format_memory_bodies;
+        use std::time::{Duration, SystemTime};
+
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(30 * 24 * 60 * 60);
+        let aged = |name: &str, hours: u64| {
+            let mut memory = fake_memory(name, "Body.");
+            memory.modified_at = Some(now - Duration::from_secs(hours * 60 * 60));
+            memory
+        };
+
+        let section =
+            format_memory_bodies(&[aged("fresh", 2), aged("stale", 200)], now).expect("bodies");
+
+        assert!(section.contains("### fresh (today)"));
+        assert!(section.contains("### stale (8 days ago)"));
+        // Withheld from the fresh one on purpose: a caveat on something written two hours ago is
+        // noise, and noise trains the model to skim past caveats generally.
+        let fresh_at = section.find("### fresh").expect("fresh heading");
+        let stale_at = section.find("### stale").expect("stale heading");
+        let caveat_at = section
+            .find("point-in-time observation")
+            .expect("staleness caveat");
+        assert!(caveat_at > stale_at);
+        assert!(!section[fresh_at..stale_at].contains("point-in-time observation"));
+    }
+
+    #[test]
+    fn a_body_with_no_modification_time_carries_neither_age_nor_caveat() {
+        use crate::contexts::agent_runtime::application::format_memory_bodies;
+        use std::time::{Duration, SystemTime};
+
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let section =
+            format_memory_bodies(&[fake_memory("undated", "Body.")], now).expect("bodies");
+
+        assert!(section.contains("### undated\n"));
+        assert!(!section.contains("point-in-time observation"));
     }
 
     #[test]

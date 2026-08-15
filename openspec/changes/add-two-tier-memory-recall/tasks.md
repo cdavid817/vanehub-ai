@@ -36,9 +36,9 @@
 
 ## 5. Freshness annotation
 
-- [ ] 5.1 Compute elapsed age from mtime and render it in words rather than as a timestamp
-- [ ] 5.2 Attach the verify-before-asserting caveat only to memories older than one day
-- [ ] 5.3 Add tests for a fresh memory carrying age without a caveat, and a stale memory carrying both
+- [x] 5.1 Compute elapsed age from mtime and render it in words rather than as a timestamp
+- [x] 5.2 Attach the verify-before-asserting caveat only to memories older than one day
+- [x] 5.3 Add tests for a fresh memory carrying age without a caveat, and a stale memory carrying both
 
 ## 6. Runtime parity
 
