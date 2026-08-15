@@ -93,6 +93,16 @@ pub(crate) enum SkillConfigValue {
 }
 
 impl SkillConfigValue {
+    pub(crate) fn type_name(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "string",
+            Self::Integer(_) => "integer",
+            Self::Number(_) => "number",
+            Self::Boolean(_) => "boolean",
+            Self::List(_) => "array",
+        }
+    }
+
     /// Canonical form feeds the schema hash, so it must be stable across platforms and must not
     /// depend on float formatting defaults.
     pub(crate) fn canonical(&self) -> String {
@@ -783,7 +793,14 @@ pub(crate) fn validate_value(
         reason,
     };
     match (value, field_type) {
-        (SkillConfigValue::List(items), SkillConfigFieldType::List(_)) => {
+        (SkillConfigValue::List(items), SkillConfigFieldType::List(scalar)) => {
+            if let Some(item) = items.iter().find(|item| !matches_type(item, scalar)) {
+                return Err(invalid(format!(
+                    "expected every item to be {}, found {}",
+                    scalar.as_str(),
+                    item.type_name()
+                )));
+            }
             if let Some(minimum) = constraints.min_items {
                 if items.len() < minimum {
                     return Err(invalid(format!("expected at least {minimum} items")));
@@ -801,8 +818,33 @@ pub(crate) fn validate_value(
         }
         (_, SkillConfigFieldType::List(_)) => Err(invalid("expected a list value".to_string())),
         (SkillConfigValue::List(_), _) => Err(invalid("expected a scalar value".to_string())),
-        _ => validate_scalar(value, constraints, choices, key),
+        (_, SkillConfigFieldType::Scalar(scalar)) => {
+            // Checked here and not only when coercing a literal: a value that was valid under an
+            // earlier schema reaches this path from storage, and a retyped property must fail
+            // rather than be read as its new type.
+            if !matches_type(value, scalar) {
+                return Err(invalid(format!(
+                    "expected {}, found {}",
+                    scalar.as_str(),
+                    value.type_name()
+                )));
+            }
+            validate_scalar(value, constraints, choices, key)
+        }
     }
+}
+
+fn matches_type(value: &SkillConfigValue, scalar: SkillConfigScalarType) -> bool {
+    matches!(
+        (value, scalar),
+        (SkillConfigValue::Text(_), SkillConfigScalarType::Text)
+            | (
+                SkillConfigValue::Integer(_),
+                SkillConfigScalarType::Integer | SkillConfigScalarType::Number
+            )
+            | (SkillConfigValue::Number(_), SkillConfigScalarType::Number)
+            | (SkillConfigValue::Boolean(_), SkillConfigScalarType::Boolean)
+    )
 }
 
 fn validate_scalar(

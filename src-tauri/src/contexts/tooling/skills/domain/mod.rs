@@ -3,6 +3,7 @@ mod catalog;
 mod classification;
 mod config_document;
 mod config_schema;
+mod config_state;
 mod drift;
 mod error;
 mod identity;
@@ -24,6 +25,8 @@ mod source;
 mod config_document_tests;
 #[cfg(test)]
 mod config_schema_tests;
+#[cfg(test)]
+mod config_state_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]
