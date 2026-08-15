@@ -4,11 +4,23 @@ use super::{
     ReconciliationPlan, SkillConfigurationError, SkillConfigurationRequest,
     MAX_CONFIGURATION_PAYLOAD_BYTES,
 };
+use crate::contexts::tooling::skills::application::{
+    SkillApplicationError, SkillLogEvent, SkillLoggingPort,
+};
 use crate::contexts::tooling::skills::domain::{
     parse_config_schema, SkillConfigProvenance, SkillConfigSchema, SkillConfigScope,
     SkillConfigValue, SkillSecretIntent,
 };
 use crate::contexts::tooling::skills::infrastructure::SecretRecovery;
+
+/// The service must not depend on a log sink to function, so the tests give it one that records
+/// nothing and asserts nothing; the event shapes are covered in configuration_logging_tests.
+struct SilentLogging;
+impl SkillLoggingPort for SilentLogging {
+    fn record(&self, _event: &SkillLogEvent) -> Result<(), SkillApplicationError> {
+        Ok(())
+    }
+}
 use crate::contexts::tooling::skills::infrastructure::{
     SkillConfigurationSecrets, SkillSecretStore, SqliteSkillConfigurationRepository,
 };
@@ -207,7 +219,7 @@ fn a_save_stores_values_and_secret_presence_and_returns_the_effective_preview() 
         SkillSecretIntent::Replace(SECRET.to_string()),
     )];
 
-    let result = save(&repository, &secrets, &schema, &request).expect("save");
+    let result = save(&repository, &secrets, &SilentLogging, &schema, &request).expect("save");
 
     assert_eq!(
         result.record.values,
@@ -236,6 +248,7 @@ fn a_stale_save_preserves_the_prior_record_and_returns_it_for_refresh() {
     save(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &request(vec![("endpoint".to_string(), text("first"))]),
     )
@@ -244,6 +257,7 @@ fn a_stale_save_preserves_the_prior_record_and_returns_it_for_refresh() {
     let error = save(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &request(vec![("endpoint".to_string(), text("second"))]),
     )
@@ -269,6 +283,7 @@ fn a_stale_save_does_not_leave_its_staged_credential_behind() {
     save(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &request(vec![("endpoint".to_string(), text("first"))]),
     )
@@ -279,7 +294,7 @@ fn a_stale_save_does_not_leave_its_staged_credential_behind() {
         "api_key".to_string(),
         SkillSecretIntent::Replace(SECRET.to_string()),
     )];
-    let error = save(&repository, &secrets, &schema, &stale).expect_err("stale");
+    let error = save(&repository, &secrets, &SilentLogging, &schema, &stale).expect_err("stale");
     assert!(matches!(error, SkillConfigurationError::Stale { .. }));
 
     // The record the caller expected is gone, so the credential they staged must not stand.
@@ -301,7 +316,8 @@ fn a_credential_failure_reports_the_property_without_the_value() {
         SkillSecretIntent::Replace(SECRET.to_string()),
     )];
 
-    let error = save(&repository, &secrets, &schema, &request).expect_err("credential failure");
+    let error = save(&repository, &secrets, &SilentLogging, &schema, &request)
+        .expect_err("credential failure");
 
     match &error {
         SkillConfigurationError::CredentialFailure { key, .. } => assert_eq!(key, "api_key"),
@@ -337,6 +353,7 @@ fn resetting_a_property_leaves_the_rest_and_re_resolves_the_inherited_value() {
     let first = save(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &request(vec![
             ("endpoint".to_string(), text("kept")),
@@ -350,8 +367,15 @@ fn resetting_a_property_leaves_the_rest_and_re_resolves_the_inherited_value() {
         ("retries".to_string(), SkillConfigValue::Integer(7)),
     ]);
     follow_up.expected_revision = Some(first.record.stored_revision);
-    let result =
-        reset_property(&repository, &secrets, &schema, &follow_up, "retries").expect("reset");
+    let result = reset_property(
+        &repository,
+        &secrets,
+        &SilentLogging,
+        &schema,
+        &follow_up,
+        "retries",
+    )
+    .expect("reset");
 
     assert_eq!(
         result.record.values,
@@ -379,11 +403,12 @@ fn resetting_a_scope_removes_its_record_and_clears_its_credentials() {
         "api_key".to_string(),
         SkillSecretIntent::Replace(SECRET.to_string()),
     )];
-    save(&repository, &secrets, &schema, &seed).expect("save");
+    save(&repository, &secrets, &SilentLogging, &schema, &seed).expect("save");
 
     let resolved = reset_scope(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         "configured-skill",
         SkillConfigScope::User,
@@ -443,6 +468,7 @@ fn reconciliation_refuses_to_decide_for_the_user() {
     let error = reconcile(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &follow_up,
         &ReconciliationPlan::default(),
@@ -485,6 +511,7 @@ fn reconciliation_maps_or_discards_only_what_the_plan_says() {
     let result = reconcile(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &follow_up,
         &ReconciliationPlan {
@@ -513,6 +540,7 @@ fn deletion_can_retain_the_records_for_a_returning_skill() {
     save(
         &repository,
         &secrets,
+        &SilentLogging,
         &schema,
         &request(vec![("endpoint".to_string(), text("kept"))]),
     )
@@ -521,6 +549,7 @@ fn deletion_can_retain_the_records_for_a_returning_skill() {
     let recovery = apply_deletion_retention(
         &repository,
         &secrets,
+        &SilentLogging,
         "configured-skill",
         "",
         DeletionRetention::Retain,
@@ -548,11 +577,12 @@ fn deletion_can_remove_the_records_and_their_credentials() {
         "api_key".to_string(),
         SkillSecretIntent::Replace(SECRET.to_string()),
     )];
-    save(&repository, &secrets, &schema, &seed).expect("save");
+    save(&repository, &secrets, &SilentLogging, &schema, &seed).expect("save");
 
     let recovery = apply_deletion_retention(
         &repository,
         &secrets,
+        &SilentLogging,
         "configured-skill",
         "",
         DeletionRetention::Delete,

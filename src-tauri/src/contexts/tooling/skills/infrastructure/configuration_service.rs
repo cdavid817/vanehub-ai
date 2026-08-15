@@ -1,5 +1,9 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
+use super::configuration_logging::{
+    record_cleanup, record_drift, record_lifecycle, record_save, record_secret_mutation,
+    record_validation_failure,
+};
 use super::configuration_repository::{
     SkillConfigurationSave, SkillConfigurationWrite, SqliteSkillConfigurationRepository,
     StoredSkillConfiguration,
@@ -8,6 +12,7 @@ use super::configuration_resolution::{
     require_canonical_workspace, resolve_from_records, ResolvedSkillConfiguration,
 };
 use super::configuration_secrets::{SecretRecovery, SkillConfigurationSecrets, SkillSecretStore};
+use crate::contexts::tooling::skills::application::{SkillLogAction, SkillLoggingPort};
 use crate::contexts::tooling::skills::domain::{
     validate_value, SkillConfigDrift, SkillConfigRevision, SkillConfigSchema, SkillConfigScope,
     SkillConfigValue, SkillSecretIntent,
@@ -191,10 +196,28 @@ pub(crate) fn preview(
 pub(crate) fn save<S: SkillSecretStore>(
     repository: &SqliteSkillConfigurationRepository,
     secrets: &SkillConfigurationSecrets<S>,
+    logging: &dyn SkillLoggingPort,
     schema: &SkillConfigSchema,
     request: &SkillConfigurationRequest,
 ) -> Result<SkillConfigurationSaveResult, SkillConfigurationError> {
-    validate_request(schema, request)?;
+    if let Err(error) = validate_request(schema, request) {
+        record_validation_failure(logging, &request.skill_id, &error);
+        return Err(error);
+    }
+    for (property_key, intent) in &request.secret_intents {
+        record_secret_mutation(
+            logging,
+            &request.skill_id,
+            request.scope,
+            &request.workspace_identity,
+            match intent {
+                SkillSecretIntent::Preserve => "preserve",
+                SkillSecretIntent::Replace(_) => "replace",
+                SkillSecretIntent::Clear => "clear",
+            },
+            property_key,
+        );
+    }
 
     let record_id = format!(
         "{}:{}:{}",
@@ -253,13 +276,36 @@ pub(crate) fn save<S: SkillSecretStore>(
     };
 
     let recovery = staged.finalize();
+    record_save(
+        logging,
+        &request.skill_id,
+        request.scope,
+        &request.workspace_identity,
+        record.stored_revision.value(),
+        &request
+            .values
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>(),
+        &record.secret_keys,
+    );
+    if recovery != SecretRecovery::Clean {
+        record_cleanup(logging, &request.skill_id, &recovery);
+    }
     let others = repository
         .load_all_scopes(&request.skill_id, &request.workspace_identity)
         .map_err(|error| SkillConfigurationError::RepositoryFailure {
             reason: error.to_string(),
         })?;
+    let preview = resolve_from_records(schema, &others);
+    record_drift(
+        logging,
+        &request.skill_id,
+        preview.drift,
+        &request.schema_hash,
+    );
     Ok(SkillConfigurationSaveResult {
-        preview: resolve_from_records(schema, &others),
+        preview,
         record,
         recovery,
     })
@@ -271,6 +317,7 @@ pub(crate) fn save<S: SkillSecretStore>(
 pub(crate) fn reset_property<S: SkillSecretStore>(
     repository: &SqliteSkillConfigurationRepository,
     secrets: &SkillConfigurationSecrets<S>,
+    logging: &dyn SkillLoggingPort,
     schema: &SkillConfigSchema,
     request: &SkillConfigurationRequest,
     key: &str,
@@ -287,7 +334,14 @@ pub(crate) fn reset_property<S: SkillSecretStore>(
     } else {
         reset.values.retain(|(stored, _)| stored != key);
     }
-    save(repository, secrets, schema, &reset)
+    let result = save(repository, secrets, logging, schema, &reset)?;
+    record_lifecycle(
+        logging,
+        SkillLogAction::ConfigurationReset,
+        &request.skill_id,
+        "applied",
+    );
+    Ok(result)
 }
 
 /// Deletes the scope's record and its credentials. Absence is what makes the effective value fall
@@ -295,6 +349,7 @@ pub(crate) fn reset_property<S: SkillSecretStore>(
 pub(crate) fn reset_scope<S: SkillSecretStore>(
     repository: &SqliteSkillConfigurationRepository,
     secrets: &SkillConfigurationSecrets<S>,
+    logging: &dyn SkillLoggingPort,
     schema: &SkillConfigSchema,
     skill_id: &str,
     scope: SkillConfigScope,
@@ -331,6 +386,12 @@ pub(crate) fn reset_scope<S: SkillSecretStore>(
     let remaining = repository
         .load_all_scopes(skill_id, workspace_identity)
         .map_err(repository_failure)?;
+    record_lifecycle(
+        logging,
+        SkillLogAction::ConfigurationReset,
+        skill_id,
+        "scope-cleared",
+    );
     Ok(resolve_from_records(schema, &remaining))
 }
 
@@ -354,6 +415,7 @@ pub(crate) struct ReconciliationPlan {
 pub(crate) fn reconcile<S: SkillSecretStore>(
     repository: &SqliteSkillConfigurationRepository,
     secrets: &SkillConfigurationSecrets<S>,
+    logging: &dyn SkillLoggingPort,
     schema: &SkillConfigSchema,
     request: &SkillConfigurationRequest,
     plan: &ReconciliationPlan,
@@ -393,7 +455,14 @@ pub(crate) fn reconcile<S: SkillSecretStore>(
         .iter()
         .map(|key| (key.clone(), SkillSecretIntent::Clear))
         .collect();
-    save(repository, secrets, schema, &reconciled)
+    let result = save(repository, secrets, logging, schema, &reconciled)?;
+    record_lifecycle(
+        logging,
+        SkillLogAction::ConfigurationReconcile,
+        &request.skill_id,
+        "applied",
+    );
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,6 +477,7 @@ pub(crate) enum DeletionRetention {
 pub(crate) fn apply_deletion_retention<S: SkillSecretStore>(
     repository: &SqliteSkillConfigurationRepository,
     secrets: &SkillConfigurationSecrets<S>,
+    logging: &dyn SkillLoggingPort,
     skill_id: &str,
     workspace_identity: &str,
     retention: DeletionRetention,
@@ -419,6 +489,12 @@ pub(crate) fn apply_deletion_retention<S: SkillSecretStore>(
         repository
             .mark_orphaned(skill_id)
             .map_err(repository_failure)?;
+        record_lifecycle(
+            logging,
+            SkillLogAction::ConfigurationRetention,
+            skill_id,
+            "retained",
+        );
         return Ok(SecretRecovery::Clean);
     }
 
@@ -444,7 +520,14 @@ pub(crate) fn apply_deletion_retention<S: SkillSecretStore>(
         }
     }
     repository.purge(skill_id).map_err(repository_failure)?;
+    record_lifecycle(
+        logging,
+        SkillLogAction::ConfigurationDelete,
+        skill_id,
+        "purged",
+    );
     if failed.is_empty() {
+        record_cleanup(logging, skill_id, &SecretRecovery::Clean);
         return Ok(SecretRecovery::Clean);
     }
     // The rows are gone but some credentials survived; the cleanup state records that a
@@ -455,7 +538,9 @@ pub(crate) fn apply_deletion_retention<S: SkillSecretStore>(
             super::configuration_repository::SkillConfigCleanupState::Failed,
         )
         .map_err(repository_failure)?;
-    Ok(SecretRecovery::Incomplete { properties: failed })
+    let recovery = SecretRecovery::Incomplete { properties: failed };
+    record_cleanup(logging, skill_id, &recovery);
+    Ok(recovery)
 }
 
 fn repository_failure(

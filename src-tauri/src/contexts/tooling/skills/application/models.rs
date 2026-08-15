@@ -629,6 +629,15 @@ pub(crate) enum SkillLogAction {
     DetectDrift,
     SyncDrift,
     OverlayValidation,
+    ConfigurationValidate,
+    ConfigurationSave,
+    ConfigurationReset,
+    ConfigurationSecretMutation,
+    ConfigurationDrift,
+    ConfigurationReconcile,
+    ConfigurationDelete,
+    ConfigurationRetention,
+    ConfigurationCleanup,
 }
 
 impl SkillLogAction {
@@ -655,6 +664,15 @@ impl SkillLogAction {
             Self::DetectDrift => "detect-drift",
             Self::SyncDrift => "sync-drift",
             Self::OverlayValidation => "overlay-validation",
+            Self::ConfigurationValidate => "configuration-validate",
+            Self::ConfigurationSave => "configuration-save",
+            Self::ConfigurationReset => "configuration-reset",
+            Self::ConfigurationSecretMutation => "configuration-secret-mutation",
+            Self::ConfigurationDrift => "configuration-drift",
+            Self::ConfigurationReconcile => "configuration-reconcile",
+            Self::ConfigurationDelete => "configuration-delete",
+            Self::ConfigurationRetention => "configuration-retention",
+            Self::ConfigurationCleanup => "configuration-cleanup",
         }
     }
 
@@ -670,6 +688,18 @@ impl SkillLogAction {
                 | Self::DetectDrift
                 | Self::SeedBuiltins
                 | Self::OverlayValidation
+                // Configuration values do not change which Skill revision wins or what schema it
+                // declares, so they cannot invalidate the package catalog. Revisit if the
+                // effective overview ever derives its scoped summaries from stored records.
+                | Self::ConfigurationValidate
+                | Self::ConfigurationSave
+                | Self::ConfigurationReset
+                | Self::ConfigurationSecretMutation
+                | Self::ConfigurationDrift
+                | Self::ConfigurationReconcile
+                | Self::ConfigurationDelete
+                | Self::ConfigurationRetention
+                | Self::ConfigurationCleanup
         )
     }
 }

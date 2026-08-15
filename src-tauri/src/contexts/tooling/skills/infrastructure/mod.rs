@@ -1,3 +1,4 @@
+mod configuration_logging;
 mod configuration_repository;
 mod configuration_resolution;
 mod configuration_schema;
@@ -19,6 +20,11 @@ mod effective_cache_tests;
 #[cfg(test)]
 mod recovery_tests;
 
+#[allow(unused_imports)]
+pub(crate) use configuration_logging::{
+    configuration_event, record_cleanup, record_drift, record_lifecycle, record_save,
+    record_secret_mutation, record_validation_failure,
+};
 #[allow(unused_imports)]
 pub(crate) use configuration_repository::{
     SkillConfigCleanupState, SkillConfigurationSave, SkillConfigurationWrite,
