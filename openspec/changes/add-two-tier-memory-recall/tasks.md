@@ -11,8 +11,7 @@
 
 - [x] 2.1 Add the selector gateway, resolving OnePiece's credentials and provider the way `memory_extraction_gateway.rs` does
 - [x] 2.2 Build the selection manifest from names, types, descriptions, and ages only, never bodies
-- [ ] 2.3 Request structured output bounded to a small token cap, and discard returned names absent from the manifest
-  - Discarding unknown names is done. The token cap is NOT: `summarize_turns` sets no `max_tokens` for any call, and it is shared with compaction summaries and extraction, so capping it there would truncate compaction summaries. Bounding only this call needs a new parameter threaded through the shared request builder.
+- [x] 2.3 Request structured output bounded to a small token cap, and discard returned names absent from the manifest
 - [x] 2.4 Instruct the selector to return an empty list when nothing is clearly useful rather than its best guess
 - [x] 2.5 Enforce the selection bound of five memories
 - [x] 2.6 Add tests for an empty selection, an over-bound selection, a hallucinated name, and an unparseable response
@@ -73,7 +72,7 @@ system proxy rather than failing.
 | `npm run build` | built, 16 lazy chunks, 127.0 KiB gzip static closure |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --all-targets -- -D warnings` | clean |
-| `cargo test` | 2881 lib + 47 integration passed, 0 failed, 15 ignored |
+| `cargo test` | 2882 lib + 47 integration passed, 0 failed, 15 ignored |
 | `cargo check` | clean |
 | `openspec validate add-two-tier-memory-recall --strict` | valid |
 | `openspec validate --specs --strict` | 119 passed, 0 failed |
@@ -93,6 +92,3 @@ Playwright was not run: this change adds no UI. The memory management surface it
 by `migrate-agent-memory-to-file-store`'s own e2e run. Desktop smoke was not run either — no Tauri
 startup, IPC, or desktop runtime behavior changes here, and CI runs that job on all three
 platforms.
-
-Task 2.3 landed only in part, recorded above at the task itself: unknown names are discarded, but
-the selector request carries no token cap.

@@ -16,6 +16,12 @@ use std::time::SystemTime;
 /// extraction gateway beside it.
 const ONEPIECE_AGENT_ID: &str = "onepiece";
 
+/// The whole valid response is a JSON array of at most five short names, so anything beyond this
+/// is a malfunction rather than a longer answer. Capping it protects against a model that ignores
+/// the instruction and starts narrating: the parser would discard the prose anyway, and this stops
+/// paying for it first.
+const SELECTION_MAX_OUTPUT_TOKENS: u32 = 256;
+
 /// Picks which stored memories are worth injecting in full for one generation
 /// (`add-two-tier-memory-recall`).
 ///
@@ -85,6 +91,7 @@ impl AgentMemorySelectionPort for RuntimeAgentMemorySelectionAdapter<'_> {
             &turns,
             MEMORY_SELECTION_INSTRUCTION,
             &cancelled,
+            Some(SELECTION_MAX_OUTPUT_TOKENS),
         )
         .map_err(AgentRuntimeApplicationError::Memory)?;
 

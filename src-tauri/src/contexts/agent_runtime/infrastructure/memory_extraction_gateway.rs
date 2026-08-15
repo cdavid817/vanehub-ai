@@ -79,6 +79,9 @@ impl AgentMemoryExtractionPort for RuntimeAgentMemoryExtractionAdapter {
             &turns,
             &instruction,
             &cancelled,
+            // Unbounded, as before: an extraction's action list grows with how much of the
+            // exchange was worth remembering, and truncating it silently drops memories.
+            None,
         )
         .map_err(AgentRuntimeApplicationError::Memory)?;
         // No response at all is the same as an empty action list: the call worked and found

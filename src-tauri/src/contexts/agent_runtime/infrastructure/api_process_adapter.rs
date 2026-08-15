@@ -3135,6 +3135,7 @@ pub(crate) fn summarize_turns(
     turns_to_summarize: &[Value],
     instruction: &str,
     cancelled: &AtomicBool,
+    max_output_tokens: Option<u32>,
 ) -> Result<Option<String>, String> {
     summarize_turns_with_usage(
         wire_format,
@@ -3145,6 +3146,7 @@ pub(crate) fn summarize_turns(
         turns_to_summarize,
         instruction,
         cancelled,
+        max_output_tokens,
     )
     .map(|(summary, _usage)| summary)
 }
@@ -3159,6 +3161,7 @@ fn summarize_turns_with_usage(
     turns_to_summarize: &[Value],
     instruction: &str,
     cancelled: &AtomicBool,
+    max_output_tokens: Option<u32>,
 ) -> Result<(Option<String>, Option<ReportedUsageTotals>), String> {
     if turns_to_summarize.is_empty() {
         return Ok((None, None));
@@ -3174,6 +3177,16 @@ fn summarize_turns_with_usage(
         system,
         &GenerationOptions::disabled(),
     );
+    // Applied after the provider builder rather than inside it: the builders serve the main
+    // generation path too, where a summarization-shaped cap would be wrong. Anthropic's builder
+    // sets its own default here and this deliberately overrides it for callers that opt in;
+    // callers passing `None` — compaction and extraction — are left byte-identical.
+    let mut body = body;
+    if let Some(limit) = max_output_tokens {
+        if let Some(object) = body.as_object_mut() {
+            object.insert("max_tokens".to_string(), json!(limit));
+        }
+    }
     let request_builder = (wire_format.apply_auth)(client.post(&wire_format.endpoint), api_key);
     let response = request_builder
         .header("content-type", "application/json")
@@ -3260,6 +3273,9 @@ fn summarize_turns_accounted(
         turns,
         instruction,
         cancelled,
+        // Compaction summaries and extraction are unbounded here exactly as before; capping a
+        // compaction summary would truncate the context it exists to preserve.
+        None,
     );
     match &result {
         Ok((summary, usage)) => finish_api_invocation(
@@ -9420,6 +9436,7 @@ mod tests {
             &[json!({ "role": "user", "content": "hello" })],
             SUMMARIZATION_INSTRUCTION,
             &cancelled,
+            None,
         );
 
         let request = server.join().expect("fixture server");
@@ -9440,8 +9457,56 @@ mod tests {
             &[],
             SUMMARIZATION_INSTRUCTION,
             &not_cancelled(),
+            None,
         );
         assert_eq!(summary, Ok(None));
+    }
+
+    #[test]
+    fn an_output_cap_reaches_the_request_only_when_the_caller_asks_for_one() {
+        // Compaction summaries and extraction pass no cap, and must keep whatever the provider
+        // builder decided: capping a compaction summary truncates the context it exists to
+        // preserve. Only a caller that opts in overrides it.
+        let uncapped_body = {
+            let (address, server) = http_fixture("200 OK", sse_body(&["[DONE]"]));
+            let wire_format = openai_compatible_wire_format(&address);
+            let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+            let _ = summarize_turns(
+                &wire_format,
+                &client,
+                "sk-test",
+                "deepseek-chat",
+                None,
+                &[json!({ "role": "user", "content": "hello" })],
+                SUMMARIZATION_INSTRUCTION,
+                &not_cancelled(),
+                None,
+            );
+            request_json_body(&server.join().expect("fixture server"))
+        };
+        assert!(uncapped_body.get("max_tokens").is_none());
+
+        let capped_body = {
+            let (address, server) = http_fixture("200 OK", sse_body(&["[DONE]"]));
+            let wire_format = openai_compatible_wire_format(&address);
+            let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+            let _ = summarize_turns(
+                &wire_format,
+                &client,
+                "sk-test",
+                "deepseek-chat",
+                None,
+                &[json!({ "role": "user", "content": "hello" })],
+                SUMMARIZATION_INSTRUCTION,
+                &not_cancelled(),
+                Some(256),
+            );
+            request_json_body(&server.join().expect("fixture server"))
+        };
+        assert_eq!(
+            capped_body.get("max_tokens").and_then(Value::as_u64),
+            Some(256)
+        );
     }
 
     #[test]
@@ -9460,6 +9525,7 @@ mod tests {
             &[json!({ "role": "user", "content": "hello" })],
             SUMMARIZATION_INSTRUCTION,
             &cancelled,
+            None,
         );
 
         server.join().expect("fixture server");
