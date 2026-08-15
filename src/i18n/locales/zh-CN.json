@@ -3219,7 +3219,7 @@
   "plans.taskStatus.blocked": "已阻塞",
   "plans.taskStatus.skipped": "已跳过",
   "layout.activityBar.todoBoard": "任务看板",
-  "layout.activityBar.goals": "目标",
+  "layout.activityBar.goals": "目标中心",
   "todoBoard.title": "任务看板",
   "todoBoard.subtitle": "在一个地方组织人工待办与 Agent 工作。",
   "todoBoard.new": "新建工作项",

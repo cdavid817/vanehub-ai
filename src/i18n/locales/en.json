@@ -3219,7 +3219,7 @@
   "plans.taskStatus.blocked": "Blocked",
   "plans.taskStatus.skipped": "Skipped",
   "layout.activityBar.todoBoard": "Todo Board",
-  "layout.activityBar.goals": "Goals",
+  "layout.activityBar.goals": "Goal Center",
   "todoBoard.title": "Todo Board",
   "todoBoard.subtitle": "Organize manual work and Agent activity in one place.",
   "todoBoard.new": "New work item",

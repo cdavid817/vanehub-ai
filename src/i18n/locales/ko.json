@@ -3219,7 +3219,7 @@
   "plans.taskStatus.blocked": "차단됨",
   "plans.taskStatus.skipped": "건너뜀",
   "layout.activityBar.todoBoard": "Todo 보드",
-  "layout.activityBar.goals": "목표",
+  "layout.activityBar.goals": "목표 센터",
   "todoBoard.title": "Todo 보드",
   "todoBoard.subtitle": "수동 할 일과 Agent 작업을 한곳에서 정리합니다.",
   "todoBoard.new": "작업 항목 추가",

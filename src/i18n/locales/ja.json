@@ -3219,7 +3219,7 @@
   "plans.taskStatus.blocked": "ブロック中",
   "plans.taskStatus.skipped": "スキップ",
   "layout.activityBar.todoBoard": "Todo ボード",
-  "layout.activityBar.goals": "ゴール",
+  "layout.activityBar.goals": "ゴールセンター",
   "todoBoard.title": "Todo ボード",
   "todoBoard.subtitle": "手動タスクと Agent の作業を一か所で整理します。",
   "todoBoard.new": "作業項目を追加",

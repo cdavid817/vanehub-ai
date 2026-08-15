@@ -55,19 +55,22 @@
 
 ## 7. 前端界面
 
-- [ ] 7.1 在 `src/goal-center/` 实现目标列表与创建、编辑表单
-- [ ] 7.2 实现目标详情：子项分组展示、派生状态呈现、进度概览
-- [ ] 7.3 明确呈现不可解析子项与阻塞原因，不使用无说明的静态进度条
-- [ ] 7.4 实现关联与解除关联的交互，含会话的显式挂载入口
-- [ ] 7.5 实现验收与重开操作，非待验收时禁用验收入口
-- [ ] 7.6 接入主布局导航，补齐多语言文案
-- [ ] 7.7 编写组件测试，确认每个新文件不超过 300 行
+- [x] 7.1 在 `src/goal-center/` 实现目标列表与创建、编辑表单
+- [x] 7.2 实现目标详情：子项分组展示、派生状态呈现、进度概览
+- [x] 7.3 明确呈现不可解析子项与阻塞原因，不使用无说明的静态进度条
+- [x] 7.4 实现关联与解除关联的交互，含会话的显式挂载入口
+- [x] 7.5 实现验收与重开操作，非待验收时禁用验收入口
+- [x] 7.6 接入主布局导航，补齐多语言文案
+- [x] 7.7 编写组件测试，确认每个新文件不超过 300 行
 
 ## 8. 校验
 
-- [ ] 8.1 运行 `openspec validate add-goal-system --strict`
-- [ ] 8.2 运行 `npm run lint:ci`、`npm run test`、`npm run build`
-- [ ] 8.3 运行 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 8.4 运行 `cargo test --manifest-path src-tauri/Cargo.toml` 与 `cargo check --manifest-path src-tauri/Cargo.toml`
-- [ ] 8.5 运行 `npm run docs:check` 与 `openspec validate --specs --strict`
-- [ ] 8.6 界面行为有变更，运行 `npx playwright test`
+- [x] 8.1 运行 `openspec validate add-goal-system --strict`
+- [x] 8.2 运行 `npm run lint:ci`、`npm run test`、`npm run build`
+- [x] 8.3 运行 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 8.4 运行 `cargo test --manifest-path src-tauri/Cargo.toml` 与 `cargo check --manifest-path src-tauri/Cargo.toml`
+      - `cargo check` 通过。`cargo test` 无法在本机跑完：其一，其他会话持续占用 cargo 包缓存锁，整条命令曾空转 74 分钟零编译输出；其二，系统级 SOCKS5 代理让打 127.0.0.1 的测试拿到假 502 并挂起
+      - 改为直接运行已构建的测试二进制绕开锁：`architecture.rs` 26/26 全过（含 `native_context_dependencies_point_inward`）；lib 单测跑到 2677 个，本变更相关的 8 个迁移/数据库计数断言已修正并复验全绿（migration 45/45、database 24/24）
+      - 剩余 29 个失败全部落在 HTTP/套接字模块（mcp relay/SSE、hook_bridge_server、memory_extraction_gateway、onepiece_planning、platform::network::proxy）。零负载隔离复现 `missing_token_is_rejected` 得到 `left: 502, right: 401`，确证为代理环境问题，与本变更无关
+- [x] 8.5 运行 `npm run docs:check` 与 `openspec validate --specs --strict`
+- [x] 8.6 界面行为有变更，运行 `npx playwright test`

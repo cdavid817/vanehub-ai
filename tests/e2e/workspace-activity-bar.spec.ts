@@ -227,10 +227,12 @@ test.describe("workspace activity bar", () => {
     await expect(page.getByRole("button", { name: "Plan 执行" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "循环工程" })).toBeFocused();
-    // Scheduled tasks opens a dialog, so it now follows the four destination entries in its
+    // Scheduled tasks opens a dialog, so it now follows the five destination entries in its
     // own group rather than sitting between them.
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "任务看板" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "目标中心" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();
     await scheduledTasks.click();
