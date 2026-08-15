@@ -15,7 +15,7 @@ const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
 /// 桌面端Tauri应用启动入口（当前包内可见）
 pub(crate) fn run() {
     // 1. 构建Tauri应用实例，配置各类插件、生命周期、事件、命令
-    let result = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // 注册弹窗对话框插件（文件选择、提示框、确认框等）
         .plugin(tauri_plugin_dialog::init())
         // External provider/help links are opened by the operating system browser.
@@ -24,7 +24,12 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ))
+        ));
+    #[cfg(feature = "desktop-e2e")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+    let result = builder
         // 应用初始化完成后的setup回调函数
         .setup(setup)
         // 主窗口事件统一处理器（窗口打开/关闭/缩放/焦点等事件）
@@ -38,6 +43,10 @@ pub(crate) fn run() {
     match result {
         // 应用构建成功，启动事件循环监听运行事件
         Ok(app) => app.run(|app, event| {
+            #[cfg(feature = "desktop-e2e")]
+            if matches!(event, tauri::RunEvent::Exit) {
+                let _ = write_desktop_e2e_process_marker("exited");
+            }
             // 判断事件为程序退出事件，且存在遥测生命周期管理实例
             if matches!(event, tauri::RunEvent::Exit)
                 && app
@@ -77,6 +86,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
     let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    #[cfg(feature = "desktop-e2e")]
+    write_desktop_e2e_process_marker("running").map_err(boxed_error)?;
     let evidence_logging: Arc<dyn DiagnosticLogPort> = Arc::new(UnifiedLoggingAdapter::active(
         fallback_log_directory.clone(),
     ));
@@ -360,6 +371,27 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         }
     });
     Ok(())
+}
+
+#[cfg(feature = "desktop-e2e")]
+fn write_desktop_e2e_process_marker(state: &str) -> std::io::Result<()> {
+    use std::io::{Error as IoError, ErrorKind};
+
+    let data_dir = std::env::var_os("VANEHUB_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidInput, "VANEHUB_APP_DATA_DIR is required"))?;
+    let run_id = std::env::var("VANEHUB_TEST_RUN_ID")
+        .map_err(|_| IoError::new(ErrorKind::InvalidInput, "VANEHUB_TEST_RUN_ID is required"))?;
+    let marker = serde_json::json!({
+        "pid": std::process::id(),
+        "runId": run_id,
+        "state": state,
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
+    });
+    std::fs::write(
+        data_dir.join("desktop-e2e-process.json"),
+        serde_json::to_vec_pretty(&marker).map_err(IoError::other)?,
+    )
 }
 
 struct CommunicationsCompletionHook {
