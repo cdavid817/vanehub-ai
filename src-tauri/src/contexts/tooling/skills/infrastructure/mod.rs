@@ -1,4 +1,5 @@
 mod configuration_repository;
+mod configuration_resolution;
 mod configuration_schema;
 mod effective_cache;
 mod effective_catalog;
@@ -20,6 +21,11 @@ mod recovery_tests;
 pub(crate) use configuration_repository::{
     SkillConfigCleanupState, SkillConfigurationSave, SkillConfigurationWrite,
     SqliteSkillConfigurationRepository, StoredSkillConfiguration,
+};
+#[allow(unused_imports)]
+pub(crate) use configuration_resolution::{
+    require_canonical_workspace, resolve_from_records, resolve_stored_configuration,
+    ResolvedSkillConfiguration, ScopeConfigurationState,
 };
 pub(crate) use configuration_schema::apply_skill_configuration_schema;
 pub(crate) use effective_cache::{

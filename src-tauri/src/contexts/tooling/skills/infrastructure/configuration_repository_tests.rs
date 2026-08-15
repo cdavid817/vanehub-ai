@@ -420,3 +420,53 @@ fn a_database_created_before_this_feature_gains_the_records_on_open() {
     assert_eq!(record.skill_id, "never-seen-skill");
     assert_eq!(record.stored_revision, SkillConfigRevision::new(1));
 }
+
+#[test]
+fn racing_writers_produce_one_winner_and_never_a_blended_record() {
+    let (_directory, repository) = repository();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+
+    let attempts = (0..8)
+        .map(|index| {
+            let repository = repository.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                repository.save(&save_request(
+                    None,
+                    vec![("endpoint".to_string(), text(&format!("writer-{index}")))],
+                ))
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|handle| handle.join().expect("writer thread"))
+        .collect::<Vec<_>>();
+
+    let winners = attempts
+        .iter()
+        .filter(|attempt| {
+            matches!(
+                attempt.as_ref().expect("save result"),
+                SkillConfigurationWrite::Saved(_)
+            )
+        })
+        .count();
+    assert_eq!(winners, 1, "expected exactly one writer to win the race");
+
+    let record = repository
+        .load("configured-skill", SkillConfigScope::User, "")
+        .expect("load")
+        .expect("record");
+    assert_eq!(record.stored_revision, SkillConfigRevision::new(1));
+    // Exactly one writer's payload, not a mix of several.
+    assert_eq!(record.values.len(), 1);
+    let stored = match &record.values[0].1 {
+        SkillConfigValue::Text(value) => value.clone(),
+        other => panic!("unexpected stored value {other:?}"),
+    };
+    assert!(
+        (0..8).any(|index| stored == format!("writer-{index}")),
+        "stored value came from no single writer: {stored}"
+    );
+}

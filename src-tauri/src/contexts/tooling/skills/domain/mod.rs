@@ -54,8 +54,8 @@ pub(crate) use classification::{
 };
 #[allow(unused_imports)]
 pub(crate) use config_schema::{
-    parse_config_schema, SkillConfigField, SkillConfigSchema, SkillConfigSchemaError,
-    SkillConfigValue,
+    parse_config_schema, validate_value, SkillConfigField, SkillConfigSchema,
+    SkillConfigSchemaError, SkillConfigValue,
 };
 #[allow(unused_imports)]
 pub(crate) use config_state::{
