@@ -53,11 +53,17 @@ async function visit(page: Page, path: string) {
  * Feature surfaces are lazily loaded, so the shell renders long before its content.
  * Without this wait a capture silently freezes on "Loading feature..." — the surrounding
  * chrome is visible either way, so asserting on a label alone proves nothing.
+ *
+ * Absence alone is not enough: the label is also absent in the render before the lazy
+ * boundary mounts its fallback, so this resolves immediately and the capture races the
+ * chunk. Every caller must therefore also assert on something only the loaded surface
+ * renders — `loaded` is that assertion, and passing it is not optional.
  */
-async function waitForFeature(shell: Locator) {
+async function waitForFeature(shell: Locator, loaded: Locator) {
   await expect(shell.getByText(/正在加载功能|Loading feature/)).toHaveCount(0, {
     timeout: 15_000,
   });
+  await expect(loaded).toBeVisible({ timeout: 15_000 });
 }
 
 /** Opens a settings section by route and returns the settings screen. */
@@ -65,9 +71,8 @@ async function openSettings(page: Page, section: string, heading: string): Promi
   await visit(page, `/settings?section=${section}`);
   const shell = page.locator("main").first();
   await expect(shell).toBeVisible();
-  await waitForFeature(shell);
   // The top bar repeats the section name as an h1, so match the content heading by level.
-  await expect(shell.getByRole("heading", { level: 2, name: heading })).toBeVisible();
+  await waitForFeature(shell, shell.getByRole("heading", { level: 2, name: heading }));
   return shell;
 }
 
@@ -153,7 +158,9 @@ async function openSessionTab(page: Page, label: string) {
     "aria-selected",
     "true",
   );
-  await waitForFeature(shell);
+  // Every mounted tab keeps a panel in the DOM and hides the inactive ones, so match the panel
+  // by name: `aria-labelledby` points each one at its own tab, making the label unambiguous.
+  await waitForFeature(shell, shell.getByRole("tabpanel", { name: label }));
 }
 
 /**
@@ -235,7 +242,10 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     await page.getByRole("button", { name: text(locale, "设置", "Settings") }).click();
     const shell = page.locator("main").first();
     await shell.getByRole("button", { name: text(locale, "IM 能力", "Instant messaging") }).click();
-    await waitForFeature(shell);
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 2, name: text(locale, "IM 能力", "Instant messaging") }),
+    );
 
     // Every settings page stays mounted and only the active one is visible, so every
     // control here must be filtered to what is actually on screen.
@@ -301,7 +311,12 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
       .click();
     const shell = page.locator("main").first();
     await expect(shell).toBeVisible();
-    await waitForFeature(shell);
+    // The Loop Center's own h1, distinct from the top bar's product name. It is structural
+    // rather than data-dependent, so it holds whether or not any definitions exist.
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 1, name: text(locale, "循环工程", "Loops") }),
+    );
     return shell;
   },
 };
