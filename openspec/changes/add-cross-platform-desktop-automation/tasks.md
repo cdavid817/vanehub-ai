@@ -48,7 +48,7 @@
 - [x] 6.2 Install the required Linux WebView and virtual-display prerequisites and run the same `npm run test:desktop` contract used on developer machines.
 - [x] 6.3 Upload platform-labelled run summaries, screenshots, driver diagnostics, process state, and redacted native logs when a matrix job fails or is blocked.
 - [x] 6.4 Ensure successful jobs do not upload temporary databases or application-data directories and that one platform failure does not misreport or cancel other platform evidence.
-- [ ] 6.5 Update CI documentation and permanent agent guidance only after the desktop smoke command and all three matrix variants have demonstrated stable behavior.
+- [x] 6.5 Update CI documentation and permanent agent guidance only after the desktop smoke command and all three matrix variants have demonstrated stable behavior.
 
 ## 7. Implementation Verification
 
@@ -58,4 +58,6 @@
 - [x] 7.4 Run `npm run lint:ci`, `npm run test`, `npm run build`, `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`.
 - [x] 7.5 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`, and `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [x] 7.6 Run `openspec validate add-cross-platform-desktop-automation --strict` and `openspec validate --specs --strict`.
-- [ ] 7.7 Review CI results and report Windows, macOS, and Linux independently as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` without inferring unexecuted outcomes.
+- [x] 7.7 Review CI results and report Windows, macOS, and Linux independently as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` without inferring unexecuted outcomes.
+
+  Verification record: GitHub Actions run `31863928804` reported Windows `PASSED`, macOS `PASSED`, and Linux `PASSED` independently.

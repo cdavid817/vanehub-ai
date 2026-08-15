@@ -33,6 +33,8 @@ npm run test:desktop
 
 `test:desktop` builds and launches an instrumented native Tauri artifact for the current operating system, waits for the real React WebView, invokes the real Rust-backed `get_settings` command, performs a stable navigation interaction, and requests a clean application shutdown. It sets an isolated temporary `VANEHUB_APP_DATA_DIR`; never point that variable at normal user data.
 
-The instrumented artifact enables test-only WebDriver plugins and permissions through the `desktop-e2e` Cargo feature and `src-tauri/tauri.desktop-e2e.conf.json`. Normal packaging commands do not include that feature. Failure evidence is written beneath `test-results/desktop/<run-id>/` from screenshots, driver output, process state, and the existing redacted unified native logs. Local results apply only to the current platform; CI validates Windows, macOS, and Linux independently.
+The instrumented artifact enables test-only WebDriver plugins and permissions through the `desktop-e2e` Cargo feature and `src-tauri/tauri.desktop-e2e.conf.json`. Normal packaging commands do not include that feature. Failure evidence is written beneath `test-results/desktop/<run-id>/` from screenshots, driver output, process state, and the existing redacted unified native logs.
+
+Local results apply only to the current platform. CI runs `Desktop Smoke` independently on native Windows, macOS, and Linux runners with matrix fail-fast disabled. Review and report every platform separately as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`; never infer one platform from another. Failed or blocked jobs upload a platform-labelled evidence artifact, while successful jobs do not retain temporary application data.
 
 Packaging targets Windows, macOS, and Linux through Tauri. Signing credentials belong in protected release environments, never in repository configuration or screenshots. See the checked-in [release signing guide](../reference/release-signing.md).
