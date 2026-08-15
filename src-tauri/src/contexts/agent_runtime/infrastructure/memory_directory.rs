@@ -832,13 +832,20 @@ mod tests {
         // a memory the model just corrected behind a pile of stale ones it never touched, and the
         // injection budget would spend itself on the stale ones first.
         let fixture = Fixture::new("memory store recency after correction");
+        // Writes land within one filesystem timestamp tick often enough that without a gap the
+        // name tie-break decides the order instead of the modification time, which is the very
+        // thing under test. The gap makes the ordering deterministic rather than load-dependent.
+        let distinct_tick = || std::thread::sleep(std::time::Duration::from_millis(50));
+
         fixture.save("first", "First", "Original first.");
+        distinct_tick();
         fixture.save("second", "Second", "Original second.");
         assert_eq!(
             AgentMemoryPort::list_all(&fixture.store).expect("list")[0].name,
             "second"
         );
 
+        distinct_tick();
         fixture.save("first", "First", "Corrected first.");
 
         let listed = AgentMemoryPort::list_all(&fixture.store).expect("list");

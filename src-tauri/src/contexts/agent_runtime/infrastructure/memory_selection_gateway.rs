@@ -10,7 +10,6 @@ use crate::platform::network::blocking_http_client;
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::time::SystemTime;
 
 /// OnePiece's own stable agent id — the only credential this gateway ever resolves, mirroring the
@@ -23,18 +22,19 @@ const ONEPIECE_AGENT_ID: &str = "onepiece";
 /// Reuses OnePiece's configured model rather than introducing a cheaper utility tier: VaneHub has
 /// no such tier, and adding one means a provider-config field, a settings surface, and a Web
 /// adapter change — a separate concern from the injection path this belongs to.
-#[derive(Clone)]
-pub(crate) struct RuntimeAgentMemorySelectionAdapter {
-    credentials: Arc<dyn ApiCredentialPort>,
-    config: Arc<dyn ApiAgentGateway>,
+/// Borrows its dependencies and is built per generation from ports the generation path already
+/// holds — the same shape as `wire_format_for(&provider_config)` beside it. Threading a fourth
+/// port down from the composition root would have added a parameter to four nested signatures for
+/// something whose inputs are already in scope exactly where it is used.
+pub(crate) struct RuntimeAgentMemorySelectionAdapter<'a> {
+    credentials: &'a dyn ApiCredentialPort,
+    config: &'a dyn ApiAgentGateway,
 }
 
-impl RuntimeAgentMemorySelectionAdapter {
-    // Constructed by task 3.1, where the composition root wires the selection into the generation.
-    #[allow(dead_code)]
+impl<'a> RuntimeAgentMemorySelectionAdapter<'a> {
     pub(crate) fn new(
-        credentials: Arc<dyn ApiCredentialPort>,
-        config: Arc<dyn ApiAgentGateway>,
+        credentials: &'a dyn ApiCredentialPort,
+        config: &'a dyn ApiAgentGateway,
     ) -> Self {
         Self {
             credentials,
@@ -43,7 +43,7 @@ impl RuntimeAgentMemorySelectionAdapter {
     }
 }
 
-impl AgentMemorySelectionPort for RuntimeAgentMemorySelectionAdapter {
+impl AgentMemorySelectionPort for RuntimeAgentMemorySelectionAdapter<'_> {
     fn select(
         &self,
         query: &str,

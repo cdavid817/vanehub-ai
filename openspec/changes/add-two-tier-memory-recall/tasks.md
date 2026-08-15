@@ -19,11 +19,11 @@
 
 ## 3. Generation-scoped assembly
 
-- [ ] 3.1 Run selection once at generation start, not per provider round-trip
-- [ ] 3.2 Place the selected bodies in the system prompt after the index, with Skills and the index ahead of them, so the volatile section sits at the tail of the cached prefix
-- [ ] 3.3 Assert the system prompt is byte-identical across every round-trip of one generation, including after compaction triggers
-- [ ] 3.4 Degrade to index-only injection on any selector error, timeout, or unusable result, without failing the generation
-- [ ] 3.5 Skip the selector call entirely when the memory enablement toggle is off
+- [x] 3.1 Run selection once at generation start, not per provider round-trip
+- [x] 3.2 Place the selected bodies in the system prompt after the index, with Skills and the index ahead of them, so the volatile section sits at the tail of the cached prefix
+- [x] 3.3 Assert the system prompt is byte-identical across every round-trip of one generation, including after compaction triggers
+- [x] 3.4 Degrade to index-only injection on any selector error, timeout, or unusable result, without failing the generation
+- [x] 3.5 Skip the selector call entirely when the memory enablement toggle is off
 
 ## 4. Already-surfaced exclusion
 
