@@ -81,6 +81,7 @@ impl OnePiecePlanningPort for RuntimeOnePiecePlanningAdapter {
             &[json!({ "role": "user", "content": "Create the Plan draft." })],
             PLANNER_COMPLETION_INSTRUCTION,
             &cancelled,
+            None,
         )
         .map_err(AgentRuntimeApplicationError::Generation)?
         .ok_or_else(|| {

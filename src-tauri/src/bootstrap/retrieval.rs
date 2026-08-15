@@ -14,7 +14,7 @@ use crate::contexts::agent_runtime::application::{
     AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentMemoryPort,
     AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
 };
-use crate::contexts::agent_runtime::infrastructure::SqliteAgentMemoryRepository;
+use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::retrieval::api::{
@@ -116,7 +116,10 @@ pub(crate) fn assemble_retrieval(
         SqliteRetrievalConfigurationRepository::new(database.clone()),
     );
     let source: Arc<dyn IndexSourcePort> = Arc::new(AgentMemoryIndexSource {
-        memories: SqliteAgentMemoryRepository::new(database.clone()),
+        memories: database
+            .db_path
+            .parent()
+            .and_then(|data_root| FileAgentMemoryStore::new(data_root).ok()),
     });
     let endpoint: Arc<dyn EmbeddingEndpointPort> =
         Arc::new(AgentRuntimeEmbeddingEndpoint { agent_runtime });
@@ -869,23 +872,41 @@ fn error_category(error: &RetrievalError) -> &'static str {
 
 /// `retrieval` 的索引源。它只知道"给我全部源记录"，不知道 `agent_memories` 表和
 /// `AgentMemory` 类型的存在——那些细节到本文件为止。
+/// `None` when the memory directory could not be opened at startup.
+///
+/// Both methods then report storage unavailability rather than returning an empty result. An empty
+/// snapshot is not a safe stand-in: reconciliation treats anything missing from it as deleted, so
+/// a failed store would silently wipe every indexed memory instead of leaving the index intact
+/// until the directory is reachable again.
 struct AgentMemoryIndexSource {
-    memories: SqliteAgentMemoryRepository,
+    memories: Option<FileAgentMemoryStore>,
+}
+
+impl AgentMemoryIndexSource {
+    fn store(&self) -> Result<&FileAgentMemoryStore, RetrievalError> {
+        self.memories
+            .as_ref()
+            .ok_or_else(|| RetrievalError::Storage("Memory directory is unavailable.".to_string()))
+    }
 }
 
 impl IndexSourcePort for AgentMemoryIndexSource {
+    /// The directory scan is the authoritative snapshot, so a memory file added or removed outside
+    /// the application converges on the next reconcile with no user action.
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
         let memories = self
-            .memories
+            .store()?
             .list_all()
             .map_err(|error| RetrievalError::Storage(error.to_string()))?;
         Ok(memories.into_iter().map(index_source_record).collect())
     }
 
+    /// Hits resolve by reading the memory file. One whose file is gone is simply absent, which is
+    /// what stops a deleted memory being surfaced from a surviving index row.
     fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
         let memories = self
-            .memories
-            .list_by_ids(source_ids)
+            .store()?
+            .list_by_paths(source_ids)
             .map_err(|error| RetrievalError::Storage(error.to_string()))?;
         Ok(memories.into_iter().map(index_source_record).collect())
     }

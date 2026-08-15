@@ -17,6 +17,7 @@ pub(crate) enum UsagePurpose {
     ToolContinuation,
     ContextCompaction,
     MemoryExtraction,
+    SubagentDelegation,
     Retry,
     TerminalInterval,
 }

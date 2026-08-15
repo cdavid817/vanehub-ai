@@ -16,6 +16,16 @@ pub(crate) struct RenderedOcrPage {
     pub(crate) size_bytes: u64,
 }
 
+/// What a call produced: the engine's result, plus the page it rasterized when it rasterized
+/// exactly one (`add-ocr-rendered-page-return` D1/D3). The page is carried out rather than left in
+/// the sandbox so the caller can retain it before cleanup -- the bounds `render_pdf` checked stay
+/// attached to it, which listing the render directory afterwards would throw away.
+#[derive(Debug, Clone)]
+pub(crate) struct OcrExecutionOutcome {
+    pub(crate) result: PaddleOcrEngineResult,
+    pub(crate) rendered_page: Option<RenderedOcrPage>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OcrExecutionError {
     InvalidRequest,
@@ -74,11 +84,11 @@ impl ManagedOcrExecutionService {
         inference_limits: PaddleOcrInferenceLimits,
         render_directory: &Path,
         cancelled: Arc<AtomicBool>,
-    ) -> Result<PaddleOcrEngineResult, OcrExecutionError> {
+    ) -> Result<OcrExecutionOutcome, OcrExecutionError> {
         if cancelled.load(Ordering::Acquire) {
             return Err(OcrExecutionError::Cancelled);
         }
-        let inputs = if artifact.media_type == "application/pdf" {
+        let rendered = if artifact.media_type == "application/pdf" {
             self.render_pdf(
                 artifact,
                 admission_limits,
@@ -86,12 +96,32 @@ impl ManagedOcrExecutionService {
                 cancelled.clone(),
             )?
         } else {
+            // An image source is rasterized by nobody: it is already the page.
+            Vec::new()
+        };
+        let inputs = if rendered.is_empty() {
             vec![PaddleOcrInferenceInput {
                 staged_path: artifact.staged_path.clone(),
                 source_sha256: artifact.content_hash.clone(),
                 kind: PaddleOcrInputKind::Image,
                 page_number: None,
             }]
+        } else {
+            rendered
+                .iter()
+                .map(|page| PaddleOcrInferenceInput {
+                    staged_path: page.path.clone(),
+                    source_sha256: artifact.content_hash.clone(),
+                    kind: PaddleOcrInputKind::RenderedPdfPage,
+                    page_number: Some(page.page_number),
+                })
+                .collect()
+        };
+        // Only a lone page can be returned: the image channel carries one identifier, and choosing
+        // among several would give the model a page it cannot identify (D3).
+        let rendered_page = match rendered.len() {
+            1 => rendered.into_iter().next(),
+            _ => None,
         };
         let request = PaddleOcrInferenceRequest {
             protocol_version: PADDLEOCR_INFERENCE_PROTOCOL_VERSION.to_owned(),
@@ -105,7 +135,10 @@ impl ManagedOcrExecutionService {
             .map_err(|_| OcrExecutionError::InvalidRequest)?;
         let result = self.worker.execute(&request, cancelled)?;
         validate_result(&result, inference_limits)?;
-        Ok(result)
+        Ok(OcrExecutionOutcome {
+            result,
+            rendered_page,
+        })
     }
 
     fn render_pdf(
@@ -114,7 +147,7 @@ impl ManagedOcrExecutionService {
         limits: OcrAdmissionLimits,
         render_directory: &Path,
         cancelled: Arc<AtomicBool>,
-    ) -> Result<Vec<PaddleOcrInferenceInput>, OcrExecutionError> {
+    ) -> Result<Vec<RenderedOcrPage>, OcrExecutionError> {
         let page_count = self
             .renderer
             .page_count(&artifact.staged_path, cancelled.clone())?;
@@ -149,12 +182,7 @@ impl ManagedOcrExecutionService {
                 {
                     return Err(OcrExecutionError::LimitExceeded);
                 }
-                Ok(PaddleOcrInferenceInput {
-                    staged_path: page.path,
-                    source_sha256: artifact.content_hash.clone(),
-                    kind: PaddleOcrInputKind::RenderedPdfPage,
-                    page_number: Some(page.page_number),
-                })
+                Ok(page)
             })
             .collect()
     }
@@ -259,5 +287,73 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
         assert!(result.is_ok());
+    }
+
+    /// Accepts whatever it is given, so the page-selection tests below are not also asserting the
+    /// worker contract the test above pins.
+    struct AnyWorker;
+    impl PaddleOcrWorkerPort for AnyWorker {
+        fn execute(
+            &self,
+            _: &PaddleOcrInferenceRequest,
+            _: Arc<AtomicBool>,
+        ) -> Result<PaddleOcrEngineResult, OcrExecutionError> {
+            Ok(PaddleOcrEngineResult {
+                protocol_version: PADDLEOCR_INFERENCE_PROTOCOL_VERSION.to_owned(),
+                engine_name: "paddleocr".to_owned(),
+                engine_version: "3.2.0".to_owned(),
+                blocks: Vec::new(),
+                warnings: Vec::new(),
+                truncated: false,
+            })
+        }
+    }
+
+    fn outcome_for(media_type: &str, pages: Vec<u32>) -> OcrExecutionOutcome {
+        let root = tempfile::tempdir().expect("root");
+        let artifact = AdmittedOcrArtifact {
+            artifact_id: "artifact".to_owned(),
+            content_hash: "a".repeat(64),
+            media_type: media_type.to_owned(),
+            staged_path: root.path().join("source"),
+            pages,
+        };
+        ManagedOcrExecutionService::new(Arc::new(Renderer), Arc::new(AnyWorker))
+            .execute(
+                "operation",
+                &artifact,
+                vec!["en".to_owned()],
+                OcrAdmissionLimits::HARD_CEILING,
+                PaddleOcrInferenceLimits::HARD_CEILING,
+                root.path(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .expect("execute")
+    }
+
+    /// A lone rasterized page comes back out so the caller can retain it before the sandbox is
+    /// cleaned up. Several pages do not: the image channel names one Artifact, and picking among
+    /// them would hand the model a page it cannot identify.
+    #[test]
+    fn only_a_lone_rasterized_page_is_returned() {
+        let single = outcome_for("application/pdf", vec![2]);
+        let page = single.rendered_page.expect("a single page is returned");
+        assert_eq!(page.page_number, 2);
+        assert!(page.path.ends_with("page-2.png"), "{page:?}");
+
+        let several = outcome_for("application/pdf", vec![1, 2]);
+        assert!(several.rendered_page.is_none());
+
+        // Both still ran OCR over every page requested.
+        assert!(!single.result.truncated);
+        assert!(!several.result.truncated);
+    }
+
+    /// An image source is rasterized by nobody, so there is no rendered page to return -- the
+    /// source already is the page, and the adapter declares it directly.
+    #[test]
+    fn an_image_source_returns_no_rendered_page() {
+        let outcome = outcome_for("image/png", Vec::new());
+        assert!(outcome.rendered_page.is_none());
     }
 }

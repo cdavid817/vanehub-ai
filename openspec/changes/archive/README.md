@@ -155,6 +155,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-13 | complete-onepiece-plan-agent-loop | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management | `openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/` |
 | 2026-08-13 | establish-fine-grained-token-accounting | agent-terminal-runtime, api-agent-runtime, onepiece-native-agent, settings-usage-statistics-ui, token-accounting, usage-statistics | `openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/` |
 | 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
+| 2026-08-14 | add-background-shell-execution | agent-tool-execution | `openspec/changes/archive/2026-08-14-add-background-shell-execution/` |
 | 2026-08-14 | add-file-reference-line-ranges | chat-experience | `openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/` |
 | 2026-08-14 | add-onepiece-context-evidence-and-controls-ui | agent-context-compaction-control, agent-context-evidence-projection, app-settings, chat-experience, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/` |
 | 2026-08-14 | add-onepiece-context-measurement-and-classification | agent-context-compaction, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-measurement-and-classification/` |
@@ -168,9 +169,20 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
 | 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
+| 2026-08-15 | add-agent-image-input | agent-image-input, agent-provider-runtime | `openspec/changes/archive/2026-08-15-add-agent-image-input/` |
+| 2026-08-15 | add-agent-notebook-tool | agent-notebook-editing | `openspec/changes/archive/2026-08-15-add-agent-notebook-tool/` |
+| 2026-08-15 | add-agent-plan-exit-request | agent-chat-configuration, agent-plan-exit-request | `openspec/changes/archive/2026-08-15-add-agent-plan-exit-request/` |
+| 2026-08-15 | add-agent-task-list | agent-task-list, agent-tool-execution | `openspec/changes/archive/2026-08-15-add-agent-task-list/` |
+| 2026-08-15 | add-agent-user-question | agent-tool-execution, agent-user-question | `openspec/changes/archive/2026-08-15-add-agent-user-question/` |
 | 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
 | 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
+| 2026-08-15 | add-goal-system | goal-management | `openspec/changes/archive/2026-08-15-add-goal-system/` |
+| 2026-08-15 | add-ocr-rendered-page-return | agent-image-input | `openspec/changes/archive/2026-08-15-add-ocr-rendered-page-return/` |
+| 2026-08-15 | add-onepiece-subagents | agent-tool-execution, onepiece-subagents | `openspec/changes/archive/2026-08-15-add-onepiece-subagents/` |
+| 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |
+| 2026-08-15 | migrate-agent-memory-to-file-store | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/` |
 | 2026-08-16 | add-cross-platform-desktop-automation | continuous-integration, desktop-runtime-verification | `openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/` |
 | 2026-08-16 | add-onepiece-slash-commands | chat-experience, slash-command-runtime | `openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/` |
+| 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

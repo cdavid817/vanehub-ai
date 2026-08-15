@@ -194,10 +194,12 @@ fn relay_http_stream(
     input: impl BufRead,
     output: &mut impl Write,
 ) -> Result<(), String> {
-    let client = reqwest::blocking::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = crate::platform::network::apply_proxy_routing(
+        reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none()),
+    )
+    .map_err(|error| error.to_string())?
+    .build()
+    .map_err(|error| error.to_string())?;
     let mut session_id: Option<String> = None;
     for line in input.lines() {
         let line = line.map_err(|error| error.to_string())?;

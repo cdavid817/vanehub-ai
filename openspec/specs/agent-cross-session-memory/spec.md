@@ -1,7 +1,7 @@
 # agent-cross-session-memory Specification
 
 ## Purpose
-TBD - created by archiving change add-agent-cross-session-memory. Update Purpose after archive.
+Defines how facts worth carrying between sessions are captured, stored, corrected, and injected, as one host-level pool shared by OnePiece and every CLI-wrapped agent. Memories are addressable files rather than opaque records, so the model can retract or correct one instead of only appending.
 ## Requirements
 ### Requirement: Memory scoping
 The system SHALL treat stored memories as a single host-level pool shared by every agent — OnePiece and all CLI-wrapped agents (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`, `antigravity-cli`) alike — rather than scoping them to the agent or workspace folder that produced them. The system SHALL record which agent and, when available, which workspace folder produced each memory as provenance metadata on the stored record, without using either as a filter for injection, listing, or management.
@@ -21,81 +21,152 @@ The system SHALL treat stored memories as a single host-level pool shared by eve
 - **THEN**, reversing the isolation this scenario previously guaranteed, the system SHALL make each agent's memories visible to every other agent's generations and management views via the shared host-level pool, exactly as if they had produced it themselves
 
 ### Requirement: Explicit memory saving
-The system SHALL provide a tool the model can call to save a memory, auto-approved without requiring user confirmation, while the memory enablement toggle is on. This tool is exposed only to OnePiece's own API tool-calling loop; CLI-wrapped agents produce memories through the separate mechanism governed by the "Automatic memory extraction for CLI-wrapped agents" requirement, since VaneHub does not control a CLI-wrapped agent's own internal tool system.
+
+The system SHALL provide a tool the model can call to save a memory, auto-approved without requiring user confirmation, while the memory enablement toggle is on. The tool SHALL accept the memory's name, description, type, and content, and SHALL write the corresponding memory file and its index entry as one operation. Its name and its position in the tool catalog SHALL be unchanged by this change, so that the declared tool prefix stays byte-identical. This tool is exposed only to OnePiece's own API tool-calling loop; CLI-wrapped agents produce memories through the separate mechanism governed by the "Automatic memory extraction for CLI-wrapped agents" requirement, since VaneHub does not control a CLI-wrapped agent's own internal tool system.
 
 #### Scenario: Model saves a memory via the tool
-- **WHEN** the model calls the memory-saving tool with content during a generation and the memory enablement toggle is on
-- **THEN** the system SHALL persist it immediately without requiring approval
+
+- **WHEN** the model calls the memory-saving tool with a name, description, type, and content during a generation and the memory enablement toggle is on
+- **THEN** the system SHALL write the memory file and its index entry immediately without requiring approval
 - **AND** it SHALL be available to future sessions for every agent, per the shared host-level pool
 
 #### Scenario: Tool is inert when memory is disabled
+
 - **WHEN** the model calls the memory-saving tool while the memory enablement toggle is off
-- **THEN** the system SHALL reject the call without persisting anything
+- **THEN** the system SHALL reject the call without writing anything
+
+#### Scenario: Saving over an existing name
+
+- **WHEN** the model saves a memory whose name matches an existing memory file
+- **THEN** the system SHALL replace that file's content rather than creating a second file for the same name
+- **AND** `MEMORY.md` SHALL continue to hold exactly one line for it
+
+#### Scenario: Tool catalog ordering is preserved
+
+- **WHEN** the tool catalog is resolved for a generation
+- **THEN** the memory-saving tool SHALL appear under its existing name at its existing position
 
 ### Requirement: Automatic memory extraction
-The system SHALL attempt best-effort automatic extraction of memorable content from turns that context compaction is about to replace, without failing the generation if extraction fails, while the memory enablement toggle is on and, when the compacted turns include a tool call, only while the tool-assisted chat extraction toggle is also on. This requirement governs only OnePiece's compaction-triggered extraction; CLI-wrapped agents have no VaneHub-visible compaction signal and are governed instead by the separate "Automatic memory extraction for CLI-wrapped agents" requirement.
+
+The system SHALL attempt best-effort automatic extraction of memorable content from turns that context compaction is about to replace, without failing the generation if extraction fails, while the memory enablement toggle is on and, when the compacted turns include a tool call, only while the tool-assisted chat extraction toggle is also on. Extraction SHALL be a single model call with no tool access, and SHALL return a bounded list of create, update, and delete actions naming the memory files they apply to. The system SHALL validate every returned action — rejecting any that names a path outside the memory directory or omits required metadata — before applying the surviving actions. This requirement governs only OnePiece's compaction-triggered extraction; CLI-wrapped agents have no VaneHub-visible compaction signal and are governed instead by the separate "Automatic memory extraction for CLI-wrapped agents" requirement.
 
 #### Scenario: Extraction runs when compaction triggers
+
 - **WHEN** context compaction triggers during a generation and both applicable toggles allow it
 - **THEN** the system SHALL make one additional call to extract memorable facts from the turns being compacted
-- **AND** any extracted facts SHALL be persisted in the same store the explicit tool writes to
+- **AND** the surviving validated actions SHALL be applied to the same memory directory the explicit tool writes to
+
+#### Scenario: Extraction updates an existing memory instead of duplicating it
+
+- **WHEN** the extraction call is given the existing memories' names and descriptions and returns an update action naming one of them
+- **THEN** the system SHALL replace that memory file's content rather than creating a second memory covering the same fact
+
+#### Scenario: Extraction returns an invalid action
+
+- **WHEN** a returned action names a path outside the memory directory, or omits a required metadata field
+- **THEN** the system SHALL reject that action, apply the remaining valid ones, and log the rejection
+- **AND** it SHALL NOT fail the generation
 
 #### Scenario: Extraction finds nothing worth remembering
-- **WHEN** the extraction call determines there is nothing worth remembering long-term
-- **THEN** the system SHALL save no memories from that extraction, without treating this as a failure
+
+- **WHEN** the extraction call returns an empty action list
+- **THEN** the system SHALL write no memories from that extraction, without treating this as a failure
 
 #### Scenario: Extraction failure does not affect compaction
+
 - **WHEN** the extraction call itself fails
 - **THEN** the system SHALL log the failure and continue the generation and its compaction unaffected
 
 #### Scenario: Extraction skipped when memory is disabled
+
 - **WHEN** context compaction triggers while the memory enablement toggle is off
 - **THEN** the system SHALL NOT make an extraction call
 
 #### Scenario: Extraction skipped for a tool-assisted session when the sub-toggle is off
+
 - **WHEN** context compaction triggers, the memory enablement toggle is on, the tool-assisted chat extraction toggle is off, and the compacted turns include a tool call
 - **THEN** the system SHALL NOT make an extraction call for that compaction
 
 ### Requirement: Memory injection into the system prompt
-The system SHALL inject the shared host-level memory pool into OnePiece's generation requests as part of the system prompt while the memory enablement toggle is on, bounded by a character budget, and SHALL never write memory content into the turns list context compaction manipulates. This requirement governs only OnePiece's system-prompt injection; CLI-wrapped agents are governed instead by the separate "Memory injection into CLI prompts" requirement.
+
+The system SHALL inject the memory index into OnePiece's generation requests as part of the system prompt while the memory enablement toggle is on, and SHALL never write memory content into the turns list context compaction manipulates. The always-present surface SHALL be the index — one pointer line per memory — rather than memory bodies; bodies reach the request only through the separate "Relevance-selected memory bodies" requirement. Index injection SHALL be bounded by both a line cap and a byte cap, since a small number of overlong lines defeats a line cap alone, and when either cap truncates the index the injected text SHALL say so explicitly rather than silently presenting a partial index as complete. Index injection SHALL NOT require any embedding or retrieval configuration. This requirement governs only OnePiece's system-prompt injection; CLI-wrapped agents are governed instead by the separate "Memory injection into CLI prompts" requirement.
 
 #### Scenario: Memories injected alongside Skill content
+
 - **WHEN** a generation runs for an agent with both bound Skills and stored memories in scope, and the memory enablement toggle is on
 - **THEN** the system prompt SHALL include both, as distinct sections
 
+#### Scenario: The index is what is always present
+
+- **WHEN** a generation runs with the memory enablement toggle on and stored memories present
+- **THEN** the system prompt SHALL contain one index line per memory
+- **AND** it SHALL NOT contain memory bodies except those the relevance selection contributed for that turn
+
 #### Scenario: Injected memories are bounded
-- **WHEN** the shared memory pool exceeds the injection character budget
-- **THEN** the system SHALL include memories by recency up to the budget rather than including all of them unbounded
+
+- **WHEN** the memory pool is large enough that its index would exceed a cap
+- **THEN** the system SHALL bound what it injects rather than including the index unbounded
+- **AND**, replacing this scenario's previous single character budget over memory bodies, the bound SHALL be the paired line and byte caps applied to the index
+
+#### Scenario: A corrected memory becomes the most recent
+
+- **WHEN** a memory that was written long ago is updated during a session
+- **THEN** the next injection SHALL order its index entry ahead of memories that have not been modified since
+- **AND** truncation SHALL therefore drop the least recently modified entries first
+
+#### Scenario: Index exceeds the line cap
+
+- **WHEN** the index holds more lines than the line cap allows
+- **THEN** the system SHALL inject the index up to the cap
+- **AND** the injected text SHALL state that the index was truncated and why
+
+#### Scenario: Index exceeds the byte cap within the line cap
+
+- **WHEN** the index is within the line cap but exceeds the byte cap because individual entries are long
+- **THEN** the system SHALL inject the index up to the byte cap, cut at an entry boundary rather than mid-entry
+- **AND** the injected text SHALL state that the index was truncated and why
 
 #### Scenario: Memory content survives compaction
+
 - **WHEN** context compaction triggers during a generation with injected memory content
 - **THEN** the injected memory content SHALL remain present, complete, and unchanged on every subsequent request of that generation
 
 #### Scenario: No injection when memory is disabled
+
 - **WHEN** the memory enablement toggle is off
-- **THEN** the system SHALL NOT query stored memories for injection and SHALL send the request without a memory section
+- **THEN** the system SHALL NOT read the memory directory for injection and SHALL send the request without a memory section
 
 ### Requirement: Memory management
-The system SHALL let a user list every stored memory in the shared host-level pool, delete one at a time, and delete every stored memory in a single action, regardless of which agent produced them.
+
+The system SHALL let a user list every stored memory in the shared host-level pool, delete one at a time, and delete every stored memory in a single action, regardless of which agent produced them. A listed memory SHALL carry its name, description, and type alongside its content, source, producing agent, and creation time, so that a user can tell entries apart without reading each body in full.
 
 #### Scenario: List an agent's memories
+
 - **WHEN** a user requests the stored memories
-- **THEN**, unlike before `add-cli-memory-support` when this returned only the requesting agent's own memories, the system SHALL return every stored memory in the shared pool, each with its content, source, producing agent, and creation time
+- **THEN** the system SHALL return every stored memory in the shared pool, each with its name, description, type, content, source, producing agent, and creation time
 
 #### Scenario: Delete a memory
+
 - **WHEN** a user deletes a stored memory
-- **THEN** the system SHALL remove it
+- **THEN** the system SHALL remove its file and its index line
 - **AND** it SHALL no longer be injected into any agent's future generations
 
 #### Scenario: Reset all of an agent's memories
+
 - **WHEN** a user confirms resetting stored memories
 - **THEN** the system SHALL remove every stored memory in the shared pool, regardless of which agent produced it
 - **AND** none of them SHALL be injected into any agent's future generations
 - **AND** the confirmation prompt SHALL make clear that this affects every agent's memories, not only the one currently being viewed
 
 #### Scenario: Reset is scoped to one agent
+
 - **WHEN** a user confirms resetting stored memories
 - **THEN**, reversing the single-agent scoping this scenario previously guaranteed, stored memories belonging to every other agent SHALL be removed too — reset is no longer scoped to one agent, since there is no longer a per-agent scope to reset
+
+#### Scenario: Memory edited outside the application
+
+- **WHEN** a user edits or removes a memory file directly on disk and then opens the management view
+- **THEN** the listing SHALL reflect the on-disk state without requiring a restart
 
 ### Requirement: Web runtime memory toggle parity
 Unlike custom instructions (whose assembled content has no observable effect in mock mode), the memory enablement toggle and the tool-assisted chat extraction toggle each gate a distinct, user-observable mock event (a simulated `remember` tool call, a simulated automatic-extraction card, and a simulated memory-injection card) in the Web/mock chat stream. The Web/mock runtime SHALL respect the memory enablement toggle for every agent kind — OnePiece and CLI-wrapped agents alike — and SHALL additionally respect the tool-assisted chat extraction toggle for OnePiece's own simulated automatic-extraction event, mirroring that this sub-toggle governs only OnePiece's compaction-triggered extraction and never a CLI-wrapped agent's independent extraction. The Web/mock runtime SHALL NOT simulate these events unconditionally or only for API-kind sessions.
@@ -155,52 +226,273 @@ The system SHALL provide a second host-level toggle, meaningful only while the m
 - **THEN** the system SHALL treat it as enabled, matching the feature's behavior before this toggle existed
 
 ### Requirement: Memory injection into CLI prompts
-The system SHALL prepend the shared host-level memory pool to the Prompt-Hook-assembled effective prompt for every message sent to a CLI-wrapped agent (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`), after the custom-instructions section and before the Prompt Hook pipeline's own assembled content, while the memory enablement toggle is on. This requirement governs only the CLI delivery mechanism; OnePiece's own system-prompt injection remains governed by the "Memory injection into the system prompt" requirement.
+
+The system SHALL prepend the memory index to the Prompt-Hook-assembled effective prompt for every message sent to a CLI-wrapped agent (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`), after the custom-instructions section and before the Prompt Hook pipeline's own assembled content, while the memory enablement toggle is on. This surface SHALL have its own injection bound, separate from OnePiece's: OnePiece's index is injected once into a system prompt that is cached across a generation, while this one is prepended to every message sent to a subprocess, so the two SHALL NOT be required to share a single limit. Relevance-selected bodies SHALL NOT be injected here, since a CLI-wrapped agent's turn boundary is not visible to VaneHub in the way OnePiece's is. This requirement governs only the CLI delivery mechanism; OnePiece's own system-prompt injection remains governed by the "Memory injection into the system prompt" requirement.
 
 #### Scenario: Memory section precedes the Prompt Hook assembly
+
 - **WHEN** a message is sent to a CLI-wrapped agent with the memory enablement toggle on and at least one memory in the shared pool
-- **THEN** the final text delivered to that CLI process SHALL contain the memory section after the custom-instructions section (if any) and before the Prompt-Hook-assembled content
+- **THEN** the final text delivered to that CLI process SHALL contain the memory index after the custom-instructions section (if any) and before the Prompt-Hook-assembled content
+
+#### Scenario: CLI bound is applied independently
+
+- **WHEN** an index fits within OnePiece's bound but exceeds the CLI bound
+- **THEN** the text delivered to the CLI process SHALL be truncated to the CLI bound and say so
+- **AND** OnePiece's own injection SHALL be unaffected
 
 #### Scenario: Disabled or empty produces no injection
+
 - **WHEN** the memory enablement toggle is off, or the shared memory pool is empty
 - **THEN** the text delivered to the CLI process SHALL be unchanged by this requirement
 
 #### Scenario: Injection query failure does not block the CLI message
+
 - **WHEN** resolving memories fails while sending a message to a CLI-wrapped agent
 - **THEN** the system SHALL log the failure and send the message without the memory section
 - **AND** it SHALL NOT fail or delay the message send
 
 ### Requirement: Automatic memory extraction for CLI-wrapped agents
-The system SHALL, after a CLI-wrapped agent's generation completes successfully and while the memory enablement toggle is on, attempt best-effort automatic extraction of memorable content from that turn's exchange by making an independent model call using OnePiece's currently configured provider credentials. This extraction SHALL NOT block or delay delivery of the CLI generation's own result to the user, and SHALL NOT depend on or alter OnePiece's own compaction-triggered extraction mechanism.
+
+The system SHALL, after a CLI-wrapped agent's generation completes successfully and while the memory enablement toggle is on, attempt best-effort automatic extraction of memorable content from that turn's exchange by making an independent model call using OnePiece's currently configured provider credentials. Extracted memories SHALL be written to the same memory directory, attributed to the CLI-wrapped agent that produced them. The system SHALL NOT instruct a CLI-wrapped agent to write memory files itself, because several of them ship their own memory systems and a second set of persistence instructions in the same prompt would conflict with them. This extraction SHALL NOT block or delay delivery of the CLI generation's own result to the user, and SHALL NOT depend on or alter OnePiece's own compaction-triggered extraction mechanism.
 
 #### Scenario: Extraction runs after a CLI generation completes
+
 - **WHEN** a CLI-wrapped agent's generation completes successfully, the memory enablement toggle is on, and OnePiece has a usable configured credential
 - **THEN** the system SHALL make one independent call to extract memorable facts from that turn's exchange
-- **AND** any extracted facts SHALL be persisted in the shared host-level memory pool, attributed to the CLI-wrapped agent that produced them
+- **AND** any extracted facts SHALL be written as memory files in the shared host-level memory directory, attributed to the CLI-wrapped agent that produced them
+
+#### Scenario: CLI prompt is not told about the memory directory
+
+- **WHEN** a message is sent to a CLI-wrapped agent
+- **THEN** the delivered text SHALL NOT contain the memory directory path or instructions to write memory files there
 
 #### Scenario: Extraction finds nothing worth remembering
+
 - **WHEN** the extraction call determines there is nothing worth remembering from that turn
-- **THEN** the system SHALL save no memory from that extraction, without treating this as a failure
+- **THEN** the system SHALL write no memory from that extraction, without treating this as a failure
 
 #### Scenario: Extraction is skipped without a usable OnePiece credential
+
 - **WHEN** a CLI-wrapped agent's generation completes and OnePiece has no usable configured credential
 - **THEN** the system SHALL log the condition and skip extraction for that turn
 - **AND** it SHALL NOT affect the CLI generation, which has already completed and been delivered
 
 #### Scenario: Extraction call failure does not affect the already-delivered CLI result
+
 - **WHEN** the independent extraction call itself fails
-- **THEN** the system SHALL log the failure and skip persisting a memory for that turn
+- **THEN** the system SHALL log the failure and skip writing a memory for that turn
 - **AND** the CLI generation's own result, already delivered to the user, SHALL be unaffected
 
 #### Scenario: Extraction is skipped when memory is disabled
+
 - **WHEN** the memory enablement toggle is off
 - **THEN** the system SHALL NOT make an extraction call after a CLI-wrapped agent's generation completes
 
 ### Requirement: Deleting a memory revokes its retrieval index
-The system SHALL revoke the retrieval index entry for a deleted memory, and SHALL NOT return deleted memories from retrieval even if an index entry survives.
+
+The system SHALL revoke the retrieval index entry for a deleted memory, and SHALL NOT return deleted memories from retrieval even if an index entry survives. Because a memory is now a file that can be removed without the application's participation, retrieval results SHALL be resolved against the memory directory, and reconciliation SHALL treat a file's absence from the directory as a deletion.
 
 #### Scenario: Memory deleted while index revocation fails
+
 - **WHEN** a memory is deleted and its index revocation call fails
-- **THEN** retrieval SHALL NOT return that memory, because results are resolved against the source table
+- **THEN** retrieval SHALL NOT return that memory, because results are resolved against the memory directory
 - **AND** background reconciliation SHALL remove the orphaned index entry
+
+#### Scenario: Memory file removed outside the application
+
+- **WHEN** a memory file is deleted on disk while the application is not running, and the application is started again
+- **THEN** retrieval SHALL NOT return that memory
+- **AND** reconciliation SHALL remove its index entry and its `MEMORY.md` line
+
+### Requirement: Memories are addressable files
+
+The system SHALL store each memory as one Markdown file in a single host-level memory directory, rather than as a row in a table. The file SHALL carry frontmatter with a `name`, a one-line `description` used to judge relevance without reading the body, and a `type`; the body below the frontmatter SHALL be the memory content. Provenance — the producing agent id, the workspace folder when one was in scope, the save source, and the creation time — SHALL be recorded in the same frontmatter, and SHALL remain provenance only rather than a read filter, exactly as it was on the row store.
+
+#### Scenario: A saved memory becomes a file
+
+- **WHEN** a memory is saved by any path (the explicit tool, OnePiece's automatic extraction, or a CLI-wrapped agent's automatic extraction)
+- **THEN** the system SHALL write one Markdown file into the host-level memory directory whose frontmatter carries a name, a description, a type, and the producing agent id
+- **AND** that file SHALL be the sole source of truth for that memory's content
+
+#### Scenario: A memory is addressed by name
+
+- **WHEN** any read, update, or delete operation refers to a stored memory
+- **THEN** it SHALL identify that memory by its directory-relative file path
+- **AND** two memories SHALL NOT share one path
+
+#### Scenario: Malformed file does not break enumeration
+
+- **WHEN** a file in the memory directory has absent, unparseable, or incomplete frontmatter
+- **THEN** the system SHALL skip that file and continue enumerating the rest
+- **AND** it SHALL NOT fail the generation, the injection, or the management view that triggered the enumeration
+
+### Requirement: Memory type taxonomy
+
+The system SHALL constrain a memory's `type` to a closed set of four values — `user`, `feedback`, `project`, and `reference`. A file whose `type` is absent or unrecognized SHALL remain readable, injectable, and manageable, degrading to an untyped memory rather than being rejected, so that migrated files and hand-written files keep working.
+
+#### Scenario: A recognized type is preserved
+
+- **WHEN** a memory file declares one of the four recognized types
+- **THEN** the system SHALL retain that type through enumeration, injection, and the management view
+
+#### Scenario: An absent or unknown type degrades
+
+- **WHEN** a memory file declares no `type`, or declares a value outside the four recognized ones
+- **THEN** the system SHALL treat it as untyped
+- **AND** it SHALL still be enumerated, injected, and listed
+
+### Requirement: Memory index file
+
+The system SHALL maintain a `MEMORY.md` index in the memory directory holding one line per memory: a pointer to that memory's file plus a short hook. The index SHALL NOT be a memory itself and SHALL NOT carry frontmatter, and memory content SHALL NOT be written into it. Every path that creates or deletes a memory SHALL keep the index consistent with the directory.
+
+#### Scenario: Saving a memory updates the index
+
+- **WHEN** a memory file is created
+- **THEN** the system SHALL add exactly one corresponding line to `MEMORY.md`
+
+#### Scenario: Deleting a memory updates the index
+
+- **WHEN** a memory file is deleted
+- **THEN** the system SHALL remove its line from `MEMORY.md`
+
+#### Scenario: Index and directory disagree
+
+- **WHEN** enumeration finds an index line whose target file does not exist, or a memory file with no index line
+- **THEN** the system SHALL reconcile the index to match the directory
+- **AND** the directory SHALL be authoritative
+
+### Requirement: Model-side memory correction
+
+The system SHALL expose the memory directory to OnePiece's generic file tools as an auto-approved read and write scope, so the model can read an existing memory, correct it in place, or delete one that turned out to be wrong. Paths outside the memory directory SHALL keep whatever approval they required before this change.
+
+#### Scenario: Model corrects an existing memory
+
+- **WHEN** the model reads a memory file and writes an updated version of it during a generation while the memory enablement toggle is on
+- **THEN** the system SHALL apply the write without requiring user approval
+- **AND** subsequent injections and listings SHALL reflect the updated content
+
+#### Scenario: Model deletes a stale memory
+
+- **WHEN** the model deletes a memory file
+- **THEN** the system SHALL remove it from the index and revoke its retrieval index entry
+- **AND** it SHALL NOT be injected into any agent's future generations
+
+#### Scenario: Write outside the memory directory is unaffected
+
+- **WHEN** the model writes to a path outside the memory directory
+- **THEN** the approval behavior SHALL be exactly what it was before this change
+
+#### Scenario: Memory-directory writes are inert when memory is disabled
+
+- **WHEN** the model writes to the memory directory while the memory enablement toggle is off
+- **THEN** the system SHALL reject the write, mirroring the explicit save tool's behavior under the same toggle
+
+### Requirement: Migration from the row store
+
+The system SHALL convert every previously stored memory row into a memory file without making a model call, preserving the row's content as the file body and its provenance as frontmatter. A migrated file SHALL receive a generated name and a description derived from its content, and SHALL be left untyped rather than assigned a guessed type. Migration SHALL be idempotent and SHALL NOT delete or rewrite files it has already produced.
+
+#### Scenario: Existing rows migrate
+
+- **WHEN** the memory directory is initialized on an installation that has stored memory rows
+- **THEN** each row SHALL become one memory file preserving its content, producing agent id, workspace folder, save source, and creation time
+- **AND** each migrated file SHALL appear in `MEMORY.md`
+
+#### Scenario: Migration runs again
+
+- **WHEN** migration runs a second time
+- **THEN** it SHALL NOT produce duplicate files and SHALL NOT overwrite a file that the model or the user has since edited
+
+#### Scenario: One row fails to migrate
+
+- **WHEN** a single row cannot be converted
+- **THEN** the system SHALL log the failure and continue migrating the remaining rows
+- **AND** it SHALL NOT abort startup
+
+### Requirement: Relevance-selected memory bodies
+
+The system SHALL, for each OnePiece turn while the memory enablement toggle is on, select a bounded number of memories judged relevant to that turn and inject their bodies alongside the always-present index. Selection SHALL operate on a manifest of each memory's name, type, description, and age rather than on memory bodies, so that its cost scales with the number of memories rather than their size. Selection SHALL be instructed to return nothing when no memory is clearly useful, rather than returning its most plausible guess. A selection failure SHALL degrade to index-only injection without failing the generation.
+
+#### Scenario: Relevant memories are injected in full
+
+- **WHEN** a turn runs with the memory enablement toggle on and selection judges some memories relevant
+- **THEN** the system SHALL inject those memories' bodies for that turn, up to the selection bound
+- **AND** the index SHALL still be present, unchanged by the selection
+
+#### Scenario: Nothing is clearly relevant
+
+- **WHEN** selection judges no stored memory clearly useful for the turn
+- **THEN** the system SHALL inject no memory bodies for that turn, without treating this as a failure
+- **AND** the index SHALL still be present
+
+#### Scenario: Selection never exceeds its bound
+
+- **WHEN** selection judges more memories relevant than the bound allows
+- **THEN** the system SHALL inject no more than the bound
+
+#### Scenario: Selection fails
+
+- **WHEN** the selection step errors, times out, or returns an unusable result
+- **THEN** the system SHALL log the failure and inject the index alone
+- **AND** the generation SHALL proceed unaffected
+
+#### Scenario: Selection names a memory that does not exist
+
+- **WHEN** selection returns a name with no corresponding memory file
+- **THEN** the system SHALL discard that name and inject the remaining selected memories
+
+#### Scenario: No selection when memory is disabled
+
+- **WHEN** the memory enablement toggle is off
+- **THEN** the system SHALL NOT run selection and SHALL NOT make a selection call
+
+### Requirement: Already-surfaced memories are excluded from selection
+
+The system SHALL track, for the duration of a session, which memories have already had their bodies injected, and SHALL exclude those from a later selection in the same session before the selection step runs. Exclusion before selection rather than after ensures the bounded selection budget is spent on candidates the model has not seen yet.
+
+#### Scenario: A memory surfaced earlier is not re-selected
+
+- **WHEN** a memory's body was injected on an earlier turn of the same session and selection runs again
+- **THEN** that memory SHALL NOT be offered to selection as a candidate
+- **AND** the selection bound SHALL be available for memories not yet surfaced
+
+#### Scenario: A new session starts fresh
+
+- **WHEN** a new session begins
+- **THEN** every memory SHALL again be eligible for selection
+
+#### Scenario: A corrected memory becomes eligible again
+
+- **WHEN** a memory whose body was already surfaced in this session is subsequently updated
+- **THEN** it SHALL become eligible for selection again, since its content is no longer the content the model saw
+
+### Requirement: Injected memories carry age and staleness caveats
+
+The system SHALL annotate each injected memory body with a human-readable elapsed time rather than a raw timestamp, because a timestamp alone does not reliably trigger staleness reasoning. A memory older than the staleness threshold SHALL additionally carry a caveat stating that memories are point-in-time observations, that claims about code or file locations may be outdated, and that they are to be verified against current state before being asserted as fact. Memories within the threshold SHALL NOT carry the caveat, since a caveat on fresh content is noise.
+
+#### Scenario: A stale memory is annotated
+
+- **WHEN** a memory older than the staleness threshold is injected
+- **THEN** its injected text SHALL include its elapsed age in human-readable form
+- **AND** it SHALL include the verify-before-asserting caveat
+
+#### Scenario: A fresh memory is not caveated
+
+- **WHEN** a memory within the staleness threshold is injected
+- **THEN** its injected text SHALL include its elapsed age
+- **AND** it SHALL NOT include the staleness caveat
+
+### Requirement: Web runtime parity for memory selection
+
+The Web/mock runtime SHALL expose the same observable memory-selection behavior as the desktop runtime through the same event and service contracts, and SHALL NOT call a real provider to produce it. Selection SHALL be gated by the memory enablement toggle in the Web runtime exactly as it is on the desktop.
+
+#### Scenario: Mock selection emits the same events
+
+- **WHEN** a mock generation runs with the memory enablement toggle on and stored memories present
+- **THEN** the Web adapter SHALL simulate index injection and body selection through the same contracts the desktop runtime uses
+- **AND** it SHALL NOT issue a provider request to do so
+
+#### Scenario: Selection suppressed when memory is disabled
+
+- **WHEN** the memory enablement toggle is off during a mock generation
+- **THEN** the Web adapter SHALL NOT simulate a selection event
 

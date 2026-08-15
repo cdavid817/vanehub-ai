@@ -1,3 +1,4 @@
+mod agent_image;
 mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;
@@ -40,9 +41,15 @@ mod loop_verification_process;
 mod manual_native_tool_adapter;
 mod manual_native_tool_control;
 mod mcp_tool_gateway;
+mod memory_actions;
+mod memory_directory;
 mod memory_extraction_gateway;
+mod memory_migration;
+mod memory_naming;
 mod memory_repository;
 mod memory_schema;
+mod memory_selection_gateway;
+mod memory_surfaced;
 mod message_terminal_completions;
 mod model_context_catalog;
 mod native_tool_logging;
@@ -66,6 +73,8 @@ mod seat_turn_coordinator;
 mod sessions_gateway;
 mod skill_gateway;
 mod sqlite_repository;
+mod subagent;
+mod subagent_worktree;
 mod terminal_observability;
 mod terminal_process;
 mod terminal_usage_ledger;
@@ -74,6 +83,8 @@ mod tool_call_accumulator;
 mod tools;
 mod unavailable_native_tool_port;
 mod utility_delegation;
+
+pub(crate) use tools::{background_shell_registry, task_list_store};
 
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
@@ -103,9 +114,24 @@ pub(crate) use manual_native_tool_adapter::{
 };
 pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_actions::{
+    apply_memory_actions, render_existing_manifest, AppliedMemoryActions,
+};
+#[allow(unused_imports)]
+pub(crate) use memory_directory::{
+    is_within_memory_directory, memory_directory_root, FileAgentMemoryStore, MemoryHeader,
+    INDEX_FILE_NAME,
+};
 pub(crate) use memory_extraction_gateway::RuntimeAgentMemoryExtractionAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_migration::{migrate_memory_rows, MemoryMigrationOutcome};
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_schema};
+#[allow(unused_imports)]
+pub(crate) use memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_surfaced::{mark_surfaced, unsurfaced_candidates};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 #[allow(unused_imports)]
 pub(crate) use native_tool_logging::NativeToolLogger;
@@ -134,6 +160,7 @@ pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
+pub(crate) use subagent::{NativeSubagentExecutor, SubagentRuntime};
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
 pub(crate) use unavailable_native_tool_port::UnavailableNativeToolPort;

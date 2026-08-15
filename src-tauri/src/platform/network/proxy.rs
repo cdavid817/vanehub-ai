@@ -91,48 +91,28 @@ pub fn current_state() -> NetworkProxyState {
 }
 
 pub fn http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
-    build_http_client(reqwest::Client::builder().timeout(timeout))
+    build_routed_client(reqwest::Client::builder().timeout(timeout))
 }
 
 pub(crate) fn blocking_http_client(
     timeout: Duration,
 ) -> Result<reqwest::blocking::Client, AppError> {
-    let state = current_state();
-    let mut builder = reqwest::blocking::Client::builder().timeout(timeout);
-    if !state.url.is_empty() {
-        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
-        let proxy = reqwest::Proxy::all(&state.url)
-            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
-            .no_proxy(no_proxy);
-        builder = builder.proxy(proxy);
-    }
-    builder
-        .build()
-        .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
+    build_routed_client(reqwest::blocking::Client::builder().timeout(timeout))
 }
 
 pub(crate) fn blocking_no_redirect_http_client(
     timeout: Duration,
 ) -> Result<reqwest::blocking::Client, AppError> {
-    let state = current_state();
-    let mut builder = reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .pool_max_idle_per_host(0)
-        .redirect(reqwest::redirect::Policy::none());
-    if !state.url.is_empty() {
-        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
-        let proxy = reqwest::Proxy::all(&state.url)
-            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
-            .no_proxy(no_proxy);
-        builder = builder.proxy(proxy);
-    }
-    builder
-        .build()
-        .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
+    build_routed_client(
+        reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .pool_max_idle_per_host(0)
+            .redirect(reqwest::redirect::Policy::none()),
+    )
 }
 
 pub(crate) fn no_redirect_http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
-    build_http_client(
+    build_routed_client(
         reqwest::Client::builder()
             .timeout(timeout)
             .pool_max_idle_per_host(0)
@@ -140,17 +120,70 @@ pub(crate) fn no_redirect_http_client(timeout: Duration) -> Result<reqwest::Clie
     )
 }
 
-fn build_http_client(mut builder: reqwest::ClientBuilder) -> Result<reqwest::Client, AppError> {
-    let state = current_state();
-    if !state.url.is_empty() {
-        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
-        let proxy = reqwest::Proxy::all(&state.url)
-            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
-            .no_proxy(no_proxy);
-        builder = builder.proxy(proxy);
+/// `reqwest`'s two builders share no trait, so the routing decision would otherwise be written
+/// four times. It was, and all four copies carried the same defect.
+pub(crate) trait RoutableClientBuilder: Sized {
+    type Client;
+
+    fn route_through(self, proxy: reqwest::Proxy) -> Self;
+    fn route_directly(self) -> Self;
+    fn finish(self) -> Result<Self::Client, reqwest::Error>;
+}
+
+impl RoutableClientBuilder for reqwest::ClientBuilder {
+    type Client = reqwest::Client;
+
+    fn route_through(self, proxy: reqwest::Proxy) -> Self {
+        self.proxy(proxy)
     }
-    builder
-        .build()
+
+    fn route_directly(self) -> Self {
+        self.no_proxy()
+    }
+
+    fn finish(self) -> Result<Self::Client, reqwest::Error> {
+        self.build()
+    }
+}
+
+impl RoutableClientBuilder for reqwest::blocking::ClientBuilder {
+    type Client = reqwest::blocking::Client;
+
+    fn route_through(self, proxy: reqwest::Proxy) -> Self {
+        self.proxy(proxy)
+    }
+
+    fn route_directly(self) -> Self {
+        self.no_proxy()
+    }
+
+    fn finish(self) -> Result<Self::Client, reqwest::Error> {
+        self.build()
+    }
+}
+
+/// Exposed so callers that need their own timeout, pool, or redirect policy still get the routing
+/// decision instead of hand-rolling a builder that silently inherits an OS proxy.
+pub(crate) fn apply_proxy_routing<B: RoutableClientBuilder>(builder: B) -> Result<B, AppError> {
+    let state = current_state();
+    if state.url.is_empty() {
+        // Direct connection has to be stated, not merely left unconfigured: a builder that is
+        // never told anything lets reqwest discover a proxy from the environment or, on Windows,
+        // the Internet Settings registry keys. That routing is invisible in VaneHub's own
+        // settings and skips this bypass list entirely, which is how loopback traffic to local
+        // sidecars ended up at a proxy. Suppressing discovery also covers the bypass list in this
+        // mode, because nothing is proxied at all.
+        return Ok(builder.route_directly());
+    }
+    let proxy = reqwest::Proxy::all(&state.url)
+        .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
+        .no_proxy(reqwest::NoProxy::from_string(&state.bypass));
+    Ok(builder.route_through(proxy))
+}
+
+fn build_routed_client<B: RoutableClientBuilder>(builder: B) -> Result<B::Client, AppError> {
+    apply_proxy_routing(builder)?
+        .finish()
         .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
 }
 
@@ -580,6 +613,142 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// Proxy state and the proxy environment variables are process-wide, so these tests would
+    /// otherwise observe each other's configuration.
+    fn proxy_state_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct RestoreProxyEnvironment {
+        previous: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl RestoreProxyEnvironment {
+        /// Clears every variable reqwest consults so a test asserts against the state it sets,
+        /// not against whatever the developer's shell exports.
+        fn capture_and_clear() -> Self {
+            let names = [
+                "http_proxy",
+                "HTTP_PROXY",
+                "https_proxy",
+                "HTTPS_PROXY",
+                "all_proxy",
+                "ALL_PROXY",
+                "no_proxy",
+                "NO_PROXY",
+            ];
+            let previous = names
+                .iter()
+                .map(|name| (*name, std::env::var(name).ok()))
+                .collect::<Vec<_>>();
+            for name in names {
+                std::env::remove_var(name);
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for RestoreProxyEnvironment {
+        fn drop(&mut self) {
+            for (name, value) in &self.previous {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    fn recording_fixture() -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fixture listener");
+        let address = listener.local_addr().expect("fixture address").to_string();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("fixture connection");
+            let mut buffer = [0_u8; 1024];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+            request
+        });
+        (address, handle)
+    }
+
+    /// An address nothing listens on: bound to claim it, then released.
+    fn dead_address() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("dead listener");
+        listener.local_addr().expect("dead address").to_string()
+    }
+
+    #[test]
+    fn bypassed_loopback_request_is_not_sent_to_the_configured_proxy() {
+        let _guard = proxy_state_lock();
+        let _environment = RestoreProxyEnvironment::capture_and_clear();
+        let (address, fixture) = recording_fixture();
+        apply(&format!("http://{}", dead_address()), DEFAULT_BYPASS).expect("apply proxy");
+
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let response = client.get(format!("http://{address}/probe")).send();
+
+        let request = fixture.join().expect("fixture thread");
+        apply("", DEFAULT_BYPASS).expect("reset proxy");
+
+        assert!(response.is_ok(), "bypassed request failed: {response:?}");
+        // Origin-form request line proves it went straight to the fixture; a proxied request
+        // would carry the absolute form.
+        assert!(
+            request.starts_with("GET /probe "),
+            "expected a direct request, got: {request}"
+        );
+    }
+
+    #[test]
+    fn a_non_bypassed_request_still_uses_the_configured_proxy() {
+        let _guard = proxy_state_lock();
+        let _environment = RestoreProxyEnvironment::capture_and_clear();
+        let (proxy_address, proxy_fixture) = recording_fixture();
+        apply(&format!("http://{proxy_address}"), DEFAULT_BYPASS).expect("apply proxy");
+
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let _ = client.get("http://routed.example/probe").send();
+
+        let request = proxy_fixture.join().expect("proxy fixture thread");
+        apply("", DEFAULT_BYPASS).expect("reset proxy");
+
+        assert!(
+            request.starts_with("GET http://routed.example/probe "),
+            "expected a proxied request, got: {request}"
+        );
+    }
+
+    #[test]
+    fn direct_connection_mode_ignores_an_externally_declared_proxy() {
+        let _guard = proxy_state_lock();
+        let _environment = RestoreProxyEnvironment::capture_and_clear();
+        let (address, fixture) = recording_fixture();
+        // Discovery is driven through the environment rather than the machine's real proxy
+        // settings, so the assertion holds on any host.
+        std::env::set_var("http_proxy", format!("http://{}", dead_address()));
+        apply("", DEFAULT_BYPASS).expect("direct connection");
+
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let response = client.get(format!("http://{address}/probe")).send();
+
+        let request = fixture.join().expect("fixture thread");
+
+        assert!(
+            response.is_ok(),
+            "direct connection adopted the external proxy: {response:?}"
+        );
+        assert!(
+            request.starts_with("GET /probe "),
+            "expected a direct request, got: {request}"
+        );
+    }
 
     #[test]
     fn normalizes_bypass_list() {
@@ -612,6 +781,8 @@ mod tests {
 
     #[test]
     fn blocking_model_discovery_client_does_not_follow_redirects() {
+        let _guard = proxy_state_lock();
+        let _environment = RestoreProxyEnvironment::capture_and_clear();
         let listener = TcpListener::bind("127.0.0.1:0").expect("test listener");
         let address = listener.local_addr().expect("listener address");
         let server = std::thread::spawn(move || {

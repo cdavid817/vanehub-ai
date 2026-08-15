@@ -12,6 +12,24 @@ use super::ToolDefinition;
 use serde_json::json;
 
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
+pub(crate) const SHELL_OUTPUT_TOOL_NAME: &str = "shell_output";
+pub(crate) const SHELL_KILL_TOOL_NAME: &str = "shell_kill";
+pub(crate) const TODO_WRITE_TOOL_NAME: &str = "todo_write";
+pub(crate) const ASK_USER_QUESTION_TOOL_NAME: &str = "ask_user_question";
+
+/// Bounds for `ask_user_question` (`add-agent-user-question` D6). Fewer than two options is not
+/// a choice; more than four stops being scannable and starts being a menu the model should have
+/// narrowed itself.
+pub(crate) const MIN_QUESTION_OPTIONS: usize = 2;
+pub(crate) const MAX_QUESTION_OPTIONS: usize = 4;
+pub(crate) const MAX_QUESTION_CHARS: usize = 300;
+pub(crate) const MAX_QUESTION_OPTION_CHARS: usize = 120;
+pub(crate) const EXIT_PLAN_MODE_TOOL_NAME: &str = "exit_plan_mode";
+
+/// Bound on the plan `exit_plan_mode` submits. The user reads this whole thing before approving
+/// it, so the limit is what a person will actually read at a decision point, not what a model can
+/// produce; past it the call is rejected rather than truncated into an approval of text nobody saw.
+pub(crate) const MAX_PLAN_CHARS: usize = 4000;
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
@@ -19,6 +37,7 @@ pub(crate) const SEARCH_CODE_TOOL_NAME: &str = "search_code";
 pub(crate) const GREP_TOOL_NAME: &str = "grep";
 pub(crate) const GLOB_TOOL_NAME: &str = "glob";
 pub(crate) const EDIT_TOOL_NAME: &str = "edit";
+pub(crate) const NOTEBOOK_TOOL_NAME: &str = "notebook";
 pub(crate) const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
 pub(crate) const LOAD_SKILL_TOOL_NAME: &str = "load_skill";
 pub(crate) const READ_SKILL_RESOURCE_TOOL_NAME: &str = "read_skill_resource";
@@ -34,22 +53,7 @@ pub(crate) const MCP_TOOL_NAME_PREFIX: &str = "mcp__";
 
 pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
     vec![
-        ToolDefinition {
-            name: SHELL_TOOL_NAME.to_string(),
-            description:
-                "Execute a shell command in the session's workspace folder and return its output."
-                    .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    }
-                },
-                "required": ["command"]
-            }),
-        },
+        shell_tool_definition(),
         ToolDefinition {
             name: FILE_TOOL_NAME.to_string(),
             description: "Read or write a file relative to the session's workspace folder."
@@ -89,7 +93,160 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         list_skills_tool_definition(),
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
+        shell_output_tool_definition(),
+        shell_kill_tool_definition(),
+        todo_write_tool_definition(),
+        notebook_tool_definition(),
     ]
+}
+
+/// Offered only to interactive sessions (`add-agent-user-question` D4). A blocking question in a
+/// Loop worker, a scheduled run, or a Plan attempt burns that attempt's whole ceiling with nobody
+/// able to end the wait, so the catalog withholds it and the executor refuses it independently.
+pub(crate) fn ask_user_question_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ASK_USER_QUESTION_TOOL_NAME.to_string(),
+        description: format!(
+            "Ask the user one question and wait for their answer. Use it when the request is \
+             genuinely ambiguous and the readings would lead to materially different work -- not \
+             for choices with an obvious default, and not to confirm work you can just do. Offer \
+             {MIN_QUESTION_OPTIONS} to {MAX_QUESTION_OPTIONS} concrete options; the user can also \
+             answer in their own words, so an option set that misses their intent is recoverable."
+        ),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": format!("The question, at most {MAX_QUESTION_CHARS} characters. Ask one thing.")
+                },
+                "options": {
+                    "type": "array",
+                    "minItems": MIN_QUESTION_OPTIONS,
+                    "maxItems": MAX_QUESTION_OPTIONS,
+                    "description": "Concrete answers to choose between. Each is a short label, not a paragraph.",
+                    "items": {
+                        "type": "string",
+                        "description": format!("One option, at most {MAX_QUESTION_OPTION_CHARS} characters.")
+                    }
+                }
+            },
+            "required": ["question", "options"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Whole-list replacement rather than per-item operations (`add-agent-task-list` D1): addressing
+/// items by id would need the model to carry stable ids across turns, which desynchronizes the
+/// moment a turn is compacted away.
+fn todo_write_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: TODO_WRITE_TOOL_NAME.to_string(),
+        description: "Record your task list for this session, replacing it in full. Use it for \
+                      work with several steps: write the list once you know the steps, and rewrite \
+                      it as each one starts and finishes. The list is shown back to you on every \
+                      turn, so it survives context compaction. Submit an empty list to clear it."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "description": "The complete task list. This replaces any previous list, so include every task you still care about, not only the changed ones.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "What the task is, as a short title of at most 200 characters."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "description": "At most one task may be in_progress at a time; a list with two is rejected."
+                            }
+                        },
+                        "required": ["content", "status"],
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "required": ["todos"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn shell_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_TOOL_NAME.to_string(),
+        description:
+            "Execute a shell command in the session's workspace folder. By default the call blocks \
+             and returns the command's output. Set run_in_background for work that outlives one \
+             tool call -- a build, a test suite, a dev server -- and poll it with shell_output."
+                .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute."
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Run the command in the background and return a handle immediately instead of waiting for it to finish. Poll the handle with shell_output and stop it with shell_kill. Defaults to false."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "How long to wait for a foreground command, in milliseconds. Defaults to 60000 and is capped at 600000; a larger value is clamped rather than rejected. Ignored when run_in_background is true, which is bounded by a maximum background lifetime instead."
+                }
+            },
+            "required": ["command"]
+        }),
+    }
+}
+
+fn shell_output_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_OUTPUT_TOOL_NAME.to_string(),
+        description: "Read the output a background command has produced since the last time you \
+                      read it, along with its current status and, once it has finished, its exit \
+                      code. Each call returns only new output."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "shell_id": {
+                    "type": "string",
+                    "description": "The handle returned when the background command was started."
+                }
+            },
+            "required": ["shell_id"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn shell_kill_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_KILL_TOOL_NAME.to_string(),
+        description:
+            "Terminate a running background command and every process it started. Reports the \
+             command's existing outcome instead if it has already finished."
+                .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "shell_id": {
+                    "type": "string",
+                    "description": "The handle returned when the background command was started."
+                }
+            },
+            "required": ["shell_id"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 pub(crate) fn delegate_utility_skill_tool_definition() -> ToolDefinition {
@@ -119,6 +276,12 @@ pub(crate) fn delegate_utility_skill_tool_definition() -> ToolDefinition {
 /// what the model is *told* it can do — `execute_tool_call`'s own plan-mode checks are the actual
 /// enforcement boundary, since nothing stops a model from requesting a tool/operation it was
 /// never offered.
+///
+/// `shell_output` is here but `shell_kill` is not (`add-background-shell-execution`): reading a
+/// background command's output observes work that was already approved before plan mode was
+/// entered and cannot start, change, or stop anything, so a model that switches into plan mode
+/// mid-task can still read the build it started. `shell_kill` acts on a process, which is exactly
+/// what this mode withholds.
 pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -154,7 +317,111 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         list_skills_tool_definition(),
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
+        shell_output_tool_definition(),
+        todo_write_tool_definition(),
+        plan_mode_notebook_tool_definition(),
+        exit_plan_mode_tool_definition(),
     ]
+}
+
+/// Plan mode's notebook is reading only, declared separately rather than filtered later so the
+/// catalog states the restriction rather than relying on the executor to enforce it -- the same
+/// shape the file tool uses there.
+fn plan_mode_notebook_tool_definition() -> ToolDefinition {
+    let mut definition = notebook_tool_definition();
+    definition.description =
+        "Read a Jupyter notebook (.ipynb) as cells. Plan mode is active: editing notebooks is not \
+         available. Outputs are summarized; an image output is named and measured, never included."
+            .to_string();
+    definition.input_schema["properties"]["operation"] = json!({
+        "type": "string",
+        "enum": ["read"],
+        "description": "Only reading is available in plan mode."
+    });
+    definition
+}
+
+/// One tool with four operations rather than four tools (`add-agent-notebook-tool` D1): they share
+/// a path and the same addressing rules, and a tool's real cost is its schema on every request.
+fn notebook_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NOTEBOOK_TOOL_NAME.to_string(),
+        description: "Read or edit a Jupyter notebook (.ipynb) a cell at a time. Use this rather \
+                      than the file or edit tools: reading a notebook as raw JSON spends most of \
+                      the response on base64 output images, and cell source is stored as escaped \
+                      per-line strings that an exact-string edit cannot match. Reading returns each \
+                      cell's index, id, type, and source, with outputs summarized -- an image \
+                      output is named and measured, never included. Changing a code cell's source \
+                      clears its outputs, because they describe an execution that no longer \
+                      matches."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["read", "replace", "insert", "delete"],
+                    "description": "What to do: read the notebook, or replace, insert, or delete one cell."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Path to the .ipynb file, relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
+                },
+                "cell_id": {
+                    "type": "string",
+                    "description": "Which cell to act on, by the id a read reports. Prefer this over cell_index: an id survives later edits and an index does not. Supply exactly one of cell_id or cell_index."
+                },
+                "cell_index": {
+                    "type": "integer",
+                    "description": "Which cell to act on, by 0-based position. Use this for notebooks whose cells have no id, which a read shows as \"-\". Supply exactly one of cell_id or cell_index."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "The cell's new source, for replace and insert. Plain text, not a JSON array."
+                },
+                "cell_type": {
+                    "type": "string",
+                    "enum": ["code", "markdown", "raw"],
+                    "description": "Type of the cell to insert. Defaults to code."
+                },
+                "position": {
+                    "type": "string",
+                    "enum": ["before", "after", "start", "end"],
+                    "description": "Where to insert: before or after the addressed cell, or at the start or end when no cell is addressed. Defaults to after, or end when no cell is addressed."
+                }
+            },
+            "required": ["operation", "path"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Offered only from the plan-mode catalog (`add-agent-plan-exit-request` D5). Outside plan mode
+/// there is nothing to leave, and a tool declared unconditionally costs its schema on every
+/// request forever -- so this one stays out of `tool_catalog()` entirely rather than being
+/// filtered out later.
+fn exit_plan_mode_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: EXIT_PLAN_MODE_TOOL_NAME.to_string(),
+        description: "Ask the user to approve your plan and let you start carrying it out. Call \
+                      it once you have a plan you would act on, not to check in mid-thought. The \
+                      user sees exactly the plan you pass here and either approves or declines, so \
+                      write it for them to judge: what you will change and why. Approval takes \
+                      effect on the next turn, so end your turn after it is approved rather than \
+                      trying to act in this one."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": format!("The plan to approve, at most {MAX_PLAN_CHARS} characters. Markdown is rendered.")
+                }
+            },
+            "required": ["plan"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 fn list_skills_tool_definition() -> ToolDefinition {
@@ -253,6 +520,19 @@ fn remember_tool_definition() -> ToolDefinition {
                 "content": {
                     "type": "string",
                     "description": "The fact, decision, or preference to remember."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Short kebab-case identifier for this memory. Reuse an existing memory's name to correct or replace it instead of saving a near-duplicate."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One line describing what this memory holds, used later to judge whether it is worth reading in full. Be specific."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["user", "feedback", "project", "reference"],
+                    "description": "user: who the user is. feedback: guidance on how to work, with the reason. project: ongoing work not derivable from the code. reference: pointers to external resources."
                 }
             },
             "required": ["content"]
@@ -483,6 +763,10 @@ mod tests {
                 LIST_SKILLS_TOOL_NAME,
                 LOAD_SKILL_TOOL_NAME,
                 READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
+                SHELL_KILL_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
+                NOTEBOOK_TOOL_NAME,
             ]
         );
     }
@@ -501,6 +785,10 @@ mod tests {
                 LIST_SKILLS_TOOL_NAME,
                 LOAD_SKILL_TOOL_NAME,
                 READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
+                NOTEBOOK_TOOL_NAME,
+                EXIT_PLAN_MODE_TOOL_NAME,
             ]
         );
         assert_eq!(
@@ -509,14 +797,155 @@ mod tests {
         );
     }
 
+    /// The one tool plan mode adds rather than withholds. It is offered *only* here: outside plan
+    /// mode there is nothing to leave, and a tool declared unconditionally would cost its schema on
+    /// every request forever ( D5).
     #[test]
-    fn plan_mode_catalog_never_offers_shell_or_edit() {
+    fn leaving_plan_mode_is_offered_only_while_planning() {
+        let plan_names: Vec<String> = plan_mode_tool_catalog()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert!(plan_names.contains(&EXIT_PLAN_MODE_TOOL_NAME.to_string()));
+
+        let ordinary_names: Vec<String> =
+            tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert!(!ordinary_names.contains(&EXIT_PLAN_MODE_TOOL_NAME.to_string()));
+    }
+
+    /// Appended last rather than inserted among the existing entries: tool order is part of the
+    /// prompt-cache prefix, so slotting a new one in the middle would invalidate the cached prefix
+    /// of every native generation for no functional gain.
+    #[test]
+    fn the_notebook_tool_extends_the_catalog_without_reordering_the_existing_prefix() {
+        let names: Vec<String> = tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert_eq!(names.last().map(String::as_str), Some(NOTEBOOK_TOOL_NAME));
+        assert_eq!(
+            names[..12],
+            [
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
+                SHELL_KILL_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
+            ]
+        );
+    }
+
+    /// Plan mode narrows the notebook to reading, the same way it narrows the file tool -- declared
+    /// in the catalog rather than left to the executor, so the restriction is stated where the
+    /// model reads it.
+    #[test]
+    fn plan_mode_narrows_the_notebook_to_reading() {
+        let plan = plan_mode_tool_catalog();
+        let notebook = plan
+            .iter()
+            .find(|tool| tool.name == NOTEBOOK_TOOL_NAME)
+            .expect("plan mode offers a notebook");
+        assert_eq!(
+            notebook.input_schema["properties"]["operation"]["enum"],
+            json!(["read"])
+        );
+
+        let ordinary = tool_catalog();
+        let full = ordinary
+            .iter()
+            .find(|tool| tool.name == NOTEBOOK_TOOL_NAME)
+            .expect("the ordinary catalog offers a notebook");
+        assert_eq!(
+            full.input_schema["properties"]["operation"]["enum"],
+            json!(["read", "replace", "insert", "delete"])
+        );
+        // Everything except the operation enum is the same declaration, so the two cannot drift.
+        assert_eq!(
+            notebook.input_schema["properties"]["path"],
+            full.input_schema["properties"]["path"]
+        );
+        assert_eq!(
+            notebook.input_schema["required"],
+            full.input_schema["required"]
+        );
+    }
+
+    #[test]
+    fn plan_mode_catalog_never_offers_shell_edit_or_process_termination() {
         let names: Vec<String> = plan_mode_tool_catalog()
             .into_iter()
             .map(|tool| tool.name)
             .collect();
         assert!(!names.contains(&SHELL_TOOL_NAME.to_string()));
         assert!(!names.contains(&EDIT_TOOL_NAME.to_string()));
+        // `shell_kill` acts on a process; plan mode withholds every tool that does.
+        assert!(!names.contains(&SHELL_KILL_TOOL_NAME.to_string()));
+    }
+
+    /// The two background tools are appended after the pre-existing nine rather than inserted
+    /// among them. Tool order is part of the prompt-cache prefix, so inserting in the middle would
+    /// invalidate the cached prefix of every native generation for no functional gain.
+    #[test]
+    fn background_tools_extend_the_catalog_without_reordering_the_existing_prefix() {
+        let names: Vec<String> = tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert_eq!(
+            names[..9],
+            [
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
+            ]
+            .map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn shell_schema_declares_background_and_timeout_without_making_them_required() {
+        let shell = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == SHELL_TOOL_NAME)
+            .expect("shell tool present in catalog");
+        assert_eq!(shell.input_schema["required"], json!(["command"]));
+        let properties = shell.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["command", "run_in_background", "timeout_ms"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+        assert_eq!(properties["run_in_background"]["type"], "boolean");
+        assert_eq!(properties["timeout_ms"]["type"], "integer");
+    }
+
+    #[test]
+    fn background_handle_tools_accept_only_a_handle() {
+        for definition in [shell_output_tool_definition(), shell_kill_tool_definition()] {
+            assert_eq!(definition.input_schema["required"], json!(["shell_id"]));
+            assert_eq!(definition.input_schema["additionalProperties"], false);
+            let properties = definition.input_schema["properties"]
+                .as_object()
+                .expect("properties object");
+            assert_eq!(
+                properties.len(),
+                1,
+                "{} exposes extra inputs",
+                definition.name
+            );
+            // A session-supplied session id would let one session read another's output; scope is
+            // injected by the runtime, exactly as it is for `recall`.
+            for forbidden in ["session_id", "sessionId", "workspace", "path"] {
+                assert!(!properties.contains_key(forbidden));
+            }
+        }
     }
 
     #[test]

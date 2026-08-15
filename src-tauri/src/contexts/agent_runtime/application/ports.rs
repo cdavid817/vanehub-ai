@@ -15,16 +15,16 @@ use super::{
     LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog,
     LoopOperationContext, LoopOwnedRecoverySession, LoopRoleGenerationTerminal,
     LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
+    LoopVerificationProcessResult, NewAgentMessage, OnePieceDiscoveredModel,
     OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
-    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, SaveMemoryInput,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
+    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
     ContextQualityAssessmentPage, ContextQualityAssessmentRecord, ContextQualitySummary,
-    LoopDefinition, LoopRun, LoopRunStatus,
+    LoopDefinition, LoopRun, LoopRunStatus, ParsedMemoryActions,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -948,13 +948,9 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// no longer a filter, which is why `list`/`list_all_for_agent`/`delete_all_for_agent` collapsed
 /// into unscoped `list_all`/`delete_all`.
 pub(crate) trait AgentMemoryPort: Send + Sync {
-    fn save(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        content: &str,
-        source: MemorySource,
-    ) -> Result<(), AgentRuntimeApplicationError>;
+    /// Writes one memory. Saving under a name that already exists replaces that memory rather than
+    /// creating a second one for the same name — the update path the row store could not express.
+    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError>;
 
     /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
@@ -978,12 +974,36 @@ pub(crate) trait AgentMemoryPort: Send + Sync {
 pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
     /// `exchange` is the turn's plain-text content (the user's message and the agent's final
     /// response) — not provider wire-format turns, since CLI-wrapped agents never produce those.
-    /// Returns `Ok(None)` when the call succeeds but finds nothing worth remembering, mirroring
-    /// `extract_memories`'s existing empty-result semantics. Does not persist anything itself —
-    /// the caller decides how to split and save the result (mirroring `extract_memories`'s own
-    /// one-memory-per-line convention) via `AgentMemoryPort`, using whatever `agent_id`/`folder`
-    /// it already has in scope.
-    fn extract(&self, exchange: &str) -> Result<Option<String>, AgentRuntimeApplicationError>;
+    ///
+    /// Returns a validated action list. An empty list means the call succeeded and found nothing
+    /// worth remembering, which is the expected outcome most of the time; `Err` means the call or
+    /// its response malfunctioned. Since `migrate-agent-memory-to-file-store` the result is
+    /// actions rather than prose the caller splits per line, because a line can only ever create a
+    /// memory and never correct or retract one. Persisting is still the caller's job, via
+    /// `AgentMemoryPort` with whatever `agent_id`/`folder` it already has in scope.
+    fn extract(
+        &self,
+        exchange: &str,
+        existing: &str,
+    ) -> Result<ParsedMemoryActions, AgentRuntimeApplicationError>;
+}
+
+/// Chooses which stored memories are worth injecting in full for one generation
+/// (`add-two-tier-memory-recall`).
+///
+/// Sees names, types, ages, and descriptions — never bodies — so its cost scales with how many
+/// memories exist rather than how large they are. Returns the selected names; an empty result
+/// means nothing was clearly useful, which is the expected outcome most of the time and never an
+/// error. `Err` is reserved for a call that could not be made or whose result was unusable, and
+/// the caller degrades to index-only injection rather than failing the generation.
+// Wired by task 3.1, which runs the selection once at generation start.
+#[allow(dead_code)]
+pub(crate) trait AgentMemorySelectionPort: Send + Sync {
+    fn select(
+        &self,
+        query: &str,
+        candidates: &[AgentMemory],
+    ) -> Result<Vec<String>, AgentRuntimeApplicationError>;
 }
 
 /// Host-level personalization settings read from `desktop` at generation time

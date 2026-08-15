@@ -2,6 +2,7 @@
 //! `GenerationProcessEvent` vocabulary. No I/O lives here so this module is unit-testable without
 //! a live network connection, mirroring `providers::output`'s CLI-line-parsing tests.
 
+use super::agent_image::AgentImage;
 use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
@@ -19,9 +20,11 @@ pub(crate) fn project_request_context(
     )
 }
 
-/// A tool call's block, its output text, and whether execution failed — the shape both wire
-/// formats need to build a reply turn from.
-type ExecutedToolCall = (ToolUseBlock, String, bool);
+/// A tool call's block, its output text, whether execution failed, and any image it returned
+/// (`add-agent-image-input`). The image travels beside the text rather than inside it: a
+/// `tool_result` carries structured content, and base64 pasted into the text field would be read
+/// as prose.
+type ExecutedToolCall = (ToolUseBlock, String, bool, Option<AgentImage>);
 
 pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 8192;
@@ -88,7 +91,7 @@ pub(crate) fn build_reply_turns(assistant_text: &str, executed: &[ExecutedToolCa
     if !assistant_text.is_empty() {
         assistant_content.push(json!({ "type": "text", "text": assistant_text }));
     }
-    for (tool_use, _, _) in executed {
+    for (tool_use, _, _, _) in executed {
         assistant_content.push(json!({
             "type": "tool_use",
             "id": tool_use.id,
@@ -98,11 +101,11 @@ pub(crate) fn build_reply_turns(assistant_text: &str, executed: &[ExecutedToolCa
     }
     let tool_results: Vec<Value> = executed
         .iter()
-        .map(|(tool_use, output, is_error)| {
+        .map(|(tool_use, output, is_error, image)| {
             json!({
                 "type": "tool_result",
                 "tool_use_id": tool_use.id,
-                "content": output,
+                "content": tool_result_content(output, image.as_ref()),
                 "is_error": is_error,
             })
         })
@@ -111,6 +114,31 @@ pub(crate) fn build_reply_turns(assistant_text: &str, executed: &[ExecutedToolCa
         json!({ "role": "assistant", "content": assistant_content }),
         json!({ "role": "user", "content": tool_results }),
     ]
+}
+
+/// A `tool_result`'s content: plain text when there is no image, otherwise a content-block array
+/// carrying the text and the image. Text-only results keep the bare-string shape they had before
+/// image support existed, so no existing request body changes.
+fn tool_result_content(output: &str, image: Option<&AgentImage>) -> Value {
+    let Some(image) = image else {
+        return Value::String(output.to_string());
+    };
+    json!([
+        { "type": "text", "text": output },
+        image_content_block(image),
+    ])
+}
+
+/// Anthropic's base64 image source shape.
+pub(crate) fn image_content_block(image: &AgentImage) -> Value {
+    json!({
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image.media_type().as_str(),
+            "data": image.base64(),
+        },
+    })
 }
 
 /// Translates one decoded SSE `data:` payload into an application event, or `None` when the
@@ -379,7 +407,7 @@ mod tests {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
         let body = build_request_body("claude-opus-4-8", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
-        assert_eq!(declared.len(), 9);
+        assert_eq!(declared.len(), 13);
         assert_eq!(declared[0]["name"], "shell");
         assert!(declared[0]["input_schema"]["properties"]["command"].is_object());
         assert_eq!(declared[1]["name"], "file");
@@ -390,6 +418,9 @@ mod tests {
         assert_eq!(declared[6]["name"], "list_skills");
         assert_eq!(declared[7]["name"], "load_skill");
         assert_eq!(declared[8]["name"], "read_skill_resource");
+        assert_eq!(declared[9]["name"], "shell_output");
+        assert_eq!(declared[10]["name"], "shell_kill");
+        assert_eq!(declared[11]["name"], "todo_write");
         assert_eq!(declared[7]["input_schema"]["additionalProperties"], false);
     }
 
@@ -466,6 +497,19 @@ mod tests {
         assert!(accumulator.take_completed().is_empty());
     }
 
+    /// A tiny real PNG, prepared through the same path production uses -- a hand-written struct
+    /// literal would let the wire tests pass while `prepare_image` rejected the same bytes.
+    fn sample_image() -> super::super::agent_image::AgentImage {
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(4, 4))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .expect("encode fixture");
+        super::super::agent_image::prepare_image(&bytes, None).expect("prepare fixture")
+    }
+
     #[test]
     fn build_reply_turns_includes_text_tool_use_and_tool_result() {
         let tool_use = ToolUseBlock {
@@ -475,7 +519,10 @@ mod tests {
             output: None,
             status: "pending".to_string(),
         };
-        let turns = build_reply_turns("Let me check.", &[(tool_use, "a.txt\n".to_string(), false)]);
+        let turns = build_reply_turns(
+            "Let me check.",
+            &[(tool_use, "a.txt\n".to_string(), false, None)],
+        );
         assert_eq!(turns.len(), 2);
         assert_eq!(turns[0]["role"], "assistant");
         assert_eq!(turns[0]["content"][0]["type"], "text");
@@ -609,5 +656,49 @@ mod tests {
             failure.diagnostic,
             "Anthropic API request failed with status 500."
         );
+    }
+
+    /// A text-only result keeps the bare-string content shape it had before image support, so no
+    /// existing request body changes.
+    #[test]
+    fn a_text_only_tool_result_keeps_its_plain_string_content() {
+        let tool_use = ToolUseBlock {
+            id: "toolu_text".to_string(),
+            name: "file".to_string(),
+            input: Some(json!({"path": "a.txt"})),
+            output: None,
+            status: "pending".to_string(),
+        };
+        let turns = build_reply_turns("", &[(tool_use, "hello".to_string(), false, None)]);
+        assert_eq!(turns[1]["content"][0]["content"], "hello");
+    }
+
+    #[test]
+    fn an_image_result_becomes_a_text_and_image_content_block_pair() {
+        let image = sample_image();
+        let tool_use = ToolUseBlock {
+            id: "toolu_image".to_string(),
+            name: "file".to_string(),
+            input: Some(json!({"path": "shot.png"})),
+            output: None,
+            status: "pending".to_string(),
+        };
+        let turns = build_reply_turns(
+            "",
+            &[(
+                tool_use,
+                "read shot.png".to_string(),
+                false,
+                Some(image.clone()),
+            )],
+        );
+
+        let content = &turns[1]["content"][0]["content"];
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "read shot.png");
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+        assert_eq!(content[1]["source"]["data"], image.base64());
     }
 }

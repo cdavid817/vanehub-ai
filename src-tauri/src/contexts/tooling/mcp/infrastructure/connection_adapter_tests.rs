@@ -77,9 +77,15 @@ fn stop_fixture(mut child: Child) {
 
 async fn wait_for_fixture_phase(url: &str, expected: &str) {
     let phase_url = format!("{}/phase", url.trim_end_matches("/mcp"));
+    // The fixture is on loopback; a default client would route this through the host's proxy and
+    // the phase would never be observed, so the wait would only ever time out.
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("loopback client");
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(response) = reqwest::get(&phase_url).await {
+            if let Ok(response) = client.get(&phase_url).send().await {
                 if let Ok(phase) = response.text().await {
                     if phase == expected {
                         return;

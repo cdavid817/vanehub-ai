@@ -16,7 +16,9 @@ export async function createAndRunLoop(page: Page, name: string) {
   await page.getByLabel("名称").fill(name);
   await page.getByLabel("项目路径").fill("D:\\example-loop-project");
   await page.getByLabel("基础分支").fill("main");
-  await page.getByLabel("目标").fill("实现并验证 Loop 工程流程");
+  // Exact: getByLabel substring-matches, so the Goal Center destination and its
+  // activity-bar button would otherwise be swept in alongside this field.
+  await page.getByLabel("目标", { exact: true }).fill("实现并验证 Loop 工程流程");
   await page.getByLabel("验收标准（每行一项）").fill("所有检查通过\n保留完整证据");
   await page.getByLabel("允许路径（每行一项）").fill("src\ntests");
   await page.getByLabel("保护路径（每行一项）").fill(".git");

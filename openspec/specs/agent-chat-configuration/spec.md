@@ -36,7 +36,7 @@ The system SHALL pass the session's configured reasoning depth to the provider w
 - **THEN** the request sent to the provider SHALL NOT include a reasoning-effort field
 
 ### Requirement: Plan mode restricts a native API agent to read-only tools
-The system SHALL, when the session's permission mode is plan mode, offer a native API agent only tools that cannot modify the user's system, execute arbitrary code, start an external delegated Agent, apply delegated changes, publish new Artifacts, or call an arbitrary network or tool server. Read-only fixed Skill tools SHALL remain available, as SHALL configured read-only LSP queries against an explicitly trusted local workspace. For OnePiece, bounded reads of existing Artifacts and local OCR extraction that does not publish a derived Artifact MAY remain available when their readiness predicates pass. The system SHALL reject any attempt to use a tool or operation outside the restricted set regardless of what the model requests.
+The system SHALL, when the session's permission mode is plan mode, offer a native API agent only tools that cannot modify the user's system, execute arbitrary code, start an external delegated Agent, apply delegated changes, publish new Artifacts, or call an arbitrary network or tool server. Read-only fixed Skill tools SHALL remain available, as SHALL configured read-only LSP queries against an explicitly trusted local workspace. For OnePiece, bounded reads of existing Artifacts and local OCR extraction that does not publish a derived Artifact MAY remain available when their readiness predicates pass. The plan-mode catalog SHALL additionally offer the tool by which the model requests to leave plan mode, which modifies nothing and takes effect only on explicit user approval. The system SHALL reject any attempt to use a tool or operation outside the restricted set regardless of what the model requests.
 
 #### Scenario: Plan mode excludes shell and MCP-sourced tools from the catalog
 - **WHEN** a generation starts in plan mode
@@ -80,6 +80,10 @@ The system SHALL, when the session's permission mode is plan mode, offer a nativ
 - **WHEN** a generation starts with a permission mode other than plan mode
 - **THEN** the tool catalog and tool execution behavior SHALL remain governed by that mode's existing permission and tool-availability rules
 - **AND** the read-only fixed Skill tools and eligible OnePiece-only tools SHALL be available according to their effective runtime predicates
+
+#### Scenario: Plan mode offers the request to leave plan mode
+- **WHEN** a generation starts in plan mode
+- **THEN** the tool catalog offered to the model SHALL include the tool by which the model requests to leave plan mode
 
 ### Requirement: Context compaction is unaffected by turn-level generation settings
 The system SHALL NOT apply a session's thinking, reasoning-depth, or permission-mode settings to context compaction's own internal summarization request.

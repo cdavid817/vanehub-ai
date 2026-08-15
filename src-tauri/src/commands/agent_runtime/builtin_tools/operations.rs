@@ -145,7 +145,7 @@ fn capability(tool_name: &str) -> &'static str {
         "code_execution" => "code_execution",
         "ocr" => "ocr",
         "artifact" => "artifact",
-        "delegate_cli" | "apply_delegation_changes" => "delegation",
+        "delegate_cli" | "apply_delegation_changes" | "delegate_subagent" => "delegation",
         "shell" => "command",
         _ => "filesystem",
     }
@@ -157,5 +157,56 @@ fn frontend_status(status: &str) -> &str {
         known
         @ ("queued" | "running" | "awaiting_human" | "succeeded" | "failed" | "cancelled") => known,
         _ => "failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::agent_runtime::application::ONEPIECE_ONLY_TOOL_NAMES;
+
+    /// `capability` falls back to `"filesystem"`, so a tool nobody remembered to map is not a
+    /// compile error -- it silently becomes a filesystem operation in the operations surface and
+    /// disappears from any capability filter. `delegate_subagent` did exactly that. This asserts
+    /// every extended tool is mapped deliberately.
+    #[test]
+    fn every_onepiece_only_tool_maps_to_a_deliberate_capability() {
+        for tool in ONEPIECE_ONLY_TOOL_NAMES {
+            assert_ne!(
+                capability(tool),
+                "filesystem",
+                "{tool} is falling through to the capability fallback"
+            );
+        }
+    }
+
+    /// Every capability this can emit must exist in the frontend's `BuiltinToolCapability` union,
+    /// or the operations listing carries a value the UI cannot type.
+    #[test]
+    fn emitted_capabilities_stay_within_the_frontend_union() {
+        const FRONTEND_UNION: [&str; 8] = [
+            "filesystem",
+            "command",
+            "browser",
+            "web",
+            "code_execution",
+            "ocr",
+            "artifact",
+            "delegation",
+        ];
+        let mut emitted: Vec<&str> = ONEPIECE_ONLY_TOOL_NAMES
+            .iter()
+            .copied()
+            .chain(["shell", "file", "grep", "glob", "edit"])
+            .map(capability)
+            .collect();
+        emitted.sort_unstable();
+        emitted.dedup();
+        for value in emitted {
+            assert!(
+                FRONTEND_UNION.contains(&value),
+                "{value} is not in BuiltinToolCapability"
+            );
+        }
     }
 }

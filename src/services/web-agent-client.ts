@@ -18,6 +18,7 @@ import {
 import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
+  AgentMemoryType,
   AgentRegistryEntry,
   ApiAgentProviderConfig,
   AssignSessionCategoryInput,
@@ -787,17 +788,79 @@ function applyWebOnePieceActiveProfile(profileId: string | null) {
 let webAgentMemories: AgentMemory[] = [];
 let nextAgentMemoryId = 1;
 
-function createAgentMemory(agentId: string, folder: string | null, content: string, source: AgentMemory["source"]): AgentMemory {
+/** Mirrors the native store's deterministic derivation: a writer that supplies no name gets one
+ * from the content, and only ASCII survives slugging, so non-Latin content falls back to the
+ * sequence number rather than producing an empty stem. */
+function deriveMemoryName(content: string, sequence: number): string {
+  const slug = content
+    .split(/[^a-zA-Z0-9]+/u)
+    .filter(Boolean)
+    .slice(0, 6)
+    .join("-")
+    .toLowerCase();
+  return slug || `memory-${sequence}`;
+}
+
+/** Mirrors the native bounds so the mock truncates where the desktop runtime would. */
+const WEB_MEMORY_INDEX_LINE_CAP = 200;
+
+/** Mirrors the native selection bound. */
+const WEB_MEMORY_SELECTION_CAP = 5;
+
+/**
+ * Simulates one generation's memory injection: an index over the whole pool, plus the handful of
+ * bodies a selection would have read in full.
+ *
+ * Deterministic rather than model-driven — the Web runtime must reproduce the desktop's observable
+ * shape without issuing a provider request, so it stands in for the selector with recency, which
+ * is the same ordering the index already uses.
+ */
+function simulateMemoryIndexInjection(): { indexed: number; selected: AgentMemory[] } {
+  const indexed = Math.min(webAgentMemories.length, WEB_MEMORY_INDEX_LINE_CAP);
+  return {
+    indexed,
+    selected: webAgentMemories.slice(0, Math.min(indexed, WEB_MEMORY_SELECTION_CAP)),
+  };
+}
+
+function disambiguateMemoryName(base: string): string {
+  if (!webAgentMemories.some((memory) => memory.name === base)) {
+    return base;
+  }
+  let suffix = 2;
+  while (webAgentMemories.some((memory) => memory.name === `${base}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}-${suffix}`;
+}
+
+function createAgentMemory(
+  agentId: string,
+  folder: string | null,
+  content: string,
+  source: AgentMemory["source"],
+  metadata: { name?: string; description?: string; memoryType?: AgentMemoryType | null } = {},
+): AgentMemory {
+  // An explicit name addresses an existing memory, so it is used as-is and replaces. A derived one
+  // must not: two agents recording the same fact are two memories in the shared pool, so the
+  // native store's collision suffix is mirrored here rather than silently merging them.
+  const name = metadata.name ?? disambiguateMemoryName(deriveMemoryName(content, nextAgentMemoryId));
   const memory: AgentMemory = {
-    id: `web-memory-${nextAgentMemoryId}`,
+    // The native store's identity is the file path, so the mock mirrors that shape rather than
+    // inventing an opaque id the management view would have to special-case.
+    id: `${name}.md`,
     agentId,
     folder,
+    name,
+    description: metadata.description ?? content.split("\n")[0] ?? content,
+    memoryType: metadata.memoryType ?? null,
     content,
     source,
     createdAt: nowIso(),
   };
   nextAgentMemoryId += 1;
-  webAgentMemories = [memory, ...webAgentMemories];
+  // Saving under an existing name replaces that memory, matching the native store's update path.
+  webAgentMemories = [memory, ...webAgentMemories.filter((existing) => existing.name !== name)];
   return memory;
 }
 
@@ -1906,6 +1969,68 @@ export function resolveWebMockToolApproval(sessionId: string, callId: string, ap
       name: pending.toolName,
       input: pending.input ?? { command: "echo mock" },
       output: approved ? pending.output ?? "mock\n" : "Denied by user.",
+      status: approved ? "completed" : "failed",
+    },
+  });
+  return true;
+}
+
+/**
+ * Web/mock backing for `resolveAgentQuestion`. Unlike the desktop runtime there is no blocked
+ * generation to resume, so "delivered" means only that a tool block in this session was still
+ * showing `awaiting_input` — the mock reports the round trip as simulated rather than implying a
+ * real wait ended.
+ */
+/**
+ * Marker that makes the Web/mock runtime simulate a clarification round trip. Web/mock has no
+ * model deciding when to ask, so the trigger stands in for that decision.
+ */
+export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
+
+/**
+ * Marker that makes the Web/mock runtime simulate a request to leave plan mode. Same reason as the
+ * question trigger: the request blocks until decided, so emitting one every turn would leave every
+ * other mock conversation waiting on a card.
+ */
+export const WEB_MOCK_PLAN_EXIT_TRIGGER = "[plan-done]";
+
+function resolveSimulatedQuestion(sessionId: string, callId: string, answer: string): boolean {
+  findSession(sessionId);
+  const message = getSessionMessages(sessionId).find((entry) =>
+    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
+  );
+  const pending = message?.toolUse?.find((tool) => tool.id === callId);
+  if (!message || !pending) return false;
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: message.id,
+    toolUse: { ...pending, output: answer, status: "completed" },
+  });
+  return true;
+}
+
+/**
+ * Web/mock backing for `resolvePlanExit`. Same simulation as an answer: nothing is blocked, so
+ * "delivered" means a matching tool block was still showing `awaiting_input`. The recorded output
+ * differs by decision so the mock cannot make a decline look like an approval.
+ */
+function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: boolean): boolean {
+  findSession(sessionId);
+  const message = getSessionMessages(sessionId).find((entry) =>
+    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
+  );
+  const pending = message?.toolUse?.find((tool) => tool.id === callId);
+  if (!message || !pending) return false;
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: message.id,
+    toolUse: {
+      ...pending,
+      output: approved
+        ? "The user approved your plan and this session has left plan mode."
+        : "The user did not approve this plan. The session is still in plan mode.",
       status: approved ? "completed" : "failed",
     },
   });
@@ -3997,6 +4122,10 @@ export const webAgentClient: AgentService = {
     // produced by this session's own agent/folder.
     const hadExistingMemories = webAgentMemories.length > 0;
     if (memoryEnabled && hadExistingMemories) {
+      // `add-two-tier-memory-recall`: the index is what every request carries, so the mock reports
+      // how many memories it names. Neither this nor the selection below depends on an embedding
+      // source being configured — memory has to work on an installation without retrieval.
+      const injected = simulateMemoryIndexInjection();
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -4007,7 +4136,7 @@ export const webAgentClient: AgentService = {
             kind: "card",
             v: 1,
             title: "Memory applied",
-            bodyMarkdown: "This response was influenced by memories saved in earlier sessions.",
+            bodyMarkdown: `This response was influenced by memories saved in earlier sessions. Index carried ${injected.indexed} of them; ${injected.selected.length} read in full.`,
             tone: "info",
           },
         });
@@ -4128,6 +4257,47 @@ export const webAgentClient: AgentService = {
         });
       }, 230);
       timeoutIds.push(approvalTimeoutId);
+      // Clarification round trip (`add-agent-user-question`). Gated on an explicit marker in the
+      // message rather than emitted every turn: a question blocks until answered, so simulating
+      // one unconditionally would leave every other mock conversation waiting on a card.
+      if (input.content.includes(WEB_MOCK_QUESTION_TRIGGER)) {
+        const questionTimeoutId = setTimeout(() => {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-tool-question-${assistantMessage.id}`,
+              name: "ask_user_question",
+              input: {
+                question: "Which approach should the simulated agent take?",
+                options: ["Rewrite the module", "Patch it in place"],
+              },
+              status: "awaiting_input",
+            },
+          });
+        }, 240);
+        timeoutIds.push(questionTimeoutId);
+      }
+      // Request to leave plan mode (`add-agent-plan-exit-request`).
+      if (input.content.includes(WEB_MOCK_PLAN_EXIT_TRIGGER)) {
+        const planExitTimeoutId = setTimeout(() => {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-tool-plan-exit-${assistantMessage.id}`,
+              name: "exit_plan_mode",
+              input: {
+                plan: "Rewrite the parser, then update its three callers.",
+              },
+              status: "awaiting_input",
+            },
+          });
+        }, 245);
+        timeoutIds.push(planExitTimeoutId);
+      }
       // Read-only search (`add-onepiece-search-and-edit-tools`): `grep` is classified
       // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
       // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
@@ -4394,6 +4564,19 @@ export const webAgentClient: AgentService = {
       ...input,
       sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
     });
+  },
+
+  /**
+   * The Web runtime simulates the round trip: nothing is actually blocked on the answer, so this
+   * reports delivery only when a matching tool block is still showing `awaiting_input` and marks
+   * it completed with the answer, rather than claiming a real generation resumed.
+   */
+  async resolveAgentQuestion(sessionId: string, callId: string, answer: string) {
+    return resolveSimulatedQuestion(sessionId, callId, answer);
+  },
+
+  async resolvePlanExit(sessionId: string, callId: string, approved: boolean) {
+    return resolveSimulatedPlanExit(sessionId, callId, approved);
   },
 
   async stopGeneration(sessionId: string) {

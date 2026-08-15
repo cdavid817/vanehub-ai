@@ -81,6 +81,7 @@ impl UtilityChildExecutionPort for NativeUtilityChildExecutor {
             &turns,
             "Return only the bounded specialist result.",
             &cancellation,
+            None,
         );
         if started.elapsed().as_millis() as u64 >= request.limits.duration_ms {
             return outcome(
