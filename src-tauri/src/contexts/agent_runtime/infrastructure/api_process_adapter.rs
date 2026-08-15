@@ -3228,10 +3228,30 @@ fn summarize_turns_with_usage(
         system,
         &GenerationOptions::disabled(),
     );
+    let (text, _tool_calls, usage) =
+        stream_completion(wire_format, client, api_key, &body, cancelled)?;
+    let trimmed = text.trim();
+    Ok(((!trimmed.is_empty()).then(|| trimmed.to_string()), usage))
+}
+
+/// Sends one request and drains its SSE stream into assistant text, any completed tool calls, and
+/// the provider's reported usage.
+///
+/// Shared by the internal summarization calls (which declare no tools and discard the tool-call
+/// half) and by the subagent child loop (which needs it). Extracted rather than copied because a
+/// second SSE reader is a second place for the `data:`/blank-line framing, cancellation, and
+/// terminal-event handling to drift.
+fn stream_completion(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    body: &Value,
+    cancelled: &AtomicBool,
+) -> Result<(String, Vec<ToolUseBlock>, Option<ReportedUsageTotals>), String> {
     let request_builder = (wire_format.apply_auth)(client.post(&wire_format.endpoint), api_key);
     let response = request_builder
         .header("content-type", "application/json")
-        .json(&body)
+        .json(body)
         .send()
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
@@ -3241,7 +3261,7 @@ fn summarize_turns_with_usage(
     let mut reader = std::io::BufReader::new(response);
     let mut current_data: Option<String> = None;
     let mut accumulator = ToolCallAccumulator::default();
-    let mut summary = String::new();
+    let mut text = String::new();
     let mut usage = None;
     loop {
         if cancelled.load(Ordering::SeqCst) {
@@ -3267,15 +3287,58 @@ fn summarize_turns_with_usage(
                         break;
                     }
                     Some(GenerationProcessEvent::Failed(failure)) => return Err(failure.diagnostic),
-                    Some(GenerationProcessEvent::Token(text)) => summary.push_str(&text),
+                    Some(GenerationProcessEvent::Token(text_delta)) => text.push_str(&text_delta),
                     _ => {}
                 }
             }
         }
     }
 
-    let trimmed = summary.trim();
-    Ok(((!trimmed.is_empty()).then(|| trimmed.to_string()), usage))
+    Ok((text, accumulator.take_completed(), usage))
+}
+
+/// Builds the reply turns that carry a child's executed tool results back into its next request.
+///
+/// Exists so `WireFormat`'s function pointers stay private and the subagent module never has to
+/// know about `ExecutedToolCall`'s image slot, which a read-only child can never fill
+/// (`add-onepiece-subagents`).
+pub(crate) fn child_reply_turns(
+    wire_format: &WireFormat,
+    assistant_text: &str,
+    executed: &[(ToolUseBlock, String, bool)],
+) -> Vec<Value> {
+    let executed: Vec<ExecutedToolCall> = executed
+        .iter()
+        .map(|(call, output, is_error)| (call.clone(), output.clone(), *is_error, None))
+        .collect();
+    (wire_format.build_reply_turns)(assistant_text, &executed)
+}
+
+/// One turn of a subagent child loop: sends `turns` with the child's restricted tool catalog and
+/// returns what the model said plus any tool calls it wants executed
+/// (`add-onepiece-subagents`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_child_turn(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    turns: &[Value],
+    tools: &[ToolDefinition],
+    cancelled: &AtomicBool,
+) -> Result<(String, Vec<ToolUseBlock>), String> {
+    // Never inherits the parent turn's thinking/reasoning settings: a child is an internal,
+    // bounded investigation, not the user-facing turn.
+    let body = (wire_format.build_request_body)(
+        model,
+        turns,
+        tools,
+        system,
+        &GenerationOptions::disabled(),
+    );
+    stream_completion(wire_format, client, api_key, &body, cancelled)
+        .map(|(text, tool_calls, _usage)| (text, tool_calls))
 }
 
 #[allow(clippy::too_many_arguments)]

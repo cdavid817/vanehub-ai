@@ -3,17 +3,17 @@ use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServic
 use crate::contexts::agent_runtime::application::{
     web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentRetrievalPort,
     AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, AgentWorkspaceMutationPort,
-    ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
-    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextQualityQueryService,
-    ContextQualityRecorder, DelegateCliNativeToolHandler, ExpertRoleApplicationPorts,
-    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
-    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
-    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
-    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
-    LoopVerificationApplicationService, LoopVerifierApplicationPorts,
-    LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
-    ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
+    AgentTerminalApplicationService, AgentWorkspaceMutationPort, ApiAgentGateway,
+    ApiCredentialPort, ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler,
+    BrowserHandoffControlPort, BrowserNativeToolHandler, CodeExecutionNativeToolHandler,
+    ContextQualityQueryService, ContextQualityRecorder, DelegateCliNativeToolHandler,
+    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LoopApplicationPorts,
+    LoopApplicationService, LoopControlApplicationPorts, LoopControlApplicationService,
+    LoopOperationObserver, LoopOrchestratorApplicationService, LoopOrchestratorPorts,
+    LoopProgressApplicationService, LoopRecoveryApplicationPorts, LoopRecoveryApplicationService,
+    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+    LoopVerifierApplicationPorts, LoopVerifierApplicationService, LoopWorkerApplicationPorts,
+    LoopWorkerApplicationService, ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
     OnePieceToolFeatureGates, SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
     UtilityDelegationApplicationService,
@@ -25,18 +25,18 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
     ManualNativeToolOperationAdapter, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
-    NativeSeatTurnCoordinator, NativeUtilityChildExecutor, OsApiCredentialAdapter,
-    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
-    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
-    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
-    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
-    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
-    SqliteLoopRepository, SqliteNativeToolRepository, StructuredLoopVerificationProcess,
-    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    NativeSeatTurnCoordinator, NativeSubagentExecutor, NativeUtilityChildExecutor,
+    OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
+    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
+    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
+    RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
+    SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
+    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UnavailableNativeToolPort, UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -179,6 +179,8 @@ fn assemble_native_tool_registry(
     database: &NativeDatabase,
     app: &AppHandle,
     cli: &CliApi,
+    credentials: Arc<dyn ApiCredentialPort>,
+    agents: Arc<dyn ApiAgentGateway>,
 ) -> Result<
     (
         NativeToolRegistry,
@@ -289,16 +291,11 @@ fn assemble_native_tool_registry(
             NativeToolReadinessReasonCode::IsolationUnavailable,
         );
     }
-    // Registered so its eligibility, gating, and approval classification are live and testable,
-    // but reporting backend-unavailable until the child attempt executor lands
-    // (`add-onepiece-subagents`). The gate defaults off regardless.
+    // The child reuses the parent's own credential and provider configuration through the
+    // existing boundary rather than receiving copies (`add-onepiece-subagents`).
     handlers.push(Arc::new(SubagentNativeToolHandler::new(Arc::new(
-        UnavailableNativeToolPort,
+        NativeSubagentExecutor::new(credentials, agents),
     ))));
-    readiness_reasons.insert(
-        "delegate_subagent".to_owned(),
-        NativeToolReadinessReasonCode::BackendUnavailable,
-    );
     if readiness {
         let port = Arc::new(OcrNativeToolAdapter::new(
             install_path,
@@ -529,6 +526,8 @@ pub(crate) fn assemble_agent_runtime_api(
         &dependencies.database,
         &dependencies.app,
         &dependencies.cli,
+        api_credentials.clone(),
+        repository.clone(),
     )?;
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(

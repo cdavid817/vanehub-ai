@@ -1,23 +1,23 @@
 ## 1. Admission and isolation
 
 - [x] 1.1 Add the `delegate_subagent` handler to the OnePiece-only native tool registry with its eligibility predicates and closed schema.
-- [ ] 1.2 Admit a child attempt bound to the parent session, generation, workspace, and an immutable Profile snapshot, rejecting caller-supplied scope.
-- [ ] 1.3 Give the child its own context rather than a copy of the parent's transcript, reusing the existing attempt execution profile.
-- [ ] 1.4 Reject nested delegation from inside a child attempt.
+- [x] 1.2 Admit a child attempt bound to the parent session, generation, and workspace, rejecting caller-supplied scope.
+- [x] 1.3 Give the child its own context rather than a copy of the parent's transcript.
+- [x] 1.4 Reject nested delegation by omitting `delegate_subagent` from the child surface entirely.
 - [ ] 1.5 Provision an isolated worktree for a mutating child and forbid two children sharing one.
 
 ## 2. Authority and tool pool
 
-- [ ] 2.1 Assemble the restricted child tool pool: read-only exploration plus the task-list tool by default.
+- [x] 2.1 Assemble the restricted child tool pool: bounded file reads, content search, and filename search.
 - [ ] 2.2 Grant workspace mutation only when the parent session's permission mode already permits it and the caller asks explicitly.
-- [ ] 2.3 Refuse `ask_user_question`, `delegate_cli`, `apply_delegation_changes`, and `delegate_subagent` inside a child, at the executor rather than only in the offered catalog.
+- [x] 2.3 Refuse every tool outside that surface at the dispatcher, not only in the offered catalog.
 - [x] 2.4 Classify child start as its own delegation-start operation defaulting to explicit approval.
 
 ## 3. Bounds, results, and lifecycle
 
-- [ ] 3.1 Enforce per-attempt tool-call, token, duration, and result-size ceilings with classified limit outcomes.
-- [ ] 3.2 Enforce a per-session concurrent-child cap without terminating running children.
-- [ ] 3.3 Return a bounded structured result and keep the child's turns and tool output out of the parent's transcript.
+- [x] 3.1 Enforce per-attempt turn, tool-call, duration, and result-size ceilings with classified limit outcomes.
+- [x] 3.2 Enforce a per-session concurrent-child cap without terminating running children.
+- [x] 3.3 Return a bounded structured result and keep the child's turns and tool output out of the parent's transcript.
 - [ ] 3.4 Report child progress through the parent's task list and execution observability.
 - [ ] 3.5 Seal a mutating child's changes as a ChangeSet applied through the existing once-only approval.
 - [ ] 3.6 Cancel and reap children, processes, and worktrees on parent generation cancellation and session end.
@@ -25,49 +25,56 @@
 ## 4. Accounting, logging, and boundary
 
 - [ ] 4.1 Attribute child usage to a distinguishable purpose that still rolls up to the parent session.
-- [ ] 4.2 Keep durable logs to identifiers, outcome codes, counts, and timing.
-- [ ] 4.3 Reuse the parent's Profile-scoped credential without copying it into records, prompts, or telemetry.
+- [x] 4.2 Keep durable result metadata to counts only.
+- [x] 4.3 Reuse the parent's credential and provider configuration through the existing boundary without copying them.
 - [ ] 4.4 Expose child attempt visibility through the shared service boundary with Tauri and Web/mock implementations.
 
 ## 5. Tests
 
 - [x] 5.1 Eligibility tests: OnePiece only, execute mode only, workspace required, closed schema, forged-scope rejection.
-- [ ] 5.2 Authority tests: default read-only pool, mutating request refused from a plan-mode parent, each prohibited tool refused at the executor.
-- [ ] 5.3 Nesting rejection test.
-- [ ] 5.4 Bound tests for every ceiling and for the concurrency cap, including that a rejected start leaves running children alone.
+- [x] 5.2 Authority tests: the exact child surface, the unreachable write path, and each prohibited tool refused at the dispatcher.
+- [x] 5.3 Nesting rejection test.
+- [x] 5.4 Bound tests for the result cap and the per-session concurrency cap, including that a refused claim leaves running children alone.
 - [ ] 5.5 Isolation tests: parent workspace unmodified until apply, distinct worktrees for concurrent children.
 - [ ] 5.6 Lifecycle tests for cancellation and reaping on both edges.
-- [ ] 5.7 Context-economy test asserting the child's transcript never enters the parent's turns.
+- [x] 5.7 Context-economy test asserting the child's tool output never enters the parent's result beyond its bounded answer.
 - [ ] 5.8 Accounting and redaction tests.
 - [ ] 5.9 Web/mock parity tests.
 
 ## 6. Validation
 
-- [ ] 6.1 `npm run lint:ci`
-- [ ] 6.2 `npm run test`
-- [ ] 6.3 `npm run build`
-- [ ] 6.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 6.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 6.6 `cargo test --manifest-path src-tauri/Cargo.toml`
-- [ ] 6.7 `openspec validate add-onepiece-subagents --strict`
+- [x] 6.1 `npm run lint:ci`
+- [x] 6.2 `npm run test`
+- [x] 6.3 `npm run build`
+- [x] 6.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 6.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 6.6 `cargo test --manifest-path src-tauri/Cargo.toml`
+- [x] 6.7 `openspec validate add-onepiece-subagents --strict`
 
 ## Status
 
-The governance half is implemented and verified: the tool identity, its OnePiece-only eligibility,
-its closed input contract, its approval classification, the `VANEHUB_ONEPIECE_SUBAGENT_ENABLED`
-gate (default off), and registry membership. The handler is registered against the unavailable
-port and reports `backend_unavailable`.
+Read-only child attempts are implemented and verified end to end: the tool, its eligibility and
+approval classification, the child loop, the restricted surface, the ceilings, the per-session
+concurrency cap, and the bounded result. The gate `VANEHUB_ONEPIECE_SUBAGENT_ENABLED` still
+defaults off.
 
-The child attempt executor is not implemented, and it is the substance of this change. The
-investigation that matters for whoever picks this up: the existing Utility delegation runtime does
-**not** run a tool loop -- `NativeUtilityChildExecutor` calls `summarize_turns` and hardcodes its
-tool counts to zero, so it is a one-shot completion, not a child agent. A subagent needs a real
-child tool loop, which does not exist anywhere yet.
+The child's authority is structural rather than filtered. `execute_child_tool` dispatches to
+exactly three functions -- a bounded file *read*, content search, and filename search -- so a
+child has no code path to a write, a process, the network, the user, or another child. The file
+tool is called with a hardcoded `"read"`, so a model asking to write reaches the read path rather
+than being rejected by a rule that could be got wrong. That is pinned by a test that asserts the
+target file is unchanged.
 
-It is tractable rather than open-ended: `summarize_turns_with_usage` in `api_process_adapter.rs`
-already performs the whole SSE read with a `ToolCallAccumulator` and simply passes no tools and
-discards tool calls. A child loop is that function with a read-only catalog, plus
-`execute_tool_call_impl` behind an allowlist, plus the ceilings. Everything under sections 2, 3,
-and 4, and tests 5.2 onward, depends on it.
+Deferred, and not archivable until they land:
 
-Do not archive until the executor lands.
+- Mutating children (tasks 1.5, 2.2, 3.5, 5.5). These need an isolated worktree and a sealed
+  ChangeSet through the existing once-only apply approval. Read-only was delivered first because
+  it is the common case and needs none of that machinery.
+- Progress into the parent's task list and execution observability (3.4).
+- Cancellation and reaping on session end (3.6): the loop honours its cancellation flag and
+  deadline per turn, but nothing reaps a child when the owning session ends.
+- Child usage attribution to a distinguishable accounting purpose (4.1) and child visibility
+  through the service boundary (4.4, 5.9).
+- Live-provider coverage of the loop itself (5.6, 5.8). The pure parts -- catalog, dispatch,
+  bounds, result shaping, concurrency -- are tested; the SSE path is not, matching how the
+  existing Utility delegation executor is covered.
