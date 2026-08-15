@@ -1184,6 +1184,7 @@ fn message_record(
                 "main.rs",
                 Some(12),
                 Some("hash".to_string()),
+                None,
             )
             .expect("reference")])
             .expect("references"),
@@ -4820,11 +4821,21 @@ fn persisted_configuration_shape_is_separate_from_domain_preferences() {
         name: "main.rs".to_string(),
         size_bytes: Some(12),
         content_hash: None,
+        start_line: Some(10),
+        end_line: Some(50),
     };
-    assert_eq!(
-        serde_json::to_value(reference).expect("serialize reference")["sizeBytes"],
-        12
-    );
+    let serialized = serde_json::to_value(reference).expect("serialize reference");
+    assert_eq!(serialized["sizeBytes"], 12);
+    assert_eq!(serialized["startLine"], 10);
+    assert_eq!(serialized["endLine"], 50);
+    // A row written before line ranges existed must still deserialize, as a whole-file
+    // reference — this is what makes the added fields need no schema migration.
+    let legacy: FileReferenceInput = serde_json::from_str(
+        r#"{"id":"legacy","path":"src/main.rs","name":"main.rs","sizeBytes":12,"contentHash":null}"#,
+    )
+    .expect("deserialize legacy reference");
+    assert_eq!(legacy.start_line, None);
+    assert_eq!(legacy.end_line, None);
 }
 
 #[test]

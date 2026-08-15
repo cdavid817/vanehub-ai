@@ -155,6 +155,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-13 | complete-onepiece-plan-agent-loop | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management | `openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/` |
 | 2026-08-13 | establish-fine-grained-token-accounting | agent-terminal-runtime, api-agent-runtime, onepiece-native-agent, settings-usage-statistics-ui, token-accounting, usage-statistics | `openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/` |
 | 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
+| 2026-08-14 | add-file-reference-line-ranges | chat-experience | `openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/` |
 | 2026-08-14 | add-onepiece-context-evidence-and-controls-ui | agent-context-compaction-control, agent-context-evidence-projection, app-settings, chat-experience, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/` |
 | 2026-08-14 | add-onepiece-context-measurement-and-classification | agent-context-compaction, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-measurement-and-classification/` |
 | 2026-08-14 | add-onepiece-context-optimizer | agent-context-compaction, agent-context-optimization | `openspec/changes/archive/2026-08-14-add-onepiece-context-optimizer/` |
@@ -165,6 +166,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 | 2026-08-14 | add-utility-skill-delegation-runtime | effective-skill-runtime, settings-skill-management-ui, skill-management, utility-skill-delegation-runtime | `openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/` |
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
+| 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

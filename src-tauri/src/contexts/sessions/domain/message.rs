@@ -3,6 +3,44 @@ use std::collections::BTreeSet;
 
 pub(crate) const MAX_FILE_REFERENCES: usize = 5;
 
+/// An inclusive 1-based line span. Holding both bounds together makes a half-specified
+/// range unrepresentable rather than something every consumer has to re-check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct FileLineRange {
+    start: u32,
+    end: u32,
+}
+
+impl FileLineRange {
+    pub(crate) fn new(start: u32, end: u32) -> Result<Self, SessionsDomainError> {
+        if start == 0 || end < start {
+            return Err(SessionsDomainError::InvalidFileReferenceRange);
+        }
+        Ok(Self { start, end })
+    }
+
+    /// Boundary conversion: the wire and storage formats carry two independent optional
+    /// bounds, and exactly one of them present is the error this catches.
+    pub(crate) fn from_optional_bounds(
+        start: Option<u32>,
+        end: Option<u32>,
+    ) -> Result<Option<Self>, SessionsDomainError> {
+        match (start, end) {
+            (None, None) => Ok(None),
+            (Some(start), Some(end)) => Self::new(start, end).map(Some),
+            _ => Err(SessionsDomainError::InvalidFileReferenceRange),
+        }
+    }
+
+    pub(crate) fn start(&self) -> u32 {
+        self.start
+    }
+
+    pub(crate) fn end(&self) -> u32 {
+        self.end
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileReference {
     id: String,
@@ -10,6 +48,7 @@ pub(crate) struct FileReference {
     name: String,
     size_bytes: Option<i64>,
     content_hash: Option<String>,
+    line_range: Option<FileLineRange>,
 }
 
 impl FileReference {
@@ -19,6 +58,7 @@ impl FileReference {
         name: impl Into<String>,
         size_bytes: Option<i64>,
         content_hash: Option<String>,
+        line_range: Option<FileLineRange>,
     ) -> Result<Self, SessionsDomainError> {
         let id = required_file_field(id.into(), "id")?;
         let path = required_file_field(path.into(), "path")?;
@@ -32,6 +72,7 @@ impl FileReference {
             name,
             size_bytes,
             content_hash,
+            line_range,
         })
     }
 
@@ -54,6 +95,23 @@ impl FileReference {
     pub(crate) fn content_hash(&self) -> Option<&str> {
         self.content_hash.as_deref()
     }
+
+    pub(crate) fn line_range(&self) -> Option<FileLineRange> {
+        self.line_range
+    }
+
+    /// Identity for deduplication and for user-facing collision messages: a path alone no
+    /// longer identifies a reference now that two regions of one file can coexist.
+    fn identity(&self) -> (String, Option<FileLineRange>) {
+        (self.path.clone(), self.line_range)
+    }
+
+    fn describe(&self) -> String {
+        match self.line_range {
+            Some(range) => format!("{} (lines {}-{})", self.path, range.start(), range.end()),
+            None => self.path.clone(),
+        }
+    }
 }
 
 fn required_file_field(value: String, field: &'static str) -> Result<String, SessionsDomainError> {
@@ -72,11 +130,11 @@ impl FileReferenceSet {
         if references.len() > MAX_FILE_REFERENCES {
             return Err(SessionsDomainError::TooManyFileReferences);
         }
-        let mut paths = BTreeSet::new();
+        let mut seen = BTreeSet::new();
         for reference in &references {
-            if !paths.insert(reference.path().to_string()) {
+            if !seen.insert(reference.identity()) {
                 return Err(SessionsDomainError::DuplicateFileReferencePath(
-                    reference.path().to_string(),
+                    reference.describe(),
                 ));
             }
         }
@@ -259,8 +317,67 @@ mod tests {
     use super::*;
 
     fn reference(path: &str) -> FileReference {
-        FileReference::new(path, path, path, Some(10), Some("hash".to_string()))
+        FileReference::new(path, path, path, Some(10), Some("hash".to_string()), None)
             .expect("file reference")
+    }
+
+    fn ranged(path: &str, start: u32, end: u32) -> FileReference {
+        FileReference::new(
+            format!("{path}:{start}-{end}"),
+            path,
+            path,
+            Some(10),
+            None,
+            Some(FileLineRange::new(start, end).expect("line range")),
+        )
+        .expect("file reference")
+    }
+
+    #[test]
+    fn line_ranges_require_both_bounds_a_positive_start_and_a_sane_order() {
+        assert_eq!(FileLineRange::new(1, 1).map(|range| range.start()), Ok(1));
+        assert_eq!(FileLineRange::new(10, 50).map(|range| range.end()), Ok(50));
+        assert_eq!(
+            FileLineRange::new(0, 5),
+            Err(SessionsDomainError::InvalidFileReferenceRange)
+        );
+        assert_eq!(
+            FileLineRange::new(50, 10),
+            Err(SessionsDomainError::InvalidFileReferenceRange)
+        );
+        assert_eq!(FileLineRange::from_optional_bounds(None, None), Ok(None));
+        assert_eq!(
+            FileLineRange::from_optional_bounds(Some(10), Some(50)),
+            FileLineRange::new(10, 50).map(Some)
+        );
+        for half in [(Some(10), None), (None, Some(50))] {
+            assert_eq!(
+                FileLineRange::from_optional_bounds(half.0, half.1),
+                Err(SessionsDomainError::InvalidFileReferenceRange)
+            );
+        }
+    }
+
+    #[test]
+    fn two_regions_of_one_file_coexist_while_an_exact_duplicate_is_rejected() {
+        let first = ranged("src/utils.rs", 10, 20);
+        let second = ranged("src/utils.rs", 50, 60);
+        let whole = reference("src/utils.rs");
+        assert_eq!(first.line_range().map(|range| range.start()), Some(10));
+        assert!(FileReferenceSet::new(vec![first.clone(), second]).is_ok());
+        assert!(FileReferenceSet::new(vec![first.clone(), whole.clone()]).is_ok());
+        assert_eq!(
+            FileReferenceSet::new(vec![first.clone(), first]),
+            Err(SessionsDomainError::DuplicateFileReferencePath(
+                "src/utils.rs (lines 10-20)".to_string()
+            ))
+        );
+        assert_eq!(
+            FileReferenceSet::new(vec![whole.clone(), whole]),
+            Err(SessionsDomainError::DuplicateFileReferencePath(
+                "src/utils.rs".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -271,10 +388,10 @@ mod tests {
         assert_eq!(first.size_bytes(), Some(10));
         assert_eq!(first.content_hash(), Some("hash"));
         assert_eq!(
-            FileReference::new("id", "path", "name", Some(-1), None),
+            FileReference::new("id", "path", "name", Some(-1), None, None),
             Err(SessionsDomainError::InvalidFileReferenceSize)
         );
-        assert!(FileReference::new("", "path", "name", None, None).is_err());
+        assert!(FileReference::new("", "path", "name", None, None, None).is_err());
         assert_eq!(
             FileReferenceSet::new(vec![first.clone(), first]),
             Err(SessionsDomainError::DuplicateFileReferencePath(

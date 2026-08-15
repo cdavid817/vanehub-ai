@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
 import { agentService } from "../services/runtime-agent-client";
 import type { DirectoryEntry, FileContent } from "../types/session-workspace";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
@@ -29,6 +30,7 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
   const [entriesByPath, setEntriesByPath] = useState<Record<string, DirectoryEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
@@ -108,17 +110,33 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
         {partial ? <PartialNotice /> : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
         {rows.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.files.empty")} /> : rows.map(({ entry, depth }) => (
-          <button
-            className="flex h-8 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted"
-            key={entry.path}
-            onClick={() => entry.kind === "directory" ? void toggleDirectory(entry.path) : setSelectedPath(entry.path)}
-            type="button"
-          >
-            <span aria-hidden="true" className="shrink-0 text-muted-foreground">{"·".repeat(depth)}</span>
-            {entry.kind === "directory" ? (expanded.has(entry.path) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : <span className="w-3.5" />}
-            {entry.kind === "directory" ? <Folder className="h-4 w-4 text-primary" /> : <File className="h-4 w-4 text-muted-foreground" />}
-            <span className="truncate">{entry.name}</span>
-          </button>
+          <div className="group flex h-8 w-full items-center rounded pr-1 hover:bg-muted" key={entry.path}>
+            <button
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-sm"
+              // Only a file is referenceable, so only a file is draggable.
+              draggable={entry.kind === "file"}
+              onClick={() => entry.kind === "directory" ? void toggleDirectory(entry.path) : setSelectedPath(entry.path)}
+              onDragStart={(event) => writeFileReferenceDrag(event.dataTransfer, entry.path)}
+              type="button"
+            >
+              <span aria-hidden="true" className="shrink-0 text-muted-foreground">{"·".repeat(depth)}</span>
+              {entry.kind === "directory" ? (expanded.has(entry.path) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : <span className="w-3.5" />}
+              {entry.kind === "directory" ? <Folder className="h-4 w-4 text-primary" /> : <File className="h-4 w-4 text-muted-foreground" />}
+              <span className="truncate">{entry.name}</span>
+            </button>
+            {entry.kind === "file" ? (
+              <button
+                className="shrink-0 rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover:opacity-100 hover:text-foreground"
+                data-testid={`copy-path-${entry.path}`}
+                onClick={() => { void copyFileReferencePath(entry.path).then(() => setCopiedPath(entry.path)).catch(() => setCopiedPath(null)); }}
+                title={t("sessionTabs.files.copyPath")}
+                type="button"
+              >
+                {copiedPath === entry.path ? <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+                <span className="sr-only">{copiedPath === entry.path ? t("sessionTabs.files.copyPathDone") : t("sessionTabs.files.copyPath")}</span>
+              </button>
+            ) : null}
+          </div>
         ))}
       </section>
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">

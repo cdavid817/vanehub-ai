@@ -499,7 +499,7 @@ impl SessionFileContentPort for LifecycleDoubles {
         &self,
         _session_id: &str,
         _path: &str,
-    ) -> Result<String, SessionsApplicationError> {
+    ) -> Result<Option<String>, SessionsApplicationError> {
         Err(SessionsApplicationError::FileContent(
             "file access unused".to_string(),
         ))

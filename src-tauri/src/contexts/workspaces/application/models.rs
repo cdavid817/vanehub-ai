@@ -91,6 +91,19 @@ pub(crate) struct DocumentListing {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FileSearchMatch {
+    pub(crate) name: String,
+    pub(crate) path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FileSearchListing {
+    pub(crate) context: SessionWorkspaceContext,
+    pub(crate) items: Vec<FileSearchMatch>,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileContent {
     pub(crate) path: String,
     pub(crate) name: String,

@@ -501,6 +501,8 @@ fn file_reference_input(reference: &AgentFileReference) -> FileReferenceInput {
         name: reference.name.clone(),
         size_bytes: reference.size_bytes,
         content_hash: reference.content_hash.clone(),
+        start_line: reference.start_line,
+        end_line: reference.end_line,
     }
 }
 
@@ -552,6 +554,8 @@ fn agent_message(message: RuntimeMessageSnapshot) -> AgentMessage {
                 name: reference.name,
                 size_bytes: reference.size_bytes,
                 content_hash: reference.content_hash,
+                start_line: reference.start_line,
+                end_line: reference.end_line,
             })
             .collect(),
         error: message.error,

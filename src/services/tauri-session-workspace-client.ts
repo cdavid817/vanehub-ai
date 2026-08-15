@@ -5,6 +5,7 @@ import type {
   DirectoryListing,
   DocumentListing,
   FileContent,
+  FileSearchListing,
   GitDiffResult,
   GitStatusResult,
   SessionLogExportResult,
@@ -20,6 +21,7 @@ type SessionWorkspaceMethods = Pick<
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
+  | "searchSessionFiles"
   | "getSessionGitStatus"
   | "getSessionGitDiff"
   | "listSessionLogs"
@@ -65,6 +67,9 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   listSessionDocuments(sessionId) {
     return invoke<DocumentListing>("list_session_documents", { sessionId });
+  },
+  searchSessionFiles(sessionId, query, maxResults) {
+    return invoke<FileSearchListing>("search_session_files", { sessionId, query, maxResults });
   },
   getSessionGitStatus(sessionId) {
     return invoke<GitStatusResult>("get_session_git_status", { sessionId });

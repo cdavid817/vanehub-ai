@@ -2248,6 +2248,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-file-reference-line-ranges",
+                         "path":  "openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-onepiece-context-evidence-and-controls-ui",
                          "path":  "openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/",
                          "artifacts":  [
@@ -2410,6 +2423,19 @@
                                               "onepiece-ocr-tool",
                                               "onepiece-tool-governance",
                                               "onepiece-web-research"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "expand-file-mention-candidate-coverage",
+                         "path":  "openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
                                           ]
                      },
                      {

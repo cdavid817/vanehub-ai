@@ -237,6 +237,23 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         })
     }
 
+    fn search_files(
+        &self,
+        session_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<FileSearchListing, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:search:{session_id}:{query}:{max_results}"));
+        Ok(FileSearchListing {
+            context: SessionWorkspaceContext::available(Some("app".to_string())),
+            items: Vec::new(),
+            truncated: false,
+        })
+    }
+
     fn read_file(
         &self,
         session_id: &str,

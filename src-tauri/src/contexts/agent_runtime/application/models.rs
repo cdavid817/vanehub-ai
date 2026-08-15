@@ -391,6 +391,8 @@ pub(crate) struct AgentFileReference {
     pub(crate) name: String,
     pub(crate) size_bytes: Option<i64>,
     pub(crate) content_hash: Option<String>,
+    pub(crate) start_line: Option<u32>,
+    pub(crate) end_line: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,9 +1,10 @@
 use super::dto;
 use crate::contexts::workspaces::api::{
-    CreateShellRequest, DirectoryListing, DocumentListing, FileContent, GitDiffFile, GitDiffHunk,
-    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
-    ProjectInspection, ResizeShellRequest, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    SessionWorkspaceContext, ShellSession, WorkspaceLogLevel,
+    CreateShellRequest, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
+    GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult,
+    KnownProject, KnownRemoteWorkspace, ProjectInspection, ResizeShellRequest,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
+    WorkspaceLogLevel,
 };
 
 pub(super) fn known_project_to_dto(project: KnownProject) -> dto::KnownProject {
@@ -79,6 +80,21 @@ pub(super) fn document_listing_to_dto(listing: DocumentListing) -> dto::Document
             .collect(),
         truncated: listing.truncated,
         next_cursor: listing.next_cursor,
+    }
+}
+
+pub(super) fn file_search_listing_to_dto(listing: FileSearchListing) -> dto::FileSearchListing {
+    dto::FileSearchListing {
+        context: workspace_context_to_dto(listing.context),
+        items: listing
+            .items
+            .into_iter()
+            .map(|entry| dto::FileSearchMatch {
+                name: entry.name,
+                path: entry.path,
+            })
+            .collect(),
+        truncated: listing.truncated,
     }
 }
 
