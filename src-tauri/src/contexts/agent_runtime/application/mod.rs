@@ -148,8 +148,9 @@ pub(crate) use native_tools::{
     OcrNativeToolHandler, OnePieceToolFeatureGates, PreparedNativeToolDispatch, RecoveryRecord,
     RecoveryStatus, StoredToolOperation, StoredToolOperationStatus, SubagentNativeToolHandler,
     SubagentPort, ToolEligibility, ToolEligibilityContext, ToolResourceKind,
-    ValidatedNativeToolInput, WebResearchPort, MAX_SUBAGENT_DURATION_MS,
-    NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID, ONEPIECE_ONLY_TOOL_NAMES,
+    ValidatedNativeToolInput, WebResearchPort, IMAGE_ARTIFACT_METADATA_KEY,
+    MAX_SUBAGENT_DURATION_MS, NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID,
+    ONEPIECE_ONLY_TOOL_NAMES,
 };
 #[cfg(test)]
 pub(crate) use ports::OnePiecePlanningPort;

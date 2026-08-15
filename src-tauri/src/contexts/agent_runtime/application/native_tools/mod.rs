@@ -33,7 +33,7 @@ pub(crate) use contracts::{
     NativeToolDefinition, NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolResultEnvelope,
     NativeToolResultStatus, ToolEligibility, ToolEligibilityContext, ValidatedNativeToolInput,
-    NATIVE_TOOL_CONTRACT_VERSION,
+    IMAGE_ARTIFACT_METADATA_KEY, NATIVE_TOOL_CONTRACT_VERSION,
 };
 pub(crate) use delegate_cli_handler::DelegateCliNativeToolHandler;
 pub(crate) use dispatcher::{

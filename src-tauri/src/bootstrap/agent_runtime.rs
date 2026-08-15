@@ -188,18 +188,21 @@ struct SubagentDependencies {
     logging: Arc<dyn AgentLoggingPort>,
 }
 
+/// What assembling the extended tool registry yields: the registry itself, the browser handoff
+/// control when a sidecar is available, and the Artifact store the registry built, which the tool
+/// loop also needs for image attachment.
+type AssembledNativeTools = (
+    NativeToolRegistry,
+    Option<Arc<dyn BrowserHandoffControlPort>>,
+    Arc<ArtifactService>,
+);
+
 fn assemble_native_tool_registry(
     database: &NativeDatabase,
     app: &AppHandle,
     cli: &CliApi,
     subagents: SubagentDependencies,
-) -> Result<
-    (
-        NativeToolRegistry,
-        Option<Arc<dyn BrowserHandoffControlPort>>,
-    ),
-    String,
-> {
+) -> Result<AssembledNativeTools, String> {
     let data_root = database
         .db_path
         .parent()
@@ -404,7 +407,7 @@ fn assemble_native_tool_registry(
         readiness_reasons,
     )
     .map_err(|error| format!("native tool registry is invalid: {error:?}"))?;
-    Ok((registry, browser_handoff))
+    Ok((registry, browser_handoff, artifacts))
 }
 
 fn delegation_mode_ready(
@@ -543,7 +546,7 @@ pub(crate) fn assemble_agent_runtime_api(
             evidence: utility_projector,
             clock: clock.clone(),
         });
-    let (native_tools, browser_handoff) = assemble_native_tool_registry(
+    let (native_tools, browser_handoff, artifacts) = assemble_native_tool_registry(
         &dependencies.database,
         &dependencies.app,
         &dependencies.cli,
@@ -577,6 +580,7 @@ pub(crate) fn assemble_agent_runtime_api(
         .with_utility_delegation(utility_delegation)
         .with_accounting(accounting.clone())
         .with_native_tool_registry(native_tools.clone())
+        .with_artifacts(artifacts.clone())
         .with_native_tool_operations(
             Arc::new(SqliteNativeToolRepository::new(
                 dependencies.database.clone(),

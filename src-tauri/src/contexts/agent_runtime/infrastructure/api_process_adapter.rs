@@ -1,4 +1,4 @@
-use super::agent_image::{AgentImage, MAX_IMAGES_PER_REQUEST};
+use super::agent_image::{prepare_image, AgentImage, MAX_IMAGES_PER_REQUEST};
 use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, locations_outcome};
 use super::context_projection::ContextWireShape;
 use super::context_projection::PreparedContextProjection;
@@ -38,11 +38,11 @@ use crate::contexts::agent_runtime::application::{
     WorkflowLaunchOutcome, WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME,
     DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
     FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
-    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
-    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
-    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME,
-    SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
+    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
+    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
+    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -55,6 +55,7 @@ use crate::contexts::agent_runtime::domain::{
     UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
     CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, STRUCTURED_SUMMARY_PROMPT,
 };
+use crate::contexts::artifacts::application::ArtifactService;
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::contexts::sessions::api::{
     AccountingUnit, MeasurementKind, MeasurementQuality, NewModelInvocation, NewUsageObservation,
@@ -201,6 +202,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     accounting: Option<SessionsApi>,
     native_tools: NativeToolRegistry,
     native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    artifacts: Option<Arc<ArtifactService>>,
     native_tool_events: Option<tauri::AppHandle>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
@@ -294,6 +296,7 @@ impl RuntimeAgentApiAdapter {
             accounting: None,
             native_tools: NativeToolRegistry::empty(),
             native_tool_operations: None,
+            artifacts: None,
             native_tool_events: None,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
@@ -330,6 +333,13 @@ impl RuntimeAgentApiAdapter {
 
     pub(crate) fn with_native_tool_registry(mut self, native_tools: NativeToolRegistry) -> Self {
         self.native_tools = native_tools;
+        self
+    }
+
+    /// Supplies the Artifact store the tool loop reads an image from when a native tool names one
+    /// in its result metadata (`add-onepiece-visual-tool-returns`).
+    pub(crate) fn with_artifacts(mut self, artifacts: Arc<ArtifactService>) -> Self {
+        self.artifacts = Some(artifacts);
         self
     }
 
@@ -434,6 +444,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let accounting = self.accounting.clone();
         let native_tools = self.native_tools.clone();
         let native_tool_operations = self.native_tool_operations.clone();
+        let artifacts = self.artifacts.clone();
         let native_tool_events = self.native_tool_events.clone();
         thread::spawn(move || {
             run_generation(
@@ -457,6 +468,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 accounting,
                 native_tools,
                 native_tool_operations,
+                artifacts,
                 native_tool_events,
                 sink,
                 pending_approvals,
@@ -539,6 +551,7 @@ fn run_generation(
     accounting: Option<SessionsApi>,
     native_tools: NativeToolRegistry,
     native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    artifacts: Option<Arc<ArtifactService>>,
     native_tool_events: Option<tauri::AppHandle>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
@@ -572,6 +585,7 @@ fn run_generation(
         accounting.as_ref(),
         &native_tools,
         native_tool_operations.as_deref(),
+        artifacts.as_deref(),
         native_tool_events.as_ref(),
     );
     project_native_outcomes(
@@ -1172,6 +1186,7 @@ fn execute(
         &NativeToolRegistry::empty(),
         None,
         None,
+        None,
     )
 }
 
@@ -1201,6 +1216,7 @@ fn execute_with_code_intelligence(
     accounting: Option<&SessionsApi>,
     native_tools: &NativeToolRegistry,
     native_tool_operations: Option<&SqliteNativeToolRepository>,
+    artifacts: Option<&ArtifactService>,
     native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
@@ -1591,8 +1607,18 @@ fn execute_with_code_intelligence(
                     Ok(outcome) => outcome,
                     Err(failure) => return failure,
                 };
+                let (outcome, image_artifact_id) = outcome;
                 if cancelled.load(Ordering::SeqCst) {
                     return failed_non_retryable("Generation was cancelled.");
+                }
+                // The tool named an Artifact, not bytes, so nothing base64 has entered the output
+                // above or the operation record. Resolving it here is a local, hash-verified read.
+                let image = image_artifact_id.as_deref().and_then(|artifact_id| {
+                    resolve_tool_image(artifacts, artifact_id, images_supported, images_in_request)
+                });
+                if let Some(image) = image.as_ref() {
+                    log_image_attachment(logging, clock, request, &tool_use.id, image);
+                    images_in_request += 1;
                 }
                 tool_use.status = if outcome.is_error {
                     "failed".to_owned()
@@ -1606,7 +1632,7 @@ fn execute_with_code_intelligence(
                 {
                     return failed_retryable("Agent generation event handling failed.");
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error, None));
+                executed.push((tool_use, outcome.output, outcome.is_error, image));
                 continue;
             }
             // Intercepted here for the same reason `ask_user_question` is: the image has to reach
@@ -4075,7 +4101,7 @@ fn execute_registered_native_tool(
     pending_approvals: &PendingApprovals,
     sink: &dyn AgentProcessEventSink,
     plan_mode: bool,
-) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+) -> Result<(ToolExecutionOutcome, Option<String>), GenerationProcessEvent> {
     let recorder = Arc::new(NativeToolOperationRecorder::new(
         operations, events, request, tool_use,
     ));
@@ -4116,7 +4142,7 @@ fn execute_registered_native_tool(
                 Vec::new(),
                 Some(error.code.as_str().to_owned()),
             );
-            return Ok(native_dispatch_error(error.safe_message));
+            return Ok((native_dispatch_error(error.safe_message), None));
         }
     };
     let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -4129,7 +4155,7 @@ fn execute_registered_native_tool(
                 Vec::new(),
                 Some(error.code.as_str().to_owned()),
             );
-            return Ok(native_dispatch_error(error.safe_message));
+            return Ok((native_dispatch_error(error.safe_message), None));
         }
     };
     if witness.status == NativeToolAuthorizationStatus::AwaitingApproval {
@@ -4159,7 +4185,7 @@ fn execute_registered_native_tool(
                     Vec::new(),
                     Some("permission_denied".to_owned()),
                 );
-                return Ok(native_dispatch_error("Denied by user.".to_owned()));
+                return Ok((native_dispatch_error("Denied by user.".to_owned()), None));
             }
             ApprovalOutcome::Cancelled => {
                 recorder.transition(
@@ -4191,7 +4217,7 @@ fn execute_registered_native_tool(
                 Vec::new(),
                 Some(error.code.as_str().to_owned()),
             );
-            return Ok(native_dispatch_error(error.safe_message));
+            return Ok((native_dispatch_error(error.safe_message), None));
         }
     };
     let is_error = result.status != NativeToolResultStatus::Succeeded;
@@ -4201,13 +4227,38 @@ fn execute_registered_native_tool(
         artifact_ids(&result),
         result.error_code.map(|code| code.as_str().to_owned()),
     );
+    let image_artifact_id = result
+        .metadata
+        .get(IMAGE_ARTIFACT_METADATA_KEY)
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let output = match (result.output, result.safe_error) {
         (Some(value), _) => serde_json::to_string(&value)
             .unwrap_or_else(|_| "The native tool result could not be encoded.".to_owned()),
         (None, Some(message)) => message,
         (None, None) => "The native tool returned no result.".to_owned(),
     };
-    Ok(ToolExecutionOutcome { output, is_error })
+    Ok((ToolExecutionOutcome { output, is_error }, image_artifact_id))
+}
+
+/// Resolves the Artifact a native tool named as its image and prepares it for the wire.
+///
+/// Returns `None` whenever the image cannot be attached -- the model does not accept images, the
+/// per-request budget is spent, the Artifact cannot be read, or its bytes are not a reviewed image
+/// type. Every one of those degrades to the tool's existing non-image result rather than failing
+/// the call: a model choice or a budget must never turn a working tool into an error
+/// (`add-onepiece-visual-tool-returns`).
+fn resolve_tool_image(
+    artifacts: Option<&ArtifactService>,
+    artifact_id: &str,
+    images_supported: bool,
+    images_in_request: usize,
+) -> Option<AgentImage> {
+    if !images_supported || images_in_request >= MAX_IMAGES_PER_REQUEST {
+        return None;
+    }
+    let (bytes, media_type) = artifacts?.read_bytes(artifact_id).ok()?;
+    prepare_image(&bytes, Some(&media_type)).ok()
 }
 
 fn stored_status(result: &NativeToolResultEnvelope) -> StoredToolOperationStatus {
@@ -7341,8 +7392,13 @@ mod tests {
             false,
         )
         .expect("dispatch");
+        let (outcome, image_artifact_id) = outcome;
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("native-ocr"));
+        assert_eq!(
+            image_artifact_id, None,
+            "a tool that names no image artifact attaches none"
+        );
         assert_eq!(tool_use.status, "running");
     }
 
@@ -8170,6 +8226,49 @@ mod tests {
             "an image-bearing request reports reduced coverage instead of a length-derived guess"
         );
         assert_eq!(estimated_input_characters(&body, 8), None);
+    }
+
+    /// The channel is an Artifact id, not bytes. That is the whole point: an id in result metadata
+    /// cannot put base64 into the tool output the transcript persists, or into the operation
+    /// record the metadata is stored in.
+    #[test]
+    fn the_image_channel_carries_an_identifier_and_never_bytes() {
+        assert_eq!(IMAGE_ARTIFACT_METADATA_KEY, "image_artifact_id");
+
+        let envelope = crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+            contract_version: 1,
+            status: NativeToolResultStatus::Succeeded,
+            output: Some(json!({ "artifact_id": "artifact-1" })),
+            error_code: None,
+            safe_error: None,
+            truncated: false,
+            metadata: BTreeMap::from([(
+                IMAGE_ARTIFACT_METADATA_KEY.to_owned(),
+                json!("artifact-1"),
+            )]),
+        };
+
+        let encoded = serde_json::to_string(&envelope.metadata).expect("metadata");
+        assert!(encoded.contains("artifact-1"));
+        // Base64 of any real image is long; an identifier is not. This pins the shape rather than
+        // the length: the value must be a plain id string.
+        assert_eq!(
+            envelope.metadata[IMAGE_ARTIFACT_METADATA_KEY],
+            json!("artifact-1")
+        );
+        assert!(!encoded.contains("base64"));
+    }
+
+    /// Every reason an image cannot be attached degrades to the tool's existing non-image result.
+    /// A model choice or a spent budget must never turn a working tool into a failure.
+    #[test]
+    fn an_image_that_cannot_be_attached_degrades_instead_of_failing() {
+        // No Artifact store wired: the tool result stands, the image simply does not attach.
+        assert!(resolve_tool_image(None, "artifact-1", true, 0).is_none());
+        // Text-only model.
+        assert!(resolve_tool_image(None, "artifact-1", false, 0).is_none());
+        // Budget already spent.
+        assert!(resolve_tool_image(None, "artifact-1", true, MAX_IMAGES_PER_REQUEST).is_none());
     }
 
     #[test]
