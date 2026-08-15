@@ -1,3 +1,4 @@
+mod configuration_schema;
 mod effective_cache;
 mod effective_catalog;
 mod filesystem;
@@ -14,6 +15,7 @@ mod effective_cache_tests;
 #[cfg(test)]
 mod recovery_tests;
 
+pub(crate) use configuration_schema::apply_skill_configuration_schema;
 pub(crate) use effective_cache::{
     EffectiveSkillDerivedCache, EffectiveSkillRuntimeCacheInvalidator,
 };

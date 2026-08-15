@@ -427,6 +427,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "onepiece-context-quality-history",
         apply_context_quality_history_migration,
     )?;
+    apply_transactional_migration(
+        conn,
+        71,
+        "skill-configuration-records",
+        crate::contexts::tooling::skills::infrastructure::apply_skill_configuration_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -777,6 +783,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (68, "onepiece-native-tool-persistence"),
     (69, "onepiece-artifact-catalog-metadata"),
     (70, "onepiece-context-quality-history"),
+    (71, "skill-configuration-records"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1681,7 +1688,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (69, 70));
+        assert_eq!(migration_state, (70, 71));
 
         migrate(&connection).expect("upgrade migration");
 
