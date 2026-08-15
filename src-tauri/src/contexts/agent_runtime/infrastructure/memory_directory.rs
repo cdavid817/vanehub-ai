@@ -289,6 +289,31 @@ pub(crate) fn is_within_memory_directory(path: &str) -> bool {
         .unwrap_or(false)
 }
 
+impl FileAgentMemoryStore {
+    /// The memories behind an explicit path list, in no particular order.
+    ///
+    /// Deliberately off `AgentMemoryPort`, mirroring the row repository it replaces: its only
+    /// caller is the composition root's retrieval index source, and no use case inside this
+    /// context resolves memories by path.
+    ///
+    /// A path with no file is simply absent from the result rather than an error. That is what
+    /// keeps a deleted memory from ever being surfaced again: the index can outlive the file, and
+    /// results resolve against the directory rather than against the indexed copy.
+    pub(crate) fn list_by_paths(
+        &self,
+        relative_paths: &[String],
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        let mut memories = Vec::new();
+        for relative_path in relative_paths {
+            let Ok(document) = self.read(relative_path) else {
+                continue;
+            };
+            memories.push(document_to_memory(relative_path.clone(), document));
+        }
+        Ok(memories)
+    }
+}
+
 impl AgentMemoryPort for FileAgentMemoryStore {
     /// Writes one memory file and reconciles the index in the same operation.
     ///
@@ -343,22 +368,7 @@ impl AgentMemoryPort for FileAgentMemoryStore {
             let Ok(document) = self.read(&header.relative_path) else {
                 continue;
             };
-            memories.push(AgentMemory {
-                id: header.relative_path,
-                agent_id: document.metadata.agent_id.unwrap_or_default(),
-                folder: document.metadata.folder,
-                name: document.metadata.name,
-                description: document.metadata.description,
-                memory_type: document.metadata.memory_type,
-                content: document.body,
-                source: document
-                    .metadata
-                    .source
-                    .as_deref()
-                    .and_then(MemorySource::parse)
-                    .unwrap_or(MemorySource::Automatic),
-                created_at: document.metadata.created_at.unwrap_or_default(),
-            });
+            memories.push(document_to_memory(header.relative_path, document));
         }
         Ok(memories)
     }
@@ -371,6 +381,27 @@ impl AgentMemoryPort for FileAgentMemoryStore {
 
     fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
         FileAgentMemoryStore::delete_all(self)
+    }
+}
+
+/// The file's directory-relative path is the memory's identity, so it becomes the `id` every
+/// downstream consumer — the management view, the retrieval index — addresses it by.
+fn document_to_memory(relative_path: String, document: MemoryDocument) -> AgentMemory {
+    AgentMemory {
+        id: relative_path,
+        agent_id: document.metadata.agent_id.unwrap_or_default(),
+        folder: document.metadata.folder,
+        name: document.metadata.name,
+        description: document.metadata.description,
+        memory_type: document.metadata.memory_type,
+        content: document.body,
+        source: document
+            .metadata
+            .source
+            .as_deref()
+            .and_then(MemorySource::parse)
+            .unwrap_or(MemorySource::Automatic),
+        created_at: document.metadata.created_at.unwrap_or_default(),
     }
 }
 
@@ -855,6 +886,51 @@ mod tests {
         assert!(without.agent_id.is_empty());
         assert_eq!(without.folder, None);
         assert_eq!(without.created_at, "");
+    }
+
+    #[test]
+    fn resolving_by_path_omits_a_memory_whose_file_is_gone() {
+        // The retrieval index can outlive the file it points at. Results resolve against the
+        // directory, so a deleted memory is never surfaced again even while its index row survives
+        // — the index revocation is a cleanup, not the thing that makes deletion stick.
+        let fixture = Fixture::new("memory store resolve by path");
+        let kept = fixture.save("kept", "Kept", "Kept body.");
+        let removed = fixture.save("removed", "Removed", "Removed body.");
+        fs::remove_file(fixture.store.root().join(&removed)).expect("out-of-band delete");
+
+        let resolved = fixture
+            .store
+            .list_by_paths(&[kept.clone(), removed, "never-existed.md".to_string()])
+            .expect("resolve");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].id, kept);
+        assert_eq!(resolved[0].content, "Kept body.");
+    }
+
+    #[test]
+    fn resolving_by_path_rejects_nothing_and_returns_nothing_for_an_empty_list() {
+        let fixture = Fixture::new("memory store resolve empty");
+        fixture.save("present", "Present", "Body.");
+
+        assert!(fixture
+            .store
+            .list_by_paths(&[])
+            .expect("an empty path list is not an error")
+            .is_empty());
+    }
+
+    #[test]
+    fn a_memory_is_identified_by_its_directory_relative_path() {
+        // The retrieval index keys on this, so it has to be the file's path rather than a
+        // separately generated id that could drift from where the memory actually lives.
+        let fixture = Fixture::new("memory store identity");
+        let path = fixture.save("identity", "Identity", "Body.");
+
+        let listed = AgentMemoryPort::list_all(&fixture.store).expect("list");
+
+        assert_eq!(listed[0].id, path);
+        assert_eq!(listed[0].id, "identity.md");
     }
 
     #[test]

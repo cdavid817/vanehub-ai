@@ -45,10 +45,10 @@
 
 ## 7. Retrieval index
 
-- [ ] 7.1 Change the `agent_memory` document identity from a row id to a directory-relative path
-- [ ] 7.2 Switch `agent_memory` reconciliation to take the directory scan as its authoritative snapshot
-- [ ] 7.3 Resolve search hits by reading the memory file, omitting a hit whose file is gone rather than returning indexed text
-- [ ] 7.4 Add tests for out-of-band file deletion revoking recall, and for `workspace_file` documents being untouched by memory reconciliation
+- [x] 7.1 Change the `agent_memory` document identity from a row id to a directory-relative path
+- [x] 7.2 Switch `agent_memory` reconciliation to take the directory scan as its authoritative snapshot
+- [x] 7.3 Resolve search hits by reading the memory file, omitting a hit whose file is gone rather than returning indexed text
+- [x] 7.4 Add tests for out-of-band file deletion revoking recall, and for `workspace_file` documents being untouched by memory reconciliation
 
 ## 8. Frontend service boundary
 
