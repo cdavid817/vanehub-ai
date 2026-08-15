@@ -49,13 +49,50 @@
 
 ## 7. Verification
 
-- [ ] 7.1 `npm run lint:ci`
-- [ ] 7.2 `npm run test`
-- [ ] 7.3 `npm run build`
-- [ ] 7.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 7.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 7.6 `cargo test --manifest-path src-tauri/Cargo.toml`
-- [ ] 7.7 `cargo check --manifest-path src-tauri/Cargo.toml`
-- [ ] 7.8 `openspec validate add-two-tier-memory-recall --strict` and `openspec validate --specs --strict`
-- [ ] 7.9 `npm run test:coverage`
-- [ ] 7.10 Record implementation verification results for the archive gate
+- [x] 7.1 `npm run lint:ci`
+- [x] 7.2 `npm run test`
+- [x] 7.3 `npm run build`
+- [x] 7.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 7.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 7.6 `cargo test --manifest-path src-tauri/Cargo.toml`
+- [x] 7.7 `cargo check --manifest-path src-tauri/Cargo.toml`
+- [x] 7.8 `openspec validate add-two-tier-memory-recall --strict` and `openspec validate --specs --strict`
+- [x] 7.9 `npm run test:coverage`
+- [x] 7.10 Record implementation verification results for the archive gate
+
+## Verification results
+
+Run on Windows 11, branch `worktree-context`. Every `cargo test` invocation carried
+`no_proxy`/`NO_PROXY` for loopback; without it the local-HTTP fixtures hang against this machine's
+system proxy rather than failing.
+
+| Command | Result |
+|---|---|
+| `npm run lint:ci` | clean |
+| `npm run test` | 261 files, 1195 tests passed |
+| `npm run build` | built, 16 lazy chunks, 127.0 KiB gzip static closure |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+| `cargo test` | 2881 lib + 47 integration passed, 0 failed, 15 ignored |
+| `cargo check` | clean |
+| `openspec validate add-two-tier-memory-recall --strict` | valid |
+| `openspec validate --specs --strict` | 119 passed, 0 failed |
+| `npm run test:coverage` | 1195 passed; statements 71.09%, branches 67.17%, functions 67.02%, lines 75.13% |
+
+Two notes on what these runs cost to get right.
+
+`npm run build` caught a type error `npx vitest run` did not: a test read `bodyMarkdown` off a
+`RichBlock` union whose audio variant has no such field. Vitest does not typecheck, so the frontend
+test suite passing is not evidence the build will.
+
+One earlier `npm run test` reported a single failure that did not reproduce across two subsequent
+full runs, with a concurrent cargo build competing for the machine at the time. It is recorded as
+an unreproduced flake rather than as a clean first pass; the suite above is a later, quiet run.
+
+Playwright was not run: this change adds no UI. The memory management surface it feeds was covered
+by `migrate-agent-memory-to-file-store`'s own e2e run. Desktop smoke was not run either — no Tauri
+startup, IPC, or desktop runtime behavior changes here, and CI runs that job on all three
+platforms.
+
+Task 2.3 landed only in part, recorded above at the task itself: unknown names are discarded, but
+the selector request carries no token cap.

@@ -1665,7 +1665,10 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-"),
     );
     expect(applied).toBeDefined();
-    const body = applied?.type === "rich_block" ? (applied.block.bodyMarkdown ?? "") : "";
+    // `RichBlock` is a union and only some variants carry markdown, so narrow on the kind the
+    // memory event actually publishes rather than reaching for the field.
+    const body =
+      applied?.type === "rich_block" && applied.block.kind === "card" ? (applied.block.bodyMarkdown ?? "") : "";
     expect(body).toContain("Index carried");
     expect(body).toContain("read in full");
   });
