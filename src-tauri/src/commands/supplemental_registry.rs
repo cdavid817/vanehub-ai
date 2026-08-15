@@ -40,6 +40,17 @@ pub(super) fn invoke_handler(
         crate::commands::communications::set_im_binding_paused::set_im_binding_paused,
         crate::commands::communications::set_im_completion_notifications::set_im_completion_notifications,
         crate::commands::communications::remove_im_session_binding::remove_im_session_binding,
+        crate::commands::goals::list_goals::list_goals,
+        crate::commands::goals::get_goal::get_goal,
+        crate::commands::goals::create_goal::create_goal,
+        crate::commands::goals::update_goal::update_goal,
+        crate::commands::goals::delete_goal::delete_goal,
+        crate::commands::goals::link_goal_target::link_goal_target,
+        crate::commands::goals::unlink_goal_target::unlink_goal_target,
+        crate::commands::goals::activate_goal::activate_goal,
+        crate::commands::goals::accept_goal::accept_goal,
+        crate::commands::goals::reopen_goal::reopen_goal,
+        crate::commands::goals::abandon_goal::abandon_goal,
     ]
 }
 
