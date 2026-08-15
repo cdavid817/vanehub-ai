@@ -63,6 +63,7 @@ pub(crate) enum SecretRecovery {
     },
 }
 
+#[derive(Clone)]
 pub(crate) struct SkillConfigurationSecrets<S: SkillSecretStore> {
     store: S,
 }
