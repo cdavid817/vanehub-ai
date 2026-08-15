@@ -29,7 +29,7 @@
 
 ## 5. Extraction returns actions
 
-- [ ] 5.1 Define the extraction action schema (`create` / `update` / `delete` with name, description, type, body) and its validator
+- [x] 5.1 Define the extraction action schema (`create` / `update` / `delete` with name, description, type, body) and its validator
 - [ ] 5.2 Change `memory_extraction_gateway.rs` to request structured output and return a validated action list instead of `Option<String>`
 - [ ] 5.3 Include the existing-memory manifest and the bodies of the most relevant existing memories in the extraction prompt so update actions are expressible
 - [ ] 5.4 Apply surviving actions to the directory; reject per action, not per call, and log each rejection without failing the generation

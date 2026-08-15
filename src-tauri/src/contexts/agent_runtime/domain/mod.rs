@@ -24,6 +24,9 @@ mod loop_progress;
 mod memory_document;
 #[cfg(test)]
 mod memory_document_tests;
+mod memory_extraction;
+#[cfg(test)]
+mod memory_extraction_tests;
 mod provider;
 mod seat_roster;
 mod seat_turn;
@@ -86,10 +89,14 @@ pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
 };
-#[allow(unused_imports)]
 pub(crate) use memory_document::{
     compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
     MemoryType,
+};
+#[allow(unused_imports)]
+pub(crate) use memory_extraction::{
+    parse_memory_actions, MemoryAction, MemoryActionKind, MemoryActionRejection,
+    ParsedMemoryActions, MEMORY_ACTIONS_INSTRUCTION,
 };
 pub(crate) use provider::{
     AgentProviderId, ProviderCapabilities, ProviderCapabilityInput, ProviderFamily,
