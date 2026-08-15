@@ -2229,6 +2229,8 @@
   "chat.dropFileHint": "Drop to reference this file",
   "sessionTabs.files.copyPath": "Copy path",
   "sessionTabs.files.copyPathDone": "Path copied",
+  "chat.fileReferenceLimit": "At most {{max}} files can be referenced in one message.",
+  "chat.fileReferenceLimitTitle": "Reference limit reached",
   "chat.fileReferenceLines": "lines {{range}}",
   "chat.removeFileReference": "Remove file reference",
   "chat.you": "You",

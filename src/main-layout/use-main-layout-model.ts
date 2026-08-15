@@ -15,7 +15,7 @@ import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import { useFileReferences } from "./use-file-references";
 import { useMentionCandidates } from "./use-mention-candidates";
-import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import { MAX_CHAT_FILE_REFERENCES, type ChatMessage, type ChatStreamEvent } from "../types/chat";
 import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
 import { useSessionRecoverySync } from "./use-session-recovery-sync";
@@ -25,7 +25,10 @@ export function useMainLayoutModel() {
   const { notify } = useNotifications();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
-  const { addFileReference, fileReferences, removeFileReference, setFileReferences } = useFileReferences();
+  const notifyReferenceLimit = useCallback(() => {
+    notify({ type: "error", title: t("chat.fileReferenceLimitTitle"), message: t("chat.fileReferenceLimit", { max: MAX_CHAT_FILE_REFERENCES }), scope: { kind: "global" } });
+  }, [notify, t]);
+  const { addFileReference, fileReferences, removeFileReference, setFileReferences } = useFileReferences(notifyReferenceLimit);
   const [messageLimit, setMessageLimit] = useState(50);
   const [turnStatus, setTurnStatus] = useState<TurnStatus | null>(null);
   const waitingSince = useRef<string | null>(null);

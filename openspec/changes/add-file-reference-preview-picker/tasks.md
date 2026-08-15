@@ -12,7 +12,7 @@
 - [x] 2.4 Keep the pending selection keyed by line number in dialog state so it survives rows scrolling out of the window
 - [x] 2.5 Visually distinguish selected lines and state the pending range in the dialog
 - [x] 2.6 Provide "reference whole file" and "reference selection" actions; the latter is enabled only once at least an anchor is set
-- [x] 2.7 Render the oversized and binary states in place of content, offering only the whole-file action
+- [x] 2.7 Render the oversized and binary states in place of content, offering no attach action — such a file contributes nothing to the prompt, and "Reject unsafe reference" already requires refusing it
 - [x] 2.8 Render the missing state and request failures with localized feedback and no attach action
 
 ## 3. Composer wiring

@@ -57,9 +57,10 @@ export function FileReferencePreviewDialog({
   );
   const range = selectionToRange(selection);
   const rangeLabel = describeLineRange(range);
-  // Oversized and binary files could already be referenced whole before previews existed,
-  // so they keep that action; only an unavailable file offers nothing.
-  const canAttachWhole = file !== null && file.status !== "missing";
+  // Only a readable file can be attached. An oversized or binary one contributes no
+  // content to the prompt, so attaching it would put a chip on screen that the Agent
+  // never receives anything for.
+  const canAttachWhole = file?.status === "text";
 
   return (
     <ApplicationDialog description={path} maxWidth="max-w-4xl" onClose={onCancel} title={name}>

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { MAX_CHAT_FILE_REFERENCES } from "../types/chat";
 import { useFileReferences } from "./use-file-references";
 
 const utils = { name: "utils.rs", path: "src/utils.rs" };
@@ -25,6 +26,31 @@ describe("useFileReferences", () => {
       "src/utils.rs",
       "src/utils.rs:10-20",
     ]);
+  });
+
+  it("refuses to attach past the reference ceiling and says so once", () => {
+    const onLimitReached = vi.fn();
+    const { result } = renderHook(() => useFileReferences(onLimitReached));
+
+    for (let index = 0; index < MAX_CHAT_FILE_REFERENCES; index += 1) {
+      act(() => result.current.addFileReference({ name: `f${index}.rs`, path: `src/f${index}.rs` }, {}));
+    }
+    expect(result.current.fileReferences).toHaveLength(MAX_CHAT_FILE_REFERENCES);
+    expect(onLimitReached).not.toHaveBeenCalled();
+
+    act(() => result.current.addFileReference({ name: "extra.rs", path: "src/extra.rs" }, {}));
+    // Refused here rather than at send time, where the domain's rejection would surface
+    // as an untranslated message and cost the user the whole attempt.
+    expect(result.current.fileReferences).toHaveLength(MAX_CHAT_FILE_REFERENCES);
+    expect(onLimitReached).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat an already-attached duplicate as hitting the ceiling", () => {
+    const onLimitReached = vi.fn();
+    const { result } = renderHook(() => useFileReferences(onLimitReached));
+    act(() => result.current.addFileReference(utils, {}));
+    act(() => result.current.addFileReference(utils, {}));
+    expect(onLimitReached).not.toHaveBeenCalled();
   });
 
   it("removes by identity, leaving the other region attached", () => {

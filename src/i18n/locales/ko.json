@@ -2229,6 +2229,8 @@
   "chat.dropFileHint": "놓아서 이 파일을 참조",
   "sessionTabs.files.copyPath": "경로 복사",
   "sessionTabs.files.copyPathDone": "경로가 복사됨",
+  "chat.fileReferenceLimit": "한 메시지에서 최대 {{max}}개의 파일을 참조할 수 있습니다.",
+  "chat.fileReferenceLimitTitle": "참조 한도에 도달했습니다",
   "chat.fileReferenceLines": "{{range}}번째 줄",
   "chat.removeFileReference": "파일 참조 제거",
   "chat.you": "당신",

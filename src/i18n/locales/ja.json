@@ -2229,6 +2229,8 @@
   "chat.dropFileHint": "ドロップしてこのファイルを参照",
   "sessionTabs.files.copyPath": "パスをコピー",
   "sessionTabs.files.copyPathDone": "パスをコピーしました",
+  "chat.fileReferenceLimit": "1 つのメッセージで参照できるファイルは最大 {{max}} 件です。",
+  "chat.fileReferenceLimitTitle": "参照の上限に達しました",
   "chat.fileReferenceLines": "{{range}} 行目",
   "chat.removeFileReference": "ファイル参照を削除する",
   "chat.you": "あなた",

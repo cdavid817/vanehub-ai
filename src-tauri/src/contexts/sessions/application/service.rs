@@ -1138,20 +1138,28 @@ impl SessionsApplicationService {
         if references.as_slice().is_empty() {
             return Ok(content.to_string());
         }
-        let mut prompt = content.to_string();
-        prompt.push_str("\n\nReferenced files:\n");
+        let mut blocks = String::new();
         for reference in references.as_slice() {
-            let file_content = self
+            // A file the runtime cannot hand over — binary, oversized, gone — is omitted
+            // rather than injected as an empty block. An empty block tells the Agent the
+            // file is empty, which is a different and wrong claim.
+            let Some(file_content) = self
                 .ports
                 .files
-                .read_reference_text(session_id, reference.path())?;
-            prompt.push_str(&render_reference_block(
+                .read_reference_text(session_id, reference.path())?
+            else {
+                continue;
+            };
+            blocks.push_str(&render_reference_block(
                 reference.path(),
                 &file_content,
                 reference.line_range(),
             ));
         }
-        Ok(prompt)
+        if blocks.is_empty() {
+            return Ok(content.to_string());
+        }
+        Ok(format!("{content}\n\nReferenced files:\n{blocks}"))
     }
 
     pub(crate) fn list_messages(

@@ -2229,6 +2229,8 @@
   "chat.dropFileHint": "松开以引用该文件",
   "sessionTabs.files.copyPath": "复制路径",
   "sessionTabs.files.copyPathDone": "路径已复制",
+  "chat.fileReferenceLimit": "一条消息最多引用 {{max}} 个文件。",
+  "chat.fileReferenceLimitTitle": "已达引用上限",
   "chat.fileReferenceLines": "第 {{range}} 行",
   "chat.removeFileReference": "移除文件引用",
   "chat.you": "你",

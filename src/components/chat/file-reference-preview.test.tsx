@@ -110,13 +110,21 @@ describe("file reference preview", () => {
     expect(screen.getByText("引用所选范围").closest("button")?.disabled).toBe(false);
   });
 
-  it("offers only the whole-file action for a binary or oversized file", async () => {
+  it("offers no attach action for a binary or oversized file", async () => {
     readSessionFile.mockResolvedValue(fileResult({ status: "binary", content: null }));
     renderDialog();
     await waitFor(() => expect(screen.getByText("该文件是二进制文件，无法预览。")).toBeTruthy());
     expect(screen.queryByTestId("preview-line-1")).toBeNull();
-    expect(screen.getByText("引用整个文件").closest("button")?.disabled).toBe(false);
+    // Attaching it would show a chip the Agent receives no content for.
+    expect(screen.getByText("引用整个文件").closest("button")?.disabled).toBe(true);
     expect(screen.getByText("引用所选范围").closest("button")?.disabled).toBe(true);
+  });
+
+  it("offers no attach action for an oversized file", async () => {
+    readSessionFile.mockResolvedValue(fileResult({ status: "oversized", content: null }));
+    renderDialog();
+    await waitFor(() => expect(screen.getByText("该文件过大，无法预览。")).toBeTruthy());
+    expect(screen.getByText("引用整个文件").closest("button")?.disabled).toBe(true);
   });
 
   it("offers nothing for a missing file", async () => {

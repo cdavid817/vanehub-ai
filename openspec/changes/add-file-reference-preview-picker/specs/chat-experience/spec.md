@@ -47,8 +47,8 @@ Selecting a file candidate from `@` completion SHALL open a preview of that file
 
 #### Scenario: File cannot be displayed
 - **WHEN** the runtime reports the file as oversized or binary
-- **THEN** the dialog SHALL state that condition in place of content and SHALL NOT offer a range selection
-- **AND** referencing the whole file SHALL remain available, since such a file could already be referenced before previews existed
+- **THEN** the dialog SHALL state that condition in place of content
+- **AND** it SHALL offer no way to attach a reference, because such a file contributes no content to the prompt and the existing "Reject unsafe reference" requirement already calls for it to be refused
 
 #### Scenario: File is unavailable
 - **WHEN** the runtime reports the file as missing or the request fails

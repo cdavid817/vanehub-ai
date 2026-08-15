@@ -764,13 +764,15 @@ impl SessionFileContentPort for FakeFiles {
         &self,
         _session_id: &str,
         path: &str,
-    ) -> Result<String, SessionsApplicationError> {
-        self.contents
+    ) -> Result<Option<String>, SessionsApplicationError> {
+        // An absent fixture stands for a file the workspace cannot hand over — binary,
+        // oversized, or gone — which is exactly the case prompt assembly must omit.
+        Ok(self
+            .contents
             .lock()
             .expect("file contents")
             .get(path)
-            .cloned()
-            .ok_or_else(|| SessionsApplicationError::FileContent("missing fixture".to_string()))
+            .cloned())
     }
 
     fn write_export(
@@ -1788,6 +1790,42 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .contains("--- FILE: src/utils.rs (lines 3-5) ---\n3 | line 3\n4 | line 4\n5 | line 5\n"));
     assert!(!ranged_prompt.contains("line 2"));
     assert!(!ranged_prompt.contains("line 6"));
+
+    // A file the workspace cannot hand over leaves no trace at all. Injecting an empty
+    // block instead would tell the Agent the file is empty — a different, wrong claim.
+    let omitted = fixture
+        .service
+        .compose_prompt(
+            session.id(),
+            &user.content,
+            vec![reference("assets/model.bin")],
+        )
+        .expect("compose prompt");
+    assert_eq!(omitted, user.content);
+
+    let mixed = fixture
+        .service
+        .compose_prompt(
+            session.id(),
+            &user.content,
+            vec![reference("src/main.rs"), reference("assets/model.bin")],
+        )
+        .expect("compose prompt");
+    assert!(mixed.contains("--- FILE: src/main.rs ---"));
+    assert!(!mixed.contains("model.bin"));
+
+    // A genuinely empty file is not the same thing and is still injected.
+    fixture
+        .files
+        .contents
+        .lock()
+        .expect("file contents")
+        .insert("src/empty.rs".to_string(), String::new());
+    let empty = fixture
+        .service
+        .compose_prompt(session.id(), &user.content, vec![reference("src/empty.rs")])
+        .expect("compose prompt");
+    assert!(empty.contains("--- FILE: src/empty.rs ---"));
 
     let assistant = message_record(
         "assistant-1",
