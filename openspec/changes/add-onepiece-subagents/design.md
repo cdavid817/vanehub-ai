@@ -13,19 +13,26 @@ costs the main session every file it read on the way to the answer, and that acc
 is what triggers compaction — so the act of exploring degrades the session that needed the answer.
 A child pays that cost in its own window and returns a paragraph.
 
-## D2. Progress goes to the task list, not the transcript
+## D2. Progress goes to the user, not into the parent's context
 
 The obvious design — stream the child's turns into the parent — reintroduces the exact cost the
-child exists to avoid. The parent must be able to see that work is advancing without paying for
-how.
+child exists to avoid. Nothing the child reads may enter the parent's context; only its conclusion
+may.
 
-`add-agent-task-list` is the right channel for this and is why this change depends on it: the task
-list is already projected into the parent's system prompt, already bounded, and already rewritten
-in place rather than appended. A child's progress updating a task line costs the parent nothing per
-update.
+This section originally proposed the parent's task list as the progress channel. Implementation
+showed that was wrong, for a reason that is only obvious once the loop exists: **the parent is
+blocked inside the `delegate_subagent` tool call for the child's entire run.** It cannot read a
+task list, or anything else, until the child returns. There is no moment during the child's work
+at which the parent could observe progress, so a channel aimed at the parent conveys nothing.
 
-Execution observability carries the detail for the user's benefit. That surface is not in the
-model's context at all, which is the point.
+The audience for progress is the user watching a long investigation, and the channel that reaches
+them already exists on the execution context: `NativeToolProgressSink`. The child publishes a
+bounded event per turn carrying a count and a fixed phrase — never a path, a pattern, or anything
+it read, since the child's reading staying inside its own context is the whole feature.
+
+That also removes this change's stated dependency on `add-agent-task-list`. The task list remains
+the right home for the *parent's* own plan; it was never the right home for a blocked caller's
+view of work it cannot see.
 
 ## D3. A child never has more authority than its parent
 
@@ -82,6 +89,43 @@ the same ceiling differ only in cost.
 
 ## D7. Sequencing
 
-This should not start before `add-agent-task-list` (D2's progress channel) and is easier after
-`add-agent-user-question`, which establishes what "non-interactive execution context" means as a
-runtime property rather than a special case. Both were delivered ahead of it for that reason.
+This is easier after `add-agent-user-question`, which establishes what "non-interactive execution
+context" means as a runtime property rather than a special case — a child refuses to ask for
+exactly that reason. The dependency on `add-agent-task-list` that this section originally claimed
+does not survive D2's correction: a blocked parent cannot read a task list, so the child never
+needed one.
+
+## D8. What mutating children still need, and what is already settled
+
+Read-only children shipped first and are complete. Mutating children are the last piece, and this
+section records what an implementation survey settled so it does not have to be redone.
+
+**Settled: the ChangeSet path is reusable as-is.** `ChangeSetRecord`, `ChangeSetFileRecord`, and
+`ChangeSetStatus` live in `agent_runtime/application/native_tools/persistence.rs`, not in
+`cli_delegation`. They are shared runtime types keyed by `attempt_id`, so a subagent attempt can
+produce one and the existing `apply_delegation_changes` handler and its once-only exact-ChangeSet
+approval apply it unchanged. There is no second write path to build and no context boundary to
+generalize across, which was the open risk when this change was written.
+
+**Settled: the isolation primitive is a platform concern, not a delegation one.**
+`platform::git::GitAdapter::execute(root, args, timeout)` is a generic git runner. Worktree
+provisioning, the diff, and cleanup all go through it directly. `cli_delegation`'s
+`IndependentGitWorkspaceAdapter` and `GitDelegationChangeSetCapture` are the same idea already
+solved, but typed to that context's domain; they are a reference, not a dependency.
+
+**Not settled, and the reason this is a whole build rather than a wiring change:** the result has
+to be *sealed* before the worktree goes away. A mutating child whose changes are captured but not
+sealed into an Artifact leaves its edits in a directory that is about to be deleted -- worse than
+not running it, because the model reports work that no longer exists. So the minimum honest
+delivery is the whole chain: preflight the workspace is a clean git repository, provision a
+detached worktree, widen the child's pool to writes *scoped to that worktree*, capture the diff,
+seal it as an Artifact, insert the ChangeSet record, and reap the worktree on every exit path
+including cancellation. That needs the Artifact service in the subagent executor, which it does
+not have today.
+
+**The one property that must not be lost.** Today a child cannot write because there is no code
+path to a write: `execute_child_tool` dispatches to three read-only functions and calls the file
+tool with a hardcoded `"read"`. Adding mutation turns that structural guarantee into a mode flag,
+which is a genuine weakening. The way to keep most of it is to build the mutating pool as a
+*separate* dispatcher rather than a conditional inside the read-only one, so the read-only path
+still cannot express a write no matter what the flag says.

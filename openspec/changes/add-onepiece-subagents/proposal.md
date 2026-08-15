@@ -9,7 +9,7 @@ Without it, every "find where X is handled across this codebase" costs the main 
 - Add a `delegate_subagent` tool, eligible only for stable Agent id `onepiece`, that runs a bounded child OnePiece attempt with its own context and returns a bounded structured result.
 - Give the child a restricted tool pool: read-only exploration by default, with workspace mutation available only when the parent's own session already permits it and the caller asks for it explicitly.
 - Bound every attempt by tool calls, tokens, wall-clock, and result size, and forbid nesting so a child cannot spawn its own children.
-- Report child progress into the parent's task list rather than into the parent's transcript, so the parent sees advancement without paying for the child's context.
+- Report child progress to the user through the execution context, never into the parent's context.
 - Run mutating children in an isolated worktree and return a sealed ChangeSet through the existing delegated-apply path, rather than letting a child write into the parent's workspace concurrently.
 - Reuse the existing attempt-execution profile, credential isolation, token accounting, and unified logging rather than adding a parallel execution stack.
 
@@ -29,5 +29,5 @@ Without it, every "find where X is handled across this codebase" costs the main 
 - Mutating children depend on the existing worktree isolation and the existing once-only ChangeSet apply approval; this change does not introduce a second way to mutate a repository.
 - Token accounting must attribute child consumption to a distinguishable purpose while still rolling up to the parent session.
 - The frontend service boundary gains child attempt visibility with matching Tauri and Web/mock implementations.
-- This change depends on `add-agent-task-list` for progress reporting and on the existing delegated-apply path for mutating results; it should not start before both are in place.
+- This change depends on the existing delegated-apply path for mutating results.
 - No new package dependencies are introduced.
