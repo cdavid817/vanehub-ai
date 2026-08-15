@@ -1,3 +1,4 @@
+mod config_overview;
 mod effective_catalog;
 mod error;
 mod models;
@@ -14,6 +15,8 @@ mod progressive;
 mod service;
 
 #[cfg(test)]
+mod config_overview_tests;
+#[cfg(test)]
 mod overlay_logging_tests;
 #[cfg(test)]
 mod overlay_promotion_tests;
@@ -22,6 +25,10 @@ mod overlay_service_tests;
 #[cfg(test)]
 mod tests;
 
+#[allow(unused_imports)]
+pub(crate) use config_overview::{
+    SkillConfigurableState, SkillConfigurationOverview, SkillScopedConfigSummary,
+};
 pub(crate) use effective_catalog::{
     normalize_utility_availability, preview_package, resolve_effective_catalog,
 };

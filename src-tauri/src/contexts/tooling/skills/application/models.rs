@@ -1,3 +1,4 @@
+use super::config_overview::SkillConfigurationOverview;
 use crate::contexts::tooling::skills::domain::{
     SkillAvailability, SkillCompatibilityDefaults, SkillDelivery, SkillDriftIssue, SkillId,
     SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillSource,
@@ -369,6 +370,11 @@ impl SkillRecord {
             immutable: layer == SkillLayer::System,
             shadowed: Vec::new(),
             usage: SkillUsageSummary::default(),
+            // This path runs on a record rebuilt from the registry, whose metadata carries no
+            // frontmatter block. Reporting not-configurable here would hide a configurable
+            // Skill's settings, so the question stays unanswered until the effective package
+            // resolves it.
+            configuration: SkillConfigurationOverview::not_evaluated(),
         }
     }
 }
@@ -393,6 +399,7 @@ pub(crate) struct SkillEffectiveMetadata {
     pub(crate) immutable: bool,
     pub(crate) shadowed: Vec<SkillShadowSummary>,
     pub(crate) usage: SkillUsageSummary,
+    pub(crate) configuration: SkillConfigurationOverview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

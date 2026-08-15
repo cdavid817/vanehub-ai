@@ -52,6 +52,17 @@ pub(crate) use classification::{
     resolve_skill_identity, SkillAvailability, SkillCompatibilityDefaults, SkillDelivery,
     SkillIdentityCandidate, SkillLayer, SkillLookupOutcome, SkillOrigin, SkillTrust, SkillType,
 };
+#[allow(unused_imports)]
+pub(crate) use config_schema::{
+    parse_config_schema, SkillConfigField, SkillConfigSchema, SkillConfigSchemaError,
+    SkillConfigValue,
+};
+#[allow(unused_imports)]
+pub(crate) use config_state::{
+    classify_drift, readiness_for, resolve_effective, RedactedSecret, SkillConfigDrift,
+    SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness, SkillConfigRevision,
+    SkillConfigScope, SkillConfigSnapshot, SkillSecretIntent, SkillSecretState,
+};
 pub(crate) use drift::{
     detect_drift, RegisteredSkillInspection, SkillBindingInspection, SkillDriftInspection,
     SkillDriftIssue, SkillDriftIssueType, SkillMountObservation, SkillSourceInspection,

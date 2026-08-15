@@ -3,7 +3,7 @@
 - [x] 1.1 Extend Skill frontmatter parsing with optional `config_schema` and add domain models for normalized schemas, fields, presentation metadata, secret classification, scope, provenance, readiness, drift, revisions, and immutable snapshots.
 - [x] 1.2 Implement canonical schema hashing and the bounded supported subset for scalar, enum, bounded scalar-list, and one-level grouped fields with size, depth, key, default, annotation, and reference restrictions.
 - [x] 1.3 Add fixtures and tests for valid schemas plus unknown keywords, unsafe references, duplicate normalized keys, invalid defaults, excessive depth/size, unsupported types, and malicious labels/help text.
-- [ ] 1.4 Extend effective Skill overview contracts with configurable state, active schema/revision, available scopes, required readiness, drift, and redacted scoped summaries.
+- [x] 1.4 Extend effective Skill overview contracts with configurable state, active schema/revision, available scopes, required readiness, drift, and redacted scoped summaries.
 
 ## 2. Persistence and effective resolution
 

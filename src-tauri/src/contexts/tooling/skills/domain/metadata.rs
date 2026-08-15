@@ -113,7 +113,6 @@ impl SkillMetadata {
     /// Returns `None` when the Skill declares no schema, and `Some(Err(_))` when it declares one
     /// that is not supported. Callers must not treat the two alike: the second marks
     /// configuration unavailable for this revision and must not fall back to a permissive schema.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn config_schema(
         &self,
     ) -> Option<Result<SkillConfigSchema, SkillConfigSchemaError>> {

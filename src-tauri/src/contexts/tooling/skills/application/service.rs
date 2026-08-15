@@ -3,13 +3,13 @@ use super::{
     AgentMountConfiguration, BuiltinCleanupStatus, BuiltinReconciliationOutcome,
     BuiltinReconciliationState, EffectiveSkillCatalogPort, OverlayAppliedSkillSnapshotPort,
     SkillAccessRefusal, SkillAccessRefusalReason, SkillAgentMountPath, SkillApiBindingRepository,
-    SkillApplicationError, SkillClockPort, SkillCreateRequest, SkillDiscoveryEntry,
-    SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument, SkillDriftReport,
-    SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort, SkillFilesystemTransaction,
-    SkillImportRequest, SkillImportedSource, SkillLegacySourcePort, SkillListResult,
-    SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction, SkillLogEvent,
-    SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair, SkillOverview,
-    SkillPackageMaterializer, SkillPackageReader, SkillPreview, SkillPromptForAgent,
+    SkillApplicationError, SkillClockPort, SkillConfigurationOverview, SkillCreateRequest,
+    SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument,
+    SkillDriftReport, SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort,
+    SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillLegacySourcePort,
+    SkillListResult, SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction,
+    SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair,
+    SkillOverview, SkillPackageMaterializer, SkillPackageReader, SkillPreview, SkillPromptForAgent,
     SkillReconciliationRepository, SkillRecord, SkillRepository, SkillResourceReadOutcome,
     SkillResourceReadRequest, SkillResourceReadResult, SkillScopeQuery, SkillShadowSummary,
     SkillSourceProbe, SkillStats, SkillSyncResult, SkillUpdateRequest, SkillUsageActivity,
@@ -1600,6 +1600,13 @@ impl SkillApplicationService {
                     })
                     .collect(),
                 usage: SkillUsageSummary::default(),
+                // Derived from the winning package rather than the record or any shadowed
+                // revision, so a higher-priority Skill's schema is the one that counts.
+                configuration: SkillConfigurationOverview::from_winning_metadata(
+                    &package.metadata,
+                    Some(package.revision.clone()),
+                    package.workspace_path.is_some(),
+                ),
             }),
         })
     }
