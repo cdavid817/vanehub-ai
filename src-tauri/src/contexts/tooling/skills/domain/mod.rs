@@ -1,6 +1,7 @@
 mod binding;
 mod catalog;
 mod classification;
+mod config_document;
 mod drift;
 mod error;
 mod identity;
@@ -18,6 +19,8 @@ mod overlay_scope_replay;
 mod overlay_text_scanner;
 mod source;
 
+#[cfg(test)]
+mod config_document_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]
