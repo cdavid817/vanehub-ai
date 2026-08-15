@@ -32,12 +32,12 @@
 
 ## 5. Runtime snapshots and activation
 
-- [ ] 5.1 Implement immutable snapshot creation bound to Skill id, effective base/schema revisions, canonical workspace, non-secret values, provenance, secret-presence state, readiness, and digest.
-- [ ] 5.2 Resolve one snapshot at Role activation and keep it fixed for that loaded Role context until a later activation.
-- [ ] 5.3 Resolve one snapshot at Utility delegation and keep it isolated to that child execution even when configuration changes concurrently.
+- [x] 5.1 Implement immutable snapshot creation bound to Skill id, effective base/schema revisions, canonical workspace, non-secret values, provenance, secret-presence state, readiness, and digest.
+- [x] 5.2 Resolve one snapshot at Role activation and keep it fixed for that loaded Role context until a later activation.
+- [x] 5.3 Resolve one snapshot at Utility delegation and keep it isolated to that child execution even when configuration changes concurrently.
 - [ ] 5.4 Integrate snapshot consumption with Skill tool invocation while allowing secret use only through an explicitly declared, permission-checked native property capability.
-- [ ] 5.5 Fail only the affected activation when required configuration is missing, invalid, migration-required, or oversized and preserve unrelated Agent prompt sections and Skills.
-- [ ] 5.6 Add concurrency and lifecycle tests for edits during activation, scope precedence changes, archive, disable, restore, replacement, deletion, cancellation, and stale snapshots.
+- [x] 5.5 Fail only the affected activation when required configuration is missing, invalid, migration-required, or oversized and preserve unrelated Agent prompt sections and Skills.
+- [x] 5.6 Add concurrency and lifecycle tests for edits during activation, scope precedence changes, archive, disable, restore, replacement, deletion, cancellation, and stale snapshots.
 
 ## 6. Prompt, CLI, Overlay, and evolution boundaries
 

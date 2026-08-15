@@ -1,3 +1,4 @@
+mod configuration_activation;
 mod configuration_logging;
 mod configuration_repository;
 mod configuration_resolution;
@@ -20,6 +21,11 @@ mod effective_cache_tests;
 #[cfg(test)]
 mod recovery_tests;
 
+#[allow(unused_imports)]
+pub(crate) use configuration_activation::{
+    render_snapshot_block, resolve_activation_snapshot, ActivationRefusal, SkillActivationContext,
+    MAX_SNAPSHOT_VALUE_BYTES,
+};
 #[allow(unused_imports)]
 pub(crate) use configuration_logging::{
     configuration_event, record_cleanup, record_drift, record_lifecycle, record_save,
