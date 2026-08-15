@@ -176,6 +176,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-15 | add-agent-user-question | agent-tool-execution, agent-user-question | `openspec/changes/archive/2026-08-15-add-agent-user-question/` |
 | 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
 | 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
+| 2026-08-15 | add-goal-system | goal-management | `openspec/changes/archive/2026-08-15-add-goal-system/` |
 | 2026-08-15 | add-ocr-rendered-page-return | agent-image-input | `openspec/changes/archive/2026-08-15-add-ocr-rendered-page-return/` |
 | 2026-08-15 | add-onepiece-subagents | agent-tool-execution, onepiece-subagents | `openspec/changes/archive/2026-08-15-add-onepiece-subagents/` |
 | 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |

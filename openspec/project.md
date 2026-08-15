@@ -71,6 +71,7 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `web_research` | Guarded URL admission, public-URL resolution, fetching, extraction, binary artifact handling, and search |
 | `browser_automation` | Browser sidecar protocol, session and action policy, operation lifecycle, and artifact handoff |
 | `artifacts` | Content-addressed artifact blobs: media type and size validation, deduplication, and store capacity policy |
+| `goals` | Goal aggregates, their links to plans, loops, work items, and sessions, derived acceptance readiness, and human acceptance transitions |
 
 - Every new or materially changed native business rule, use case, persistence model, external integration, and Tauri command MUST have one owning context.
 - `tooling` subdomains MUST keep separate domain models and application APIs. A subdomain MAY be promoted to a peer context through an approved architecture decision when it has independent language, lifecycle, or transaction ownership.
