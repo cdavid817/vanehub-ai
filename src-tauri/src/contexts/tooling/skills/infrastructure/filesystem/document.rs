@@ -1,5 +1,7 @@
 use crate::contexts::tooling::skills::application::{SkillApplicationError, SkillDocument};
-use crate::contexts::tooling::skills::domain::SkillMetadata;
+use crate::contexts::tooling::skills::domain::{
+    RawSkillDelegation, SkillDelegationDeclaration, SkillMetadata,
+};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
@@ -31,7 +33,7 @@ pub(crate) fn compose(document: &SkillDocument) -> String {
         None => String::new(),
     };
     format!(
-        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntype: {}\ndelivery: {}\ntriggers:\n{}\naliases:\n{}\n{}---\n\n# {}\n\n{}\n",
+        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntype: {}\ndelivery: {}\ntriggers:\n{}\naliases:\n{}{}\n{}---\n\n# {}\n\n{}\n",
         document.metadata.id.as_str(),
         document.metadata.name,
         document.metadata.description,
@@ -41,10 +43,30 @@ pub(crate) fn compose(document: &SkillDocument) -> String {
         document.metadata.delivery.as_str(),
         triggers,
         aliases,
+        compose_delegation(&document.metadata.delegation),
         config_schema,
         document.metadata.name,
         document.body.trim()
     )
+}
+
+/// Round-trips the declared block verbatim. Composition must not normalize an invalid contract
+/// into a valid-looking one, because the package author has to see what they wrote to repair it.
+fn compose_delegation(declaration: &SkillDelegationDeclaration) -> String {
+    let Some(raw) = declaration.raw() else {
+        return String::new();
+    };
+    let mut block = String::from("\ndelegation:");
+    if !raw.tools.is_empty() {
+        block.push_str("\n  tools:");
+        for tool in &raw.tools {
+            block.push_str(&format!("\n    - {tool}"));
+        }
+    }
+    for (key, value) in &raw.fields {
+        block.push_str(&format!("\n  {key}: {value}"));
+    }
+    block
 }
 
 pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationError> {
@@ -68,7 +90,9 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
     let mut aliases = Vec::new();
     let mut skill_type = None;
     let mut delivery = None;
+    let mut delegation: Option<RawSkillDelegation> = None;
     let mut list_key: Option<&str> = None;
+    let mut in_delegation = false;
     for raw_line in frontmatter.lines() {
         let line = raw_line.trim();
         if line.is_empty() {
@@ -83,11 +107,38 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
             match key {
                 "triggers" => triggers.push(value),
                 "aliases" => aliases.push(value),
+                "tools" => {
+                    if let Some(block) = delegation.as_mut() {
+                        block.tools.push(value);
+                    }
+                }
                 _ => {}
             }
             continue;
         }
         list_key = None;
+        // Indentation is the only signal separating the nested `delegation` contract from the
+        // flat frontmatter keys, so it has to be read before the line is trimmed.
+        let nested = raw_line.starts_with(' ') || raw_line.starts_with('\t');
+        if in_delegation && nested {
+            if line == "tools:" {
+                list_key = Some("tools");
+                continue;
+            }
+            if let (Some((key, value)), Some(block)) = (line.split_once(':'), delegation.as_mut()) {
+                block.fields.insert(
+                    key.trim().to_string(),
+                    value.trim().trim_matches('"').to_string(),
+                );
+            }
+            continue;
+        }
+        in_delegation = false;
+        if line == "delegation:" {
+            in_delegation = true;
+            delegation = Some(RawSkillDelegation::default());
+            continue;
+        }
         if line == "triggers:" || line == "aliases:" {
             list_key = Some(line.trim_end_matches(':'));
             continue;
@@ -117,7 +168,7 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
             _ => {}
         }
     }
-    SkillMetadata::with_classification(
+    let metadata = SkillMetadata::with_classification(
         id,
         name,
         description,
@@ -129,7 +180,11 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
         delivery,
     )
     .map(|metadata| metadata.with_config_schema_block(config_schema_block))
-    .map_err(|error| validation_error(error.to_string()))
+    .map_err(|error| validation_error(error.to_string()))?;
+    Ok(match delegation {
+        Some(block) => metadata.with_delegation(SkillDelegationDeclaration::declared(block)),
+        None => metadata,
+    })
 }
 
 /// Splits `key:`'s indented block out of the frontmatter, returning it alongside the frontmatter
@@ -369,6 +424,80 @@ mod tests {
                 .expect("supported")
                 .hash
         );
+    }
+
+    #[test]
+    fn delegation_contract_is_parsed_and_round_trips_through_composition() {
+        let source = "---\nid: code-explorer\nname: Code Explorer\ndescription: Explores code\ncategory: development\nversion: 1.0.0\ntype: utility\ndelivery: on-demand\ntriggers:\n  - explore\naliases:\n  - explorer\ndelegation:\n  tools:\n    - file-read\n    - content-search\n  max_rounds: 6\n  timeout_seconds: 90\n---\n\nBody";
+
+        let metadata = parse(source).expect("metadata");
+        let raw = metadata.delegation.raw().expect("declared delegation");
+        assert_eq!(raw.tools, vec!["file-read", "content-search"]);
+        assert_eq!(raw.fields.get("max_rounds").map(String::as_str), Some("6"));
+        assert_eq!(
+            raw.fields.get("timeout_seconds").map(String::as_str),
+            Some("90")
+        );
+        assert_eq!(metadata.triggers, vec!["explore"]);
+        assert_eq!(metadata.aliases[0].as_str(), "explorer");
+
+        let composed = compose(&SkillDocument {
+            metadata: metadata.clone(),
+            body: "Body".to_string(),
+        });
+        assert_eq!(parse(&composed).expect("round trip"), metadata);
+    }
+
+    #[test]
+    fn invalid_delegation_block_keeps_the_skill_parseable() {
+        let metadata = parse(
+            "---\nid: broken-utility\nname: Broken\ndescription: Broken\ncategory: test\nversion: 1.0.0\ntype: utility\ndelegation:\n  tools:\n    - launch-rockets\n---\n\nBody",
+        )
+        .expect("metadata");
+
+        assert_eq!(metadata.id.as_str(), "broken-utility");
+        assert_eq!(
+            metadata.delegation.raw().expect("declared").tools,
+            vec!["launch-rockets"]
+        );
+    }
+
+    /// `config_schema` and `delegation` were added by separate branches, each emitting its own
+    /// indented block from the same `compose` format string. Only a document declaring both
+    /// exercises the ordering between them, where one block's nested keys are the other's
+    /// termination signal.
+    #[test]
+    fn a_skill_declaring_both_a_schema_and_a_delegation_contract_round_trips_both() {
+        let source = "---\nid: configured-utility\nname: Configured Utility\ndescription: Both blocks\ncategory: test\nversion: 1.0.0\ntype: utility\ndelivery: on-demand\ntriggers:\n  - configured\naliases:\n  - cfg\ndelegation:\n  tools:\n    - file-read\n  max_rounds: 4\nconfig_schema:\n  properties:\n    endpoint:\n      type: string\n      default: https://example.com\n---\n\nBody";
+
+        let metadata = parse(source).expect("metadata");
+        assert!(metadata.is_configurable());
+        assert_eq!(
+            metadata.delegation.raw().expect("declared").tools,
+            vec!["file-read"]
+        );
+        // The schema's nested keys must not have been swallowed by the delegation block that
+        // precedes them, nor its own nested keys read as top-level frontmatter.
+        assert_eq!(metadata.triggers, vec!["configured"]);
+        assert_eq!(metadata.aliases[0].as_str(), "cfg");
+
+        let composed = compose(&SkillDocument {
+            metadata: metadata.clone(),
+            body: "Body".to_string(),
+        });
+
+        assert_eq!(parse(&composed).expect("round trip"), metadata);
+    }
+
+    #[test]
+    fn absent_delegation_block_stays_absent() {
+        let metadata = parse(
+            "---\nid: plain-utility\nname: Plain\ndescription: Plain\ncategory: test\nversion: 1.0.0\ntype: utility\ntriggers:\n  - plain\n---\n\nBody",
+        )
+        .expect("metadata");
+
+        assert!(metadata.delegation.is_absent());
+        assert_eq!(metadata.triggers, vec!["plain"]);
     }
 
     #[test]

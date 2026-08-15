@@ -5,8 +5,9 @@ use crate::contexts::tooling::skills::application::{
     SkillReconciliationRepository, SkillRecord, SkillRepository,
 };
 use crate::contexts::tooling::skills::domain::{
-    default_mount_path, SkillAvailability, SkillDriftIssueType, SkillId, SkillKey, SkillLayer,
-    SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillScope, SkillSource,
+    default_mount_path, SkillAvailability, SkillDelegationAgentRuntime, SkillDriftIssueType,
+    SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin,
+    SkillScope, SkillSource,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
@@ -125,7 +126,10 @@ impl SkillRepository for SqliteSkillRepository {
     fn compatible_agents(&self) -> Result<Vec<SkillCompatibleAgent>, SkillApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
-            .prepare("SELECT id, display_name, launch_kind FROM agents ORDER BY launch_kind, id")
+            .prepare(
+                "SELECT id, display_name, launch_kind, interface_format
+                 FROM agents ORDER BY launch_kind, id",
+            )
             .map_err(repository_error)?;
         let agents = statement
             .query_map([], |row| {
@@ -133,19 +137,26 @@ impl SkillRepository for SqliteSkillRepository {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             })
             .map_err(repository_error)?
             .map(|row| {
-                let (id, display_name, launch_kind) = row.map_err(repository_error)?;
+                let (id, display_name, launch_kind, interface_format) =
+                    row.map_err(repository_error)?;
+                let is_api = launch_kind == "api";
                 Ok(SkillCompatibleAgent {
                     id,
                     display_name,
-                    kind: if launch_kind == "api" {
+                    kind: if is_api {
                         SkillAgentKind::Api
                     } else {
                         SkillAgentKind::Cli
                     },
+                    delegation_runtime: SkillDelegationAgentRuntime::classify(
+                        is_api,
+                        interface_format.as_deref(),
+                    ),
                 })
             })
             .collect();

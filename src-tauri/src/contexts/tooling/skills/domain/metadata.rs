@@ -1,5 +1,8 @@
 use super::config_schema::{parse_config_schema, SkillConfigSchema, SkillConfigSchemaError};
-use super::{SkillCompatibilityDefaults, SkillDelivery, SkillDomainError, SkillId, SkillType};
+use super::{
+    SkillCompatibilityDefaults, SkillDelegationDeclaration, SkillDelivery, SkillDomainError,
+    SkillId, SkillType,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SkillMetadata {
@@ -17,6 +20,10 @@ pub(crate) struct SkillMetadata {
     /// schema marks configuration unavailable for the revision without failing the Skill load,
     /// and so the schema stays part of the document's content hash.
     pub(crate) config_schema_block: Option<String>,
+    /// The `delegation` frontmatter block as declared. An invalid block does not fail metadata
+    /// parsing: the Skill must stay in inventory with a repairable unavailable reason instead of
+    /// disappearing from management surfaces.
+    pub(crate) delegation: SkillDelegationDeclaration,
 }
 
 impl SkillMetadata {
@@ -87,6 +94,7 @@ impl SkillMetadata {
             delivery: delivery.unwrap_or(SkillDelivery::Eager),
             compatibility_defaults,
             config_schema_block: None,
+            delegation: SkillDelegationDeclaration::default(),
         };
         if metadata.name.trim().is_empty()
             || metadata.description.trim().is_empty()
@@ -117,6 +125,11 @@ impl SkillMetadata {
         &self,
     ) -> Option<Result<SkillConfigSchema, SkillConfigSchemaError>> {
         self.config_schema_block.as_deref().map(parse_config_schema)
+    }
+
+    pub(crate) fn with_delegation(mut self, delegation: SkillDelegationDeclaration) -> Self {
+        self.delegation = delegation;
+        self
     }
 }
 

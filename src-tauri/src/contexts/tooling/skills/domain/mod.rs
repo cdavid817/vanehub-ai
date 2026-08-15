@@ -4,6 +4,7 @@ mod classification;
 mod config_document;
 mod config_schema;
 mod config_state;
+mod delegation;
 mod drift;
 mod error;
 mod identity;
@@ -27,6 +28,8 @@ mod config_document_tests;
 mod config_schema_tests;
 #[cfg(test)]
 mod config_state_tests;
+#[cfg(test)]
+mod delegation_tests;
 #[cfg(test)]
 mod overlay_guidance_tests;
 #[cfg(test)]
@@ -63,6 +66,12 @@ pub(crate) use config_state::{
     classify_drift, readiness_for, resolve_effective, RedactedSecret, SkillConfigDrift,
     SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness, SkillConfigRevision,
     SkillConfigScope, SkillConfigSnapshot, SkillSecretIntent, SkillSecretState,
+};
+pub(crate) use delegation::{
+    evaluate_delegated_assignment, evaluate_delegation_eligibility, RawSkillDelegation,
+    SkillDelegationAgentRuntime, SkillDelegationCapabilityId, SkillDelegationContract,
+    SkillDelegationDeclaration, SkillDelegationEligibility, SkillDelegationLimitField,
+    SkillDelegationLimits, SkillDelegationRequestedLimits, SkillDelegationUnavailableReason,
 };
 pub(crate) use drift::{
     detect_drift, RegisteredSkillInspection, SkillBindingInspection, SkillDriftInspection,

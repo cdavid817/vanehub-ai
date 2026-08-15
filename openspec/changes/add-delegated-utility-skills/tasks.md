@@ -1,11 +1,11 @@
 ## 1. Prerequisites and Utility Metadata
 
-- [ ] 1.1 Verify `establish-effective-skill-runtime` and `add-skill-overlay-governance` are implemented, validated, and expose effective trusted Utility snapshots, assignments, pin state, logical resources, and usage counters.
-- [ ] 1.2 Add failing Skill metadata tests for valid Utility delegation contracts, missing-contract read-only defaults, unknown capability ids, invalid limits, and platform capping.
-- [ ] 1.3 Implement typed delegation metadata parsing, stable capability ids, requested limits, effective limits, and safe unavailable reasons.
-- [ ] 1.4 Extend effective Skill and management response models with Utility eligibility, declared/effective capabilities, requested/effective limits, delegation support, use, and history summaries.
-- [ ] 1.5 Add assignment tests for supported native API Agents, unsupported CLI Agents, unsupported API runtimes, and legacy unsupported associations.
-- [ ] 1.6 Implement Utility assignment eligibility without changing Role prompt bindings or CLI mount behavior.
+- [x] 1.1 Verify `establish-effective-skill-runtime` and `add-skill-overlay-governance` are implemented, validated, and expose effective trusted Utility snapshots, assignments, pin state, logical resources, and usage counters.
+- [x] 1.2 Add failing Skill metadata tests for valid Utility delegation contracts, missing-contract read-only defaults, unknown capability ids, invalid limits, and platform capping.
+- [x] 1.3 Implement typed delegation metadata parsing, stable capability ids, requested limits, effective limits, and safe unavailable reasons.
+- [x] 1.4 Extend effective Skill and management response models with Utility eligibility, declared/effective capabilities, requested/effective limits, delegation support, use, and history summaries.
+- [x] 1.5 Add assignment tests for supported native API Agents, unsupported CLI Agents, unsupported API runtimes, and legacy unsupported associations.
+- [x] 1.6 Implement Utility assignment eligibility without changing Role prompt bindings or CLI mount behavior.
 
 ## 2. Delegation Domain and Persistence
 

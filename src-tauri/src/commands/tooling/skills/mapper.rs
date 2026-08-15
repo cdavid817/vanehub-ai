@@ -105,11 +105,7 @@ pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
         origin: origin_to_dto(effective.origin),
         trust: trust_to_dto(effective.trust),
         availability: availability_to_dto(effective.availability),
-        delegation_capability: delegation_capability(
-            effective.skill_type,
-            effective.trust,
-            effective.availability,
-        ),
+        delegation_capability: delegation_capability(effective.delegation.as_ref()),
         immutable: effective.immutable,
         shadowed_definitions: effective.shadowed.into_iter().map(shadow_to_dto).collect(),
         usage: dto::SkillUsageSummary {
@@ -122,28 +118,61 @@ pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
     }
 }
 
+/// `None` means the Skill is not a Utility. The default DTO keeps its historical
+/// `not-utility` wire shape so Role Skills never look delegatable.
 fn delegation_capability(
-    skill_type: skill::SkillType,
-    trust: skill::SkillTrust,
-    availability: skill::SkillAvailability,
+    summary: Option<&skill::SkillDelegationSummary>,
 ) -> dto::SkillDelegationCapability {
-    if skill_type != skill::SkillType::Utility {
+    let Some(summary) = summary else {
         return dto::SkillDelegationCapability::default();
-    }
-    let supported = trust == skill::SkillTrust::Trusted
-        && matches!(
-            availability,
-            skill::SkillAvailability::Available | skill::SkillAvailability::Unsupported
-        );
+    };
     dto::SkillDelegationCapability {
-        supported,
-        reason: if supported {
+        supported: summary.supported,
+        reason: if summary.supported {
             "available"
         } else {
             "skill-unavailable"
         }
         .to_string(),
+        unavailable_reason: summary
+            .unavailable_reason
+            .map(|reason| reason.as_str().to_string()),
+        declared_capabilities: capability_ids(&summary.declared_capabilities),
+        effective_capabilities: capability_ids(&summary.effective_capabilities),
+        requested_limits: dto::SkillDelegationRequestedLimits {
+            max_rounds: summary.requested_limits.max_rounds,
+            timeout_seconds: summary.requested_limits.timeout_seconds,
+            max_context_chars: summary.requested_limits.max_context_chars,
+            max_output_chars: summary.requested_limits.max_output_chars,
+        },
+        effective_limits: summary
+            .effective_limits
+            .map(|limits| dto::SkillDelegationLimits {
+                max_rounds: limits.max_rounds,
+                timeout_seconds: limits.timeout_seconds,
+                max_context_chars: limits.max_context_chars,
+                max_output_chars: limits.max_output_chars,
+            }),
+        capped_limits: summary
+            .capped_limits
+            .iter()
+            .map(|field| field.as_str().to_string())
+            .collect(),
+        uses_platform_default: summary.uses_platform_default,
+        read_only: summary.read_only,
+        history: dto::SkillDelegationHistorySummary {
+            attempt_count: summary.history.attempt_count,
+            last_attempt_at: summary.history.last_attempt_at.clone(),
+            last_status: summary.history.last_status.clone(),
+        },
     }
+}
+
+fn capability_ids(capabilities: &[skill::SkillDelegationCapabilityId]) -> Vec<String> {
+    capabilities
+        .iter()
+        .map(|capability| capability.as_str().to_string())
+        .collect()
 }
 
 pub(super) fn mount_paths_to_dto(
@@ -387,6 +416,7 @@ pub(super) fn overview_to_dto(result: skill::SkillOverview) -> dto::SkillOvervie
                     skill::SkillAgentKind::Cli => dto::SkillAgentKind::Cli,
                     skill::SkillAgentKind::Api => dto::SkillAgentKind::Api,
                 },
+                supports_utility_delegation: agent.delegation_runtime.supports_delegation(),
             })
             .collect(),
         api_agent_bindings: result.api_agent_bindings,
@@ -1103,28 +1133,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utility_delegation_capability_requires_trust_and_runtime_availability() {
-        assert_eq!(
-            delegation_capability(
-                skill::SkillType::Utility,
-                skill::SkillTrust::Trusted,
-                skill::SkillAvailability::Unsupported,
-            ),
-            dto::SkillDelegationCapability {
-                supported: true,
-                reason: "available".to_string(),
-            }
+    fn utility_delegation_capability_projects_the_effective_summary() {
+        let available = skill::SkillDelegationSummary::evaluate(
+            skill::SkillType::Utility,
+            skill::SkillTrust::Trusted,
+            skill::SkillAvailability::Unsupported,
+            &Default::default(),
         );
+        let projected = delegation_capability(available.as_ref());
+        assert!(projected.supported);
+        assert_eq!(projected.reason, "available");
         assert_eq!(
-            delegation_capability(
-                skill::SkillType::Utility,
-                skill::SkillTrust::Untrusted,
-                skill::SkillAvailability::Available,
-            ),
-            dto::SkillDelegationCapability {
-                supported: false,
-                reason: "skill-unavailable".to_string(),
-            }
+            projected.declared_capabilities,
+            vec![
+                "file-read".to_string(),
+                "content-search".to_string(),
+                "filename-search".to_string(),
+                "skill-read".to_string()
+            ]
+        );
+        assert!(projected.read_only);
+        assert!(projected.uses_platform_default);
+        assert_eq!(
+            projected.effective_limits.map(|limits| limits.max_rounds),
+            Some(8)
+        );
+
+        let untrusted = skill::SkillDelegationSummary::evaluate(
+            skill::SkillType::Utility,
+            skill::SkillTrust::Untrusted,
+            skill::SkillAvailability::Available,
+            &Default::default(),
+        );
+        let projected = delegation_capability(untrusted.as_ref());
+        assert!(!projected.supported);
+        // The coarse `reason` stays inside its existing frontend union while the specific,
+        // repairable cause travels in `unavailableReason`.
+        assert_eq!(projected.reason, "skill-unavailable");
+        assert_eq!(projected.unavailable_reason.as_deref(), Some("untrusted"));
+
+        assert_eq!(
+            delegation_capability(None),
+            dto::SkillDelegationCapability::default()
         );
     }
     use crate::contexts::tooling::skills::application::{
@@ -1275,7 +1325,25 @@ mod tests {
                 "availability": "available",
                 "delegationCapability": {
                     "supported": false,
-                    "reason": "not-utility"
+                    "reason": "not-utility",
+                    "unavailableReason": null,
+                    "declaredCapabilities": [],
+                    "effectiveCapabilities": [],
+                    "requestedLimits": {
+                        "maxRounds": null,
+                        "timeoutSeconds": null,
+                        "maxContextChars": null,
+                        "maxOutputChars": null
+                    },
+                    "effectiveLimits": null,
+                    "cappedLimits": [],
+                    "usesPlatformDefault": false,
+                    "readOnly": false,
+                    "history": {
+                        "attemptCount": 0,
+                        "lastAttemptAt": null,
+                        "lastStatus": null
+                    }
                 },
                 "immutable": false,
                 "shadowedDefinitions": [],

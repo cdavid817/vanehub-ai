@@ -12,12 +12,12 @@ pub(crate) use crate::contexts::tooling::skills::application::{
     OverlayMutationOutcome, OverlayMutationRequest, OverlayPreview, OverlayPromotionRequest,
     OverlayReconciliationPreview, OverlayReconciliationRequest, OverlaySummary, SkillAccessRefusal,
     SkillAgentKind, SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry,
-    SkillCreateRequest, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDriftReport,
-    SkillFailure, SkillImportRequest, SkillListResult, SkillLoadOutcome, SkillLoadRequest,
-    SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
-    SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome, SkillResourceReadRequest,
-    SkillScopeQuery, SkillShadowSummary, SkillSyncResult, SkillUpdateRequest,
-    UtilitySkillResolutionOutcome,
+    SkillCreateRequest, SkillDelegationSummary, SkillDiscoveryRequest, SkillDiscoveryResult,
+    SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillLoadOutcome,
+    SkillLoadRequest, SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent,
+    SkillRecord, SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome,
+    SkillResourceReadRequest, SkillScopeQuery, SkillShadowSummary, SkillSyncResult,
+    SkillUpdateRequest, UtilitySkillResolutionOutcome,
 };
 pub(crate) use crate::contexts::tooling::skills::application::{
     SkillConfigurableState, SkillConfigurationOverview,
@@ -26,9 +26,10 @@ pub(crate) use crate::contexts::tooling::skills::domain::{
     SkillAvailability, SkillConfigDrift, SkillConfigField, SkillConfigFieldType, SkillConfigGroup,
     SkillConfigPresentation, SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness,
     SkillConfigRevision, SkillConfigScalarType, SkillConfigSchema, SkillConfigScope,
-    SkillConfigValue, SkillDelivery, SkillDomainError, SkillDriftIssueType, SkillId, SkillKey,
-    SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillScope,
-    SkillSecretIntent, SkillSecretState, SkillSource, SkillTrust, SkillType,
+    SkillConfigValue, SkillDelegationCapabilityId, SkillDelivery, SkillDomainError,
+    SkillDriftIssueType, SkillId, SkillKey, SkillLayer, SkillLocation, SkillMetadata,
+    SkillMountPath, SkillOrigin, SkillScope, SkillSecretIntent, SkillSecretState, SkillSource,
+    SkillTrust, SkillType,
 };
 pub(crate) use crate::contexts::tooling::skills::infrastructure::{
     consumption_for_binding, ConfigurationConsumption, DeletionRetention, ObsoleteFieldChoice,
