@@ -96,6 +96,7 @@ mod tests {
             content: content.to_string(),
             source: MemorySource::Automatic,
             created_at: "2026-08-15T09:12:44Z".to_string(),
+            modified_at: None,
         }
     }
 

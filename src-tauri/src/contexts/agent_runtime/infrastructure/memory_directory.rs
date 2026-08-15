@@ -308,7 +308,17 @@ impl FileAgentMemoryStore {
             let Ok(document) = self.read(relative_path) else {
                 continue;
             };
-            memories.push(document_to_memory(relative_path.clone(), document));
+            // Stat rather than reuse a scan: this path resolves an explicit list, so no scan ran.
+            let modified_at = self
+                .resolve(relative_path)
+                .ok()
+                .and_then(|path| fs::metadata(path).ok())
+                .and_then(|metadata| metadata.modified().ok());
+            memories.push(document_to_memory(
+                relative_path.clone(),
+                document,
+                modified_at,
+            ));
         }
         Ok(memories)
     }
@@ -368,7 +378,11 @@ impl AgentMemoryPort for FileAgentMemoryStore {
             let Ok(document) = self.read(&header.relative_path) else {
                 continue;
             };
-            memories.push(document_to_memory(header.relative_path, document));
+            memories.push(document_to_memory(
+                header.relative_path,
+                document,
+                Some(header.modified_at),
+            ));
         }
         Ok(memories)
     }
@@ -386,7 +400,11 @@ impl AgentMemoryPort for FileAgentMemoryStore {
 
 /// The file's directory-relative path is the memory's identity, so it becomes the `id` every
 /// downstream consumer — the management view, the retrieval index — addresses it by.
-fn document_to_memory(relative_path: String, document: MemoryDocument) -> AgentMemory {
+fn document_to_memory(
+    relative_path: String,
+    document: MemoryDocument,
+    modified_at: Option<SystemTime>,
+) -> AgentMemory {
     AgentMemory {
         id: relative_path,
         agent_id: document.metadata.agent_id.unwrap_or_default(),
@@ -402,6 +420,7 @@ fn document_to_memory(relative_path: String, document: MemoryDocument) -> AgentM
             .and_then(MemorySource::parse)
             .unwrap_or(MemorySource::Automatic),
         created_at: document.metadata.created_at.unwrap_or_default(),
+        modified_at,
     }
 }
 

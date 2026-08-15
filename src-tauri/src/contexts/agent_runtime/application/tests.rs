@@ -862,6 +862,7 @@ impl AgentMemoryPort for FakeWorld {
             content: input.content.to_string(),
             source: input.source,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            modified_at: None,
         });
         Ok(())
     }
@@ -3822,6 +3823,7 @@ fn send_message_prepends_memory_for_cli_agents_when_enabled_and_present() {
         content: "Uses pnpm.".to_string(),
         source: MemorySource::Automatic,
         created_at: "2026-01-01T00:00:00Z".to_string(),
+        modified_at: None,
     });
 
     service(world.clone())
@@ -3857,6 +3859,7 @@ fn send_message_omits_memory_for_cli_agents_when_disabled() {
         content: "Uses pnpm.".to_string(),
         source: MemorySource::Automatic,
         created_at: "2026-01-01T00:00:00Z".to_string(),
+        modified_at: None,
     });
     {
         let mut settings = world
@@ -3957,6 +3960,7 @@ fn send_message_orders_memory_after_custom_instructions_and_before_prompt_hook_o
         content: "Uses pnpm.".to_string(),
         source: MemorySource::Automatic,
         created_at: "2026-01-01T00:00:00Z".to_string(),
+        modified_at: None,
     });
 
     service(world.clone())

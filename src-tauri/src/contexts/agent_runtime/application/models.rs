@@ -1408,6 +1408,11 @@ pub(crate) struct AgentMemory {
     pub(crate) content: String,
     pub(crate) source: MemorySource,
     pub(crate) created_at: String,
+    /// Last modification of the memory's file. Recency, staleness, and the already-surfaced check
+    /// all key on this rather than on `created_at`: a memory the model just corrected has to count
+    /// as the most recent one, which its creation time cannot express. `None` for a record that
+    /// came from somewhere without a file, such as the legacy row store.
+    pub(crate) modified_at: Option<std::time::SystemTime>,
 }
 
 /// One save request. `name` and `description` are optional because not every writer can supply

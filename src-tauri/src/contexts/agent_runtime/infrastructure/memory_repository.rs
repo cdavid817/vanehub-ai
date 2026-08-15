@@ -132,6 +132,7 @@ impl MemoryRow {
             content: self.content,
             source,
             created_at: self.created_at,
+            modified_at: None,
         })
     }
 }
