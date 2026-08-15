@@ -36,9 +36,9 @@
 - [x] 5.3 Nesting rejection test.
 - [x] 5.4 Bound tests for the result cap and the per-session concurrency cap, including that a refused claim leaves running children alone.
 - [x] 5.5 Isolation tests: parent workspace unmodified, worktree reaped on drop, dirty and non-repository refusals.
-- [ ] 5.6 Lifecycle tests for cancellation and reaping on both edges.
+- [x] 5.6 Lifecycle tests for cancellation, worktree reaping, and the turn ceiling.
 - [x] 5.7 Context-economy test asserting the child's tool output never enters the parent's result beyond its bounded answer.
-- [ ] 5.8 Accounting and redaction tests.
+- [x] 5.8 Accounting and redaction tests.
 - [x] 5.9 Capability-mapping guards so an extended tool cannot fall through to the filesystem fallback.
 
 ## 6. Validation
@@ -90,10 +90,13 @@ The read-only guarantee survived the addition. `execute_child_tool` and
 read-only path still has no code path to a write. A test writes through both and asserts the
 read-only one leaves the file unchanged.
 
-Remaining, and the only reason this is not archivable:
+The turn loop is now driven end to end by a scripted SSE endpoint on loopback, which is the only
+way to cover the sequence itself: that a tool call is executed and its result carried back into
+the next request, that the loop stops when the model stops asking for tools, and that the turn
+ceiling terminates a model that never concludes. The fixture is a plain `TcpListener` serving
+canned event streams -- no new dependency, and reusable for the Utility delegation executor, which
+has the same coverage gap.
 
-- Live-provider coverage of the loop itself (5.6, 5.8). Every pure part is tested -- catalog,
-  both dispatchers, bounds, result shaping, concurrency, worktree isolation and capture -- but
-  the SSE turn loop has no test that drives a provider. The existing Utility delegation executor
-  has the same gap, so closing it means introducing a provider fixture this repository does not
-  have rather than following an established pattern.
+One caveat is recorded in the test module: `reqwest`'s builder honours `ALL_PROXY`/`HTTP_PROXY`,
+so a SOCKS proxy in the environment intercepts the loopback request and these fail with a
+transport error rather than an assertion. They must run with those unset.
