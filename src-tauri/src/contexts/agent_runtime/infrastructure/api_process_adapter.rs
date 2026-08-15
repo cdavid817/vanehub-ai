@@ -8271,6 +8271,194 @@ mod tests {
         assert!(resolve_tool_image(None, "artifact-1", true, MAX_IMAGES_PER_REQUEST).is_none());
     }
 
+    /// Everything below resolves through a real store, because the interesting behaviour of the
+    /// image channel is what happens to real bytes -- the checks above only cover the paths that
+    /// return before a read.
+    use super::super::agent_image::{MAX_IMAGE_BYTES, MAX_IMAGE_EDGE_PIXELS};
+    use base64::Engine as _;
+
+    fn artifact_store(
+        directory: &crate::test_support::TempDirectory,
+    ) -> std::sync::Arc<ArtifactService> {
+        use crate::contexts::artifacts::application::ArtifactBlobStorePolicy;
+        use crate::contexts::artifacts::infrastructure::{
+            ArtifactBlobStore, SqliteArtifactCatalog,
+        };
+        use crate::platform::database::NativeDatabase;
+
+        let data_root = directory.path().join("data");
+        let database = NativeDatabase::new(data_root.clone()).expect("database");
+        std::sync::Arc::new(ArtifactService::new(
+            std::sync::Arc::new(
+                ArtifactBlobStore::new(
+                    &data_root,
+                    ArtifactBlobStorePolicy {
+                        max_blob_bytes: 16 * 1024 * 1024,
+                        max_operation_items: 16,
+                        max_operation_bytes: 32 * 1024 * 1024,
+                        max_total_bytes: 128 * 1024 * 1024,
+                    },
+                )
+                .expect("blob store"),
+            ),
+            std::sync::Arc::new(SqliteArtifactCatalog::new(database.clone())),
+        ))
+    }
+
+    fn seal(artifacts: &ArtifactService, media_type: &str, bytes: &[u8]) -> String {
+        try_seal(artifacts, "produced", media_type, bytes)
+            .expect("seal")
+            .id
+    }
+
+    fn try_seal(
+        artifacts: &ArtifactService,
+        display_name: &str,
+        media_type: &str,
+        bytes: &[u8],
+    ) -> Result<
+        crate::contexts::artifacts::application::ArtifactDescriptor,
+        crate::contexts::artifacts::application::ArtifactServiceError,
+    > {
+        use crate::contexts::artifacts::application::{
+            ArtifactCreateRequest, ArtifactCreator, ArtifactEvidenceKind, ArtifactVisibility,
+        };
+
+        artifacts.create_bytes(
+            ArtifactCreateRequest {
+                operation_id: format!("op-{display_name}"),
+                display_name: display_name.to_owned(),
+                media_type: media_type.to_owned(),
+                creator: ArtifactCreator {
+                    kind: "tool".to_owned(),
+                    id: "browser".to_owned(),
+                },
+                evidence_kind: ArtifactEvidenceKind::HostVerified,
+                visibility: ArtifactVisibility::Private,
+                source_artifact_ids: Vec::new(),
+                created_at: "2026-08-14T00:00:00Z".to_owned(),
+                expires_at: None,
+            },
+            bytes,
+        )
+    }
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut data = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(width, height))
+            .write_to(
+                &mut std::io::Cursor::new(&mut data),
+                image::ImageFormat::Png,
+            )
+            .expect("encode fixture");
+        data
+    }
+
+    /// A produced image is bounded by the same rule a file read is: over the edge limit it is
+    /// downscaled, not sent at full size and not silently dropped. This is the point of resolving
+    /// produced images through `prepare_image` instead of giving screenshots their own path -- a
+    /// full-page capture of a tall page routinely exceeds the limit.
+    #[test]
+    fn an_oversized_produced_image_is_downscaled_rather_than_sent_or_dropped() {
+        let directory = crate::test_support::TempDirectory::new("resolve-bounds");
+        let artifacts = artifact_store(&directory);
+        let oversized = MAX_IMAGE_EDGE_PIXELS + 400;
+        let id = seal(&artifacts, "image/png", &png(oversized, 64));
+
+        let resolved = resolve_tool_image(Some(&artifacts), &id, true, 0).expect("image");
+
+        assert!(resolved.was_downscaled());
+        assert_eq!(resolved.width(), MAX_IMAGE_EDGE_PIXELS);
+        assert!(resolved.byte_len() <= MAX_IMAGE_BYTES);
+    }
+
+    /// Bytes that are not a reviewed image type never become an image, however they were sealed.
+    /// The tool keeps its existing result; the call does not fail.
+    #[test]
+    fn stored_content_that_is_not_a_reviewed_image_resolves_to_nothing() {
+        let directory = crate::test_support::TempDirectory::new("resolve-type");
+        let artifacts = artifact_store(&directory);
+
+        // Bytes never even reach the resolver mislabelled: the store checks content against the
+        // declared type when sealing, so "image/png" over arbitrary bytes is refused there.
+        assert!(try_seal(&artifacts, "mislabelled", "image/png", b"not an image").is_err());
+
+        // A type the image path does not review resolves to nothing, and the tool keeps its
+        // existing result. This is the OCR-over-PDF case.
+        let pdf = seal(&artifacts, "application/pdf", b"%PDF-1.7 trailer");
+        assert!(resolve_tool_image(Some(&artifacts), &pdf, true, 0).is_none());
+
+        // An id no tool ever sealed resolves to nothing rather than erroring the call.
+        assert!(resolve_tool_image(Some(&artifacts), "artifact-missing", true, 0).is_none());
+    }
+
+    /// The per-request budget is one budget over every producer, not one per tool: the file read,
+    /// the screenshot, and the OCR page all resolve through here, so counting here is what makes a
+    /// request carrying all three stop at the same maximum.
+    #[test]
+    fn one_budget_spans_every_producer_in_a_request() {
+        let directory = crate::test_support::TempDirectory::new("resolve-budget");
+        let artifacts = artifact_store(&directory);
+        let ids: Vec<String> = ["file-read", "screenshot", "ocr-page"]
+            .iter()
+            .enumerate()
+            // Distinct sizes so the three stay distinct blobs: identical bytes share a content
+            // hash, and the catalog will not seal the same content twice.
+            .map(|(index, producer)| {
+                try_seal(
+                    &artifacts,
+                    producer,
+                    "image/png",
+                    &png(16 + index as u32, 16),
+                )
+                .expect("seal")
+                .id
+            })
+            .collect();
+
+        // Interleaving the producers still consumes one shared count.
+        let mut carried = 0usize;
+        for id in ids.iter().cycle().take(MAX_IMAGES_PER_REQUEST + 4) {
+            if resolve_tool_image(Some(&artifacts), id, true, carried).is_some() {
+                carried += 1;
+            }
+        }
+
+        assert_eq!(carried, MAX_IMAGES_PER_REQUEST);
+    }
+
+    /// The declaration is an id, and an id is all that reaches the operation record. This is the
+    /// reason the channel carries an id rather than bytes: the metadata is persisted.
+    #[test]
+    fn a_resolved_image_leaves_no_bytes_in_the_persisted_envelope() {
+        let directory = crate::test_support::TempDirectory::new("resolve-redaction");
+        let artifacts = artifact_store(&directory);
+        let bytes = png(48, 48);
+        let id = seal(&artifacts, "image/png", &bytes);
+
+        let resolved = resolve_tool_image(Some(&artifacts), &id, true, 0).expect("image");
+        assert_eq!(resolved.byte_len(), bytes.len());
+
+        // The two parts a producer persists: result metadata on the operation record, and the tool
+        // output the transcript carries. Both name the image; neither encodes it.
+        let metadata = serde_json::to_string(&BTreeMap::from([(
+            IMAGE_ARTIFACT_METADATA_KEY.to_owned(),
+            json!(id),
+        )]))
+        .expect("metadata");
+        let output =
+            serde_json::to_string(&json!({ "payload": { "artifact_id": id } })).expect("output");
+
+        let encoded_image = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        for persisted in [metadata, output] {
+            assert!(persisted.contains(&id), "{persisted}");
+            assert!(!persisted.contains("base64"), "{persisted}");
+            assert!(!persisted.contains(&encoded_image[..32]), "{persisted}");
+            // An identifier is short whatever the image weighs.
+            assert!(persisted.len() < 200, "{persisted}");
+        }
+    }
+
     #[test]
     fn asking_a_question_is_classified_as_a_no_approval_operation() {
         let (action, resource) = permission_action_and_resource(

@@ -12,6 +12,7 @@ use crate::contexts::code_execution::application::{
     SandboxProcessObservation,
 };
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -184,8 +185,16 @@ impl NativeToolProgressSink for Progress {
     fn publish(&self, _: NativeToolProgress) {}
 }
 
-#[test]
-fn image_ocr_cleans_private_bytes_and_publishes_two_linked_artifacts() {
+/// One successful image OCR call, kept in one place because standing it up costs a checksum-pinned
+/// install layout, a sealed source artifact, and a scripted backend.
+struct OcrRun {
+    response: NativeToolResultEnvelope,
+    catalog: Arc<MemoryCatalog>,
+    operations: PathBuf,
+    _root: tempfile::TempDir,
+}
+
+fn run_image_ocr() -> OcrRun {
     let root = tempfile::tempdir().expect("root");
     let install = root.path().join("install");
     let operations = root.path().join("operations");
@@ -256,19 +265,59 @@ fn image_ocr_cleans_private_bytes_and_publishes_two_linked_artifacts() {
             progress: Arc::new(Progress),
         },
     });
-    assert_eq!(response.status, NativeToolResultStatus::Succeeded);
+    OcrRun {
+        response,
+        catalog,
+        operations,
+        _root: root,
+    }
+}
+
+#[test]
+fn image_ocr_cleans_private_bytes_and_publishes_two_linked_artifacts() {
+    let run = run_image_ocr();
+
+    assert_eq!(run.response.status, NativeToolResultStatus::Succeeded);
     assert_eq!(
-        response.output.as_ref().expect("output")["artifacts"]
+        run.response.output.as_ref().expect("output")["artifacts"]
             .as_array()
             .expect("artifacts")
             .len(),
         2
     );
-    assert_eq!(catalog.publications.lock().expect("publications").len(), 2);
     assert_eq!(
-        std::fs::read_dir(operations).expect("operations").count(),
+        run.catalog.publications.lock().expect("publications").len(),
+        2
+    );
+    assert_eq!(
+        std::fs::read_dir(run.operations)
+            .expect("operations")
+            .count(),
         0
     );
+}
+
+/// OCR names the page it read, so a model can look at it rather than only at the characters OCR
+/// recovered from it. The declaration is the source Artifact: the rendered pages live in the
+/// sandbox `execute_ocr` cleans up before it builds this envelope, so a PDF source declares a PDF,
+/// the loop finds an unreviewed image type, and the call degrades to its text result.
+#[test]
+fn a_successful_ocr_result_names_the_page_it_read() {
+    let run = run_image_ocr();
+
+    let declared = run.response.metadata[IMAGE_ARTIFACT_METADATA_KEY]
+        .as_str()
+        .expect("declared image");
+    assert_eq!(
+        json!(declared),
+        run.response.metadata["source_artifact_id"],
+        "the declared image is the page OCR read"
+    );
+    assert!(declared.starts_with("artifact-"), "{declared}");
+
+    // An id, never bytes: this metadata is persisted on the operation record.
+    let encoded = serde_json::to_string(&run.response.metadata).expect("metadata");
+    assert!(!encoded.contains("base64"), "{encoded}");
 }
 
 fn digest_hex(bytes: &[u8]) -> String {

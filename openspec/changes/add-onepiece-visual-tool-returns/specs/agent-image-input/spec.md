@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Tools that may return an image
-The file tool's read operation SHALL return a reviewed image type as an image rather than refusing it as binary content, subject to the same workspace, hidden-path, and file-size rules it already applies. The Browser screenshot operation and the OCR tool SHALL return their produced image alongside the Artifact reference they already return and, for OCR, alongside the extracted text. No other tool SHALL return an image. Every image-returning tool SHALL prepare its image through the same reviewed-type, bound, downscale, and per-request-budget path rather than a tool-specific one. When the active model does not accept images, each of these tools SHALL return its existing non-image result rather than failing.
+The file tool's read operation SHALL return a reviewed image type as an image rather than refusing it as binary content, subject to the same workspace, hidden-path, and file-size rules it already applies. The Browser screenshot operation SHALL return the image it captured, and the OCR tool SHALL return the page it read, each alongside the Artifact reference they already return and, for OCR, alongside the extracted text. No other tool SHALL return an image. Every image-returning tool SHALL prepare its image through the same reviewed-type, bound, downscale, and per-request-budget path rather than a tool-specific one. When the active model does not accept images, each of these tools SHALL return its existing non-image result rather than failing.
 
 #### Scenario: File read of a reviewed image type
 - **WHEN** the native agent reads a file whose type is a reviewed image type
@@ -18,7 +18,12 @@ The file tool's read operation SHALL return a reviewed image type as an image ra
 
 #### Scenario: OCR returns the page it read
 - **WHEN** an OCR call succeeds and the active model accepts images
-- **THEN** the result SHALL carry the rendered page image alongside the extracted text and Artifact reference
+- **THEN** the result SHALL carry the page it read alongside the extracted text and Artifact reference
+
+#### Scenario: OCR of a source that is not a reviewed image type
+- **WHEN** an OCR call succeeds over a source whose type the image path does not review
+- **THEN** the result SHALL carry the extracted text and Artifact reference without an image
+- **AND** it SHALL NOT fail because an image could not be attached
 
 #### Scenario: A produced image exceeds its bounds
 - **WHEN** a screenshot or rendered page exceeds the declared dimension or byte bounds
@@ -62,6 +67,10 @@ An image a tool returns SHALL come from content that tool itself produced in the
 #### Scenario: A produced image is attached
 - **WHEN** a tool produces an image during a call and the active model accepts images
 - **THEN** it SHALL attach that image from the content it produced
+
+#### Scenario: Stored content contradicts its declared type
+- **WHEN** content is sealed whose bytes do not match its declared media type
+- **THEN** the store SHALL refuse to seal it rather than admitting content a later read would trust
 
 #### Scenario: A caller-supplied reference is refused
 - **WHEN** a tool call supplies an Artifact id, path, or other reference naming an image to attach

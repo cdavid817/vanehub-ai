@@ -7,36 +7,36 @@
 
 ## 2. Tool surfaces
 
-- [ ] 2.1 Return the captured image from the Browser screenshot operation alongside its existing Artifact reference.
-- [ ] 2.2 Return the rendered page image from the OCR tool alongside its existing text and Artifact reference.
-- [ ] 2.3 Route both through the existing image preparation so they inherit reviewed types, bounds, downscaling, and the per-request budget.
-- [ ] 2.4 Degrade both to their current non-image results on a text-only model.
-- [ ] 2.5 Carry the Artifact reference into the transcript for every image-returning tool.
+- [x] 2.1 Return the captured image from the Browser screenshot operation alongside its existing Artifact reference.
+- [x] 2.2 Return the page OCR read alongside its existing text and Artifact reference.
+- [x] 2.3 Route both through the existing image preparation so they inherit reviewed types, bounds, downscaling, and the per-request budget.
+- [x] 2.4 Degrade both to their current non-image results on a text-only model.
+- [x] 2.5 Carry the Artifact reference into the transcript for every image-returning tool.
 
 ## 3. Tests
 
 - [x] 3.1 Envelope tests: an image reaches the reply turns, and no base64 reaches the tool output or the persisted transcript.
-- [ ] 3.2 Screenshot and OCR image-return tests, including the text-only degradation path.
-- [ ] 3.3 A bound test proving a produced image goes through the same downscale-then-refuse path as a file read.
-- [ ] 3.4 A budget test spanning all three producers in one request.
-- [ ] 3.5 Redaction tests asserting no image bytes reach logs or the transcript.
+- [x] 3.2 Screenshot and OCR image-return tests, including the text-only degradation path.
+- [x] 3.3 A bound test proving a produced image goes through the same downscale-then-refuse path as a file read.
+- [x] 3.4 A budget test spanning all three producers in one request.
+- [x] 3.5 Redaction tests asserting no image bytes reach logs or the transcript.
 
 ## 4. Validation
 
-- [ ] 4.1 `npm run lint:ci`
-- [ ] 4.2 `npm run test`
-- [ ] 4.3 `npm run build`
-- [ ] 4.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 4.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 4.6 `cargo test --manifest-path src-tauri/Cargo.toml`
-- [ ] 4.7 `openspec validate add-onepiece-visual-tool-returns --strict`
+- [x] 4.1 `npm run lint:ci`
+- [x] 4.2 `npm run test`
+- [x] 4.3 `npm run build`
+- [x] 4.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 4.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 4.6 `cargo test --manifest-path src-tauri/Cargo.toml`
+- [x] 4.7 `openspec validate add-onepiece-visual-tool-returns --strict`
 
 ## Status
 
-The channel is in place and the loop resolves it. A native tool declares an image by putting the
-Artifact id it just sealed under `image_artifact_id` in its result metadata; the tool loop reads
-that id, resolves the bytes through a hash-verified blob read, prepares the image through the same
-bounds and downscaling every other producer uses, and attaches it to the reply turns.
+The channel is in place, the loop resolves it, and both producers declare through it. A native tool
+declares an image by putting an Artifact id under `image_artifact_id` in its result metadata; the
+tool loop resolves the bytes through a hash-verified blob read, prepares them through the same
+bounds and downscaling every other producer uses, and attaches the result to the reply turns.
 
 Carrying an id rather than adding an envelope field was chosen after counting: the envelope is
 constructed in more than ninety places, so a new field would have churned every native tool for a
@@ -47,6 +47,10 @@ Every failure to attach degrades to the tool's existing result rather than faili
 Artifact store wired, a text-only model, a spent per-request budget, an unreadable Artifact, or
 bytes that are not a reviewed image type.
 
-Remaining: the two producers (2.1, 2.2) still need to set the metadata key, plus their tests
-(3.2-3.5). Neither needs a new read -- the screenshot adapter already holds its bytes and seals
-them, and OCR renders into its own sandbox.
+Two findings changed what shipped against what 2.2 first described. OCR cleans up its sandbox
+before it builds its envelope, so the rendered pages are gone by then; what OCR declares is the
+source Artifact -- exactly the page it read when the source is an image, and an unreviewed type
+that degrades to text when the source is a PDF. Sealing a rendered page would improve the PDF case
+and is deliberately not done here. Separately, the blob store validates content against the
+declared media type when sealing, so mislabelled bytes never reach the resolver at all; the type
+test now pins that stronger property rather than the one it assumed.

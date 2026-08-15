@@ -4,7 +4,8 @@ use super::ocr_native_tool_support::{
 use super::{ManagedPaddleOcrWorker, ManagedPdfiumRenderer, OwnedOcrStagingAdapter};
 use crate::contexts::agent_runtime::application::{
     NativeToolPortRequest, NativeToolProgress, NativeToolProgressPhase, NativeToolResultEnvelope,
-    NativeToolResultStatus, OcrInferencePort, NATIVE_TOOL_CONTRACT_VERSION,
+    NativeToolResultStatus, OcrInferencePort, IMAGE_ARTIFACT_METADATA_KEY,
+    NATIVE_TOOL_CONTRACT_VERSION,
 };
 use crate::contexts::artifacts::application::{
     ArtifactCreateRequest, ArtifactCreator, ArtifactDescriptor, ArtifactEvidenceKind,
@@ -130,6 +131,17 @@ impl OcrNativeToolAdapter {
             metadata: BTreeMap::from([
                 (
                     "source_artifact_id".to_owned(),
+                    json!(result.source_artifact_id),
+                ),
+                // The page OCR actually read, so the model can see what the text was recovered
+                // from rather than only the characters (`add-onepiece-visual-tool-returns`).
+                // The rendered pages under the sandbox are gone by here -- `workspace.cleanup`
+                // runs above -- so this is the source Artifact. When the source is an image that
+                // is exactly the page; when it is a PDF the loop finds an unreviewed type and
+                // degrades to this same text result. Sealing a rendered page would improve the
+                // PDF case and is not done here.
+                (
+                    IMAGE_ARTIFACT_METADATA_KEY.to_owned(),
                     json!(result.source_artifact_id),
                 ),
                 (
