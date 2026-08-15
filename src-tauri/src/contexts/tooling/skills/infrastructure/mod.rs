@@ -1,4 +1,5 @@
 mod configuration_activation;
+mod configuration_boundaries;
 mod configuration_logging;
 mod configuration_repository;
 mod configuration_resolution;
@@ -25,6 +26,12 @@ mod recovery_tests;
 pub(crate) use configuration_activation::{
     render_snapshot_block, resolve_activation_snapshot, ActivationRefusal, SkillActivationContext,
     MAX_SNAPSHOT_VALUE_BYTES,
+};
+#[allow(unused_imports)]
+pub(crate) use configuration_boundaries::{
+    consumption_for_binding, evolution_signal, overlay_schema_changed,
+    render_configuration_subsection, ConfigurationConsumption, ConfigurationEvolutionSignal,
+    ConfigurationSubsection, MAX_CONFIGURATION_SUBSECTION_CHARACTERS,
 };
 #[allow(unused_imports)]
 pub(crate) use configuration_logging::{

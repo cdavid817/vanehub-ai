@@ -41,11 +41,11 @@
 
 ## 6. Prompt, CLI, Overlay, and evolution boundaries
 
-- [ ] 6.1 Serialize bounded non-secret configuration in stable key order for eligible native API Skill contexts and count it against a declared configuration subsection budget.
-- [ ] 6.2 Include only configured/missing state for secret properties and test that over-budget configuration fails activation instead of truncating semantic values.
-- [ ] 6.3 Keep external CLI mounts, files, environment variables, arguments, and processes free of managed values and expose unsupported configuration consumption for bindings without a bridge.
-- [ ] 6.4 Recompute schema hashes and drift when an authorized Overlay changes `config_schema`, while preventing Overlay operations from writing User/Project records or credential slots.
-- [ ] 6.5 Filter runtime values and credential aliases from evolution signals, candidate seeds, LLM review, dossiers, Curator records, notifications, and auto-apply; retain only safe structural readiness metadata.
+- [x] 6.1 Serialize bounded non-secret configuration in stable key order for eligible native API Skill contexts and count it against a declared configuration subsection budget.
+- [x] 6.2 Include only configured/missing state for secret properties and test that over-budget configuration fails activation instead of truncating semantic values.
+- [x] 6.3 Keep external CLI mounts, files, environment variables, arguments, and processes free of managed values and expose unsupported configuration consumption for bindings without a bridge.
+- [x] 6.4 Recompute schema hashes and drift when an authorized Overlay changes `config_schema`, while preventing Overlay operations from writing User/Project records or credential slots.
+- [x] 6.5 Filter runtime values and credential aliases from evolution signals, candidate seeds, LLM review, dossiers, Curator records, notifications, and auto-apply; retain only safe structural readiness metadata.
 
 ## 7. Commands and frontend adapters
 
