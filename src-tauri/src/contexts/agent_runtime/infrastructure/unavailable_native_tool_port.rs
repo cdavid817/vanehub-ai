@@ -1,7 +1,7 @@
 use crate::contexts::agent_runtime::application::{
     BrowserAutomationPort, ChangeSetApplyPort, CliDelegationPort, CodeExecutionPort,
     NativeToolErrorCode, NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus,
-    OcrInferencePort, NATIVE_TOOL_CONTRACT_VERSION,
+    OcrInferencePort, SubagentPort, NATIVE_TOOL_CONTRACT_VERSION,
 };
 use std::collections::BTreeMap;
 
@@ -27,6 +27,12 @@ impl OcrInferencePort for UnavailableNativeToolPort {
 
 impl CliDelegationPort for UnavailableNativeToolPort {
     fn execute_delegation(&self, _: NativeToolPortRequest) -> NativeToolResultEnvelope {
+        unavailable()
+    }
+}
+
+impl SubagentPort for UnavailableNativeToolPort {
+    fn execute_subagent(&self, _: NativeToolPortRequest) -> NativeToolResultEnvelope {
         unavailable()
     }
 }

@@ -15,7 +15,7 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
-    OnePieceToolFeatureGates, UtilityDelegationApplicationPorts,
+    OnePieceToolFeatureGates, SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
     UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
@@ -289,6 +289,16 @@ fn assemble_native_tool_registry(
             NativeToolReadinessReasonCode::IsolationUnavailable,
         );
     }
+    // Registered so its eligibility, gating, and approval classification are live and testable,
+    // but reporting backend-unavailable until the child attempt executor lands
+    // (`add-onepiece-subagents`). The gate defaults off regardless.
+    handlers.push(Arc::new(SubagentNativeToolHandler::new(Arc::new(
+        UnavailableNativeToolPort,
+    ))));
+    readiness_reasons.insert(
+        "delegate_subagent".to_owned(),
+        NativeToolReadinessReasonCode::BackendUnavailable,
+    );
     if readiness {
         let port = Arc::new(OcrNativeToolAdapter::new(
             install_path,

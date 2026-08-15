@@ -239,6 +239,7 @@ fn extended_tool_name_set_is_fixed_and_complete() {
             "artifact",
             "delegate_cli",
             "apply_delegation_changes",
+            "delegate_subagent",
         ]
     );
     assert!(crate::contexts::agent_runtime::application::is_onepiece_only("browser"));

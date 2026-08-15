@@ -20,6 +20,7 @@ mod ocr_handler;
 mod persistence;
 mod ports;
 mod registry;
+mod subagent_handler;
 mod web_handler;
 mod web_handler_input;
 
@@ -62,10 +63,12 @@ pub(crate) use persistence::{
 };
 pub(crate) use ports::{
     ArtifactPort, BrowserAutomationPort, BrowserHandoffControlPort, ChangeSetApplyPort,
-    CliDelegationPort, CodeExecutionPort, NativeToolPortRequest, OcrInferencePort, WebResearchPort,
+    CliDelegationPort, CodeExecutionPort, NativeToolPortRequest, OcrInferencePort, SubagentPort,
+    WebResearchPort,
 };
 pub(crate) use registry::{
     is_onepiece_only, NativeToolRegistry, NativeToolRegistryError, ONEPIECE_AGENT_ID,
     ONEPIECE_ONLY_TOOL_NAMES,
 };
+pub(crate) use subagent_handler::SubagentNativeToolHandler;
 pub(crate) use web_handler::web_native_tool_handlers;

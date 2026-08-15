@@ -146,9 +146,10 @@ pub(crate) use native_tools::{
     NativeToolReadinessReasonCode, NativeToolRegistry, NativeToolRegistryError,
     NativeToolResultEnvelope, NativeToolResultStatus, NativeToolSafeLogMetadata, OcrInferencePort,
     OcrNativeToolHandler, OnePieceToolFeatureGates, PreparedNativeToolDispatch, RecoveryRecord,
-    RecoveryStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibility,
-    ToolEligibilityContext, ToolResourceKind, ValidatedNativeToolInput, WebResearchPort,
-    NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID, ONEPIECE_ONLY_TOOL_NAMES,
+    RecoveryStatus, StoredToolOperation, StoredToolOperationStatus, SubagentNativeToolHandler,
+    SubagentPort, ToolEligibility, ToolEligibilityContext, ToolResourceKind,
+    ValidatedNativeToolInput, WebResearchPort, NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID,
+    ONEPIECE_ONLY_TOOL_NAMES,
 };
 #[cfg(test)]
 pub(crate) use ports::OnePiecePlanningPort;
