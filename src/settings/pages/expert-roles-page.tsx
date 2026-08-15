@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { agentService } from "../../services/runtime-agent-client";
 import type { ExpertRole, SaveExpertRoleInput } from "../../types/expert-role";
 import { PageHeader, SectionPanel } from "./page-parts";
@@ -12,6 +13,7 @@ const expertRolesQueryKey = ["expert-roles"] as const;
 
 export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   /** `undefined` closes the form; `null` opens it blank; a role opens it seeded. */
   const [editing, setEditing] = useState<ExpertRole | null | undefined>();
@@ -55,6 +57,7 @@ export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
 
   return (
     <div className="grid content-start gap-4">
+      {confirmationDialog}
       <PageHeader
         description={t("expertRoles.description")}
         icon={UserRound}
@@ -135,7 +138,8 @@ export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
                         <Button
                           className="h-8 px-2 text-xs"
                           onClick={() => {
-                            if (window.confirm(t("expertRoles.deleteConfirm"))) deleteMutation.mutate(role.id);
+                            void confirm({ title: t("expertRoles.deleteConfirm"), tone: "danger" })
+                              .then((confirmed) => { if (confirmed) deleteMutation.mutate(role.id); });
                           }}
                           title={t("expertRoles.delete")}
                           type="button"

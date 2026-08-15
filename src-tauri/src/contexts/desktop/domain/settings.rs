@@ -191,6 +191,8 @@ pub(crate) enum DesktopSettingKey {
     CustomInstructionsEnabled,
     MemoryEnabled,
     MemoryToolAssistedChatsEnabled,
+    AutomaticContextCompactionEnabled,
+    ContextQualityRetentionDays,
 }
 
 impl DesktopSettingKey {
@@ -212,6 +214,8 @@ impl DesktopSettingKey {
             "customInstructionsEnabled" => Ok(Self::CustomInstructionsEnabled),
             "memoryEnabled" => Ok(Self::MemoryEnabled),
             "memoryToolAssistedChatsEnabled" => Ok(Self::MemoryToolAssistedChatsEnabled),
+            "automaticContextCompactionEnabled" => Ok(Self::AutomaticContextCompactionEnabled),
+            "contextQualityRetentionDays" => Ok(Self::ContextQualityRetentionDays),
             _ => Err(DesktopSettingsDomainError::invalid(value)),
         }
     }
@@ -234,6 +238,8 @@ impl DesktopSettingKey {
             Self::CustomInstructionsEnabled => "customInstructionsEnabled",
             Self::MemoryEnabled => "memoryEnabled",
             Self::MemoryToolAssistedChatsEnabled => "memoryToolAssistedChatsEnabled",
+            Self::AutomaticContextCompactionEnabled => "automaticContextCompactionEnabled",
+            Self::ContextQualityRetentionDays => "contextQualityRetentionDays",
         }
     }
 }
@@ -261,6 +267,8 @@ pub(crate) enum DesktopSettingMutation {
     CustomInstructionsEnabled(bool),
     MemoryEnabled(bool),
     MemoryToolAssistedChatsEnabled(bool),
+    AutomaticContextCompactionEnabled(bool),
+    ContextQualityRetentionDays(i64),
 }
 
 impl DesktopSettingMutation {
@@ -327,6 +335,15 @@ impl DesktopSettingMutation {
             DesktopSettingKey::MemoryToolAssistedChatsEnabled => parse_bool(value)
                 .map(Self::MemoryToolAssistedChatsEnabled)
                 .ok_or_else(invalid),
+            DesktopSettingKey::AutomaticContextCompactionEnabled => parse_bool(value)
+                .map(Self::AutomaticContextCompactionEnabled)
+                .ok_or_else(invalid),
+            DesktopSettingKey::ContextQualityRetentionDays => value
+                .parse::<i64>()
+                .ok()
+                .filter(|days| matches!(days, 7 | 30 | 90))
+                .map(Self::ContextQualityRetentionDays)
+                .ok_or_else(invalid),
             DesktopSettingKey::LogDirectory | DesktopSettingKey::DefaultPolicyTemplate => {
                 Err(invalid())
             }
@@ -357,6 +374,10 @@ impl DesktopSettingMutation {
             Self::MemoryToolAssistedChatsEnabled(_) => {
                 DesktopSettingKey::MemoryToolAssistedChatsEnabled
             }
+            Self::AutomaticContextCompactionEnabled(_) => {
+                DesktopSettingKey::AutomaticContextCompactionEnabled
+            }
+            Self::ContextQualityRetentionDays(_) => DesktopSettingKey::ContextQualityRetentionDays,
         }
     }
 
@@ -376,8 +397,10 @@ impl DesktopSettingMutation {
             | Self::LaunchOnStartup(value)
             | Self::CustomInstructionsEnabled(value)
             | Self::MemoryEnabled(value)
-            | Self::MemoryToolAssistedChatsEnabled(value) => value.to_string(),
-            Self::AutomaticArchivalInactiveDays(value) => value.to_string(),
+            | Self::MemoryToolAssistedChatsEnabled(value)
+            | Self::AutomaticContextCompactionEnabled(value) => value.to_string(),
+            Self::AutomaticArchivalInactiveDays(value)
+            | Self::ContextQualityRetentionDays(value) => value.to_string(),
         }
     }
 }
@@ -402,6 +425,8 @@ pub(crate) struct DesktopSettings {
     custom_instructions_enabled: bool,
     memory_enabled: bool,
     memory_tool_assisted_chats_enabled: bool,
+    automatic_context_compaction_enabled: bool,
+    context_quality_retention_days: i64,
 }
 
 impl DesktopSettings {
@@ -424,6 +449,8 @@ impl DesktopSettings {
             custom_instructions_enabled: true,
             memory_enabled: true,
             memory_tool_assisted_chats_enabled: true,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
         }
     }
 
@@ -466,6 +493,12 @@ impl DesktopSettings {
             }
             DesktopSettingMutation::MemoryToolAssistedChatsEnabled(value) => {
                 self.memory_tool_assisted_chats_enabled = value;
+            }
+            DesktopSettingMutation::AutomaticContextCompactionEnabled(value) => {
+                self.automatic_context_compaction_enabled = value;
+            }
+            DesktopSettingMutation::ContextQualityRetentionDays(value) => {
+                self.context_quality_retention_days = value;
             }
         }
     }
@@ -524,6 +557,14 @@ impl DesktopSettings {
 
     pub(crate) fn memory_tool_assisted_chats_enabled(&self) -> bool {
         self.memory_tool_assisted_chats_enabled
+    }
+
+    pub(crate) fn automatic_context_compaction_enabled(&self) -> bool {
+        self.automatic_context_compaction_enabled
+    }
+
+    pub(crate) fn context_quality_retention_days(&self) -> i64 {
+        self.context_quality_retention_days
     }
 }
 
@@ -591,6 +632,8 @@ mod tests {
         assert!(settings.custom_instructions_enabled());
         assert!(settings.memory_enabled());
         assert!(settings.memory_tool_assisted_chats_enabled());
+        assert!(settings.automatic_context_compaction_enabled());
+        assert_eq!(settings.context_quality_retention_days(), 30);
     }
 
     #[test]
@@ -628,6 +671,8 @@ mod tests {
             ("customInstructionsEnabled", "false"),
             ("memoryEnabled", "false"),
             ("memoryToolAssistedChatsEnabled", "false"),
+            ("automaticContextCompactionEnabled", "false"),
+            ("contextQualityRetentionDays", "90"),
         ];
 
         for (key, value) in cases {
@@ -643,6 +688,7 @@ mod tests {
         );
         assert!(DesktopSettingMutation::parse("unknownSetting", "value").is_err());
         assert!(DesktopSettingMutation::parse("defaultPolicyTemplate", "").is_err());
+        assert!(DesktopSettingMutation::parse("contextQualityRetentionDays", "14").is_err());
     }
 
     #[test]

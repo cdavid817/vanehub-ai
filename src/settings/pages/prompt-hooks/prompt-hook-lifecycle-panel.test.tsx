@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { PromptHook, PromptHookVersionHistory } from "../../../types/prompt-hook";
@@ -30,7 +30,6 @@ describe("PromptHookLifecyclePanel", () => {
       publishPromptHook: publish,
       rollbackPromptHook: rollback,
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = renderWithAppProviders(
       <PromptHookLifecyclePanel
         hook={hook}
@@ -61,7 +60,8 @@ describe("PromptHookLifecyclePanel", () => {
       expectedPublishedVersion: 2,
     });
     await user.click(screen.getByRole("button", { name: "回滚" }));
-    expect(window.confirm).toHaveBeenCalled();
+    const confirmation = await screen.findByRole("dialog", { name: /确认将 v1 重新发布/ });
+    await user.click(within(confirmation).getByRole("button", { name: "确认" }));
     expect(rollback).toHaveBeenCalledWith({
       hookId: hook.id,
       version: 1,

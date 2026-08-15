@@ -70,8 +70,8 @@ function NotificationToast({
       className={cn(
         "ucd-panel pointer-events-auto grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border p-3 shadow-xl",
         notification.toastState === "exiting"
-          ? "animate-out fade-out slide-out-to-right-2 duration-200"
-          : "animate-in fade-in slide-in-from-right-2 duration-200",
+          ? "animate-out fade-out slide-out-to-left-2 duration-200"
+          : "animate-in fade-in slide-in-from-left-2 duration-200",
       )}
       role={notification.type === "error" || notification.type === "warning" ? "alert" : "status"}
     >
@@ -116,11 +116,13 @@ export function NotificationToastViewport({
     .slice()
     .reverse();
 
+  // Bottom left, because both alternatives cover a control: the bottom right sits on the
+  // composer's send button and the top right sits on the information panel's tabs.
   return (
     <div
       aria-label={t("notifications.toastRegion")}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-2 bottom-10 z-60 grid justify-items-end gap-2 sm:left-auto sm:right-4 sm:w-[min(24rem,calc(100vw-2rem))]"
+      className="pointer-events-none fixed inset-x-2 bottom-4 z-60 grid justify-items-start gap-2 sm:right-auto sm:left-4 sm:w-[min(24rem,calc(100vw-2rem))]"
     >
       {activeToasts.map((notification) => (
         <NotificationToast

@@ -30,4 +30,36 @@ describe("web-settings-client", () => {
       await expect(webSettingsClient.getSettings()).resolves.toMatchObject({ applicationLanguage });
     }
   });
+
+  it("defaults and persists the automatic context compaction preference", async () => {
+    await expect(webSettingsClient.getSettings()).resolves.toMatchObject({
+      automaticContextCompactionEnabled: true,
+    });
+
+    const savedSettings = await webSettingsClient.saveSetting({
+      key: "automaticContextCompactionEnabled",
+      value: false,
+    });
+
+    expect(savedSettings.automaticContextCompactionEnabled).toBe(false);
+    await expect(webSettingsClient.getSettings()).resolves.toMatchObject({
+      automaticContextCompactionEnabled: false,
+    });
+  });
+
+  it("defaults and persists a supported context quality retention window", async () => {
+    await expect(webSettingsClient.getSettings()).resolves.toMatchObject({
+      contextQualityRetentionDays: 30,
+    });
+
+    const savedSettings = await webSettingsClient.saveSetting({
+      key: "contextQualityRetentionDays",
+      value: 90,
+    });
+
+    expect(savedSettings.contextQualityRetentionDays).toBe(90);
+    await expect(webSettingsClient.getSettings()).resolves.toMatchObject({
+      contextQualityRetentionDays: 90,
+    });
+  });
 });

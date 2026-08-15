@@ -3,6 +3,8 @@ import { LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../../services/runtime-agent-client";
 import { OnePieceRetrievalSection } from "./agents/onepiece-retrieval-section";
+import { OnePieceContextCompactionSection } from "./agents/onepiece-context-compaction-section";
+import { OnePieceContextHealthSection } from "./agents/onepiece-context-health-section";
 
 export function OnePieceParametersPanel() {
   const { t } = useTranslation();
@@ -19,5 +21,9 @@ export function OnePieceParametersPanel() {
     return <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{profiles.error instanceof Error ? profiles.error.message : String(profiles.error)}</p>;
   }
 
-  return <OnePieceRetrievalSection profiles={profiles.data?.profiles ?? []} />;
+  return <div className="space-y-4">
+    <OnePieceContextCompactionSection />
+    <OnePieceContextHealthSection />
+    <OnePieceRetrievalSection profiles={profiles.data?.profiles ?? []} />
+  </div>;
 }

@@ -17,6 +17,9 @@ import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionE
 import { ButtonArea } from "./ButtonArea";
 import { FileReferenceLines } from "./FileReferenceLines";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
+import { SlashCommandCompletion } from "./SlashCommandCompletion";
+import { SlashCommandOutput } from "./SlashCommandOutput";
+import type { CommandOutput, SlashCommand } from "../../services/slash-commands/types";
 
 export function ChatInputBox({
   agents,
@@ -46,6 +49,10 @@ export function ChatInputBox({
   onRemoveFileReference,
   participantMentions = [],
   sessionId = null,
+  slashCommandOutput = null,
+  slashCommandSuggestions = [],
+  onDismissSlashCommandOutput,
+  onSelectSlashCommand,
   value,
 }: {
   agents: AgentRegistryEntry[];
@@ -76,6 +83,10 @@ export function ChatInputBox({
   participantMentions?: SeatMentionOption[];
   /** Needed to read a candidate's content for the preview; without one, selection attaches directly. */
   sessionId?: string | null;
+  slashCommandOutput?: CommandOutput | null;
+  slashCommandSuggestions?: SlashCommand[];
+  onDismissSlashCommandOutput?: () => void;
+  onSelectSlashCommand?: (name: string) => void;
   value: string;
 }) {
   const { t } = useTranslation();
@@ -162,25 +173,35 @@ export function ChatInputBox({
         data-testid="wechat-style-composer"
         {...dropTarget.handlers}
       >
-        {dropTarget.isDropTarget ? (
-          // Above the composer rather than over its top edge: that edge is where attached
-          // reference chips live, and covering them hides what is already attached while
-          // dragging the next one. Mention completion occupies the same slot but never at
-          // the same time as a drag.
-          <p className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 w-full rounded-md bg-primary/10 px-3 py-1.5 text-center text-xs font-medium text-primary" role="status">
-            {t("chat.dropFileHint")}
-          </p>
-        ) : null}
-        {participantSuggestions.length || fileSuggestions.length ? (
-          <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
-            <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
-            {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
-            {fileSuggestions.map((candidate) => (
-              <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={candidate.path} onClick={() => selectReference(candidate)} type="button">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{candidate.path}</span>
-              </button>
-            ))}
+        {/* Single positioned wrapper so the output panel and whichever completion panel is
+            active stack in flow order instead of layering at identical coordinates. The
+            drop hint joins them for the same reason — and because the composer's top edge,
+            where it used to sit, is where attached reference chips live. */}
+        {dropTarget.isDropTarget || slashCommandOutput || slashCommandSuggestions.length || participantSuggestions.length || fileSuggestions.length ? (
+          <div className="absolute bottom-full left-0 z-20 mb-2 flex w-full flex-col gap-2">
+            {dropTarget.isDropTarget ? (
+              <p className="pointer-events-none w-full rounded-md bg-primary/10 px-3 py-1.5 text-center text-xs font-medium text-primary" role="status">
+                {t("chat.dropFileHint")}
+              </p>
+            ) : null}
+            <SlashCommandOutput onDismiss={onDismissSlashCommandOutput ?? (() => undefined)} output={slashCommandOutput} />
+            {slashCommandSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SlashCommandCompletion onSelect={onSelectSlashCommand ?? (() => undefined)} options={slashCommandSuggestions} />
+              </div>
+            ) : null}
+            {participantSuggestions.length || fileSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
+                {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
+                {fileSuggestions.map((candidate) => (
+                  <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={candidate.path} onClick={() => selectReference(candidate)} type="button">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{candidate.path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {fileReferences.length ? (

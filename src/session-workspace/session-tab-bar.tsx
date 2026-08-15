@@ -77,7 +77,7 @@ export function SessionTabBar({
     <div className="flex min-w-0 shrink-0 items-center gap-2">
     <div
       aria-label={t("sessionTabs.ariaLabel")}
-      className="ucd-segmented flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-md p-1"
+      className="ucd-segmented ucd-scroll-strip flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-md p-1"
       role="tablist"
     >
       {sessionTabDefinitions.map(({ id, icon: Icon }, index) => {

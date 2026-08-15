@@ -46,6 +46,7 @@ export function SessionTabs({
   onOpenSettings,
   recoveryNotice,
   requestedTab,
+  requestedTabNonce = 0,
   sessionActivationKey,
   turnStatus = null,
   visibilityControls,
@@ -61,6 +62,7 @@ export function SessionTabs({
   onOpenSettings: () => void;
   recoveryNotice?: ReactNode;
   requestedTab?: SessionTabId | null;
+  requestedTabNonce?: number;
   sessionActivationKey: number;
   /** Null in a single-seat session, which has no turn to hand off. */
   turnStatus?: TurnStatus | null;
@@ -86,7 +88,9 @@ export function SessionTabs({
     if (!requestedTab) return;
     setMountedTabs((current) => new Set(current).add(requestedTab));
     setActiveTab(requestedTab);
-  }, [requestedTab, sessionId]);
+    // The nonce lets the same tab be requested twice in a row — otherwise a second `/logs` after
+    // the user manually returned to chat would be a no-op.
+  }, [requestedTab, requestedTabNonce, sessionId]);
 
   function activate(tab: SessionTabId) {
     setMountedTabs((current) => new Set(current).add(tab));

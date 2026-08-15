@@ -1,0 +1,37 @@
+{
+  "catalogVersion": "onepiece-model-context-catalog-v1",
+  "entries": [
+    {
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5",
+      "contextWindowTokens": 200000,
+      "maximumOutputTokens": 64000,
+      "metadataRevision": "2026-08-14",
+      "sourceIdentity": "anthropic-models-overview"
+    },
+    {
+      "providerId": "openai",
+      "modelId": "gpt-5.2",
+      "contextWindowTokens": 400000,
+      "maximumOutputTokens": 128000,
+      "metadataRevision": "2026-08-14",
+      "sourceIdentity": "openai-model-gpt-5.2"
+    },
+    {
+      "providerId": "openai",
+      "modelId": "gpt-5.4",
+      "contextWindowTokens": 1050000,
+      "maximumOutputTokens": 128000,
+      "metadataRevision": "2026-08-14",
+      "sourceIdentity": "openai-model-gpt-5.4"
+    },
+    {
+      "providerId": "openai",
+      "modelId": "gpt-5.4-mini",
+      "contextWindowTokens": 400000,
+      "maximumOutputTokens": 128000,
+      "metadataRevision": "2026-08-14",
+      "sourceIdentity": "openai-model-gpt-5.4-mini"
+    }
+  ]
+}

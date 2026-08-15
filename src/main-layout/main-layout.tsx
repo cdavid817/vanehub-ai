@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
@@ -11,17 +10,20 @@ import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { LoopInspectionTarget } from "../types/loop";
+import { CreateCategoryDialog } from "./create-category-dialog";
 import { CreateSessionDialog } from "./create-session-dialog";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
+import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
 import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
+import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
 import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
-import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import type { SettingsPageId } from "../settings/settings-pages";
+import type { WorkspaceLocation } from "./workspace-route";
 import { seatsFromSession } from "../services/session-seats";
 import { SessionRecoveryNotice } from "../session-workspace/session-recovery-notice";
 import { useMediaQuery } from "../hooks/use-media-query";
@@ -55,50 +57,22 @@ interface LoopInspectionContext {
   target: LoopInspectionTarget;
 }
 
-export function ConversationCard({
-  active,
-  lifecycleLabel,
-  onContextMenu,
-  onSelect,
-  session,
-  sourceLabel,
-}: {
-  active: boolean;
-  lifecycleLabel: string;
-  language: string;
-  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
-  onSelect: () => void;
-  session: Session;
-  sourceLabel?: string;
-}) {
-  const identity = getAgentVisualIdentity(session.agentId);
-  return (
-    <button
-      className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")}
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
-      type="button"
-    >
-      <span className={cn("mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border align-middle", identity.tone)} title={identity.label}>
-        <AgentBrandIcon agentId={session.agentId} className="h-4 w-4" />
-      </span>
-      <span className="truncate text-sm font-medium">{session.title}</span>
-      <span className="ml-2 text-xs text-muted-foreground">{lifecycleLabel}</span>
-      {sourceLabel ? <span className="ml-2 text-xs text-foreground">{sourceLabel}</span> : null}
-    </button>
-  );
-}
-
 export function MainLayout({
+  location,
   onConfigureOnePiece,
+  onNavigate,
   onOpenSettings,
-  openCreateSession = false,
 }: {
+  location: WorkspaceLocation;
   onOpenSettings: (pageId?: SettingsPageId) => void;
   onConfigureOnePiece?: () => void;
-  openCreateSession?: boolean;
+  onNavigate: (next: WorkspaceLocation, options?: { replace?: boolean }) => void;
 }) {
   const model = useMainLayoutModel();
+  const destination = location.destination;
+  const { activeSessionId, archivedSessions, sessions, switchSession } = model;
+  const goTo = (next: Partial<WorkspaceLocation>, options?: { replace?: boolean }) =>
+    onNavigate({ ...location, ...next }, options);
   const { t } = useTranslation();
   const { notify } = useNotifications();
   const narrowLayout = useMediaQuery("(max-width: 900px)");
@@ -109,25 +83,38 @@ export function MainLayout({
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [destination, setDestination] = useState<"sessions" | "loops" | "plans" | "todo-board">("sessions");
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
   const [planCenterVisited, setPlanCenterVisited] = useState(false);
   const [workBoardVisited, setWorkBoardVisited] = useState(false);
+  // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
+  // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
+  const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
+  // Not seeded from a session id: the guard below reconciles this against displayedSession?.id on
+  // every render, including the first, so any value that isn't a real session id settles safely.
+  const [slashTabRequestSessionId, setSlashTabRequestSessionId] = useState<string | null>(null);
   const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
+  const [searchFocusToken, setSearchFocusToken] = useState(0);
+  const [categoryDialogSession, setCategoryDialogSession] = useState<Session | null>(null);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
   const workspaceGridRef = useRef<HTMLDivElement>(null);
   const inspectionRequestRef = useRef(0);
   const activatedSessionIdRef = useRef<string | null>(null);
   const effectiveInfoPanelCollapsed = conversationFocusMode || infoPanelCollapsed;
   const effectiveSessionSidebarCollapsed = conversationFocusMode || sessionSidebarCollapsed;
-
-  useEffect(() => {
-    if (sessionSidebarRef.current) sessionSidebarRef.current.inert = effectiveSessionSidebarCollapsed;
-  }, [effectiveSessionSidebarCollapsed]);
+  // SessionTabs' resets key on its `activeSession` prop (displayedSession here), not on
+  // model.activeSessionId: loop inspection displays a different session without the sidebar's
+  // active session ever changing. A pending slash-tab request must be invalidated on that same
+  // identity — during render, not in an Effect, since a child's effects run before its parent's in
+  // the same commit and would already have re-applied a stale tab by the time an Effect ran.
+  const displayedSession = loopInspection?.session ?? model.activeSession;
+  const nextSlashTabState = nextSlashTabRequestState(slashTabRequest, slashTabRequestSessionId, displayedSession?.id ?? null);
+  if (nextSlashTabState.trackedSessionId !== slashTabRequestSessionId) {
+    setSlashTabRequestSessionId(nextSlashTabState.trackedSessionId);
+    setSlashTabRequest(nextSlashTabState.request);
+  }
 
   useEffect(() => {
     workspaceGridRef.current?.style.setProperty("--session-sidebar-width", `${sessionSidebarWidth}px`);
@@ -136,9 +123,16 @@ export function MainLayout({
     }
   }, [sessionSidebarWidth]);
 
+  // Visited flags gate the hidden-but-mounted destinations. Deriving them from the destination
+  // rather than from click handlers is what makes a deep link render content instead of nothing.
   useEffect(() => {
-    if (openCreateSession) setCreateSessionOpen(true);
-  }, [openCreateSession]);
+    if (destination === "loops") setLoopCenterVisited(true);
+    if (destination === "plans") setPlanCenterVisited(true);
+    if (destination === "work-board") setWorkBoardVisited(true);
+  }, [destination]);
+
+  // The URL and the backend's active session are two claims about the same thing.
+  useWorkspaceSessionRoute({ activeSessionId, archivedSessions, location, onNavigate, sessions, switchSession });
 
   useEffect(() => {
     const previous = activatedSessionIdRef.current;
@@ -190,11 +184,13 @@ export function MainLayout({
         agentService.getSession(target.sessionId),
         agentService.listMessages({ sessionId: target.sessionId }),
       ]);
+      // Guarded because the user may have navigated away while this was in flight; navigating
+      // from a stale closure would yank them back.
       if (inspectionRequestRef.current !== requestId) return;
       setLoopInspection({ messages, session, target });
       setSessionActivationKey((value) => value + 1);
       if (target.surface === "usage") setInfoPanelCollapsed(false);
-      setDestination("sessions");
+      goTo({ destination: "sessions", sessionId: target.sessionId, creatingSession: false });
     } catch (reason: unknown) {
       notify({
         type: "error",
@@ -205,22 +201,37 @@ export function MainLayout({
     }
   }
 
-  const displayedSession = loopInspection?.session ?? model.activeSession;
   const displayedMessages = loopInspection?.messages ?? model.messages;
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
-    : null;
+    : slashTabRequest?.tab ?? null;
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
+  const openAssociatedPlan = () => {
+    const run = model.chatConfig.associatedPlanRun;
+    if (!run) return;
+    setPlanInspectionRunId(run.id);
+    goTo({ destination: "plans" });
+  };
   const apiComposer = !loopInspection && usesStructuredChat ? (
-    <ApiSessionComposer model={model} onOpenPlan={() => {
-      const run = model.chatConfig.associatedPlanRun;
-      if (!run) return;
-      setPlanInspectionRunId(run.id);
-      setPlanCenterVisited(true);
-      setDestination("plans");
-    }} />
+    <ApiSessionComposer
+      model={model}
+      navigation={{
+        // Null (not the callback) is what tells the hook `/plan` has nothing to open — passing a
+        // function unconditionally would leave the command offerable but inert.
+        openAssociatedPlan: model.chatConfig.associatedPlanRun ? openAssociatedPlan : null,
+        // No visited-flag bookkeeping here: those are derived from `destination` above, which is
+        // what lets a deep link render content. A command is just another way to change it.
+        openDestination: (target) => {
+          // Mirrors the sidebar's Plans handler so `/plans` doesn't leave a stale inspected run id.
+          if (target === "plans") setPlanInspectionRunId(null);
+          goTo({ destination: target });
+        },
+        openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
+      }}
+      onOpenPlan={openAssociatedPlan}
+    />
   ) : null;
 
   return (
@@ -230,6 +241,14 @@ export function MainLayout({
           focusMode={conversationFocusMode}
           focusModeAvailable={destination === "sessions"}
           onFocusModeChange={setConversationFocusMode}
+          onSearch={() => {
+            // Search lives in the session sidebar, so the top bar entry has to reveal it before
+            // it can hand over focus.
+            goTo({ destination: "sessions" });
+            setConversationFocusMode(false);
+            setSessionSidebarCollapsed(false);
+            setSearchFocusToken((token) => token + 1);
+          }}
         />
         <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
           <WorkspaceActivityBar
@@ -246,20 +265,17 @@ export function MainLayout({
               settings: t("layout.activityBar.settings"),
               help: t("layout.activityBar.help"),
             }}
+            onHelp={() => onOpenSettings("about")}
             onOpenSettings={onOpenSettings}
-            onLoops={() => {
-              setLoopCenterVisited(true);
-              setDestination("loops");
-            }}
+            onLoops={() => goTo({ destination: "loops" })}
             onPlans={() => {
               setPlanInspectionRunId(null);
-              setPlanCenterVisited(true);
-              setDestination("plans");
+              goTo({ destination: "plans" });
             }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
-            onTodoBoard={() => { setWorkBoardVisited(true); setDestination("todo-board"); }}
+            onWorkBoard={() => goTo({ destination: "work-board" })}
             onSessions={() => {
-              if (destination !== "sessions") setDestination("sessions");
+              if (destination !== "sessions") goTo({ destination: "sessions" });
               else if (conversationFocusMode) setConversationFocusMode(false);
               else setSessionSidebarCollapsed((collapsed) => !collapsed);
             }}
@@ -279,6 +295,9 @@ export function MainLayout({
               aria-hidden={effectiveSessionSidebarCollapsed}
               className={cn("ucd-session-sidebar-shell relative flex min-h-0 min-w-0 overflow-visible border-r border-border transition-[opacity,transform] duration-200", effectiveSessionSidebarCollapsed ? "pointer-events-none -translate-x-2 opacity-0" : "opacity-100")}
               id="workspace-session-sidebar"
+              // Declarative rather than set from an effect: child effects run before the parent's,
+              // so expanding and focusing the search in one click hit a still-inert subtree.
+              inert={effectiveSessionSidebarCollapsed}
               ref={sessionSidebarRef}
             >
               <SessionSidebar
@@ -287,15 +306,17 @@ export function MainLayout({
                 archivedSessions={model.archivedSessions}
                 categories={model.categories}
                 deletingSessions={model.deletingSessions}
+                focusSearchToken={searchFocusToken}
                 onAssignCategory={model.assignCategory}
                 onBatchDelete={model.deleteSessions}
                 onContextMenu={openContextMenu}
-                onNew={() => setCreateSessionOpen(true)}
+                onNew={() => goTo({ destination: "sessions", creatingSession: true })}
                 onSearchChange={model.setSessionSearchQuery}
                 onSelect={(session) => {
                   setContextPanel(null);
                   setLoopInspection(null);
-                  model.switchSession(session);
+                  // The reconciliation effect performs the switch; navigating is what records it.
+                  goTo({ destination: "sessions", sessionId: session.id, creatingSession: false });
                 }}
                 searchQuery={model.sessionSearchQuery}
                 searchResults={model.sessionSearchResults}
@@ -315,7 +336,7 @@ export function MainLayout({
                   <button
                     aria-label={t("loops.inspection.back")}
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => { setLoopInspection(null); setDestination("loops"); }}
+                    onClick={() => { setLoopInspection(null); goTo({ destination: "loops" }); }}
                     title={t("loops.inspection.back")}
                     type="button"
                   >
@@ -346,6 +367,7 @@ export function MainLayout({
                     />
                   ) : null}
                   requestedTab={requestedWorkspaceTab}
+                  requestedTabNonce={slashTabRequest?.nonce ?? 0}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}
                   visibilityControls={{
@@ -389,8 +411,8 @@ export function MainLayout({
           </div>
           <section
             aria-label={t("layout.activityBar.todoBoard")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "todo-board" ? "flex" : "hidden")}
-            id="todo-board"
+            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "work-board" ? "flex" : "hidden")}
+            id="work-board"
           >
             {workBoardVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadWorkBoard} /> : null}
           </section>
@@ -436,15 +458,7 @@ export function MainLayout({
         onArchive={model.archiveSession}
         onAssignCategory={model.assignCategory}
         onChange={setContextPanel}
-        onCreateCategory={(session) => {
-          const name = window.prompt(t("layout.newCategoryPrompt"));
-          if (!name?.trim()) return;
-          void model.createCategory(name.trim())
-            .then((category) => model.assignCategory(session, category.id))
-            .catch((reason: unknown) => {
-              notify({ type: "error", title: t("app.error.title"), message: reason instanceof Error ? reason.message : String(reason), scope: { kind: "session", sessionId: session.id } });
-            });
-        }}
+        onCreateCategory={(session) => setCategoryDialogSession(session)}
         onDelete={model.deleteSession}
         onDismiss={() => setContextPanel(null)}
         onExport={model.exportSession}
@@ -452,8 +466,27 @@ export function MainLayout({
         onRename={model.renameSession}
         value={contextPanel}
       />
-      <CreateSessionDialog agents={model.agents} onClose={() => setCreateSessionOpen(false)} onConfigureOnePiece={() => { setCreateSessionOpen(false); (onConfigureOnePiece ?? onOpenSettings)(); }} onCreated={(session) => { setCreateSessionOpen(false); setLoopInspection(null); model.sessionCreated(session); }} open={createSessionOpen} />
+      <CreateSessionDialog
+        agents={model.agents}
+        onClose={() => goTo({ creatingSession: false })}
+        onConfigureOnePiece={() => { goTo({ creatingSession: false }); (onConfigureOnePiece ?? onOpenSettings)(); }}
+        onCreated={(session) => {
+          setLoopInspection(null);
+          model.sessionCreated(session);
+          goTo({ destination: "sessions", sessionId: session.id, creatingSession: false }, { replace: true });
+        }}
+        open={location.creatingSession}
+      />
       <ScheduledTasksDialog agents={model.agents} onClose={() => setScheduledTasksOpen(false)} open={scheduledTasksOpen} />
+      {categoryDialogSession ? (
+        <CreateCategoryDialog
+          onClose={() => setCategoryDialogSession(null)}
+          onCreate={async (name) => {
+            const category = await model.createCategory(name);
+            model.assignCategory(categoryDialogSession, category.id);
+          }}
+        />
+      ) : null}
       <NotificationHost activeSessionId={model.activeSessionId} />
     </main>
   );

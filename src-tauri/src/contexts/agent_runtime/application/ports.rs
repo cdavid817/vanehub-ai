@@ -8,21 +8,23 @@ use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMessage,
     AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
     AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentToolCallOutcome, ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot,
-    CompleteAgentMessage, DurableAgentGenerationMessages, DurableAgentGenerationStart,
-    EffectivePrompt, GenerationCancellation, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView,
-    LoopIterationView, LoopLog, LoopOperationContext, LoopOwnedRecoverySession,
-    LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
-    LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
-    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
-    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
-    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    AgentToolCallOutcome, ApiProviderConfig, AuthoritativeContextValue, BoundSkillPrompt,
+    CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
+    DurableAgentGenerationMessages, DurableAgentGenerationStart, EffectivePrompt,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog,
+    LoopOperationContext, LoopOwnedRecoverySession, LoopRoleGenerationTerminal,
+    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
+    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
+    OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
+    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
-    LoopRun, LoopRunStatus,
+    AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
+    ContextQualityAssessmentPage, ContextQualityAssessmentRecord, ContextQualitySummary,
+    LoopDefinition, LoopRun, LoopRunStatus,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -566,6 +568,25 @@ pub(crate) trait AgentLoggingPort: Send + Sync {
     fn record(&self, log: AgentLog) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+pub(crate) trait ContextQualityRepository: Send + Sync {
+    fn append_and_prune(
+        &self,
+        record: &ContextQualityAssessmentRecord,
+        retention_cutoff: &str,
+        hard_limit: u64,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn list(
+        &self,
+        since: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<ContextQualityAssessmentPage, AgentRuntimeApplicationError>;
+
+    fn summarize(&self, since: &str)
+        -> Result<ContextQualitySummary, AgentRuntimeApplicationError>;
+}
+
 pub(crate) trait LoopLoggingPort: Send + Sync {
     fn record_loop(&self, log: LoopLog) -> Result<(), AgentRuntimeApplicationError>;
 }
@@ -972,6 +993,15 @@ pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
 /// `AgentMemoryPort`'s directly-owned one.
 pub(crate) trait AgentPersonalizationPort: Send + Sync {
     fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
+}
+
+/// Focused read boundary for context that can be rebuilt after compaction. Implementations return
+/// neutral values so provider wire details never enter the application policy.
+pub(crate) trait AuthoritativeContextPort: Send + Sync {
+    fn load_current(
+        &self,
+        kind: ContextReinjectionKind,
+    ) -> Result<Vec<AuthoritativeContextValue>, super::ContextReinjectionFailure>;
 }
 
 /// Projected retrieval hit surfaced to the model through the `recall` tool result
