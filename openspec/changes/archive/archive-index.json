@@ -2478,6 +2478,34 @@
                          "capabilities":  [
                                               "chat-experience"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "add-cross-platform-desktop-automation",
+                         "path":  "openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "continuous-integration",
+                                              "desktop-runtime-verification"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "add-onepiece-slash-commands",
+                         "path":  "openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "slash-command-runtime"
+                                          ]
                      }
                  ]
 }
