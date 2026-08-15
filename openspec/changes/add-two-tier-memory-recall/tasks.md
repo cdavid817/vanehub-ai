@@ -27,11 +27,12 @@
 
 ## 4. Already-surfaced exclusion
 
-- [ ] 4.1 Add session-scoped state holding `(path, mtime-at-surface)` for every memory whose body has been injected
-- [ ] 4.2 Filter surfaced memories out of the candidate manifest before the selector call
-- [ ] 4.3 Make a memory eligible again once its mtime changes
-- [ ] 4.4 Clear the state when a session ends, and do not persist it
-- [ ] 4.5 Add tests for exclusion across two generations in one session, re-eligibility after an update, and a fresh session seeing everything
+- [x] 4.1 Add session-scoped state holding `(path, mtime-at-surface)` for every memory whose body has been injected
+- [x] 4.2 Filter surfaced memories out of the candidate manifest before the selector call
+- [x] 4.3 Make a memory eligible again once its mtime changes
+- [x] 4.4 Clear the state when a session ends, and do not persist it
+  - Not persisted, and reclaimed by a session cap rather than an explicit end-of-session hook: session lifecycle lives in the `sessions` context, and signalling into `agent_runtime` from there would cross a boundary the architecture keeps closed. A finished session is never consulted again, so the cap is what retires it.
+- [x] 4.5 Add tests for exclusion across two generations in one session, re-eligibility after an update, and a fresh session seeing everything
 
 ## 5. Freshness annotation
 

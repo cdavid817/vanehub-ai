@@ -48,6 +48,7 @@ mod memory_naming;
 mod memory_repository;
 mod memory_schema;
 mod memory_selection_gateway;
+mod memory_surfaced;
 mod message_terminal_completions;
 mod model_context_catalog;
 mod native_tool_logging;
@@ -124,6 +125,8 @@ pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_schema};
 #[allow(unused_imports)]
 pub(crate) use memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_surfaced::{mark_surfaced, unsurfaced_candidates};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 #[allow(unused_imports)]
 pub(crate) use native_tool_logging::NativeToolLogger;

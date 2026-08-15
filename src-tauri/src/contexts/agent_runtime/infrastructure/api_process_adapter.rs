@@ -5,6 +5,7 @@ use super::context_reduction::{build_structured_summary_turns, reconstruct_candi
 use super::memory_actions::{apply_memory_actions, render_existing_manifest};
 use super::memory_directory::is_within_memory_directory;
 use super::memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
+use super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
@@ -2111,7 +2112,13 @@ fn select_memory_bodies(
     if memories.is_empty() {
         return None;
     }
-    let selected_names = match selection.select(&request.effective_prompt, memories) {
+    // Excluded before the call, not after: filtering afterwards would spend the bounded selection
+    // budget on memories this session has already been shown and the caller is about to discard.
+    let candidates = unsurfaced_candidates(&request.session.id, memories);
+    if candidates.is_empty() {
+        return None;
+    }
+    let selected_names = match selection.select(&request.effective_prompt, &candidates) {
         Ok(names) => names,
         Err(error) => {
             let _ = logging.record(AgentLog {
@@ -2134,8 +2141,14 @@ fn select_memory_bodies(
     // Follows the selector's own order so its ranking survives into the prompt.
     let selected = selected_names
         .iter()
-        .filter_map(|name| memories.iter().find(|memory| &memory.name == name).cloned())
+        .filter_map(|name| {
+            candidates
+                .iter()
+                .find(|memory| &memory.name == name)
+                .cloned()
+        })
         .collect::<Vec<_>>();
+    mark_surfaced(&request.session.id, &selected);
     crate::contexts::agent_runtime::application::format_memory_bodies(&selected)
 }
 
