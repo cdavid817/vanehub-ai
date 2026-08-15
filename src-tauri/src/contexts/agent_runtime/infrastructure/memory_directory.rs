@@ -206,6 +206,15 @@ impl FileAgentMemoryStore {
     /// only the symlink case, which the canonicalized prefix check below covers for files that
     /// already exist.
     fn resolve(&self, relative_path: &str) -> Result<PathBuf, AgentRuntimeApplicationError> {
+        // Checked before component analysis because `\` is a separator only on Windows: on Linux
+        // `nested\inner.md` parses as one ordinary file name and would be accepted, so the same
+        // input would behave differently per platform. `validate_name` already forbids both
+        // separators, and this keeps the two agreeing everywhere.
+        if relative_path.contains('/') || relative_path.contains('\\') {
+            return Err(memory_error(format!(
+                "Memory path {relative_path} must not contain a directory separator."
+            )));
+        }
         let candidate = Path::new(relative_path);
         let mut components = candidate.components();
         let Some(Component::Normal(name)) = components.next() else {
@@ -742,6 +751,10 @@ mod tests {
 
     #[test]
     fn traversal_and_nested_paths_are_rejected() {
+        // Both separators are rejected on every platform. `\` is a separator only on Windows, so
+        // relying on component parsing alone would accept `nested\inner.md` as one ordinary file
+        // name on Linux — safe, since it stays inside the directory, but a different answer to the
+        // same input depending on the host.
         let fixture = Fixture::new("memory store rejects traversal");
         for rejected in [
             "../escape.md",
