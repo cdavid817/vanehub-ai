@@ -20,6 +20,7 @@ mod ocr_handler;
 mod persistence;
 mod ports;
 mod registry;
+mod subagent_handler;
 mod web_handler;
 mod web_handler_input;
 
@@ -32,7 +33,7 @@ pub(crate) use contracts::{
     NativeToolDefinition, NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolResultEnvelope,
     NativeToolResultStatus, ToolEligibility, ToolEligibilityContext, ValidatedNativeToolInput,
-    NATIVE_TOOL_CONTRACT_VERSION,
+    IMAGE_ARTIFACT_METADATA_KEY, NATIVE_TOOL_CONTRACT_VERSION,
 };
 pub(crate) use delegate_cli_handler::DelegateCliNativeToolHandler;
 pub(crate) use dispatcher::{
@@ -62,10 +63,12 @@ pub(crate) use persistence::{
 };
 pub(crate) use ports::{
     ArtifactPort, BrowserAutomationPort, BrowserHandoffControlPort, ChangeSetApplyPort,
-    CliDelegationPort, CodeExecutionPort, NativeToolPortRequest, OcrInferencePort, WebResearchPort,
+    CliDelegationPort, CodeExecutionPort, NativeToolPortRequest, OcrInferencePort, SubagentPort,
+    WebResearchPort,
 };
 pub(crate) use registry::{
     is_onepiece_only, NativeToolRegistry, NativeToolRegistryError, ONEPIECE_AGENT_ID,
     ONEPIECE_ONLY_TOOL_NAMES,
 };
+pub(crate) use subagent_handler::{SubagentNativeToolHandler, MAX_SUBAGENT_DURATION_MS};
 pub(crate) use web_handler::web_native_tool_handlers;

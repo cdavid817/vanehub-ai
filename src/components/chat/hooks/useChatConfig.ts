@@ -35,10 +35,13 @@ export function useChatConfig({
   activeSession,
   agents,
   onPersistError,
+  approvedPlanExit = null,
 }: {
   activeSession: Session | null;
   agents: AgentRegistryEntry[];
   onPersistError?: (error: unknown) => void;
+  /** Call id of an approved `exit_plan_mode` request, or null. See `plan-exit-signal`. */
+  approvedPlanExit?: string | null;
 }) {
   const sessionAgent = useMemo(
     () => agents.find((agent) => agent.id === activeSession?.agentId) ?? agents[0] ?? null,
@@ -219,6 +222,15 @@ export function useChatConfig({
       .then(setAssociatedPlanRun)
       .catch((error: unknown) => onPersistError?.(error));
   }
+
+  // Leaving plan mode is the model asking and the user agreeing, so the mode follows the approved
+  // request rather than a mode-selector click. Keyed on the call id: re-running for the same
+  // approval would fight a user who deliberately switched back to plan afterwards
+  // (`add-agent-plan-exit-request`). The config effect below persists the change.
+  useEffect(() => {
+    if (!approvedPlanExit) return;
+    setSessionExecutionMode("execute");
+  }, [approvedPlanExit]);
 
   const config = useMemo<ChatConfig>(() => ({
     agentId,

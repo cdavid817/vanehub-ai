@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(crate) const ONEPIECE_AGENT_ID: &str = "onepiece";
-pub(crate) const ONEPIECE_ONLY_TOOL_NAMES: [&str; 8] = [
+pub(crate) const ONEPIECE_ONLY_TOOL_NAMES: [&str; 9] = [
     "browser",
     "web_search",
     "web_fetch",
@@ -17,6 +17,7 @@ pub(crate) const ONEPIECE_ONLY_TOOL_NAMES: [&str; 8] = [
     "artifact",
     "delegate_cli",
     "apply_delegation_changes",
+    "delegate_subagent",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

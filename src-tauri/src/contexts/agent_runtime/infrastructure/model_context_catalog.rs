@@ -18,8 +18,33 @@ struct ModelContextEntry {
     model_id: String,
     context_window_tokens: u64,
     maximum_output_tokens: Option<u64>,
+    /// Whether this model accepts image input (`add-agent-image-input`). Required per entry
+    /// rather than defaulted: a default would silently claim support for the next model someone
+    /// adds to the catalog, and a provider rejecting an image-bearing request fails the whole
+    /// generation after the user has already waited.
+    accepts_image_input: bool,
     metadata_revision: String,
     source_identity: String,
+}
+
+/// Whether the reviewed catalog says this model accepts images. An identifier absent from the
+/// catalog is treated as unsupported rather than assumed capable -- `onepiece-native-agent`
+/// already establishes that capabilities are not inferred from unknown model identifiers.
+pub(crate) fn accepts_image_input(provider_id: Option<&str>, model_id: &str) -> bool {
+    let Some(provider_id) = provider_id else {
+        return false;
+    };
+    let Ok(catalog) = serde_json::from_str::<ModelContextCatalog>(CATALOG_JSON) else {
+        return false;
+    };
+    if catalog.catalog_version != "onepiece-model-context-catalog-v1" {
+        return false;
+    }
+    catalog
+        .entries
+        .into_iter()
+        .find(|entry| entry.provider_id == provider_id && entry.model_id == model_id)
+        .is_some_and(|entry| entry.accepts_image_input)
 }
 
 pub(crate) fn resolve_capacity(

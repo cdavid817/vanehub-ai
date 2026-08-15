@@ -1,5 +1,6 @@
 use super::native_tool_adapter_support::{
-    action, action_input, ensure_claimed_origin, envelope, string, AdapterError,
+    action, action_input, ensure_claimed_origin, envelope, string, with_image_artifact,
+    AdapterError,
 };
 use super::BrowserHandoffCommandAdapter;
 use crate::contexts::agent_runtime::application::{
@@ -229,8 +230,73 @@ impl BrowserNativeToolAdapter {
 impl BrowserAutomationPort for BrowserNativeToolAdapter {
     fn execute_browser(&self, request: NativeToolPortRequest) -> NativeToolResultEnvelope {
         match self.execute(request) {
-            Ok(output) => envelope(NativeToolResultStatus::Succeeded, Some(output), None),
+            Ok(output) => {
+                let screenshot_artifact = screenshot_artifact_id(&output);
+                let result = envelope(NativeToolResultStatus::Succeeded, Some(output), None);
+                match screenshot_artifact {
+                    Some(artifact_id) => with_image_artifact(result, &artifact_id),
+                    None => result,
+                }
+            }
             Err(error) => envelope(error.status(), None, Some(error)),
         }
+    }
+}
+
+/// The Artifact id a screenshot sealed, or `None` for any other browser action. Recognised by the
+/// payload shape the screenshot branch builds rather than by re-reading the request, so a
+/// navigate or click result can never be mistaken for an image.
+fn screenshot_artifact_id(output: &Value) -> Option<String> {
+    let payload = output.get("payload")?;
+    let media_type = payload.get("media_type").and_then(Value::as_str)?;
+    if !media_type.starts_with("image/") {
+        return None;
+    }
+    payload
+        .get("artifact_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod screenshot_image_tests {
+    use super::screenshot_artifact_id;
+    use serde_json::json;
+
+    /// Recognised by the payload the screenshot branch builds, so another browser action can never
+    /// be mistaken for an image.
+    #[test]
+    fn only_a_screenshot_payload_names_an_image() {
+        let screenshot = json!({
+            "payload": {
+                "artifact_id": "artifact-1",
+                "media_type": "image/png",
+                "content_hash": "hash",
+                "size_bytes": 10
+            }
+        });
+        assert_eq!(
+            screenshot_artifact_id(&screenshot).as_deref(),
+            Some("artifact-1")
+        );
+
+        // A navigate or extract result has no sealed image.
+        for other in [
+            json!({ "payload": { "url": "https://example.com" } }),
+            json!({ "payload": { "text": "extracted" } }),
+            json!({ "payload": {} }),
+            json!({}),
+        ] {
+            assert_eq!(screenshot_artifact_id(&other), None, "{other}");
+        }
+    }
+
+    /// A non-image media type is not an image however it got into the payload.
+    #[test]
+    fn a_non_image_media_type_is_refused() {
+        let downloaded = json!({
+            "payload": { "artifact_id": "artifact-2", "media_type": "application/pdf" }
+        });
+        assert_eq!(screenshot_artifact_id(&downloaded), None);
     }
 }

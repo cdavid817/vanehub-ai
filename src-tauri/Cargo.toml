@@ -50,6 +50,11 @@ html5ever = "0.38"
 russh = { version = "=0.62.5", default-features = false, features = ["ring"] }
 async-trait = "0.1"
 base64 = "0.23"
+# Decode/validate/downscale for Agent image input (`add-agent-image-input`). Codec features are
+# enumerated rather than defaulted: PNG covers screenshots and rendered PDF pages, JPEG covers
+# photos and scans, and every other codec default-features would enable is attack surface for a
+# format nothing in this product produces.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 futures-util = "0.3"
 keyring = "4.1.5"
 prost = "0.14"
