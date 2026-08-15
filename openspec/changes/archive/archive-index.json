@@ -2536,6 +2536,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-15",
+                         "changeName":  "add-ocr-rendered-page-return",
+                         "path":  "openspec/changes/archive/2026-08-15-add-ocr-rendered-page-return/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-image-input"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
                          "changeName":  "add-onepiece-subagents",
                          "path":  "openspec/changes/archive/2026-08-15-add-onepiece-subagents/",
                          "artifacts":  [
