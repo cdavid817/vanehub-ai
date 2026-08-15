@@ -1,9 +1,9 @@
-## 1. Artifact bytes access
+## 1. Result envelope image channel
 
-- [ ] 1.1 Add a read-only Artifact-bytes port to the agent runtime returning bytes and media type for a session-owned Artifact id.
-- [ ] 1.2 Implement it over the existing content-addressed blob store, verifying the stored content hash before returning bytes.
-- [ ] 1.3 Reject unknown ids, foreign-session ids, and integrity mismatches, and never return a host path.
-- [ ] 1.4 Wire the port through bootstrap into the native tool-use loop.
+- [ ] 1.1 Add an image slot to `NativeToolResultEnvelope` alongside its text output.
+- [ ] 1.2 Surface it through `execute_registered_native_tool` into the executed-call tuple `build_reply_turns` already accepts.
+- [ ] 1.3 Keep base64 out of the tool output the transcript persists, and pin that with a test.
+- [ ] 1.4 Land this step with the existing extended-tool tests green, before either adapter changes.
 
 ## 2. Tool surfaces
 
@@ -15,7 +15,7 @@
 
 ## 3. Tests
 
-- [ ] 3.1 Port tests for own/unknown/foreign ids, integrity mismatch, and host-path absence.
+- [ ] 3.1 Envelope tests: an image reaches the reply turns, and no base64 reaches the tool output or the persisted transcript.
 - [ ] 3.2 Screenshot and OCR image-return tests, including the text-only degradation path.
 - [ ] 3.3 A bound test proving a produced image goes through the same downscale-then-refuse path as a file read.
 - [ ] 3.4 A budget test spanning all three producers in one request.

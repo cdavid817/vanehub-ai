@@ -56,21 +56,21 @@ Durable logs SHALL contain only an image's hash, media type, dimensions, and byt
 
 ## ADDED Requirements
 
-### Requirement: Read-only Artifact bytes access
-The agent runtime SHALL be able to resolve an Artifact id to its bytes and media type through a read-only port, for Artifacts owned by the calling session only. The port SHALL reject an unknown id, an id owned by another session, and an Artifact whose stored content hash does not match its bytes. It SHALL NOT expose the Artifact's host filesystem path, and it SHALL NOT create, modify, publish, or delete an Artifact.
+### Requirement: Image sources are never caller-addressed
+An image a tool returns SHALL come from content that tool itself produced in the same call: bytes it already holds, or a file inside its own sandbox workspace. No tool SHALL attach an image identified by a caller-supplied Artifact id, host path, or any other addressable reference. Where a tool resolves stored content to attach it, that resolution SHALL verify the stored content hash before returning bytes and SHALL NOT expose a host filesystem path.
 
-#### Scenario: Own Artifact resolves
-- **WHEN** the runtime resolves an Artifact id owned by the calling session
-- **THEN** the port SHALL return its bytes and media type
+#### Scenario: A produced image is attached
+- **WHEN** a tool produces an image during a call and the active model accepts images
+- **THEN** it SHALL attach that image from the content it produced
 
-#### Scenario: Unknown or foreign Artifact is rejected
-- **WHEN** the runtime resolves an id that does not exist or belongs to another session
-- **THEN** the port SHALL reject the request without returning bytes
+#### Scenario: A caller-supplied reference is refused
+- **WHEN** a tool call supplies an Artifact id, path, or other reference naming an image to attach
+- **THEN** the system SHALL reject it rather than resolving and attaching it
 
-#### Scenario: Integrity failure
-- **WHEN** an Artifact's stored content hash does not match its bytes
-- **THEN** the port SHALL reject the request rather than returning content that failed verification
+#### Scenario: Integrity failure while resolving stored content
+- **WHEN** a tool resolves stored content whose hash does not match its bytes
+- **THEN** the resolution SHALL fail rather than returning content that failed verification
 
 #### Scenario: Host path is never exposed
-- **WHEN** the port returns an Artifact's content
-- **THEN** the result SHALL NOT contain the Artifact's host filesystem path
+- **WHEN** a tool returns an image
+- **THEN** the result SHALL NOT contain a host filesystem path for it
