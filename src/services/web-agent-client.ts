@@ -801,6 +801,28 @@ function deriveMemoryName(content: string, sequence: number): string {
   return slug || `memory-${sequence}`;
 }
 
+/** Mirrors the native bounds so the mock truncates where the desktop runtime would. */
+const WEB_MEMORY_INDEX_LINE_CAP = 200;
+
+/** Mirrors the native selection bound. */
+const WEB_MEMORY_SELECTION_CAP = 5;
+
+/**
+ * Simulates one generation's memory injection: an index over the whole pool, plus the handful of
+ * bodies a selection would have read in full.
+ *
+ * Deterministic rather than model-driven — the Web runtime must reproduce the desktop's observable
+ * shape without issuing a provider request, so it stands in for the selector with recency, which
+ * is the same ordering the index already uses.
+ */
+function simulateMemoryIndexInjection(): { indexed: number; selected: AgentMemory[] } {
+  const indexed = Math.min(webAgentMemories.length, WEB_MEMORY_INDEX_LINE_CAP);
+  return {
+    indexed,
+    selected: webAgentMemories.slice(0, Math.min(indexed, WEB_MEMORY_SELECTION_CAP)),
+  };
+}
+
 function disambiguateMemoryName(base: string): string {
   if (!webAgentMemories.some((memory) => memory.name === base)) {
     return base;
@@ -4038,6 +4060,10 @@ export const webAgentClient: AgentService = {
     // produced by this session's own agent/folder.
     const hadExistingMemories = webAgentMemories.length > 0;
     if (memoryEnabled && hadExistingMemories) {
+      // `add-two-tier-memory-recall`: the index is what every request carries, so the mock reports
+      // how many memories it names. Neither this nor the selection below depends on an embedding
+      // source being configured — memory has to work on an installation without retrieval.
+      const injected = simulateMemoryIndexInjection();
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -4048,7 +4074,7 @@ export const webAgentClient: AgentService = {
             kind: "card",
             v: 1,
             title: "Memory applied",
-            bodyMarkdown: "This response was influenced by memories saved in earlier sessions.",
+            bodyMarkdown: `This response was influenced by memories saved in earlier sessions. Index carried ${injected.indexed} of them; ${injected.selected.length} read in full.`,
             tone: "info",
           },
         });

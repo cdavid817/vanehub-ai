@@ -42,10 +42,10 @@
 
 ## 6. Runtime parity
 
-- [ ] 6.1 Update `web-agent-client.ts` to simulate index injection and body selection through the existing memory events, with no provider call
-- [ ] 6.2 Gate the simulated selection event on the memory enablement toggle, matching the desktop runtime
-- [ ] 6.3 Confirm index injection and selection still operate with no embedding source configured, and that `recall` remains absent from the catalog in that state
-- [ ] 6.4 Add tests for Web-runtime selection parity and for the no-embedding-configured path
+- [x] 6.1 Update `web-agent-client.ts` to simulate index injection and body selection through the existing memory events, with no provider call
+- [x] 6.2 Gate the simulated selection event on the memory enablement toggle, matching the desktop runtime
+- [x] 6.3 Confirm index injection and selection still operate with no embedding source configured, and that `recall` remains absent from the catalog in that state
+- [x] 6.4 Add tests for Web-runtime selection parity and for the no-embedding-configured path
 
 ## 7. Verification
 
