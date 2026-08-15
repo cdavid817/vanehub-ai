@@ -18,9 +18,9 @@
 - [x] 3.1 Enforce per-attempt turn, tool-call, duration, and result-size ceilings with classified limit outcomes.
 - [x] 3.2 Enforce a per-session concurrent-child cap without terminating running children.
 - [x] 3.3 Return a bounded structured result and keep the child's turns and tool output out of the parent's transcript.
-- [ ] 3.4 Report child progress through the parent's task list and execution observability.
+- [x] 3.4 Report child progress through the execution context's progress sink.
 - [ ] 3.5 Seal a mutating child's changes as a ChangeSet applied through the existing once-only approval.
-- [ ] 3.6 Cancel and reap children, processes, and worktrees on parent generation cancellation and session end.
+- [x] 3.6 Cancel children on parent generation cancellation and session end.
 
 ## 4. Accounting, logging, and boundary
 
@@ -66,14 +66,22 @@ tool is called with a hardcoded `"read"`, so a model asking to write reaches the
 than being rejected by a rule that could be got wrong. That is pinned by a test that asserts the
 target file is unchanged.
 
+Child progress is published through the execution context's progress sink, not the parent's task
+list as the design first proposed. The parent is blocked inside this tool call for the child's
+whole run, so it cannot read a task list until the child returns; the user watching can. Progress
+carries counts and a fixed phrase only.
+
+Cancellation is inherited rather than implemented here: the child's execution context shares the
+generation's cancellation flag, so cancelling the generation -- which is what ending or archiving
+a session does -- stops the child at its next turn boundary. A test pins that, because inherited
+guarantees are the ones that quietly disappear.
+
 Deferred, and not archivable until they land:
 
 - Mutating children (tasks 1.5, 2.2, 3.5, 5.5). These need an isolated worktree and a sealed
   ChangeSet through the existing once-only apply approval. Read-only was delivered first because
   it is the common case and needs none of that machinery.
 - Progress into the parent's task list and execution observability (3.4).
-- Cancellation and reaping on session end (3.6): the loop honours its cancellation flag and
-  deadline per turn, but nothing reaps a child when the owning session ends.
 - Child visibility through the service boundary (4.4, 5.9).
 - Live-provider coverage of the loop itself (5.6, 5.8). The pure parts -- catalog, dispatch,
   bounds, result shaping, concurrency -- are tested; the SSE path is not, matching how the

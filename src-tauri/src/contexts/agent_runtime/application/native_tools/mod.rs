@@ -70,5 +70,5 @@ pub(crate) use registry::{
     is_onepiece_only, NativeToolRegistry, NativeToolRegistryError, ONEPIECE_AGENT_ID,
     ONEPIECE_ONLY_TOOL_NAMES,
 };
-pub(crate) use subagent_handler::SubagentNativeToolHandler;
+pub(crate) use subagent_handler::{SubagentNativeToolHandler, MAX_SUBAGENT_DURATION_MS};
 pub(crate) use web_handler::web_native_tool_handlers;

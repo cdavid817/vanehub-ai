@@ -16,8 +16,9 @@ use super::api_process_adapter::{
 use super::tools::{execute_file, execute_glob, execute_grep, GrepRequest};
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLoggingPort, ApiAgentGateway, ApiCredentialPort, NativeToolErrorCode,
-    NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus, SubagentPort,
-    ToolDefinition, ToolUseBlock, NATIVE_TOOL_CONTRACT_VERSION,
+    NativeToolPortRequest, NativeToolProgress, NativeToolProgressPhase, NativeToolResultEnvelope,
+    NativeToolResultStatus, SubagentPort, ToolDefinition, ToolUseBlock,
+    NATIVE_TOOL_CONTRACT_VERSION,
 };
 use crate::contexts::sessions::api::{SessionsApi, UsageStatus};
 use crate::platform::network::blocking_http_client;
@@ -188,6 +189,13 @@ impl NativeSubagentExecutor {
             operation_id: &context.generation_id,
         };
 
+        publish_progress(
+            context,
+            0,
+            NativeToolProgressPhase::Started,
+            "Investigating.".to_owned(),
+            0,
+        );
         for turn_index in 0..MAX_CHILD_TURNS {
             if context.is_cancelled() {
                 return terminal(NativeToolResultStatus::Cancelled, None, tool_calls_used);
@@ -265,6 +273,20 @@ impl NativeSubagentExecutor {
                 );
             }
 
+            // What the child is reading, not what it read: the parent is blocked inside this
+            // call and cannot see anything until it returns, so this is for the user watching a
+            // long investigation advance.
+            publish_progress(
+                context,
+                turn_index.saturating_add(1),
+                NativeToolProgressPhase::Updated,
+                format!(
+                    "Reading {} more source{}.",
+                    requested.len(),
+                    if requested.len() == 1 { "" } else { "s" }
+                ),
+                tool_calls_used,
+            );
             let executed: Vec<(ToolUseBlock, String, bool)> = requested
                 .into_iter()
                 .map(|call| {
@@ -282,6 +304,24 @@ impl NativeSubagentExecutor {
             tool_calls_used,
         )
     }
+}
+
+/// Emits a bounded progress event. Carries counts and a fixed phrase only -- never a file path, a
+/// search pattern, or anything the child read, since progress is a user-facing signal and the
+/// child's reading is exactly what stays inside its own context.
+fn publish_progress(
+    context: &crate::contexts::agent_runtime::application::NativeToolExecutionContext,
+    sequence: u32,
+    phase: NativeToolProgressPhase,
+    message: String,
+    tool_calls: u32,
+) {
+    context.progress.publish(NativeToolProgress {
+        sequence,
+        phase,
+        message: Some(message),
+        metadata: BTreeMap::from([("tool_calls".to_owned(), json!(tool_calls))]),
+    });
 }
 
 /// The child's whole tool surface. Read-only by construction: these three definitions are the only

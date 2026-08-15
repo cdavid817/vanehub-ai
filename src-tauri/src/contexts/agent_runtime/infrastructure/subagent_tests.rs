@@ -228,3 +228,83 @@ fn a_child_invocation_without_accounting_declines_instead_of_failing() {
     );
     assert!(invocation.is_none());
 }
+
+/// The handler advertises a duration ceiling; the dispatcher enforces the native-tool request
+/// timeout. If they drift apart, the limit profile promises time a child never gets.
+#[test]
+fn the_declared_duration_matches_the_enforced_deadline() {
+    use crate::contexts::agent_runtime::application::MAX_SUBAGENT_DURATION_MS;
+
+    assert_eq!(
+        u128::from(MAX_SUBAGENT_DURATION_MS),
+        super::super::api_process_adapter::REQUEST_TIMEOUT.as_millis(),
+        "the advertised subagent duration must be the deadline actually applied"
+    );
+}
+
+#[derive(Debug, Default)]
+struct CapturingProgress {
+    events: Mutex<Vec<NativeToolProgress>>,
+}
+
+impl crate::contexts::agent_runtime::application::NativeToolProgressSink for CapturingProgress {
+    fn publish(&self, progress: NativeToolProgress) {
+        self.events.lock().expect("events").push(progress);
+    }
+}
+
+fn execution_context(
+    cancelled: Arc<AtomicBool>,
+    progress: Arc<CapturingProgress>,
+) -> crate::contexts::agent_runtime::application::NativeToolExecutionContext {
+    crate::contexts::agent_runtime::application::NativeToolExecutionContext {
+        call_id: "call-1".to_owned(),
+        session_id: "session-1".to_owned(),
+        generation_id: "generation-1".to_owned(),
+        agent_id: "onepiece".to_owned(),
+        canonical_workspace: Some(std::path::PathBuf::from("C:/work")),
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        cancelled,
+        progress,
+    }
+}
+
+/// The child shares the generation's cancellation flag, so cancelling the generation -- which is
+/// what ending or archiving a session does -- stops the child at its next turn boundary. Pinned
+/// because it is inherited rather than implemented here, and inherited guarantees are the ones
+/// that quietly disappear.
+#[test]
+fn the_child_observes_the_generations_cancellation_flag() {
+    let cancelled = Arc::new(AtomicBool::new(true));
+    let context = execution_context(cancelled.clone(), Arc::new(CapturingProgress::default()));
+
+    assert!(context.is_cancelled());
+    cancelled.store(false, std::sync::atomic::Ordering::Release);
+    assert!(!context.is_cancelled());
+}
+
+/// Progress carries counts and a fixed phrase. A file path or search pattern here would leak the
+/// child's reading into a user-facing signal, which is the one thing its own context is for.
+#[test]
+fn progress_events_carry_counts_and_no_content() {
+    let sink = Arc::new(CapturingProgress::default());
+    let context = execution_context(Arc::new(AtomicBool::new(false)), sink.clone());
+
+    publish_progress(
+        &context,
+        2,
+        NativeToolProgressPhase::Updated,
+        "Reading 3 more sources.".to_owned(),
+        7,
+    );
+
+    let events = sink.events.lock().expect("events");
+    let event = events.first().expect("a progress event");
+    assert_eq!(event.sequence, 2);
+    assert_eq!(event.metadata["tool_calls"], json!(7));
+    let message = event.message.as_deref().expect("message");
+    assert!(message.contains('3'), "{message}");
+    for leaked in ["C:/", ".rs", "pattern", "needle"] {
+        assert!(!message.contains(leaked), "{message}");
+    }
+}

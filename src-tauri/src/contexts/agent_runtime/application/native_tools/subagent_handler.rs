@@ -39,7 +39,10 @@ pub(crate) const MAX_SUBAGENT_TASK_CHARS: usize = 4_000;
 /// directly.
 pub(crate) const MAX_SUBAGENT_RESULT_CHARS: usize = 4_000;
 
-pub(crate) const MAX_SUBAGENT_DURATION_MS: u64 = 300_000;
+/// Must equal the native-tool execution deadline the dispatcher actually applies. Declaring more
+/// than that would advertise time a child never gets; `subagent_declared_duration_matches_the_
+/// enforced_deadline` pins them together.
+pub(crate) const MAX_SUBAGENT_DURATION_MS: u64 = 120_000;
 
 pub(crate) struct SubagentNativeToolHandler {
     definition: NativeToolDefinition,
