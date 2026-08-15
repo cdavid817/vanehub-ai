@@ -15,6 +15,7 @@ use crate::contexts::code_execution::application::SandboxProcessBackend;
 use crate::contexts::tooling::extensions::application::{
     normalize_ocr_result, ArtifactOcrSourceAdapter, ManagedOcrExecutionService,
     NormalizedOcrResult, OcrAdmissionLimits, OcrArtifactAdmissionService, OcrArtifactRequest,
+    RenderedOcrPage,
 };
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -111,9 +112,15 @@ impl OcrNativeToolAdapter {
             &artifact.content_hash,
             input.languages,
             duration_ms,
-            engine,
+            engine.result,
         )
         .map_err(AdapterError::Execution)?;
+        // Before cleanup, because cleanup is what deletes the page. A failure here degrades to the
+        // text result rather than failing a call whose OCR already succeeded
+        // (`add-ocr-rendered-page-return` D4).
+        let rendered_page = engine
+            .rendered_page
+            .and_then(|page| self.seal_rendered_page(&request, &result, &page).ok());
         workspace.cleanup()?;
         let published = if input.publish {
             self.seal_outputs(&request, &result)?
@@ -134,15 +141,13 @@ impl OcrNativeToolAdapter {
                     json!(result.source_artifact_id),
                 ),
                 // The page OCR actually read, so the model can see what the text was recovered
-                // from rather than only the characters (`add-onepiece-visual-tool-returns`).
-                // The rendered pages under the sandbox are gone by here -- `workspace.cleanup`
-                // runs above -- so this is the source Artifact. When the source is an image that
-                // is exactly the page; when it is a PDF the loop finds an unreviewed type and
-                // degrades to this same text result. Sealing a rendered page would improve the
-                // PDF case and is not done here.
+                // from rather than only the characters. A rasterized source read one page out of
+                // the source, and that page is what to show; an image source is already the page.
+                // Anything else -- a multi-page request, an unreviewed source type, a page that
+                // could not be retained -- declares the source and degrades to text downstream.
                 (
                     IMAGE_ARTIFACT_METADATA_KEY.to_owned(),
-                    json!(result.source_artifact_id),
+                    json!(rendered_page.unwrap_or_else(|| result.source_artifact_id.clone())),
                 ),
                 (
                     "published_artifact_count".to_owned(),
@@ -150,6 +155,40 @@ impl OcrNativeToolAdapter {
                 ),
             ]),
         })
+    }
+
+    /// Retain the page pdfium rasterized, as evidence in the same sense the extracted text and
+    /// structured result are: it is what OCR actually read. Sealed whether or not the active model
+    /// accepts images -- a native tool has no capability signal, and a user auditing a bad
+    /// extraction wants the page regardless (`add-ocr-rendered-page-return` D2).
+    fn seal_rendered_page(
+        &self,
+        request: &NativeToolPortRequest,
+        result: &NormalizedOcrResult,
+        page: &RenderedOcrPage,
+    ) -> Result<String, AdapterError> {
+        let bytes = std::fs::read(&page.path).map_err(|_| AdapterError::Artifact)?;
+        let page_number = page.page_number;
+        self.artifacts
+            .create_bytes(
+                ArtifactCreateRequest {
+                    operation_id: request.context.call_id.clone(),
+                    display_name: format!("ocr-page-{page_number}.png"),
+                    media_type: "image/png".to_owned(),
+                    creator: ArtifactCreator {
+                        kind: "native_tool".to_owned(),
+                        id: request.context.agent_id.clone(),
+                    },
+                    evidence_kind: ArtifactEvidenceKind::HostVerified,
+                    visibility: ArtifactVisibility::Session,
+                    source_artifact_ids: vec![result.source_artifact_id.clone()],
+                    created_at: Utc::now().to_rfc3339(),
+                    expires_at: None,
+                },
+                &bytes,
+            )
+            .map(|artifact| artifact.id)
+            .map_err(|_| AdapterError::Artifact)
     }
 
     fn seal_outputs(
