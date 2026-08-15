@@ -1632,6 +1632,85 @@ describe("webAgentClient", () => {
     expect(await webAgentClient.listAllMemories()).toEqual([]);
   });
 
+  it("reports index injection and body selection without any embedding configured (add-two-tier-memory-recall)", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Two Tier Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    // Retrieval stays unconfigured on purpose: the index and the selection must work on an
+    // installation without it, since only `recall` depends on an embedding source.
+    expect((await webAgentClient.getRetrievalConfiguration()).embeddingModel).toBeNull();
+
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Two tier" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    // First turn seeds a memory; the second is the one that has a pool to inject.
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await webAgentClient.listAllMemories()).not.toHaveLength(0);
+
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "again", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+    unsubscribe();
+
+    const applied = events.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-"),
+    );
+    expect(applied).toBeDefined();
+    // `RichBlock` is a union and only some variants carry markdown, so narrow on the kind the
+    // memory event actually publishes rather than reaching for the field.
+    const body =
+      applied?.type === "rich_block" && applied.block.kind === "card" ? (applied.block.bodyMarkdown ?? "") : "";
+    expect(body).toContain("Index carried");
+    expect(body).toContain("read in full");
+  });
+
+  it("simulates no memory injection at all while the master toggle is off (add-two-tier-memory-recall)", async () => {
+    vi.useFakeTimers();
+    stubBrowserLocalStorage();
+    try {
+      const agent = await webAgentClient.registerApiAgent({
+        displayName: "Toggle Off Agent",
+        provider: "Anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-opus-4-8",
+        interfaceFormat: "anthropic",
+        baseUrl: null,
+      });
+      const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Toggle off" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      // Seed a memory first, so the pool is non-empty and only the toggle can explain the silence.
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(await webAgentClient.listAllMemories()).not.toHaveLength(0);
+
+      await webSettingsClient.saveSetting({ key: "memoryEnabled", value: false });
+      const events: ChatStreamEvent[] = [];
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+        events.push(event);
+      });
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "again", config });
+      await vi.advanceTimersByTimeAsync(3_000);
+      unsubscribe();
+
+      // Not "select and discard": the master switch gates the whole surface.
+      expect(
+        events.some((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-")),
+      ).toBe(false);
+    } finally {
+      await webSettingsClient.saveSetting({ key: "memoryEnabled", value: true });
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shares memories from every agent in one pool, and reset clears all of them (add-cli-memory-support)", async () => {
     vi.useFakeTimers();
     const firstAgent = await webAgentClient.registerApiAgent({

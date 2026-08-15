@@ -59,10 +59,12 @@ pub(super) fn run_stream(
     output: &mut impl Write,
 ) -> Result<(), RelayFailure> {
     let mut session = RelaySession {
-        client: Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?,
+        client: crate::platform::network::apply_proxy_routing(
+            Client::builder().redirect(reqwest::redirect::Policy::none()),
+        )
+        .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?
+        .build()
+        .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?,
         url,
         headers,
         traceparent,

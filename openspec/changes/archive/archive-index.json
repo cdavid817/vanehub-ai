@@ -2613,6 +2613,62 @@
                          "capabilities":  [
                                               "agent-image-input"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "migrate-agent-memory-to-file-store",
+                         "path":  "openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "retrieval-vector-search"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "add-cross-platform-desktop-automation",
+                         "path":  "openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "continuous-integration",
+                                              "desktop-runtime-verification"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "add-onepiece-slash-commands",
+                         "path":  "openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "slash-command-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "add-two-tier-memory-recall",
+                         "path":  "openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "retrieval-vector-search"
+                                          ]
                      }
                  ]
 }

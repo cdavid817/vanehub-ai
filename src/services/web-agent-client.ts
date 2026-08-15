@@ -18,6 +18,7 @@ import {
 import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
+  AgentMemoryType,
   AgentRegistryEntry,
   ApiAgentProviderConfig,
   AssignSessionCategoryInput,
@@ -787,17 +788,79 @@ function applyWebOnePieceActiveProfile(profileId: string | null) {
 let webAgentMemories: AgentMemory[] = [];
 let nextAgentMemoryId = 1;
 
-function createAgentMemory(agentId: string, folder: string | null, content: string, source: AgentMemory["source"]): AgentMemory {
+/** Mirrors the native store's deterministic derivation: a writer that supplies no name gets one
+ * from the content, and only ASCII survives slugging, so non-Latin content falls back to the
+ * sequence number rather than producing an empty stem. */
+function deriveMemoryName(content: string, sequence: number): string {
+  const slug = content
+    .split(/[^a-zA-Z0-9]+/u)
+    .filter(Boolean)
+    .slice(0, 6)
+    .join("-")
+    .toLowerCase();
+  return slug || `memory-${sequence}`;
+}
+
+/** Mirrors the native bounds so the mock truncates where the desktop runtime would. */
+const WEB_MEMORY_INDEX_LINE_CAP = 200;
+
+/** Mirrors the native selection bound. */
+const WEB_MEMORY_SELECTION_CAP = 5;
+
+/**
+ * Simulates one generation's memory injection: an index over the whole pool, plus the handful of
+ * bodies a selection would have read in full.
+ *
+ * Deterministic rather than model-driven — the Web runtime must reproduce the desktop's observable
+ * shape without issuing a provider request, so it stands in for the selector with recency, which
+ * is the same ordering the index already uses.
+ */
+function simulateMemoryIndexInjection(): { indexed: number; selected: AgentMemory[] } {
+  const indexed = Math.min(webAgentMemories.length, WEB_MEMORY_INDEX_LINE_CAP);
+  return {
+    indexed,
+    selected: webAgentMemories.slice(0, Math.min(indexed, WEB_MEMORY_SELECTION_CAP)),
+  };
+}
+
+function disambiguateMemoryName(base: string): string {
+  if (!webAgentMemories.some((memory) => memory.name === base)) {
+    return base;
+  }
+  let suffix = 2;
+  while (webAgentMemories.some((memory) => memory.name === `${base}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}-${suffix}`;
+}
+
+function createAgentMemory(
+  agentId: string,
+  folder: string | null,
+  content: string,
+  source: AgentMemory["source"],
+  metadata: { name?: string; description?: string; memoryType?: AgentMemoryType | null } = {},
+): AgentMemory {
+  // An explicit name addresses an existing memory, so it is used as-is and replaces. A derived one
+  // must not: two agents recording the same fact are two memories in the shared pool, so the
+  // native store's collision suffix is mirrored here rather than silently merging them.
+  const name = metadata.name ?? disambiguateMemoryName(deriveMemoryName(content, nextAgentMemoryId));
   const memory: AgentMemory = {
-    id: `web-memory-${nextAgentMemoryId}`,
+    // The native store's identity is the file path, so the mock mirrors that shape rather than
+    // inventing an opaque id the management view would have to special-case.
+    id: `${name}.md`,
     agentId,
     folder,
+    name,
+    description: metadata.description ?? content.split("\n")[0] ?? content,
+    memoryType: metadata.memoryType ?? null,
     content,
     source,
     createdAt: nowIso(),
   };
   nextAgentMemoryId += 1;
-  webAgentMemories = [memory, ...webAgentMemories];
+  // Saving under an existing name replaces that memory, matching the native store's update path.
+  webAgentMemories = [memory, ...webAgentMemories.filter((existing) => existing.name !== name)];
   return memory;
 }
 
@@ -4059,6 +4122,10 @@ export const webAgentClient: AgentService = {
     // produced by this session's own agent/folder.
     const hadExistingMemories = webAgentMemories.length > 0;
     if (memoryEnabled && hadExistingMemories) {
+      // `add-two-tier-memory-recall`: the index is what every request carries, so the mock reports
+      // how many memories it names. Neither this nor the selection below depends on an embedding
+      // source being configured — memory has to work on an installation without retrieval.
+      const injected = simulateMemoryIndexInjection();
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -4069,7 +4136,7 @@ export const webAgentClient: AgentService = {
             kind: "card",
             v: 1,
             title: "Memory applied",
-            bodyMarkdown: "This response was influenced by memories saved in earlier sessions.",
+            bodyMarkdown: `This response was influenced by memories saved in earlier sessions. Index carried ${injected.indexed} of them; ${injected.selected.length} read in full.`,
             tone: "info",
           },
         });

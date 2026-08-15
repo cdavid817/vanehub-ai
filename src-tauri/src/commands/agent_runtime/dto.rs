@@ -323,13 +323,29 @@ pub(crate) enum AgentMemorySource {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Since `migrate-agent-memory-to-file-store`, `id` is the memory file's directory-relative path,
+/// and `name`/`description`/`memory_type` let a management view tell entries apart without
+/// rendering every body in full. `memory_type` is absent for a migrated or hand-written memory
+/// that declares none.
 pub(crate) struct AgentMemoryEntry {
     pub(crate) id: String,
     pub(crate) agent_id: String,
     pub(crate) folder: Option<String>,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) memory_type: Option<AgentMemoryType>,
     pub(crate) content: String,
     pub(crate) source: AgentMemorySource,
     pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AgentMemoryType {
+    User,
+    Feedback,
+    Project,
+    Reference,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
