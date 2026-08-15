@@ -111,6 +111,7 @@ pub(crate) enum NativeToolOperation {
     DelegationAnalyze,
     DelegationEdit,
     DelegationApply,
+    SubagentDelegate,
 }
 
 impl NativeToolOperation {
@@ -127,6 +128,7 @@ impl NativeToolOperation {
             Self::DelegationAnalyze => "delegation.analyze",
             Self::DelegationEdit => "delegation.edit",
             Self::DelegationApply => "delegation.apply",
+            Self::SubagentDelegate => "subagent.delegate",
         }
     }
 }
@@ -140,6 +142,7 @@ pub(crate) enum ToolResourceKind {
     Artifact,
     DelegationTarget,
     ChangeSet,
+    Subagent,
 }
 
 impl ToolResourceKind {
@@ -152,6 +155,7 @@ impl ToolResourceKind {
             Self::Artifact => "artifact",
             Self::DelegationTarget => "delegation_target",
             Self::ChangeSet => "change_set",
+            Self::Subagent => "subagent",
         }
     }
 }

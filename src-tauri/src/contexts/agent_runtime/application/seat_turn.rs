@@ -375,6 +375,9 @@ impl AgentRuntimeApplicationService {
                     parent_execution_run_id: assignment.parent_execution_run_id.clone(),
                 }),
                 record_user_message: false,
+                // A seat turn is written by the runtime to hand off between participants, not
+                // typed by someone waiting on the thread (`add-agent-user-question`).
+                interactive: false,
             },
         );
         result.map(|_| ())

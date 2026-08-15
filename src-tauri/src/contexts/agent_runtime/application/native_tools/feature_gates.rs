@@ -10,6 +10,7 @@ pub(crate) struct OnePieceToolFeatureGates {
     delegation_analyze: bool,
     delegation_edit: bool,
     delegation_apply: bool,
+    subagent: bool,
 }
 
 impl OnePieceToolFeatureGates {
@@ -58,6 +59,7 @@ impl OnePieceToolFeatureGates {
                 "VANEHUB_ONEPIECE_DELEGATION_APPLY_ENABLED",
                 false,
             ),
+            subagent: enabled(&mut lookup, "VANEHUB_ONEPIECE_SUBAGENT_ENABLED", false),
         }
     }
 
@@ -73,6 +75,7 @@ impl OnePieceToolFeatureGates {
             delegation_analyze: true,
             delegation_edit: true,
             delegation_apply: true,
+            subagent: true,
         }
     }
 
@@ -88,6 +91,7 @@ impl OnePieceToolFeatureGates {
             ("delegation", "read") => self.delegation_analyze,
             ("delegation", "write") => self.delegation_edit,
             ("delegation", "apply") => self.delegation_apply,
+            ("subagent", "delegate") => self.subagent,
             _ => false,
         }
     }
@@ -101,6 +105,7 @@ impl OnePieceToolFeatureGates {
             "artifact" => self.artifact_read || self.artifact_publish,
             "delegate_cli" => self.delegation_analyze || self.delegation_edit,
             "apply_delegation_changes" => self.delegation_apply,
+            "delegate_subagent" => self.subagent,
             _ => true,
         }
     }
@@ -117,6 +122,7 @@ impl OnePieceToolFeatureGates {
             NativeToolOperation::DelegationAnalyze => self.delegation_analyze,
             NativeToolOperation::DelegationEdit => self.delegation_edit,
             NativeToolOperation::DelegationApply => self.delegation_apply,
+            NativeToolOperation::SubagentDelegate => self.subagent,
         }
     }
 }

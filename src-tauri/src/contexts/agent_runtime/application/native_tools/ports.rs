@@ -27,6 +27,13 @@ pub(crate) trait ArtifactPort: Send + Sync {
     fn execute_artifact(&self, request: NativeToolPortRequest) -> NativeToolResultEnvelope;
 }
 
+/// Runs one bounded child OnePiece attempt. Lives in infrastructure because a child needs
+/// provider access, which the application layer deliberately does not have
+/// (`add-onepiece-subagents`).
+pub(crate) trait SubagentPort: Send + Sync {
+    fn execute_subagent(&self, request: NativeToolPortRequest) -> NativeToolResultEnvelope;
+}
+
 pub(crate) trait CliDelegationPort: Send + Sync {
     fn execute_delegation(&self, request: NativeToolPortRequest) -> NativeToolResultEnvelope;
 }
