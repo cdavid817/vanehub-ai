@@ -154,6 +154,7 @@ import type {
   DirectoryListing,
   DocumentListing,
   FileContent,
+  FileSearchListing,
   GitDiffResult,
   GitDiffSource,
   GitStatusResult,
@@ -430,6 +431,7 @@ export interface AgentService extends BuiltinToolService {
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;
+  searchSessionFiles(sessionId: string, query: string, maxResults?: number): Promise<FileSearchListing>;
   getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
   getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;

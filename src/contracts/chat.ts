@@ -1,5 +1,6 @@
 export type {
   ChatConfig,
+  ChatFileReference,
   ChatMessage,
   ChatStreamEvent,
   EstimatedCharacterTotals,

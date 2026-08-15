@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  boundedContextDrift,
+  documentedBoundedContexts,
   hasDocumentedSymbol,
   unclosableEmphasis,
   validateNativeBoundaryContent,
@@ -77,4 +79,43 @@ test("accepts an English span whose colon is followed by a space", () => {
 
 test("ignores asterisks inside a code span", () => {
   assert.equal(unclosableEmphasis("`glob` 用于限定文件集（如 `**/*.rs`），**默认工作区根**。"), null);
+});
+
+const standardsTable = [
+  "### Bounded contexts",
+  "",
+  "This table is the complete map.",
+  "",
+  "| Context | Ownership |",
+  "| --- | --- |",
+  "| `agent_runtime` | Agents |",
+  "| `work_board` | Work items |",
+  "",
+  "- Every new rule MUST have one owning context.",
+  "",
+  "### Target module layout",
+  "",
+  "| `not_a_context` | belongs to a later section |",
+].join("\r\n");
+
+test("reads the bounded-context table from CRLF standards without spilling into later sections", () => {
+  assert.deepEqual(documentedBoundedContexts(standardsTable), ["agent_runtime", "work_board"]);
+});
+
+test("reports a table that cannot be located rather than silently passing", () => {
+  assert.deepEqual(documentedBoundedContexts("# Standards\r\n\r\nNo table here.\r\n"), []);
+});
+
+test("reports contexts missing from the table and rows missing from disk", () => {
+  assert.deepEqual(
+    boundedContextDrift(["agent_runtime", "ghost"], ["agent_runtime", "work_board"]),
+    { stale: ["ghost"], undocumented: ["work_board"] },
+  );
+});
+
+test("accepts a table that matches the directories exactly", () => {
+  assert.deepEqual(
+    boundedContextDrift(["agent_runtime", "work_board"], ["agent_runtime", "work_board"]),
+    { stale: [], undocumented: [] },
+  );
 });

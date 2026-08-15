@@ -47,7 +47,7 @@ describe("frontend feature module boundaries", () => {
   it("keeps optimized surfaces on the shared service boundary in both runtimes", () => {
     const promptHooks = read("settings/pages/prompt-hooks-page.tsx");
     const logs = read("session-workspace/logs-tab.tsx");
-    const webFixtures = read("services/web-session-workspace-client.ts");
+    const webFixtures = read("services/web-session-workspace-fixtures.ts");
     expect(`${promptHooks}\n${logs}`).toContain("agentService");
     expect(`${promptHooks}\n${logs}`).not.toContain("invoke(");
     expect(webFixtures).toContain('fixture: "virtual-scroll"');

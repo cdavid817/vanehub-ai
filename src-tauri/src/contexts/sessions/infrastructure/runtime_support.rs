@@ -119,13 +119,14 @@ impl SessionFileContentPort for SessionFileAdapter {
         &self,
         session_id: &str,
         path: &str,
-    ) -> Result<String, SessionsApplicationError> {
+    ) -> Result<Option<String>, SessionsApplicationError> {
+        // Passing the absent content through instead of flattening it to "" is what lets
+        // prompt assembly tell an unreadable file from an empty one.
         Ok(self
             .workspaces
             .read_session_text_file(session_id, path)
             .map_err(workspace_error)?
-            .content
-            .unwrap_or_default())
+            .content)
     }
 
     fn write_export(

@@ -2261,6 +2261,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-file-reference-line-ranges",
+                         "path":  "openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-onepiece-context-evidence-and-controls-ui",
                          "path":  "openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/",
                          "artifacts":  [
@@ -2339,6 +2352,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "address-workspace-destinations-by-route",
+                         "path":  "openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-skill-evolution-evidence-pipeline",
                          "path":  "openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/",
                          "artifacts":  [
@@ -2412,6 +2439,34 @@
                                           ]
                      },
                      {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "expand-file-mention-candidate-coverage",
+                         "path":  "openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "harden-workspace-dialogs-and-empty-states",
+                         "path":  "openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "loop-management-ui",
+                                              "main-layout-ui",
+                                              "visual-design-system"
+                                          ]
+                     },
+                     {
                          "archivedOn":  "2026-08-15",
                          "changeName":  "add-agent-image-input",
                          "path":  "openspec/changes/archive/2026-08-15-add-agent-image-input/",
@@ -2451,6 +2506,32 @@
                          "capabilities":  [
                                               "agent-tool-execution",
                                               "agent-user-question"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-file-reference-drag-and-paste",
+                         "path":  "openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-file-reference-preview-picker",
+                         "path":  "openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
                                           ]
                      },
                      {

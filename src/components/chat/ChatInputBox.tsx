@@ -1,11 +1,25 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
+import { useComposerMention } from "../../hooks/use-composer-mention";
+import { cn } from "../../lib/utils";
+import { LazyFeature } from "../lazy-feature";
+
+// The preview pulls in highlight.js, which is far too heavy to sit in the main bundle for
+// a dialog most messages never open. It loads on first use instead.
+const loadPreviewDialog = () =>
+  import("./FileReferencePreviewDialog").then((module) => ({ default: module.FileReferencePreviewDialog }));
+import { formatMentionRange, type MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
-import type { SessionDocument } from "../../types/session-workspace";
+import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
+import { FileReferenceLines } from "./FileReferenceLines";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
+import { SlashCommandCompletion } from "./SlashCommandCompletion";
+import { SlashCommandOutput } from "./SlashCommandOutput";
+import type { CommandOutput, SlashCommand } from "../../services/slash-commands/types";
 
 export function ChatInputBox({
   agents,
@@ -34,6 +48,11 @@ export function ChatInputBox({
   onSubmit,
   onRemoveFileReference,
   participantMentions = [],
+  sessionId = null,
+  slashCommandOutput = null,
+  slashCommandSuggestions = [],
+  onDismissSlashCommandOutput,
+  onSelectSlashCommand,
   value,
 }: {
   agents: AgentRegistryEntry[];
@@ -44,10 +63,10 @@ export function ChatInputBox({
   disabled?: boolean;
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
-  fileReferenceCandidates: SessionDocument[];
+  fileReferenceCandidates: FileSearchMatch[];
   fileReferences: ChatFileReference[];
   onChange: (value: string) => void;
-  onAddFileReference: (document: SessionDocument) => void;
+  onAddFileReference: (candidate: FileSearchMatch, range: MentionLineRange) => void;
   onClear: () => void;
   onConfigAgentChange: (value: string) => void;
   onConfigLongContextChange: (value: boolean) => void;
@@ -60,40 +79,62 @@ export function ChatInputBox({
   onOpenPlan?: () => void;
   onStop: () => void;
   onSubmit: () => void;
-  onRemoveFileReference: (path: string) => void;
+  onRemoveFileReference: (referenceId: string) => void;
   participantMentions?: SeatMentionOption[];
+  /** Needed to read a candidate's content for the preview; without one, selection attaches directly. */
+  sessionId?: string | null;
+  slashCommandOutput?: CommandOutput | null;
+  slashCommandSuggestions?: SlashCommand[];
+  onDismissSlashCommandOutput?: () => void;
+  onSelectSlashCommand?: (name: string) => void;
   value: string;
 }) {
   const { t } = useTranslation();
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
-  const mention = value.match(/(?:^|\s)@([^\s@]*)$/);
-  const mentionQuery = mention?.[1]?.toLowerCase() ?? null;
-  const fileSuggestions = useMemo(() => {
-    if (mentionQuery === null || disabled) return [];
-    const selected = new Set(fileReferences.map((reference) => reference.path));
-    return fileReferenceCandidates
-      .filter((document) => !selected.has(document.path))
-      .filter((document) => `${document.name} ${document.path}`.toLowerCase().includes(mentionQuery))
-      .slice(0, 8);
-  }, [disabled, fileReferenceCandidates, fileReferences, mentionQuery]);
-  const participantSuggestions = useMemo(() => {
-    if (mentionQuery === null || disabled) return [];
-    return participantMentions
-      .filter((option) => `${option.mention} ${option.roleName ?? ""} ${option.agentName}`.toLowerCase().includes(mentionQuery))
-      .slice(0, 8);
-  }, [disabled, mentionQuery, participantMentions]);
+  const { applyMention, fileSuggestions, mentionRange, participantSuggestions, pendingPreview, setPendingPreview } = useComposerMention({
+    disabled,
+    fileReferenceCandidates,
+    fileReferences,
+    participantMentions,
+    value,
+  });
 
-  function selectReference(document: SessionDocument) {
-    onAddFileReference(document);
-    onChange(value.replace(/(?:^|\s)@([^\s@]*)$/, (token) => `${token.startsWith(" ") ? " " : ""}@${document.path} `));
+  const dropTarget = useComposerDropTarget({
+    disabled: Boolean(disabled) || isStreaming,
+    // A dropped or pasted path names a file, not a region, so it attaches whole.
+    onAttachPath: (path) => onAddFileReference({ name: path.split("/").pop() ?? path, path }, {}),
+  });
+
+  function attachReference(candidate: FileSearchMatch, range: MentionLineRange) {
+    onAddFileReference(candidate, range);
+    onChange(applyMention(`${candidate.path}${formatMentionRange(range)}`));
     textAreaRef.current?.focus();
+  }
+
+  function selectReference(candidate: FileSearchMatch) {
+    // A range typed by hand already says which lines are meant, so previewing would only
+    // ask the user to say it twice.
+    if (mentionRange.startLine !== undefined) {
+      attachReference(candidate, mentionRange);
+      return;
+    }
+    if (sessionId) setPendingPreview({ candidate, sessionId });
+    else attachReference(candidate, {});
   }
 
   function selectParticipant(mentionHandle: string) {
-    onChange(value.replace(/(?:^|\s)@([^\s@]*)$/, (token) => `${token.startsWith(" ") || token.startsWith("\n") ? token[0] : ""}@${mentionHandle} `));
+    onChange(applyMention(mentionHandle));
     textAreaRef.current?.focus();
   }
+
+  // A pending preview belongs to the session it was opened from. Left alone across a
+  // session switch it would keep the dialog open and re-read the old path against the new
+  // session — which silently shows a different file whenever both sessions happen to
+  // contain that path.
+  useEffect(() => {
+    setPendingPreview(null);
+  }, [sessionId, setPendingPreview]);
 
   useEffect(() => {
     const element = textAreaRef.current;
@@ -105,29 +146,72 @@ export function ChatInputBox({
 
   return (
     <div className="shrink-0 bg-transparent px-3 py-3">
+      {pendingPreview && pendingPreview.sessionId === sessionId ? (
+        <LazyFeature
+          componentProps={{
+            name: pendingPreview.candidate.name,
+            onAttach: (range: MentionLineRange) => {
+              attachReference(pendingPreview.candidate, range);
+              setPendingPreview(null);
+            },
+            onCancel: () => {
+              setPendingPreview(null);
+              textAreaRef.current?.focus();
+            },
+            path: pendingPreview.candidate.path,
+            sessionId: pendingPreview.sessionId,
+          }}
+          loader={loadPreviewDialog}
+        />
+      ) : null}
       <div
-        className="relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30"
+        className={cn(
+          "relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30",
+          dropTarget.isDropTarget && "border-primary ring-1 ring-ring/40",
+        )}
+        data-drop-target={dropTarget.isDropTarget ? "true" : undefined}
         data-testid="wechat-style-composer"
+        {...dropTarget.handlers}
       >
-        {participantSuggestions.length || fileSuggestions.length ? (
-          <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
-            <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
-            {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
-            {fileSuggestions.map((document) => (
-              <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={document.path} onClick={() => selectReference(document)} type="button">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{document.path}</span>
-              </button>
-            ))}
+        {/* Single positioned wrapper so the output panel and whichever completion panel is
+            active stack in flow order instead of layering at identical coordinates. The
+            drop hint joins them for the same reason — and because the composer's top edge,
+            where it used to sit, is where attached reference chips live. */}
+        {dropTarget.isDropTarget || slashCommandOutput || slashCommandSuggestions.length || participantSuggestions.length || fileSuggestions.length ? (
+          <div className="absolute bottom-full left-0 z-20 mb-2 flex w-full flex-col gap-2">
+            {dropTarget.isDropTarget ? (
+              <p className="pointer-events-none w-full rounded-md bg-primary/10 px-3 py-1.5 text-center text-xs font-medium text-primary" role="status">
+                {t("chat.dropFileHint")}
+              </p>
+            ) : null}
+            <SlashCommandOutput onDismiss={onDismissSlashCommandOutput ?? (() => undefined)} output={slashCommandOutput} />
+            {slashCommandSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SlashCommandCompletion onSelect={onSelectSlashCommand ?? (() => undefined)} options={slashCommandSuggestions} />
+              </div>
+            ) : null}
+            {participantSuggestions.length || fileSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
+                {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
+                {fileSuggestions.map((candidate) => (
+                  <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={candidate.path} onClick={() => selectReference(candidate)} type="button">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{candidate.path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {fileReferences.length ? (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+          <div className="flex flex-wrap gap-1.5 px-3 pt-3" data-testid="composer-file-references">
             {fileReferences.map((reference) => (
-              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.path}>
+              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.id}>
                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
                 <span className="truncate">{reference.name}</span>
-                <button className="rounded text-muted-foreground hover:text-foreground" disabled={disabled || isStreaming} onClick={() => onRemoveFileReference(reference.path)} title={t("chat.removeFileReference")} type="button">
+                <FileReferenceLines reference={reference} />
+                <button className="rounded text-muted-foreground hover:text-foreground" disabled={disabled || isStreaming} onClick={() => onRemoveFileReference(reference.id)} title={t("chat.removeFileReference")} type="button">
                   <X className="h-3 w-3" aria-hidden="true" />
                 </button>
               </span>

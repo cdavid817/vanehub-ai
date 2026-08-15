@@ -38,6 +38,19 @@ export interface DocumentListing extends BoundedResult<SessionDocument> {
   context: SessionWorkspaceContext;
 }
 
+export interface FileSearchMatch {
+  name: string;
+  path: string;
+}
+
+// Deliberately not a BoundedResult: candidate search ranks and caps rather than paginating,
+// so there is no cursor to hand back.
+export interface FileSearchListing {
+  context: SessionWorkspaceContext;
+  items: FileSearchMatch[];
+  truncated: boolean;
+}
+
 export type FileContentStatus = "text" | "binary" | "oversized" | "missing";
 
 export interface FileContent {

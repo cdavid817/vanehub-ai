@@ -130,6 +130,7 @@ export function SessionInfoPanel({
             <Pane active={activeTab === "members"} tab="members"><SessionRosterEditor currentSpeakerSeatId={currentSpeakerSeatId} session={activeSession} /></Pane>
           ) : null}
           <Pane active={activeTab === "basic"} tab="basic">
+            {activeSession ? (
             <dl className="ucd-muted-panel grid gap-2 rounded-lg p-3">
               <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
               <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
@@ -141,6 +142,15 @@ export function SessionInfoPanel({
                 value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")}
               />
             </dl>
+            ) : (
+              // Every field rendered its own "no session selected" placeholder, so an empty
+              // panel repeated the same sentence five times.
+              <div className="ucd-muted-panel grid gap-2 rounded-lg p-4 text-center">
+                <Bot aria-hidden="true" className="mx-auto h-5 w-5 text-muted-foreground" />
+                <p className="text-xs font-medium">{t("layout.noSession")}</p>
+                <p className="text-[11px] leading-5 text-muted-foreground">{t("layout.startChat")}</p>
+              </div>
+            )}
           </Pane>
           <Pane active={activeTab === "usage"} tab="usage"><SessionTokenUsagePane lifecycle={activeSession?.lifecycleState} sessionId={sessionId} /></Pane>
           <Pane active={activeTab === "skills"} tab="skills">

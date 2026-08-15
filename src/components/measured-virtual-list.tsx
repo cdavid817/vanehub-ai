@@ -19,6 +19,11 @@ export interface MeasuredVirtualListHandle {
 export interface MeasuredVirtualListProps<T> {
   ariaLabel: string;
   className?: string;
+  /**
+   * Extra style for the sized content box. Rows are absolutely positioned and so cannot
+   * widen it themselves — a horizontally scrollable list has to state its own width here.
+   */
+  contentStyle?: CSSProperties;
   estimateSize: () => number;
   getItemKey: (item: T, index: number) => string;
   itemClassName?: string;
@@ -32,6 +37,7 @@ function MeasuredVirtualListInner<T>(
   {
     ariaLabel,
     className,
+    contentStyle,
     estimateSize,
     getItemKey,
     itemClassName,
@@ -69,7 +75,7 @@ function MeasuredVirtualListInner<T>(
       role="list"
       tabIndex={0}
     >
-      <div className="relative w-full" style={virtualContentStyle(virtualizer.getTotalSize())}>
+      <div className="relative w-full" style={{ ...virtualContentStyle(virtualizer.getTotalSize()), ...contentStyle }}>
         {virtualItems.map((virtualItem) => (
           <div
             className={cn("absolute left-0 top-0 w-full", itemClassName)}

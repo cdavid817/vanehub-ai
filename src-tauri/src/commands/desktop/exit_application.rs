@@ -3,5 +3,16 @@ use tauri::State;
 
 #[tauri::command]
 pub(crate) fn exit_application(api: State<'_, DesktopLifecycleApi>) {
+    #[cfg(feature = "desktop-e2e")]
+    {
+        let api = api.inner().clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            api.request_exit();
+        });
+        return;
+    }
+
+    #[cfg(not(feature = "desktop-e2e"))]
     api.request_exit();
 }

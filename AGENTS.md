@@ -105,4 +105,6 @@ openspec validate --specs --strict
 
 - `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run version:unit:test`、`npm run contracts:check`
 - UI 行为变更时:`npx playwright test`(CI 的 e2e job 恒跑,本地在改动 UI 行为时必须跑)
+- 桌面运行时、Tauri 启动链路或 IPC 行为变更时:`npm run desktop:unit:test` 与 `npm run test:desktop`;后者会真实构建并启动当前操作系统的测试专用桌面客户端,本地结果不得外推到其他平台
+- CI 的 `Desktop Smoke` 会在 Windows、macOS、Linux 原生 runner 上独立运行;报告结果时逐个平台使用 `PASSED`、`FAILED`、`BLOCKED` 或 `NOT RUN`,失败证据从对应平台的 Actions artifact 获取
 - 起了 proposal 时:`openspec validate <change-name> --strict`——CI 对 `openspec/changes/*` 下每个变更逐个校验,`--specs --strict` 不覆盖这一层

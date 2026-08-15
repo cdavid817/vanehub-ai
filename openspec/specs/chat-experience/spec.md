@@ -448,11 +448,12 @@ The chat message renderer SHALL render Mermaid flow charts from Markdown fenced 
 - **THEN** the renderer SHALL NOT execute raw embedded HTML
 
 ### Requirement: Chat file references
-The chat composer SHALL allow users to reference files under the active session root by typing `@`.
+The chat composer SHALL allow users to reference files under the active session root by typing `@`. Candidate discovery for this completion SHALL be independent of the session document listing that backs the Documents tab, so that document-viewer type bounds do not constrain which files can be referenced.
 
 #### Scenario: Show file candidates
 - **WHEN** a user types `@` in the active-session chat composer
 - **THEN** the composer SHALL request bounded file candidates through the frontend service boundary and show only files inside the active session root
+- **AND** the candidate set SHALL NOT be derived from the Documents tab document listing
 
 #### Scenario: Select file reference
 - **WHEN** a user selects a file candidate
@@ -733,6 +734,7 @@ The chat experience SHALL render each successful automatic context compaction as
 #### Scenario: Reload conversation history
 - **WHEN** a conversation containing compaction evidence is restored
 - **THEN** the evidence card SHALL retain its field values and chronological position
+
 ### Requirement: Explicit assistant-message feedback
 The chat experience SHALL let users submit one current feedback state of `helpful`, `unhelpful`, or `corrected` for a completed assistant message. Corrected feedback MAY include one bounded optional correction note. Feedback SHALL be sent through the frontend service boundary and SHALL not edit the assistant message.
 
@@ -770,4 +772,235 @@ Feedback correction notes SHALL display their character limit and privacy warnin
 #### Scenario: Web feedback parity
 - **WHEN** feedback is submitted in Web/mock mode
 - **THEN** the adapter SHALL simulate the same states, sanitization-result shape, replacement behavior, and failure contract without native persistence
+
+### Requirement: Chat file reference candidate search
+The system SHALL resolve chat file-reference candidates by searching the active session root for a caller-supplied query, returning a ranked and bounded result set rather than an unranked prefix of the workspace.
+
+#### Scenario: Match source files
+- **WHEN** the composer requests candidates with a query that matches a source or configuration file under the session root
+- **THEN** the result SHALL include that file
+- **AND** eligibility SHALL NOT be restricted to Markdown and plain-text documents
+
+#### Scenario: Rank by match quality
+- **WHEN** candidates are returned for a query
+- **THEN** they SHALL be ordered so that an exact filename match ranks above a filename prefix match, a filename prefix match ranks above a filename substring match, and a filename substring match ranks above a match found only across path segments
+
+#### Scenario: Exclude vendored and generated trees
+- **WHEN** the session root contains dependency installs, build outputs, compiler caches, or virtual environments
+- **THEN** candidate search SHALL NOT descend into those directories
+- **AND** the result budget SHALL be spent on first-party files
+
+#### Scenario: Documents tab listing is unaffected
+- **WHEN** the Documents tab lists documents for the same session root
+- **THEN** its listing SHALL retain its existing Markdown and text bounds and its existing traversal behavior
+- **AND** the exclusions applied to candidate search SHALL NOT change what the Documents tab shows
+
+#### Scenario: Bound the search
+- **WHEN** candidate search runs
+- **THEN** it SHALL enforce a traversal depth limit and return no more than the requested number of results
+- **AND** it SHALL resolve only paths contained within the active session root
+
+#### Scenario: No match
+- **WHEN** no file under the session root matches the query
+- **THEN** the system SHALL return an empty candidate set without error
+- **AND** the composer SHALL NOT present a file completion list
+
+#### Scenario: Session root unavailable
+- **WHEN** candidate search is requested for a session that has no resolvable root
+- **THEN** the system SHALL return an empty candidate set with concise localized feedback rather than raw native diagnostics
+
+#### Scenario: Web runtime parity
+- **WHEN** candidate search is requested in Web/mock mode
+- **THEN** the Web adapter SHALL serve the same service contract so the composer remains usable in browser mode
+
+### Requirement: Chat file reference line ranges
+A chat file reference SHALL be able to carry an optional line range naming the region of the file the user means. A reference without a range SHALL mean the whole file.
+
+#### Scenario: Express a line range in the composer
+- **WHEN** a user completes a mention as `@<path>:<start>-<end>`
+- **THEN** the resulting reference SHALL carry that start and end line
+- **AND** the range SHALL be interpreted as 1-based and inclusive of both bounds
+
+#### Scenario: Express a single line
+- **WHEN** a user completes a mention as `@<path>:<line>`
+- **THEN** the resulting reference SHALL carry that line as both its start and its end
+
+#### Scenario: Reference without a range
+- **WHEN** a user completes a mention with no range suffix
+- **THEN** the reference SHALL carry no range
+- **AND** it SHALL behave exactly as file references did before ranges existed
+
+#### Scenario: Candidate search ignores the range suffix
+- **WHEN** the composer requests candidates for a mention token that already carries a range suffix
+- **THEN** the query SHALL be the path portion only
+- **AND** completion SHALL stay available while the range is being typed
+
+#### Scenario: Reject a malformed range
+- **WHEN** a reference carries only one of the two bounds, a bound below 1, or an end line before its start line
+- **THEN** the system SHALL reject the reference with concise localized feedback and SHALL NOT send the message
+
+#### Scenario: Range extends past the end of the file
+- **WHEN** a reference names an end line beyond the file's last line
+- **THEN** the system SHALL clamp the range to the last line rather than rejecting the reference
+- **AND** a start line beyond the last line SHALL yield an empty region rather than an error
+
+#### Scenario: Reference two regions of one file
+- **WHEN** a user references the same path twice with different line ranges
+- **THEN** both references SHALL be accepted as distinct
+- **AND** the overall maximum number of file references per message SHALL still apply
+
+#### Scenario: Reject an exact duplicate
+- **WHEN** a user references the same path twice with the same range, or twice with no range
+- **THEN** the system SHALL reject the duplicate with concise localized feedback
+
+#### Scenario: Chips show the range
+- **WHEN** a ranged reference is displayed in the composer or in message history
+- **THEN** its chip SHALL show the referenced line range alongside the file name
+- **AND** a reference without a range SHALL be displayed without range decoration
+
+#### Scenario: Remove one of several references to a file
+- **WHEN** a user removes one chip while another reference to the same path is attached
+- **THEN** only the selected reference SHALL be removed and the other SHALL remain attached
+
+#### Scenario: Persist and restore the range
+- **WHEN** a message with ranged references is persisted and later restored into history
+- **THEN** each restored reference SHALL retain its line range
+- **AND** references persisted before ranges existed SHALL restore as whole-file references
+
+### Requirement: Line-bounded file reference injection
+Prompt assembly SHALL inline only the lines a reference names, so that referencing a region of a large file spends context proportional to the region rather than to the file.
+
+#### Scenario: Inject only the requested lines
+- **WHEN** a message is sent with a reference carrying a line range
+- **THEN** the Agent prompt SHALL contain only the lines within that range
+- **AND** the injected block SHALL identify the file and the range it covers
+
+#### Scenario: Injected lines carry their positions
+- **WHEN** a ranged reference is injected
+- **THEN** each injected line SHALL be labelled with its 1-based position in the source file, so positions cited by the Agent match the user's editor
+
+#### Scenario: Whole-file injection is unchanged
+- **WHEN** a message is sent with a reference carrying no range
+- **THEN** the Agent prompt SHALL contain the whole file exactly as it did before ranges existed
+
+#### Scenario: Safeguards are not widened
+- **WHEN** a ranged reference is resolved for injection
+- **THEN** the existing path containment, oversize, and binary-file safeguards SHALL apply unchanged
+- **AND** a range SHALL only narrow what is injected, never permit reading a file that would otherwise be refused
+
+### Requirement: File reference preview and range picker
+Selecting a file candidate from `@` completion SHALL open a preview of that file in which the user can pick the lines to reference, so that choosing a file and choosing a region are one action rather than a trip to another tab.
+
+#### Scenario: Selecting a candidate opens the preview
+- **WHEN** a user selects a file candidate from `@` completion
+- **THEN** the composer SHALL request that file's content through the frontend service boundary and present it in a dialog
+- **AND** no reference SHALL be attached until the user confirms one
+
+#### Scenario: A typed range bypasses the preview
+- **WHEN** a user completes a mention that already carries a range suffix
+- **THEN** the reference SHALL be attached directly without opening the preview
+
+#### Scenario: Content is shown with positions that match the prompt
+- **WHEN** the preview displays file content
+- **THEN** each line SHALL be labelled with its 1-based position in the file
+- **AND** those positions SHALL be the same ones used when the reference is injected into the Agent prompt
+
+#### Scenario: Pick a range by clicking two lines
+- **WHEN** the user clicks one line and then another
+- **THEN** the pending selection SHALL cover both lines and every line between them
+- **AND** the result SHALL be the same regardless of which of the two was clicked first
+
+#### Scenario: Pick a single line
+- **WHEN** the user clicks one line and confirms without clicking a second
+- **THEN** the attached reference SHALL carry that line as both its start and its end
+
+#### Scenario: The pending selection is visible
+- **WHEN** a selection is pending
+- **THEN** the selected lines SHALL be visually distinguished from unselected ones
+- **AND** the range about to be referenced SHALL be stated in the dialog
+
+#### Scenario: Confirm a selection
+- **WHEN** the user confirms the selected range
+- **THEN** a reference carrying that range SHALL be attached and the dialog SHALL close
+
+#### Scenario: Confirm the whole file
+- **WHEN** the user chooses to reference the whole file
+- **THEN** a reference carrying no range SHALL be attached and the dialog SHALL close
+- **AND** this SHALL remain available whether or not a selection is pending
+
+#### Scenario: Dismiss without referencing
+- **WHEN** the user dismisses the dialog
+- **THEN** no reference SHALL be attached
+- **AND** the composer draft SHALL be left as it was before the candidate was selected
+
+#### Scenario: File cannot be displayed
+- **WHEN** the runtime reports the file as oversized or binary
+- **THEN** the dialog SHALL state that condition in place of content
+- **AND** it SHALL offer no way to attach a reference, because such a file contributes no content to the prompt and the existing "Reject unsafe reference" requirement already calls for it to be refused
+
+#### Scenario: File is unavailable
+- **WHEN** the runtime reports the file as missing or the request fails
+- **THEN** the dialog SHALL report that with concise localized feedback and SHALL offer no way to attach a reference
+
+#### Scenario: Large files stay responsive
+- **WHEN** the previewed file is large enough that rendering every line at once would stall the interface
+- **THEN** the preview SHALL remain interactive
+- **AND** a line outside the initially rendered region SHALL still be reachable and selectable
+
+#### Scenario: Keyboard access
+- **WHEN** the dialog is open
+- **THEN** focus SHALL be confined to it, dismissing SHALL be possible from the keyboard, and focus SHALL return to the composer when it closes
+
+#### Scenario: Web runtime parity
+- **WHEN** the preview is opened in Web/mock mode
+- **THEN** it SHALL read through the same service contract and behave the same over the mock workspace
+
+### Requirement: Attach file references by dragging or pasting a workspace path
+The Files tab SHALL be able to hand a file path to the chat composer by drag-and-drop and through the clipboard, so that a file already visible in the workspace does not have to be retyped as a mention.
+
+#### Scenario: Drag a file onto the composer
+- **WHEN** a user drags a file row from the Files tab and drops it on the chat composer
+- **THEN** a reference to that file SHALL be attached
+- **AND** the reference SHALL carry no line range
+
+#### Scenario: Directories are not draggable
+- **WHEN** a user attempts to drag a directory row
+- **THEN** no drag SHALL start and nothing SHALL be attachable from it
+
+#### Scenario: The drop target is discoverable
+- **WHEN** a draggable file is over the composer
+- **THEN** the composer SHALL show that it will accept the drop
+- **AND** the affordance SHALL disappear when the pointer leaves or the drop completes
+
+#### Scenario: Copy a path from the Files tab
+- **WHEN** a user invokes the copy-path action on a file row
+- **THEN** the session-relative path SHALL be placed on the clipboard as plain text
+- **AND** it SHALL additionally carry the application's file-path clipboard type
+
+#### Scenario: Paste a copied path into the composer
+- **WHEN** a user pastes clipboard content carrying the application's file-path clipboard type into the composer
+- **THEN** a reference to that file SHALL be attached instead of the path being inserted as text
+- **AND** the reference SHALL carry no line range
+
+#### Scenario: Ordinary paste is unaffected
+- **WHEN** a user pastes content that does not carry that clipboard type
+- **THEN** the composer SHALL insert it as text exactly as it did before
+- **AND** the composer SHALL NOT inspect pasted text to guess whether it names a file
+
+#### Scenario: Pasting a copied path elsewhere
+- **WHEN** a copied path is pasted into any target other than the composer
+- **THEN** it SHALL arrive as the plain-text path
+
+#### Scenario: Attached the same way as a typed mention
+- **WHEN** a reference is attached by drop or paste
+- **THEN** duplicate detection, the maximum number of references per message, and chip display SHALL behave exactly as for a reference attached by typing a mention
+
+#### Scenario: Dropping or pasting while sending is not allowed
+- **WHEN** the composer is disabled or a generation is streaming
+- **THEN** a drop or a path paste SHALL NOT attach a reference
+
+#### Scenario: External sources are not accepted
+- **WHEN** content is dragged or pasted from outside the application
+- **THEN** it SHALL NOT be treated as a file reference
+- **AND** ordinary text handling SHALL apply
 

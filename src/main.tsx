@@ -10,14 +10,24 @@ if (floatingSurface) {
 }
 
 async function renderSurface() {
+  const root = document.getElementById("root") as HTMLElement;
+  if (import.meta.env.VITE_DESKTOP_E2E === "1") {
+    const markFatalFrontendError = () => {
+      root.dataset.vanehubFatalError = "detected";
+    };
+    window.addEventListener("error", markFatalFrontendError);
+    window.addEventListener("unhandledrejection", markFatalFrontendError);
+    await import("@wdio/tauri-plugin");
+  }
   const Surface = floatingSurface
     ? (await import("./floating-assistant/floating-assistant-root")).FloatingAssistantRoot
     : (await import("./App")).App;
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <Surface />
     </React.StrictMode>,
   );
+  root.dataset.vanehubBootstrap = "ready";
 }
 
 void renderSurface().catch((error: unknown) => {

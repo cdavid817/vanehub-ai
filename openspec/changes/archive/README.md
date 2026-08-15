@@ -156,18 +156,24 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-13 | establish-fine-grained-token-accounting | agent-terminal-runtime, api-agent-runtime, onepiece-native-agent, settings-usage-statistics-ui, token-accounting, usage-statistics | `openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/` |
 | 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
 | 2026-08-14 | add-background-shell-execution | agent-tool-execution | `openspec/changes/archive/2026-08-14-add-background-shell-execution/` |
+| 2026-08-14 | add-file-reference-line-ranges | chat-experience | `openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/` |
 | 2026-08-14 | add-onepiece-context-evidence-and-controls-ui | agent-context-compaction-control, agent-context-evidence-projection, app-settings, chat-experience, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/` |
 | 2026-08-14 | add-onepiece-context-measurement-and-classification | agent-context-compaction, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-measurement-and-classification/` |
 | 2026-08-14 | add-onepiece-context-optimizer | agent-context-compaction, agent-context-optimization | `openspec/changes/archive/2026-08-14-add-onepiece-context-optimizer/` |
 | 2026-08-14 | add-onepiece-context-quality-and-policy-evaluation | agent-context-evidence-projection, agent-context-quality-evaluation, app-settings, frontend-runtime-architecture, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-quality-and-policy-evaluation/` |
 | 2026-08-14 | add-onepiece-context-trigger-and-suppression | agent-context-compaction, agent-context-compaction-control, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-trigger-and-suppression/` |
+| 2026-08-14 | address-workspace-destinations-by-route | frontend-runtime-architecture, main-layout-ui | `openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/` |
 | 2026-08-14 | add-skill-evolution-evidence-pipeline | agent-execution-observability, chat-experience, settings-skill-management-ui, skill-evolution-evidence, skill-management | `openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/` |
 | 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 | 2026-08-14 | add-utility-skill-delegation-runtime | effective-skill-runtime, settings-skill-management-ui, skill-management, utility-skill-delegation-runtime | `openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/` |
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
+| 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
+| 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
 | 2026-08-15 | add-agent-image-input | agent-image-input, agent-provider-runtime | `openspec/changes/archive/2026-08-15-add-agent-image-input/` |
 | 2026-08-15 | add-agent-task-list | agent-task-list, agent-tool-execution | `openspec/changes/archive/2026-08-15-add-agent-task-list/` |
 | 2026-08-15 | add-agent-user-question | agent-tool-execution, agent-user-question | `openspec/changes/archive/2026-08-15-add-agent-user-question/` |
+| 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
+| 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
 | 2026-08-15 | add-onepiece-subagents | agent-tool-execution, onepiece-subagents | `openspec/changes/archive/2026-08-15-add-onepiece-subagents/` |
 | 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |
 

@@ -61,9 +61,18 @@ export function CreateSessionAgentSection({
                         <span className="block truncate font-medium">{agent.displayName}</span>
                         <span className="block truncate text-xs text-muted-foreground">{agent.id}</span>
                         {unavailable ? (
-                          <span className="block truncate text-xs text-amber-600">
-                            {agent.unavailableReason}
-                          </span>
+                          <>
+                            {/* The localized availability state leads; `unavailableReason` is
+                                backend diagnostic text and stays verbatim as the detail line. */}
+                            <span className="block truncate text-xs text-[hsl(var(--warning))]">
+                              {t(`createSession.agentAvailability.${agent.availabilityState}`)}
+                            </span>
+                            {agent.unavailableReason ? (
+                              <span className="block truncate text-xs text-muted-foreground" title={agent.unavailableReason}>
+                                {agent.unavailableReason}
+                              </span>
+                            ) : null}
+                          </>
                         ) : null}
                       </span>
                       {selected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : null}
@@ -84,14 +93,6 @@ export function CreateSessionAgentSection({
           </div>
         ))}
       </div>
-      {selectedAgent ? (
-        <div className="flex min-w-0 items-center gap-2 rounded-md border border-primary/40 bg-[hsl(var(--nav-active-soft))] px-2 py-1.5 text-xs">
-          <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", getAgentVisualIdentity(selectedAgent.id).tone)}>
-            <AgentBrandIcon agentId={selectedAgent.id} className="h-3.5 w-3.5" />
-          </span>
-          <span className="min-w-0 truncate">{t("createSession.selectedAgent", { agent: selectedAgent.displayName })}</span>
-        </div>
-      ) : null}
     </section>
   );
 }

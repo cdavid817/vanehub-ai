@@ -1,0 +1,30 @@
+{
+  "build": {
+    "beforeBuildCommand": "node scripts/build-desktop-e2e.mjs"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": [
+        "default",
+        {
+          "identifier": "desktop-e2e",
+          "description": "Test-only permissions for the instrumented desktop smoke artifact.",
+          "windows": ["main"],
+          "permissions": [
+            "wdio:allow-execute",
+            "wdio:allow-log-frontend",
+            "wdio:allow-get-active-window-label",
+            "wdio:allow-get-window-states",
+            "wdio:allow-list-windows",
+            "wdio-webdriver:default"
+          ]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": false,
+    "externalBin": ["binaries/vanehub-permission-hook"]
+  }
+}

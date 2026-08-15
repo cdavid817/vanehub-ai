@@ -1,9 +1,10 @@
+use super::service::render_reference_block;
 use super::*;
 use crate::contexts::sessions::domain::{
-    CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
-    MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
-    SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
-    SessionRecoveryReport, SessionSeat, SessionTitle,
+    CategoryId, CategoryName, FileLineRange, FileReferenceSet, LoopSessionRole, MessageId,
+    MessageRole, MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger,
+    SessionActivation, SessionAggregate, SessionCategory, SessionId, SessionLifecycle,
+    SessionMessage, SessionOwner, SessionRecoveryReport, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -763,13 +764,15 @@ impl SessionFileContentPort for FakeFiles {
         &self,
         _session_id: &str,
         path: &str,
-    ) -> Result<String, SessionsApplicationError> {
-        self.contents
+    ) -> Result<Option<String>, SessionsApplicationError> {
+        // An absent fixture stands for a file the workspace cannot hand over — binary,
+        // oversized, or gone — which is exactly the case prompt assembly must omit.
+        Ok(self
+            .contents
             .lock()
             .expect("file contents")
             .get(path)
-            .cloned()
-            .ok_or_else(|| SessionsApplicationError::FileContent("missing fixture".to_string()))
+            .cloned())
     }
 
     fn write_export(
@@ -1153,6 +1156,20 @@ fn reference(path: &str) -> FileReferenceInput {
         name: path.to_string(),
         size_bytes: Some(12),
         content_hash: Some("hash".to_string()),
+        start_line: None,
+        end_line: None,
+    }
+}
+
+fn ranged_reference(path: &str, start: u32, end: u32) -> FileReferenceInput {
+    FileReferenceInput {
+        id: format!("reference-{path}:{start}-{end}"),
+        path: path.to_string(),
+        name: path.to_string(),
+        size_bytes: Some(12),
+        content_hash: None,
+        start_line: Some(start),
+        end_line: Some(end),
     }
 }
 
@@ -1748,6 +1765,67 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .compose_prompt(session.id(), &user.content, vec![reference("src/main.rs")])
         .expect("compose prompt");
     assert!(prompt.contains("--- FILE: src/main.rs ---\nfn main() {}"));
+
+    fixture
+        .files
+        .contents
+        .lock()
+        .expect("file contents")
+        .insert(
+            "src/utils.rs".to_string(),
+            (1..=8)
+                .map(|number| format!("line {number}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    let ranged_prompt = fixture
+        .service
+        .compose_prompt(
+            session.id(),
+            &user.content,
+            vec![ranged_reference("src/utils.rs", 3, 5)],
+        )
+        .expect("compose ranged prompt");
+    assert!(ranged_prompt
+        .contains("--- FILE: src/utils.rs (lines 3-5) ---\n3 | line 3\n4 | line 4\n5 | line 5\n"));
+    assert!(!ranged_prompt.contains("line 2"));
+    assert!(!ranged_prompt.contains("line 6"));
+
+    // A file the workspace cannot hand over leaves no trace at all. Injecting an empty
+    // block instead would tell the Agent the file is empty — a different, wrong claim.
+    let omitted = fixture
+        .service
+        .compose_prompt(
+            session.id(),
+            &user.content,
+            vec![reference("assets/model.bin")],
+        )
+        .expect("compose prompt");
+    assert_eq!(omitted, user.content);
+
+    let mixed = fixture
+        .service
+        .compose_prompt(
+            session.id(),
+            &user.content,
+            vec![reference("src/main.rs"), reference("assets/model.bin")],
+        )
+        .expect("compose prompt");
+    assert!(mixed.contains("--- FILE: src/main.rs ---"));
+    assert!(!mixed.contains("model.bin"));
+
+    // A genuinely empty file is not the same thing and is still injected.
+    fixture
+        .files
+        .contents
+        .lock()
+        .expect("file contents")
+        .insert("src/empty.rs".to_string(), String::new());
+    let empty = fixture
+        .service
+        .compose_prompt(session.id(), &user.content, vec![reference("src/empty.rs")])
+        .expect("compose prompt");
+    assert!(empty.contains("--- FILE: src/empty.rs ---"));
 
     let assistant = message_record(
         "assistant-1",
@@ -2393,4 +2471,40 @@ fn membership_update_rejects_empty_and_stale_rosters_without_saving() {
         SessionRepository::find(&*fixture.store, session.aggregate.id()).expect("find"),
         Some(session)
     );
+}
+
+#[test]
+fn ranged_injection_clamps_to_the_file_and_leaves_whole_file_output_untouched() {
+    let content = (1..=4)
+        .map(|number| format!("line {number}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let range = |start, end| FileLineRange::new(start, end).expect("line range");
+
+    // Whole-file injection must stay byte-identical to its pre-range shape.
+    assert_eq!(
+        render_reference_block("a.rs", &content, None),
+        format!("\n--- FILE: a.rs ---\n{content}\n--- END FILE: a.rs ---\n")
+    );
+
+    // Each injected line carries its 1-based source position.
+    assert_eq!(
+        render_reference_block("a.rs", &content, Some(range(2, 3))),
+        "\n--- FILE: a.rs (lines 2-3) ---\n2 | line 2\n3 | line 3\n--- END FILE: a.rs ---\n"
+    );
+
+    // An end past the last line clamps, and the label states what it actually covers.
+    let clamped = render_reference_block("a.rs", &content, Some(range(3, 99)));
+    assert!(clamped.contains("--- FILE: a.rs (lines 3-4) ---"));
+    assert!(clamped.contains("4 | line 4"));
+    assert!(!clamped.contains("5 |"));
+
+    // A start past the last line yields an empty region rather than an error.
+    let empty = render_reference_block("a.rs", &content, Some(range(90, 99)));
+    assert!(empty.contains("(lines 90-99 requested; file ends at line 4)"));
+    assert!(!empty.contains("line 1"));
+
+    // An empty file is the degenerate case of the same rule.
+    let from_empty = render_reference_block("a.rs", "", Some(range(1, 5)));
+    assert!(from_empty.contains("file ends at line 0"));
 }

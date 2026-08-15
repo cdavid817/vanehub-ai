@@ -22,8 +22,8 @@ test.describe("CLI parameter settings", () => {
     await page.getByRole("button", { name: "Codex CLI" }).click();
     await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("high");
 
-    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /恢复默认值|Restore defaults/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /^(确认|Confirm)$/ }).click();
     await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("default");
     await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeDisabled();
 

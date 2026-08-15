@@ -2538,6 +2538,8 @@ fn send_message_persists_before_reserving_control_and_attaches_effective_prompt_
                 name: "main.rs".to_string(),
                 size_bytes: Some(10),
                 content_hash: Some("hash".to_string()),
+                start_line: None,
+                end_line: None,
             }],
         })
         .expect("send");

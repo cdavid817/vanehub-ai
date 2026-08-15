@@ -5,9 +5,9 @@ use crate::contexts::sessions::application::{
 };
 use crate::contexts::sessions::domain::recovery::{SessionRecoveryMetadata, SessionRecoveryStatus};
 use crate::contexts::sessions::domain::{
-    decode_seats, CategoryId, CategoryName, FileReference, FileReferenceSet, LoopSessionRole,
-    MessageId, MessageRole, MessageStatus, SessionAggregate, SessionCategory, SessionId,
-    SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    decode_seats, CategoryId, CategoryName, FileLineRange, FileReference, FileReferenceSet,
+    LoopSessionRole, MessageId, MessageRole, MessageStatus, SessionAggregate, SessionCategory,
+    SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
 };
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
@@ -269,6 +269,7 @@ impl MessageRow {
                     reference.name,
                     reference.size_bytes,
                     reference.content_hash,
+                    FileLineRange::from_optional_bounds(reference.start_line, reference.end_line)?,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -403,6 +404,8 @@ pub(super) fn file_references_json(
             name: reference.name().to_string(),
             size_bytes: reference.size_bytes(),
             content_hash: reference.content_hash().map(str::to_string),
+            start_line: reference.line_range().map(|range| range.start()),
+            end_line: reference.line_range().map(|range| range.end()),
         })
         .collect::<Vec<_>>();
     serde_json::to_string(&values)

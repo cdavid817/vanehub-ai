@@ -1,11 +1,12 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 
+// Headings match the sidebar entry and breadcrumb for the same page; they used to differ.
 const locales = [
-  { id: "en", heading: "General Settings" },
-  { id: "zh-TW", heading: "通用設定" },
-  { id: "ja", heading: "一般設定" },
-  { id: "ko", heading: "일반 설정" },
-  { id: "zh-CN", heading: "通用设置" },
+  { id: "en", heading: "Basic Configuration" },
+  { id: "zh-TW", heading: "基礎配置" },
+  { id: "ja", heading: "基本構成" },
+  { id: "ko", heading: "기본 구성" },
+  { id: "zh-CN", heading: "基础配置" },
 ] as const;
 
 test.describe.configure({ timeout: 120_000 });
@@ -90,7 +91,8 @@ for (const viewport of [
     const createHeading = page.getByRole("heading", { name: "セッションの作成" });
     await expect(createHeading).toBeVisible();
     await expect(page.getByText("Agent とローカルまたはリモートのワークスペースを選択します。")).toBeVisible();
-    const createDialog = page.locator(".ucd-panel").filter({ has: createHeading });
+    // The dialog moved onto the shared ApplicationDialog primitive, which is identified by role.
+    const createDialog = page.getByRole("dialog", { name: "セッションの作成" });
     await expectElementFitsViewport(page, createDialog);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ fullPage: true, path: testInfo.outputPath(`${viewport.name}-ja-representative-surfaces.png`) });

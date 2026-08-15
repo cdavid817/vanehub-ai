@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "../../i18n";
 import { SettingsProvider } from "../settings-provider";
@@ -94,7 +94,7 @@ describe("BasicSettingsPage", () => {
       const stored = JSON.parse(window.localStorage.getItem("vanehub.appSettings") ?? "{}") as { applicationLanguage?: string };
       expect(stored.applicationLanguage).toBe("ja");
     });
-    await screen.findByRole("heading", { name: "一般設定" });
+    await screen.findByRole("heading", { name: "基本構成" });
 
     firstRender.unmount();
     render(
@@ -103,7 +103,7 @@ describe("BasicSettingsPage", () => {
       </SettingsProvider>,
     );
 
-    await screen.findByRole("heading", { name: "一般設定" });
+    await screen.findByRole("heading", { name: "基本構成" });
     expect((screen.getByRole("combobox", { name: "アプリケーション言語" }) as HTMLSelectElement).value).toBe("ja");
   });
 
@@ -111,8 +111,6 @@ describe("BasicSettingsPage", () => {
     const user = userEvent.setup();
     const stored = JSON.stringify({ defaultFolderPath: "D:\\Keep" });
     window.localStorage.setItem("vanehub.appSettings", stored);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-
     render(
       <SettingsProvider>
         <BasicSettingsPage />
@@ -121,7 +119,10 @@ describe("BasicSettingsPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "重置默认" }));
 
-    expect(confirm).toHaveBeenCalledWith("确定要将所有基础配置恢复为默认值吗？此操作会覆盖当前设置。");
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("确定要将所有基础配置恢复为默认值吗？此操作会覆盖当前设置。")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+
     expect(window.localStorage.getItem("vanehub.appSettings")).toBe(stored);
   });
 });

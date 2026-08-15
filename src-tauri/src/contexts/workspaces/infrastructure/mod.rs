@@ -11,6 +11,7 @@ mod remote_terminal_schema;
 mod runtime_support;
 mod selection;
 mod session_queries;
+mod session_search;
 mod session_shell_workspace;
 mod shell_support;
 mod sqlite_repository;
