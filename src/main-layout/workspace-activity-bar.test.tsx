@@ -12,6 +12,7 @@ const labels: WorkspaceActivityBarLabels = {
   plans: "Plans",
   scheduledTasks: "Scheduled tasks",
   todoBoard: "Todo Board",
+  goals: "Goals",
   settings: "Settings",
   help: "Help",
 };
@@ -28,7 +29,7 @@ function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex
 describe("WorkspaceActivityBar", () => {
   it("renders icon-only primary and utility groups with accessible state", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onHelp={vi.fn()} onLoops={vi.fn()} onOpenSettings={vi.fn()} onPlans={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onWorkBoard={vi.fn()} sessionSidebarExpanded />,
+      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onHelp={vi.fn()} onLoops={vi.fn()} onOpenSettings={vi.fn()} onPlans={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onGoals={vi.fn()} onWorkBoard={vi.fn()} sessionSidebarExpanded />,
     );
 
     expect(html).toContain('aria-label="Workspace navigation"');
@@ -51,9 +52,10 @@ describe("WorkspaceActivityBar", () => {
     const onPlans = vi.fn();
     const onScheduledTasks = vi.fn();
     const onWorkBoard = vi.fn();
+    const onGoals = vi.fn();
     const onOpenSettings = vi.fn();
     const onHelp = vi.fn();
-    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onHelp, onLoops, onOpenSettings, onPlans, onScheduledTasks, onSessions, onWorkBoard, sessionSidebarExpanded: false });
+    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onGoals, onHelp, onLoops, onOpenSettings, onPlans, onScheduledTasks, onSessions, onWorkBoard, sessionSidebarExpanded: false });
     const destinationButtons = groupButtons(element, 0);
     const toolButtons = groupButtons(element, 1);
     const utilityButtons = groupButtons(element, 2);

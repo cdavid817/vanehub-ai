@@ -14,9 +14,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// 64 introduces invocation-grained Token accounting, migration 65 adds managed IM bindings, and
 /// migration 66 adds the unified Todo Board, and migration 67 adds the privacy-bounded Skill
 /// evolution evidence store. Migrations 68-69 add native-tool persistence and Artifact catalog
-/// metadata, and migration 70 adds OnePiece context-quality history.
+/// metadata, migration 70 adds OnePiece context-quality history, and migration 71 adds the goal
+/// aggregate with its links to plans, loops, work items, and sessions.
 fn expected_versions() -> Vec<i64> {
-    (1..=70).collect()
+    (1..=71).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
