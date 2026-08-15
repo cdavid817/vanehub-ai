@@ -245,6 +245,50 @@ impl FileAgentMemoryStore {
     }
 }
 
+/// Absolute memory directory root, when the application data directory is known.
+///
+/// `bootstrap::runtime` exports `VANEHUB_APP_DATA_DIR` during setup — including the Tauri-resolved
+/// default, not only an explicit override — so this stays a pure function rather than threading
+/// the store through the permission mapping, which is reached from call sites that have no
+/// repository handle. Absent variable means "no memory directory", and nothing is auto-approved.
+pub(crate) fn memory_directory_root() -> Option<PathBuf> {
+    std::env::var_os("VANEHUB_APP_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(|value| PathBuf::from(value).join(MEMORY_DIRECTORY_NAME))
+}
+
+/// Whether a tool-supplied path targets a memory file inside the memory directory.
+///
+/// Canonicalizes both sides so a symlink, a relative path, and Windows' case-insensitive,
+/// mixed-separator spellings all resolve to the same answer. A path that cannot be resolved is
+/// treated as outside: the consequence of a false negative is one approval prompt, while a false
+/// positive would auto-approve a write the user never scoped.
+pub(crate) fn is_within_memory_directory(path: &str) -> bool {
+    let Some(root) = memory_directory_root() else {
+        return false;
+    };
+    let Ok(canonical_root) = root.canonicalize() else {
+        return false;
+    };
+    let candidate = Path::new(path);
+    if !is_memory_file(candidate) {
+        return false;
+    }
+    // A memory being created does not exist yet, so fall back to resolving its parent.
+    let resolved = candidate.canonicalize().or_else(|_| {
+        candidate
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .ok_or(std::io::ErrorKind::NotFound)
+            .and_then(|parent| parent.canonicalize().map_err(|error| error.kind()))
+            .map(|parent| parent.join(candidate.file_name().unwrap_or_default()))
+            .map_err(std::io::Error::from)
+    });
+    resolved
+        .map(|resolved| resolved.starts_with(&canonical_root))
+        .unwrap_or(false)
+}
+
 impl AgentMemoryPort for FileAgentMemoryStore {
     /// Writes one memory file and reconciles the index in the same operation.
     ///
@@ -417,6 +461,116 @@ mod tests {
         fn index(&self) -> String {
             fs::read_to_string(self.store.root().join(INDEX_FILE_NAME)).expect("index")
         }
+    }
+
+    /// `VANEHUB_APP_DATA_DIR` is process-global, so these tests must not run concurrently with each
+    /// other. Rust runs tests in one process on many threads, hence the lock.
+    static APP_DATA_DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct ScopedAppDataDir {
+        previous: Option<std::ffi::OsString>,
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl ScopedAppDataDir {
+        fn set(path: &Path) -> Self {
+            let guard = APP_DATA_DIR_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = std::env::var_os("VANEHUB_APP_DATA_DIR");
+            std::env::set_var("VANEHUB_APP_DATA_DIR", path);
+            Self {
+                previous,
+                _guard: guard,
+            }
+        }
+    }
+
+    impl Drop for ScopedAppDataDir {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(previous) => std::env::set_var("VANEHUB_APP_DATA_DIR", previous),
+                None => std::env::remove_var("VANEHUB_APP_DATA_DIR"),
+            }
+        }
+    }
+
+    #[test]
+    fn memory_directory_membership_drives_the_auto_approved_write_scope() {
+        let directory = TempDirectory::new("memory scope membership");
+        let _scope = ScopedAppDataDir::set(directory.path());
+        let store = FileAgentMemoryStore::new(directory.path()).expect("memory store");
+        let inside = store.root().join("user-role.md");
+        fs::write(
+            &inside,
+            "---\nname: user-role\ndescription: d\n---\n\nBody.\n",
+        )
+        .expect("fixture");
+
+        assert!(is_within_memory_directory(&inside.to_string_lossy()));
+        // A memory that does not exist yet still resolves, through its parent — otherwise the very
+        // first write of every new memory would prompt.
+        assert!(is_within_memory_directory(
+            &store.root().join("not-yet-written.md").to_string_lossy()
+        ));
+    }
+
+    #[test]
+    fn paths_outside_the_memory_directory_are_not_in_scope() {
+        let directory = TempDirectory::new("memory scope outside");
+        let _scope = ScopedAppDataDir::set(directory.path());
+        FileAgentMemoryStore::new(directory.path()).expect("memory store");
+        let outside = TempDirectory::new("memory scope outside target");
+        let sibling = outside.path().join("notes.md");
+        fs::write(&sibling, "body").expect("fixture");
+
+        for rejected in [
+            sibling.to_string_lossy().to_string(),
+            directory
+                .path()
+                .join("memory.md")
+                .to_string_lossy()
+                .to_string(),
+            // Traversal out of the directory must not be treated as inside it.
+            directory
+                .path()
+                .join("memory")
+                .join("..")
+                .join("escape.md")
+                .to_string_lossy()
+                .to_string(),
+            // The index is not a memory, so editing it is not an auto-approved memory write.
+            directory
+                .path()
+                .join("memory")
+                .join(INDEX_FILE_NAME)
+                .to_string_lossy()
+                .to_string(),
+            String::new(),
+        ] {
+            assert!(
+                !is_within_memory_directory(&rejected),
+                "expected {rejected:?} to be outside the memory scope"
+            );
+        }
+    }
+
+    #[test]
+    fn no_application_data_directory_means_nothing_is_in_scope() {
+        // A false negative costs one approval prompt; a false positive would auto-approve a write
+        // the user never scoped. Absent configuration therefore resolves to "outside".
+        let directory = TempDirectory::new("memory scope unset");
+        let _scope = ScopedAppDataDir::set(directory.path());
+        std::env::remove_var("VANEHUB_APP_DATA_DIR");
+
+        assert_eq!(memory_directory_root(), None);
+        assert!(!is_within_memory_directory(
+            &directory
+                .path()
+                .join("memory")
+                .join("a.md")
+                .to_string_lossy()
+        ));
     }
 
     #[test]

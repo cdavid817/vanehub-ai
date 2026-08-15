@@ -2,6 +2,7 @@ use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, l
 use super::context_projection::ContextWireShape;
 use super::context_projection::PreparedContextProjection;
 use super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
+use super::memory_directory::is_within_memory_directory;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
@@ -3335,10 +3336,25 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
         SHELL_TOOL_NAME => (Action::shell_exec(), Resource::workspace()),
         FILE_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            let reading = input.get("operation").and_then(Value::as_str) == Some("read");
+            // A generic file tool aimed at the memory directory is a memory operation, not a
+            // workspace one (`migrate-agent-memory-to-file-store`): it maps onto the same
+            // action/resource pair as `remember` and `recall`, so correcting or retracting a memory
+            // is auto-approved exactly as saving one already was. Paths outside keep whatever
+            // approval they required before.
+            if is_within_memory_directory(path) {
+                let action = if reading {
+                    Action::file_read()
+                } else {
+                    Action::memory_write()
+                };
+                return (action, Resource::memory());
+            }
             let resource = Resource::file_path(path);
-            match input.get("operation").and_then(Value::as_str) {
-                Some("read") => (Action::file_read(), resource),
-                _ => (Action::file_write(), resource),
+            if reading {
+                (Action::file_read(), resource)
+            } else {
+                (Action::file_write(), resource)
             }
         }
         GREP_TOOL_NAME | GLOB_TOOL_NAME | SEARCH_CODE_TOOL_NAME => {
@@ -3346,6 +3362,9 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
         }
         EDIT_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            if is_within_memory_directory(path) {
+                return (Action::memory_write(), Resource::memory());
+            }
             (Action::file_write(), Resource::file_path(path))
         }
         FIND_DEFINITION_TOOL_NAME

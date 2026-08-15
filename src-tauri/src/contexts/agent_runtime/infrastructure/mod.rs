@@ -107,7 +107,10 @@ pub(crate) use manual_native_tool_adapter::{
 pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 #[allow(unused_imports)]
-pub(crate) use memory_directory::{FileAgentMemoryStore, MemoryHeader, INDEX_FILE_NAME};
+pub(crate) use memory_directory::{
+    is_within_memory_directory, memory_directory_root, FileAgentMemoryStore, MemoryHeader,
+    INDEX_FILE_NAME,
+};
 pub(crate) use memory_extraction_gateway::RuntimeAgentMemoryExtractionAdapter;
 #[allow(unused_imports)]
 pub(crate) use memory_migration::{migrate_memory_rows, MemoryMigrationOutcome};
