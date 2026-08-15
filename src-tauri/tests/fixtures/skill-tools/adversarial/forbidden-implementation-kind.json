@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "run-linter",
+      "description": "Asks the host to execute a Python script.",
+      "capabilities": [],
+      "input": { "type": "object", "properties": {} },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "python",
+        "module": "scripts/modules/lint.py",
+        "export": "main",
+        "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    }
+  ]
+}

@@ -53,6 +53,7 @@ fn path_error_code(error: OverlayPathError) -> &'static str {
         OverlayPathError::CurrentDirectory => "overlay-path-current-directory",
         OverlayPathError::HiddenComponent => "overlay-path-hidden-component",
         OverlayPathError::UnsupportedTopLevel => "overlay-path-unsupported-root",
+        OverlayPathError::ReservedExecutablePath => "overlay-path-reserved-executable",
         OverlayPathError::ReservedDevice => "overlay-path-reserved-device",
         OverlayPathError::AlternateDataStream => "overlay-path-alternate-stream",
         OverlayPathError::NonCanonicalSeparator => "overlay-path-noncanonical-separator",

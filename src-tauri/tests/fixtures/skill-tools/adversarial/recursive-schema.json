@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "skillId": "code-review",
+  "tools": [
+    {
+      "id": "tree",
+      "description": "Declares a self-referential input schema.",
+      "capabilities": [],
+      "input": {
+        "type": "object",
+        "properties": { "child": { "$ref": "#" } }
+      },
+      "output": { "type": "object" },
+      "implementation": {
+        "kind": "wasm",
+        "module": "scripts/modules/tree.wasm",
+        "export": "run",
+        "hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  ]
+}

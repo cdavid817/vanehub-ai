@@ -1600,6 +1600,10 @@ impl SkillApplicationService {
                     })
                     .collect(),
                 usage: SkillUsageSummary::default(),
+                // Populated by the Skill tool registry once catalog assembly lands
+                // (`add-sandboxed-skill-tool-runtime`, section 6); an empty inventory is the
+                // correct value for every Skill that ships no tool manifest.
+                tools: Default::default(),
             }),
         })
     }

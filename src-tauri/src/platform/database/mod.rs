@@ -256,7 +256,9 @@ mod tests {
             )
             .expect("native tool persistence migration");
 
-        assert_eq!(migration_count, 71);
+        // Row count, not maximum version: 1-71 plus 73, because 72 is claimed by a change that
+        // has not merged yet (see `migration_fixture_tests::expected_versions`).
+        assert_eq!(migration_count, 72);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -318,7 +320,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 71);
+        assert_eq!(migration_count, 72);
     }
 
     #[test]

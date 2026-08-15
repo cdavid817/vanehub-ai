@@ -4,6 +4,18 @@ use super::DEFAULT_OVERLAY_LIMITS;
 
 const ALLOWED_TOP_LEVELS: &[&str] = &["references", "templates", "assets"];
 
+/// Base-package paths an Overlay may never reach, whatever `ALLOWED_TOP_LEVELS` grows to hold.
+///
+/// Executable Skill tool content — `scripts/tools.json`, `scripts/modules/**`, and the integrity
+/// witnesses derived from them — changes only by shipping a new package revision
+/// (`add-sandboxed-skill-tool-runtime`, design decision 6). Today every `scripts/` path already
+/// fails the allowed-top-level check, so this is a named, ordered-first refusal rather than a new
+/// restriction: a later change that legitimately admits some `scripts/` content must not silently
+/// admit executable content along with it. `skill_tools::domain::RESERVED_EXECUTABLE_PREFIXES` is
+/// the same list from the owning subdomain, and its tests assert this validator refuses all of it;
+/// it is restated here because a domain module may not import another subdomain's domain model.
+const RESERVED_EXECUTABLE_TOP_LEVEL: &str = "scripts";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OverlayPathError {
     Empty,
@@ -13,6 +25,7 @@ pub(crate) enum OverlayPathError {
     HiddenComponent,
     ReservedDevice,
     AlternateDataStream,
+    ReservedExecutablePath,
     UnsupportedTopLevel,
     NonCanonicalSeparator,
     EmptyComponent,
@@ -67,6 +80,11 @@ pub(crate) fn validate_overlay_path(value: &str) -> Result<ValidatedOverlayPath,
             maximum: DEFAULT_OVERLAY_LIMITS.maximum_path_depth,
             actual: components.len(),
         });
+    }
+    // Ordered before the allowed-top-level check so the reserved refusal is the one reported, and
+    // so widening `ALLOWED_TOP_LEVELS` later cannot open a path to executable content.
+    if components[0] == RESERVED_EXECUTABLE_TOP_LEVEL {
+        return Err(OverlayPathError::ReservedExecutablePath);
     }
     if !ALLOWED_TOP_LEVELS.contains(&components[0]) {
         if components[0].starts_with('.') {
