@@ -33,6 +33,7 @@ pub(crate) enum SessionsDomainError {
     },
     FileReferenceFieldRequired(&'static str),
     InvalidFileReferenceSize,
+    InvalidFileReferenceRange,
     DuplicateFileReferencePath(String),
     TooManyFileReferences,
     UnsupportedChatAgent(String),
@@ -96,8 +97,12 @@ impl fmt::Display for SessionsDomainError {
             Self::InvalidFileReferenceSize => {
                 formatter.write_str("File reference size cannot be negative.")
             }
+            Self::InvalidFileReferenceRange => formatter.write_str(
+                "File reference line range needs both bounds, a start of at least 1, \
+                 and an end no earlier than its start.",
+            ),
             Self::DuplicateFileReferencePath(path) => {
-                write!(formatter, "File reference path is duplicated: {path}")
+                write!(formatter, "File reference is duplicated: {path}")
             }
             Self::TooManyFileReferences => {
                 formatter.write_str("At most 5 files can be referenced in one message.")

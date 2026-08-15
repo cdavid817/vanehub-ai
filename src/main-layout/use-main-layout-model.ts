@@ -13,8 +13,9 @@ import { agentService } from "../services/runtime-agent-client";
 import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
-import type { SessionDocument } from "../types/session-workspace";
-import type { ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
+import { useFileReferences } from "./use-file-references";
+import { useMentionCandidates } from "./use-mention-candidates";
+import { MAX_CHAT_FILE_REFERENCES, type ChatMessage, type ChatStreamEvent } from "../types/chat";
 import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
 import { useSessionRecoverySync } from "./use-session-recovery-sync";
@@ -24,7 +25,10 @@ export function useMainLayoutModel() {
   const { notify } = useNotifications();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
-  const [fileReferences, setFileReferences] = useState<ChatFileReference[]>([]);
+  const notifyReferenceLimit = useCallback(() => {
+    notify({ type: "error", title: t("chat.fileReferenceLimitTitle"), message: t("chat.fileReferenceLimit", { max: MAX_CHAT_FILE_REFERENCES }), scope: { kind: "global" } });
+  }, [notify, t]);
+  const { addFileReference, fileReferences, removeFileReference, setFileReferences } = useFileReferences(notifyReferenceLimit);
   const [messageLimit, setMessageLimit] = useState(50);
   const [turnStatus, setTurnStatus] = useState<TurnStatus | null>(null);
   const waitingSince = useRef<string | null>(null);
@@ -56,12 +60,7 @@ export function useMainLayoutModel() {
     queryFn: () => activeSessionId ? agentService.listMessages({ sessionId: activeSessionId, limit: messageLimit }) : Promise.resolve([]),
   });
   const messages = messagesQuery.data ?? [];
-  const documentsQuery = useQuery({
-    enabled: Boolean(activeSessionId),
-    queryKey: ["session-documents", activeSessionId],
-    queryFn: () => activeSessionId ? agentService.listSessionDocuments(activeSessionId) : Promise.resolve({ context: { availability: "unavailable" as const, rootName: null, reason: null }, items: [], truncated: false, nextCursor: null }),
-  });
-  const fileReferenceCandidates = documentsQuery.data?.items ?? [];
+  const fileReferenceCandidates = useMentionCandidates(activeSessionId, draft);
   const isStreaming = hasLiveSessionGeneration(activeSession, messages);
   const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
     const event = createChatOperationFailureEvent(source, reason);
@@ -217,7 +216,7 @@ export function useMainLayoutModel() {
       cleanup?.();
     };
   }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
-  useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId]);
+  useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId, setFileReferences]);
   // Keep a human-wait duration moving without backend minute-by-minute events.
   useEffect(() => {
     if (turnStatus?.kind !== "waiting-human") return;
@@ -287,8 +286,8 @@ export function useMainLayoutModel() {
       : [],
     sessions: sessionsQuery.data ?? [],
     setDraft,
-    addFileReference: (document: SessionDocument) => setFileReferences((current) => current.some((reference) => reference.path === document.path) ? current : [...current, { id: document.path, path: document.path, name: document.name }]),
-    removeFileReference: (path: string) => setFileReferences((current) => current.filter((reference) => reference.path !== path)),
+    addFileReference,
+    removeFileReference,
     setSessionSearchQuery,
     stop, submit,
     switchSession,

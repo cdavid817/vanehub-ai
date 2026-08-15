@@ -160,12 +160,23 @@ export interface TokenUsage {
   output: number;
 }
 
+/**
+ * Mirrors `MAX_FILE_REFERENCES` in the sessions domain. The domain remains the authority
+ * and still rejects an over-limit message; this exists so the composer can refuse the
+ * attachment up front instead of surfacing that rejection at send time.
+ */
+export const MAX_CHAT_FILE_REFERENCES = 5;
+
 export interface ChatFileReference {
   id: string;
   path: string;
   name: string;
   sizeBytes?: number | null;
   contentHash?: string | null;
+  // Absent means the whole file. Both bounds are 1-based and inclusive, and either both
+  // are present or neither is.
+  startLine?: number;
+  endLine?: number;
 }
 
 export type UsageStatisticsRange = "today" | "last7Days" | "last30Days" | "all";

@@ -1,7 +1,7 @@
 use crate::contexts::workspaces::application::{
-    DirectoryEntry, DirectoryListing, DocumentListing, FileContent, GitDiffFile, GitDiffHunk,
-    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, SessionDocument,
-    SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile,
+    GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult,
+    SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
     SessionWorkspaceContext, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
     WorkspaceSessionQueryPort,
 };
@@ -55,6 +55,20 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
         list_session_documents(&*self.connection()?, session_id)
+    }
+
+    fn search_files(
+        &self,
+        session_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<FileSearchListing, AppError> {
+        super::session_search::search_session_files(
+            &*self.connection()?,
+            session_id,
+            query,
+            max_results,
+        )
     }
 
     fn read_file(&self, session_id: &str, path: &str) -> Result<FileContent, AppError> {
@@ -1323,6 +1337,52 @@ mod tests {
         );
         assert_eq!(documents.len(), DOCUMENT_LIMIT);
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    /// The Documents tab requirement scopes this listing to Markdown and text. Mention
+    /// candidate search widened its own bounds; this listing must not have moved with it.
+    #[test]
+    fn document_discovery_still_admits_only_markdown_and_text() {
+        let fixture = TempDirectory::new("documents-scope");
+        let root = fixture.path();
+        for name in [
+            "notes.md",
+            "notes.markdown",
+            "notes.txt",
+            "main.rs",
+            "app.ts",
+            "config.json",
+        ] {
+            fs::write(root.join(name), "fixture").expect("fixture file");
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let mut documents = Vec::new();
+        collect_documents(&root, &root, 0, &mut HashSet::new(), &mut documents).expect("documents");
+        let mut names: Vec<String> = documents
+            .into_iter()
+            .map(|document| document.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["notes.markdown", "notes.md", "notes.txt"]);
+    }
+
+    /// Vendored trees stay visible to the Documents tab; only mention search excludes them.
+    #[test]
+    fn document_discovery_still_descends_into_dependency_directories() {
+        let fixture = TempDirectory::new("documents-vendored");
+        let root = fixture.path();
+        fs::create_dir_all(root.join("node_modules/pkg")).expect("vendored directory");
+        fs::write(root.join("node_modules/pkg/readme.md"), "fixture").expect("fixture file");
+        let root = root.canonicalize().expect("canonical root");
+        let mut documents = Vec::new();
+        collect_documents(&root, &root, 0, &mut HashSet::new(), &mut documents).expect("documents");
+        assert_eq!(
+            documents
+                .into_iter()
+                .map(|document| document.path)
+                .collect::<Vec<_>>(),
+            vec!["node_modules/pkg/readme.md".to_string()]
+        );
     }
 
     #[cfg(unix)]

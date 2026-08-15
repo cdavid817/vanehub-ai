@@ -58,6 +58,32 @@ describe("FilesTab", () => {
     });
   });
 
+  it("makes files draggable and copyable but not directories", async () => {
+    mockAgentService.listSessionDirectory.mockResolvedValue({
+      items: [
+        { name: "src", path: "src", kind: "directory", size: null },
+        { name: "main.rs", path: "main.rs", kind: "file", size: 12 },
+      ],
+      truncated: false,
+      nextCursor: null,
+      context: { availability: "available" as const, rootName: "project", reason: null },
+      path: "",
+    });
+
+    renderWithAppProviders(<FilesTab sessionId="session-1" />);
+
+    await waitFor(() => expect(screen.getByText("main.rs")).toBeTruthy());
+
+    const fileRow = screen.getByText("main.rs").closest("button");
+    const directoryRow = screen.getByText("src").closest("button");
+    expect(fileRow?.getAttribute("draggable")).toBe("true");
+    // A directory is not referenceable, so it must not start a drag.
+    expect(directoryRow?.getAttribute("draggable")).toBe("false");
+
+    expect(screen.getByTestId("copy-path-main.rs")).toBeTruthy();
+    expect(screen.queryByTestId("copy-path-src")).toBeNull();
+  });
+
   it("does not expand a directory when loading fails", async () => {
     mockAgentService.listSessionDirectory.mockImplementation((_sessionId: string, path: string) => {
       if (path === "") {

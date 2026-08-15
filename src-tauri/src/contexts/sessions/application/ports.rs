@@ -350,11 +350,13 @@ pub(crate) trait SessionRuntimePort: Send + Sync {
 }
 
 pub(crate) trait SessionFileContentPort: Send + Sync {
+    /// `None` when the workspace has no text to hand over — binary, oversized, or gone.
+    /// Distinct from `Some("")`, which is a genuinely empty file.
     fn read_reference_text(
         &self,
         session_id: &str,
         path: &str,
-    ) -> Result<String, SessionsApplicationError>;
+    ) -> Result<Option<String>, SessionsApplicationError>;
 
     fn write_export(
         &self,

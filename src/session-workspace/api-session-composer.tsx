@@ -115,6 +115,7 @@ export function ApiSessionComposer({
       onSelectSlashCommand={(name) => model.setDraft(slash.completeDraft(name))}
       onStop={model.stop}
       onSubmit={submit}
+      sessionId={model.activeSession?.id ?? null}
       value={model.draft}
     />
   );

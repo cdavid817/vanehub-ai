@@ -1,7 +1,7 @@
 use super::{
-    DirectoryListing, DocumentListing, FileContent, GitDiffResult, GitDiffSource, GitStatusResult,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, WorkspaceApplicationError,
-    WorkspaceSessionQueryPort,
+    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
+    GitDiffSource, GitStatusResult, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    WorkspaceApplicationError, WorkspaceSessionQueryPort,
 };
 use std::sync::Arc;
 
@@ -35,6 +35,15 @@ impl WorkspaceQueryApplicationService {
         session_id: &str,
     ) -> Result<DocumentListing, WorkspaceApplicationError> {
         self.queries.list_documents(session_id)
+    }
+
+    pub(crate) fn search_files(
+        &self,
+        session_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<FileSearchListing, WorkspaceApplicationError> {
+        self.queries.search_files(session_id, query, max_results)
     }
 
     pub(crate) fn read_file(

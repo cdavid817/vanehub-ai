@@ -289,6 +289,12 @@ pub(crate) struct FileReferenceInput {
     pub(crate) name: String,
     pub(crate) size_bytes: Option<i64>,
     pub(crate) content_hash: Option<String>,
+    // Absent on every row written before line ranges existed, which is exactly what a
+    // whole-file reference means, so no migration is needed.
+    #[serde(default)]
+    pub(crate) start_line: Option<u32>,
+    #[serde(default)]
+    pub(crate) end_line: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -419,6 +425,8 @@ pub(crate) struct RuntimeFileReferenceSnapshot {
     pub(crate) name: String,
     pub(crate) size_bytes: Option<i64>,
     pub(crate) content_hash: Option<String>,
+    pub(crate) start_line: Option<u32>,
+    pub(crate) end_line: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -469,6 +477,8 @@ impl RuntimeMessageSnapshot {
                     name: reference.name().to_string(),
                     size_bytes: reference.size_bytes(),
                     content_hash: reference.content_hash().map(str::to_string),
+                    start_line: reference.line_range().map(|range| range.start()),
+                    end_line: reference.line_range().map(|range| range.end()),
                 })
                 .collect(),
             error: record.error.clone(),
@@ -785,6 +795,8 @@ pub(super) fn references_from_domain(references: &FileReferenceSet) -> Vec<FileR
             name: reference.name().to_string(),
             size_bytes: reference.size_bytes(),
             content_hash: reference.content_hash().map(str::to_string),
+            start_line: reference.line_range().map(|range| range.start()),
+            end_line: reference.line_range().map(|range| range.end()),
         })
         .collect()
 }

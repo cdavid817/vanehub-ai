@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
 import type { MessageSpeaker } from "../../services/message-speaker";
+import { FileReferenceLines } from "./FileReferenceLines";
 import { RichMarkdown } from "./RichMarkdown";
 import { RichBlocks } from "./RichBlocks";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -98,9 +99,10 @@ export const MessageItem = memo(function MessageItem({
           {message.fileReferences?.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {message.fileReferences.map((reference) => (
-                <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.path}>
+                <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.id}>
                   <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">{reference.name}</span>
+                  <FileReferenceLines reference={reference} />
                 </span>
               ))}
             </div>
