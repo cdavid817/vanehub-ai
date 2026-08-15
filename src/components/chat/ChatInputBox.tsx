@@ -6,6 +6,9 @@ import type { SessionDocument } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
+import { SlashCommandCompletion } from "./SlashCommandCompletion";
+import { SlashCommandOutput } from "./SlashCommandOutput";
+import type { CommandOutput, SlashCommand } from "../../services/slash-commands/types";
 
 export function ChatInputBox({
   agents,
@@ -34,6 +37,10 @@ export function ChatInputBox({
   onSubmit,
   onRemoveFileReference,
   participantMentions = [],
+  slashCommandOutput = null,
+  slashCommandSuggestions = [],
+  onDismissSlashCommandOutput,
+  onSelectSlashCommand,
   value,
 }: {
   agents: AgentRegistryEntry[];
@@ -62,6 +69,10 @@ export function ChatInputBox({
   onSubmit: () => void;
   onRemoveFileReference: (path: string) => void;
   participantMentions?: SeatMentionOption[];
+  slashCommandOutput?: CommandOutput | null;
+  slashCommandSuggestions?: SlashCommand[];
+  onDismissSlashCommandOutput?: () => void;
+  onSelectSlashCommand?: (name: string) => void;
   value: string;
 }) {
   const { t } = useTranslation();
@@ -109,16 +120,28 @@ export function ChatInputBox({
         className="relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30"
         data-testid="wechat-style-composer"
       >
-        {participantSuggestions.length || fileSuggestions.length ? (
-          <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
-            <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
-            {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
-            {fileSuggestions.map((document) => (
-              <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={document.path} onClick={() => selectReference(document)} type="button">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{document.path}</span>
-              </button>
-            ))}
+        {/* Single positioned wrapper so the output panel and whichever completion panel is
+            active stack in flow order instead of layering at identical coordinates. */}
+        {slashCommandOutput || slashCommandSuggestions.length || participantSuggestions.length || fileSuggestions.length ? (
+          <div className="absolute bottom-full left-0 z-20 mb-2 flex w-full flex-col gap-2">
+            <SlashCommandOutput onDismiss={onDismissSlashCommandOutput ?? (() => undefined)} output={slashCommandOutput} />
+            {slashCommandSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SlashCommandCompletion onSelect={onSelectSlashCommand ?? (() => undefined)} options={slashCommandSuggestions} />
+              </div>
+            ) : null}
+            {participantSuggestions.length || fileSuggestions.length ? (
+              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+                <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
+                {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
+                {fileSuggestions.map((document) => (
+                  <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={document.path} onClick={() => selectReference(document)} type="button">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{document.path}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {fileReferences.length ? (
