@@ -380,6 +380,7 @@ fn purpose_key(purpose: UsagePurpose) -> &'static str {
         UsagePurpose::ToolContinuation => "tool-continuation",
         UsagePurpose::ContextCompaction => "context-compaction",
         UsagePurpose::MemoryExtraction => "memory-extraction",
+        UsagePurpose::SubagentDelegation => "subagent-delegation",
         UsagePurpose::Retry => "retry",
         UsagePurpose::TerminalInterval => "terminal-interval",
     }
@@ -422,4 +423,38 @@ fn parse<T: DeserializeOwned>(value: String) -> rusqlite::Result<T> {
 
 fn repository_error(error: rusqlite::Error) -> SessionsApplicationError {
     SessionsApplicationError::Repository(error.to_string())
+}
+
+#[cfg(test)]
+mod purpose_tests {
+    use super::*;
+
+    /// Every purpose must project to a distinct key. A duplicate would silently merge two kinds of
+    /// spend in every usage view -- which is exactly what subagent delegation must not do to the
+    /// parent's own turns.
+    #[test]
+    fn every_usage_purpose_projects_to_a_distinct_key() {
+        let purposes = [
+            UsagePurpose::AssistantInitial,
+            UsagePurpose::ToolContinuation,
+            UsagePurpose::ContextCompaction,
+            UsagePurpose::MemoryExtraction,
+            UsagePurpose::SubagentDelegation,
+            UsagePurpose::Retry,
+            UsagePurpose::TerminalInterval,
+        ];
+        let mut keys: Vec<&str> = purposes.iter().copied().map(purpose_key).collect();
+        let total = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            total,
+            "usage purposes must not share a projection key"
+        );
+        assert_eq!(
+            purpose_key(UsagePurpose::SubagentDelegation),
+            "subagent-delegation"
+        );
+    }
 }

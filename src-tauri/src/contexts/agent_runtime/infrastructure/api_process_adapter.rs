@@ -743,10 +743,75 @@ fn begin_api_invocation(
     let accounting = accounting?;
     let invocation = api_invocation_snapshot(request, config, request_sequence, purpose, clock);
     if accounting.start_model_invocation(&invocation).is_err() {
-        record_accounting_diagnostic(logging, clock, request, "start_failed", request_sequence);
+        record_accounting_diagnostic(logging, clock, &invocation, "start_failed");
         return None;
     }
     Some(invocation)
+}
+
+/// Starts an accounted invocation for one subagent child turn.
+///
+/// A child is not a message, so it carries no message or run identity to borrow; those invocation
+/// fields are optional and stay `None` rather than being filled with the parent's, which would
+/// make the child's spend look like the parent's own turn (`add-onepiece-subagents`).
+pub(crate) fn begin_child_invocation(
+    accounting: Option<&SessionsApi>,
+    identity: ChildInvocationIdentity<'_>,
+    config: &ApiProviderConfig,
+    request_sequence: u32,
+    clock: &dyn AgentClockPort,
+) -> Option<NewModelInvocation> {
+    let accounting = accounting?;
+    let invocation = NewModelInvocation {
+        id: format!("native-subagent:{}:{}", identity.call_id, request_sequence),
+        generation_id: None,
+        run_id: None,
+        operation_id: Some(identity.operation_id.to_owned()),
+        session_id: identity.session_id.to_owned(),
+        message_id: None,
+        agent_id: identity.agent_id.to_owned(),
+        provider_id: Some(config.interface_format.clone()),
+        profile_id: None,
+        endpoint_id: config
+            .base_url
+            .as_deref()
+            .map(|value| format!("endpoint-{}", bounded_hash(value))),
+        model_id: Some(config.model_id.clone()),
+        interaction_kind: UsageInteractionKind::NativeApi,
+        purpose: UsagePurpose::SubagentDelegation,
+        request_sequence,
+        attempt: 0,
+        started_at: clock.now(),
+    };
+    if accounting.start_model_invocation(&invocation).is_err() {
+        return None;
+    }
+    Some(invocation)
+}
+
+/// Who a child turn is spending on behalf of.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ChildInvocationIdentity<'a> {
+    pub(crate) call_id: &'a str,
+    pub(crate) session_id: &'a str,
+    pub(crate) agent_id: &'a str,
+    pub(crate) operation_id: &'a str,
+}
+
+/// Records a child turn's outcome against its invocation. Reported provider usage is used when
+/// present; there is deliberately no character-count estimate, because a child turn's body carries
+/// tool schemas and prior tool output whose length says nothing useful about its token cost.
+pub(crate) fn finish_child_invocation(
+    accounting: Option<&SessionsApi>,
+    invocation: Option<&NewModelInvocation>,
+    session_id: &str,
+    usage: Option<&ReportedUsageTotals>,
+    status: UsageStatus,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) {
+    let _ = session_id;
+    finish_api_invocation(accounting, invocation, usage, None, status, clock, logging);
 }
 
 fn api_invocation_snapshot(
@@ -801,7 +866,6 @@ fn estimated_input_characters(body: &Value, images_in_request: usize) -> Option<
 fn finish_api_invocation(
     accounting: Option<&SessionsApi>,
     invocation: Option<&NewModelInvocation>,
-    request: &GenerationProcessRequest,
     usage: Option<&ReportedUsageTotals>,
     estimated_characters: Option<(usize, usize)>,
     status: UsageStatus,
@@ -880,47 +944,35 @@ fn finish_api_invocation(
         .as_ref()
         .is_some_and(|observation| accounting.record_token_observation(observation).is_err())
     {
-        record_accounting_diagnostic(
-            logging,
-            clock,
-            request,
-            "observation_failed",
-            invocation.request_sequence,
-        );
+        record_accounting_diagnostic(logging, clock, invocation, "observation_failed");
     }
     if accounting
         .finalize_model_invocation(&invocation.id, status, &observed_at)
         .is_err()
     {
-        record_accounting_diagnostic(
-            logging,
-            clock,
-            request,
-            "finalize_failed",
-            invocation.request_sequence,
-        );
+        record_accounting_diagnostic(logging, clock, invocation, "finalize_failed");
     }
 }
 
 fn record_accounting_diagnostic(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
-    request: &GenerationProcessRequest,
+    invocation: &NewModelInvocation,
     reason: &str,
-    request_sequence: u32,
 ) {
     let _ = logging.record(AgentLog {
         level: AgentLogLevel::Warn,
         category: "token.accounting.api".to_string(),
         message: format!(
-            "API accounting degraded reason={reason} request_sequence={request_sequence} adapter=v1"
+            "API accounting degraded reason={reason} request_sequence={} adapter=v1",
+            invocation.request_sequence
         ),
-        agent_id: Some(request.agent.id.clone()),
-        session_id: Some(request.session.id.clone()),
-        operation_id: Some(request.operation_id.clone()),
-        run_id: Some(request.execution_context.run_id.as_str().to_string()),
-        trace_id: Some(request.execution_context.trace_id.as_str().to_string()),
-        span_id: Some(request.execution_context.span_id.as_str().to_string()),
+        agent_id: Some(invocation.agent_id.clone()),
+        session_id: Some(invocation.session_id.clone()),
+        operation_id: invocation.operation_id.clone(),
+        run_id: invocation.run_id.clone(),
+        trace_id: None,
+        span_id: None,
         occurred_at: clock.now(),
     });
 }
@@ -1365,7 +1417,6 @@ fn execute_with_code_intelligence(
                 finish_api_invocation(
                     accounting,
                     invocation.as_ref(),
-                    request,
                     None,
                     None,
                     UsageStatus::Failed,
@@ -1383,7 +1434,6 @@ fn execute_with_code_intelligence(
             finish_api_invocation(
                 accounting,
                 invocation.as_ref(),
-                request,
                 None,
                 None,
                 UsageStatus::Failed,
@@ -1406,7 +1456,6 @@ fn execute_with_code_intelligence(
                 finish_api_invocation(
                     accounting,
                     invocation.as_ref(),
-                    request,
                     round_usage.as_ref(),
                     None,
                     UsageStatus::Cancelled,
@@ -1422,7 +1471,6 @@ fn execute_with_code_intelligence(
                     finish_api_invocation(
                         accounting,
                         invocation.as_ref(),
-                        request,
                         round_usage.as_ref(),
                         None,
                         UsageStatus::Failed,
@@ -1453,7 +1501,6 @@ fn execute_with_code_intelligence(
                             finish_api_invocation(
                                 accounting,
                                 invocation.as_ref(),
-                                request,
                                 round_usage.as_ref(),
                                 None,
                                 UsageStatus::Failed,
@@ -1492,7 +1539,6 @@ fn execute_with_code_intelligence(
         finish_api_invocation(
             accounting,
             invocation.as_ref(),
-            request,
             round_usage.as_ref(),
             estimated_input_characters.map(|input| (input, assistant_text.chars().count())),
             UsageStatus::Succeeded,
@@ -3327,7 +3373,7 @@ pub(crate) fn run_child_turn(
     turns: &[Value],
     tools: &[ToolDefinition],
     cancelled: &AtomicBool,
-) -> Result<(String, Vec<ToolUseBlock>), String> {
+) -> Result<(String, Vec<ToolUseBlock>, Option<ReportedUsageTotals>), String> {
     // Never inherits the parent turn's thinking/reasoning settings: a child is an internal,
     // bounded investigation, not the user-facing turn.
     let body = (wire_format.build_request_body)(
@@ -3338,7 +3384,6 @@ pub(crate) fn run_child_turn(
         &GenerationOptions::disabled(),
     );
     stream_completion(wire_format, client, api_key, &body, cancelled)
-        .map(|(text, tool_calls, _usage)| (text, tool_calls))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3382,7 +3427,6 @@ fn summarize_turns_accounted(
         Ok((summary, usage)) => finish_api_invocation(
             accounting,
             invocation.as_ref(),
-            request,
             usage.as_ref(),
             Some((
                 estimated_input,
@@ -3395,7 +3439,6 @@ fn summarize_turns_accounted(
         Err(_) => finish_api_invocation(
             accounting,
             invocation.as_ref(),
-            request,
             None,
             None,
             if cancelled.load(Ordering::SeqCst) {
@@ -7090,9 +7133,23 @@ mod tests {
         let mut request = onepiece_request();
         request.effective_prompt = "prompt-secret".to_string();
         request.operation_id = "operation-safe".to_string();
+        let config = ApiProviderConfig {
+            source_provider_id: Some("openai".to_string()),
+            model_id: "gpt-5.4".to_string(),
+            interface_format: "openai-compatible".to_string(),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            auto_approve_tools: false,
+        };
+        let invocation = api_invocation_snapshot(
+            &request,
+            &config,
+            7,
+            UsagePurpose::AssistantInitial,
+            &FixedClock,
+        );
         let logging = RecordingLogging::default();
 
-        record_accounting_diagnostic(&logging, &FixedClock, &request, "observation_failed", 7);
+        record_accounting_diagnostic(&logging, &FixedClock, &invocation, "observation_failed");
 
         let logs = logging.logs.lock().expect("logs");
         let log = logs.first().expect("accounting diagnostic");

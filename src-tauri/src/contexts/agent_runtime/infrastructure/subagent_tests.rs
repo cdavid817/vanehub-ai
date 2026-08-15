@@ -202,3 +202,29 @@ fn the_concurrency_cap_is_per_session_and_releases_slots() {
         "a released slot becomes available again"
     );
 }
+
+/// Child spend must be recorded, but a caller with no accounting handle (Web/mock, tests) must
+/// degrade rather than panic.
+#[test]
+fn a_child_invocation_without_accounting_declines_instead_of_failing() {
+    let config = crate::contexts::agent_runtime::application::ApiProviderConfig {
+        source_provider_id: Some("openai".to_owned()),
+        model_id: "gpt-5.4".to_owned(),
+        interface_format: "openai-compatible".to_owned(),
+        base_url: Some("https://api.openai.com/v1".to_owned()),
+        auto_approve_tools: false,
+    };
+    let invocation = super::super::api_process_adapter::begin_child_invocation(
+        None,
+        super::super::api_process_adapter::ChildInvocationIdentity {
+            call_id: "call-1",
+            session_id: "session-1",
+            agent_id: "onepiece",
+            operation_id: "operation-1",
+        },
+        &config,
+        0,
+        &super::super::SystemAgentRuntimeClock,
+    );
+    assert!(invocation.is_none());
+}

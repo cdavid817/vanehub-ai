@@ -24,7 +24,7 @@
 
 ## 4. Accounting, logging, and boundary
 
-- [ ] 4.1 Attribute child usage to a distinguishable purpose that still rolls up to the parent session.
+- [x] 4.1 Attribute child usage to a distinguishable purpose that still rolls up to the parent session.
 - [x] 4.2 Keep durable result metadata to counts only.
 - [x] 4.3 Reuse the parent's credential and provider configuration through the existing boundary without copying them.
 - [ ] 4.4 Expose child attempt visibility through the shared service boundary with Tauri and Web/mock implementations.
@@ -56,7 +56,8 @@
 Read-only child attempts are implemented and verified end to end: the tool, its eligibility and
 approval classification, the child loop, the restricted surface, the ceilings, the per-session
 concurrency cap, and the bounded result. The gate `VANEHUB_ONEPIECE_SUBAGENT_ENABLED` still
-defaults off.
+defaults off. Child turns are accounted under their own `subagent-delegation` purpose, so child
+spend rolls up to the parent session while staying separable from the parent's own turns.
 
 The child's authority is structural rather than filtered. `execute_child_tool` dispatches to
 exactly three functions -- a bounded file *read*, content search, and filename search -- so a
@@ -73,8 +74,7 @@ Deferred, and not archivable until they land:
 - Progress into the parent's task list and execution observability (3.4).
 - Cancellation and reaping on session end (3.6): the loop honours its cancellation flag and
   deadline per turn, but nothing reaps a child when the owning session ends.
-- Child usage attribution to a distinguishable accounting purpose (4.1) and child visibility
-  through the service boundary (4.4, 5.9).
+- Child visibility through the service boundary (4.4, 5.9).
 - Live-provider coverage of the loop itself (5.6, 5.8). The pure parts -- catalog, dispatch,
   bounds, result shaping, concurrency -- are tested; the SSE path is not, matching how the
   existing Utility delegation executor is covered.

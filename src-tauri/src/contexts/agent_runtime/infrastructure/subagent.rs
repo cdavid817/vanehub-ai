@@ -10,14 +10,16 @@
 //! expensive.
 
 use super::api_process_adapter::{
-    child_reply_turns, run_child_turn, wire_format_for, REQUEST_TIMEOUT,
+    begin_child_invocation, child_reply_turns, finish_child_invocation, run_child_turn,
+    wire_format_for, ChildInvocationIdentity, REQUEST_TIMEOUT,
 };
 use super::tools::{execute_file, execute_glob, execute_grep, GrepRequest};
 use crate::contexts::agent_runtime::application::{
-    ApiAgentGateway, ApiCredentialPort, NativeToolErrorCode, NativeToolPortRequest,
-    NativeToolResultEnvelope, NativeToolResultStatus, SubagentPort, ToolDefinition, ToolUseBlock,
-    NATIVE_TOOL_CONTRACT_VERSION,
+    AgentClockPort, AgentLoggingPort, ApiAgentGateway, ApiCredentialPort, NativeToolErrorCode,
+    NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus, SubagentPort,
+    ToolDefinition, ToolUseBlock, NATIVE_TOOL_CONTRACT_VERSION,
 };
+use crate::contexts::sessions::api::{SessionsApi, UsageStatus};
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -85,6 +87,11 @@ impl ConcurrencySlots {
 pub(crate) struct NativeSubagentExecutor {
     credentials: Arc<dyn ApiCredentialPort>,
     config: Arc<dyn ApiAgentGateway>,
+    /// Child turns spend real tokens. Without this they would spend them invisibly, which is worse
+    /// than mis-attributing them (`add-onepiece-subagents`).
+    accounting: Option<SessionsApi>,
+    clock: Arc<dyn AgentClockPort>,
+    logging: Arc<dyn AgentLoggingPort>,
     slots: ConcurrencySlots,
 }
 
@@ -92,10 +99,16 @@ impl NativeSubagentExecutor {
     pub(crate) fn new(
         credentials: Arc<dyn ApiCredentialPort>,
         config: Arc<dyn ApiAgentGateway>,
+        accounting: Option<SessionsApi>,
+        clock: Arc<dyn AgentClockPort>,
+        logging: Arc<dyn AgentLoggingPort>,
     ) -> Self {
         Self {
             credentials,
             config,
+            accounting,
+            clock,
+            logging,
             slots: ConcurrencySlots::default(),
         }
     }
@@ -168,8 +181,14 @@ impl NativeSubagentExecutor {
         let catalog = child_tool_catalog();
         let mut turns = vec![json!({ "role": "user", "content": task })];
         let mut tool_calls_used = 0_u32;
+        let identity = ChildInvocationIdentity {
+            call_id: &context.call_id,
+            session_id: &context.session_id,
+            agent_id: &context.agent_id,
+            operation_id: &context.generation_id,
+        };
 
-        for _turn in 0..MAX_CHILD_TURNS {
+        for turn_index in 0..MAX_CHILD_TURNS {
             if context.is_cancelled() {
                 return terminal(NativeToolResultStatus::Cancelled, None, tool_calls_used);
             }
@@ -180,6 +199,13 @@ impl NativeSubagentExecutor {
                     tool_calls_used,
                 );
             }
+            let invocation = begin_child_invocation(
+                self.accounting.as_ref(),
+                identity,
+                &config,
+                turn_index,
+                self.clock.as_ref(),
+            );
             let turn = run_child_turn(
                 &wire_format,
                 &client,
@@ -191,8 +217,32 @@ impl NativeSubagentExecutor {
                 &context.cancelled,
             );
             let (text, requested) = match turn {
-                Ok(value) => value,
+                Ok((text, requested, usage)) => {
+                    finish_child_invocation(
+                        self.accounting.as_ref(),
+                        invocation.as_ref(),
+                        &context.session_id,
+                        usage.as_ref(),
+                        UsageStatus::Succeeded,
+                        self.clock.as_ref(),
+                        self.logging.as_ref(),
+                    );
+                    (text, requested)
+                }
                 Err(_) => {
+                    finish_child_invocation(
+                        self.accounting.as_ref(),
+                        invocation.as_ref(),
+                        &context.session_id,
+                        None,
+                        if context.is_cancelled() {
+                            UsageStatus::Cancelled
+                        } else {
+                            UsageStatus::Failed
+                        },
+                        self.clock.as_ref(),
+                        self.logging.as_ref(),
+                    );
                     // The provider's own diagnostic is not forwarded: it can carry endpoint and
                     // credential detail, and the parent only needs to know the child failed.
                     return terminal(

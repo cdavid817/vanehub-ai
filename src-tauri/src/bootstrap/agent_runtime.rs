@@ -1,19 +1,20 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentRetrievalPort,
-    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, AgentWorkspaceMutationPort, ApiAgentGateway,
-    ApiCredentialPort, ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler,
-    BrowserHandoffControlPort, BrowserNativeToolHandler, CodeExecutionNativeToolHandler,
-    ContextQualityQueryService, ContextQualityRecorder, DelegateCliNativeToolHandler,
-    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LoopApplicationPorts,
-    LoopApplicationService, LoopControlApplicationPorts, LoopControlApplicationService,
-    LoopOperationObserver, LoopOrchestratorApplicationService, LoopOrchestratorPorts,
-    LoopProgressApplicationService, LoopRecoveryApplicationPorts, LoopRecoveryApplicationService,
-    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
-    LoopVerifierApplicationPorts, LoopVerifierApplicationService, LoopWorkerApplicationPorts,
-    LoopWorkerApplicationService, ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
+    web_native_tool_handlers, AgentClockPort, AgentCodeIntelligenceResponderPort, AgentLoggingPort,
+    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, AgentWorkspaceMutationPort,
+    ApiAgentGateway, ApiCredentialPort, ApplyDelegationChangesNativeToolHandler,
+    ArtifactNativeToolHandler, BrowserHandoffControlPort, BrowserNativeToolHandler,
+    CodeExecutionNativeToolHandler, ContextQualityQueryService, ContextQualityRecorder,
+    DelegateCliNativeToolHandler, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
+    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
+    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
+    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
+    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    LoopVerificationApplicationService, LoopVerifierApplicationPorts,
+    LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
+    ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
     OnePieceToolFeatureGates, SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
     UtilityDelegationApplicationService,
@@ -175,12 +176,22 @@ type ExecutionExporterSet = (
     Option<Arc<dyn ExternalLogExportPort>>,
 );
 
+/// What a subagent child attempt needs to run: the parent's credential and provider
+/// configuration, and the accounting, clock, and logging its turns are recorded against. Bundled
+/// because they travel together and only exist for this one handler.
+struct SubagentDependencies {
+    credentials: Arc<dyn ApiCredentialPort>,
+    agents: Arc<dyn ApiAgentGateway>,
+    accounting: Option<SessionsApi>,
+    clock: Arc<dyn AgentClockPort>,
+    logging: Arc<dyn AgentLoggingPort>,
+}
+
 fn assemble_native_tool_registry(
     database: &NativeDatabase,
     app: &AppHandle,
     cli: &CliApi,
-    credentials: Arc<dyn ApiCredentialPort>,
-    agents: Arc<dyn ApiAgentGateway>,
+    subagents: SubagentDependencies,
 ) -> Result<
     (
         NativeToolRegistry,
@@ -294,7 +305,13 @@ fn assemble_native_tool_registry(
     // The child reuses the parent's own credential and provider configuration through the
     // existing boundary rather than receiving copies (`add-onepiece-subagents`).
     handlers.push(Arc::new(SubagentNativeToolHandler::new(Arc::new(
-        NativeSubagentExecutor::new(credentials, agents),
+        NativeSubagentExecutor::new(
+            subagents.credentials,
+            subagents.agents,
+            subagents.accounting,
+            subagents.clock,
+            subagents.logging,
+        ),
     ))));
     if readiness {
         let port = Arc::new(OcrNativeToolAdapter::new(
@@ -526,8 +543,13 @@ pub(crate) fn assemble_agent_runtime_api(
         &dependencies.database,
         &dependencies.app,
         &dependencies.cli,
-        api_credentials.clone(),
-        repository.clone(),
+        SubagentDependencies {
+            credentials: api_credentials.clone(),
+            agents: repository.clone(),
+            accounting: Some(accounting.clone()),
+            clock: clock.clone(),
+            logging: logging.clone(),
+        },
     )?;
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(
