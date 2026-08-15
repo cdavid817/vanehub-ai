@@ -6,6 +6,7 @@ mod core_registry;
 pub(crate) mod desktop;
 pub(crate) mod error;
 pub(crate) mod execution_observability;
+pub(crate) mod goals;
 pub(crate) mod operations;
 pub(crate) mod permissions;
 mod registry;

@@ -1,6 +1,6 @@
-export type WorkspaceDestination = "sessions" | "plans" | "loops" | "work-board";
+export type WorkspaceDestination = "sessions" | "plans" | "loops" | "work-board" | "goals";
 
-export const workspaceDestinations: WorkspaceDestination[] = ["sessions", "plans", "loops", "work-board"];
+export const workspaceDestinations: WorkspaceDestination[] = ["sessions", "plans", "loops", "work-board", "goals"];
 
 /** Reserved so it can never collide with a session id in `/workspace/sessions/<segment>`. */
 const createSessionSegment = "new";

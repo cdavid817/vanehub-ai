@@ -12,7 +12,8 @@ use super::application::{
     LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
-    ManualNativeToolControl, NativeLoopScheduler, NativeSeatTurnCoordinator,
+    background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
+    NativeSeatTurnCoordinator,
 };
 use std::sync::Arc;
 
@@ -237,6 +238,23 @@ impl AgentRuntimeApi {
 
     pub(crate) fn is_native_tool_registered(&self, name: &str) -> bool {
         self.native_tools.is_registered(name)
+    }
+
+    /// Terminates every background command the session owns (`add-background-shell-execution`).
+    /// Called when a session ends, alongside the equivalent workspace-shell cleanup -- not on
+    /// generation cancellation, which would kill the dev server a user deliberately left running.
+    pub(crate) fn reap_background_commands(&self, session_id: &str) {
+        background_shell_registry().reap_session(session_id);
+        // The task list is session-scoped runtime state with the same lifetime, so it is
+        // discarded on the same edge (`add-agent-task-list`).
+        task_list_store().clear_session(session_id);
+    }
+
+    /// Terminates every remaining background command on desktop shutdown. Windows' job object
+    /// would reap these when the process handle closed, but an orphaned Unix process group would
+    /// survive, so this is the portable guarantee rather than a convenience.
+    pub(crate) fn reap_all_background_commands(&self) {
+        background_shell_registry().reap_all();
     }
 
     pub(crate) async fn start_manual_delegation(
@@ -564,15 +582,33 @@ impl AgentRuntimeApi {
         self.service.delete_api_agent(agent_id)
     }
 
+    /// Resolves a blocked `exit_plan_mode` request (`add-agent-plan-exit-request`). The decision
+    /// arrives from the UI as "approved or not", and turning that into a `ToolApprovalDecision`
+    /// belongs here rather than in the Tauri command: `tests/architecture.rs` holds command
+    /// adapters to zero control-flow decisions, and this mapping is one.
+    pub(crate) fn resolve_plan_exit(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        approved: bool,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let decision = if approved {
+            ToolApprovalDecision::Approved
+        } else {
+            ToolApprovalDecision::Denied
+        };
+        self.resolve_tool_approval(session_id, call_id, decision)
+    }
+
     pub(crate) fn resolve_tool_approval(
         &self,
         session_id: &str,
         call_id: &str,
         decision: ToolApprovalDecision,
     ) -> Result<bool, AgentRuntimeApplicationError> {
-        let generation = self
-            .service
-            .resolve_tool_approval(session_id, call_id, decision)?;
+        let generation =
+            self.service
+                .resolve_tool_approval(session_id, call_id, decision.clone())?;
         let manual = self
             .manual_native_tools
             .resolve_approval(session_id, call_id, decision);
@@ -652,7 +688,12 @@ impl AgentRuntimeApi {
         request: SendMessageRequest,
         _profile: OrchestrationExecutionProfile,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message_with_completion(request)
+        // Plan attempts, repairs, and discovery all send with `AgentMessageSource::Desktop` and
+        // own no Loop session, so nothing about the request distinguishes them from a chat turn.
+        // Routing them here is what keeps a blocking question out of an unattended attempt
+        // (`add-agent-user-question` D4).
+        self.service
+            .send_non_interactive_message_with_completion(request)
     }
 
     pub(crate) fn active_generation_correlation(

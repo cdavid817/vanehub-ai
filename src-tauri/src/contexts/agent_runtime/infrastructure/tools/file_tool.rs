@@ -4,6 +4,7 @@
 //! caller here named this specific file and needs a bounded, resumable view of it rather than a
 //! silent partial result.
 
+use super::super::agent_image::{prepare_image, AgentImage, ImageMediaType};
 use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES};
 use super::{ToolExecutionOutcome, MAX_TOOL_OUTPUT_BYTES};
 use crate::platform::filesystem::BoundedFilesystem;
@@ -53,6 +54,56 @@ pub(crate) fn execute_file(
             is_error: true,
         },
     }
+}
+
+/// Whether a read of `path` should return an image rather than text. Decided from the extension
+/// *before* the bytes are touched, so a text read never pays for an image decode and an image
+/// read never has to be rolled back out of the text path.
+pub(crate) fn is_reviewed_image_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .and_then(ImageMediaType::from_extension)
+        .is_some()
+}
+
+/// Reads a reviewed image type through the same workspace boundary, hidden-path, and size rules
+/// the text path applies (`add-agent-image-input`). Returns the summary line that accompanies the
+/// image, or the outcome to report when the read cannot produce one.
+pub(crate) fn execute_file_image_read(
+    path: &str,
+    workspace_folder: &str,
+) -> Result<(String, AgentImage), ToolExecutionOutcome> {
+    let error = |message: String| ToolExecutionOutcome {
+        output: message,
+        is_error: true,
+    };
+    let boundary = BoundedFilesystem::new(Path::new(workspace_folder))
+        .map_err(|source| error(format!("Workspace folder is unavailable: {source}")))?;
+    let resolved = boundary
+        .resolve_existing(path)
+        .map_err(|source| error(format!("Path \"{path}\" is not accessible: {source}")))?;
+    if exceeds_size_limit(&resolved) {
+        return Err(error(format!(
+            "\"{path}\" is larger than the {} MB read limit.",
+            MAX_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    let raw = std::fs::read(&resolved)
+        .map_err(|source| error(format!("Failed to read \"{path}\": {source}")))?;
+    let image = prepare_image(&raw, None).map_err(|source| error(source.message().to_string()))?;
+
+    let mut summary = format!(
+        "Read image \"{path}\" ({}, {}x{}).",
+        image.media_type().as_str(),
+        image.width(),
+        image.height()
+    );
+    if let Some(note) = image.downscale_note() {
+        summary.push(' ');
+        summary.push_str(&note);
+    }
+    Ok((summary, image))
 }
 
 fn read_file(

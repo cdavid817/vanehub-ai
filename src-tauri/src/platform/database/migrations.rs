@@ -430,6 +430,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         71,
+        "goal-management",
+        crate::contexts::goals::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        72,
         "skill-configuration-records",
         crate::contexts::tooling::skills::infrastructure::apply_skill_configuration_schema,
     )?;
@@ -783,7 +789,8 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (68, "onepiece-native-tool-persistence"),
     (69, "onepiece-artifact-catalog-metadata"),
     (70, "onepiece-context-quality-history"),
-    (71, "skill-configuration-records"),
+    (71, "goal-management"),
+    (72, "skill-configuration-records"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1688,7 +1695,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (70, 71));
+        assert_eq!(migration_state, (71, 72));
 
         migrate(&connection).expect("upgrade migration");
 

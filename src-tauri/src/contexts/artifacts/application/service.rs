@@ -147,6 +147,24 @@ impl ArtifactService {
         self.catalog.list(limit)
     }
 
+    /// Returns an Artifact's bytes and media type, verifying the stored content hash first.
+    ///
+    /// Unlike `read_text` this places no restriction on media type, so it is the path an image
+    /// attachment uses. It exposes no host filesystem path, and the id it is given always comes
+    /// from a tool's own result rather than from caller input
+    /// (`add-onepiece-visual-tool-returns`).
+    pub(crate) fn read_bytes(
+        &self,
+        artifact_id: &str,
+    ) -> Result<(Vec<u8>, String), ArtifactServiceError> {
+        let artifact = self.metadata(artifact_id)?;
+        let bytes = self
+            .blobs
+            .read_verified(&artifact.content_hash)
+            .map_err(ArtifactServiceError::Blob)?;
+        Ok((bytes, artifact.media_type))
+    }
+
     pub(crate) fn read_text(
         &self,
         artifact_id: &str,

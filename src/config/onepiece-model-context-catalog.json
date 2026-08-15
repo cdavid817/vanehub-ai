@@ -6,6 +6,7 @@
       "modelId": "claude-haiku-4-5",
       "contextWindowTokens": 200000,
       "maximumOutputTokens": 64000,
+      "acceptsImageInput": true,
       "metadataRevision": "2026-08-14",
       "sourceIdentity": "anthropic-models-overview"
     },
@@ -14,6 +15,7 @@
       "modelId": "gpt-5.2",
       "contextWindowTokens": 400000,
       "maximumOutputTokens": 128000,
+      "acceptsImageInput": true,
       "metadataRevision": "2026-08-14",
       "sourceIdentity": "openai-model-gpt-5.2"
     },
@@ -22,6 +24,7 @@
       "modelId": "gpt-5.4",
       "contextWindowTokens": 1050000,
       "maximumOutputTokens": 128000,
+      "acceptsImageInput": true,
       "metadataRevision": "2026-08-14",
       "sourceIdentity": "openai-model-gpt-5.4"
     },
@@ -30,6 +33,7 @@
       "modelId": "gpt-5.4-mini",
       "contextWindowTokens": 400000,
       "maximumOutputTokens": 128000,
+      "acceptsImageInput": true,
       "metadataRevision": "2026-08-14",
       "sourceIdentity": "openai-model-gpt-5.4-mini"
     }
