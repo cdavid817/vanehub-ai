@@ -19,7 +19,7 @@ use super::{
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
+    RegisterApiAgentInput, ReportedUsageTotals, SaveMemoryInput, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
     StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
     StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
@@ -2939,12 +2939,12 @@ impl GenerationEventHandler {
                 for line in content.lines() {
                     let line = line.trim();
                     if !line.is_empty() {
-                        let _ = self.ports.memories.save(
+                        let _ = self.ports.memories.save(SaveMemoryInput::derived(
                             &self.agent_id,
                             self.folder.as_deref(),
                             line,
                             MemorySource::Automatic,
-                        );
+                        ));
                     }
                 }
             }

@@ -26,9 +26,9 @@ use crate::contexts::agent_runtime::application::{
     NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
     NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
     NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
-    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, StoredToolOperation,
-    StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
-    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
+    ProcessStopInitiator, ReportedUsageTotals, SaveMemoryInput, StartedGenerationProcess,
+    StoredToolOperation, StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
     FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
     GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
@@ -42,10 +42,11 @@ use crate::contexts::agent_runtime::domain::{
     ContextAssessmentInvariants, ContextAssessmentOutcome, ContextAssessmentPath,
     ContextAssessmentReason, ContextAssessmentTriggerSource, ContextCompactionEvidence,
     ContextOptimizationBudget, ContextQualityAssessment, ContextQualityAssessmentInput,
-    ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason, OptimizationActionKind,
-    OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor, UtilityDelegationLimits,
-    UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
-    CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, STRUCTURED_SUMMARY_PROMPT,
+    ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason, MemoryType,
+    OptimizationActionKind, OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor,
+    UtilityDelegationLimits, UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION,
+    CONTEXT_OPTIMIZER_VERSION, CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION,
+    STRUCTURED_SUMMARY_PROMPT,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::contexts::sessions::api::{
@@ -3271,7 +3272,12 @@ fn extract_memories_accounted(
     for line in response.lines() {
         let line = line.trim();
         if !line.is_empty() {
-            let _ = memories.save(agent_id, folder, line, MemorySource::Automatic);
+            let _ = memories.save(SaveMemoryInput::derived(
+                agent_id,
+                folder,
+                line,
+                MemorySource::Automatic,
+            ));
         }
     }
 }
@@ -4484,7 +4490,24 @@ fn execute_remember(
             is_error: true,
         };
     }
-    match memories.save(agent_id, folder, content, MemorySource::Explicit) {
+    // `name` addresses the memory: saving under one that already exists replaces that file rather
+    // than adding a second memory for the same fact. Both stay optional so an older prompt that
+    // sends content alone still saves, with the store deriving what it needs.
+    let name = input.get("name").and_then(Value::as_str);
+    let description = input.get("description").and_then(Value::as_str);
+    let memory_type = input
+        .get("type")
+        .and_then(Value::as_str)
+        .and_then(MemoryType::parse);
+    match memories.save(SaveMemoryInput {
+        agent_id,
+        folder,
+        name,
+        description,
+        memory_type,
+        content,
+        source: MemorySource::Explicit,
+    }) {
         Ok(()) => {
             retrieval.notify_source_changed();
             ToolExecutionOutcome {
@@ -5436,18 +5459,12 @@ mod tests {
     }
 
     impl AgentMemoryPort for FakeMemories {
-        fn save(
-            &self,
-            agent_id: &str,
-            folder: Option<&str>,
-            content: &str,
-            source: MemorySource,
-        ) -> Result<(), AgentRuntimeApplicationError> {
+        fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
             self.saved.lock().expect("saved memories").push((
-                agent_id.to_string(),
-                folder.map(str::to_string),
-                content.to_string(),
-                source,
+                input.agent_id.to_string(),
+                input.folder.map(str::to_string),
+                input.content.to_string(),
+                input.source,
             ));
             Ok(())
         }
@@ -5477,6 +5494,9 @@ mod tests {
 
     fn fake_memory(id: &str, content: &str) -> AgentMemory {
         AgentMemory {
+            name: "fixture-memory".to_string(),
+            description: "Fixture memory".to_string(),
+            memory_type: None,
             id: id.to_string(),
             agent_id: "my-agent".to_string(),
             folder: None,
@@ -10660,13 +10680,7 @@ mod tests {
     struct PanicsOnListMemories;
 
     impl AgentMemoryPort for PanicsOnListMemories {
-        fn save(
-            &self,
-            _agent_id: &str,
-            _folder: Option<&str>,
-            _content: &str,
-            _source: MemorySource,
-        ) -> Result<(), AgentRuntimeApplicationError> {
+        fn save(&self, _input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
             unreachable!("not exercised by this test")
         }
 

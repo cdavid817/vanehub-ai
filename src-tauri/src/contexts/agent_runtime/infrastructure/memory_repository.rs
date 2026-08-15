@@ -1,9 +1,11 @@
+use super::memory_naming::{derive_description, derive_name};
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource,
+    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, Row};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// SQLite-backed `AgentMemoryPort` (`add-agent-cross-session-memory`). Unlike Skill bindings
@@ -60,13 +62,11 @@ impl SqliteAgentMemoryRepository {
 }
 
 impl AgentMemoryPort for SqliteAgentMemoryRepository {
-    fn save(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        content: &str,
-        source: MemorySource,
-    ) -> Result<(), AgentRuntimeApplicationError> {
+    /// Legacy row write, retained only so this repository still satisfies the port while it serves
+    /// as the migration source (`migrate-agent-memory-to-file-store`). `name`, `description`, and
+    /// `type` have no columns here and are deliberately dropped: the directory store is the write
+    /// path that preserves them.
+    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let now = SystemClock.rfc3339();
         connection
@@ -78,10 +78,10 @@ impl AgentMemoryPort for SqliteAgentMemoryRepository {
                 "#,
                 params![
                     Uuid::new_v4().to_string(),
-                    agent_id,
-                    folder.unwrap_or_default(),
-                    content,
-                    source.as_str(),
+                    input.agent_id,
+                    input.folder.unwrap_or_default(),
+                    input.content,
+                    input.source.as_str(),
                     now,
                 ],
             )
@@ -156,10 +156,18 @@ impl MemoryRow {
                 self.source
             ))
         })?;
+        // A row carries no name, description, or type. They are derived here so the shared
+        // `AgentMemory` shape stays uniform across both stores; the values a migrated row ends up
+        // with come from `migrate_memory_rows`, which derives them the same way.
+        let description = derive_description(&self.content).unwrap_or_else(|| self.id.clone());
+        let name = derive_name(&self.content, &self.id, &HashSet::new());
         Ok(AgentMemory {
             id: self.id,
             agent_id: self.agent_id,
             folder: (!self.folder.is_empty()).then_some(self.folder),
+            name,
+            description,
+            memory_type: None,
             content: self.content,
             source,
             created_at: self.created_at,
@@ -220,12 +228,12 @@ mod tests {
         let fixture = Fixture::new("agent memory save and list", &["my-agent"]);
         fixture
             .repository
-            .save(
+            .save(SaveMemoryInput::derived(
                 "my-agent",
                 Some("D:/project"),
                 "Uses pnpm.",
                 MemorySource::Explicit,
-            )
+            ))
             .expect("save");
 
         let memories = fixture.repository.list_all().expect("list");
@@ -245,25 +253,30 @@ mod tests {
         let fixture = Fixture::new("agent memory shared pool", &["my-agent", "other-agent"]);
         fixture
             .repository
-            .save(
+            .save(SaveMemoryInput::derived(
                 "my-agent",
                 Some("D:/project-a"),
                 "A fact.",
                 MemorySource::Explicit,
-            )
+            ))
             .expect("save a");
         fixture
             .repository
-            .save("my-agent", None, "Global fact.", MemorySource::Automatic)
+            .save(SaveMemoryInput::derived(
+                "my-agent",
+                None,
+                "Global fact.",
+                MemorySource::Automatic,
+            ))
             .expect("save global");
         fixture
             .repository
-            .save(
+            .save(SaveMemoryInput::derived(
                 "other-agent",
                 Some("D:/project-b"),
                 "Other agent's fact.",
                 MemorySource::Automatic,
-            )
+            ))
             .expect("save other agent");
 
         let memories = fixture.repository.list_all().expect("list all");
@@ -280,7 +293,12 @@ mod tests {
         let fixture = Fixture::new("agent memory global bucket", &["my-agent"]);
         fixture
             .repository
-            .save("my-agent", None, "Global fact.", MemorySource::Automatic)
+            .save(SaveMemoryInput::derived(
+                "my-agent",
+                None,
+                "Global fact.",
+                MemorySource::Automatic,
+            ))
             .expect("save");
 
         let memories = fixture.repository.list_all().expect("list");
@@ -297,16 +315,21 @@ mod tests {
         let fixture = Fixture::new("agent memory list all agents", &["agent-a", "agent-b"]);
         fixture
             .repository
-            .save(
+            .save(SaveMemoryInput::derived(
                 "agent-a",
                 Some("D:/project"),
                 "A fact.",
                 MemorySource::Explicit,
-            )
+            ))
             .expect("save a");
         fixture
             .repository
-            .save("agent-b", None, "B fact.", MemorySource::Automatic)
+            .save(SaveMemoryInput::derived(
+                "agent-b",
+                None,
+                "B fact.",
+                MemorySource::Automatic,
+            ))
             .expect("save b");
 
         let memories = fixture.repository.list_all().expect("list all");
@@ -333,7 +356,12 @@ mod tests {
         ] {
             fixture
                 .repository
-                .save(agent, None, content, MemorySource::Explicit)
+                .save(SaveMemoryInput::derived(
+                    agent,
+                    None,
+                    content,
+                    MemorySource::Explicit,
+                ))
                 .expect("save");
         }
         let all = fixture.repository.list_all().expect("list all");
@@ -366,7 +394,12 @@ mod tests {
         let fixture = Fixture::new("agent memory list by no ids", &["agent-a"]);
         fixture
             .repository
-            .save("agent-a", None, "A fact.", MemorySource::Explicit)
+            .save(SaveMemoryInput::derived(
+                "agent-a",
+                None,
+                "A fact.",
+                MemorySource::Explicit,
+            ))
             .expect("save");
 
         assert!(fixture
@@ -381,11 +414,21 @@ mod tests {
         let fixture = Fixture::new("agent memory delete", &["my-agent"]);
         fixture
             .repository
-            .save("my-agent", None, "Keep me.", MemorySource::Explicit)
+            .save(SaveMemoryInput::derived(
+                "my-agent",
+                None,
+                "Keep me.",
+                MemorySource::Explicit,
+            ))
             .expect("save keep");
         fixture
             .repository
-            .save("my-agent", None, "Delete me.", MemorySource::Explicit)
+            .save(SaveMemoryInput::derived(
+                "my-agent",
+                None,
+                "Delete me.",
+                MemorySource::Explicit,
+            ))
             .expect("save delete");
         let before = fixture.repository.list_all().expect("list before");
         let target = before
@@ -407,16 +450,21 @@ mod tests {
         let fixture = Fixture::new("agent memory reset", &["my-agent", "other-agent"]);
         fixture
             .repository
-            .save(
+            .save(SaveMemoryInput::derived(
                 "my-agent",
                 Some("D:/project-a"),
                 "A fact.",
                 MemorySource::Explicit,
-            )
+            ))
             .expect("save a");
         fixture
             .repository
-            .save("other-agent", None, "Not mine.", MemorySource::Explicit)
+            .save(SaveMemoryInput::derived(
+                "other-agent",
+                None,
+                "Not mine.",
+                MemorySource::Explicit,
+            ))
             .expect("save other agent");
 
         fixture.repository.delete_all().expect("reset");

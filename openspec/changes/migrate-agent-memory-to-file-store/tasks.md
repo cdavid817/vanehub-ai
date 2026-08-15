@@ -21,9 +21,9 @@
 
 ## 4. Write paths
 
-- [ ] 4.1 Extend the `remember` tool's argument schema to name, description, type, and content; keep its catalog name and position unchanged
-- [ ] 4.2 Reimplement `remember` to write the memory file and its index line as one operation, replacing an existing file when the name matches
-- [ ] 4.3 Confirm the catalog-length assertions and provider tool-declaration tests still pass with the name and position unchanged
+- [x] 4.1 Extend the `remember` tool's argument schema to name, description, type, and content; keep its catalog name and position unchanged
+- [x] 4.2 Reimplement `remember` to write the memory file and its index line as one operation, replacing an existing file when the name matches
+- [x] 4.3 Confirm the catalog-length assertions and provider tool-declaration tests still pass with the name and position unchanged
 - [ ] 4.4 Add the memory directory as an auto-approved read and write scope for the generic file tools in the tool permission mapping
 - [ ] 4.5 Add a permission test asserting that a write outside the memory directory keeps its previous approval behavior, and that a memory-directory write is rejected while the memory enablement toggle is off
 

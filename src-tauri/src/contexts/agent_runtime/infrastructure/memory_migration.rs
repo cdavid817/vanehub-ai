@@ -87,6 +87,9 @@ mod tests {
 
     fn row(id: &str, content: &str) -> AgentMemory {
         AgentMemory {
+            name: "fixture-memory".to_string(),
+            description: "Fixture memory".to_string(),
+            memory_type: None,
             id: id.to_string(),
             agent_id: "onepiece".to_string(),
             folder: Some("D:/code/vanehub-ai".to_string()),

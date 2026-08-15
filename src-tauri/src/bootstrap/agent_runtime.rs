@@ -548,12 +548,24 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.skills.clone(),
         dependencies.evidence.clone(),
     ));
-    let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
-        dependencies.database.clone(),
-    ));
+    // The directory store is the memory write and read path; the row repository survives only as
+    // the migration source until `agent_memories` is dropped a release from now. Failing assembly
+    // here is safe rather than harsh: the memory directory sits beside the SQLite database, so a
+    // filesystem that cannot hold one has already failed the other.
+    let memory_root = dependencies
+        .database
+        .db_path
+        .parent()
+        .ok_or_else(|| "Application data directory is unavailable.".to_owned())?;
+    let agent_memories = Arc::new(
+        FileAgentMemoryStore::new(memory_root)
+            .map_err(|error| format!("Memory directory is unavailable: {error}"))?,
+    );
     spawn_memory_directory_migration(
         dependencies.database.clone(),
-        agent_memories.clone(),
+        Arc::new(SqliteAgentMemoryRepository::new(
+            dependencies.database.clone(),
+        )),
         diagnostics.clone(),
     );
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));

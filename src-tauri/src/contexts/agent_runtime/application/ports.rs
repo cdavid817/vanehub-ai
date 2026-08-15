@@ -15,11 +15,11 @@ use super::{
     LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog,
     LoopOperationContext, LoopOwnedRecoverySession, LoopRoleGenerationTerminal,
     LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
+    LoopVerificationProcessResult, NewAgentMessage, OnePieceDiscoveredModel,
     OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
-    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, SaveMemoryInput,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
+    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
@@ -948,13 +948,9 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// no longer a filter, which is why `list`/`list_all_for_agent`/`delete_all_for_agent` collapsed
 /// into unscoped `list_all`/`delete_all`.
 pub(crate) trait AgentMemoryPort: Send + Sync {
-    fn save(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        content: &str,
-        source: MemorySource,
-    ) -> Result<(), AgentRuntimeApplicationError>;
+    /// Writes one memory. Saving under a name that already exists replaces that memory rather than
+    /// creating a second one for the same name — the update path the row store could not express.
+    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError>;
 
     /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;

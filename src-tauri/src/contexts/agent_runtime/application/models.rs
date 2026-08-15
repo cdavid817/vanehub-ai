@@ -1,7 +1,7 @@
 use super::loop_models::LoopVerificationCommandView;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
-    AutomaticCompactionMode, InteractionMode,
+    AutomaticCompactionMode, InteractionMode, MemoryType,
 };
 use crate::contexts::execution_observability::api::ExecutionContext;
 use serde::Serialize;
@@ -1394,14 +1394,55 @@ impl MemorySource {
 /// host-level pool shared by every agent since `add-cli-memory-support` — `agent_id`/`folder`
 /// record which agent and workspace folder produced it as provenance metadata only, no longer a
 /// read filter (`folder: None` means it was produced with no workspace folder in scope).
+/// Since `migrate-agent-memory-to-file-store`, `id` is the memory file's directory-relative path
+/// rather than a row id: the file path is the memory's identity, which is what makes a memory
+/// addressable enough to update or retract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentMemory {
     pub(crate) id: String,
     pub(crate) agent_id: String,
     pub(crate) folder: Option<String>,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) memory_type: Option<MemoryType>,
     pub(crate) content: String,
     pub(crate) source: MemorySource,
     pub(crate) created_at: String,
+}
+
+/// One save request. `name` and `description` are optional because not every writer can supply
+/// them: the `remember` tool takes them from the model, while a path that only has content leaves
+/// them absent and the store derives them deterministically. A write that cannot name itself must
+/// still produce a valid addressable file rather than failing.
+pub(crate) struct SaveMemoryInput<'a> {
+    pub(crate) agent_id: &'a str,
+    pub(crate) folder: Option<&'a str>,
+    pub(crate) name: Option<&'a str>,
+    pub(crate) description: Option<&'a str>,
+    pub(crate) memory_type: Option<MemoryType>,
+    pub(crate) content: &'a str,
+    pub(crate) source: MemorySource,
+}
+
+impl<'a> SaveMemoryInput<'a> {
+    /// A save whose only inputs are provenance and content — used by both extraction paths until
+    /// `add-two-tier-memory-recall` gives them model-chosen metadata.
+    pub(crate) fn derived(
+        agent_id: &'a str,
+        folder: Option<&'a str>,
+        content: &'a str,
+        source: MemorySource,
+    ) -> Self {
+        Self {
+            agent_id,
+            folder,
+            name: None,
+            description: None,
+            memory_type: None,
+            content,
+            source,
+        }
+    }
 }
 
 /// Character budget for `## Memory` sections injected into a prompt — OnePiece's system prompt

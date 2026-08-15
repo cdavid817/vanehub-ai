@@ -6,12 +6,12 @@ use std::collections::HashSet;
 const NAME_WORD_BUDGET: usize = 6;
 const MAX_GENERATED_DESCRIPTION_CHARACTERS: usize = 200;
 
-/// Deterministic naming and description derivation for memories whose writer did not supply them
-/// (`migrate-agent-memory-to-file-store`).
-///
-/// Shared by row migration and by every save path that has content but no model-chosen name, so a
-/// write can always produce a valid addressable file instead of failing. One implementation, not
-/// one per caller: a second copy would drift and start generating names that collide across paths.
+// Deterministic naming and description derivation for memories whose writer did not supply them
+// (`migrate-agent-memory-to-file-store`).
+//
+// Shared by row migration and by every save path that has content but no model-chosen name, so a
+// write can always produce a valid addressable file instead of failing. One implementation, not
+// one per caller: a second copy would drift and start generating names that collide across paths.
 
 /// Leading sentence, truncated on a character boundary. Control characters are folded to spaces
 /// rather than rejected: content is arbitrary text that never passed through a one-line

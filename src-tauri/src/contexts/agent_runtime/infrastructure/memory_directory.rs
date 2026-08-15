@@ -1,7 +1,12 @@
-use crate::contexts::agent_runtime::application::AgentRuntimeApplicationError;
-use crate::contexts::agent_runtime::domain::{
-    compose_memory_document, parse_memory_document, MemoryDocument, MemoryMetadata,
+use super::memory_naming::{derive_description, derive_name};
+use crate::contexts::agent_runtime::application::{
+    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
 };
+use crate::contexts::agent_runtime::domain::{
+    compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
+};
+use crate::platform::clock::SystemClock;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
@@ -237,6 +242,91 @@ impl FileAgentMemoryStore {
             }
         }
         Ok(path)
+    }
+}
+
+impl AgentMemoryPort for FileAgentMemoryStore {
+    /// Writes one memory file and reconciles the index in the same operation.
+    ///
+    /// A writer that supplied no name gets one derived from the content, checked against the names
+    /// already in the directory. A writer that supplied one addresses an existing memory by it, so
+    /// saving under a name that is already present replaces that memory rather than adding a
+    /// second one for the same fact — the update path the row store could not express.
+    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
+        let content = input.content.trim();
+        if content.is_empty() {
+            return Err(memory_error("Memory content is empty.".to_string()));
+        }
+        let headers = self.scan()?;
+        let name = match input.name {
+            Some(name) => validate_name(name).map_err(|error| memory_error(error.to_string()))?,
+            None => {
+                let taken = headers
+                    .iter()
+                    .map(|header| header.metadata.name.clone())
+                    .collect::<HashSet<_>>();
+                derive_name(content, input.agent_id, &taken)
+            }
+        };
+        let description = match input.description {
+            Some(description) => description.to_string(),
+            None => derive_description(content)
+                .ok_or_else(|| memory_error("Memory description is empty.".to_string()))?,
+        };
+        let metadata = MemoryMetadata::new(name, description, input.memory_type)
+            .map_err(|error| memory_error(error.to_string()))?
+            .with_provenance(
+                Some(input.agent_id.to_string()),
+                input.folder.map(str::to_string),
+                Some(input.source.as_str().to_string()),
+                Some(SystemClock.rfc3339()),
+            );
+        let document = MemoryDocument::new(metadata, content)
+            .map_err(|error| memory_error(error.to_string()))?;
+        self.write(&document)?;
+        self.reconcile_index()?;
+        Ok(())
+    }
+
+    /// Every memory in the shared pool, newest-modified first. Unlike a scan this reads bodies, so
+    /// it is the listing and injection path rather than the manifest path.
+    fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        let mut memories = Vec::new();
+        for header in self.scan()? {
+            // A file that vanished or became unreadable between the scan and this read is skipped
+            // for the same reason the scan skips malformed files: one bad file must not take down
+            // the listing.
+            let Ok(document) = self.read(&header.relative_path) else {
+                continue;
+            };
+            memories.push(AgentMemory {
+                id: header.relative_path,
+                agent_id: document.metadata.agent_id.unwrap_or_default(),
+                folder: document.metadata.folder,
+                name: document.metadata.name,
+                description: document.metadata.description,
+                memory_type: document.metadata.memory_type,
+                content: document.body,
+                source: document
+                    .metadata
+                    .source
+                    .as_deref()
+                    .and_then(MemorySource::parse)
+                    .unwrap_or(MemorySource::Automatic),
+                created_at: document.metadata.created_at.unwrap_or_default(),
+            });
+        }
+        Ok(memories)
+    }
+
+    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        FileAgentMemoryStore::delete(self, memory_id)?;
+        self.reconcile_index()?;
+        Ok(())
+    }
+
+    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
+        FileAgentMemoryStore::delete_all(self)
     }
 }
 

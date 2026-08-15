@@ -837,22 +837,26 @@ impl ToolApprovalPort for FakeWorld {
 }
 
 impl AgentMemoryPort for FakeWorld {
-    fn save(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        content: &str,
-        source: MemorySource,
-    ) -> Result<(), AgentRuntimeApplicationError> {
+    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
+        let name = input.name.unwrap_or("fake-memory").to_string();
         self.memories.lock().expect("memories").push(AgentMemory {
             id: format!(
-                "memory-{}",
+                "memory-{}.md",
                 self.next_message_id.fetch_add(1, Ordering::Relaxed)
             ),
-            agent_id: agent_id.to_string(),
-            folder: folder.map(str::to_string),
-            content: content.to_string(),
-            source,
+            agent_id: input.agent_id.to_string(),
+            folder: input.folder.map(str::to_string),
+            description: input
+                .description
+                .unwrap_or(input.content)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+            name,
+            memory_type: input.memory_type,
+            content: input.content.to_string(),
+            source: input.source,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         });
         Ok(())
@@ -3789,6 +3793,9 @@ fn send_message_does_not_prepend_custom_instructions_for_non_cli_agents() {
 fn send_message_prepends_memory_for_cli_agents_when_enabled_and_present() {
     let world = test_world();
     world.memories.lock().expect("memories").push(AgentMemory {
+        name: "fixture-memory".to_string(),
+        description: "Fixture memory".to_string(),
+        memory_type: None,
         id: "memory-1".to_string(),
         agent_id: "codex-cli".to_string(),
         folder: None,
@@ -3821,6 +3828,9 @@ fn send_message_prepends_memory_for_cli_agents_when_enabled_and_present() {
 fn send_message_omits_memory_for_cli_agents_when_disabled() {
     let world = test_world();
     world.memories.lock().expect("memories").push(AgentMemory {
+        name: "fixture-memory".to_string(),
+        description: "Fixture memory".to_string(),
+        memory_type: None,
         id: "memory-1".to_string(),
         agent_id: "codex-cli".to_string(),
         folder: None,
@@ -3918,6 +3928,9 @@ fn send_message_orders_memory_after_custom_instructions_and_before_prompt_hook_o
         settings.custom_instructions_style_rules = "Always answer in Chinese.".to_string();
     }
     world.memories.lock().expect("memories").push(AgentMemory {
+        name: "fixture-memory".to_string(),
+        description: "Fixture memory".to_string(),
+        memory_type: None,
         id: "memory-1".to_string(),
         agent_id: "codex-cli".to_string(),
         folder: None,

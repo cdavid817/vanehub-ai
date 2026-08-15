@@ -253,6 +253,19 @@ fn remember_tool_definition() -> ToolDefinition {
                 "content": {
                     "type": "string",
                     "description": "The fact, decision, or preference to remember."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Short kebab-case identifier for this memory. Reuse an existing memory's name to correct or replace it instead of saving a near-duplicate."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One line describing what this memory holds, used later to judge whether it is worth reading in full. Be specific."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["user", "feedback", "project", "reference"],
+                    "description": "user: who the user is. feedback: guidance on how to work, with the reason. project: ongoing work not derivable from the code. reference: pointers to external resources."
                 }
             },
             "required": ["content"]
