@@ -2452,6 +2452,20 @@
                                               "agent-tool-execution",
                                               "agent-user-question"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-onepiece-subagents",
+                         "path":  "openspec/changes/archive/2026-08-15-add-onepiece-subagents/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "onepiece-subagents"
+                                          ]
                      }
                  ]
 }
