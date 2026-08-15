@@ -60,14 +60,45 @@
 
 ## 9. Verification
 
-- [ ] 9.1 `npm run lint:ci`
-- [ ] 9.2 `npm run test`
-- [ ] 9.3 `npm run build`
-- [ ] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 9.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 9.6 `cargo test --manifest-path src-tauri/Cargo.toml`
-- [ ] 9.7 `cargo check --manifest-path src-tauri/Cargo.toml`
-- [ ] 9.8 `openspec validate migrate-agent-memory-to-file-store --strict` and `openspec validate --specs --strict`
-- [ ] 9.9 `npm run test:coverage` and `npm run contracts:check`, since the service contract changed
-- [ ] 9.10 `npx playwright test` for the memory management UI change
-- [ ] 9.11 Record implementation verification results for the archive gate
+- [x] 9.1 `npm run lint:ci`
+- [x] 9.2 `npm run test`
+- [x] 9.3 `npm run build`
+- [x] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 9.5 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 9.6 `cargo test --manifest-path src-tauri/Cargo.toml`
+- [x] 9.7 `cargo check --manifest-path src-tauri/Cargo.toml`
+- [x] 9.8 `openspec validate migrate-agent-memory-to-file-store --strict` and `openspec validate --specs --strict`
+- [x] 9.9 `npm run test:coverage` and `npm run contracts:check`, since the service contract changed
+- [x] 9.10 `npx playwright test` for the memory management UI change
+- [x] 9.11 Record implementation verification results for the archive gate
+
+## Verification results
+
+Run on Windows 11, branch `worktree-context`. Every `cargo test` invocation carried
+`no_proxy`/`NO_PROXY` for loopback, without which the local-HTTP fixtures hang against this
+machine's system proxy rather than failing.
+
+| Command | Result |
+|---|---|
+| `npm run lint:ci` | clean |
+| `npm run test` | 261 files, 1193 tests passed |
+| `npm run build` | built, 16 lazy chunks, 127.0 KiB gzip static closure |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+| `cargo test` | 2859 lib + 47 integration passed, 0 failed, 15 ignored |
+| `cargo check` | clean |
+| `openspec validate migrate-agent-memory-to-file-store --strict` | valid |
+| `openspec validate --specs --strict` | 119 passed, 0 failed |
+| `npm run test:coverage` | 1193 passed; statements 71.1%, branches 67.2%, functions 67.02%, lines 75.15% |
+| `npm run contracts:check` | 3 passed |
+| `npm run coverage:policy:test` | 0 failed |
+| `npm run version:unit:test` | 0 failed |
+| `npm run docs:check` | verified |
+| `npx playwright test` | 113 passed (8.9m) |
+
+The full Playwright suite was run rather than only the personalization spec: this change adds
+memory type labels whose text ("User", "Feedback", "Project", "Reference") is generic enough to
+collide with unrelated specs through substring matching. No collision occurred.
+
+Desktop smoke (`npm run test:desktop`) was not run. This change alters no Tauri startup, IPC, or
+desktop runtime behavior, and CI runs that job on all three platforms.
