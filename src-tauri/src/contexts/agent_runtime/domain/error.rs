@@ -46,4 +46,8 @@ pub(crate) enum AgentRuntimeDomainError {
     StaleUtilityRevision,
     #[error("Cannot transition Utility delegation from '{from}' to '{to}'.")]
     InvalidUtilityDelegationTransition { from: String, to: String },
+    #[error("Memory file requires a leading '---' frontmatter block.")]
+    MemoryFrontmatterMissing,
+    #[error("invalid memory {0}.")]
+    InvalidMemoryValue(&'static str),
 }

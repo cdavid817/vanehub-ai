@@ -1,8 +1,9 @@
-use super::api_process_adapter::{
-    summarize_turns, wire_format_for, MEMORY_EXTRACTION_INSTRUCTION, REQUEST_TIMEOUT,
-};
+use super::api_process_adapter::{summarize_turns, wire_format_for, REQUEST_TIMEOUT};
 use crate::contexts::agent_runtime::application::{
     AgentMemoryExtractionPort, AgentRuntimeApplicationError, ApiAgentGateway, ApiCredentialPort,
+};
+use crate::contexts::agent_runtime::domain::{
+    parse_memory_actions, ParsedMemoryActions, MEMORY_ACTIONS_INSTRUCTION,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::json;
@@ -36,7 +37,11 @@ impl RuntimeAgentMemoryExtractionAdapter {
 }
 
 impl AgentMemoryExtractionPort for RuntimeAgentMemoryExtractionAdapter {
-    fn extract(&self, exchange: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+    fn extract(
+        &self,
+        exchange: &str,
+        existing: &str,
+    ) -> Result<ParsedMemoryActions, AgentRuntimeApplicationError> {
         let api_key = self.credentials.fetch(ONEPIECE_AGENT_ID)?.ok_or_else(|| {
             AgentRuntimeApplicationError::Credential(
                 "OnePiece has no configured credential.".to_string(),
@@ -56,17 +61,39 @@ impl AgentMemoryExtractionPort for RuntimeAgentMemoryExtractionAdapter {
             .map_err(|error| AgentRuntimeApplicationError::Memory(error.to_string()))?;
         let turns = vec![json!({ "role": "user", "content": exchange })];
         let cancelled = AtomicBool::new(false);
-        summarize_turns(
+        // The manifest is what makes an update expressible: without the existing names in front of
+        // it the model can only ever propose a create, and the pool grows the way the row store's
+        // did. It is appended to the instruction rather than sent as a turn so it stays out of the
+        // exchange the model is being asked to summarize.
+        let instruction = if existing.trim().is_empty() {
+            MEMORY_ACTIONS_INSTRUCTION.to_string()
+        } else {
+            format!("{MEMORY_ACTIONS_INSTRUCTION}\n\nExisting memories:\n{existing}")
+        };
+        let response = summarize_turns(
             &wire_format,
             &client,
             &api_key,
             &provider_config.model_id,
             None,
             &turns,
-            MEMORY_EXTRACTION_INSTRUCTION,
+            &instruction,
             &cancelled,
+            // Unbounded, as before: an extraction's action list grows with how much of the
+            // exchange was worth remembering, and truncating it silently drops memories.
+            None,
         )
-        .map_err(AgentRuntimeApplicationError::Memory)
+        .map_err(AgentRuntimeApplicationError::Memory)?;
+        // No response at all is the same as an empty action list: the call worked and found
+        // nothing. Only an unparseable response is a malfunction.
+        let Some(response) = response else {
+            return Ok(ParsedMemoryActions::default());
+        };
+        parse_memory_actions(&response).map_err(|error| {
+            AgentRuntimeApplicationError::Memory(format!(
+                "Memory extraction returned an unusable response: {error}"
+            ))
+        })
     }
 }
 
@@ -218,7 +245,7 @@ mod tests {
     fn extract_fails_with_a_credential_error_when_onepiece_has_no_stored_key() {
         let adapter = adapter(None, Some("http://unused.invalid"));
 
-        let error = adapter.extract("hello").expect_err("no credential");
+        let error = adapter.extract("hello", "").expect_err("no credential");
 
         assert!(matches!(error, AgentRuntimeApplicationError::Credential(_)));
     }
@@ -227,35 +254,72 @@ mod tests {
     fn extract_fails_with_a_credential_error_when_onepiece_has_no_provider_configured() {
         let adapter = adapter(Some("sk-test"), None);
 
-        let error = adapter.extract("hello").expect_err("no provider");
+        let error = adapter.extract("hello", "").expect_err("no provider");
 
         assert!(matches!(error, AgentRuntimeApplicationError::Credential(_)));
     }
 
     #[test]
-    fn extract_returns_the_extracted_text_when_the_call_succeeds() {
+    fn extract_returns_the_parsed_actions_when_the_call_succeeds() {
         let address = http_fixture(
             "200 OK",
             sse_body(&[
-                r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm."},"finish_reason":null}]}"#,
+                r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Never pnpm.\"}]"},"finish_reason":null}]}"#,
                 "[DONE]",
             ]),
         );
         let adapter = adapter(Some("sk-test"), Some(&address));
 
-        let extracted = adapter.extract("hello").expect("extract");
+        let extracted = adapter.extract("hello", "").expect("extract");
 
-        assert_eq!(extracted.as_deref(), Some("Uses pnpm."));
+        assert_eq!(extracted.actions.len(), 1);
+        assert_eq!(extracted.actions[0].name, "npm-only");
+        assert_eq!(extracted.actions[0].body.as_deref(), Some("Never pnpm."));
     }
 
     #[test]
-    fn extract_returns_none_when_the_call_finds_nothing_worth_remembering() {
+    fn extract_returns_an_empty_action_list_when_nothing_is_worth_remembering() {
+        // No response body at all and an empty array both mean the call worked and found nothing.
+        // Neither may surface as an error, since this is the common outcome.
         let address = http_fixture("200 OK", sse_body(&["[DONE]"]));
         let adapter = adapter(Some("sk-test"), Some(&address));
 
-        let extracted = adapter.extract("hello").expect("extract");
+        let extracted = adapter.extract("hello", "").expect("extract");
 
-        assert_eq!(extracted, None);
+        assert_eq!(extracted, ParsedMemoryActions::default());
+    }
+
+    #[test]
+    fn an_unparseable_response_is_a_memory_error_rather_than_an_empty_result() {
+        let address = http_fixture(
+            "200 OK",
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"Nothing worth remembering here."},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+        );
+        let adapter = adapter(Some("sk-test"), Some(&address));
+
+        let error = adapter
+            .extract("hello", "")
+            .expect_err("prose is not an action list");
+
+        assert!(matches!(error, AgentRuntimeApplicationError::Memory(_)));
+    }
+
+    #[test]
+    fn a_populated_manifest_does_not_break_the_call() {
+        // The manifest is what makes an update expressible. That it reaches the prompt is asserted
+        // where the prompt is built; here we only need the request to survive carrying one, since
+        // `http_fixture` serves a single request and cannot observe two calls.
+        let address = http_fixture("200 OK", sse_body(&["[DONE]"]));
+        let adapter = adapter(Some("sk-test"), Some(&address));
+
+        let extracted = adapter
+            .extract("hello", "- [project] npm-only — Uses npm")
+            .expect("populated manifest");
+
+        assert_eq!(extracted, ParsedMemoryActions::default());
     }
 
     #[test]
@@ -263,7 +327,7 @@ mod tests {
         let address = http_fixture("500 Internal Server Error", String::new());
         let adapter = adapter(Some("sk-test"), Some(&address));
 
-        let error = adapter.extract("hello").expect_err("call failure");
+        let error = adapter.extract("hello", "").expect_err("call failure");
 
         assert!(matches!(error, AgentRuntimeApplicationError::Memory(_)));
     }
@@ -275,11 +339,11 @@ mod tests {
     #[test]
     fn credential_and_call_failures_are_distinguishable_error_variants() {
         let missing_credential = adapter(None, Some("http://unused.invalid"))
-            .extract("hello")
+            .extract("hello", "")
             .expect_err("no credential");
         let address = http_fixture("500 Internal Server Error", String::new());
         let call_failure = adapter(Some("sk-test"), Some(&address))
-            .extract("hello")
+            .extract("hello", "")
             .expect_err("call failure");
 
         assert!(matches!(

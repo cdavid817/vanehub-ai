@@ -122,7 +122,11 @@ export function AgentMemorySection({ service = defaultAgentService }: { service?
             {memories.map((memory) => (
               <li className="ucd-panel rounded-md p-3" key={memory.id}>
                 <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 flex-1 wrap-break-word text-sm">{memory.content}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="wrap-break-word text-sm font-medium leading-5">{memory.name}</p>
+                    <p className="mt-0.5 wrap-break-word text-xs text-muted-foreground">{memory.description}</p>
+                    <p className="mt-1.5 wrap-break-word text-sm">{memory.content}</p>
+                  </div>
                   <Button
                     className="h-7 shrink-0 px-2 text-xs"
                     disabled={deleteMutation.isPending}
@@ -136,6 +140,9 @@ export function AgentMemorySection({ service = defaultAgentService }: { service?
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <Badge tone={memory.source === "automatic" ? "muted" : "default"}>{t(`personalization.memory.source.${memory.source}`)}</Badge>
+                  {/* Absent for a migrated or hand-written memory that declares no type; the badge
+                      is simply omitted rather than rendering an "unknown" placeholder. */}
+                  {memory.memoryType ? <Badge tone="muted">{t(`personalization.memory.type.${memory.memoryType}`)}</Badge> : null}
                   <Badge tone="muted">{memory.agentId}</Badge>
                   <span>{memory.folder ?? t("personalization.memory.folderGlobal")}</span>
                   <span>{formatAppDateTime(memory.createdAt, i18n.language, { dateStyle: "medium", timeStyle: "short" })}</span>

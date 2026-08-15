@@ -36,8 +36,10 @@ describe("AgentMemorySection", () => {
     // deliberately mixing `onepiece` and `codex-cli` here proves the list isn't still scoped to
     // a single hardcoded agent id.
     let memories: AgentMemory[] = [
-      { id: "memory-1", agentId: "onepiece", folder: "D:/project", content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "memory-2", agentId: "codex-cli", folder: null, content: "Prefers concise responses.", source: "automatic", createdAt: "2026-01-02T00:00:00.000Z" },
+      { id: "npm-only.md", agentId: "onepiece", folder: "D:/project", name: "npm-only", description: "Uses pnpm", memoryType: "feedback", content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
+      // Untyped on purpose: a migrated or hand-written memory declares no type, and the row must
+      // still render rather than showing an "unknown" placeholder.
+      { id: "concise.md", agentId: "codex-cli", folder: null, name: "concise", description: "Prefers concise responses", memoryType: null, content: "Prefers concise responses.", source: "automatic", createdAt: "2026-01-02T00:00:00.000Z" },
     ];
     const deleteAgentMemory = vi.fn(async (memoryId: string) => {
       memories = memories.filter((memory) => memory.id !== memoryId);
@@ -56,17 +58,26 @@ describe("AgentMemorySection", () => {
     expect(screen.getByText("onepiece")).toBeTruthy();
     expect(screen.getByText("codex-cli")).toBeTruthy();
 
+    // `migrate-agent-memory-to-file-store`: name and description let a user tell entries apart
+    // without reading every body, and the type badge appears only when one is declared.
+    expect(screen.getByText("npm-only")).toBeTruthy();
+    expect(screen.getByText("Uses pnpm")).toBeTruthy();
+    expect(screen.getByText("concise")).toBeTruthy();
+    expect(screen.getByText("反馈")).toBeTruthy();
+    expect(screen.queryByText("参考")).toBeNull();
+
     const deleteButtons = screen.getAllByRole("button", { name: "删除" });
     await user.click(deleteButtons[0]!);
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
-    expect(deleteAgentMemory).toHaveBeenCalledWith("memory-1");
+    // The id is the memory file's path now, not a generated row id.
+    expect(deleteAgentMemory).toHaveBeenCalledWith("npm-only.md");
     await waitFor(() => expect(screen.queryByText("Uses pnpm.")).toBeNull());
     expect(screen.getByText("Prefers concise responses.")).toBeTruthy();
   });
 
   it("does not delete when the confirmation is dismissed", async () => {
     const memories: AgentMemory[] = [
-      { id: "memory-1", agentId: "onepiece", folder: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "memory-1", agentId: "onepiece", folder: null, name: "memory-1", description: "Uses pnpm", memoryType: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
     ];
     const deleteAgentMemory = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, deleteAgentMemory });
@@ -81,7 +92,7 @@ describe("AgentMemorySection", () => {
 
   it("resets every agent's memories on confirm", async () => {
     const memories: AgentMemory[] = [
-      { id: "memory-1", agentId: "onepiece", folder: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "memory-1", agentId: "onepiece", folder: null, name: "memory-1", description: "Uses pnpm", memoryType: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
     ];
     const resetAllMemories = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, resetAllMemories });
@@ -95,7 +106,7 @@ describe("AgentMemorySection", () => {
 
   it("does not reset when the confirmation is dismissed", async () => {
     const memories: AgentMemory[] = [
-      { id: "memory-1", agentId: "onepiece", folder: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "memory-1", agentId: "onepiece", folder: null, name: "memory-1", description: "Uses pnpm", memoryType: null, content: "Uses pnpm.", source: "explicit", createdAt: "2026-01-01T00:00:00.000Z" },
     ];
     const resetAllMemories = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, resetAllMemories });

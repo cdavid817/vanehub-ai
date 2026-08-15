@@ -1,6 +1,6 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
-    format_memory_section, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
+    format_memory_index, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
     AgentEvent, AgentEventPort, AgentGenerationPort, AgentInvocationUsage, AgentLog, AgentLogLevel,
     AgentLoggingPort, AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
     AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
@@ -19,17 +19,17 @@ use super::{
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
+    RegisterApiAgentInput, ReportedUsageTotals, SaveMemoryInput, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
     StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
     StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
     ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
-    AutomaticCompactionMode, InteractionMode,
+    AutomaticCompactionMode, InteractionMode, MemoryActionKind,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -1815,7 +1815,7 @@ impl AgentRuntimeApplicationService {
             let custom_instructions = personalization_settings.custom_instructions_block();
             let memory_section = if personalization_settings.memory_enabled {
                 match self.ports.memories.list_all() {
-                    Ok(memories) => format_memory_section(&memories),
+                    Ok(memories) => format_memory_index(&memories, CLI_MEMORY_INDEX_BOUNDS),
                     Err(error) => {
                         self.record_log(
                             AgentLogLevel::Warn,
@@ -2971,21 +2971,36 @@ impl GenerationEventHandler {
             return;
         }
         let exchange = format!("User: {}\n\nAssistant: {response}", self.user_prompt);
-        match self.ports.memory_extraction.extract(&exchange) {
-            Ok(Some(content)) => {
-                for line in content.lines() {
-                    let line = line.trim();
-                    if !line.is_empty() {
-                        let _ = self.ports.memories.save(
-                            &self.agent_id,
-                            self.folder.as_deref(),
-                            line,
-                            MemorySource::Automatic,
-                        );
+        // The manifest lets the extraction name an existing memory to correct or retract. A
+        // listing failure degrades to an empty manifest — the extraction can then only create,
+        // which is exactly the behavior before this change, rather than not running at all.
+        let existing = self.render_memory_manifest();
+        match self.ports.memory_extraction.extract(&exchange, &existing) {
+            Ok(parsed) => {
+                for action in &parsed.actions {
+                    let outcome = match action.kind {
+                        MemoryActionKind::Delete => {
+                            self.ports.memories.delete(&format!("{}.md", action.name))
+                        }
+                        MemoryActionKind::Create | MemoryActionKind::Update => {
+                            self.ports.memories.save(SaveMemoryInput {
+                                agent_id: &self.agent_id,
+                                folder: self.folder.as_deref(),
+                                name: Some(&action.name),
+                                description: action.description.as_deref(),
+                                memory_type: action.memory_type,
+                                content: action.body.as_deref().unwrap_or_default(),
+                                source: MemorySource::Automatic,
+                            })
+                        }
+                    };
+                    if let Err(error) = outcome {
+                        self.record_memory_extraction_log(format!(
+                            "One extracted memory action could not be applied; continuing: {error}"
+                        ));
                     }
                 }
             }
-            Ok(None) => {}
             Err(AgentRuntimeApplicationError::Credential(message)) => {
                 // Expected, common condition (OnePiece isn't configured) — distinct wording and
                 // log category from a genuine call failure below (task 6.2).
@@ -2999,6 +3014,25 @@ impl GenerationEventHandler {
                 ));
             }
         }
+    }
+
+    /// The existing pool rendered as `- [type] name — description` lines. Descriptions only: the
+    /// manifest's cost must scale with how many memories exist, not with how large they are.
+    fn render_memory_manifest(&self) -> String {
+        let Ok(existing) = self.ports.memories.list_all() else {
+            return String::new();
+        };
+        existing
+            .iter()
+            .map(|memory| {
+                let tag = memory
+                    .memory_type
+                    .map(|memory_type| format!("[{}] ", memory_type.as_str()))
+                    .unwrap_or_default();
+                format!("- {tag}{} — {}", memory.name, memory.description)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn record_memory_extraction_log(&self, message: String) {
