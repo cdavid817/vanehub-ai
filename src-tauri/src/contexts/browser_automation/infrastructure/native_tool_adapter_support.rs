@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     NativeToolErrorCode, NativeToolResultEnvelope, NativeToolResultStatus,
-    NATIVE_TOOL_CONTRACT_VERSION,
+    IMAGE_ARTIFACT_METADATA_KEY, NATIVE_TOOL_CONTRACT_VERSION,
 };
 use crate::contexts::browser_automation::application::BrowserAction;
 use serde_json::{json, Map, Value};
@@ -79,6 +79,20 @@ pub(super) fn envelope(
     }
 }
 
+/// Declares that a successful result's Artifact is an image the model may look at
+/// (`add-onepiece-visual-tool-returns`). Carries the id the adapter already sealed, never bytes:
+/// this metadata is persisted on the operation record.
+pub(super) fn with_image_artifact(
+    mut envelope: NativeToolResultEnvelope,
+    artifact_id: &str,
+) -> NativeToolResultEnvelope {
+    envelope.metadata.insert(
+        IMAGE_ARTIFACT_METADATA_KEY.to_owned(),
+        Value::String(artifact_id.to_owned()),
+    );
+    envelope
+}
+
 pub(super) fn string<'a>(
     object: &'a Map<String, Value>,
     field: &str,
@@ -131,4 +145,35 @@ pub(super) fn ensure_claimed_origin(
         return Err(AdapterError::StaleApproval);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod image_declaration_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn succeeded(output: serde_json::Value) -> NativeToolResultEnvelope {
+        envelope(NativeToolResultStatus::Succeeded, Some(output), None)
+    }
+
+    /// The declaration carries the id the adapter already sealed. Never bytes: this metadata is
+    /// persisted on the operation record.
+    #[test]
+    fn declaring_an_image_adds_the_identifier_and_nothing_else() {
+        let result = with_image_artifact(succeeded(json!({ "payload": {} })), "artifact-7");
+
+        assert_eq!(
+            result.metadata[IMAGE_ARTIFACT_METADATA_KEY],
+            json!("artifact-7")
+        );
+        assert_eq!(result.metadata.len(), 1);
+        let encoded = serde_json::to_string(&result.metadata).expect("metadata");
+        assert!(!encoded.contains("base64"), "{encoded}");
+    }
+
+    #[test]
+    fn an_undeclared_result_carries_no_image_key() {
+        let result = succeeded(json!({ "payload": {} }));
+        assert!(!result.metadata.contains_key(IMAGE_ARTIFACT_METADATA_KEY));
+    }
 }

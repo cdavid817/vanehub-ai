@@ -1,3 +1,4 @@
+mod agent_image;
 mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;
@@ -72,6 +73,8 @@ mod seat_turn_coordinator;
 mod sessions_gateway;
 mod skill_gateway;
 mod sqlite_repository;
+mod subagent;
+mod subagent_worktree;
 mod terminal_observability;
 mod terminal_process;
 mod terminal_usage_ledger;
@@ -80,6 +83,8 @@ mod tool_call_accumulator;
 mod tools;
 mod unavailable_native_tool_port;
 mod utility_delegation;
+
+pub(crate) use tools::{background_shell_registry, task_list_store};
 
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
@@ -155,6 +160,7 @@ pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
+pub(crate) use subagent::{NativeSubagentExecutor, SubagentRuntime};
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
 pub(crate) use unavailable_native_tool_port::UnavailableNativeToolPort;

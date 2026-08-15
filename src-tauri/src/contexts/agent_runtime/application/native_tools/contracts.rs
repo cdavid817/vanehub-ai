@@ -113,6 +113,13 @@ impl NativeToolResultStatus {
     }
 }
 
+/// Metadata key by which a native tool declares that its result includes an image, naming the
+/// Artifact it just sealed. Deliberately an id rather than a new envelope field carrying bytes:
+/// the envelope is constructed in more than ninety places, and an id keeps this additive and
+/// opt-in per tool while keeping base64 out of both the persisted output and the stored operation
+/// record (`add-onepiece-visual-tool-returns`).
+pub(crate) const IMAGE_ARTIFACT_METADATA_KEY: &str = "image_artifact_id";
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NativeToolResultEnvelope {
     pub(crate) contract_version: u16,

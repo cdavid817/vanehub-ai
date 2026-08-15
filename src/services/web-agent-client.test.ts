@@ -2297,4 +2297,24 @@ describe("webAgentClient", () => {
     const status = await webAgentClient.getRetrievalIndexStatus();
     expect(status.failed).toBe(0);
   });
+
+  /**
+   * Web/mock parity for `resolveAgentQuestion` (`add-agent-user-question`). The mock has no
+   * blocked generation to resume, so "delivered" means only that a tool block was still showing
+   * `awaiting_input` — an unknown or already-resolved call id reports false rather than
+   * pretending a wait ended.
+   */
+  it("reports an undelivered answer for a call id no tool block is waiting on", async () => {
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      title: "Question parity",
+      interactionMode: "cli",
+    });
+    vi.useRealTimers();
+
+    await expect(
+      webAgentClient.resolveAgentQuestion(session.id, "no-such-call", "an answer"),
+    ).resolves.toBe(false);
+  });
+
 });

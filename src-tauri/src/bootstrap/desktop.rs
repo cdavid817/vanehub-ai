@@ -138,6 +138,9 @@ struct RuntimeShutdownAdapter {
 #[async_trait]
 impl DesktopShutdownPort for RuntimeShutdownAdapter {
     async fn shutdown(&self, deadline: Instant) -> Result<(), String> {
+        // Runs before the fallible shutdowns below so a failure there cannot leave background
+        // command trees behind (`add-background-shell-execution`).
+        self.agents.reap_all_background_commands();
         let agents = self
             .agents
             .shutdown_agent_terminals()

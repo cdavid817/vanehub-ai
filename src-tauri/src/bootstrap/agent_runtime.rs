@@ -1,9 +1,10 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentMemoryPort,
-    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
-    AgentTerminalApplicationPorts, AgentTerminalApplicationService, AgentWorkspaceMutationPort,
+    web_native_tool_handlers, AgentClockPort, AgentCodeIntelligenceResponderPort, AgentLoggingPort,
+    AgentMemoryPort, AgentRetrievalPort, AgentRuntimeApplicationPorts,
+    AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
     ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
     BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextQualityQueryService,
     ContextQualityRecorder, DelegateCliNativeToolHandler, ExpertRoleApplicationPorts,
@@ -15,7 +16,7 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
-    OnePieceToolFeatureGates, UtilityDelegationApplicationPorts,
+    OnePieceToolFeatureGates, SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
     UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
@@ -26,15 +27,16 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
     ManualNativeToolOperationAdapter, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
-    NativeSeatTurnCoordinator, NativeUtilityChildExecutor, OsApiCredentialAdapter,
-    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
-    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
-    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
-    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
-    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
-    SqliteLoopRepository, SqliteNativeToolRepository, StructuredLoopVerificationProcess,
+    NativeSeatTurnCoordinator, NativeSubagentExecutor, NativeUtilityChildExecutor,
+    OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
+    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
+    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
+    RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
+    SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
+    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SubagentRuntime,
     SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
     TerminalExecutionObservability, UnavailableNativeToolPort, UuidExpertRoleIds,
     WorkspaceLoopProjectAdapter,
@@ -176,17 +178,32 @@ type ExecutionExporterSet = (
     Option<Arc<dyn ExternalLogExportPort>>,
 );
 
+/// What a subagent child attempt needs to run: the parent's credential and provider
+/// configuration, and the accounting, clock, and logging its turns are recorded against. Bundled
+/// because they travel together and only exist for this one handler.
+struct SubagentDependencies {
+    credentials: Arc<dyn ApiCredentialPort>,
+    agents: Arc<dyn ApiAgentGateway>,
+    accounting: Option<SessionsApi>,
+    clock: Arc<dyn AgentClockPort>,
+    logging: Arc<dyn AgentLoggingPort>,
+}
+
+/// What assembling the extended tool registry yields: the registry itself, the browser handoff
+/// control when a sidecar is available, and the Artifact store the registry built, which the tool
+/// loop also needs for image attachment.
+type AssembledNativeTools = (
+    NativeToolRegistry,
+    Option<Arc<dyn BrowserHandoffControlPort>>,
+    Arc<ArtifactService>,
+);
+
 fn assemble_native_tool_registry(
     database: &NativeDatabase,
     app: &AppHandle,
     cli: &CliApi,
-) -> Result<
-    (
-        NativeToolRegistry,
-        Option<Arc<dyn BrowserHandoffControlPort>>,
-    ),
-    String,
-> {
+    subagents: SubagentDependencies,
+) -> Result<AssembledNativeTools, String> {
     let data_root = database
         .db_path
         .parent()
@@ -290,6 +307,20 @@ fn assemble_native_tool_registry(
             NativeToolReadinessReasonCode::IsolationUnavailable,
         );
     }
+    // The child reuses the parent's own credential and provider configuration through the
+    // existing boundary rather than receiving copies (`add-onepiece-subagents`).
+    handlers.push(Arc::new(SubagentNativeToolHandler::new(Arc::new(
+        NativeSubagentExecutor::new(SubagentRuntime {
+            credentials: subagents.credentials,
+            config: subagents.agents,
+            accounting: subagents.accounting,
+            clock: subagents.clock,
+            logging: subagents.logging,
+            artifacts: artifacts.clone(),
+            operations: Arc::new(SqliteNativeToolRepository::new(database.clone())),
+            operations_root: data_root.join("subagent-worktrees"),
+        }),
+    ))));
     if readiness {
         let port = Arc::new(OcrNativeToolAdapter::new(
             install_path,
@@ -377,7 +408,7 @@ fn assemble_native_tool_registry(
         readiness_reasons,
     )
     .map_err(|error| format!("native tool registry is invalid: {error:?}"))?;
-    Ok((registry, browser_handoff))
+    Ok((registry, browser_handoff, artifacts))
 }
 
 fn delegation_mode_ready(
@@ -610,10 +641,17 @@ pub(crate) fn assemble_agent_runtime_api(
             evidence: utility_projector,
             clock: clock.clone(),
         });
-    let (native_tools, browser_handoff) = assemble_native_tool_registry(
+    let (native_tools, browser_handoff, artifacts) = assemble_native_tool_registry(
         &dependencies.database,
         &dependencies.app,
         &dependencies.cli,
+        SubagentDependencies {
+            credentials: api_credentials.clone(),
+            agents: repository.clone(),
+            accounting: Some(accounting.clone()),
+            clock: clock.clone(),
+            logging: logging.clone(),
+        },
     )?;
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(
@@ -637,6 +675,7 @@ pub(crate) fn assemble_agent_runtime_api(
         .with_utility_delegation(utility_delegation)
         .with_accounting(accounting.clone())
         .with_native_tool_registry(native_tools.clone())
+        .with_artifacts(artifacts.clone())
         .with_native_tool_operations(
             Arc::new(SqliteNativeToolRepository::new(
                 dependencies.database.clone(),

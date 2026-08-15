@@ -772,6 +772,7 @@ fn purpose_value(value: crate::contexts::sessions::api::UsagePurpose) -> &'stati
         crate::contexts::sessions::api::UsagePurpose::ToolContinuation => "tool-continuation",
         crate::contexts::sessions::api::UsagePurpose::ContextCompaction => "context-compaction",
         crate::contexts::sessions::api::UsagePurpose::MemoryExtraction => "memory-extraction",
+        crate::contexts::sessions::api::UsagePurpose::SubagentDelegation => "subagent-delegation",
         crate::contexts::sessions::api::UsagePurpose::Retry => "retry",
         crate::contexts::sessions::api::UsagePurpose::TerminalInterval => "terminal-interval",
     }
