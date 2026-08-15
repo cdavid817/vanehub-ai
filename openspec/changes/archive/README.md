@@ -170,5 +170,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
 | 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
 | 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
+| 2026-08-15 | migrate-agent-memory-to-file-store | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

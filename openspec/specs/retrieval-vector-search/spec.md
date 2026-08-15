@@ -1,7 +1,8 @@
 # retrieval-vector-search Specification
 
 ## Purpose
-TBD - created by archiving change add-retrieval-vector-search. Update Purpose after archive.
+Defines meaning-based recall over the shared memory pool and over indexed workspace code, including how each source is scoped, reconciled, and kept from surfacing content that no longer exists. Retrieval is an enhancement: its failure degrades recall, never a generation.
+
 ## Requirements
 ### Requirement: Retrieval searches the shared host-level memory pool
 The system SHALL search the same host-level memory pool that recency-based memory injection draws from (`agent-memory-shared-pool`), and SHALL NOT restrict recall by agent id or workspace folder. Agent id and workspace folder SHALL be recorded on an index row as provenance only, and SHALL NOT be exposed as recall tool input.
@@ -37,12 +38,20 @@ The system SHALL return a successful tool result describing unavailability when 
 - **AND** the recall tool SHALL still return a successful tool result so that generation continues
 
 ### Requirement: Saving a memory never depends on indexing
-The system SHALL persist an agent memory without requiring its retrieval index entry to be written in the same operation.
+
+The system SHALL persist an agent memory without requiring its retrieval index entry to be written in the same operation. Persisting a memory means writing its file and its index-file line; neither SHALL be conditional on the retrieval index accepting the document.
 
 #### Scenario: Indexing backend unavailable at save time
+
 - **WHEN** a memory is saved while the embedding provider is unreachable
 - **THEN** the save SHALL succeed
 - **AND** the memory SHALL become searchable by keyword immediately and by vector once background indexing converges
+
+#### Scenario: Correcting a memory re-queues it
+
+- **WHEN** an existing memory's content is replaced
+- **THEN** the save SHALL succeed regardless of indexing availability
+- **AND** the memory SHALL be re-queued so that recall stops matching the superseded content once indexing converges
 
 ### Requirement: Vector recall only compares same-model embeddings
 The system SHALL restrict vector recall to rows whose stored embedding model equals the currently configured embedding model.
@@ -77,28 +86,46 @@ The Web/mock runtime SHALL expose the same retrieval contract shape and observab
 - **AND** it MAY rank by a simple term-overlap score rather than reproducing vector similarity
 
 ### Requirement: Retrieval indexing applies source-specific scope semantics
-The retrieval system SHALL require each indexing, queue, status, rebuild, deletion, and search operation to identify a source kind and its valid scope. `agent_memory` SHALL retain its host-wide shared-pool behavior, while `workspace_file` SHALL require a workspace id and SHALL never query another workspace.
+
+The retrieval system SHALL require each indexing, queue, status, rebuild, deletion, and search operation to identify a source kind and its valid scope. `agent_memory` SHALL retain its host-wide shared-pool behavior, while `workspace_file` SHALL require a workspace id and SHALL never query another workspace. An `agent_memory` document SHALL be identified by its memory file's path relative to the memory directory rather than by a database row id, and a search hit SHALL be resolved by reading that file.
 
 #### Scenario: Agent memory is recalled after source generalization
+
 - **WHEN** recall searches `agent_memory` after workspace code indexing is enabled
 - **THEN** it SHALL continue to consider memories from every agent and folder
 - **AND** its tool schema and payload SHALL remain unchanged
 
 #### Scenario: Workspace candidate query is executed
+
 - **WHEN** hybrid search requests `workspace_file` candidates for one workspace id
 - **THEN** both vector and keyword queries SHALL filter by that workspace before ranking
 
+#### Scenario: Hit resolves against a missing file
+
+- **WHEN** a search hit names a memory file that no longer exists in the memory directory
+- **THEN** the system SHALL omit that hit from the results rather than returning stale indexed text
+- **AND** it SHALL NOT fail the recall
+
 ### Requirement: Reconciliation and batching are parameterized by source
-The retrieval application SHALL reconcile and claim pending documents using an explicit source kind and scope rather than a hard-coded `AgentMemory`. Processing one source or workspace SHALL NOT invalidate, delete, claim, or update another source or workspace.
+
+The retrieval application SHALL reconcile and claim pending documents using an explicit source kind and scope rather than a hard-coded `AgentMemory`. Processing one source or workspace SHALL NOT invalidate, delete, claim, or update another source or workspace. Reconciliation for `agent_memory` SHALL take a scan of the memory directory as its authoritative snapshot, so that a file added, changed, or removed outside the application converges without user action.
 
 #### Scenario: Code file reconcile runs
+
 - **WHEN** the indexing service reconciles changed files for one workspace
 - **THEN** it SHALL upsert and remove only `workspace_file` documents belonging to that workspace
 - **AND** agent-memory documents SHALL remain unchanged
 
 #### Scenario: Memory worker runs with code pending
+
 - **WHEN** the memory worker claims an `agent_memory` batch while code chunks are pending
 - **THEN** it SHALL claim only memory documents
+
+#### Scenario: Directory scan drives agent-memory reconciliation
+
+- **WHEN** `agent_memory` reconciliation runs against a memory directory containing a file with no index entry, and holding an index entry whose file is gone
+- **THEN** it SHALL queue the unindexed file and remove the orphaned entry
+- **AND** it SHALL leave `workspace_file` documents untouched
 
 ### Requirement: Retrieval status and rebuild support explicit source scopes
 The retrieval system SHALL provide global agent-memory status for backward compatibility and SHALL provide per-workspace code status, rebuild, and delete operations. Aggregate UI status SHALL be derived from scoped results rather than by weakening workspace isolation.
