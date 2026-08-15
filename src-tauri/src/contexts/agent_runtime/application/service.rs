@@ -108,6 +108,14 @@ pub(crate) struct AgentRuntimeApplicationService {
     pub(super) ports: AgentRuntimeApplicationPorts,
 }
 
+/// Whether the human who triggered this turn is positioned to answer a question it asks
+/// (`add-agent-user-question` D4). A scheduled run has no human at all. An IM-sourced turn has one,
+/// but they are in a chat connector that cannot render a choice card -- the question would surface
+/// on a desktop surface they are not looking at, so the wait would burn the turn either way.
+fn interactive_message_source(source: &super::AgentMessageSource) -> bool {
+    matches!(source, super::AgentMessageSource::Desktop)
+}
+
 pub(super) struct MessageGenerationInput {
     pub(super) source: super::AgentMessageSource,
     pub(super) configuration: AgentChatConfiguration,
@@ -119,6 +127,8 @@ pub(super) struct MessageGenerationInput {
     /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
     /// would put words the human never typed into the thread under their name.
     pub(super) record_user_message: bool,
+    /// Whether a human can answer a question this generation asks (`add-agent-user-question`).
+    pub(super) interactive: bool,
 }
 
 struct GenerationFailure {
@@ -1373,7 +1383,7 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.send_message_internal(request, false)
+        self.send_message_internal(request, false, true)
             .map(|(message, _)| message)
     }
 
@@ -1381,7 +1391,7 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true)?;
+        let (message, terminal) = self.send_message_internal(request, true, true)?;
         let terminal = terminal.ok_or_else(|| {
             AgentRuntimeApplicationError::Generation(
                 "message completion registration was not created".to_string(),
@@ -1397,10 +1407,27 @@ impl AgentRuntimeApplicationService {
         self.ports.generations.active_correlation(session_id)
     }
 
+    /// Orchestration entry point (`add-agent-user-question`). Plan attempts, repairs, and
+    /// discovery all send with `AgentMessageSource::Desktop` and own no Loop session, so they are
+    /// indistinguishable from an ordinary chat turn by inspection -- the caller has to say so.
+    pub(crate) fn send_non_interactive_message_with_completion(
+        &self,
+        request: SendMessageRequest,
+    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
+        let (message, terminal) = self.send_message_internal(request, true, false)?;
+        let terminal = terminal.ok_or_else(|| {
+            AgentRuntimeApplicationError::Generation(
+                "message completion registration was not created".to_string(),
+            )
+        })?;
+        Ok(StartedAgentMessage { message, terminal })
+    }
+
     fn send_message_internal(
         &self,
         request: SendMessageRequest,
         register_completion: bool,
+        caller_is_interactive: bool,
     ) -> Result<
         (AgentMessage, Option<super::AgentMessageTerminalReceiver>),
         AgentRuntimeApplicationError,
@@ -1441,6 +1468,11 @@ impl AgentRuntimeApplicationService {
             &session,
             &agent,
             MessageGenerationInput {
+                interactive: caller_is_interactive
+                    && interactive_message_source(&request.source)
+                    // A Loop-owned session is driven by the Loop scheduler, not by someone
+                    // watching the thread.
+                    && session.loop_ownership.is_none(),
                 source: request.source,
                 configuration,
                 content,
@@ -1470,6 +1502,7 @@ impl AgentRuntimeApplicationService {
             role_briefing,
             seat_ownership,
             record_user_message,
+            interactive,
         } = input;
         let originated_from_im =
             matches!(&source, super::AgentMessageSource::InstantMessage { .. });
@@ -1984,6 +2017,7 @@ impl AgentRuntimeApplicationService {
                 // Single-Agent sessions carry no briefing, so their invocation is unchanged.
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,
+                interactive,
             }) {
             Ok(started) => started,
             Err(error) => {
@@ -2595,6 +2629,8 @@ impl GenerationEventHandler {
     fn tool_use(&self, tool_use: super::ToolUseBlock) -> Result<(), AgentRuntimeApplicationError> {
         let phase = if tool_use.status == "awaiting_approval" {
             ToolLifecyclePhase::AwaitingApproval
+        } else if tool_use.status == "awaiting_input" {
+            ToolLifecyclePhase::AwaitingInput
         } else {
             match tool_terminal_status(&tool_use.status) {
                 Some(ExecutionStatus::Succeeded) => ToolLifecyclePhase::Completed,
@@ -2697,7 +2733,8 @@ impl GenerationEventHandler {
             ToolLifecyclePhase::Failed => Some(ExecutionStatus::Failed),
             ToolLifecyclePhase::Started
             | ToolLifecyclePhase::Updated
-            | ToolLifecyclePhase::AwaitingApproval => None,
+            | ToolLifecyclePhase::AwaitingApproval
+            | ToolLifecyclePhase::AwaitingInput => None,
         };
         if let Some(status) = terminal_status {
             let error_classification =

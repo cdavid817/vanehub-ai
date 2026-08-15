@@ -2248,6 +2248,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-background-shell-execution",
+                         "path":  "openspec/changes/archive/2026-08-14-add-background-shell-execution/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-file-reference-line-ranges",
                          "path":  "openspec/changes/archive/2026-08-14-add-file-reference-line-ranges/",
                          "artifacts":  [
@@ -2455,6 +2468,62 @@
                      },
                      {
                          "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-image-input",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-image-input/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-image-input",
+                                              "agent-provider-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-plan-exit-request",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-plan-exit-request/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-plan-exit-request"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-task-list",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-task-list/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-task-list",
+                                              "agent-tool-execution"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-user-question",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-user-question/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "agent-user-question"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
                          "changeName":  "add-file-reference-drag-and-paste",
                          "path":  "openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/",
                          "artifacts":  [
@@ -2477,6 +2546,46 @@
                                        ],
                          "capabilities":  [
                                               "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-ocr-rendered-page-return",
+                         "path":  "openspec/changes/archive/2026-08-15-add-ocr-rendered-page-return/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-image-input"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-onepiece-subagents",
+                         "path":  "openspec/changes/archive/2026-08-15-add-onepiece-subagents/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "onepiece-subagents"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-onepiece-visual-tool-returns",
+                         "path":  "openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-image-input"
                                           ]
                      }
                  ]

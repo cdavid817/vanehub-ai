@@ -449,11 +449,17 @@ pub(crate) enum AgentSkillReadRequest {
     },
 }
 
-/// The user's resolution of a tool call that was awaiting approval.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The user's resolution of a blocked tool call: a permission decision, or an answer to a
+/// question. Not `Copy` since `add-agent-user-question`, because an answer carries its text.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ToolApprovalDecision {
     Approved,
     Denied,
+    /// A blocked `ask_user_question` call resolved with the user's answer
+    /// (`add-agent-user-question` D1). Approval and answering are two kinds of resolution for the
+    /// same blocked-tool-call channel, so they share it rather than each owning a wait loop, a
+    /// cancellation sweep, and a chance to leave a generation blocked forever.
+    Answered(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -730,6 +736,11 @@ pub(crate) struct GenerationProcessRequest {
      */
     pub(crate) role_briefing: Option<String>,
     pub(crate) cli_profile: CliProfileSnapshot,
+    /// Whether a human is positioned to answer a question this generation asks
+    /// (`add-agent-user-question`). False for scheduled runs, IM-sourced turns, Loop-owned
+    /// sessions, and orchestration attempts -- contexts where a blocking question would burn the
+    /// attempt's ceiling with nobody able to end the wait.
+    pub(crate) interactive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -789,6 +800,11 @@ pub(crate) enum ToolLifecyclePhase {
     /// executes. CLI-agent stdout parsing never produces this phase — it is only ever emitted by
     /// the native tool-use loop.
     AwaitingApproval,
+    /// A `ask_user_question` call is waiting on the user's answer (`add-agent-user-question`).
+    /// Distinct from `AwaitingApproval` because the affordance differs: approval offers allow or
+    /// deny, a question offers the options the model actually sent, and rendering one as the other
+    /// would be wrong in both directions.
+    AwaitingInput,
     Started,
     Updated,
     Completed,

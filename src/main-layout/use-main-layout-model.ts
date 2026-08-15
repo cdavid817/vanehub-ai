@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { approvedPlanExitCallId } from "../components/chat/plan-exit-signal";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
@@ -90,6 +91,7 @@ export function useMainLayoutModel() {
     activeSession,
     agents,
     onPersistError: reportConfigPersistFailure,
+    approvedPlanExit: approvedPlanExitCallId(messages),
   });
   const invalidateSessions = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["sessions"] });

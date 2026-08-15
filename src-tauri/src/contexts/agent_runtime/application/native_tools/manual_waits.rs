@@ -49,8 +49,8 @@ impl ManualApprovalWaits {
         let mut entries = self.entries.lock().ok()?;
         loop {
             let entry = entries.get(call_id)?;
-            if let Some(decision) = entry.decision {
-                return Some(decision);
+            if let Some(decision) = entry.decision.as_ref() {
+                return Some(decision.clone());
             }
             if entry.cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
                 return None;
