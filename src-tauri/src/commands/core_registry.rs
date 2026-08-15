@@ -35,6 +35,7 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::get_session_details::get_session_details,
         crate::commands::agent_runtime::send_message::send_message,
         crate::commands::agent_runtime::resolve_agent_question::resolve_agent_question,
+        crate::commands::agent_runtime::resolve_plan_exit::resolve_plan_exit,
         crate::commands::agent_runtime::stop_generation::stop_generation,
         crate::commands::agent_runtime::open_agent_terminal::open_agent_terminal,
         crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,

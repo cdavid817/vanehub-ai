@@ -3272,6 +3272,8 @@
   "chat.toolQuestion.otherLabel": "用你自己的话回答",
   "chat.toolQuestion.otherPlaceholder": "或者自己输入答案",
   "chat.toolQuestion.submit": "发送",
+  "chat.toolPlanExit.approve": "批准并开始",
+  "chat.toolPlanExit.decline": "继续规划",
   "slash.output.applied": "已应用",
   "slash.output.mode": "执行模式：{{value}}",
   "slash.output.thinking": "思考：{{value}}",

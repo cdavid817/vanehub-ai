@@ -1924,6 +1924,13 @@ export function resolveWebMockToolApproval(sessionId: string, callId: string, ap
  */
 export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
 
+/**
+ * Marker that makes the Web/mock runtime simulate a request to leave plan mode. Same reason as the
+ * question trigger: the request blocks until decided, so emitting one every turn would leave every
+ * other mock conversation waiting on a card.
+ */
+export const WEB_MOCK_PLAN_EXIT_TRIGGER = "[plan-done]";
+
 function resolveSimulatedQuestion(sessionId: string, callId: string, answer: string): boolean {
   findSession(sessionId);
   const message = getSessionMessages(sessionId).find((entry) =>
@@ -1936,6 +1943,33 @@ function resolveSimulatedQuestion(sessionId: string, callId: string, answer: str
     sessionId,
     messageId: message.id,
     toolUse: { ...pending, output: answer, status: "completed" },
+  });
+  return true;
+}
+
+/**
+ * Web/mock backing for `resolvePlanExit`. Same simulation as an answer: nothing is blocked, so
+ * "delivered" means a matching tool block was still showing `awaiting_input`. The recorded output
+ * differs by decision so the mock cannot make a decline look like an approval.
+ */
+function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: boolean): boolean {
+  findSession(sessionId);
+  const message = getSessionMessages(sessionId).find((entry) =>
+    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
+  );
+  const pending = message?.toolUse?.find((tool) => tool.id === callId);
+  if (!message || !pending) return false;
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: message.id,
+    toolUse: {
+      ...pending,
+      output: approved
+        ? "The user approved your plan and this session has left plan mode."
+        : "The user did not approve this plan. The session is still in plan mode.",
+      status: approved ? "completed" : "failed",
+    },
   });
   return true;
 }
@@ -4178,6 +4212,25 @@ export const webAgentClient: AgentService = {
         }, 240);
         timeoutIds.push(questionTimeoutId);
       }
+      // Request to leave plan mode (`add-agent-plan-exit-request`).
+      if (input.content.includes(WEB_MOCK_PLAN_EXIT_TRIGGER)) {
+        const planExitTimeoutId = setTimeout(() => {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-tool-plan-exit-${assistantMessage.id}`,
+              name: "exit_plan_mode",
+              input: {
+                plan: "Rewrite the parser, then update its three callers.",
+              },
+              status: "awaiting_input",
+            },
+          });
+        }, 245);
+        timeoutIds.push(planExitTimeoutId);
+      }
       // Read-only search (`add-onepiece-search-and-edit-tools`): `grep` is classified
       // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
       // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
@@ -4453,6 +4506,10 @@ export const webAgentClient: AgentService = {
    */
   async resolveAgentQuestion(sessionId: string, callId: string, answer: string) {
     return resolveSimulatedQuestion(sessionId, callId, answer);
+  },
+
+  async resolvePlanExit(sessionId: string, callId: string, approved: boolean) {
+    return resolveSimulatedPlanExit(sessionId, callId, approved);
   },
 
   async stopGeneration(sessionId: string) {

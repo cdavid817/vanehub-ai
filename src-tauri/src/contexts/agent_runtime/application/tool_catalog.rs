@@ -24,6 +24,12 @@ pub(crate) const MIN_QUESTION_OPTIONS: usize = 2;
 pub(crate) const MAX_QUESTION_OPTIONS: usize = 4;
 pub(crate) const MAX_QUESTION_CHARS: usize = 300;
 pub(crate) const MAX_QUESTION_OPTION_CHARS: usize = 120;
+pub(crate) const EXIT_PLAN_MODE_TOOL_NAME: &str = "exit_plan_mode";
+
+/// Bound on the plan `exit_plan_mode` submits. The user reads this whole thing before approving
+/// it, so the limit is what a person will actually read at a decision point, not what a model can
+/// produce; past it the call is rejected rather than truncated into an approval of text nobody saw.
+pub(crate) const MAX_PLAN_CHARS: usize = 4000;
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
@@ -311,7 +317,36 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         read_skill_resource_tool_definition(),
         shell_output_tool_definition(),
         todo_write_tool_definition(),
+        exit_plan_mode_tool_definition(),
     ]
+}
+
+/// Offered only from the plan-mode catalog (`add-agent-plan-exit-request` D5). Outside plan mode
+/// there is nothing to leave, and a tool declared unconditionally costs its schema on every
+/// request forever -- so this one stays out of `tool_catalog()` entirely rather than being
+/// filtered out later.
+fn exit_plan_mode_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: EXIT_PLAN_MODE_TOOL_NAME.to_string(),
+        description: "Ask the user to approve your plan and let you start carrying it out. Call \
+                      it once you have a plan you would act on, not to check in mid-thought. The \
+                      user sees exactly the plan you pass here and either approves or declines, so \
+                      write it for them to judge: what you will change and why. Approval takes \
+                      effect on the next turn, so end your turn after it is approved rather than \
+                      trying to act in this one."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": format!("The plan to approve, at most {MAX_PLAN_CHARS} characters. Markdown is rendered.")
+                }
+            },
+            "required": ["plan"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 fn list_skills_tool_definition() -> ToolDefinition {
@@ -663,12 +698,29 @@ mod tests {
                 READ_SKILL_RESOURCE_TOOL_NAME,
                 SHELL_OUTPUT_TOOL_NAME,
                 TODO_WRITE_TOOL_NAME,
+                EXIT_PLAN_MODE_TOOL_NAME,
             ]
         );
         assert_eq!(
             catalog[0].input_schema["properties"]["operation"]["enum"],
             json!(["read"])
         );
+    }
+
+    /// The one tool plan mode adds rather than withholds. It is offered *only* here: outside plan
+    /// mode there is nothing to leave, and a tool declared unconditionally would cost its schema on
+    /// every request forever ( D5).
+    #[test]
+    fn leaving_plan_mode_is_offered_only_while_planning() {
+        let plan_names: Vec<String> = plan_mode_tool_catalog()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert!(plan_names.contains(&EXIT_PLAN_MODE_TOOL_NAME.to_string()));
+
+        let ordinary_names: Vec<String> =
+            tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert!(!ordinary_names.contains(&EXIT_PLAN_MODE_TOOL_NAME.to_string()));
     }
 
     #[test]

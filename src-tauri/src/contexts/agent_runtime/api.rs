@@ -582,6 +582,24 @@ impl AgentRuntimeApi {
         self.service.delete_api_agent(agent_id)
     }
 
+    /// Resolves a blocked `exit_plan_mode` request (`add-agent-plan-exit-request`). The decision
+    /// arrives from the UI as "approved or not", and turning that into a `ToolApprovalDecision`
+    /// belongs here rather than in the Tauri command: `tests/architecture.rs` holds command
+    /// adapters to zero control-flow decisions, and this mapping is one.
+    pub(crate) fn resolve_plan_exit(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        approved: bool,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let decision = if approved {
+            ToolApprovalDecision::Approved
+        } else {
+            ToolApprovalDecision::Denied
+        };
+        self.resolve_tool_approval(session_id, call_id, decision)
+    }
+
     pub(crate) fn resolve_tool_approval(
         &self,
         session_id: &str,

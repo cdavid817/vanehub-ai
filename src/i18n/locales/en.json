@@ -3272,6 +3272,8 @@
   "chat.toolQuestion.otherLabel": "Answer in your own words",
   "chat.toolQuestion.otherPlaceholder": "Or type your own answer",
   "chat.toolQuestion.submit": "Send",
+  "chat.toolPlanExit.approve": "Approve and start",
+  "chat.toolPlanExit.decline": "Keep planning",
   "slash.output.applied": "Applied",
   "slash.output.mode": "Execution mode: {{value}}",
   "slash.output.thinking": "Thinking: {{value}}",

@@ -821,6 +821,10 @@ export const tauriAgentClient: AgentService = {
     return invoke<boolean>("resolve_agent_question", { sessionId, callId, answer });
   },
 
+  async resolvePlanExit(sessionId: string, callId: string, approved: boolean) {
+    return invoke<boolean>("resolve_plan_exit", { sessionId, callId, approved });
+  },
+
   async stopGeneration(sessionId: string) {
     await invoke<void>("stop_generation", { sessionId });
   },

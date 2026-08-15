@@ -36,13 +36,14 @@ use crate::contexts::agent_runtime::application::{
     StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
     ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME,
-    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
-    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
-    GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
-    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
-    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME,
+    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
+    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
+    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME,
+    SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -1699,6 +1700,36 @@ fn execute_with_code_intelligence(
                     &mut tool_use,
                     &input,
                     request.interactive,
+                    &cancelled,
+                    pending_approvals,
+                    sink,
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(failure) => return failure,
+                };
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error, None));
+                continue;
+            }
+            // Same placement and reason as the question above: the sink and blocked-call channel
+            // live here (`add-agent-plan-exit-request` D1).
+            if tool_use.name == EXIT_PLAN_MODE_TOOL_NAME {
+                let outcome = match request_plan_exit(
+                    &mut tool_use,
+                    &input,
+                    request.interactive,
+                    plan_mode,
                     &cancelled,
                     pending_approvals,
                     sink,
@@ -3617,6 +3648,10 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
         // The user's answer is itself the authorization; a separate approval prompt in front of a
         // question would ask permission to ask permission.
         ASK_USER_QUESTION_TOOL_NAME => (Action::file_read(), Resource::new(tool_name)),
+        // Same reasoning: the decision the tool blocks on *is* the authorization, and it authorizes
+        // a session mode rather than an action on a resource, so it must not classify as one
+        // (`add-agent-plan-exit-request` D2).
+        EXIT_PLAN_MODE_TOOL_NAME => (Action::file_read(), Resource::new(tool_name)),
         FILE_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
             let resource = Resource::file_path(path);
@@ -3703,6 +3738,102 @@ fn ask_user_question(
             is_error: true,
         }),
     }
+}
+
+/// Blocks on the user's decision to leave plan mode. Shaped like `ask_user_question` -- publish,
+/// wait, report -- but resolved as an approval rather than an answer, because an answer is a string
+/// the model interprets and would leave every later generation still resolving the read-only
+/// catalog (`add-agent-plan-exit-request` D1).
+#[allow(clippy::result_large_err)]
+fn request_plan_exit(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    interactive: bool,
+    plan_mode: bool,
+    cancelled: &AtomicBool,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+    // Reachable even though the catalog only offers this in plan mode: a model can name any tool,
+    // and a stale turn can replay one. Outside plan mode there is nothing to leave.
+    if !plan_mode {
+        return Ok(ToolExecutionOutcome {
+            output: "This session is not in plan mode, so there is nothing to leave. You already \
+                     have your full tool set; continue with the work."
+                .to_string(),
+            is_error: true,
+        });
+    }
+    if !interactive {
+        return Ok(ToolExecutionOutcome {
+            output:
+                "There is no interactive user in this execution context, so no one can approve \
+                     leaving plan mode. Finish the planning you were asked for and report it."
+                    .to_string(),
+            is_error: true,
+        });
+    }
+    if let Err(message) = validate_plan_input(input) {
+        return Ok(ToolExecutionOutcome {
+            output: message,
+            is_error: true,
+        });
+    }
+
+    tool_use.status = "awaiting_input".to_string();
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    match await_approval(&tool_use.id, cancelled, pending_approvals) {
+        // The catalog for this generation was resolved before the call and is not re-resolved, so
+        // the write tools are genuinely absent until the next turn -- say so rather than let the
+        // model discover it by calling a tool it was never given (D3).
+        ApprovalOutcome::Approved => Ok(ToolExecutionOutcome {
+            output: "The user approved your plan and this session has left plan mode. \
+                     Write-capable tools become available on your next turn, not this one, so end \
+                     your turn now instead of trying to start the work here."
+                .to_string(),
+            is_error: false,
+        }),
+        ApprovalOutcome::Denied => Ok(ToolExecutionOutcome {
+            output:
+                "The user did not approve this plan. The session is still in plan mode. Revise \
+                     the plan based on what they have told you rather than asking again unchanged."
+                    .to_string(),
+            is_error: true,
+        }),
+        ApprovalOutcome::Cancelled => Err(failed_non_retryable(
+            "Generation was cancelled while a plan was awaiting approval.",
+        )),
+        // An answer arriving for an approval means the two resolution paths were crossed. There is
+        // no decision to act on, so the call fails rather than inventing one.
+        ApprovalOutcome::Answered(_) => Ok(ToolExecutionOutcome {
+            output: "The plan approval was dismissed without a decision.".to_string(),
+            is_error: true,
+        }),
+    }
+}
+
+fn validate_plan_input(input: &Value) -> Result<(), String> {
+    let plan = input
+        .get("plan")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if plan.is_empty() {
+        return Err("plan must be a non-empty string describing what you will do.".to_string());
+    }
+    if plan.chars().count() > MAX_PLAN_CHARS {
+        return Err(format!(
+            "plan is {} characters; the maximum is {MAX_PLAN_CHARS}. Summarize it to what the user \
+             needs in order to decide.",
+            plan.chars().count()
+        ));
+    }
+    Ok(())
 }
 
 fn validate_question_input(input: &Value) -> Result<(), String> {
@@ -8605,6 +8736,158 @@ mod tests {
             &sink,
         )
         .unwrap_or_else(|_| panic!("ask_user_question should not fail the generation here"))
+    }
+
+    fn plan_exit(
+        interactive: bool,
+        plan_mode: bool,
+        input: &Value,
+        pending: &PendingApprovals,
+    ) -> ToolExecutionOutcome {
+        let mut tool_use = ToolUseBlock {
+            id: "call-plan-exit".to_owned(),
+            name: EXIT_PLAN_MODE_TOOL_NAME.to_owned(),
+            input: Some(input.clone()),
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let sink = CapturingSink::default();
+        request_plan_exit(
+            &mut tool_use,
+            input,
+            interactive,
+            plan_mode,
+            &AtomicBool::new(false),
+            pending,
+            &sink,
+        )
+        .unwrap_or_else(|_| panic!("request_plan_exit should not fail the generation here"))
+    }
+
+    /// Approval and decline must be distinguishable by the model without reading prose, because
+    /// the two outcomes lead to opposite next moves: stop and hand back, or revise and re-ask.
+    #[test]
+    fn approval_and_decline_are_distinct_outcomes() {
+        let plan = json!({"plan": "Rename the module and update its callers."});
+
+        let approved_pending = no_pending_approvals();
+        let resolver = resolve_tool_call_once(
+            &approved_pending,
+            "call-plan-exit",
+            ToolApprovalDecision::Approved,
+            Arc::new(AtomicBool::new(false)),
+        );
+        let approved = plan_exit(true, true, &plan, &approved_pending);
+        resolver.join().expect("resolver").expect("approve");
+        assert!(!approved.is_error);
+        // The catalog for this generation was already resolved, so the model must be told the
+        // change lands next turn rather than discovering it by calling a tool it never had.
+        assert!(approved.output.contains("next turn"), "{}", approved.output);
+
+        let declined_pending = no_pending_approvals();
+        let resolver = resolve_tool_call_once(
+            &declined_pending,
+            "call-plan-exit",
+            ToolApprovalDecision::Denied,
+            Arc::new(AtomicBool::new(false)),
+        );
+        let declined = plan_exit(true, true, &plan, &declined_pending);
+        resolver.join().expect("resolver").expect("decline");
+        assert!(declined.is_error);
+        assert!(
+            declined.output.contains("still in plan mode"),
+            "{}",
+            declined.output
+        );
+    }
+
+    /// Same boundary as a question: the catalog withholds this outside an interactive session, but
+    /// the catalog only shapes what the model is told. A hallucinated call must not block an
+    /// unattended run on a decision nobody is there to make.
+    #[test]
+    fn a_non_interactive_context_refuses_to_request_a_plan_exit() {
+        let pending = no_pending_approvals();
+        let outcome = plan_exit(false, true, &json!({"plan": "Do the work."}), &pending);
+
+        assert!(outcome.is_error);
+        assert!(
+            outcome.output.contains("no interactive user"),
+            "{}",
+            outcome.output
+        );
+        assert!(
+            pending.lock().expect("pending").is_empty(),
+            "a refused request must not register a waiter"
+        );
+    }
+
+    /// The tool is only in the plan-mode catalog, but a model can name any tool and a stale turn
+    /// can replay one. Outside plan mode there is nothing to leave, so it refuses rather than
+    /// asking the user to approve leaving a mode the session is not in.
+    #[test]
+    fn a_session_outside_plan_mode_refuses_the_request() {
+        let pending = no_pending_approvals();
+        let outcome = plan_exit(true, false, &json!({"plan": "Do the work."}), &pending);
+
+        assert!(outcome.is_error);
+        assert!(
+            outcome.output.contains("not in plan mode"),
+            "{}",
+            outcome.output
+        );
+        assert!(pending.lock().expect("pending").is_empty());
+    }
+
+    /// Rejected before anything reaches the chat surface: the user approves exactly the text they
+    /// were shown, so a plan that cannot be shown in full must not become an approvable request.
+    #[test]
+    fn an_empty_or_oversized_plan_is_rejected_without_publishing() {
+        for input in [
+            json!({}),
+            json!({"plan": ""}),
+            json!({"plan": "   "}),
+            json!({"plan": "x".repeat(MAX_PLAN_CHARS + 1)}),
+        ] {
+            let pending = no_pending_approvals();
+            let outcome = plan_exit(true, true, &input, &pending);
+            assert!(outcome.is_error, "{input}");
+            assert!(outcome.output.contains("plan"), "{}", outcome.output);
+            assert!(
+                pending.lock().expect("pending").is_empty(),
+                "a rejected plan must not register a waiter: {input}"
+            );
+        }
+
+        // Exactly at the bound is accepted, so the limit is not off by one.
+        let pending = no_pending_approvals();
+        let resolver = resolve_tool_call_once(
+            &pending,
+            "call-plan-exit",
+            ToolApprovalDecision::Approved,
+            Arc::new(AtomicBool::new(false)),
+        );
+        let outcome = plan_exit(
+            true,
+            true,
+            &json!({"plan": "x".repeat(MAX_PLAN_CHARS)}),
+            &pending,
+        );
+        resolver.join().expect("resolver").expect("approve");
+        assert!(!outcome.is_error, "{}", outcome.output);
+    }
+
+    /// `exit_plan_mode` authorizes a session mode, not an action on a resource. Classifying it as
+    /// anything writable would put an approval prompt in front of a request whose entire purpose
+    /// is to ask for approval.
+    #[test]
+    fn requesting_a_plan_exit_classifies_as_no_resource_write() {
+        let (action, resource) = permission_action_and_resource(
+            EXIT_PLAN_MODE_TOOL_NAME,
+            &json!({"plan": "Do the work."}),
+        );
+
+        assert_eq!(action, Action::file_read());
+        assert_eq!(resource, Resource::new(EXIT_PLAN_MODE_TOOL_NAME));
     }
 
     /// The catalog already withholds the tool outside interactive sessions, but the catalog only

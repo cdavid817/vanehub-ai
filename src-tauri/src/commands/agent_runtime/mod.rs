@@ -28,6 +28,7 @@ pub(crate) mod reset_agent_memories;
 pub(crate) mod reset_onepiece_provider_config;
 pub(crate) mod resize_agent_terminal;
 pub(crate) mod resolve_agent_question;
+pub(crate) mod resolve_plan_exit;
 pub(crate) mod save_onepiece_provider_config;
 pub(crate) mod save_onepiece_provider_profile;
 pub(crate) mod select_agent;

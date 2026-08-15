@@ -3272,6 +3272,8 @@
   "chat.toolQuestion.otherLabel": "自分の言葉で回答する",
   "chat.toolQuestion.otherPlaceholder": "または自分で回答を入力",
   "chat.toolQuestion.submit": "送信",
+  "chat.toolPlanExit.approve": "承認して開始",
+  "chat.toolPlanExit.decline": "計画を続ける",
   "slash.output.applied": "適用しました",
   "slash.output.mode": "実行モード: {{value}}",
   "slash.output.thinking": "思考: {{value}}",

@@ -3,6 +3,8 @@ import type { TFunction } from "i18next";
 import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleEllipsis, LoaderCircle, MessageCircleQuestion, ShieldAlert, Wrench, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
+import { PlanExitCard } from "./PlanExitCard";
+import { EXIT_PLAN_MODE_TOOL_NAME } from "./plan-exit-signal";
 import { QuestionCard } from "./QuestionCard";
 import { permissionsService } from "../../services/runtime-permissions-client";
 import { normalizeToolUse } from "../../services/tool-use";
@@ -157,7 +159,14 @@ function ActivityRow({ occurrences = [], sessionId, tool, t }: { occurrences?: T
         </pre>
       </details>
       {tool.status === "awaiting_approval" ? <ApprovalCard callId={tool.id} sessionId={sessionId} /> : null}
-      {tool.status === "awaiting_input" ? <QuestionCard callId={tool.id} input={tool.input} sessionId={sessionId} /> : null}
+      {/* Both tools block as `awaiting_input`, so the card is chosen by name -- rendering the
+          question card for a plan-exit block would parse nothing and silently show no controls,
+          leaving the request unanswerable. */}
+      {tool.status === "awaiting_input" ? (
+        tool.name === EXIT_PLAN_MODE_TOOL_NAME
+          ? <PlanExitCard callId={tool.id} input={tool.input} sessionId={sessionId} />
+          : <QuestionCard callId={tool.id} input={tool.input} sessionId={sessionId} />
+      ) : null}
     </div>
   );
 }
