@@ -2669,6 +2669,19 @@
                                               "agent-cross-session-memory",
                                               "retrieval-vector-search"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-16",
+                         "changeName":  "fix-direct-connection-os-proxy-inheritance",
+                         "path":  "openspec/changes/archive/2026-08-16-fix-direct-connection-os-proxy-inheritance/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings"
+                                          ]
                      }
                  ]
 }

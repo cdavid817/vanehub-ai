@@ -184,5 +184,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | add-cross-platform-desktop-automation | continuous-integration, desktop-runtime-verification | `openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/` |
 | 2026-08-16 | add-onepiece-slash-commands | chat-experience, slash-command-runtime | `openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/` |
 | 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
+| 2026-08-16 | fix-direct-connection-os-proxy-inheritance | app-settings | `openspec/changes/archive/2026-08-16-fix-direct-connection-os-proxy-inheritance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
