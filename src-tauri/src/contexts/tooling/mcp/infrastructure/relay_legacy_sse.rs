@@ -80,10 +80,12 @@ where
 {
     let stream_url =
         Url::parse(stream_url).map_err(|_| RelayFailure::new(McpFailureCode::Validation))?;
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?;
+    let client = crate::platform::network::apply_proxy_routing(
+        Client::builder().redirect(reqwest::redirect::Policy::none()),
+    )
+    .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?
+    .build()
+    .map_err(|_| RelayFailure::new(McpFailureCode::Transport))?;
     let deadline = tokio::time::Instant::now() + request_timeout;
     let response = tokio::time::timeout_at(
         deadline,
