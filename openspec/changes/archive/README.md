@@ -168,5 +168,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
 | 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
+| 2026-08-15 | add-file-reference-drag-and-paste | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-drag-and-paste/` |
+| 2026-08-15 | add-file-reference-preview-picker | chat-experience | `openspec/changes/archive/2026-08-15-add-file-reference-preview-picker/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
