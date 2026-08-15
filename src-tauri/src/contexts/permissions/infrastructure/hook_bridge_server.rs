@@ -180,6 +180,17 @@ fn deny() -> HookEvaluateResponse {
 
 #[cfg(test)]
 mod tests {
+    /// The bridge listens on loopback, so a proxied request never reaches it. A default client
+    /// picks up the host's proxy — on Windows from the Internet Settings registry, which no
+    /// amount of unsetting environment variables covers — and these assertions then describe the
+    /// proxy's reply rather than the bridge's.
+    fn loopback_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("loopback client")
+    }
+
     use super::*;
     use crate::contexts::permissions::application::{
         ApprovalBroker, DefaultTemplatePort, EvaluationService, PendingApprovalEventPort,
@@ -303,7 +314,7 @@ mod tests {
             test_permissions_api("hook-bridge-allow", PolicyTemplateName::Trusted);
         let (url, token) = spawn_test_server(permissions, waits).await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_client()
             .post(&url)
             .bearer_auth(&token)
             .json(&json!({
@@ -327,7 +338,7 @@ mod tests {
             test_permissions_api("hook-bridge-auth-wrong", PolicyTemplateName::Trusted);
         let (url, _token) = spawn_test_server(permissions, waits).await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_client()
             .post(&url)
             .bearer_auth("not-the-real-token")
             .json(&json!({"tool_name": "Bash", "tool_input": {}, "session_id": "s", "cwd": "/tmp"}))
@@ -344,7 +355,7 @@ mod tests {
             test_permissions_api("hook-bridge-auth-missing", PolicyTemplateName::Trusted);
         let (url, _token) = spawn_test_server(permissions, waits).await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_client()
             .post(&url)
             .json(&json!({"tool_name": "Bash", "tool_input": {}, "session_id": "s", "cwd": "/tmp"}))
             .send()
@@ -360,7 +371,7 @@ mod tests {
             test_permissions_api("hook-bridge-unmapped", PolicyTemplateName::Readonly);
         let (url, token) = spawn_test_server(permissions, waits).await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_client()
             .post(&url)
             .bearer_auth(&token)
             .json(&json!({
@@ -387,7 +398,7 @@ mod tests {
             let url = url.clone();
             let token = token.clone();
             async move {
-                reqwest::Client::new()
+                loopback_client()
                     .post(&url)
                     .bearer_auth(&token)
                     .json(&json!({
@@ -429,7 +440,7 @@ mod tests {
             let url = url.clone();
             let token = token.clone();
             async move {
-                reqwest::Client::new()
+                loopback_client()
                     .post(&url)
                     .bearer_auth(&token)
                     .json(&json!({

@@ -6,6 +6,7 @@
 - **Preview:** Multi-Agent coordination has native and Web/mock service contracts, but the create-session UI still disables Multi Agent mode.
 - **Not available yet:** the Multi-Agent coordination UI, and Japanese application UI resources — Japanese currently covers the README only.
 - **Claude Code permission hooks:** supported packages include the target-specific hook wrapper. If an installation is incomplete or damaged and the wrapper is missing, enabling hook management reports an error and leaves your global Claude Code settings untouched.
+- **Network proxy — behaviour change:** VaneHub now routes its own network requests only through the proxy you set in its settings. It no longer picks up a proxy configured in your operating system or shell environment. If you relied on that and left VaneHub's proxy setting empty, set the proxy under Settings so outbound requests keep working. This also fixes local traffic — requests to VaneHub's own loopback services are no longer sent to a proxy, which previously broke local tooling on machines with a system proxy enabled.
 
 ## Downloads
 

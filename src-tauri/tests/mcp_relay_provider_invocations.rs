@@ -517,7 +517,15 @@ fn assert_http_fixture_state(transport: UpstreamTransport, url: &str) {
         .expect("fixture URL")
         .join("/state")
         .expect("fixture state URL");
-    let state: Value = reqwest::blocking::get(state_url)
+    // The fixture is on loopback, and a default client takes the host's proxy, which answers with
+    // a body this then fails to parse. The failure reads as a broken fixture rather than a
+    // misrouted request, so the client says explicitly that it is not proxied.
+    let state: Value = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("loopback client")
+        .get(state_url)
+        .send()
         .expect("read fixture state")
         .json()
         .expect("parse fixture state");
