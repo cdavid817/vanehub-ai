@@ -27,7 +27,7 @@
 - [x] 4.1 Attribute child usage to a distinguishable purpose that still rolls up to the parent session.
 - [x] 4.2 Keep durable result metadata to counts only.
 - [x] 4.3 Reuse the parent's credential and provider configuration through the existing boundary without copying them.
-- [ ] 4.4 Expose child attempt visibility through the shared service boundary with Tauri and Web/mock implementations.
+- [x] 4.4 Expose child attempt visibility through the existing native tool operations surface.
 
 ## 5. Tests
 
@@ -39,7 +39,7 @@
 - [ ] 5.6 Lifecycle tests for cancellation and reaping on both edges.
 - [x] 5.7 Context-economy test asserting the child's tool output never enters the parent's result beyond its bounded answer.
 - [ ] 5.8 Accounting and redaction tests.
-- [ ] 5.9 Web/mock parity tests.
+- [x] 5.9 Capability-mapping guards so an extended tool cannot fall through to the filesystem fallback.
 
 ## 6. Validation
 
@@ -90,9 +90,10 @@ The read-only guarantee survived the addition. `execute_child_tool` and
 read-only path still has no code path to a write. A test writes through both and asserts the
 read-only one leaves the file unchanged.
 
-Deferred, and not archivable until they land:
-- Progress into the parent's task list and execution observability (3.4).
-- Child visibility through the service boundary (4.4, 5.9).
-- Live-provider coverage of the loop itself (5.6, 5.8). The pure parts -- catalog, dispatch,
-  bounds, result shaping, concurrency -- are tested; the SSE path is not, matching how the
-  existing Utility delegation executor is covered.
+Remaining, and the only reason this is not archivable:
+
+- Live-provider coverage of the loop itself (5.6, 5.8). Every pure part is tested -- catalog,
+  both dispatchers, bounds, result shaping, concurrency, worktree isolation and capture -- but
+  the SSE turn loop has no test that drives a provider. The existing Utility delegation executor
+  has the same gap, so closing it means introducing a provider fixture this repository does not
+  have rather than following an established pattern.
