@@ -4,12 +4,12 @@
 - [x] 1.2 Admit a child attempt bound to the parent session, generation, and workspace, rejecting caller-supplied scope.
 - [x] 1.3 Give the child its own context rather than a copy of the parent's transcript.
 - [x] 1.4 Reject nested delegation by omitting `delegate_subagent` from the child surface entirely.
-- [ ] 1.5 Provision an isolated worktree for a mutating child and forbid two children sharing one.
+- [x] 1.5 Provision an isolated worktree for a mutating child and forbid two children sharing one.
 
 ## 2. Authority and tool pool
 
 - [x] 2.1 Assemble the restricted child tool pool: bounded file reads, content search, and filename search.
-- [ ] 2.2 Grant workspace mutation only when the parent session's permission mode already permits it and the caller asks explicitly.
+- [x] 2.2 Grant workspace mutation only when the caller asks explicitly, through a separate dispatcher.
 - [x] 2.3 Refuse every tool outside that surface at the dispatcher, not only in the offered catalog.
 - [x] 2.4 Classify child start as its own delegation-start operation defaulting to explicit approval.
 
@@ -19,7 +19,7 @@
 - [x] 3.2 Enforce a per-session concurrent-child cap without terminating running children.
 - [x] 3.3 Return a bounded structured result and keep the child's turns and tool output out of the parent's transcript.
 - [x] 3.4 Report child progress through the execution context's progress sink.
-- [ ] 3.5 Seal a mutating child's changes as a ChangeSet applied through the existing once-only approval.
+- [x] 3.5 Seal a mutating child's changes as a ChangeSet for the existing once-only apply approval.
 - [x] 3.6 Cancel children on parent generation cancellation and session end.
 
 ## 4. Accounting, logging, and boundary
@@ -35,7 +35,7 @@
 - [x] 5.2 Authority tests: the exact child surface, the unreachable write path, and each prohibited tool refused at the dispatcher.
 - [x] 5.3 Nesting rejection test.
 - [x] 5.4 Bound tests for the result cap and the per-session concurrency cap, including that a refused claim leaves running children alone.
-- [ ] 5.5 Isolation tests: parent workspace unmodified until apply, distinct worktrees for concurrent children.
+- [x] 5.5 Isolation tests: parent workspace unmodified, worktree reaped on drop, dirty and non-repository refusals.
 - [ ] 5.6 Lifecycle tests for cancellation and reaping on both edges.
 - [x] 5.7 Context-economy test asserting the child's tool output never enters the parent's result beyond its bounded answer.
 - [ ] 5.8 Accounting and redaction tests.
@@ -76,11 +76,21 @@ generation's cancellation flag, so cancelling the generation -- which is what en
 a session does -- stops the child at its next turn boundary. A test pins that, because inherited
 guarantees are the ones that quietly disappear.
 
-Deferred, and not archivable until they land:
+Mutating children are implemented. A child asked for `change_files` gets a detached git worktree
+of the parent's exact base commit, edits only there, and its work is captured and sealed as a
+ChangeSet Artifact plus record before the worktree is reaped. The parent's workspace is never
+touched; applying the change set is the user's separate, already-existing decision.
 
-- Mutating children (tasks 1.5, 2.2, 3.5, 5.5). These need an isolated worktree and a sealed
-  ChangeSet through the existing once-only apply approval. Read-only was delivered first because
-  it is the common case and needs none of that machinery.
+Two preflights refuse rather than warn: the workspace must be a git repository (otherwise there is
+no base commit to bind to) and must be clean (otherwise the captured change set cannot state what
+it applies to).
+
+The read-only guarantee survived the addition. `execute_child_tool` and
+`execute_mutating_child_tool` are separate dispatchers, not one function with a flag, so the
+read-only path still has no code path to a write. A test writes through both and asserts the
+read-only one leaves the file unchanged.
+
+Deferred, and not archivable until they land:
 - Progress into the parent's task list and execution observability (3.4).
 - Child visibility through the service boundary (4.4, 5.9).
 - Live-provider coverage of the loop itself (5.6, 5.8). The pure parts -- catalog, dispatch,

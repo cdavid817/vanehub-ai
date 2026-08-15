@@ -15,16 +15,118 @@ fn call(name: &str, input: Value) -> ToolUseBlock {
 /// `execute_child_tool` is the only dispatcher. There is no allowlist to get wrong.
 #[test]
 fn the_child_catalog_is_exactly_three_read_only_tools() {
-    let names: Vec<String> = child_tool_catalog()
+    let names: Vec<String> = child_tool_catalog(false)
         .into_iter()
         .map(|tool| tool.name)
         .collect();
     assert_eq!(names, vec!["file", "grep", "glob"]);
 }
 
+/// A mutating child gains exactly `edit` and a writable `file`, and nothing else. In particular it
+/// still cannot run a command, reach the network, ask a question, or delegate.
+#[test]
+fn a_mutating_child_gains_only_write_tools() {
+    let names: Vec<String> = child_tool_catalog(true)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, vec!["edit", "file", "glob", "grep"]);
+
+    // The writable `file` definition replaced the plan-mode one, which cannot write.
+    let file = child_tool_catalog(true)
+        .into_iter()
+        .find(|tool| tool.name == "file")
+        .expect("file tool");
+    assert_eq!(
+        file.input_schema["properties"]["operation"]["enum"],
+        json!(["read", "write"])
+    );
+
+    for forbidden in [
+        "shell",
+        "shell_kill",
+        "ask_user_question",
+        "delegate_subagent",
+        "delegate_cli",
+        "apply_delegation_changes",
+    ] {
+        assert!(!names.contains(&forbidden.to_owned()), "{forbidden}");
+    }
+}
+
+/// The read-only dispatcher is a separate function, not a branch inside the mutating one, so a
+/// read-only child has no code path to a write regardless of any flag.
+#[test]
+fn the_mutating_dispatcher_writes_and_the_read_only_one_still_cannot() {
+    let directory = crate::test_support::TempDirectory::new("subagent-mutating-dispatch");
+    let root = directory.path().to_string_lossy().to_string();
+    std::fs::write(directory.path().join("target.txt"), "before\n").expect("fixture");
+
+    let write = call(
+        "file",
+        json!({"operation": "write", "path": "target.txt", "content": "after\n"}),
+    );
+
+    let (_output, is_error) = execute_child_tool(&write, &root);
+    assert!(!is_error);
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("target.txt")).expect("read"),
+        "before\n",
+        "the read-only dispatcher must not write, whatever the operation says"
+    );
+
+    let (_output, is_error) = execute_mutating_child_tool(&write, &root);
+    assert!(!is_error);
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("target.txt")).expect("read"),
+        "after\n",
+        "the mutating dispatcher writes"
+    );
+}
+
+#[test]
+fn the_mutating_dispatcher_delegates_reads_to_the_read_only_one() {
+    let directory = crate::test_support::TempDirectory::new("subagent-mutating-read");
+    let root = directory.path().to_string_lossy().to_string();
+    std::fs::write(directory.path().join("a.txt"), "needle\n").expect("fixture");
+
+    let (output, is_error) =
+        execute_mutating_child_tool(&call("file", json!({"path": "a.txt"})), &root);
+    assert!(!is_error, "{output}");
+    assert!(output.contains("needle"), "{output}");
+
+    // Still refuses anything outside the child surface.
+    let (refused, is_error) =
+        execute_mutating_child_tool(&call("shell", json!({"command": "echo hi"})), &root);
+    assert!(is_error);
+    assert!(refused.contains("not available to a subagent"), "{refused}");
+}
+
+/// A captured status letter must land on the right change kind, or a reviewer reads "modified"
+/// for a file that was deleted.
+#[test]
+fn captured_status_letters_map_to_change_kinds() {
+    let kind = |status: char| {
+        change_set_file(&CapturedFile {
+            path: "a.txt".to_owned(),
+            status,
+            new_hash: None,
+            binary: false,
+        })
+        .change_kind
+    };
+    assert_eq!(kind('?'), FileChangeKind::Add);
+    assert_eq!(kind('A'), FileChangeKind::Add);
+    assert_eq!(kind('D'), FileChangeKind::Delete);
+    assert_eq!(kind('R'), FileChangeKind::Rename);
+    assert_eq!(kind('M'), FileChangeKind::Modify);
+}
+
 #[test]
 fn the_child_catalog_excludes_every_effectful_and_delegating_tool() {
-    let names: Vec<String> = child_tool_catalog()
+    let names: Vec<String> = child_tool_catalog(false)
         .into_iter()
         .map(|tool| tool.name)
         .collect();

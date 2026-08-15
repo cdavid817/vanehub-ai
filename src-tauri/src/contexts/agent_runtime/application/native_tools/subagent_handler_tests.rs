@@ -125,6 +125,7 @@ fn malformed_input_is_rejected() {
         // A scope argument would let the caller aim the child somewhere the runtime did not pick.
         json!({ "task": "ok", "workspace": "C:/elsewhere" }),
         json!({ "task": "ok", "tools": ["shell"] }),
+        json!({ "task": "ok", "change_files": "yes" }),
         json!({ "task": "x".repeat(MAX_SUBAGENT_TASK_CHARS + 1) }),
     ];
     for input in cases {
@@ -140,7 +141,7 @@ fn malformed_input_is_rejected() {
 }
 
 #[test]
-fn the_schema_accepts_only_a_task() {
+fn the_schema_accepts_only_a_task_and_the_change_flag() {
     let definition = handler().definition().clone();
     assert_eq!(definition.name, "delegate_subagent");
     assert_eq!(definition.input_schema["required"], json!(["task"]));
@@ -148,7 +149,10 @@ fn the_schema_accepts_only_a_task() {
     let properties = definition.input_schema["properties"]
         .as_object()
         .expect("properties");
-    assert_eq!(properties.len(), 1);
+    assert_eq!(properties.len(), 2);
+    assert_eq!(properties["change_files"]["type"], "boolean");
+    // Only `task` is required: a caller that says nothing about writing gets a child that cannot.
+    assert_eq!(definition.input_schema["required"], json!(["task"]));
     assert!(!definition.plan_mode_compatible);
     for forbidden in [
         "workspace",

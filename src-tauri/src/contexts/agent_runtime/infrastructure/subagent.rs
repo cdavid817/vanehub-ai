@@ -13,17 +13,27 @@ use super::api_process_adapter::{
     begin_child_invocation, child_reply_turns, finish_child_invocation, run_child_turn,
     wire_format_for, ChildInvocationIdentity, REQUEST_TIMEOUT,
 };
-use super::tools::{execute_file, execute_glob, execute_grep, GrepRequest};
+use super::subagent_worktree::{CapturedFile, ChildWorktree, WorktreeError};
+use super::tools::{execute_edit, execute_file, execute_glob, execute_grep, GrepRequest};
+use super::SqliteNativeToolRepository;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLoggingPort, ApiAgentGateway, ApiCredentialPort, NativeToolErrorCode,
     NativeToolPortRequest, NativeToolProgress, NativeToolProgressPhase, NativeToolResultEnvelope,
     NativeToolResultStatus, SubagentPort, ToolDefinition, ToolUseBlock,
     NATIVE_TOOL_CONTRACT_VERSION,
 };
+use crate::contexts::agent_runtime::application::{
+    ChangeSetFileRecord, ChangeSetRecord, FileChangeKind,
+};
+use crate::contexts::artifacts::application::{
+    ArtifactCreateRequest, ArtifactCreator, ArtifactEvidenceKind, ArtifactService,
+    ArtifactVisibility,
+};
 use crate::contexts::sessions::api::{SessionsApi, UsageStatus};
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -93,23 +103,46 @@ pub(crate) struct NativeSubagentExecutor {
     accounting: Option<SessionsApi>,
     clock: Arc<dyn AgentClockPort>,
     logging: Arc<dyn AgentLoggingPort>,
+    artifacts: Arc<ArtifactService>,
+    operations: Arc<SqliteNativeToolRepository>,
+    operations_root: PathBuf,
     slots: ConcurrencySlots,
 }
 
+/// What a child attempt runs against. Bundled because these travel together and only the subagent
+/// executor uses them.
+pub(crate) struct SubagentRuntime {
+    pub(crate) credentials: Arc<dyn ApiCredentialPort>,
+    pub(crate) config: Arc<dyn ApiAgentGateway>,
+    pub(crate) accounting: Option<SessionsApi>,
+    pub(crate) clock: Arc<dyn AgentClockPort>,
+    pub(crate) logging: Arc<dyn AgentLoggingPort>,
+    pub(crate) artifacts: Arc<ArtifactService>,
+    pub(crate) operations: Arc<SqliteNativeToolRepository>,
+    pub(crate) operations_root: PathBuf,
+}
+
 impl NativeSubagentExecutor {
-    pub(crate) fn new(
-        credentials: Arc<dyn ApiCredentialPort>,
-        config: Arc<dyn ApiAgentGateway>,
-        accounting: Option<SessionsApi>,
-        clock: Arc<dyn AgentClockPort>,
-        logging: Arc<dyn AgentLoggingPort>,
-    ) -> Self {
+    pub(crate) fn new(runtime: SubagentRuntime) -> Self {
+        let SubagentRuntime {
+            credentials,
+            config,
+            accounting,
+            clock,
+            logging,
+            artifacts,
+            operations,
+            operations_root,
+        } = runtime;
         Self {
             credentials,
             config,
             accounting,
             clock,
             logging,
+            artifacts,
+            operations,
+            operations_root,
             slots: ConcurrencySlots::default(),
         }
     }
@@ -179,7 +212,31 @@ impl NativeSubagentExecutor {
             );
         };
 
-        let catalog = child_tool_catalog();
+        let mutating = request
+            .input
+            .value
+            .get("change_files")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        // Provisioned before the loop so every exit below drops it, and `ChildWorktree::drop`
+        // reaps. A child that is cancelled mid-edit leaves nothing behind.
+        let worktree = if mutating {
+            match ChildWorktree::provision(std::path::Path::new(&workspace), &self.operations_root)
+            {
+                Ok(worktree) => Some(worktree),
+                Err(error) => {
+                    return failure(NativeToolErrorCode::Ineligible, error.message().to_owned())
+                }
+            }
+        } else {
+            None
+        };
+        // A mutating child edits its own copy; a read-only child never leaves the parent's.
+        let child_root = worktree.as_ref().map_or_else(
+            || workspace.clone(),
+            |tree| tree.path().to_string_lossy().into_owned(),
+        );
+        let catalog = child_tool_catalog(mutating);
         let mut turns = vec![json!({ "role": "user", "content": task })];
         let mut tool_calls_used = 0_u32;
         let identity = ChildInvocationIdentity {
@@ -261,7 +318,10 @@ impl NativeSubagentExecutor {
                 }
             };
             if requested.is_empty() {
-                return succeeded(&text, tool_calls_used);
+                return match worktree.as_ref() {
+                    Some(worktree) => self.seal(worktree, &text, context, tool_calls_used),
+                    None => succeeded(&text, tool_calls_used),
+                };
             }
             if tool_calls_used.saturating_add(requested.len() as u32) > MAX_CHILD_TOOL_CALLS {
                 return terminal(
@@ -291,7 +351,11 @@ impl NativeSubagentExecutor {
                 .into_iter()
                 .map(|call| {
                     tool_calls_used += 1;
-                    let (output, is_error) = execute_child_tool(&call, &workspace);
+                    let (output, is_error) = if mutating {
+                        execute_mutating_child_tool(&call, &child_root)
+                    } else {
+                        execute_child_tool(&call, &child_root)
+                    };
                     (call, output, is_error)
                 })
                 .collect();
@@ -303,6 +367,159 @@ impl NativeSubagentExecutor {
             Some("The investigation reached its turn limit without concluding.".to_owned()),
             tool_calls_used,
         )
+    }
+}
+
+impl NativeSubagentExecutor {
+    /// Captures the child's work, seals the diff as an Artifact, and records the ChangeSet, in
+    /// that order and before the worktree is dropped. A capture that is not sealed would leave the
+    /// edits in a directory about to be reaped and have the model report work that no longer
+    /// exists (`add-onepiece-subagents` D8).
+    fn seal(
+        &self,
+        worktree: &ChildWorktree,
+        text: &str,
+        context: &crate::contexts::agent_runtime::application::NativeToolExecutionContext,
+        tool_calls: u32,
+    ) -> NativeToolResultEnvelope {
+        let files = match worktree.capture() {
+            Ok(files) => files,
+            Err(error) => {
+                return failure(
+                    NativeToolErrorCode::LimitExceeded,
+                    error.message().to_owned(),
+                )
+            }
+        };
+        if files.is_empty() {
+            // Nothing changed: report the child's answer rather than an empty change set the user
+            // would have to open to discover it is empty.
+            return succeeded(text, tool_calls);
+        }
+        let Ok(diff) = worktree.diff() else {
+            return failure(
+                NativeToolErrorCode::ExternalFailure,
+                WorktreeError::GitFailure.message().to_owned(),
+            );
+        };
+
+        let created_at = self.clock.now();
+        let artifact = self.artifacts.create_bytes(
+            ArtifactCreateRequest {
+                operation_id: context.call_id.clone(),
+                display_name: "subagent-change-set.patch".to_owned(),
+                media_type: "text/x-patch".to_owned(),
+                creator: ArtifactCreator {
+                    kind: "subagent".to_owned(),
+                    id: context.agent_id.clone(),
+                },
+                // The child is a model, not the host: its output is reviewed, never trusted.
+                evidence_kind: ArtifactEvidenceKind::UntrustedExternal,
+                visibility: ArtifactVisibility::Session,
+                source_artifact_ids: Vec::new(),
+                created_at: created_at.clone(),
+                expires_at: None,
+            },
+            &diff,
+        );
+        let Ok(artifact) = artifact else {
+            return failure(
+                NativeToolErrorCode::ExternalFailure,
+                "The subagent's change set could not be stored.".to_owned(),
+            );
+        };
+
+        let record = ChangeSetRecord {
+            contract_version: NATIVE_TOOL_CONTRACT_VERSION,
+            artifact_id: artifact.id.clone(),
+            content_hash: artifact.content_hash.clone(),
+            repository_identity: worktree.repository_identity().to_owned(),
+            base_commit: worktree.base_commit().to_owned(),
+            attempt_id: context.call_id.clone(),
+            files: files.iter().map(change_set_file).collect(),
+            warnings: Vec::new(),
+            created_at,
+        };
+        if self.operations.insert_change_set(&record).is_err() {
+            return failure(
+                NativeToolErrorCode::ExternalFailure,
+                "The subagent's change set could not be recorded.".to_owned(),
+            );
+        }
+
+        let summary = bounded(text).unwrap_or_else(|| "The subagent made changes.".to_owned());
+        NativeToolResultEnvelope {
+            contract_version: NATIVE_TOOL_CONTRACT_VERSION,
+            status: NativeToolResultStatus::Succeeded,
+            output: Some(json!({
+                "summary": summary,
+                "changeSetArtifactId": artifact.id,
+                "changedFiles": files.iter().map(|file| file.path.clone()).collect::<Vec<_>>(),
+            })),
+            error_code: None,
+            safe_error: None,
+            truncated: text.chars().count() > MAX_CHILD_RESULT_CHARS,
+            metadata: metadata(tool_calls),
+        }
+    }
+}
+
+fn change_set_file(file: &CapturedFile) -> ChangeSetFileRecord {
+    ChangeSetFileRecord {
+        path: file.path.clone(),
+        change_kind: match file.status {
+            '?' | 'A' => FileChangeKind::Add,
+            'D' => FileChangeKind::Delete,
+            'R' => FileChangeKind::Rename,
+            _ => FileChangeKind::Modify,
+        },
+        old_hash: None,
+        new_hash: file.new_hash.clone(),
+        binary: file.binary,
+        mode: None,
+    }
+}
+
+/// The mutating child's dispatcher, deliberately separate from the read-only one rather than a
+/// flag inside it (`add-onepiece-subagents` D8). Keeping them apart means the read-only path
+/// still cannot express a write no matter what any caller passes.
+fn execute_mutating_child_tool(call: &ToolUseBlock, worktree_root: &str) -> (String, bool) {
+    let input = call.input.clone().unwrap_or(Value::Null);
+    let string = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    match call.name.as_str() {
+        "edit" => {
+            let outcome = execute_edit(
+                &string("path"),
+                &string("old_string"),
+                &string("new_string"),
+                input
+                    .get("replace_all")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                worktree_root,
+            );
+            (outcome.output, outcome.is_error)
+        }
+        "file" if input.get("operation").and_then(Value::as_str) == Some("write") => {
+            let outcome = execute_file(
+                "write",
+                &string("path"),
+                input.get("content").and_then(Value::as_str),
+                None,
+                None,
+                worktree_root,
+            );
+            (outcome.output, outcome.is_error)
+        }
+        // Everything else, including a `file` read, falls through to the read-only dispatcher, so
+        // the reading half has exactly one implementation.
+        _ => execute_child_tool(call, worktree_root),
     }
 }
 
@@ -327,11 +544,24 @@ fn publish_progress(
 /// The child's whole tool surface. Read-only by construction: these three definitions are the only
 /// ones offered, and `execute_child_tool` is the only dispatcher, so a child has no route to
 /// anything else even if the model asks for it.
-fn child_tool_catalog() -> Vec<ToolDefinition> {
-    crate::contexts::agent_runtime::application::plan_mode_tool_catalog()
-        .into_iter()
-        .filter(|tool| matches!(tool.name.as_str(), "file" | "grep" | "glob"))
-        .collect()
+fn child_tool_catalog(mutating: bool) -> Vec<ToolDefinition> {
+    let mut catalog: Vec<ToolDefinition> =
+        crate::contexts::agent_runtime::application::plan_mode_tool_catalog()
+            .into_iter()
+            .filter(|tool| matches!(tool.name.as_str(), "file" | "grep" | "glob"))
+            .collect();
+    if !mutating {
+        return catalog;
+    }
+    // A mutating child needs the full `file` definition (its plan-mode copy cannot write) plus
+    // `edit`. Both are scoped to the child's own worktree by the dispatcher, never the parent's.
+    catalog.retain(|tool| tool.name != "file");
+    catalog.extend(
+        crate::contexts::agent_runtime::application::tool_catalog()
+            .into_iter()
+            .filter(|tool| matches!(tool.name.as_str(), "file" | "edit")),
+    );
+    catalog
 }
 
 fn execute_child_tool(call: &ToolUseBlock, workspace: &str) -> (String, bool) {

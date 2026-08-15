@@ -83,8 +83,17 @@ impl NativeToolHandler for SubagentNativeToolHandler {
 
     fn validate(&self, input: &Value) -> Result<ValidatedNativeToolInput, NativeToolHandlerError> {
         let object = input.as_object().ok_or_else(invalid_input)?;
-        reject_unknown_fields(object, &["task"])?;
+        reject_unknown_fields(object, &["task", "change_files"])?;
         let task = required_string(object, "task", MAX_SUBAGENT_TASK_CHARS)?;
+        // Type-checked rather than coerced: a caller writing `"yes"` means it wants a child that
+        // can write, and silently handing back a read-only one would look like the child simply
+        // chose not to edit anything.
+        if object
+            .get("change_files")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err(invalid_input());
+        }
         let input_hash = hash_json(input)?;
         Ok(ValidatedNativeToolInput {
             value: input.clone(),
@@ -134,9 +143,11 @@ fn definition() -> NativeToolDefinition {
              conclusion. Use it when finding the answer would cost far more reading than the \
              answer is worth carrying -- tracing where something is handled across a codebase, \
              surveying how a pattern is used. The child sees your task text and nothing else of \
-             this conversation, explores with read-only tools only, and cannot write files, run \
-             commands, reach the network, ask you anything, or delegate further. State exactly \
-             what you want to know; you get at most {MAX_SUBAGENT_RESULT_CHARS} characters back."
+             this conversation, and cannot run commands, reach the network, ask you anything, or \
+             delegate further. By default it cannot write either; set change_files to let it edit \
+             in an isolated copy of the repository and hand back a change set for you to apply. \
+             State exactly what you want; you get at most {MAX_SUBAGENT_RESULT_CHARS} characters \
+             back."
         ),
         input_schema: json!({
             "type": "object",
@@ -144,7 +155,11 @@ fn definition() -> NativeToolDefinition {
                 "task": {
                     "type": "string",
                     "maxLength": MAX_SUBAGENT_TASK_CHARS,
-                    "description": "The question to investigate, stated so it can be answered without further instruction. The child cannot ask you to clarify."
+                    "description": "The question to investigate, or the change to make, stated so it can be carried out without further instruction. The child cannot ask you to clarify."
+                },
+                "change_files": {
+                    "type": "boolean",
+                    "description": "Let the child edit files. It works in its own isolated copy of the repository and returns a change set for you to apply; nothing reaches this workspace until you apply it. Requires a clean git repository. Defaults to false, which gives the child no way to write at all."
                 }
             },
             "required": ["task"],

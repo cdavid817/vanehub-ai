@@ -35,9 +35,10 @@ use crate::contexts::agent_runtime::infrastructure::{
     RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
     SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
     SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UnavailableNativeToolPort, UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SubagentRuntime,
+    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UnavailableNativeToolPort, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -305,13 +306,16 @@ fn assemble_native_tool_registry(
     // The child reuses the parent's own credential and provider configuration through the
     // existing boundary rather than receiving copies (`add-onepiece-subagents`).
     handlers.push(Arc::new(SubagentNativeToolHandler::new(Arc::new(
-        NativeSubagentExecutor::new(
-            subagents.credentials,
-            subagents.agents,
-            subagents.accounting,
-            subagents.clock,
-            subagents.logging,
-        ),
+        NativeSubagentExecutor::new(SubagentRuntime {
+            credentials: subagents.credentials,
+            config: subagents.agents,
+            accounting: subagents.accounting,
+            clock: subagents.clock,
+            logging: subagents.logging,
+            artifacts: artifacts.clone(),
+            operations: Arc::new(SqliteNativeToolRepository::new(database.clone())),
+            operations_root: data_root.join("subagent-worktrees"),
+        }),
     ))));
     if readiness {
         let port = Arc::new(OcrNativeToolAdapter::new(
