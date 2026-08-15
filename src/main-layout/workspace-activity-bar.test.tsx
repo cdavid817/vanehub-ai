@@ -41,6 +41,7 @@ describe("WorkspaceActivityBar", () => {
     expect(html.indexOf('title="Settings"')).toBeLessThan(html.indexOf('title="Help"'));
     expect(html).toContain('aria-controls="workspace-session-sidebar"');
     expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-testid="desktop-smoke-settings"');
     expect(html).not.toContain(">Sessions<");
   });
 
