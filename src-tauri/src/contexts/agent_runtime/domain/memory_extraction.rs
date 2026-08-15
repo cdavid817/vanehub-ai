@@ -1,7 +1,3 @@
-// Consumed by tasks 5.2 through 5.5, which repoint the extraction gateway and both extraction
-// call sites at this parser. Until then only this module's own tests exercise it.
-#![allow(dead_code)]
-
 use super::{validate_name, AgentRuntimeDomainError, MemoryType};
 use serde_json::Value;
 
@@ -23,14 +19,6 @@ impl MemoryActionKind {
             "update" => Some(Self::Update),
             "delete" => Some(Self::Delete),
             _ => None,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Create => "create",
-            Self::Update => "update",
-            Self::Delete => "delete",
         }
     }
 }

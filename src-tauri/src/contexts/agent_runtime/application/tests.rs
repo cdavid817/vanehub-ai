@@ -1,7 +1,7 @@
 use super::*;
 use crate::contexts::agent_runtime::domain::{
-    AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow,
-    AvailabilityAssessment, InteractionMode, LaunchMetadata,
+    parse_memory_actions, AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle,
+    AgentWorkflow, AvailabilityAssessment, InteractionMode, LaunchMetadata, ParsedMemoryActions,
 };
 use crate::contexts::execution_observability::api::{
     CapturedTelemetryRecord, CapturingExecutionTelemetry, ExecutionFidelity, ExecutionSettingsPort,
@@ -145,6 +145,7 @@ pub(super) struct FakeWorld {
     extraction_credential_failure: AtomicBool,
     extraction_call_failure: AtomicBool,
     extraction_calls: Mutex<Vec<String>>,
+    extraction_manifests: Mutex<Vec<String>>,
 }
 
 impl FakeWorld {
@@ -245,10 +246,13 @@ impl FakeWorld {
             removed_credentials: Mutex::new(Vec::new()),
             personalization_settings: Mutex::new(PersonalizationSettings::safe_fallback()),
             personalization_failure: AtomicBool::new(false),
-            extraction_response: Mutex::new(Some("Extracted fact.".to_string())),
+            extraction_response: Mutex::new(Some(
+                r#"[{"action":"create","name":"extracted-fact","description":"An extracted fact","body":"Extracted fact."}]"#.to_string(),
+            )),
             extraction_credential_failure: AtomicBool::new(false),
             extraction_call_failure: AtomicBool::new(false),
             extraction_calls: Mutex::new(Vec::new()),
+            extraction_manifests: Mutex::new(Vec::new()),
         }
     }
 }
@@ -886,11 +890,19 @@ impl AgentMemoryPort for FakeWorld {
 }
 
 impl AgentMemoryExtractionPort for FakeWorld {
-    fn extract(&self, exchange: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+    fn extract(
+        &self,
+        exchange: &str,
+        existing: &str,
+    ) -> Result<ParsedMemoryActions, AgentRuntimeApplicationError> {
         self.extraction_calls
             .lock()
             .expect("extraction calls")
             .push(exchange.to_string());
+        self.extraction_manifests
+            .lock()
+            .expect("extraction manifests")
+            .push(existing.to_string());
         if self.extraction_credential_failure.load(Ordering::SeqCst) {
             return Err(AgentRuntimeApplicationError::Credential(
                 "no credential".to_string(),
@@ -901,11 +913,19 @@ impl AgentMemoryExtractionPort for FakeWorld {
                 "call failed".to_string(),
             ));
         }
-        Ok(self
+        // Tests still stage a plain string; it is parsed through the real parser here so a fake
+        // response that the production path would reject cannot pass silently in a test.
+        let staged = self
             .extraction_response
             .lock()
             .expect("extraction response")
-            .clone())
+            .clone();
+        match staged {
+            Some(response) => parse_memory_actions(&response).map_err(|error| {
+                AgentRuntimeApplicationError::Memory(format!("unusable response: {error}"))
+            }),
+            None => Ok(ParsedMemoryActions::default()),
+        }
     }
 }
 

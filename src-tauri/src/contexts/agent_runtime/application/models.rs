@@ -1425,8 +1425,10 @@ pub(crate) struct SaveMemoryInput<'a> {
 }
 
 impl<'a> SaveMemoryInput<'a> {
-    /// A save whose only inputs are provenance and content — used by both extraction paths until
-    /// `add-two-tier-memory-recall` gives them model-chosen metadata.
+    /// A save carrying only provenance and content, leaving the store to derive a name and a
+    /// description. Every production write now supplies its own metadata, so this survives for the
+    /// legacy row repository's tests alone.
+    #[cfg(test)]
     pub(crate) fn derived(
         agent_id: &'a str,
         folder: Option<&'a str>,

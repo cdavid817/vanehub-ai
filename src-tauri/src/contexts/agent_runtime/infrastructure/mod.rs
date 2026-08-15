@@ -40,6 +40,7 @@ mod loop_verification_process;
 mod manual_native_tool_adapter;
 mod manual_native_tool_control;
 mod mcp_tool_gateway;
+mod memory_actions;
 mod memory_directory;
 mod memory_extraction_gateway;
 mod memory_migration;
@@ -106,6 +107,10 @@ pub(crate) use manual_native_tool_adapter::{
 };
 pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_actions::{
+    apply_memory_actions, render_existing_manifest, AppliedMemoryActions,
+};
 #[allow(unused_imports)]
 pub(crate) use memory_directory::{
     is_within_memory_directory, memory_directory_root, FileAgentMemoryStore, MemoryHeader,

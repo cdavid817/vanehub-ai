@@ -2,6 +2,7 @@ use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, l
 use super::context_projection::ContextWireShape;
 use super::context_projection::PreparedContextProjection;
 use super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
+use super::memory_actions::{apply_memory_actions, render_existing_manifest};
 use super::memory_directory::is_within_memory_directory;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
@@ -38,15 +39,16 @@ use crate::contexts::agent_runtime::application::{
     SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
-    build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
-    AutomaticCompactionState, CompactionBypassReason, CompactionPath, CompactionTriggerSource,
-    ContextAssessmentInvariants, ContextAssessmentOutcome, ContextAssessmentPath,
-    ContextAssessmentReason, ContextAssessmentTriggerSource, ContextCompactionEvidence,
-    ContextOptimizationBudget, ContextQualityAssessment, ContextQualityAssessmentInput,
-    ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason, MemoryType,
-    OptimizationActionKind, OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor,
-    UtilityDelegationLimits, UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION,
-    CONTEXT_OPTIMIZER_VERSION, CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION,
+    build_optimization_plan, parse_memory_actions, select_authoritative_compaction,
+    verify_optimization_candidate, AutomaticCompactionState, CompactionBypassReason,
+    CompactionPath, CompactionTriggerSource, ContextAssessmentInvariants, ContextAssessmentOutcome,
+    ContextAssessmentPath, ContextAssessmentReason, ContextAssessmentTriggerSource,
+    ContextCompactionEvidence, ContextOptimizationBudget, ContextQualityAssessment,
+    ContextQualityAssessmentInput, ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason,
+    MemoryType, OptimizationActionKind, OptimizationOutcome, RetentionClass, SemanticClass,
+    UsageAnchor, UtilityDelegationLimits, UtilityDelegationRequest,
+    AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
+    CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, MEMORY_ACTIONS_INSTRUCTION,
     STRUCTURED_SUMMARY_PROMPT,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
@@ -100,7 +102,6 @@ const SUMMARIZATION_INSTRUCTION: &str = "Summarize the conversation above concis
 /// Deliberately asks for one fact per line with no numbering/bullets/preamble, since the
 /// response is parsed by splitting on newlines (`extract_memories`) rather than an additional
 /// structured-output round trip.
-pub(crate) const MEMORY_EXTRACTION_INSTRUCTION: &str = "Review the conversation above for any facts, decisions, or preferences worth remembering in future, separate sessions working on this same project. Respond with one per line, plain text, no numbering, bullets, or preamble. If nothing is worth remembering, respond with nothing at all.";
 const ONEPIECE_CONFIGURATION_ERROR: &str = "OnePiece is not configured. Add or activate a provider configuration with an endpoint, model, and API key in Settings → Agent Configuration.";
 
 type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecision>>>>;
@@ -3241,7 +3242,7 @@ fn extract_memories_accounted(
         provider_config,
         system,
         turns_to_extract_from,
-        MEMORY_EXTRACTION_INSTRUCTION,
+        &memory_extraction_instruction(memories),
         cancelled,
         accounting,
         request,
@@ -3270,16 +3271,39 @@ fn extract_memories_accounted(
             return;
         }
     };
-    for line in response.lines() {
-        let line = line.trim();
-        if !line.is_empty() {
-            let _ = memories.save(SaveMemoryInput::derived(
-                agent_id,
-                folder,
-                line,
-                MemorySource::Automatic,
-            ));
+    // A malformed response is logged and dropped, never propagated: extraction is best-effort work
+    // hanging off a compaction, and the generation that triggered it must be unaffected.
+    match parse_memory_actions(&response) {
+        Ok(parsed) => {
+            apply_memory_actions(memories, agent_id, folder, MemorySource::Automatic, &parsed);
         }
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.memory".to_string(),
+                message: format!(
+                    "Automatic memory extraction returned an unusable response: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+        }
+    }
+}
+
+/// Extraction instruction plus the existing pool's manifest. Built per call because the pool
+/// changes between compactions, and without it the model cannot name a memory to update.
+fn memory_extraction_instruction(memories: &dyn AgentMemoryPort) -> String {
+    let existing = render_existing_manifest(memories);
+    if existing.trim().is_empty() {
+        MEMORY_ACTIONS_INSTRUCTION.to_string()
+    } else {
+        format!("{MEMORY_ACTIONS_INSTRUCTION}\n\nExisting memories:\n{existing}")
     }
 }
 
@@ -9149,11 +9173,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_memories_saves_one_memory_per_non_empty_line() {
+    fn extract_memories_applies_the_returned_action_list() {
         let (address, server) = http_fixture(
             "200 OK",
             sse_body(&[
-                r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm.\nPrefers dark mode."},"finish_reason":null}]}"#,
+                r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Uses pnpm.\"},{\"action\":\"create\",\"name\":\"dark-mode\",\"description\":\"Prefers dark mode\",\"body\":\"Prefers dark mode.\"}]"},"finish_reason":null}]}"#,
                 "[DONE]",
             ]),
         );
@@ -9194,6 +9218,8 @@ mod tests {
         );
         assert_eq!(saved[1].2, "Prefers dark mode.");
         assert!(logging.logs.lock().expect("logs").is_empty());
+        // The response is an action list now, not one memory per line: a line can only ever
+        // create, which is what made the pool grow without ever being corrected.
     }
 
     #[test]
@@ -10340,8 +10366,9 @@ mod tests {
                     r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
                     "[DONE]",
                 ]),
+                // Extraction returns an action list now; plain prose is a malfunction.
                 sse_body(&[
-                    r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm."},"finish_reason":null}]}"#,
+                    r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Uses pnpm.\"}]"},"finish_reason":null}]}"#,
                     "[DONE]",
                 ]),
             ],
@@ -10647,8 +10674,9 @@ mod tests {
                     r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
                     "[DONE]",
                 ]),
+                // Extraction returns an action list now; plain prose is a malfunction.
                 sse_body(&[
-                    r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm."},"finish_reason":null}]}"#,
+                    r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Uses pnpm.\"}]"},"finish_reason":null}]}"#,
                     "[DONE]",
                 ]),
             ],

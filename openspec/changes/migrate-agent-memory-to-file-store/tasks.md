@@ -30,11 +30,11 @@
 ## 5. Extraction returns actions
 
 - [x] 5.1 Define the extraction action schema (`create` / `update` / `delete` with name, description, type, body) and its validator
-- [ ] 5.2 Change `memory_extraction_gateway.rs` to request structured output and return a validated action list instead of `Option<String>`
-- [ ] 5.3 Include the existing-memory manifest and the bodies of the most relevant existing memories in the extraction prompt so update actions are expressible
-- [ ] 5.4 Apply surviving actions to the directory; reject per action, not per call, and log each rejection without failing the generation
-- [ ] 5.5 Repoint OnePiece's compaction-triggered extraction and the CLI post-turn extraction at the directory sink, leaving both trigger conditions unchanged
-- [ ] 5.6 Add tests for an action naming a path outside the memory root, a partially invalid action list, an empty action list, and an unparseable response
+- [x] 5.2 Change `memory_extraction_gateway.rs` to request structured output and return a validated action list instead of `Option<String>`
+- [x] 5.3 Include the existing-memory manifest and the bodies of the most relevant existing memories in the extraction prompt so update actions are expressible
+- [x] 5.4 Apply surviving actions to the directory; reject per action, not per call, and log each rejection without failing the generation
+- [x] 5.5 Repoint OnePiece's compaction-triggered extraction and the CLI post-turn extraction at the directory sink, leaving both trigger conditions unchanged
+- [x] 5.6 Add tests for an action naming a path outside the memory root, a partially invalid action list, an empty action list, and an unparseable response
 
 ## 6. Read paths
 

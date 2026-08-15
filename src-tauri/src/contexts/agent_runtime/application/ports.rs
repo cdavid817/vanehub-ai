@@ -24,7 +24,7 @@ use super::{
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
     ContextQualityAssessmentPage, ContextQualityAssessmentRecord, ContextQualitySummary,
-    LoopDefinition, LoopRun, LoopRunStatus,
+    LoopDefinition, LoopRun, LoopRunStatus, ParsedMemoryActions,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -974,12 +974,18 @@ pub(crate) trait AgentMemoryPort: Send + Sync {
 pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
     /// `exchange` is the turn's plain-text content (the user's message and the agent's final
     /// response) — not provider wire-format turns, since CLI-wrapped agents never produce those.
-    /// Returns `Ok(None)` when the call succeeds but finds nothing worth remembering, mirroring
-    /// `extract_memories`'s existing empty-result semantics. Does not persist anything itself —
-    /// the caller decides how to split and save the result (mirroring `extract_memories`'s own
-    /// one-memory-per-line convention) via `AgentMemoryPort`, using whatever `agent_id`/`folder`
-    /// it already has in scope.
-    fn extract(&self, exchange: &str) -> Result<Option<String>, AgentRuntimeApplicationError>;
+    ///
+    /// Returns a validated action list. An empty list means the call succeeded and found nothing
+    /// worth remembering, which is the expected outcome most of the time; `Err` means the call or
+    /// its response malfunctioned. Since `migrate-agent-memory-to-file-store` the result is
+    /// actions rather than prose the caller splits per line, because a line can only ever create a
+    /// memory and never correct or retract one. Persisting is still the caller's job, via
+    /// `AgentMemoryPort` with whatever `agent_id`/`folder` it already has in scope.
+    fn extract(
+        &self,
+        exchange: &str,
+        existing: &str,
+    ) -> Result<ParsedMemoryActions, AgentRuntimeApplicationError>;
 }
 
 /// Host-level personalization settings read from `desktop` at generation time
