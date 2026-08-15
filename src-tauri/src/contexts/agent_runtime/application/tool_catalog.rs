@@ -37,6 +37,7 @@ pub(crate) const SEARCH_CODE_TOOL_NAME: &str = "search_code";
 pub(crate) const GREP_TOOL_NAME: &str = "grep";
 pub(crate) const GLOB_TOOL_NAME: &str = "glob";
 pub(crate) const EDIT_TOOL_NAME: &str = "edit";
+pub(crate) const NOTEBOOK_TOOL_NAME: &str = "notebook";
 pub(crate) const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
 pub(crate) const LOAD_SKILL_TOOL_NAME: &str = "load_skill";
 pub(crate) const READ_SKILL_RESOURCE_TOOL_NAME: &str = "read_skill_resource";
@@ -95,6 +96,7 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         shell_output_tool_definition(),
         shell_kill_tool_definition(),
         todo_write_tool_definition(),
+        notebook_tool_definition(),
     ]
 }
 
@@ -317,8 +319,81 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         read_skill_resource_tool_definition(),
         shell_output_tool_definition(),
         todo_write_tool_definition(),
+        plan_mode_notebook_tool_definition(),
         exit_plan_mode_tool_definition(),
     ]
+}
+
+/// Plan mode's notebook is reading only, declared separately rather than filtered later so the
+/// catalog states the restriction rather than relying on the executor to enforce it -- the same
+/// shape the file tool uses there.
+fn plan_mode_notebook_tool_definition() -> ToolDefinition {
+    let mut definition = notebook_tool_definition();
+    definition.description =
+        "Read a Jupyter notebook (.ipynb) as cells. Plan mode is active: editing notebooks is not \
+         available. Outputs are summarized; an image output is named and measured, never included."
+            .to_string();
+    definition.input_schema["properties"]["operation"] = json!({
+        "type": "string",
+        "enum": ["read"],
+        "description": "Only reading is available in plan mode."
+    });
+    definition
+}
+
+/// One tool with four operations rather than four tools (`add-agent-notebook-tool` D1): they share
+/// a path and the same addressing rules, and a tool's real cost is its schema on every request.
+fn notebook_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NOTEBOOK_TOOL_NAME.to_string(),
+        description: "Read or edit a Jupyter notebook (.ipynb) a cell at a time. Use this rather \
+                      than the file or edit tools: reading a notebook as raw JSON spends most of \
+                      the response on base64 output images, and cell source is stored as escaped \
+                      per-line strings that an exact-string edit cannot match. Reading returns each \
+                      cell's index, id, type, and source, with outputs summarized -- an image \
+                      output is named and measured, never included. Changing a code cell's source \
+                      clears its outputs, because they describe an execution that no longer \
+                      matches."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["read", "replace", "insert", "delete"],
+                    "description": "What to do: read the notebook, or replace, insert, or delete one cell."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Path to the .ipynb file, relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
+                },
+                "cell_id": {
+                    "type": "string",
+                    "description": "Which cell to act on, by the id a read reports. Prefer this over cell_index: an id survives later edits and an index does not. Supply exactly one of cell_id or cell_index."
+                },
+                "cell_index": {
+                    "type": "integer",
+                    "description": "Which cell to act on, by 0-based position. Use this for notebooks whose cells have no id, which a read shows as \"-\". Supply exactly one of cell_id or cell_index."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "The cell's new source, for replace and insert. Plain text, not a JSON array."
+                },
+                "cell_type": {
+                    "type": "string",
+                    "enum": ["code", "markdown", "raw"],
+                    "description": "Type of the cell to insert. Defaults to code."
+                },
+                "position": {
+                    "type": "string",
+                    "enum": ["before", "after", "start", "end"],
+                    "description": "Where to insert: before or after the addressed cell, or at the start or end when no cell is addressed. Defaults to after, or end when no cell is addressed."
+                }
+            },
+            "required": ["operation", "path"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// Offered only from the plan-mode catalog (`add-agent-plan-exit-request` D5). Outside plan mode
@@ -678,6 +753,7 @@ mod tests {
                 SHELL_OUTPUT_TOOL_NAME,
                 SHELL_KILL_TOOL_NAME,
                 TODO_WRITE_TOOL_NAME,
+                NOTEBOOK_TOOL_NAME,
             ]
         );
     }
@@ -698,6 +774,7 @@ mod tests {
                 READ_SKILL_RESOURCE_TOOL_NAME,
                 SHELL_OUTPUT_TOOL_NAME,
                 TODO_WRITE_TOOL_NAME,
+                NOTEBOOK_TOOL_NAME,
                 EXIT_PLAN_MODE_TOOL_NAME,
             ]
         );
@@ -721,6 +798,67 @@ mod tests {
         let ordinary_names: Vec<String> =
             tool_catalog().into_iter().map(|tool| tool.name).collect();
         assert!(!ordinary_names.contains(&EXIT_PLAN_MODE_TOOL_NAME.to_string()));
+    }
+
+    /// Appended last rather than inserted among the existing entries: tool order is part of the
+    /// prompt-cache prefix, so slotting a new one in the middle would invalidate the cached prefix
+    /// of every native generation for no functional gain.
+    #[test]
+    fn the_notebook_tool_extends_the_catalog_without_reordering_the_existing_prefix() {
+        let names: Vec<String> = tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert_eq!(names.last().map(String::as_str), Some(NOTEBOOK_TOOL_NAME));
+        assert_eq!(
+            names[..12],
+            [
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
+                SHELL_KILL_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
+            ]
+        );
+    }
+
+    /// Plan mode narrows the notebook to reading, the same way it narrows the file tool -- declared
+    /// in the catalog rather than left to the executor, so the restriction is stated where the
+    /// model reads it.
+    #[test]
+    fn plan_mode_narrows_the_notebook_to_reading() {
+        let plan = plan_mode_tool_catalog();
+        let notebook = plan
+            .iter()
+            .find(|tool| tool.name == NOTEBOOK_TOOL_NAME)
+            .expect("plan mode offers a notebook");
+        assert_eq!(
+            notebook.input_schema["properties"]["operation"]["enum"],
+            json!(["read"])
+        );
+
+        let ordinary = tool_catalog();
+        let full = ordinary
+            .iter()
+            .find(|tool| tool.name == NOTEBOOK_TOOL_NAME)
+            .expect("the ordinary catalog offers a notebook");
+        assert_eq!(
+            full.input_schema["properties"]["operation"]["enum"],
+            json!(["read", "replace", "insert", "delete"])
+        );
+        // Everything except the operation enum is the same declaration, so the two cannot drift.
+        assert_eq!(
+            notebook.input_schema["properties"]["path"],
+            full.input_schema["properties"]["path"]
+        );
+        assert_eq!(
+            notebook.input_schema["required"],
+            full.input_schema["required"]
+        );
     }
 
     #[test]
