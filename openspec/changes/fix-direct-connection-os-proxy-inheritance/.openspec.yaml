@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-15
+goal: Stop direct-connection mode from inheriting the operating system proxy so
+  the declared loopback bypass actually applies
