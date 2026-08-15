@@ -338,3 +338,60 @@ fn a_shadowed_revisions_record_does_not_leak_into_another_skills_resolution() {
 
     assert_eq!(value_of(&resolved, "label"), Some(text("configured-skill")));
 }
+
+#[test]
+fn a_plaintext_value_for_a_now_secret_property_is_never_promoted_into_the_credential_store() {
+    let schema = schema();
+    // `api_key` is secret in the current schema; this row survived from when it was not.
+    let records = vec![record(
+        SkillConfigScope::User,
+        "",
+        vec![
+            ("endpoint".to_string(), text("kept")),
+            (
+                "api_key".to_string(),
+                text("plaintext-from-an-older-schema"),
+            ),
+        ],
+        Vec::new(),
+    )];
+
+    let resolved = resolve_from_records(&schema, &records);
+
+    assert_eq!(resolved.drift, SkillConfigDrift::MigrationRequired);
+    // The stale plaintext is not surfaced as the secret's value, and the slot stays missing
+    // rather than being silently filled from SQLite.
+    let secret = resolved
+        .properties
+        .iter()
+        .find(|property| property.key == "api_key")
+        .expect("secret property");
+    assert_eq!(secret.value, None);
+    assert_eq!(secret.secret_state, Some(SkillSecretState::Missing));
+    assert!(!format!("{resolved:?}").contains("plaintext-from-an-older-schema"));
+}
+
+#[test]
+fn a_credential_for_a_property_that_is_no_longer_secret_is_not_demoted_into_sqlite() {
+    let schema = schema();
+    // `endpoint` is a plain property; this credential survived from when it was secret.
+    let records = vec![record(
+        SkillConfigScope::User,
+        "",
+        Vec::new(),
+        vec!["endpoint".to_string()],
+    )];
+
+    let resolved = resolve_from_records(&schema, &records);
+
+    assert_eq!(resolved.drift, SkillConfigDrift::MigrationRequired);
+    // The plain property falls back to its schema default rather than adopting the credential.
+    assert_eq!(
+        value_of(&resolved, "endpoint"),
+        Some(text("https://default.example"))
+    );
+    assert_eq!(
+        provenance_of(&resolved, "endpoint"),
+        SkillConfigProvenance::SchemaDefault
+    );
+}

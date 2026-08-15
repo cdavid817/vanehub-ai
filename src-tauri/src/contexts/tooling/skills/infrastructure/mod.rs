@@ -1,6 +1,7 @@
 mod configuration_repository;
 mod configuration_resolution;
 mod configuration_schema;
+mod configuration_secrets;
 mod effective_cache;
 mod effective_catalog;
 mod filesystem;
@@ -28,6 +29,11 @@ pub(crate) use configuration_resolution::{
     ResolvedSkillConfiguration, ScopeConfigurationState,
 };
 pub(crate) use configuration_schema::apply_skill_configuration_schema;
+#[allow(unused_imports)]
+pub(crate) use configuration_secrets::{
+    secret_alias, SecretRecovery, SecretSlotState, SkillConfigurationSecrets, SkillSecretFailure,
+    SkillSecretStore, StagedSecrets,
+};
 pub(crate) use effective_cache::{
     EffectiveSkillDerivedCache, EffectiveSkillRuntimeCacheInvalidator,
 };

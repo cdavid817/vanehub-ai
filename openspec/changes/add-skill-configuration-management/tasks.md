@@ -16,11 +16,11 @@
 
 ## 3. Secret isolation and compensation
 
-- [ ] 3.1 Extend the native credential-store abstraction with opaque Skill configuration slots and read models limited to configured, missing, or error state.
-- [ ] 3.2 Implement preserve, replace, and clear mutation intents without returning stored values or credential aliases through DTOs.
-- [ ] 3.3 Implement credential/SQLite compensation and explicit recovery state for failures before, during, and after each resource update.
-- [ ] 3.4 Require explicit reconciliation when a property changes between secret and non-secret and prevent automatic movement between SQLite and the credential store.
-- [ ] 3.5 Add tests proving secrets never enter SQLite bodies, frontend responses, Web persistence, logs, prompts, transcripts, dossiers, usage records, evolution signals, or error messages.
+- [x] 3.1 Extend the native credential-store abstraction with opaque Skill configuration slots and read models limited to configured, missing, or error state.
+- [x] 3.2 Implement preserve, replace, and clear mutation intents without returning stored values or credential aliases through DTOs.
+- [x] 3.3 Implement credential/SQLite compensation and explicit recovery state for failures before, during, and after each resource update.
+- [x] 3.4 Require explicit reconciliation when a property changes between secret and non-secret and prevent automatic movement between SQLite and the credential store.
+- [x] 3.5 Add tests proving secrets never enter SQLite bodies, frontend responses, Web persistence, logs, prompts, transcripts, dossiers, usage records, evolution signals, or error messages.
 
 ## 4. Validation, preview, and reconciliation services
 
