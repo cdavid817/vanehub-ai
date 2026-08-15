@@ -164,7 +164,7 @@ fn projected_replacement_len(
 /// inode in place. That is arguably the better default here (it stops an edit inside a
 /// hardlinked, pnpm-style `node_modules` store from mutating every other linked copy) but it is a
 /// silent semantic change from `fs::write` worth knowing about.
-fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
+pub(super) fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
     let parent = target.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

@@ -407,7 +407,7 @@ mod tests {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
         let body = build_request_body("claude-opus-4-8", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
-        assert_eq!(declared.len(), 12);
+        assert_eq!(declared.len(), 13);
         assert_eq!(declared[0]["name"], "shell");
         assert!(declared[0]["input_schema"]["properties"]["command"].is_object());
         assert_eq!(declared[1]["name"], "file");

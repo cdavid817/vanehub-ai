@@ -6,10 +6,10 @@ use super::context_reduction::{build_structured_summary_turns, reconstruct_candi
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_file_image_read, execute_glob,
-    execute_grep, execute_shell, is_reviewed_image_path, render_task_list,
+    execute_grep, execute_notebook, execute_shell, is_reviewed_image_path, render_task_list,
     task_list_prompt_section, task_list_store, validate_task_list, BackgroundStartError,
-    GrepRequest, KillOutcome, ToolExecutionOutcome, MAX_BACKGROUND_COMMANDS_PER_SESSION,
-    OUTPUT_MODE_FILES,
+    GrepRequest, KillOutcome, NotebookRequest, ToolExecutionOutcome,
+    MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
 #[cfg(test)]
 use super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
@@ -41,9 +41,9 @@ use crate::contexts::agent_runtime::application::{
     GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
     MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
-    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
-    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME,
-    SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME,
+    RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME,
+    SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -3667,6 +3667,16 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
             (Action::file_write(), Resource::file_path(path))
         }
+        // Classified per operation, like the file tool: reading a notebook is a read, and the three
+        // that rewrite it are writes against the same path.
+        NOTEBOOK_TOOL_NAME => {
+            let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            let resource = Resource::file_path(path);
+            match input.get("operation").and_then(Value::as_str) {
+                Some("read") => (Action::file_read(), resource),
+                _ => (Action::file_write(), resource),
+            }
+        }
         FIND_DEFINITION_TOOL_NAME
         | FIND_REFERENCES_TOOL_NAME
         | GET_HOVER_TOOL_NAME
@@ -5065,6 +5075,14 @@ fn execute_tool_call_impl(
     if plan_mode && registered_handler == Some(ExistingToolHandler::Edit) {
         return plan_mode_denial("Editing files");
     }
+    // The plan-mode catalog offers a read-only notebook, but the catalog only shapes what the model
+    // is told; this is the boundary that holds if it asks for an operation it was never offered.
+    if plan_mode
+        && registered_handler == Some(ExistingToolHandler::Notebook)
+        && input.get("operation").and_then(Value::as_str) != Some("read")
+    {
+        return plan_mode_denial("Editing notebooks");
+    }
     let Some(folder) = workspace_folder else {
         return ToolExecutionOutcome {
             output: "This session has no workspace folder configured.".to_string(),
@@ -5167,6 +5185,35 @@ fn execute_tool_call_impl(
             folder,
             cancelled,
         ),
+        Some(ExistingToolHandler::Notebook) => {
+            let path = input
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let operation = input
+                .get("operation")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let outcome = execute_notebook(
+                NotebookRequest {
+                    operation,
+                    path,
+                    cell_id: input.get("cell_id").and_then(Value::as_str),
+                    cell_index: input
+                        .get("cell_index")
+                        .and_then(Value::as_u64)
+                        .and_then(|index| usize::try_from(index).ok()),
+                    source: input.get("source").and_then(Value::as_str),
+                    cell_type: input.get("cell_type").and_then(Value::as_str),
+                    position: input.get("position").and_then(Value::as_str),
+                },
+                folder,
+            );
+            if !outcome.is_error && operation != "read" {
+                publish_workspace_mutation(folder, path, workspace_mutations);
+            }
+            outcome
+        }
         Some(ExistingToolHandler::Edit) => {
             let path = input
                 .get("path")
@@ -9311,6 +9358,86 @@ mod tests {
         assert!(mcp.calls.lock().expect("calls").is_empty());
     }
 
+    /// The plan-mode catalog offers a read-only notebook, but a catalog only shapes what the model
+    /// is told. This is the boundary that holds when it asks for an operation it was never offered
+    /// -- without it, plan mode would be write-capable through one tool.
+    #[test]
+    fn execute_tool_call_reads_but_never_edits_a_notebook_in_plan_mode() {
+        let directory = crate::test_support::TempDirectory::new("execute-tool-call-plan-notebook");
+        let notebook = concat!(
+            r#"{"cells": [{"cell_type": "code", "id": "a", "metadata": {}, "outputs": [], "#,
+            r#""execution_count": null, "source": ["x = 1\n"]}], "#,
+            r#""metadata": {}, "nbformat": 4, "nbformat_minor": 5}"#
+        );
+        std::fs::write(directory.path().join("a.ipynb"), notebook).expect("fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let read = execute_tool_call(
+            NOTEBOOK_TOOL_NAME,
+            &json!({"operation": "read", "path": "a.ipynb"}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            true,
+        );
+        assert!(!read.is_error, "{}", read.output);
+        assert!(read.output.contains("x = 1"), "{}", read.output);
+
+        for operation in ["replace", "insert", "delete"] {
+            let outcome = execute_tool_call(
+                NOTEBOOK_TOOL_NAME,
+                &json!({"operation": operation, "path": "a.ipynb", "cell_index": 0, "source": "y = 2\n"}),
+                Some(&folder),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                true,
+            );
+            assert!(outcome.is_error, "{operation}: {}", outcome.output);
+            assert!(
+                outcome.output.contains("Editing notebooks"),
+                "{operation}: {}",
+                outcome.output
+            );
+        }
+        // None of the refused operations reached the file.
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("a.ipynb")).expect("read back"),
+            notebook
+        );
+    }
+
+    /// Classified per operation like the file tool: reading a notebook is a read, and the three
+    /// that rewrite it are writes against the same path -- so a notebook edit passes through the
+    /// same approval gate a file edit does.
+    #[test]
+    fn notebook_operations_classify_reads_and_writes_against_the_same_path() {
+        let (action, resource) = permission_action_and_resource(
+            NOTEBOOK_TOOL_NAME,
+            &json!({"operation": "read", "path": "notes/a.ipynb"}),
+        );
+        assert_eq!(action, Action::file_read());
+        assert_eq!(resource, Resource::file_path("notes/a.ipynb"));
+
+        for operation in ["replace", "insert", "delete"] {
+            let (action, resource) = permission_action_and_resource(
+                NOTEBOOK_TOOL_NAME,
+                &json!({"operation": operation, "path": "notes/a.ipynb"}),
+            );
+            assert_eq!(action, Action::file_write(), "{operation}");
+            assert_eq!(
+                resource,
+                Resource::file_path("notes/a.ipynb"),
+                "{operation}"
+            );
+        }
+    }
+
     #[test]
     fn execute_tool_call_still_allows_file_read_in_plan_mode() {
         let directory = crate::test_support::TempDirectory::new("execute-tool-call-plan-mode-read");
@@ -9819,7 +9946,7 @@ mod tests {
         let tools =
             resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -9852,7 +9979,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 269);
+        assert_eq!(tools.len(), 270);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, GREP_TOOL_NAME);
@@ -9899,7 +10026,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 270);
+        assert_eq!(tools.len(), 271);
         assert_recall_follows_mcp_entries(&tools);
     }
 
@@ -9920,7 +10047,7 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            13,
+            14,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
@@ -10002,7 +10129,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert_recall_follows_mcp_entries(&tools);
     }
 
