@@ -1,11 +1,11 @@
 ## 1. Index injection
 
-- [ ] 1.1 Split `format_memory_section` into index assembly and body assembly, with the index built from `MEMORY.md` reconciled against the directory scan
-- [ ] 1.2 Implement the paired line-and-byte cap: truncate at an entry boundary, never mid-entry, and append a line naming which cap fired
-- [ ] 1.3 Order index entries by last modification time so truncation drops the least recently modified first
-- [ ] 1.4 Apply the OnePiece caps (200 lines, 12,000 bytes) to the system-prompt index
-- [ ] 1.5 Apply the separate CLI caps (40 lines, 3,000 bytes) at the Prompt Hook injection point, leaving its position and ordering unchanged
-- [ ] 1.6 Add tests for line-cap truncation, byte-cap truncation within the line cap, entry-boundary cutting, the truncation notice text, and the two surfaces truncating independently
+- [x] 1.1 Split `format_memory_section` into index assembly and body assembly, with the index built from `MEMORY.md` reconciled against the directory scan
+- [x] 1.2 Implement the paired line-and-byte cap: truncate at an entry boundary, never mid-entry, and append a line naming which cap fired
+- [x] 1.3 Order index entries by last modification time so truncation drops the least recently modified first
+- [x] 1.4 Apply the OnePiece caps (200 lines, 12,000 bytes) to the system-prompt index
+- [x] 1.5 Apply the separate CLI caps (40 lines, 3,000 bytes) at the Prompt Hook injection point, leaving its position and ordering unchanged
+- [x] 1.6 Add tests for line-cap truncation, byte-cap truncation within the line cap, entry-boundary cutting, the truncation notice text, and the two surfaces truncating independently
 
 ## 2. Relevance selection
 

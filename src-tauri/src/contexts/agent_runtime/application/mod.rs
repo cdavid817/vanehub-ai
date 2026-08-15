@@ -84,8 +84,11 @@ pub(crate) use loop_verifier::{LoopVerifierApplicationPorts, LoopVerifierApplica
 pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationService};
 #[cfg(test)]
 pub(crate) use models::AgentLaunchView;
+// `format_memory_bodies` and `MemoryIndexBounds` are consumed by tasks 2 and 3, which add the
+// relevance selection that produces bodies. Until then only the index half of the split is wired.
+#[allow(unused_imports)]
 pub(crate) use models::{
-    format_memory_section, ActiveGenerationCorrelation, AgentChatConfiguration,
+    format_memory_bodies, format_memory_index, ActiveGenerationCorrelation, AgentChatConfiguration,
     AgentCoreInstructions, AgentEvent, AgentFileReference, AgentInvocationUsage, AgentLog,
     AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
     AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
@@ -100,8 +103,8 @@ pub(crate) use models::{
     GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
     LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
     LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
+    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemoryIndexBounds, MemorySource,
+    MessageTokenUsage, NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult,
     OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
     OnePieceProviderProfiles, OpenAgentTerminalRequest, OrchestrationCorrelation,
@@ -116,7 +119,8 @@ pub(crate) use models::{
     StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
     ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, UpdateApiAgentInput,
     ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
 };
 pub(crate) use ports::ContextQualityRepository;
 

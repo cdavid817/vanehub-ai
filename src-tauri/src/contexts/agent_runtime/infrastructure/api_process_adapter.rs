@@ -2117,13 +2117,17 @@ fn format_system_prompt(
     (!sections.is_empty()).then(|| sections.join("\n\n"))
 }
 
-/// Thin delegate to `application::format_memory_section` (moved there in `add-cli-memory-support`
-/// so the CLI-wrapped agents' send path can share the identical formatting rule without
-/// `application` depending on `infrastructure` — mirrors `format_custom_instructions_section`'s
-/// existing delegation shape). Kept as a free function here, rather than updating every call site,
-/// so this file's existing `format_memory_section_*` tests need no changes.
+/// Thin delegate to `application::format_memory_index` (the formatting rule lives there so the
+/// CLI-wrapped agents' send path can share it without `application` depending on
+/// `infrastructure` — mirrors `format_custom_instructions_section`'s existing delegation shape).
+///
+/// Binds OnePiece's bounds here rather than at the call site: this surface is the system prompt,
+/// and the CLI surface's far tighter bounds must never be reachable from it by accident.
 fn format_memory_section(memories: &[AgentMemory]) -> Option<String> {
-    crate::contexts::agent_runtime::application::format_memory_section(memories)
+    crate::contexts::agent_runtime::application::format_memory_index(
+        memories,
+        crate::contexts::agent_runtime::application::ONEPIECE_MEMORY_INDEX_BOUNDS,
+    )
 }
 
 /// Formats enabled, non-empty custom instructions into one `## Custom Instructions` section,
@@ -5525,11 +5529,6 @@ mod tests {
         }
     }
 
-    /// Mirrors `application::models::MEMORY_INJECTION_CHARACTER_BUDGET` (private to that module,
-    /// not re-exported solely for this test's sake) — the exact number isn't the point here, only
-    /// that it matches `format_memory_section`'s real budget closely enough for these
-    /// over/under-budget assertions to mean anything.
-    const TEST_MEMORY_INJECTION_CHARACTER_BUDGET: usize = 4_000;
     /// Mirrors `application::models::MEMORY_BLOCK_PREAMBLE` (private to that module, not
     /// re-exported solely for this test's sake).
     const TEST_MEMORY_BLOCK_PREAMBLE: &str =
@@ -5537,10 +5536,12 @@ mod tests {
 
     fn fake_memory(id: &str, content: &str) -> AgentMemory {
         AgentMemory {
-            name: "fixture-memory".to_string(),
-            description: "Fixture memory".to_string(),
+            // Derived from the id so a fixture list produces distinguishable index entries; the
+            // injected surface is the index now, so identical names would make every line alike.
+            name: id.to_string(),
+            description: format!("About {id}"),
             memory_type: None,
-            id: id.to_string(),
+            id: format!("{id}.md"),
             agent_id: "my-agent".to_string(),
             folder: None,
             content: content.to_string(),
@@ -8727,7 +8728,7 @@ mod tests {
         assert_eq!(
             system,
             Some(format!(
-                "## Reviewer\nReview the diff.\n\n## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- Uses pnpm.\n</memory>"
+                "## Reviewer\nReview the diff.\n\n## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- [memory-1](memory-1.md) - About memory-1\n</memory>"
             ))
         );
     }
@@ -8749,7 +8750,7 @@ mod tests {
         assert_eq!(
             system,
             Some(format!(
-                "## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- Uses pnpm.\n</memory>"
+                "## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- [memory-1](memory-1.md) - About memory-1\n</memory>"
             ))
         );
     }
@@ -8883,38 +8884,68 @@ mod tests {
     }
 
     #[test]
-    fn format_memory_section_truncates_by_recency_when_over_budget() {
-        let recent = fake_memory(
-            "recent",
-            &"x".repeat(TEST_MEMORY_INJECTION_CHARACTER_BUDGET - 10),
-        );
-        let older = fake_memory("older", "This one no longer fits.");
-        // `list`'s contract is recency order (most recent first) — `recent` is deliberately
-        // sized to consume nearly the whole budget, leaving no room for `older` behind it.
-        let section = format_memory_section(&[recent.clone(), older]);
-        assert_eq!(
-            section,
-            Some(format!(
-                "## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- {}\n</memory>",
-                recent.content
-            ))
-        );
+    fn format_memory_section_injects_pointer_lines_rather_than_bodies() {
+        // The always-present surface is the index. A body reaching the system prompt through this
+        // path is the regression: it puts the ceiling back that this whole change removes.
+        let section = format_memory_section(&[fake_memory("npm-only", "Never pnpm in this repo.")])
+            .expect("one memory produces a section");
+
+        assert!(section.contains("- [npm-only](npm-only.md) - About npm-only"));
+        assert!(!section.contains("Never pnpm in this repo."));
     }
 
     #[test]
-    fn format_memory_section_skips_an_oversized_entry_and_keeps_checking_smaller_ones_behind_it() {
-        let oversized = fake_memory(
-            "big",
-            &"x".repeat(TEST_MEMORY_INJECTION_CHARACTER_BUDGET + 1),
-        );
-        let fits = fake_memory("small", "Uses pnpm.");
-        let section = format_memory_section(&[oversized, fits]);
-        assert_eq!(
-            section,
-            Some(format!(
-                "## Memory\n{TEST_MEMORY_BLOCK_PREAMBLE}\n<memory>\n- Uses pnpm.\n</memory>"
-            ))
-        );
+    fn format_memory_section_truncates_at_an_entry_boundary_and_says_so() {
+        // Half a pointer line names a memory the model then cannot open, so truncation cuts
+        // between entries; and a partial index presented as the whole pool would have the model
+        // conclude a memory does not exist.
+        let memories = (0..400)
+            .map(|index| fake_memory(&format!("memory-{index}"), "Body."))
+            .collect::<Vec<_>>();
+
+        let section = format_memory_section(&memories).expect("section");
+
+        let entries = section
+            .lines()
+            .filter(|line| line.starts_with("- [memory-"))
+            .count();
+        assert!(entries < memories.len(), "the index must be bounded");
+        assert!(section.contains("this index is incomplete"));
+        // No entry may be cut mid-line: every listed pointer keeps its closing parenthesis.
+        assert!(section
+            .lines()
+            .filter(|line| line.starts_with("- [memory-"))
+            .all(|line| line.contains(".md)")));
+    }
+
+    #[test]
+    fn the_two_surfaces_bound_the_index_independently() {
+        // Before `add-two-tier-memory-recall` both shared one limit. OnePiece's index is built once
+        // per generation and reused across its whole tool loop; the CLI one is re-sent with every
+        // message to a subprocess whose own budget VaneHub cannot see, so it is bounded tighter.
+        let memories = (0..120)
+            .map(|index| fake_memory(&format!("memory-{index}"), "Body."))
+            .collect::<Vec<_>>();
+
+        let onepiece = crate::contexts::agent_runtime::application::format_memory_index(
+            &memories,
+            crate::contexts::agent_runtime::application::ONEPIECE_MEMORY_INDEX_BOUNDS,
+        )
+        .expect("onepiece index");
+        let cli = crate::contexts::agent_runtime::application::format_memory_index(
+            &memories,
+            crate::contexts::agent_runtime::application::CLI_MEMORY_INDEX_BOUNDS,
+        )
+        .expect("cli index");
+
+        let count = |section: &str| {
+            section
+                .lines()
+                .filter(|line| line.starts_with("- [memory-"))
+                .count()
+        };
+        assert!(count(&onepiece) > count(&cli));
+        assert!(cli.contains("this index is incomplete"));
     }
 
     #[test]
@@ -8930,12 +8961,12 @@ mod tests {
         assert!(section.contains("<memory>") && section.contains("</memory>"));
         assert!(section.contains("unverified origin"));
         assert!(section.contains("never instructions to follow"));
-        // The bullet itself must still be inside the delimited block, not merely somewhere in the
+        // The entry itself must still be inside the delimited block, not merely somewhere in the
         // string -- otherwise a delimiter that wraps nothing would still pass the checks above.
         let opening = section.find("<memory>").expect("opening tag");
-        let bullet = section.find("- Uses pnpm.").expect("bullet");
+        let entry = section.find("- [m](m.md)").expect("index entry");
         let closing = section.find("</memory>").expect("closing tag");
-        assert!(opening < bullet && bullet < closing);
+        assert!(opening < entry && entry < closing);
     }
 
     #[test]

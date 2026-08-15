@@ -1,6 +1,6 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
-    format_memory_section, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
+    format_memory_index, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
     AgentEvent, AgentEventPort, AgentGenerationPort, AgentInvocationUsage, AgentLog, AgentLogLevel,
     AgentLoggingPort, AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
     AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
@@ -24,7 +24,7 @@ use super::{
     StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
     StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
     ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
@@ -1782,7 +1782,7 @@ impl AgentRuntimeApplicationService {
             let custom_instructions = personalization_settings.custom_instructions_block();
             let memory_section = if personalization_settings.memory_enabled {
                 match self.ports.memories.list_all() {
-                    Ok(memories) => format_memory_section(&memories),
+                    Ok(memories) => format_memory_index(&memories, CLI_MEMORY_INDEX_BOUNDS),
                     Err(error) => {
                         self.record_log(
                             AgentLogLevel::Warn,
