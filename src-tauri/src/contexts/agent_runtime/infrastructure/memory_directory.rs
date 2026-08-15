@@ -777,6 +777,87 @@ mod tests {
     }
 
     #[test]
+    fn a_memory_corrected_later_lists_ahead_of_untouched_older_ones() {
+        // Recency has to mean "last modified", not "first created". Ordering by creation would put
+        // a memory the model just corrected behind a pile of stale ones it never touched, and the
+        // injection budget would spend itself on the stale ones first.
+        let fixture = Fixture::new("memory store recency after correction");
+        fixture.save("first", "First", "Original first.");
+        fixture.save("second", "Second", "Original second.");
+        assert_eq!(
+            AgentMemoryPort::list_all(&fixture.store).expect("list")[0].name,
+            "second"
+        );
+
+        fixture.save("first", "First", "Corrected first.");
+
+        let listed = AgentMemoryPort::list_all(&fixture.store).expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].name, "first");
+        assert_eq!(listed[0].content, "Corrected first.");
+    }
+
+    #[test]
+    fn the_listing_reflects_an_edit_made_outside_the_application() {
+        // The directory is authoritative, so a user editing a memory file by hand must show up on
+        // the next listing without a restart or an explicit refresh.
+        let fixture = Fixture::new("memory store out of band edit");
+        let path = fixture.save("hand-edited", "Original description", "Original body.");
+
+        fs::write(
+            fixture.store.root().join(&path),
+            "---\nname: hand-edited\ndescription: Edited by hand\ntype: feedback\n---\n\nEdited body.\n",
+        )
+        .expect("out-of-band edit");
+
+        let listed = AgentMemoryPort::list_all(&fixture.store).expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].description, "Edited by hand");
+        assert_eq!(listed[0].memory_type, Some(MemoryType::Feedback));
+        assert_eq!(listed[0].content, "Edited body.");
+    }
+
+    #[test]
+    fn a_listing_carries_provenance_and_tolerates_a_hand_written_file_without_it() {
+        let fixture = Fixture::new("memory store listing provenance");
+        fixture
+            .store
+            .save(SaveMemoryInput {
+                agent_id: "onepiece",
+                folder: Some("D:/code"),
+                name: Some("with-provenance"),
+                description: Some("Has provenance"),
+                memory_type: Some(MemoryType::Project),
+                content: "Body.",
+                source: MemorySource::Explicit,
+            })
+            .expect("save");
+        fixture.write_raw(
+            "hand-written.md",
+            "---\nname: hand-written\ndescription: No provenance at all\n---\n\nBody.\n",
+        );
+
+        let listed = AgentMemoryPort::list_all(&fixture.store).expect("list");
+
+        let with = listed
+            .iter()
+            .find(|memory| memory.name == "with-provenance")
+            .expect("provenanced memory");
+        assert_eq!(with.agent_id, "onepiece");
+        assert_eq!(with.folder.as_deref(), Some("D:/code"));
+        assert_eq!(with.source, MemorySource::Explicit);
+        assert!(!with.created_at.is_empty());
+
+        let without = listed
+            .iter()
+            .find(|memory| memory.name == "hand-written")
+            .expect("hand-written memory");
+        assert!(without.agent_id.is_empty());
+        assert_eq!(without.folder, None);
+        assert_eq!(without.created_at, "");
+    }
+
+    #[test]
     fn scan_reads_headers_without_pulling_bodies_into_memory() {
         // The header window is what keeps a directory-wide scan cheap on a path that runs inside a
         // generation. A body far past the window must still yield a usable header.

@@ -38,10 +38,10 @@
 
 ## 6. Read paths
 
-- [ ] 6.1 Change `format_memory_section` to enumerate the directory, ordered by last modification time, keeping the existing character budget and section shape
-- [ ] 6.2 Repoint `list_agent_memories`, `delete_agent_memory`, and `reset_agent_memories` at the directory, keeping command names unchanged
-- [ ] 6.3 Extend the memory record payload with name, description, and type
-- [ ] 6.4 Add tests for a memory updated in-session sorting ahead of untouched older memories, and for the listing reflecting an out-of-band edit without a restart
+- [x] 6.1 Change `format_memory_section` to enumerate the directory, ordered by last modification time, keeping the existing character budget and section shape
+- [x] 6.2 Repoint `list_agent_memories`, `delete_agent_memory`, and `reset_agent_memories` at the directory, keeping command names unchanged
+- [x] 6.3 Extend the memory record payload with name, description, and type
+- [x] 6.4 Add tests for a memory updated in-session sorting ahead of untouched older memories, and for the listing reflecting an out-of-band edit without a restart
 
 ## 7. Retrieval index
 

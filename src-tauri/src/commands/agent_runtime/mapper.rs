@@ -11,6 +11,7 @@ use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
     AgentTerminalState as ApiAgentTerminalState, MemorySource,
 };
+use crate::contexts::agent_runtime::domain::MemoryType;
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
     agents.into_iter().map(agent_to_dto).collect()
@@ -25,6 +26,14 @@ fn agent_memory_to_dto(memory: AgentMemory) -> dto::AgentMemoryEntry {
         id: memory.id,
         agent_id: memory.agent_id,
         folder: memory.folder,
+        name: memory.name,
+        description: memory.description,
+        memory_type: memory.memory_type.map(|memory_type| match memory_type {
+            MemoryType::User => dto::AgentMemoryType::User,
+            MemoryType::Feedback => dto::AgentMemoryType::Feedback,
+            MemoryType::Project => dto::AgentMemoryType::Project,
+            MemoryType::Reference => dto::AgentMemoryType::Reference,
+        }),
         content: memory.content,
         source: match memory.source {
             MemorySource::Explicit => dto::AgentMemorySource::Explicit,
