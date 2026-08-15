@@ -169,5 +169,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-15 | add-agent-task-list | agent-task-list, agent-tool-execution | `openspec/changes/archive/2026-08-15-add-agent-task-list/` |
 | 2026-08-15 | add-agent-user-question | agent-tool-execution, agent-user-question | `openspec/changes/archive/2026-08-15-add-agent-user-question/` |
 | 2026-08-15 | add-onepiece-subagents | agent-tool-execution, onepiece-subagents | `openspec/changes/archive/2026-08-15-add-onepiece-subagents/` |
+| 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
