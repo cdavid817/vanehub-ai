@@ -18,9 +18,9 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `npm run lint:ci`, `npm run test`, `npm run build`, `npm run docs:check`
-- [ ] 4.2 `openspec validate publish-verifiable-checksums --strict` and `openspec validate --specs --strict`
-- [ ] 4.3 Confirm the workflow YAML still parses and the publish job's step order is unchanged
+- [x] 4.1 `npm run lint:ci`, `npm run test`, `npm run build`, `npm run docs:check`
+- [x] 4.2 `openspec validate publish-verifiable-checksums --strict` and `openspec validate --specs --strict`
+- [x] 4.3 Confirm the workflow YAML still parses and the publish job's step order is unchanged
 
 ## 5. Next release
 

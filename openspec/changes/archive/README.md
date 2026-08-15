@@ -181,6 +181,8 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-15 | add-onepiece-subagents | agent-tool-execution, onepiece-subagents | `openspec/changes/archive/2026-08-15-add-onepiece-subagents/` |
 | 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |
 | 2026-08-15 | migrate-agent-memory-to-file-store | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/` |
+| 2026-08-16 | add-cross-platform-desktop-automation | continuous-integration, desktop-runtime-verification | `openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/` |
+| 2026-08-16 | add-onepiece-slash-commands | chat-experience, slash-command-runtime | `openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/` |
 | 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

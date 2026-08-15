@@ -7,7 +7,7 @@ import { collectUnifiedLogs, writeRunSummary } from "./desktop/evidence.mjs";
 import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, readProcessMarker } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
-import { createRunContext } from "./desktop/run-context.mjs";
+import { createRunContext, disposeRunContext } from "./desktop/run-context.mjs";
 import { DesktopVerificationError } from "./desktop/verification-error.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,6 +33,9 @@ async function buildDesktop() {
   const host = detectHost();
   const metadata = await loadDesktopMetadata(repoRoot);
   const expectedPath = path.join(metadata.targetDirectory, host.targetTriple, "debug", `${metadata.binaryName}${host.extension}`);
+  // Deleting the previous artifact and pinning the build start both bind resolution to this
+  // invocation; the timestamp is what fails loudly if a build silently reuses an older binary.
+  const buildStartedAt = Date.now();
   await rm(expectedPath, { force: true });
   runNpm(["run", "sidecar:prepare", "--", `--target=${host.targetTriple}`]);
   runNpm([
@@ -41,7 +44,7 @@ async function buildDesktop() {
     "--features", "desktop-e2e",
     "--config", "src-tauri/tauri.desktop-e2e.conf.json",
   ]);
-  const artifact = resolveDesktopArtifact({ metadata, host, profile: "debug" });
+  const artifact = resolveDesktopArtifact({ metadata, host, profile: "debug", buildStartedAt });
   await mkdir(path.dirname(latestArtifactPath), { recursive: true });
   await writeFile(latestArtifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
   process.stdout.write(`Desktop artifact: ${artifact.executablePath}\n`);
@@ -115,7 +118,7 @@ async function smokeDesktop(artifact) {
     ...(errorDetails ? { error: errorDetails } : {}),
   });
   const summaryPath = await writeRunSummary(context.resultDir, { layers: [layer] });
-  await rm(context.runRoot, { recursive: true, force: true });
+  await disposeRunContext(context);
   process.stdout.write(`Desktop smoke: ${status}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,9 @@ import { collectUnifiedLogs, writeRunSummary } from "./desktop/evidence.mjs";
 import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, ownedProcessIds } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
-import { createRunContext, validateIsolatedDataPath } from "./desktop/run-context.mjs";
+import { createRunContext, disposeRunContext, validateIsolatedDataPath } from "./desktop/run-context.mjs";
+
+const exists = async (target) => access(target).then(() => true, () => false);
 
 test("maps every supported host and blocks unsupported hosts", () => {
   assert.equal(detectHost("win32", "x64").targetTriple, "x86_64-pc-windows-msvc");
@@ -95,3 +97,31 @@ test("collects only bounded unified logs and indexes unavailable evidence", asyn
   assert.equal(unavailable.unavailable.length, 1);
   await rm(root, { recursive: true, force: true });
 });
+
+test("removes temporary application data after a successful run and keeps only evidence", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-cleanup-test-"));
+  const repoRoot = path.join(tempRoot, "repo");
+  const context = await createRunContext(repoRoot, { tempRoot, runId: "run-clean" });
+  await mkdir(path.join(context.dataDir, "logs"), { recursive: true });
+  await writeFile(path.join(context.dataDir, "logs", "vanehub.log"), "redacted=true\n");
+  await writeFile(path.join(context.dataDir, "vanehub.sqlite"), "isolated-test-database");
+  await writeFile(path.join(context.fixtureDir, "workspace.json"), "{}");
+
+  const nativeLogs = await collectUnifiedLogs(context.dataDir, context.resultDir);
+  await writeRunSummary(context.resultDir, { layers: [createLayerResult({ layer: "desktop-smoke", status: "PASSED" })], nativeLogs });
+  const disposal = await disposeRunContext(context);
+
+  assert.equal(disposal.removed, context.runRoot);
+  assert.equal(await exists(context.runRoot), false);
+  assert.equal(await exists(context.dataDir), false);
+  assert.equal(await exists(context.fixtureDir), false);
+  assert.equal(await exists(path.join(context.resultDir, "summary.json")), true);
+  assert.deepEqual(await readdir(path.join(context.resultDir, "logs", "native")), ["vanehub.log"]);
+  assert.equal((await collectEvidenceNames(context.resultDir)).some((name) => name.endsWith(".sqlite")), false);
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
+async function collectEvidenceNames(directory) {
+  const entries = await readdir(directory, { withFileTypes: true, recursive: true });
+  return entries.map((entry) => entry.name);
+}

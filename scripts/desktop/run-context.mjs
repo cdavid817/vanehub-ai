@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,6 +29,14 @@ export function validateIsolatedDataPath({ runRoot, dataDir, normalDataDir }) {
   if (normalDataDir && normalize(resolvedData) === normalize(path.resolve(normalDataDir))) {
     throw new DesktopVerificationError("BLOCKED", "The desktop test data directory aliases normal application data.");
   }
+}
+
+// Cleanup lives beside the code that created the run root so a passing run cannot leave the
+// isolated SQLite database, configuration, or fixtures behind — CI would otherwise upload them
+// as evidence from a job that had nothing to diagnose.
+export async function disposeRunContext(context) {
+  await rm(context.runRoot, { recursive: true, force: true });
+  return { removed: context.runRoot, retainedEvidence: context.resultDir };
 }
 
 export async function createRunContext(repoRoot, options = {}) {
