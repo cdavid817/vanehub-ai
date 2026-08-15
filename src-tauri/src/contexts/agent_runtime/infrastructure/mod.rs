@@ -40,7 +40,10 @@ mod loop_verification_process;
 mod manual_native_tool_adapter;
 mod manual_native_tool_control;
 mod mcp_tool_gateway;
+mod memory_directory;
 mod memory_extraction_gateway;
+mod memory_migration;
+mod memory_naming;
 mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
@@ -103,7 +106,11 @@ pub(crate) use manual_native_tool_adapter::{
 };
 pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_directory::{FileAgentMemoryStore, MemoryHeader, INDEX_FILE_NAME};
 pub(crate) use memory_extraction_gateway::RuntimeAgentMemoryExtractionAdapter;
+#[allow(unused_imports)]
+pub(crate) use memory_migration::{migrate_memory_rows, MemoryMigrationOutcome};
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_schema};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;

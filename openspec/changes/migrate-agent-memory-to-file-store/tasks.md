@@ -1,23 +1,23 @@
 ## 1. Domain foundation
 
-- [ ] 1.1 Add `domain/memory_document.rs` with the four-value `MemoryType` and a tolerant `parse` that returns `None` for absent or unrecognized values
-- [ ] 1.2 Add memory metadata validation: `name` required and filename-safe, `description` required and single-line, provenance fields optional
-- [ ] 1.3 Add a frontmatter parser for memory files following the shape of `skills/infrastructure/filesystem/document.rs::parse`, ignoring unknown keys and returning a typed error for a missing frontmatter block
-- [ ] 1.4 Add unit tests covering absent type, unrecognized type, unknown extra keys, CRLF input, and a file with no frontmatter
+- [x] 1.1 Add `domain/memory_document.rs` with the four-value `MemoryType` and a tolerant `parse` that returns `None` for absent or unrecognized values
+- [x] 1.2 Add memory metadata validation: `name` required and filename-safe, `description` required and single-line, provenance fields optional
+- [x] 1.3 Add a frontmatter parser for memory files following the shape of `skills/infrastructure/filesystem/document.rs::parse`, ignoring unknown keys and returning a typed error for a missing frontmatter block
+- [x] 1.4 Add unit tests covering absent type, unrecognized type, unknown extra keys, CRLF input, and a file with no frontmatter
 
 ## 2. Directory store
 
-- [ ] 2.1 Resolve the memory directory from the app data directory, honoring the existing `VANEHUB_APP_DATA_DIR` override, and create it if absent
-- [ ] 2.2 Add `infrastructure/memory_directory.rs` with scan, read-one, write-one, and delete-one operations; scan reads only the frontmatter region and skips unparseable files
-- [ ] 2.3 Implement `MEMORY.md` index assembly and rewriting, derived from the directory scan so the directory stays authoritative
-- [ ] 2.4 Add path canonicalization plus a memory-root prefix check used by every write and delete entry point
-- [ ] 2.5 Add tests for scan skipping malformed files, index reconciliation when a line points at a missing file, index reconciliation when a file has no line, and `..` and symlink traversal rejection
+- [x] 2.1 Resolve the memory directory from the app data directory, honoring the existing `VANEHUB_APP_DATA_DIR` override, and create it if absent
+- [x] 2.2 Add `infrastructure/memory_directory.rs` with scan, read-one, write-one, and delete-one operations; scan reads only the frontmatter region and skips unparseable files
+- [x] 2.3 Implement `MEMORY.md` index assembly and rewriting, derived from the directory scan so the directory stays authoritative
+- [x] 2.4 Add path canonicalization plus a memory-root prefix check used by every write and delete entry point
+- [x] 2.5 Add tests for scan skipping malformed files, index reconciliation when a line points at a missing file, index reconciliation when a file has no line, and `..` and symlink traversal rejection
 
 ## 3. Migration from the row store
 
-- [ ] 3.1 Implement row-to-file conversion: body verbatim, slugged `name` with collision suffix, `description` from the leading sentence, `type` omitted, provenance and `migrated_from` preserved
-- [ ] 3.2 Wire migration into startup so it runs once when the directory is uninitialized, off the UI thread, with per-row failure isolation
-- [ ] 3.3 Add tests for idempotence via `migrated_from`, for a second run not overwriting an edited file, and for one unconvertible row not aborting the batch
+- [x] 3.1 Implement row-to-file conversion: body verbatim, slugged `name` with collision suffix, `description` from the leading sentence, `type` omitted, provenance and `migrated_from` preserved
+- [x] 3.2 Wire migration into startup so it runs once when the directory is uninitialized, off the UI thread, with per-row failure isolation
+- [x] 3.3 Add tests for idempotence via `migrated_from`, for a second run not overwriting an edited file, and for one unconvertible row not aborting the batch
 
 ## 4. Write paths
 

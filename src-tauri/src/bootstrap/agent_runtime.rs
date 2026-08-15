@@ -1,9 +1,9 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentRetrievalPort,
-    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, AgentWorkspaceMutationPort,
+    web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentMemoryPort,
+    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, AgentWorkspaceMutationPort,
     ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
     BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextQualityQueryService,
     ContextQualityRecorder, DelegateCliNativeToolHandler, ExpertRoleApplicationPorts,
@@ -19,8 +19,9 @@ use crate::contexts::agent_runtime::application::{
     UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
-    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
-    CompositeAgentProcessGateway, CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
+    builtin_expert_roles, migrate_memory_rows, AgentRuntimeLoggingAdapter,
+    AgentRuntimeOperationAdapter, CompositeAgentProcessGateway, CredentialAwareAgentRegistry,
+    FileAgentMemoryStore, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
@@ -416,6 +417,83 @@ fn available_browser_sidecar(app: &AppHandle) -> Option<PathBuf> {
     })
 }
 
+/// Converts stored memory rows into memory files once, on a background thread
+/// (`migrate-agent-memory-to-file-store`).
+///
+/// Off the startup path because the row count is unbounded and a slow conversion must never delay
+/// the window. Every failure mode — no data root, an unwritable directory, an unreadable table, an
+/// unconvertible row — is logged and dropped rather than propagated: the rows are left intact, so
+/// the worst outcome is that the directory stays empty and the next launch retries.
+///
+/// The index's presence is the "already initialized" marker. Keying on it rather than on file
+/// absence is what stops a user's deletion of every memory from being undone on the next launch.
+fn spawn_memory_directory_migration(
+    database: NativeDatabase,
+    memories: Arc<SqliteAgentMemoryRepository>,
+    diagnostics: Arc<dyn DiagnosticLogPort>,
+) {
+    std::thread::spawn(move || {
+        let report = |severity: LogSeverity, message: String, context: BTreeMap<String, String>| {
+            let _ = diagnostics.write_diagnostic(DiagnosticLog {
+                severity,
+                category: "agent-runtime.memory.migration".to_string(),
+                message,
+                context,
+            });
+        };
+
+        let Some(data_root) = database.db_path.parent() else {
+            report(
+                LogSeverity::Warn,
+                "Application data directory is unavailable; memory migration skipped.".to_string(),
+                BTreeMap::new(),
+            );
+            return;
+        };
+        let store = match FileAgentMemoryStore::new(data_root) {
+            Ok(store) => store,
+            Err(error) => {
+                report(
+                    LogSeverity::Warn,
+                    format!("Memory directory is unavailable; migration skipped: {error}"),
+                    BTreeMap::new(),
+                );
+                return;
+            }
+        };
+        if store.has_index() {
+            return;
+        }
+        let rows = match memories.list_all() {
+            Ok(rows) => rows,
+            Err(error) => {
+                report(
+                    LogSeverity::Warn,
+                    format!("Stored memories could not be read; migration skipped: {error}"),
+                    BTreeMap::new(),
+                );
+                return;
+            }
+        };
+        match migrate_memory_rows(&store, &rows) {
+            Ok(outcome) => report(
+                LogSeverity::Info,
+                "Memory rows converted to memory files.".to_string(),
+                BTreeMap::from([
+                    ("migrated".to_string(), outcome.migrated.to_string()),
+                    ("skipped".to_string(), outcome.skipped.to_string()),
+                    ("failed".to_string(), outcome.failed.to_string()),
+                ]),
+            ),
+            Err(error) => report(
+                LogSeverity::Warn,
+                format!("Memory migration did not complete: {error}"),
+                BTreeMap::new(),
+            ),
+        }
+    });
+}
+
 pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> Result<AgentRuntimeAssembly, String> {
@@ -438,7 +516,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let telemetry = Arc::new(CompositeExecutionTelemetry::with_diagnostics(
         timeline.clone(),
         exporters,
-        diagnostics,
+        diagnostics.clone(),
     ));
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
@@ -473,6 +551,11 @@ pub(crate) fn assemble_agent_runtime_api(
     let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
         dependencies.database.clone(),
     ));
+    spawn_memory_directory_migration(
+        dependencies.database.clone(),
+        agent_memories.clone(),
+        diagnostics.clone(),
+    );
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
     let agent_permissions = Arc::new(PermissionsPortAdapter::new(
         dependencies.permissions.clone(),

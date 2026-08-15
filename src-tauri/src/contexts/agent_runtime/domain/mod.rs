@@ -21,6 +21,9 @@ mod generation;
 mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
+mod memory_document;
+#[cfg(test)]
+mod memory_document_tests;
 mod provider;
 mod seat_roster;
 mod seat_turn;
@@ -82,6 +85,11 @@ pub(crate) use loop_engineering::{
 pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
+};
+#[allow(unused_imports)]
+pub(crate) use memory_document::{
+    compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
+    MemoryType,
 };
 pub(crate) use provider::{
     AgentProviderId, ProviderCapabilities, ProviderCapabilityInput, ProviderFamily,
