@@ -182,10 +182,20 @@ export interface UpdateApiAgentInput {
 
 export type AgentMemorySource = "explicit" | "automatic";
 
+/** `migrate-agent-memory-to-file-store`: the four-value taxonomy a memory may declare. */
+export type AgentMemoryType = "user" | "feedback" | "project" | "reference";
+
 export interface AgentMemory {
+  /** Directory-relative path of the memory's file, which is its identity. */
   id: string;
   agentId: string;
   folder: string | null;
+  /** Short kebab-case identifier; also the file's stem. */
+  name: string;
+  /** One line describing what the memory holds, so entries can be told apart unopened. */
+  description: string;
+  /** Absent for a migrated or hand-written memory that declares no type. */
+  memoryType: AgentMemoryType | null;
   content: string;
   source: AgentMemorySource;
   createdAt: string;

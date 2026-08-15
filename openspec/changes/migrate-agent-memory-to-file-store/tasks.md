@@ -52,11 +52,11 @@
 
 ## 8. Frontend service boundary
 
-- [ ] 8.1 Extend the memory record type in `src/services/agent-service.ts` with name, description, and type
-- [ ] 8.2 Update `tauri-agent-client.ts` for the richer payload without introducing `invoke()` outside the adapter
-- [ ] 8.3 Update `web-agent-client.ts` to back the same shape with an in-process list, keeping mock memory events and toggle gating intact
-- [ ] 8.4 Update the memory management UI to surface name, description, and type
-- [ ] 8.5 Add component tests for the management view rendering the new fields and for an untyped memory rendering without error
+- [x] 8.1 Extend the memory record type in `src/services/agent-service.ts` with name, description, and type
+- [x] 8.2 Update `tauri-agent-client.ts` for the richer payload without introducing `invoke()` outside the adapter
+- [x] 8.3 Update `web-agent-client.ts` to back the same shape with an in-process list, keeping mock memory events and toggle gating intact
+- [x] 8.4 Update the memory management UI to surface name, description, and type
+- [x] 8.5 Add component tests for the management view rendering the new fields and for an untyped memory rendering without error
 
 ## 9. Verification
 
