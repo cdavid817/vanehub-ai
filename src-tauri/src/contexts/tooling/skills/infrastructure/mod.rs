@@ -1,3 +1,4 @@
+mod configuration_repository;
 mod configuration_schema;
 mod effective_cache;
 mod effective_catalog;
@@ -15,6 +16,11 @@ mod effective_cache_tests;
 #[cfg(test)]
 mod recovery_tests;
 
+#[allow(unused_imports)]
+pub(crate) use configuration_repository::{
+    SkillConfigCleanupState, SkillConfigurationSave, SkillConfigurationWrite,
+    SqliteSkillConfigurationRepository, StoredSkillConfiguration,
+};
 pub(crate) use configuration_schema::apply_skill_configuration_schema;
 pub(crate) use effective_cache::{
     EffectiveSkillDerivedCache, EffectiveSkillRuntimeCacheInvalidator,

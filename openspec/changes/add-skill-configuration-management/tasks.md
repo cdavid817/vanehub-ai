@@ -8,7 +8,7 @@
 ## 2. Persistence and effective resolution
 
 - [x] 2.1 Add additive SQLite migrations for typed non-secret User/Project records, canonical workspace identity, schema/base revision witnesses, stored revision, validation state, and secret-presence metadata.
-- [ ] 2.2 Implement repositories with compare-and-swap saves, property-level overrides, reset, orphan retention, cleanup state, and migration-equivalence coverage for existing databases.
+- [x] 2.2 Implement repositories with compare-and-swap saves, property-level overrides, reset, orphan retention, cleanup state, and migration-equivalence coverage for existing databases.
 - [ ] 2.3 Implement effective resolution as Project over User over schema default with stable property ordering, per-property provenance, required readiness, and no inherited-value materialization.
 - [ ] 2.4 Reject Project operations without a canonical workspace and test isolation between workspaces, scopes, similarly named Skills, and shadowed Skill revisions.
 - [ ] 2.5 Implement schema drift classification for compatible, migration-required, and invalid states without coercing, deleting, or activating incompatible values.
