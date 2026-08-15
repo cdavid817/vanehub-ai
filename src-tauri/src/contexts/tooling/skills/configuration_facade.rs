@@ -3,11 +3,11 @@
 use super::application::{SkillApplicationError, SkillLoggingPort};
 use super::domain::{SkillConfigScope, SkillConfigSnapshot};
 use super::infrastructure::{
-    apply_deletion_retention, reconcile, reset_property, reset_scope, resolve_activation_snapshot,
-    resolve_stored_configuration, save, ActivationRefusal, DeletionRetention, ReconciliationPlan,
-    ResolvedSkillConfiguration, SecretRecovery, SkillConfigurationError, SkillConfigurationRequest,
-    SkillConfigurationSaveResult, SkillConfigurationSecrets, SkillSecretStore,
-    SqliteSkillConfigurationRepository,
+    apply_deletion_retention, preview, reconcile, reset_property, reset_scope,
+    resolve_activation_snapshot, resolve_stored_configuration, save, ActivationRefusal,
+    DeletionRetention, ReconciliationPlan, ResolvedSkillConfiguration, SecretRecovery,
+    SkillConfigurationError, SkillConfigurationRequest, SkillConfigurationSaveResult,
+    SkillConfigurationSecrets, SkillSecretStore, SqliteSkillConfigurationRepository,
 };
 use crate::platform::credentials::OsCredentialStore;
 use std::sync::Arc;
@@ -45,6 +45,23 @@ impl<S: SkillSecretStore> SkillConfigurationFacade<S> {
         workspace_identity: &str,
     ) -> Result<ResolvedSkillConfiguration, SkillApplicationError> {
         resolve_stored_configuration(&self.repository, schema, skill_id, workspace_identity)
+    }
+
+    /// Validates a draft and resolves what it would produce, without writing. The stored records
+    /// are read here rather than passed in so a caller cannot preview against a snapshot it took
+    /// earlier and present a stale effective value as the outcome of saving now.
+    pub(crate) fn preview(
+        &self,
+        schema: &super::domain::SkillConfigSchema,
+        request: &SkillConfigurationRequest,
+    ) -> Result<ResolvedSkillConfiguration, SkillConfigurationError> {
+        let existing = self
+            .repository
+            .load_all_scopes(&request.skill_id, &request.workspace_identity)
+            .map_err(|error| SkillConfigurationError::RepositoryFailure {
+                reason: error.to_string(),
+            })?;
+        preview(schema, &existing, request)
     }
 
     pub(crate) fn save(

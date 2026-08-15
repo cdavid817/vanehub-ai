@@ -27,7 +27,8 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use config_overview::{
-    SkillConfigurableState, SkillConfigurationOverview, SkillScopedConfigSummary,
+    SkillConfigurableState, SkillConfigurationContext, SkillConfigurationOverview,
+    SkillScopedConfigSummary,
 };
 pub(crate) use effective_catalog::{
     normalize_utility_availability, preview_package, resolve_effective_catalog,

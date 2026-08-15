@@ -3,9 +3,9 @@ use super::{
     AgentMountConfiguration, BuiltinCleanupStatus, BuiltinReconciliationOutcome,
     BuiltinReconciliationState, EffectiveSkillCatalogPort, OverlayAppliedSkillSnapshotPort,
     SkillAccessRefusal, SkillAccessRefusalReason, SkillAgentMountPath, SkillApiBindingRepository,
-    SkillApplicationError, SkillClockPort, SkillConfigurationOverview, SkillCreateRequest,
-    SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult, SkillDocument,
-    SkillDriftReport, SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort,
+    SkillApplicationError, SkillClockPort, SkillConfigurationContext, SkillConfigurationOverview,
+    SkillCreateRequest, SkillDiscoveryEntry, SkillDiscoveryRequest, SkillDiscoveryResult,
+    SkillDocument, SkillDriftReport, SkillEffectiveMetadata, SkillFailure, SkillFilesystemPort,
     SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillLegacySourcePort,
     SkillListResult, SkillLoadOutcome, SkillLoadRequest, SkillLoadResult, SkillLogAction,
     SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair,
@@ -1134,6 +1134,22 @@ impl SkillApplicationService {
             path,
             effective,
         })
+    }
+
+    /// Resolves the configuration schema through the same effective-package path as `preview_skill`
+    /// rather than through the registry. A record rebuilt from SQLite carries metadata without the
+    /// `config_schema` frontmatter block, so reading the schema from there would report every
+    /// configurable Skill as having none.
+    pub(crate) fn configuration_context(
+        &self,
+        key: &SkillKey,
+    ) -> Result<SkillConfigurationContext, SkillApplicationError> {
+        let record = self.load(key)?;
+        let overview = record.effective_metadata().configuration;
+        Ok(SkillConfigurationContext::from_winning_metadata(
+            &record.metadata,
+            overview,
+        ))
     }
 
     pub(crate) fn import_skill(

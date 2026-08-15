@@ -413,3 +413,412 @@ pub(crate) struct SkillMountMigrationReport {
     pub(crate) backed_up: Vec<SkillBackupEntry>,
     pub(crate) failed: Vec<SkillFailure>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SkillConfigurationScope {
+    User,
+    Project,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationProvenance {
+    Project,
+    User,
+    Default,
+    Missing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationSecretState {
+    Configured,
+    Missing,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationDrift {
+    Compatible,
+    MigrationRequired,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationReadiness {
+    Ready,
+    MissingRequired,
+    MigrationRequired,
+    Invalid,
+    NotConfigurable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurableState {
+    NotEvaluated,
+    NotConfigurable,
+    Configurable,
+    SchemaUnsupported,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationCleanupState {
+    None,
+    Pending,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationConsumption {
+    Native,
+    UnsupportedExternalCli,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SkillConfigurationScalarType {
+    String,
+    Integer,
+    Number,
+    Boolean,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SkillConfigurationFieldKind {
+    Scalar,
+    List,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationFieldType {
+    pub(crate) kind: SkillConfigurationFieldKind,
+    pub(crate) scalar: SkillConfigurationScalarType,
+}
+
+/// Tagged rather than a bare JSON value: `3` and `3.0` are the same JSON number, and a stored
+/// integer that a later schema retypes to a number has to stay distinguishable from one that was
+/// always a number, or drift classification silently accepts it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
+pub(crate) enum SkillConfigurationValue {
+    String(String),
+    Integer(i64),
+    Number(f64),
+    Boolean(bool),
+    List(Vec<SkillConfigurationValue>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationValueEntry {
+    pub(crate) key: String,
+    pub(crate) value: SkillConfigurationValue,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationConstraints {
+    pub(crate) minimum: Option<f64>,
+    pub(crate) maximum: Option<f64>,
+    pub(crate) min_length: Option<usize>,
+    pub(crate) max_length: Option<usize>,
+    pub(crate) min_items: Option<usize>,
+    pub(crate) max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationPresentation {
+    pub(crate) label: Option<String>,
+    pub(crate) label_key: Option<String>,
+    pub(crate) help: Option<String>,
+    pub(crate) order: Option<u32>,
+    pub(crate) advanced: bool,
+    pub(crate) multiline: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationGroupDescriptor {
+    pub(crate) key: String,
+    pub(crate) declared_key: String,
+    pub(crate) presentation: SkillConfigurationPresentation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationFieldDescriptor {
+    pub(crate) key: String,
+    pub(crate) declared_key: String,
+    pub(crate) group: Option<String>,
+    pub(crate) field_type: SkillConfigurationFieldType,
+    pub(crate) required: bool,
+    pub(crate) secret: bool,
+    pub(crate) default_value: Option<SkillConfigurationValue>,
+    pub(crate) choices: Vec<SkillConfigurationValue>,
+    pub(crate) constraints: SkillConfigurationConstraints,
+    pub(crate) presentation: SkillConfigurationPresentation,
+    pub(crate) description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationDescriptor {
+    pub(crate) schema_hash: String,
+    pub(crate) groups: Vec<SkillConfigurationGroupDescriptor>,
+    pub(crate) fields: Vec<SkillConfigurationFieldDescriptor>,
+}
+
+/// A secret property reports presence and nothing else; `value` stays null for it even when the
+/// credential exists, so no response path can carry the secret or its credential alias.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationProperty {
+    pub(crate) key: String,
+    pub(crate) value: Option<SkillConfigurationValue>,
+    pub(crate) provenance: SkillConfigurationProvenance,
+    pub(crate) secret: bool,
+    pub(crate) secret_state: Option<SkillConfigurationSecretState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationScopeState {
+    pub(crate) scope: SkillConfigurationScope,
+    pub(crate) stored_revision: u64,
+    pub(crate) schema_hash: String,
+    pub(crate) drift: SkillConfigurationDrift,
+    pub(crate) configured_property_count: usize,
+    pub(crate) configured_secret_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationResolution {
+    pub(crate) properties: Vec<SkillConfigurationProperty>,
+    pub(crate) drift: SkillConfigurationDrift,
+    pub(crate) readiness: SkillConfigurationReadiness,
+    pub(crate) scopes: Vec<SkillConfigurationScopeState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationRecordState {
+    pub(crate) scope: SkillConfigurationScope,
+    pub(crate) workspace_identity: Option<String>,
+    pub(crate) schema_hash: String,
+    pub(crate) base_revision: String,
+    pub(crate) stored_revision: u64,
+    pub(crate) validation_state: SkillConfigurationDrift,
+    pub(crate) values: Vec<SkillConfigurationValueEntry>,
+    pub(crate) secret_keys: Vec<String>,
+    pub(crate) orphaned_at: Option<String>,
+    pub(crate) cleanup_state: SkillConfigurationCleanupState,
+}
+
+/// Stated per binding kind because there is no bridge: the UI has to be able to say that an
+/// external CLI receives the package without values instead of letting a user assume otherwise.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationRuntimeSupport {
+    pub(crate) native_api: SkillConfigurationConsumption,
+    pub(crate) external_cli: SkillConfigurationConsumption,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationView {
+    pub(crate) skill_id: String,
+    pub(crate) state: SkillConfigurableState,
+    pub(crate) unsupported_reason: Option<String>,
+    pub(crate) schema_hash: Option<String>,
+    pub(crate) base_revision: Option<String>,
+    pub(crate) workspace_identity: Option<String>,
+    pub(crate) available_scopes: Vec<SkillConfigurationScope>,
+    pub(crate) descriptor: Option<SkillConfigurationDescriptor>,
+    pub(crate) resolution: Option<SkillConfigurationResolution>,
+    pub(crate) readiness: SkillConfigurationReadiness,
+    pub(crate) drift: Option<SkillConfigurationDrift>,
+    pub(crate) runtime: SkillConfigurationRuntimeSupport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationRecovery {
+    Clean,
+    /// Property names only. They are already public in the Skill package; values and credential
+    /// aliases are not, and a cleanup report is exactly where one would otherwise leak.
+    Incomplete {
+        properties: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationRejectionCode {
+    UnknownProperty,
+    NotConfigurable,
+    InvalidValue,
+    PayloadTooLarge,
+    SchemaChanged,
+    BaseRevisionChanged,
+    Stale,
+    InvalidWorkspace,
+    CredentialFailure,
+    RepositoryFailure,
+    RecoveryRequired,
+    ReconciliationIncomplete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationRejection {
+    pub(crate) code: SkillConfigurationRejectionCode,
+    pub(crate) message: String,
+    pub(crate) property_key: Option<String>,
+    pub(crate) properties: Vec<String>,
+    pub(crate) expected: Option<String>,
+    pub(crate) actual: Option<String>,
+    pub(crate) bytes: Option<usize>,
+    /// Present when the write lost a compare-and-swap, so an editor can refresh from the record
+    /// that won instead of issuing another read that could race again.
+    pub(crate) current: Option<SkillConfigurationRecordState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationSaveResult {
+    pub(crate) record: SkillConfigurationRecordState,
+    pub(crate) preview: SkillConfigurationResolution,
+    pub(crate) recovery: SkillConfigurationRecovery,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationSaveOutcome {
+    Saved {
+        result: Box<SkillConfigurationSaveResult>,
+    },
+    Rejected {
+        rejection: Box<SkillConfigurationRejection>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationResolutionOutcome {
+    Resolved {
+        resolution: SkillConfigurationResolution,
+    },
+    Rejected {
+        rejection: Box<SkillConfigurationRejection>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationRetentionOutcome {
+    Applied {
+        recovery: SkillConfigurationRecovery,
+    },
+    Rejected {
+        rejection: Box<SkillConfigurationRejection>,
+    },
+}
+
+/// Inbound only, and deliberately not `Serialize`: a replacement value must be able to enter but
+/// must have no way back out through a response.
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(tag = "action", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationSecretIntent {
+    Preserve,
+    Replace { value: String },
+    Clear,
+}
+
+impl std::fmt::Debug for SkillConfigurationSecretIntent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Preserve => "Preserve",
+            Self::Replace { .. } => "Replace(<redacted>)",
+            Self::Clear => "Clear",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationSecretIntentInput {
+    pub(crate) key: String,
+    pub(crate) intent: SkillConfigurationSecretIntent,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationWriteInput {
+    pub(crate) scope: SkillScope,
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) config_scope: SkillConfigurationScope,
+    pub(crate) schema_hash: String,
+    pub(crate) base_revision: String,
+    /// `null` asserts that the scope has no stored record yet; any mismatch is stale.
+    pub(crate) expected_revision: Option<u64>,
+    #[serde(default)]
+    pub(crate) values: Vec<SkillConfigurationValueEntry>,
+    #[serde(default)]
+    pub(crate) secret_intents: Vec<SkillConfigurationSecretIntentInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationScopeInput {
+    pub(crate) scope: SkillScope,
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) config_scope: SkillConfigurationScope,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillConfigurationRetention {
+    Retain,
+    Delete,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(tag = "action", rename_all = "camelCase")]
+pub(crate) enum SkillConfigurationObsoleteAction {
+    MapTo { target_key: String },
+    Discard,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationObsoleteFieldChoice {
+    pub(crate) key: String,
+    pub(crate) choice: SkillConfigurationObsoleteAction,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationReconciliationPlan {
+    #[serde(default)]
+    pub(crate) fields: Vec<SkillConfigurationObsoleteFieldChoice>,
+    #[serde(default)]
+    pub(crate) clear_secrets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillConfigurationReconciliationInput {
+    pub(crate) request: SkillConfigurationWriteInput,
+    #[serde(default)]
+    pub(crate) plan: SkillConfigurationReconciliationPlan,
+}

@@ -49,8 +49,8 @@
 
 ## 7. Commands and frontend adapters
 
-- [ ] 7.1 Add Rust/Tauri commands for descriptor/read, validate/preview, save, reset, secret clear, reconcile, retention choice, and cleanup with mapped command-boundary errors.
-- [ ] 7.2 Register commands and extend generated/shared TypeScript contracts for normalized descriptors, scope/provenance, redacted values, secret intent/state, validation, drift, revisions, and runtime support.
+- [x] 7.1 Add Rust/Tauri commands for descriptor/read, validate/preview, save, reset, secret clear, reconcile, retention choice, and cleanup with mapped command-boundary errors.
+- [x] 7.2 Register commands and extend generated/shared TypeScript contracts for normalized descriptors, scope/provenance, redacted values, secret intent/state, validation, drift, revisions, and runtime support.
 - [ ] 7.3 Extend `AgentService` and `tauri-agent-client.ts` with configuration operations, keeping direct `invoke()` calls out of React components.
 - [ ] 7.4 Extend `web-agent-client.ts` with deterministic non-secret preview/edit parity and explicit unsupported secure-secret persistence/native consumption; never fabricate configured credentials.
 - [ ] 7.5 Add adapter contract tests for stale responses, selected-Skill changes, workspace changes, backend errors, secret redaction, and Web/native capability differences.

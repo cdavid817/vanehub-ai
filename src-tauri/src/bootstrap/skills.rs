@@ -3,6 +3,7 @@ use crate::contexts::tooling::skills::api::SkillApi;
 use crate::contexts::tooling::skills::application::{
     OverlayAppliedSkillSnapshotResolver, SkillApplicationService, SkillOverlayApplicationService,
 };
+use crate::contexts::tooling::skills::configuration_facade::SkillConfigurationFacade;
 use crate::contexts::tooling::skills::infrastructure::{
     CachedEffectiveSkillCatalog, CatalogOverlayEffectiveSnapshot, CurrentWorkspaceSelection,
     DeterministicOverlayContentScanner, EffectiveSkillDerivedCache,
@@ -10,17 +11,30 @@ use crate::contexts::tooling::skills::infrastructure::{
     FilesystemOverlayHistoryRepository, FilesystemOverlayImportParser,
     FilesystemOverlayManifestRepository, FilesystemOverlayTransactionExecutor,
     FilesystemSkillLayerProvider, FilesystemSkillUsageRepository, LayeredSkillPackageReader,
-    ManagedSkillFilesystem, OverlayPayloadStore, SqliteSkillRepository, SystemSkillClock,
-    SystemSkillDerivedCache, SystemSkillPackages, UnifiedSkillLoggingAdapter,
+    ManagedSkillFilesystem, OverlayPayloadStore, SqliteSkillConfigurationRepository,
+    SqliteSkillRepository, SystemSkillClock, SystemSkillDerivedCache, SystemSkillPackages,
+    UnifiedSkillLoggingAdapter,
 };
+use crate::platform::credentials::OsCredentialStore;
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Skill configuration secrets get their own keychain service rather than sharing the provider one:
+/// they belong to a Skill package the user can delete, and an API key belongs to an Agent that
+/// outlives it. One service name would make either owner's cleanup capable of destroying the
+/// other's credentials.
+const SKILL_CONFIGURATION_CREDENTIAL_SERVICE: &str = "vanehub-skill-configuration";
 
 pub(crate) fn assemble_skill_api(database: NativeDatabase, fallback_log_dir: PathBuf) -> SkillApi {
     let logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_dir));
     let skill_logging = Arc::new(UnifiedSkillLoggingAdapter::new(logging));
     let skill_clock = Arc::new(SystemSkillClock);
+    let configuration = SkillConfigurationFacade::new(
+        SqliteSkillConfigurationRepository::new(database.clone()),
+        OsCredentialStore::new(SKILL_CONFIGURATION_CREDENTIAL_SERVICE),
+        skill_logging.clone(),
+    );
     let repository = Arc::new(SqliteSkillRepository::new(database));
     let system_packages = Arc::new(SystemSkillPackages);
     let effective_catalog = Arc::new(CachedEffectiveSkillCatalog::new(vec![
@@ -92,4 +106,5 @@ pub(crate) fn assemble_skill_api(database: NativeDatabase, fallback_log_dir: Pat
         .with_usage_repository(usage_repository),
     )
     .with_overlay_service(overlay_service)
+    .with_configuration(configuration)
 }

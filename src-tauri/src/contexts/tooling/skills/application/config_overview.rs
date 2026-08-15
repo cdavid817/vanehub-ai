@@ -1,8 +1,35 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 use crate::contexts::tooling::skills::domain::{
-    SkillConfigDrift, SkillConfigReadiness, SkillConfigScope, SkillMetadata,
+    SkillConfigDrift, SkillConfigReadiness, SkillConfigSchema, SkillConfigScope, SkillMetadata,
 };
+
+/// What a configuration operation needs before it can touch storage: the normalized schema of the
+/// winning revision and the overview that says which revision that was. Both are derived from the
+/// same metadata in one read, because resolving them separately would let a Skill replacement
+/// slip between them and bind values to a revision that is no longer effective.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SkillConfigurationContext {
+    /// `Some` only when the winning revision declares a schema that normalizes; an unsupported
+    /// schema is reported through `overview.state` instead of degrading to a permissive one.
+    pub(crate) schema: Option<SkillConfigSchema>,
+    pub(crate) overview: SkillConfigurationOverview,
+}
+
+impl SkillConfigurationContext {
+    pub(crate) fn from_winning_metadata(
+        metadata: &SkillMetadata,
+        overview: SkillConfigurationOverview,
+    ) -> Self {
+        Self {
+            schema: metadata
+                .config_schema()
+                .and_then(Result::ok)
+                .filter(|_| overview.is_configurable()),
+            overview,
+        }
+    }
+}
 
 /// Distinguishes "this revision declares no schema" from "we did not resolve one here". The
 /// registry rebuilds metadata without the frontmatter block, so a record read from storage cannot
