@@ -988,6 +988,24 @@ pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
     ) -> Result<ParsedMemoryActions, AgentRuntimeApplicationError>;
 }
 
+/// Chooses which stored memories are worth injecting in full for one generation
+/// (`add-two-tier-memory-recall`).
+///
+/// Sees names, types, ages, and descriptions — never bodies — so its cost scales with how many
+/// memories exist rather than how large they are. Returns the selected names; an empty result
+/// means nothing was clearly useful, which is the expected outcome most of the time and never an
+/// error. `Err` is reserved for a call that could not be made or whose result was unusable, and
+/// the caller degrades to index-only injection rather than failing the generation.
+// Wired by task 3.1, which runs the selection once at generation start.
+#[allow(dead_code)]
+pub(crate) trait AgentMemorySelectionPort: Send + Sync {
+    fn select(
+        &self,
+        query: &str,
+        candidates: &[AgentMemory],
+    ) -> Result<Vec<String>, AgentRuntimeApplicationError>;
+}
+
 /// Host-level personalization settings read from `desktop` at generation time
 /// (`add-personalization-settings`). `agent_runtime` does not own this data — `desktop` does, the
 /// same way `tooling::skills` owns Skill content — so this port exists purely to bridge across

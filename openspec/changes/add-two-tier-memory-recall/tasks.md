@@ -9,12 +9,13 @@
 
 ## 2. Relevance selection
 
-- [ ] 2.1 Add the selector gateway, resolving OnePiece's credentials and provider the way `memory_extraction_gateway.rs` does
-- [ ] 2.2 Build the selection manifest from names, types, descriptions, and ages only, never bodies
+- [x] 2.1 Add the selector gateway, resolving OnePiece's credentials and provider the way `memory_extraction_gateway.rs` does
+- [x] 2.2 Build the selection manifest from names, types, descriptions, and ages only, never bodies
 - [ ] 2.3 Request structured output bounded to a small token cap, and discard returned names absent from the manifest
-- [ ] 2.4 Instruct the selector to return an empty list when nothing is clearly useful rather than its best guess
-- [ ] 2.5 Enforce the selection bound of five memories
-- [ ] 2.6 Add tests for an empty selection, an over-bound selection, a hallucinated name, and an unparseable response
+  - Discarding unknown names is done. The token cap is NOT: `summarize_turns` sets no `max_tokens` for any call, and it is shared with compaction summaries and extraction, so capping it there would truncate compaction summaries. Bounding only this call needs a new parameter threaded through the shared request builder.
+- [x] 2.4 Instruct the selector to return an empty list when nothing is clearly useful rather than its best guess
+- [x] 2.5 Enforce the selection bound of five memories
+- [x] 2.6 Add tests for an empty selection, an over-bound selection, a hallucinated name, and an unparseable response
 
 ## 3. Generation-scoped assembly
 
