@@ -549,6 +549,7 @@ pub(crate) struct CanonicalRunLinks<'a> {
     pub(crate) operation_id: &'a str,
 }
 
+/// Projects Agent-owned lifecycle boundaries without exposing another context's repositories.
 pub(crate) trait AgentTaskPort: Send + Sync {
     fn start_canonical_loop(
         &self,
