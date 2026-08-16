@@ -216,10 +216,22 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Verify Linux fast linker
         run: |
           clang --version
           mold --version
+
+      - name: Architecture fitness
+        run: npm run architecture:check
 
       - name: Rust fmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check

@@ -35,6 +35,7 @@
     "coverage:policy:test": "node --test scripts/check-coverage-policy.node-test.mjs",
     "lint:ci": "eslint . --max-warnings=0",
     "contracts:check": "vitest run src/contracts/contract-conformance.test.ts",
+    "architecture:check": "node --test scripts/architecture/*.node-test.mjs && node scripts/architecture/check.mjs && npm run lint:ci && tsc --noEmit && cargo test --manifest-path src-tauri/Cargo.toml --test architecture",
     "docs:unit:test": "node --test scripts/check-readme-parity.node-test.mjs scripts/docs-screenshot-port.node-test.mjs scripts/validate-docs.node-test.mjs",
     "docs:readme:check": "node scripts/check-readme-parity.mjs",
     "docs:links:check": "node scripts/validate-docs.mjs",
