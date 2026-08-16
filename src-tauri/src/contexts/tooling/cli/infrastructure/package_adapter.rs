@@ -587,7 +587,9 @@ mod tests {
         let definition = definition("codex-cli").expect("definition");
         let changed = CliPackageAdapter::with_dependencies(
             process.clone(),
-            Arc::new(FakeCandidates(vec![PathBuf::from("/usr/bin/codex")])),
+            Arc::new(FakeCandidates(vec![PathBuf::from(
+                "/fixture/vendor/bin/codex",
+            )])),
         );
         let status = status("codex-cli", LifecycleEligibility::Npm);
 

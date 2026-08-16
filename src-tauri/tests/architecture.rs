@@ -219,7 +219,9 @@ struct SourceScope {
 struct Violation {
     line: usize,
     dependency: String,
+    rule_id: &'static str,
     rule: &'static str,
+    repair: &'static str,
 }
 
 struct DependencyVisitor<'a> {
@@ -237,7 +239,9 @@ impl DependencyVisitor<'_> {
             self.violations.insert(Violation {
                 line,
                 dependency,
+                rule_id: "ARCH-NATIVE-001",
                 rule: "domain/application code cannot depend on concrete I/O or runtime frameworks",
+                repair: "depend on a domain/application port and assemble its adapter in bootstrap",
             });
             return;
         }
@@ -245,7 +249,9 @@ impl DependencyVisitor<'_> {
             self.violations.insert(Violation {
                 line,
                 dependency,
+                rule_id: "ARCH-NATIVE-001",
                 rule: "dependencies must point inward from adapters to application and domain",
+                repair: "move the dependency behind the inward-facing application boundary",
             });
             return;
         }
@@ -253,7 +259,9 @@ impl DependencyVisitor<'_> {
             self.violations.insert(Violation {
                 line,
                 dependency,
+                rule_id: "ARCH-NATIVE-002",
                 rule: "cross-context access must use the owning context api module",
+                repair: "import the owning context api, an explicit contract, or an event",
             });
         }
     }
@@ -753,6 +761,69 @@ struct RuntimeIoUse {
     kind: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompositionRootUse {
+    line: usize,
+    constructor: String,
+}
+
+#[derive(Default)]
+struct CompositionRootVisitor {
+    uses: Vec<CompositionRootUse>,
+}
+
+impl<'ast> Visit<'ast> for CompositionRootVisitor {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        syn::visit::visit_item_mod(self, node);
+    }
+
+    fn visit_item_fn(&mut self, node: &'ast ItemFn) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        syn::visit::visit_item_fn(self, node);
+    }
+
+    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        syn::visit::visit_impl_item_fn(self, node);
+    }
+
+    fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        syn::visit::visit_item_impl(self, node);
+    }
+
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let Expr::Path(path) = node.func.as_ref() {
+            let segments = path
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            if segments.len() >= 2 {
+                let owner = &segments[segments.len() - 2];
+                let method = &segments[segments.len() - 1];
+                if owner == "RuntimeAgentApiAdapter" && method.starts_with("new") {
+                    self.uses.push(CompositionRootUse {
+                        line: node.span().start().line,
+                        constructor: format!("{owner}::{method}"),
+                    });
+                }
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+}
+
 #[derive(Default)]
 struct RuntimeIoVisitor {
     uses: Vec<RuntimeIoUse>,
@@ -848,6 +919,13 @@ fn runtime_io_uses(source: &str) -> Result<Vec<RuntimeIoUse>, String> {
     Ok(visitor.uses)
 }
 
+fn composition_root_uses(source: &str) -> Result<Vec<CompositionRootUse>, String> {
+    let syntax = syn::parse_file(source).map_err(|error| error.to_string())?;
+    let mut visitor = CompositionRootVisitor::default();
+    visitor.visit_file(&syntax);
+    Ok(visitor.uses)
+}
+
 #[test]
 fn native_context_dependencies_point_inward() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -859,11 +937,13 @@ fn native_context_dependencies_point_inward() {
         let source = fs::read_to_string(&path).expect("read native Rust source");
         for violation in analyze(relative, &source).expect("parse native Rust source") {
             messages.push(format!(
-                "{}:{}: {} (`{}`)",
+                "[{}] {}:{}: {} (`{}`). Repair: {}",
+                violation.rule_id,
                 relative.display(),
                 violation.line,
                 violation.rule,
-                violation.dependency
+                violation.dependency,
+                violation.repair
             ));
         }
     }
@@ -892,10 +972,13 @@ pub fn invalid(_: Connection) {
     .expect("analyze fixture");
 
     assert!(violations.iter().any(|violation| {
-        violation.line == 2 && violation.dependency.starts_with("rusqlite::Connection")
+        violation.line == 2
+            && violation.rule_id == "ARCH-NATIVE-001"
+            && violation.dependency.starts_with("rusqlite::Connection")
     }));
     assert!(violations.iter().any(|violation| {
         violation.line == 3
+            && violation.rule_id == "ARCH-NATIVE-002"
             && violation
                 .dependency
                 .starts_with("crate::contexts::tooling::infrastructure")
@@ -912,6 +995,19 @@ fn detector_allows_published_cross_context_api() {
     .expect("analyze fixture");
 
     assert!(violations.is_empty());
+}
+
+#[test]
+fn detector_rejects_domain_to_infrastructure_dependency() {
+    let source = "use crate::contexts::sessions::infrastructure::SqliteSessionsRepository;";
+    let violations = analyze(Path::new("contexts/sessions/domain/session.rs"), source)
+        .expect("analyze domain fixture");
+
+    assert!(violations.iter().any(|violation| {
+        violation.line == 1
+            && violation.rule_id == "ARCH-NATIVE-001"
+            && violation.dependency.contains("sessions::infrastructure")
+    }));
 }
 
 #[test]
@@ -1318,7 +1414,7 @@ fn tauri_command_adapters_cannot_gain_io_or_control_flow_decisions() {
             || actual.control_flow_decisions > allowed.control_flow_decisions
         {
             over_budget.push(format!(
-                "{relative}: io {}/{}; control flow {}/{}",
+                "[ARCH-NATIVE-003] {relative}:1: io {}/{}; control flow {}/{}. Repair: map transport only and delegate policy/I/O to an application use case",
                 actual.io_decisions,
                 allowed.io_decisions,
                 actual.control_flow_decisions,
@@ -1333,6 +1429,30 @@ fn tauri_command_adapters_cannot_gain_io_or_control_flow_decisions() {
         over_budget.join("\n"),
         candidates.join("\n")
     );
+}
+
+#[test]
+fn command_thinness_detector_accepts_delegation_and_rejects_io_policy() {
+    let compliant = r#"
+#[tauri::command]
+fn load(service: Service) -> Result<Value, String> { service.load() }
+"#;
+    let violating = r#"
+#[tauri::command]
+fn load(connection: Connection) -> Result<Value, String> {
+    if ready() { connection.execute("SELECT value FROM settings", []) } else { fallback() }
+}
+"#;
+
+    assert_eq!(
+        command_metrics(compliant).expect("parse compliant command"),
+        Some(CommandMetrics::default())
+    );
+    let metrics = command_metrics(violating)
+        .expect("parse violating command")
+        .expect("command fixture");
+    assert!(metrics.io_decisions > 0);
+    assert!(metrics.control_flow_decisions > 0);
 }
 
 #[test]
@@ -1355,7 +1475,7 @@ fn runtime_processes_and_append_logs_use_shared_adapters() {
                 _ => false,
             };
             if !allowed {
-                violations.push(format!("{relative}:{}: {}", usage.line, usage.kind));
+                violations.push(format!("[ARCH-NATIVE-004] {relative}:{}: {}. Repair: use the shared platform adapter and assemble it in bootstrap", usage.line, usage.kind));
             }
         }
     }
@@ -1387,6 +1507,54 @@ mod tests {
 
     assert_eq!(uses.len(), 3);
     assert!(uses.iter().all(|usage| usage.line <= 4));
+}
+
+#[test]
+fn composition_root_detector_reports_reviewed_constructors() {
+    let source = r#"
+fn assemble() {
+    let _ = RuntimeAgentApiAdapter::new_without_code_intelligence(dependencies);
+}
+"#;
+    let uses = composition_root_uses(source).expect("analyze fixture");
+    assert_eq!(uses.len(), 1);
+    assert_eq!(uses[0].line, 3);
+}
+
+#[test]
+fn concrete_runtime_dependencies_are_assembled_only_in_bootstrap() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+    for path in rust_files(&source_root).expect("enumerate native Rust sources") {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if relative.starts_with("bootstrap/")
+            || relative.starts_with("tests/")
+            || file_name == "tests.rs"
+            || file_name.ends_with("_tests.rs")
+        {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read native Rust source");
+        for usage in composition_root_uses(&source).expect("parse native Rust source") {
+            violations.push(format!(
+                "[ARCH-NATIVE-005] {relative}:{}: concrete constructor `{}` outside bootstrap. Repair: assemble the concrete dependency in bootstrap",
+                usage.line, usage.constructor
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "concrete runtime assembly escaped bootstrap:\n{}",
+        violations.join("\n")
+    );
 }
 
 #[test]
