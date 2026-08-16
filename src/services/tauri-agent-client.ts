@@ -169,6 +169,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
+import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -206,6 +207,36 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 
 export const tauriAgentClient: AgentService = {
   ...tauriBuiltinToolClient,
+  openCodeReview(sessionId) {
+    return invoke<CodeReview>("open_code_review", { sessionId });
+  },
+  getCodeReview(reviewId) {
+    return invoke<CodeReview>("get_code_review", { reviewId });
+  },
+  loadCodeReviewFile(sessionId, path, expectedSnapshot) {
+    return invoke<ReviewDiffFile>("load_code_review_file", { sessionId, path, expectedSnapshot });
+  },
+  addCodeReviewComment(input: AddReviewCommentInput) {
+    return invoke<ReviewComment>("add_code_review_comment", { input });
+  },
+  resolveCodeReviewComment(reviewId, commentId) {
+    return invoke<CodeReview>("resolve_code_review_comment", { reviewId, commentId });
+  },
+  selectCodeReviewComment(reviewId, commentId, selected) {
+    return invoke<CodeReview>("select_code_review_comment", { reviewId, commentId, selected });
+  },
+  setCodeReviewDecision(reviewId, decision: ReviewDecision) {
+    return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });
+  },
+  revertCodeReviewChange(input: RevertReviewChangeInput) {
+    return invoke<ReviewRevertReceipt>("revert_code_review_change", { input });
+  },
+  sendCodeReviewFeedback(reviewId, acknowledgeStale) {
+    return invoke<{ messageId: string }>("send_code_review_feedback", { reviewId, acknowledgeStale });
+  },
+  startCodeReviewAction(reviewId, action: ReviewAction) {
+    return invoke<{ operationId: string }>("start_code_review_action", { reviewId, action });
+  },
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },

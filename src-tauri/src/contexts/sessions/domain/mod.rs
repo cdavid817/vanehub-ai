@@ -6,6 +6,7 @@ mod identity;
 mod message;
 pub(crate) mod recovery;
 pub(crate) mod recovery_decision;
+pub(crate) mod review;
 mod session;
 mod session_seat;
 mod usage_accounting;
@@ -23,6 +24,11 @@ pub(crate) use message::{
 pub(crate) use recovery::{
     RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,
     SessionRecoveryReport, SessionRecoveryStatus,
+};
+pub(crate) use review::{
+    ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
+    ReviewDomainError, ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession,
+    ReviewStatus,
 };
 pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,

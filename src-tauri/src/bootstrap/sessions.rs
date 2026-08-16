@@ -6,18 +6,21 @@ use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort,
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::{ArchivalPolicy, SessionsApi};
 use crate::contexts::sessions::application::{
+    PreparedReviewFeedback, ReviewAction, ReviewApplicationError, ReviewApplicationService,
+    ReviewFeedbackPort, ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewSnapshotPort,
     SessionApplicationPorts, SessionRecoveryCoordinator, SessionsApplicationService,
 };
 use crate::contexts::sessions::infrastructure::{
     AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
-    SessionFileAdapter, SessionOperationAdapter, SqliteSessionChatProfileAdapter,
-    SqliteSessionsRepository, SystemSessionClock, UnifiedSessionLoggingAdapter,
-    UuidSessionIdentities,
+    SessionFileAdapter, SessionOperationAdapter, SqliteReviewRepository,
+    SqliteSessionChatProfileAdapter, SqliteSessionsRepository, SystemReviewClock,
+    SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
 };
 use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -78,7 +81,7 @@ pub(crate) fn assemble_sessions_api(
         clock,
         identities: Arc::new(UuidSessionIdentities),
         files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
-        operations: Arc::new(SessionOperationAdapter::new(operations)),
+        operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
         logging: session_logging,
         chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
             database.clone(),
@@ -92,7 +95,137 @@ pub(crate) fn assemble_sessions_api(
         eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
         runtime: Arc::new(runtime_adapter.clone()),
     });
-    (SessionsApi::new(service), runtime_adapter, recovery)
+    let review = ReviewApplicationService::new(
+        Arc::new(SqliteReviewRepository::new(database)),
+        Arc::new(SystemReviewClock),
+        Arc::new(UuidReviewIds),
+        Arc::new(SessionReviewFeedbackAdapter(service.clone())),
+        Arc::new(WorkspaceReviewSnapshotAdapter(workspaces.clone())),
+        Arc::new(SessionReviewOperationAdapter(operations.clone())),
+        Arc::new(SessionReviewLoggingAdapter(logging)),
+    );
+    (
+        SessionsApi::new(service).with_review(review),
+        runtime_adapter,
+        recovery,
+    )
+}
+
+struct SessionReviewLoggingAdapter(Arc<dyn DiagnosticLogPort>);
+
+impl ReviewLoggingPort for SessionReviewLoggingAdapter {
+    fn record(&self, event: ReviewLogEvent) {
+        let mut context = BTreeMap::new();
+        context.insert("reviewId".to_string(), event.review_id);
+        context.insert("itemCount".to_string(), event.item_count.to_string());
+        let _ = self.0.write_diagnostic(DiagnosticLog {
+            severity: LogSeverity::Info,
+            category: "session.code-review".to_string(),
+            message: event.kind.to_string(),
+            context,
+        });
+    }
+}
+
+struct SessionReviewOperationAdapter(OperationsApi);
+
+impl ReviewOperationPort for SessionReviewOperationAdapter {
+    fn start(
+        &self,
+        review_id: &str,
+        action: ReviewAction,
+    ) -> Result<String, ReviewApplicationError> {
+        let label = match action {
+            ReviewAction::ReviewAgent => "review-agent",
+            ReviewAction::Tests => "tests",
+            ReviewAction::Security => "security",
+        };
+        self.0
+            .start(
+                crate::contexts::operations::api::OperationKind::Workspace,
+                Some(review_id.to_string()),
+                Some(label.to_string()),
+            )
+            .map(|operation| operation.id)
+            .map_err(|error| ReviewApplicationError::Repository(error.to_string()))
+    }
+}
+
+struct WorkspaceReviewSnapshotAdapter(WorkspaceApi);
+
+impl ReviewSnapshotPort for WorkspaceReviewSnapshotAdapter {
+    fn snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::contexts::sessions::application::CreateReviewRequest, ReviewApplicationError>
+    {
+        let snapshot = self
+            .0
+            .create_review_snapshot(session_id)
+            .map_err(|error| ReviewApplicationError::Repository(error.to_string()))?;
+        let files = snapshot
+            .files
+            .into_iter()
+            .map(|file| {
+                crate::contexts::sessions::domain::ReviewFile::try_new(
+                    file.path,
+                    file.previous_path,
+                    file.change_type,
+                    file.old_hash,
+                    file.new_hash,
+                )
+                .map_err(ReviewApplicationError::Domain)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(
+            crate::contexts::sessions::application::CreateReviewRequest {
+                session_id: session_id.to_string(),
+                workspace_id: snapshot.workspace_id,
+                base_revision: snapshot.base_revision,
+                head_revision: snapshot.head_revision,
+                fingerprint: snapshot.fingerprint,
+                files,
+            },
+        )
+    }
+}
+
+struct SessionReviewFeedbackAdapter(SessionsApplicationService);
+
+impl ReviewFeedbackPort for SessionReviewFeedbackAdapter {
+    fn send(
+        &self,
+        session_id: &str,
+        feedback: &PreparedReviewFeedback,
+    ) -> Result<String, ReviewApplicationError> {
+        let mut content = String::from("Review feedback:\n");
+        for (index, comment) in feedback.comments.iter().enumerate() {
+            let stale = if comment.stale { " [stale]" } else { "" };
+            content.push_str(&format!(
+                "{}. {}:{}-{}{} {}\n",
+                index + 1,
+                comment.file_path,
+                comment.start_line,
+                comment.end_line,
+                stale,
+                comment.body
+            ));
+        }
+        self.0
+            .create_message(
+                crate::contexts::sessions::application::CreateMessageRequest {
+                    session_id: session_id.to_string(),
+                    speaker_seat_id: None,
+                    seat_index: None,
+                    role: "user".to_string(),
+                    status: "completed".to_string(),
+                    content,
+                    file_references: Vec::new(),
+                },
+            )
+            .map(|message| message.message.id().as_str().to_string())
+            .map_err(|error| ReviewApplicationError::Feedback(error.to_string()))
+    }
 }
 
 pub(crate) fn start_session_maintenance_jobs(

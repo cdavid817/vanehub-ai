@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the native runtime foundation for app-owned storage, migrations, structured diagnostics, long-running tasks, command safety, and Tauri desktop security.
-
 ## Requirements
-
 ### Requirement: App-owned storage paths
 The native runtime SHALL store application data in VaneHub-owned user data directories resolved through runtime-safe path APIs rather than relying on the process current working directory.
 
@@ -1049,3 +1047,14 @@ Native dependency, cross-context, command-thinness, and composition-root detecto
 #### Scenario: Native fixture suite runs
 - **WHEN** the native architecture test target executes
 - **THEN** compliant fixtures SHALL be accepted and each prohibited dependency or I/O pattern SHALL be rejected with its rule id and location
+
+### Requirement: Code review ownership across existing contexts
+Native code review behavior SHALL remain in the existing modular-monolith contexts: `sessions` owns review records and feedback coordination, `workspaces` owns Git/path/fingerprint/revert policy, `operations` owns observable action lifecycle, and `permissions` owns destructive approval; cross-context calls SHALL use published APIs assembled in bootstrap.
+
+#### Scenario: Review command executes
+- **WHEN** a declared Tauri review command is invoked
+- **THEN** the handler SHALL validate/map transport data and call assembled application services without SQL, Git process construction, or business policy in the command module
+
+#### Scenario: Architecture fixtures inspect review code
+- **WHEN** native architecture fitness tests scan the implementation
+- **THEN** no review module SHALL import another context's private domain, repository, or infrastructure implementation

@@ -177,6 +177,7 @@ import type {
 import { codeIndexLanguages } from "../types/code-index";
 import { normalizeCodeIndexConfiguration } from "./code-index-contract";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
+import { createWebCodeReviewClient } from "./web-code-review-client";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -2467,6 +2468,7 @@ export function setWebLoopPhaseDelayForTest(delayMs: number): void {
   webLoopPhaseDelayMs = Math.max(1, Math.min(delayMs, 10_000));
 }
 
+const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
 const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
   const workspacePath = target.scope === "project" && target.workspacePath
     ? normalizeWebPath(target.workspacePath, "Workspace path")
@@ -2491,6 +2493,7 @@ const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
 export const webAgentClient: AgentService = {
   ...webBuiltinToolClient,
   ...webSessionWorkspaceClient,
+  ...webCodeReviewClient,
   ...webLspClient,
   async openExternalUrl(url) {
     const target = requireHttpsExternalUrl(url);

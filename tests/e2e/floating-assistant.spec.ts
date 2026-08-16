@@ -42,12 +42,16 @@ test.describe("floating assistant web preview", () => {
     await page.getByPlaceholder("向当前会话发送消息…").fill("mini chat message");
     await page.getByRole("button", { name: "发送" }).click();
 
+    await expect.poll(() => page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="向当前会话发送消息…"]');
+      const stop = [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("停止"));
+      const generating = document.body.textContent?.includes("正在生成回复") ?? false;
+      if (!generating || !input?.disabled || !stop || stop.disabled) return false;
+      stop.click();
+      return true;
+    })).toBe(true);
     await expect(page.getByText("mini chat message", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
-    await expect(page.getByText(/正在生成回复/)).toBeVisible();
-    await expect(page.getByPlaceholder("向当前会话发送消息…")).toBeDisabled();
-
-    await page.getByRole("button", { name: "停止" }).click();
     await expect(page.getByText(/生成已停止/)).toBeVisible();
   });
 

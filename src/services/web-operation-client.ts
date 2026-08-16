@@ -110,4 +110,10 @@ export const webOperationClient: OperationService = {
     }
     return operation;
   },
+  async cancelOperation(operationId: string) {
+    const operation = mockOperations.find((item) => item.id === operationId);
+    if (!operation) throw new Error(`operation not found: ${operationId}`);
+    settleWebOperation(operationId, "cancelled", null);
+    return mockOperations.find((item) => item.id === operationId) ?? operation;
+  },
 };

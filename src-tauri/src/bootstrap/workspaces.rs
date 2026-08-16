@@ -22,9 +22,11 @@ pub(crate) fn assemble_workspace_api(
 ) -> WorkspaceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
-    let queries = WorkspaceQueryApplicationService::new(Arc::new(
-        SessionWorkspaceQueryAdapter::new(database.clone(), app.clone()),
+    let review_adapter = Arc::new(SessionWorkspaceQueryAdapter::new(
+        database.clone(),
+        app.clone(),
     ));
+    let queries = WorkspaceQueryApplicationService::new(review_adapter.clone());
     let shell_events = Arc::new(TauriWorkspaceShellEventPublisher::new(app.clone()));
     let shell_logging = Arc::new(WorkspaceShellLoggingAdapter::new(logging.clone()));
     let shell = WorkspaceShellApplicationService::new(
@@ -44,5 +46,5 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(TauriProjectDirectorySelection::new(app)),
         Arc::new(SystemWorkspaceClock),
     );
-    WorkspaceApi::new(service, queries, shell)
+    WorkspaceApi::new(service, queries, shell, review_adapter)
 }

@@ -1,4 +1,3 @@
-use super::application::SessionsApplicationService;
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
     CompletedInvocationAccounting, CreateMessageRequest, DurableGenerationStartRequest,
@@ -17,6 +16,7 @@ pub(crate) use super::application::{
     UsageDetailPage, UsageEntityCounts, UsageMeasureAggregate, UsageQualityAggregate,
     UsageStatisticsRange, UsageSummaryQuery,
 };
+use super::application::{ReviewApplicationService, SessionsApplicationService};
 pub(crate) use super::domain::{
     AccountingUnit, LoopSessionRole, MeasurementKind, MeasurementQuality, RecoveryDecision,
     RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
@@ -29,6 +29,7 @@ use serde_json::Value;
 #[derive(Clone)]
 pub(crate) struct SessionsApi {
     service: SessionsApplicationService,
+    review: Option<ReviewApplicationService>,
 }
 
 impl SessionsApi {
@@ -104,7 +105,99 @@ impl SessionsApi {
     }
 
     pub(crate) fn new(service: SessionsApplicationService) -> Self {
-        Self { service }
+        Self {
+            service,
+            review: None,
+        }
+    }
+
+    pub(crate) fn with_review(mut self, review: ReviewApplicationService) -> Self {
+        self.review = Some(review);
+        self
+    }
+
+    fn review(
+        &self,
+    ) -> Result<&ReviewApplicationService, super::application::ReviewApplicationError> {
+        self.review.as_ref().ok_or_else(|| {
+            super::application::ReviewApplicationError::Repository(
+                "review service is unavailable".to_string(),
+            )
+        })
+    }
+
+    pub(crate) fn open_review(
+        &self,
+        session_id: &str,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?.open(session_id)
+    }
+
+    pub(crate) fn find_review(
+        &self,
+        review_id: &str,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?.find(review_id)
+    }
+
+    pub(crate) fn add_review_comment(
+        &self,
+        request: super::application::AddReviewCommentRequest,
+    ) -> Result<super::domain::ReviewComment, super::application::ReviewApplicationError> {
+        self.review()?.add_comment(request)
+    }
+
+    pub(crate) fn set_review_decision(
+        &self,
+        review_id: &str,
+        decision: super::domain::ReviewDecision,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?.set_decision(review_id, decision)
+    }
+
+    pub(crate) fn resolve_review_comment(
+        &self,
+        review_id: &str,
+        comment_id: &str,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?.resolve_comment(review_id, comment_id)
+    }
+
+    pub(crate) fn select_review_comment(
+        &self,
+        review_id: &str,
+        comment_id: &str,
+        selected: bool,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?
+            .select_comment(review_id, comment_id, selected)
+    }
+
+    pub(crate) fn send_review_feedback(
+        &self,
+        review_id: &str,
+        acknowledge_stale: bool,
+    ) -> Result<String, super::application::ReviewApplicationError> {
+        self.review()?.send_feedback(review_id, acknowledge_stale)
+    }
+
+    pub(crate) fn start_review_action(
+        &self,
+        review_id: &str,
+        action: super::application::ReviewAction,
+    ) -> Result<String, super::application::ReviewApplicationError> {
+        self.review()?.start_action(review_id, action)
+    }
+
+    pub(crate) fn complete_review_action(
+        &self,
+        review_id: &str,
+        action: super::application::ReviewAction,
+        operation_id: &str,
+        findings: Vec<super::application::ReviewActionFindingInput>,
+    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
+        self.review()?
+            .project_action_findings(review_id, action, operation_id, findings)
     }
 
     pub(crate) fn prepare_creation(

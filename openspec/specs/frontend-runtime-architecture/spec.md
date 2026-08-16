@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the frontend routing, runtime adapter, data-fetching, validation, error isolation, and workspace modularity foundation for scalable Tauri desktop and browser Web runtimes.
-
 ## Requirements
-
 ### Requirement: Routed frontend surfaces
 The frontend SHALL expose top-level application surfaces through a routing layer that can address workspace, settings, and future detail views without relying on a single component-local view flag. Workspace destinations and the active session SHALL be addressable through that routing layer.
 
@@ -583,3 +581,14 @@ The desktop/Tauri and Web/mock runtime adapters SHALL both conform to the same d
 #### Scenario: Adapter conformance annotation is removed
 - **WHEN** either runtime adapter is no longer checked against the shared service contract
 - **THEN** frontend architecture fitness SHALL fail with the adapter-parity rule id and affected adapter file
+
+### Requirement: Runtime-neutral code review service contract
+The frontend Agent service SHALL expose review lifecycle, bounded file loading, comment/finding/decision, feedback, action, and guarded-revert methods whose models and terminal semantics are implemented consistently by Tauri and Web/mock adapters.
+
+#### Scenario: React requests review work
+- **WHEN** a Review Center component creates a review, loads a diff, comments, sends feedback, or starts an action
+- **THEN** it SHALL call the shared service interface and SHALL NOT import or invoke Tauri APIs directly
+
+#### Scenario: Adapters expose parity
+- **WHEN** contract tests compare Tauri declarations and Web/mock behavior
+- **THEN** both adapters SHALL expose matching request/response shapes, stale/error categories, operation states, and simulated-receipt semantics
