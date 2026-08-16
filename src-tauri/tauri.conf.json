@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "app", "dmg", "deb", "appimage"],
     "resources": [
       "resources/skills/system/**/*",
@@ -40,5 +41,11 @@
       "icons/generated/icon.icns",
       "icons/generated/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/cdavid817/vanehub-ai/releases/download/update-stable/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4NDlGMzI5MzgwRjNCQkUKUldTK093ODRLZk5KNlB5TVpQanNaVW92eWNvK3llR2ZkOU1KdnZLMzFkT1VYQnhsRjlhekVxc1IK"
+    }
   }
 }

@@ -20,6 +20,8 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_dialog::init())
         // External provider/help links are opened by the operating system browser.
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // 注册开机自启插件：Mac平台使用LaunchAgent实现开机启动，无额外配置
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -296,7 +298,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         }))
         .map_err(boxed_message)?;
 
-    app.manage(operations_api);
+    app.manage(operations_api.clone());
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
     app.manage(cli_config_api);
@@ -321,6 +323,21 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());
     app.manage(floating_assistant_api.clone());
+    let desktop_update_api = crate::contexts::desktop::DesktopUpdateApi::new(
+        app.handle().clone(),
+        desktop_settings_api.clone(),
+        operations_api.clone(),
+    );
+    let automatic_update_check = desktop_update_api
+        .preferences()
+        .map(|preferences| preferences.automatic_check)
+        .unwrap_or(false);
+    app.manage(desktop_update_api);
+    if automatic_update_check {
+        let _ = app
+            .state::<crate::contexts::desktop::DesktopUpdateApi>()
+            .start_check();
+    }
 
     super::start_scheduled_task_jobs(
         scheduled_task_database,

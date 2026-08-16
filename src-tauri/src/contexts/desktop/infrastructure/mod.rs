@@ -7,6 +7,7 @@ mod sqlite_floating_assistant_repository;
 mod sqlite_settings_repository;
 mod tauri_desktop_lifecycle;
 mod tauri_floating_assistant_window;
+mod tauri_updater;
 mod webview_recovery;
 
 pub(crate) use environment::{
@@ -28,4 +29,5 @@ pub(crate) use sqlite_floating_assistant_repository::{
 pub(crate) use sqlite_settings_repository::SqliteDesktopSettingsRepository;
 pub(crate) use tauri_desktop_lifecycle::{handle_main_window_event, TauriDesktopLifecycleAdapter};
 pub(crate) use tauri_floating_assistant_window::TauriFloatingAssistantWindowAdapter;
+pub(crate) use tauri_updater::{TauriUpdateRuntime, UpdateSnapshot};
 pub(crate) use webview_recovery::install_main_webview_recovery;

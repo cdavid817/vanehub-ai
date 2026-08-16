@@ -136,6 +136,12 @@ pub(crate) fn invoke_handler(
         crate::commands::workspaces::shell_kill::shell_kill,
         // Desktop
         crate::commands::desktop::get_settings::get_settings,
+        crate::commands::desktop::get_desktop_update_snapshot::get_desktop_update_snapshot,
+        crate::commands::desktop::get_desktop_update_preferences::get_desktop_update_preferences,
+        crate::commands::desktop::save_desktop_update_preferences::save_desktop_update_preferences,
+        crate::commands::desktop::check_for_desktop_update::check_for_desktop_update,
+        crate::commands::desktop::download_and_install_desktop_update::download_and_install_desktop_update,
+        crate::commands::desktop::restart_after_desktop_update::restart_after_desktop_update,
         crate::commands::desktop::list_folder_openers::list_folder_openers,
         crate::commands::desktop::refresh_folder_openers::refresh_folder_openers,
         crate::commands::desktop::get_folder_opener_preferences::get_folder_opener_preferences,

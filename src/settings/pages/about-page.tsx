@@ -1,5 +1,5 @@
-import { CheckCircle2, ExternalLink, GitFork, Info, RefreshCw, Rocket, ScrollText, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, Download, ExternalLink, GitFork, Info, RefreshCw, Rocket, RotateCcw, ScrollText, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -8,9 +8,9 @@ import {
   aboutCurrentVersion,
   aboutReleasesUrl,
   aboutRepositoryUrl,
-  checkAboutUpdates,
-  type AboutUpdateInfo,
 } from "../../services/about-service";
+import { agentService } from "../../services/runtime-agent-client";
+import type { DesktopUpdateSnapshot, UpdatePreferences } from "../../types/desktop-update";
 import { PageHeader, SectionPanel } from "./page-parts";
 
 const changelogKeys = ["about.changelog.item1", "about.changelog.item2", "about.changelog.item3"];
@@ -34,7 +34,8 @@ function formatCheckedAt(value: string, language: string) {
 export function AboutPage() {
   const { i18n, t } = useTranslation();
   const [checking, setChecking] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<AboutUpdateInfo | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<DesktopUpdateSnapshot | null>(null);
+  const [preferences, setPreferences] = useState<UpdatePreferences>({ automaticCheck: false, channel: "preview" });
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   async function handleCheckUpdates() {
@@ -42,7 +43,8 @@ export function AboutPage() {
     setUpdateError(null);
 
     try {
-      setUpdateInfo(await checkAboutUpdates());
+      const receipt = await agentService.checkForDesktopUpdate();
+      setUpdateInfo(await awaitTerminalSnapshot(receipt.snapshot));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setUpdateError(message);
@@ -51,9 +53,39 @@ export function AboutPage() {
     }
   }
 
-  const updateStatus = updateInfo?.updateAvailable
+  useEffect(() => {
+    void Promise.all([agentService.getDesktopUpdateSnapshot(), agentService.getDesktopUpdatePreferences()])
+      .then(([nextSnapshot, nextPreferences]) => { setUpdateInfo(nextSnapshot); setPreferences(nextPreferences); })
+      .catch(() => undefined);
+  }, []);
+
+  async function savePreferences(next: UpdatePreferences) {
+    setPreferences(await agentService.saveDesktopUpdatePreferences(next));
+  }
+
+  async function installUpdate() {
+    setUpdateError(null);
+    try { setUpdateInfo(await awaitTerminalSnapshot((await agentService.downloadAndInstallDesktopUpdate()).snapshot)); }
+    catch (error) { setUpdateError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  async function awaitTerminalSnapshot(initial: DesktopUpdateSnapshot) {
+    let next = initial;
+    for (let attempt = 0; attempt < 300 && ["queued", "checking", "downloading"].includes(next.phase); attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      next = await agentService.getDesktopUpdateSnapshot();
+      setUpdateInfo(next);
+    }
+    return next;
+  }
+
+  const updateStatus = updateInfo?.phase === "available"
     ? t("about.update.available", { version: updateInfo.latestVersion })
-    : updateInfo
+    : updateInfo?.phase === "ready-to-restart"
+      ? t("about.update.readyRestart")
+      : updateInfo?.phase === "failed"
+        ? t("about.update.failed", { message: updateInfo.error })
+        : updateInfo
       ? t("about.update.current", { version: updateInfo.currentVersion })
       : t("about.update.notChecked");
 
@@ -97,15 +129,28 @@ export function AboutPage() {
                 </Button>
               </div>
               <p className="text-sm leading-6 text-muted-foreground">{t("about.update.description")}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+                  {t("about.update.channel")}
+                  <select className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground" value={preferences.channel} onChange={(event) => void savePreferences({ ...preferences, channel: event.target.value === "stable" ? "stable" : "preview" })}>
+                    <option value="stable">{t("about.update.stable")}</option>
+                    <option value="preview">{t("about.update.preview")}</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 self-end rounded-md border border-border px-3 py-2 text-sm">
+                  <input checked={preferences.automaticCheck} onChange={(event) => void savePreferences({ ...preferences, automaticCheck: event.target.checked })} type="checkbox" />
+                  {t("about.update.automatic")}
+                </label>
+              </div>
               <div className="flex items-start gap-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-sm">
-                {updateInfo?.updateAvailable ? (
+                {updateInfo?.phase === "available" ? (
                   <Rocket className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 ) : (
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 )}
                 <div className="min-w-0">
                   <div className="font-medium">{updateStatus}</div>
-                  {updateInfo ? (
+                  {updateInfo?.checkedAt ? (
                     <div className="mt-1 text-xs text-muted-foreground">
                       {t("about.update.checkedAt", { time: formatCheckedAt(updateInfo.checkedAt, i18n.language) })}
                     </div>
@@ -116,6 +161,9 @@ export function AboutPage() {
               {updateInfo?.releaseNotes ? (
                 <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">{updateInfo.releaseNotes}</p>
               ) : null}
+              {updateInfo?.phase === "available" ? <Button onClick={() => void installUpdate()}><Download className="h-4 w-4" aria-hidden="true" />{t("about.update.install")}</Button> : null}
+              {updateInfo?.phase === "downloading" ? <div className="text-xs text-muted-foreground">{t("about.update.progress", { downloaded: updateInfo.downloadedBytes ?? 0, total: updateInfo.totalBytes ?? 0 })}</div> : null}
+              {updateInfo?.phase === "ready-to-restart" ? <Button onClick={() => void agentService.restartAfterDesktopUpdate()}><RotateCcw className="h-4 w-4" aria-hidden="true" />{t("about.update.restart")}</Button> : null}
             </div>
 
             <div className="flex flex-wrap gap-2 border-t border-border/70 pt-5">

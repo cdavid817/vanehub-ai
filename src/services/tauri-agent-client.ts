@@ -206,6 +206,12 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  getDesktopUpdateSnapshot() { return invoke("get_desktop_update_snapshot"); },
+  getDesktopUpdatePreferences() { return invoke("get_desktop_update_preferences"); },
+  saveDesktopUpdatePreferences(input) { return invoke("save_desktop_update_preferences", { input }); },
+  checkForDesktopUpdate() { return invoke("check_for_desktop_update"); },
+  downloadAndInstallDesktopUpdate() { return invoke("download_and_install_desktop_update"); },
+  async restartAfterDesktopUpdate() { await invoke("restart_after_desktop_update"); },
   ...tauriBuiltinToolClient,
   openCodeReview(sessionId) {
     return invoke<CodeReview>("open_code_review", { sessionId });

@@ -141,6 +141,7 @@ import type {
   TokenUsageSummaryQuery,
 } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
+import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -266,6 +267,12 @@ import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends BuiltinToolService {
+  getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
+  getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
+  saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
+  checkForDesktopUpdate(): Promise<UpdateOperationReceipt>;
+  downloadAndInstallDesktopUpdate(): Promise<UpdateOperationReceipt>;
+  restartAfterDesktopUpdate(): Promise<void>;
   openCodeReview(sessionId: string): Promise<CodeReview>;
   getCodeReview(reviewId: string): Promise<CodeReview>;
   loadCodeReviewFile(sessionId: string, path: string, expectedSnapshot: string): Promise<ReviewDiffFile>;

@@ -27,6 +27,12 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
 
     const settings = await readNativeSettings();
     assert.match(settings.applicationLanguage, /^(zh-CN|zh-TW|en|ja|ko)$/);
+    const update = await globalThis.browser.tauri.execute(({ core }) => (
+      core.invoke("get_desktop_update_snapshot")
+    ));
+    assert.equal(update.phase, "idle");
+    assert.match(update.currentVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+    assert.match(update.channel, /^(stable|preview)$/);
 
     await globalThis.browser.tauri.execute(({ core }, projectPath) => core.invoke("create_session", {
       input: {
