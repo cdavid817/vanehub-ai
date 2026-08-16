@@ -2,6 +2,7 @@ import { forwardRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import { AgentRunOwnerStatus } from "../components/ui/agent-run-owner-status";
 import type { LoopInspectionTarget, LoopRun } from "../types/loop";
 import { LoopInspectionActions } from "./loop-inspection-actions";
 import { latestLoopOperationEvidence, useLoopElapsed } from "./loop-monitoring";
@@ -43,6 +44,7 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
       {run ? (
         <div className="grid gap-5">
           <InspectorSection title={t("loops.inspector.run")}>
+            <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
             <Field label={t("loops.inspector.status")} value={t(`loops.status.${run.status}`)} />
             <Field label={t("loops.inspector.phase")} value={t(`loops.phase.${run.phase}`)} />
             <Field label={t("loops.monitor.elapsed")} value={elapsed} />

@@ -1,7 +1,8 @@
 use super::{
     AgentClockPort, AgentRegistryRepository, AgentRuntimeApplicationError, ApiAgentGateway,
-    LoopDefinitionView, LoopOperationContext, LoopOperationKind, LoopOperationObserver,
-    LoopProjectPort, LoopRepository, LoopRunView, SaveLoopDefinitionRequest, StartLoopResultView,
+    CanonicalLoopSignal, LoopDefinitionView, LoopOperationContext, LoopOperationKind,
+    LoopOperationObserver, LoopProjectPort, LoopRepository, LoopRunView, SaveLoopDefinitionRequest,
+    StartLoopResultView,
 };
 use crate::contexts::agent_runtime::domain::{
     InteractionMode, LoopDefinition, LoopDefinitionInput, LoopRun, LoopRunStatus,
@@ -140,6 +141,14 @@ impl LoopApplicationService {
         self.ports
             .loops
             .create_run(&run, &definition, &definition.values().project_path, &now)?;
+        if let Err(error) = self
+            .ports
+            .observer
+            .start_canonical_loop(run.id(), definition_id)
+        {
+            self.fail_queued_run(&mut run, &now);
+            return Err(error);
+        }
 
         let context = LoopOperationContext {
             run_id: run.id().to_string(),
@@ -238,6 +247,10 @@ impl LoopApplicationService {
                     .loops
                     .save_run_transition(run, LoopRunStatus::Queued, now, Some(now));
         }
+        let _ = self
+            .ports
+            .observer
+            .signal_canonical_loop(run.id(), CanonicalLoopSignal::Failed);
     }
 }
 

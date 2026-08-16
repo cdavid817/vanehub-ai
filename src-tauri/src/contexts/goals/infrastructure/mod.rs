@@ -4,6 +4,7 @@ mod schema;
 
 pub(crate) use goal_repository::SqliteGoalRepository;
 pub(crate) use progress_probes::{
-    LoopProgressProbe, PlanProgressProbe, SessionProgressProbe, WorkItemProgressProbe,
+    LoopProgressProbe, PlanProgressProbe, RunProgressProbe, SessionProgressProbe,
+    WorkItemProgressProbe,
 };
 pub(crate) use schema::apply_schema;

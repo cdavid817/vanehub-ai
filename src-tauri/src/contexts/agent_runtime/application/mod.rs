@@ -176,12 +176,13 @@ pub(crate) use ports::{
     AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
     AgentSessionGateway, AgentSkillPort, AgentTaskPort, AgentTerminalEventPort,
     AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort,
-    AuthoritativeContextPort, ConversationHistoryPort, EffectivePromptGateway,
-    LoopExecutionControlPort, LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort,
-    LoopIterationRepository, LoopLoggingPort, LoopProjectPort, LoopRepository,
-    LoopRoleGenerationCompletionPort, LoopRoleSessionPort, LoopSessionRecoveryPort,
-    LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, ToolApprovalPort,
+    AuthoritativeContextPort, CanonicalLoopSignal, CanonicalRunLinks, CanonicalRunOutcome,
+    CanonicalRunSignal, ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
+    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
+    LoopRoleSessionPort, LoopSessionRecoveryPort, LoopVerificationProcessPort,
+    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    OnePieceModelDiscoveryPort, ToolApprovalPort,
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{

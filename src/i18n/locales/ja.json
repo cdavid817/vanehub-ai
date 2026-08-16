@@ -3401,6 +3401,7 @@
   "goals.target.loop": "ループ",
   "goals.target.work_item": "作業項目",
   "goals.target.session": "セッション",
+  "goals.target.run": "実行",
   "goals.linkProgress.terminal": "完了",
   "goals.linkProgress.active": "進行中",
   "goals.linkProgress.unresolvable": "見つかりません",
@@ -3443,5 +3444,11 @@
   "onepiece.contextInspector.rejected": "上位の除外項目",
   "onepiece.contextInspector.sources": "ソース状態",
   "onepiece.contextInspector.yes": "はい",
-  "onepiece.contextInspector.no": "いいえ"
+  "onepiece.contextInspector.no": "いいえ",
+  "run.status.created": "作成済み", "run.status.preparing": "準備中", "run.status.running": "実行中",
+  "run.status.waiting_approval": "承認待ち", "run.status.waiting_user": "入力待ち", "run.status.paused": "一時停止",
+  "run.status.retrying": "再試行中", "run.status.blocked": "ブロック中", "run.status.stuck": "停滞中",
+  "run.status.verifying": "検証中", "run.status.completed": "完了", "run.status.failed": "失敗",
+  "run.status.cancelled": "キャンセル済み", "run.elapsed": "経過 {{elapsed}}", "run.reason": "理由: {{reason}}",
+  "run.retry": "再試行 {{count}}", "run.cancel": "キャンセル", "run.resume": "再開"
 }

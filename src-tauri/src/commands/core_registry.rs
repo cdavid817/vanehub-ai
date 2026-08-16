@@ -184,6 +184,12 @@ pub(crate) fn invoke_handler(
         crate::commands::operations::cancel_operation::cancel_operation,
         crate::commands::operations::list_operations::list_operations,
         crate::commands::operations::get_operation_status::get_operation_status,
+        crate::commands::operations::agent_runs::get_agent_run,
+        crate::commands::operations::agent_runs::create_agent_run,
+        crate::commands::operations::agent_runs::list_agent_runs,
+        crate::commands::operations::agent_runs::list_agent_run_events,
+        crate::commands::operations::agent_runs::cancel_agent_run,
+        crate::commands::operations::agent_runs::resume_agent_run,
         // Permissions
         crate::commands::permissions::resolve_pending_approval::resolve_pending_approval,
         crate::commands::permissions::apply_policy_template::apply_policy_template,

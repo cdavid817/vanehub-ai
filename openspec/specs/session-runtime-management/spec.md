@@ -355,3 +355,10 @@ The system SHALL report the most specific failure text available when a managed 
 - **WHEN** a managed Agent process exits non-zero, writes nothing to standard error, and produced no parsed failure diagnostic
 - **THEN** the runtime SHALL report the exit status, because no better information exists
 
+### Requirement: Session generations project canonical Runs
+Every accepted Session Agent generation SHALL project preparation, execution, approval/user waits, retry, verification, cancellation, and terminal outcomes to one canonical Run while preserving existing Session lifecycle, messages, stream events, commands, and provider resume metadata.
+
+#### Scenario: Existing chat generation completes
+- **WHEN** a Session generation completes normally
+- **THEN** its message and Session behavior remain compatible and its canonical Run completes through verification
+

@@ -3401,6 +3401,7 @@
   "goals.target.loop": "루프",
   "goals.target.work_item": "작업 항목",
   "goals.target.session": "세션",
+  "goals.target.run": "실행",
   "goals.linkProgress.terminal": "완료",
   "goals.linkProgress.active": "진행 중",
   "goals.linkProgress.unresolvable": "없음",
@@ -3443,5 +3444,11 @@
   "onepiece.contextInspector.rejected": "주요 제외 항목",
   "onepiece.contextInspector.sources": "소스 상태",
   "onepiece.contextInspector.yes": "예",
-  "onepiece.contextInspector.no": "아니요"
+  "onepiece.contextInspector.no": "아니요",
+  "run.status.created": "생성됨", "run.status.preparing": "준비 중", "run.status.running": "실행 중",
+  "run.status.waiting_approval": "승인 대기", "run.status.waiting_user": "입력 대기", "run.status.paused": "일시 중지",
+  "run.status.retrying": "재시도 중", "run.status.blocked": "차단됨", "run.status.stuck": "정체됨",
+  "run.status.verifying": "검증 중", "run.status.completed": "완료", "run.status.failed": "실패",
+  "run.status.cancelled": "취소됨", "run.elapsed": "경과 {{elapsed}}", "run.reason": "이유: {{reason}}",
+  "run.retry": "재시도 {{count}}", "run.cancel": "취소", "run.resume": "재개"
 }

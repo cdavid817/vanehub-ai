@@ -189,5 +189,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | enforce-architecture-fitness-functions | continuous-integration, frontend-runtime-architecture, native-runtime-architecture, repository-governance | `openspec/changes/archive/2026-08-16-enforce-architecture-fitness-functions/` |
 | 2026-08-16 | fix-direct-connection-os-proxy-inheritance | app-settings | `openspec/changes/archive/2026-08-16-fix-direct-connection-os-proxy-inheritance/` |
 | 2026-08-16 | unify-agent-context-engine | agent-context-engine, agent-context-evidence-projection, agent-context-measurement, agent-cross-session-memory, lsp-code-intelligence, onepiece-native-agent, retrieval-vector-search, unified-log-management | `openspec/changes/archive/2026-08-16-unify-agent-context-engine/` |
+| 2026-08-16 | unify-agent-run-state-machine | agent-execution-observability, agent-run-state-management, agent-user-question, goal-management, loop-engineering-runtime, multi-agent-group-chat, permissions-approval, plan-execution-runtime, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-16-unify-agent-run-state-machine/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

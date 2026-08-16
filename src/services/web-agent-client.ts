@@ -77,6 +77,7 @@ import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
 import type { OperationTask } from "../types/operation";
+import type { AgentRun, AgentRunEvent } from "../types/agent-run";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -2348,6 +2349,7 @@ function scheduleWebLoopPhase(run: LoopRun) {
     if (run.pauseRequested) {
       run.pauseRequested = false;
       run.status = "paused";
+      projectWebOwnerRun(run.id, "paused");
       emitLoopEvent(run);
       return;
     }
@@ -2359,6 +2361,7 @@ function scheduleWebLoopPhase(run: LoopRun) {
       run.worktreeBranch = `vanehub/${run.worktreeName}`;
       run.worktreePath = `${run.projectPath}-${run.worktreeName}`;
       run.phase = "acting";
+      projectWebOwnerRun(run.id, "running");
       const iteration = createWebLoopIteration(run.id, 1, null);
       run.iterations.push(iteration);
       createWebLoopRoleSession(run, iteration, "worker");
@@ -2391,6 +2394,7 @@ function scheduleWebLoopPhase(run: LoopRun) {
         details: { simulated: true, changedFiles: 3, additions: 48, deletions: 12 },
       });
       run.phase = "verifying";
+      projectWebOwnerRun(run.id, "verifying");
       emitLoopEvent(run, "iteration-updated");
       scheduleWebLoopPhase(run);
       return;
@@ -2447,6 +2451,7 @@ function scheduleWebLoopPhase(run: LoopRun) {
         : tr("loops.web.evidence.decisionReady");
       iteration.completedAt = nowIso();
       run.status = requiredCheckFailed ? "failed" : "awaiting-acceptance";
+      projectWebOwnerRun(run.id, requiredCheckFailed ? "failed" : "verifying");
       run.phase = "finalizing";
       run.terminalReason = requiredCheckFailed ? "verification-failed" : null;
       run.completedAt = requiredCheckFailed ? nowIso() : null;
@@ -2491,6 +2496,60 @@ const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
   };
 });
 
+const WEB_RUN_TIME = "2026-08-16T00:00:00.000Z";
+let webAgentRuns: AgentRun[] = [{
+  id: "018f0f17-4d6a-7e20-b41d-66c5271a28d0",
+  owner: { ownerType: "web_demo", ownerId: "web-session-open" },
+  links: [{ linkType: "session", linkId: "web-session-open" }],
+  parentRunId: null,
+  state: "paused",
+  recoveryPolicy: "not_recoverable",
+  retryCount: 1,
+  maxRetries: 2,
+  reasonCode: "web_demo_paused",
+  createdAt: WEB_RUN_TIME,
+  updatedAt: WEB_RUN_TIME,
+  version: 4,
+  lastWitness: "web-demo-pause",
+}];
+const webAgentRunEvents = new Map<string, AgentRunEvent[]>([[webAgentRuns[0].id, [{
+  sequence: 4,
+  state: "paused",
+  trigger: "pause",
+  timestamp: WEB_RUN_TIME,
+  reasonCode: "web_demo_paused",
+  witness: "web-demo-pause",
+}]]]);
+
+function updateWebAgentRun(runId: string, version: number, state: AgentRun["state"]): AgentRun {
+  const current = webAgentRuns.find((run) => run.id === runId);
+  if (!current) throw new Error(`run not found: ${runId}`);
+  if (["completed", "failed", "cancelled"].includes(current.state)) return current;
+  if (current.version !== version) throw new Error("run version conflict");
+  const nextVersion = version + 1;
+  const updatedAt = `2026-08-16T00:00:${String(nextVersion).padStart(2, "0")}.000Z`;
+  const updated = { ...current, state, reasonCode: null, version: nextVersion, updatedAt };
+  webAgentRuns = webAgentRuns.map((run) => run.id === runId ? updated : run);
+  const events = webAgentRunEvents.get(runId) ?? [];
+  events.push({
+    sequence: nextVersion,
+    state,
+    trigger: state === "cancelled" ? "cancel_user" : "resume",
+    timestamp: updatedAt,
+    reasonCode: null,
+    witness: `web-${state}:${runId}:${version}`,
+  });
+  webAgentRunEvents.set(runId, events);
+  return updated;
+}
+
+function projectWebOwnerRun(ownerId: string, state: AgentRun["state"]): void {
+  const run = webAgentRuns.find((item) => item.owner.ownerId === ownerId);
+  if (run && run.state !== state && !["completed", "failed", "cancelled"].includes(run.state)) {
+    updateWebAgentRun(run.id, run.version, state);
+  }
+}
+
 export const webAgentClient: AgentService = {
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
@@ -2502,6 +2561,38 @@ export const webAgentClient: AgentService = {
   ...webSessionWorkspaceClient,
   ...webCodeReviewClient,
   ...webLspClient,
+  async getAgentRun(runId) {
+    const run = webAgentRuns.find((item) => item.id === runId);
+    if (!run) throw new Error(`run not found: ${runId}`);
+    return run;
+  },
+  async listAgentRuns(offset = 0, limit = 50, filter) {
+    const bounded = Math.max(1, Math.min(limit, 100));
+    const filtered = webAgentRuns.filter((run) =>
+      (!filter?.ownerType || run.owner.ownerType === filter.ownerType)
+      && (!filter?.ownerId || run.owner.ownerId === filter.ownerId)
+      && (!filter?.parentRunId || run.parentRunId === filter.parentRunId)
+      && (!filter?.state || run.state === filter.state));
+    return { items: filtered.slice(offset, offset + bounded), offset, limit: bounded };
+  },
+  async listAgentRunEvents(runId, offset = 0, limit = 50) {
+    const bounded = Math.max(1, Math.min(limit, 100));
+    return (webAgentRunEvents.get(runId) ?? []).slice(offset, offset + bounded);
+  },
+  async cancelAgentRun(runId, version) {
+    const cancelled = updateWebAgentRun(runId, version, "cancelled");
+    for (const child of webAgentRuns.filter((run) => run.parentRunId === runId)) {
+      if (!["completed", "failed", "cancelled"].includes(child.state)) {
+        updateWebAgentRun(child.id, child.version, "cancelled");
+      }
+    }
+    return cancelled;
+  },
+  async resumeAgentRun(runId, version) {
+    const run = webAgentRuns.find((item) => item.id === runId);
+    if (!run || !["paused", "blocked", "stuck"].includes(run.state)) throw new Error("run cannot be resumed");
+    return updateWebAgentRun(runId, version, "running");
+  },
   async openExternalUrl(url) {
     const target = requireHttpsExternalUrl(url);
     const opened = window.open(target, "_blank", "noopener,noreferrer");
@@ -3580,6 +3671,23 @@ export const webAgentClient: AgentService = {
       completedAt: null,
     };
     loopRuns = [run, ...loopRuns];
+    const canonicalId = `018f0f17-4d6a-7e20-b41d-66c5271a${String(nextLoopRunId).padStart(4, "0")}`;
+    webAgentRuns = [{
+      id: canonicalId,
+      owner: { ownerType: "loop_run", ownerId: runId },
+      links: [{ linkType: "loop_definition", linkId: definitionId }],
+      parentRunId: null,
+      state: "preparing",
+      recoveryPolicy: "owner_reconciles",
+      retryCount: 0,
+      maxRetries: 3,
+      reasonCode: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 2,
+      lastWitness: `web-loop-prepare:${runId}`,
+    }, ...webAgentRuns];
+    webAgentRunEvents.set(canonicalId, []);
     emitLoopEvent(run);
     scheduleWebLoopPhase(run);
     return { run: cloneLoopValue(run), operationId };
@@ -3597,6 +3705,7 @@ export const webAgentClient: AgentService = {
     const run = findLoopRun(runId);
     if (run.status !== "paused") throw new Error(tr("loops.web.error.resumeState"));
     run.status = run.iterations.length === 0 ? "queued" : "running";
+    projectWebOwnerRun(run.id, "running");
     run.terminalReason = null;
     run.pauseRequested = false;
     emitLoopEvent(run);
@@ -3611,6 +3720,7 @@ export const webAgentClient: AgentService = {
     if (timer) clearTimeout(timer);
     loopTimers.delete(run.id);
     run.status = "cancelled";
+    projectWebOwnerRun(run.id, "cancelled");
     run.terminalReason = "user-stopped";
     run.completedAt = nowIso();
     run.pauseRequested = false;
@@ -3622,6 +3732,7 @@ export const webAgentClient: AgentService = {
     const run = findLoopRun(runId);
     if (run.status !== "awaiting-acceptance") throw new Error(tr("loops.web.error.acceptanceState"));
     run.status = "succeeded";
+    projectWebOwnerRun(run.id, "completed");
     run.terminalReason = "goal-met";
     run.completedAt = nowIso();
     emitLoopEvent(run);
@@ -3639,6 +3750,7 @@ export const webAgentClient: AgentService = {
     run.iterations.push(iteration);
     createWebLoopRoleSession(run, iteration, "worker");
     run.status = "running";
+    projectWebOwnerRun(run.id, "running");
     run.phase = "acting";
     run.terminalReason = null;
     emitLoopEvent(run, "iteration-updated");
@@ -3650,6 +3762,7 @@ export const webAgentClient: AgentService = {
     const run = findLoopRun(runId);
     if (run.status !== "awaiting-acceptance") throw new Error(tr("loops.web.error.acceptanceState"));
     run.status = "cancelled";
+    projectWebOwnerRun(run.id, "cancelled");
     run.terminalReason = "user-rejected";
     run.completedAt = nowIso();
     emitLoopEvent(run);

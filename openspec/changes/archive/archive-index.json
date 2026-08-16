@@ -2745,6 +2745,28 @@
         "retrieval-vector-search",
         "unified-log-management"
       ]
+    },
+    {
+      "archivedOn": "2026-08-16",
+      "changeName": "unify-agent-run-state-machine",
+      "path": "openspec/changes/archive/2026-08-16-unify-agent-run-state-machine/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-execution-observability",
+        "agent-run-state-management",
+        "agent-user-question",
+        "goal-management",
+        "loop-engineering-runtime",
+        "multi-agent-group-chat",
+        "permissions-approval",
+        "plan-execution-runtime",
+        "session-recovery",
+        "session-runtime-management"
+      ]
     }
   ]
 }

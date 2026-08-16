@@ -74,8 +74,8 @@ use crate::contexts::execution_observability::infrastructure::{
     OsObservabilityCredentialAdapter, RandomExecutionIdentity, SqliteExecutionTimelineRepository,
 };
 use crate::contexts::operations::api::{
-    DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLogPort,
-    OperationsApi,
+    AgentRunsApi, DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity,
+    OperationLogPort, OperationsApi,
 };
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::permissions::api::PermissionsApi;
@@ -110,6 +110,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) database: NativeDatabase,
     pub(crate) app: AppHandle,
     pub(crate) operations: OperationsApi,
+    pub(crate) agent_runs: AgentRunsApi,
     pub(crate) cli: CliApi,
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
@@ -736,7 +737,10 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.permissions,
     ));
     let events = Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app));
-    let operations = Arc::new(AgentRuntimeOperationAdapter::new(dependencies.operations));
+    let operations = Arc::new(AgentRuntimeOperationAdapter::new(
+        dependencies.operations,
+        dependencies.agent_runs,
+    ));
     let loop_observer =
         LoopOperationObserver::new(operations.clone(), logging.clone(), clock.clone());
     let terminal_runtime = Arc::new(PortablePtyAgentTerminalRuntime::new(

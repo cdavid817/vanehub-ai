@@ -515,7 +515,85 @@ pub(crate) trait AgentTerminalEventPort: Send + Sync {
 }
 
 /// Observable-operation boundary used by Agent and loop execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalRunOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalRunSignal {
+    WaitingApproval,
+    WaitingUser,
+    Active,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalLoopSignal {
+    Running,
+    Paused,
+    Resumed,
+    Retrying,
+    Verifying,
+    Stuck,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+pub(crate) struct CanonicalRunLinks<'a> {
+    pub(crate) session_id: &'a str,
+    pub(crate) user_message_id: Option<&'a str>,
+    pub(crate) assistant_message_id: &'a str,
+    pub(crate) operation_id: &'a str,
+}
+
+/// Projects Agent-owned lifecycle boundaries without exposing another context's repositories.
 pub(crate) trait AgentTaskPort: Send + Sync {
+    fn start_canonical_loop(
+        &self,
+        _loop_run_id: &str,
+        _definition_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn signal_canonical_loop(
+        &self,
+        _loop_run_id: &str,
+        _signal: CanonicalLoopSignal,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn start_canonical_run(
+        &self,
+        _run_id: &str,
+        _owner_id: &str,
+        _parent_run_id: Option<&str>,
+        _links: CanonicalRunLinks<'_>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn finish_canonical_run(
+        &self,
+        _run_id: &str,
+        _outcome: CanonicalRunOutcome,
+        _reason: Option<&str>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn signal_canonical_run(
+        &self,
+        _run_id: &str,
+        _signal: CanonicalRunSignal,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
     fn start_agent_launch(
         &self,
         agent_id: &str,

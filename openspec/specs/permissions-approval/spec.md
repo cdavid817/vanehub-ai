@@ -135,3 +135,10 @@ The system SHALL be able to report an agent principal's current policy template 
 - **WHEN** the agent policy settings surface lists agents that have never been evaluated or explicitly assigned a template
 - **THEN** the system SHALL NOT create a stored principal record for any of them as a result of that listing
 
+### Requirement: Approval waits project canonical state
+A pending approval for executing work SHALL transition its canonical Run to waiting approval and an allow, deny, expiry, generation end, or cancellation decision SHALL leave that state through the guarded transition contract.
+
+#### Scenario: Late approval follows cancellation
+- **WHEN** an approval arrives after its Run was cancelled
+- **THEN** it is rejected and cannot resume or execute the cancelled work
+
