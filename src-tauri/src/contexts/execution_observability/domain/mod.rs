@@ -1,5 +1,7 @@
 mod attributes;
 mod error;
+mod evaluation;
+mod evaluation_manifest;
 mod identity;
 mod model;
 mod pagination;
@@ -7,6 +9,8 @@ mod settings;
 
 pub(crate) use attributes::{SafeAttributeValue, SafeAttributes};
 pub(crate) use error::ExecutionDomainError;
+pub(crate) use evaluation::*;
+pub(crate) use evaluation_manifest::*;
 pub(crate) use identity::{ExecutionRunId, SpanId, TraceId};
 pub(crate) use model::{
     CapturePolicy, ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionLink,

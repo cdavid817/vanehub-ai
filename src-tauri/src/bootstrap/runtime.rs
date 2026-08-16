@@ -240,6 +240,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
+    let evaluation_api = super::assemble_evaluation_api(
+        database.clone(),
+        operations_api.clone(),
+        agent_runs_api.clone(),
+        agent_runtime_api.clone(),
+        sessions_api.clone(),
+        workspace_api.clone(),
+        fallback_log_directory.join("evaluation-runs"),
+    );
     let super::RetrievalAssembly {
         api: retrieval_api,
         code_index_api,
@@ -331,6 +340,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
+    app.manage(evaluation_api);
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());
