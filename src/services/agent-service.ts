@@ -141,6 +141,7 @@ import type {
   TokenUsageSummaryQuery,
 } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
+import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -276,6 +277,11 @@ export interface AgentService extends BuiltinToolService {
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
+  getAgentRun(runId: string): Promise<AgentRun>;
+  listAgentRuns(offset?: number, limit?: number, filter?: AgentRunFilter): Promise<AgentRunPage>;
+  listAgentRunEvents(runId: string, offset?: number, limit?: number): Promise<AgentRunEvent[]>;
+  cancelAgentRun(runId: string, version: number): Promise<AgentRun>;
+  resumeAgentRun(runId: string, version: number): Promise<AgentRun>;
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;

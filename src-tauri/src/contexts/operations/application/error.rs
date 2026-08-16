@@ -11,6 +11,10 @@ pub(crate) enum ApplicationError {
     },
     #[error("{0}")]
     Internal(String),
+    #[error("{0}")]
+    Invalid(String),
+    #[error("run version conflict")]
+    Conflict,
 }
 
 impl ApplicationError {
@@ -22,5 +26,11 @@ impl ApplicationError {
             category,
             message: command_safe_message.into(),
         }
+    }
+}
+
+impl From<crate::contexts::operations::domain::RunDomainError> for ApplicationError {
+    fn from(error: crate::contexts::operations::domain::RunDomainError) -> Self {
+        Self::Invalid(error.to_string())
     }
 }

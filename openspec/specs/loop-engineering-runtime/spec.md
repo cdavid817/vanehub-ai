@@ -169,3 +169,10 @@ Loop management and control SHALL remain behind the frontend Agent service bound
 - **WHEN** the Loop Center runs through the Web/mock adapter
 - **THEN** it SHALL expose contract-equivalent definitions, asynchronous phase transitions, iterations, evidence, controls, and terminal outcomes without local Git, SQLite, or Agent CLIs
 
+### Requirement: Loop execution projects canonical lifecycle
+Each LoopRun SHALL link to a canonical Run and project preparation, acting, verification, retry, pause, stuck, cancellation, and terminal boundaries while retaining Loop phase, limits, no-progress, and human acceptance semantics.
+
+#### Scenario: Loop verifies successfully
+- **WHEN** a Loop completes its guarded verification and reaches its existing acceptance boundary
+- **THEN** its canonical Run records verification and the owner-defined terminal or blocked outcome without treating acceptance as generic execution
+

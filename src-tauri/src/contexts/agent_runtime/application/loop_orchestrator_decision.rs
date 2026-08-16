@@ -1,12 +1,13 @@
 use super::loop_orchestrator::{current_iteration, missing, required};
 use super::{
-    AgentRuntimeApplicationError, LoopOperationContext, LoopOperationKind,
+    AgentRuntimeApplicationError, CanonicalLoopSignal, LoopOperationContext, LoopOperationKind,
     LoopOrchestratorApplicationService, LoopRunView, LoopVerificationCancellation,
     RecordLoopRevisionProgressRequest, StartLoopVerifierRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome, LoopLimits,
-    LoopObjectiveFingerprints, LoopRun, LoopRunStatus, LoopVerifierRecommendation,
+    LoopObjectiveFingerprints, LoopRun, LoopRunStatus, LoopTerminalReason,
+    LoopVerifierRecommendation,
 };
 
 impl LoopOrchestratorApplicationService {
@@ -157,7 +158,19 @@ impl LoopOrchestratorApplicationService {
             &run,
             LoopRunStatus::Running,
             completed.then_some(now.as_str()),
-        )
+        )?;
+        if run.terminal_reason() == Some(LoopTerminalReason::NoProgress) {
+            self.ports
+                .observer
+                .signal_canonical_loop(&view.id, CanonicalLoopSignal::Stuck)?;
+        }
+        let signal = match run.status() {
+            LoopRunStatus::AwaitingAcceptance => CanonicalLoopSignal::Verifying,
+            LoopRunStatus::Failed => CanonicalLoopSignal::Failed,
+            LoopRunStatus::Cancelled => CanonicalLoopSignal::Cancelled,
+            _ => CanonicalLoopSignal::Running,
+        };
+        self.ports.observer.signal_canonical_loop(&view.id, signal)
     }
 
     fn record_progress(

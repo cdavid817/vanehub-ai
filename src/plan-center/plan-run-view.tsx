@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { AgentRunOwnerStatus } from "../components/ui/agent-run-owner-status";
 import type { PlanAttemptEvidence, PlanControlKind, PlanRunDetail, PlanSubTaskAttempt, PlanSubTaskRun, SubTaskRunStatus } from "../types/plan";
 
 const statusTone: Record<SubTaskRunStatus, "default" | "success" | "warning" | "danger" | "muted"> = {
@@ -37,6 +38,7 @@ export function PlanRunView({ busy, onAccept, onControl, onInspectEvidence, onRe
           </div>
         </div>
         <progress aria-label={t("plans.run.progressLabel")} className="h-2 w-full overflow-hidden rounded-full accent-primary" max={100} value={percent} />
+        <AgentRunOwnerStatus ownerId={run.id} ownerType="plan_run" />
         {run.worktreePath ? <div className="grid gap-1 rounded-md border border-border bg-muted/20 p-3 text-xs"><span className="font-medium">{t("plans.run.retainedWorktree")}</span><code className="break-all text-muted-foreground">{run.worktreePath}</code><span className="text-muted-foreground">{t("plans.run.noAutomaticGit")}</span></div> : null}
       </header>
       {run.finalization ? <FinalizationCard finalization={run.finalization} /> : null}

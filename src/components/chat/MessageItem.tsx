@@ -12,6 +12,7 @@ import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
 import { MessageFeedbackControls } from "./MessageFeedbackControls";
 import { ParticipantAvatar } from "../session-roster-presence";
+import { AgentRunOwnerStatus } from "../ui/agent-run-owner-status";
 
 function statusLabel(message: ChatMessage, t: (key: string) => string) {
   if (message.status === "streaming") return message.content ? t("chat.status.streaming") : t("chat.status.waiting");
@@ -83,6 +84,7 @@ export const MessageItem = memo(function MessageItem({
             {statusLabel(message, t)}
           </span>
         </div>
+        {!isUser ? <AgentRunOwnerStatus ownerId={message.id} ownerType="session_generation" /> : null}
         <div
           className={cn(
             "rounded-lg border border-transparent px-3 py-2.5 text-sm",

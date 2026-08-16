@@ -38,9 +38,11 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("暂停此循环？")).toBeVisible();
     await loopCenter.getByRole("button", { name: "确认", exact: true }).click({ force: true });
     await expect(loopCenter.getByText("已暂停", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "paused");
     await loopCenter.getByRole("button", { name: "恢复", exact: true }).click();
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "verifying");
     await expect(loopCenter.getByText("必需的模拟检查均已通过。")).toBeVisible();
     await expect(loopCenter.getByText("验证者：通过").first()).toBeVisible();
     await loopCenter.getByRole("button", { name: "打开变更" }).first().click();
@@ -55,6 +57,7 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
     await loopCenter.getByRole("button", { name: "接受结果" }).click();
     await expect(loopCenter.getByText("已成功", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "completed");
     await expect(loopCenter.getByText("目标已达成")).toBeVisible();
   });
 

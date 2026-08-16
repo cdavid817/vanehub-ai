@@ -1,6 +1,7 @@
 use super::{
-    AgentClockPort, AgentRuntimeApplicationError, ContinueLoopRequest, LoopExecutionControlPort,
-    LoopOperationContext, LoopOperationKind, LoopOperationObserver, LoopRepository,
+    AgentClockPort, AgentRuntimeApplicationError, CanonicalLoopSignal, ContinueLoopRequest,
+    LoopExecutionControlPort, LoopOperationContext, LoopOperationKind, LoopOperationObserver,
+    LoopRepository,
 };
 use crate::contexts::agent_runtime::domain::{LoopRun, LoopRunStatus, LoopTerminalReason};
 use std::sync::Arc;
@@ -59,6 +60,9 @@ impl LoopControlApplicationService {
         let expected_status = run.status();
         run.resume()?;
         self.save_transition(&run, expected_status, None)?;
+        self.ports
+            .observer
+            .signal_canonical_loop(run_id, CanonicalLoopSignal::Resumed)?;
         Ok(run)
     }
 
@@ -91,6 +95,9 @@ impl LoopControlApplicationService {
         self.ports
             .observer
             .complete(&operation, "Loop cancellation was requested.")?;
+        self.ports
+            .observer
+            .signal_canonical_loop(run_id, CanonicalLoopSignal::Cancelled)?;
         Ok(run)
     }
 
@@ -105,6 +112,9 @@ impl LoopControlApplicationService {
             &completed_at,
             Some(&completed_at),
         )?;
+        self.ports
+            .observer
+            .signal_canonical_loop(run_id, CanonicalLoopSignal::Completed)?;
         Ok(run)
     }
 
@@ -148,6 +158,9 @@ impl LoopControlApplicationService {
             &completed_at,
             Some(&completed_at),
         )?;
+        self.ports
+            .observer
+            .signal_canonical_loop(run_id, CanonicalLoopSignal::Cancelled)?;
         Ok(run)
     }
 

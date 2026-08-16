@@ -101,7 +101,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
     )
     .map_err(boxed_message)?;
-
     let (desktop_settings_api, desktop_locale_bridge) =
         super::assemble_desktop_settings_api(database.clone(), app.handle().clone());
     let floating_assistant_api = super::assemble_floating_assistant_api(
@@ -132,6 +131,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "zh-CN".to_string());
 
     let operations_api = super::assemble_operations_api(database.clone());
+    let agent_runs_api = super::assemble_agent_runs_api(database.clone());
+    agent_runs_api
+        .reconcile_after_restart()
+        .map_err(boxed_error)?;
     let code_intelligence_api =
         super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
     code_intelligence_api.start_maintenance();
@@ -216,6 +219,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         database: database.clone(),
         app: app.handle().clone(),
         operations: operations_api.clone(),
+        agent_runs: agent_runs_api.clone(),
         cli: cli_api.clone(),
         cli_parameters: cli_parameters_api.clone(),
         prompts: prompt_hook_api.clone(),
@@ -262,9 +266,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         agent_runtime_api.clone(),
         workspace_api.clone(),
         operations_api.clone(),
+        agent_runs_api.clone(),
         fallback_log_directory.clone(),
     )
     .map_err(boxed_message)?;
+    let agent_run_controls_api = super::AgentRunControlsApi::new(
+        agent_runs_api.clone(),
+        agent_runtime_api.clone(),
+        task_orchestration_api.clone(),
+    );
     agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
@@ -297,6 +307,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .map_err(boxed_message)?;
 
     app.manage(operations_api);
+    app.manage(agent_runs_api);
+    app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
     app.manage(cli_config_api);

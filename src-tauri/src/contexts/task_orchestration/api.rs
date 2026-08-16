@@ -14,7 +14,10 @@ use super::infrastructure::{
     SqlitePlanRepository,
 };
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
-use crate::contexts::operations::api::OperationsApi;
+use crate::contexts::operations::api::{
+    AgentRunsApi, CreateAgentRun, OperationsApi, RunLink, RunOwner, RunRecoveryPolicy, RunState,
+    RunTrigger,
+};
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
@@ -30,6 +33,7 @@ pub(crate) struct TaskOrchestrationApi {
     verifier: OnePieceAttemptVerifier,
     diagnostics: Arc<dyn PlanDiagnosticsPort>,
     active_drivers: NativePlanDriverRegistry,
+    runs: AgentRunsApi,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -67,6 +71,7 @@ impl TaskOrchestrationApi {
         agents: AgentRuntimeApi,
         workspaces: WorkspaceApi,
         operations: OperationsApi,
+        runs: AgentRunsApi,
         diagnostics: Arc<dyn PlanDiagnosticsPort>,
     ) -> Result<Self, PlanApplicationError> {
         let repository = SqlitePlanRepository::new(database);
@@ -87,6 +92,7 @@ impl TaskOrchestrationApi {
             verifier,
             diagnostics,
             active_drivers: NativePlanDriverRegistry::default(),
+            runs,
         };
         for run_id in api.repository.runnable_driver_run_ids()? {
             api.activate_driver(&run_id)?;
@@ -167,6 +173,29 @@ impl TaskOrchestrationApi {
         let run_id =
             self.repository
                 .approve_latest_for_session(plan_id, originating_session_id, now)?;
+        let canonical_run_id = canonical_run_id(&run_id)?;
+        self.runs
+            .create(CreateAgentRun {
+                id: Some(canonical_run_id),
+                owner: RunOwner {
+                    owner_type: "plan_run".into(),
+                    owner_id: run_id.clone(),
+                },
+                links: [("plan", Some(plan_id)), ("session", originating_session_id)]
+                    .into_iter()
+                    .filter_map(|(link_type, link_id)| {
+                        link_id.map(|link_id| RunLink {
+                            link_type: link_type.into(),
+                            link_id: link_id.into(),
+                        })
+                    })
+                    .collect(),
+                parent_run_id: None,
+                recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+                max_retries: 3,
+                witness: format!("plan-accepted:{run_id}"),
+            })
+            .map_err(plan_run_error)?;
         self.record_lifecycle(
             PlanDiagnosticLevel::Info,
             "plan.run.approved",
@@ -188,6 +217,10 @@ impl TaskOrchestrationApi {
         run_id: &str,
         now: &str,
     ) -> Result<PreparedPlanRun, PlanApplicationError> {
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .transition(&canonical_run_id, RunTrigger::Prepare, None)
+            .map_err(plan_run_error)?;
         let preparation = self.repository.begin_preparation(run_id, now)?;
         let worktree = self
             .workspaces
@@ -208,6 +241,9 @@ impl TaskOrchestrationApi {
             },
             now,
         )?;
+        self.runs
+            .transition(&canonical_run_id, RunTrigger::Start, None)
+            .map_err(plan_run_error)?;
         self.record_lifecycle(
             PlanDiagnosticLevel::Info,
             "plan.run.started",
@@ -232,6 +268,14 @@ impl TaskOrchestrationApi {
         now: &str,
     ) -> Result<PlanControlResult, PlanApplicationError> {
         self.repository.request_pause(run_id, now)?;
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .transition(
+                &canonical_run_id,
+                RunTrigger::Pause,
+                Some("plan_pause".into()),
+            )
+            .map_err(plan_run_error)?;
         let result = self.control_result(run_id)?;
         self.record_lifecycle(
             PlanDiagnosticLevel::Info,
@@ -275,6 +319,16 @@ impl TaskOrchestrationApi {
         now: &str,
     ) -> Result<PlanControlResult, PlanApplicationError> {
         self.repository.resume_run(run_id, now)?;
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .resume(
+                &canonical_run_id,
+                self.runs
+                    .get(&canonical_run_id)
+                    .map_err(plan_run_error)?
+                    .version,
+            )
+            .map_err(plan_run_error)?;
         self.repository.project_after_attempt(run_id, now)?;
         self.activate_driver(run_id)?;
         let result = self.control_result(run_id)?;
@@ -293,6 +347,16 @@ impl TaskOrchestrationApi {
         now: &str,
     ) -> Result<PlanControlResult, PlanApplicationError> {
         let result = self.repository.request_cancel(run_id, now)?;
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .cancel(
+                &canonical_run_id,
+                self.runs
+                    .get(&canonical_run_id)
+                    .map_err(plan_run_error)?
+                    .version,
+            )
+            .map_err(plan_run_error)?;
         self.verifier.cancel(run_id);
         if let Some(session_id) = result.active_session_id {
             let _ = self.executor.stop_session(&session_id);
@@ -314,6 +378,18 @@ impl TaskOrchestrationApi {
         now: &str,
     ) -> Result<PlanControlResult, PlanApplicationError> {
         self.repository.retry_subtask(run_id, subtask_run_id, now)?;
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .transition(
+                &canonical_run_id,
+                RunTrigger::Retry,
+                Some("plan_repair".into()),
+            )
+            .and_then(|_| {
+                self.runs
+                    .transition(&canonical_run_id, RunTrigger::RetryReady, None)
+            })
+            .map_err(plan_run_error)?;
         self.activate_driver(run_id)?;
         self.record_lifecycle(
             PlanDiagnosticLevel::Info,
@@ -330,6 +406,10 @@ impl TaskOrchestrationApi {
         now: &str,
     ) -> Result<PlanControlResult, PlanApplicationError> {
         self.repository.accept_run(run_id, now)?;
+        let canonical_run_id = canonical_run_id(run_id)?;
+        self.runs
+            .transition(&canonical_run_id, RunTrigger::Complete, None)
+            .map_err(plan_run_error)?;
         self.control_result(run_id)
     }
 
@@ -408,6 +488,28 @@ impl TaskOrchestrationApi {
                 .saturating_mul(4) as usize,
         })?;
         let attempt = self.repository.create_attempt(&subtask_run_id, now)?;
+        let attempt_run_id = canonical_run_id(&attempt.id)?;
+        self.runs
+            .create(CreateAgentRun {
+                id: Some(attempt_run_id.clone()),
+                owner: RunOwner {
+                    owner_type: "plan_attempt".into(),
+                    owner_id: attempt.id.clone(),
+                },
+                links: vec![RunLink {
+                    link_type: "plan_subtask".into(),
+                    link_id: subtask_run_id.clone(),
+                }],
+                parent_run_id: Some(canonical_run_id(run_id)?),
+                recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                max_retries: 0,
+                witness: format!("attempt-accepted:{attempt_run_id}"),
+            })
+            .and_then(|_| {
+                self.runs
+                    .transition(&attempt_run_id, RunTrigger::Prepare, None)
+            })
+            .map_err(plan_run_error)?;
         let session = match self.executor.create_session(&dispatch) {
             Ok(session) => session,
             Err(error) => {
@@ -422,6 +524,9 @@ impl TaskOrchestrationApi {
                     error_class,
                     now,
                 )?;
+                self.runs
+                    .transition(&attempt_run_id, RunTrigger::Fail, Some(error_class.into()))
+                    .map_err(plan_run_error)?;
                 return Err(error);
             }
         };
@@ -439,8 +544,18 @@ impl TaskOrchestrationApi {
                 "attempt_start_conflict",
                 now,
             )?;
+            self.runs
+                .transition(
+                    &attempt_run_id,
+                    RunTrigger::Fail,
+                    Some("attempt_start_conflict".into()),
+                )
+                .map_err(plan_run_error)?;
             return Err(error);
         }
+        self.runs
+            .transition(&attempt_run_id, RunTrigger::Start, None)
+            .map_err(plan_run_error)?;
         let output = match self
             .executor
             .execute(&dispatch, &attempt.id, &session, context.prompt)
@@ -496,6 +611,7 @@ impl TaskOrchestrationApi {
             )?;
             self.repository
                 .settle_control_boundary(run_id, &terminal_now)?;
+            self.ensure_attempt_cancelled(&attempt_run_id)?;
             return Ok(Some(ExecutedPlanAttempt {
                 attempt_id: attempt.id,
                 session_id: session.session_id,
@@ -519,6 +635,7 @@ impl TaskOrchestrationApi {
             )?;
             self.repository
                 .settle_control_boundary(run_id, &chrono::Utc::now().to_rfc3339())?;
+            self.ensure_attempt_cancelled(&attempt_run_id)?;
             return Ok(Some(ExecutedPlanAttempt {
                 attempt_id: attempt.id,
                 session_id: session.session_id,
@@ -527,6 +644,9 @@ impl TaskOrchestrationApi {
             }));
         }
         let status = if generation_succeeded {
+            self.runs
+                .transition(&attempt_run_id, RunTrigger::Verify, None)
+                .map_err(plan_run_error)?;
             let verification_dispatch =
                 self.repository.load_attempt_verification(&subtask_run_id)?;
             let verification = self.verifier.verify(&verification_dispatch)?;
@@ -540,6 +660,7 @@ impl TaskOrchestrationApi {
                 )?;
                 self.repository
                     .settle_control_boundary(run_id, &cancelled_at)?;
+                self.ensure_attempt_cancelled(&attempt_run_id)?;
                 return Ok(Some(ExecutedPlanAttempt {
                     attempt_id: attempt.id,
                     session_id: session.session_id,
@@ -574,6 +695,21 @@ impl TaskOrchestrationApi {
         } else {
             status
         };
+        if status == "cancelled" {
+            self.ensure_attempt_cancelled(&attempt_run_id)?;
+        } else {
+            self.runs
+                .transition(
+                    &attempt_run_id,
+                    if status == "succeeded" {
+                        RunTrigger::Complete
+                    } else {
+                        RunTrigger::Fail
+                    },
+                    (status == "failed").then(|| "attempt_failed".into()),
+                )
+                .map_err(plan_run_error)?;
+        }
         self.diagnostics.record(PlanDiagnostic {
             level: if status == "failed" {
                 PlanDiagnosticLevel::Error
@@ -600,6 +736,15 @@ impl TaskOrchestrationApi {
             status: status.to_string(),
             context_truncated: context.truncated,
         }))
+    }
+
+    fn ensure_attempt_cancelled(&self, run_id: &str) -> Result<(), PlanApplicationError> {
+        if self.runs.get(run_id).map_err(plan_run_error)?.state != RunState::Cancelled {
+            self.runs
+                .transition(run_id, RunTrigger::CancelParent, None)
+                .map_err(plan_run_error)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn activate_driver(&self, run_id: &str) -> Result<bool, PlanApplicationError> {
@@ -719,6 +864,18 @@ impl TaskOrchestrationApi {
     }
 
     fn execute_final_verification(&self, run_id: &str) -> Result<(), PlanApplicationError> {
+        let canonical_run_id = canonical_run_id(run_id)?;
+        if self
+            .runs
+            .get(&canonical_run_id)
+            .map_err(plan_run_error)?
+            .state
+            == RunState::Running
+        {
+            self.runs
+                .transition(&canonical_run_id, RunTrigger::Verify, None)
+                .map_err(plan_run_error)?;
+        }
         loop {
             self.record_lifecycle(
                 PlanDiagnosticLevel::Info,
@@ -873,4 +1030,17 @@ impl TaskOrchestrationApi {
         self.diagnostics
             .record(PlanDiagnostic::lifecycle(level, event, run_id, state));
     }
+}
+
+fn plan_run_error(error: impl std::fmt::Display) -> PlanApplicationError {
+    PlanApplicationError::Storage(format!("canonical run projection failed: {error}"))
+}
+
+fn canonical_run_id(owner_id: &str) -> Result<String, PlanApplicationError> {
+    let candidate = owner_id
+        .get(owner_id.len().saturating_sub(36)..)
+        .ok_or_else(|| PlanApplicationError::Validation("Plan run id is invalid".into()))?;
+    uuid::Uuid::parse_str(candidate)
+        .map(|value| value.to_string())
+        .map_err(|_| PlanApplicationError::Validation("Plan run id is invalid".into()))
 }

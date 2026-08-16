@@ -1,10 +1,11 @@
 use super::{
     ActiveLoopOperation, AgentClockPort, AgentLogLevel, AgentRuntimeApplicationError,
-    LoopGenerationControlPort, LoopIterationRepository, LoopOperationContext, LoopOperationKind,
-    LoopOperationObserver, LoopProgressApplicationService, LoopProjectPort, LoopRepository,
-    LoopRoleGenerationCompletionPort, LoopRunView, LoopVerificationApplicationService,
-    LoopVerificationCancellation, LoopVerifierApplicationService, LoopVerifierContextPort,
-    LoopWorkerApplicationService, RunLoopVerificationRequest,
+    CanonicalLoopSignal, LoopGenerationControlPort, LoopIterationRepository, LoopOperationContext,
+    LoopOperationKind, LoopOperationObserver, LoopProgressApplicationService, LoopProjectPort,
+    LoopRepository, LoopRoleGenerationCompletionPort, LoopRunView,
+    LoopVerificationApplicationService, LoopVerificationCancellation,
+    LoopVerifierApplicationService, LoopVerifierContextPort, LoopWorkerApplicationService,
+    RunLoopVerificationRequest,
 };
 use crate::contexts::agent_runtime::domain::{LoopRunPhase, LoopRunStatus};
 use std::sync::Arc;
@@ -136,7 +137,10 @@ impl LoopOrchestratorApplicationService {
         run.begin()?;
         let snapshot = self.snapshot(&view.id)?;
         run.record_runtime_outcome(false, &snapshot.values().limits)?;
-        self.save_run(&run, LoopRunStatus::Queued, None)
+        self.save_run(&run, LoopRunStatus::Queued, None)?;
+        self.ports
+            .observer
+            .signal_canonical_loop(&view.id, CanonicalLoopSignal::Running)
     }
 
     fn act(
@@ -197,7 +201,10 @@ impl LoopOrchestratorApplicationService {
         let snapshot = self.snapshot(&view.id)?;
         run.record_runtime_outcome(false, &snapshot.values().limits)?;
         run.move_to(LoopRunPhase::Verifying)?;
-        self.save_run(&run, LoopRunStatus::Running, None)
+        self.save_run(&run, LoopRunStatus::Running, None)?;
+        self.ports
+            .observer
+            .signal_canonical_loop(&view.id, CanonicalLoopSignal::Verifying)
     }
 
     fn verify(

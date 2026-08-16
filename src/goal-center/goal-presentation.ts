@@ -9,7 +9,7 @@ export function groupLinks(links: GoalLink[]): { kind: GoalLinkTarget; links: Go
 
 /** Children that count toward acceptance and have not finished. */
 export function blockingLinks(goal: Goal): GoalLink[] {
-  return goal.links.filter((link) => link.targetKind !== "session" && link.progress === "active");
+  return goal.links.filter((link) => !["session", "run"].includes(link.targetKind) && link.progress === "active");
 }
 
 export function unresolvableLinks(goal: Goal): GoalLink[] {

@@ -1,5 +1,5 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
-use crate::contexts::operations::api::OperationsApi;
+use crate::contexts::operations::api::{AgentRunsApi, OperationsApi};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::task_orchestration::api::PlanApplicationError;
@@ -16,6 +16,7 @@ pub(crate) fn assemble_task_orchestration_api(
     agents: AgentRuntimeApi,
     workspaces: WorkspaceApi,
     operations: OperationsApi,
+    agent_runs: AgentRunsApi,
     fallback_log_directory: PathBuf,
 ) -> Result<TaskOrchestrationApi, PlanApplicationError> {
     let diagnostics = Arc::new(UnifiedPlanDiagnosticsAdapter::new(Arc::new(
@@ -27,6 +28,7 @@ pub(crate) fn assemble_task_orchestration_api(
         agents,
         workspaces,
         operations,
+        agent_runs,
         diagnostics,
     )
 }

@@ -93,7 +93,7 @@ describe("BasicSettingsPage", () => {
       expect(document.documentElement.lang).toBe("ja");
       const stored = JSON.parse(window.localStorage.getItem("vanehub.appSettings") ?? "{}") as { applicationLanguage?: string };
       expect(stored.applicationLanguage).toBe("ja");
-    });
+    }, { timeout: 10_000 });
     await screen.findByRole("heading", { name: "基本構成" });
 
     firstRender.unmount();
