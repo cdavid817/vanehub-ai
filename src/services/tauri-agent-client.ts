@@ -69,6 +69,7 @@ import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvide
 import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
+import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -237,6 +238,12 @@ export const tauriAgentClient: AgentService = {
   startCodeReviewAction(reviewId, action: ReviewAction) {
     return invoke<{ operationId: string }>("start_code_review_action", { reviewId, action });
   },
+  getAgentRun: (runId) => invoke<AgentRun>("get_agent_run", { runId }),
+  listAgentRuns: (offset = 0, limit = 50, filter) =>
+    invoke<AgentRunPage>("list_agent_runs", { filter, offset, limit }),
+  listAgentRunEvents: (runId, offset = 0, limit = 50) => invoke<AgentRunEvent[]>("list_agent_run_events", { runId, offset, limit }),
+  cancelAgentRun: (runId, version) => invoke<AgentRun>("cancel_agent_run", { runId, version }),
+  resumeAgentRun: (runId, version) => invoke<AgentRun>("resume_agent_run", { runId, version }),
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },

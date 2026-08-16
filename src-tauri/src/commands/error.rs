@@ -111,6 +111,11 @@ impl From<ApplicationError> for CommandError {
             ApplicationError::Internal(message) => {
                 Self::redacted(CommandErrorCategory::Internal, message)
             }
+            ApplicationError::Invalid(message) => Self::validation(message),
+            ApplicationError::Conflict => Self {
+                category: CommandErrorCategory::Conflict,
+                message: "run version conflict".to_string(),
+            },
         }
     }
 }

@@ -1,6 +1,6 @@
 use super::{
-    AgentClockPort, AgentLogLevel, AgentRuntimeApplicationError, AgentTaskPort, LoopLog,
-    LoopLoggingPort, LoopOperationContext,
+    AgentClockPort, AgentLogLevel, AgentRuntimeApplicationError, AgentTaskPort,
+    CanonicalLoopSignal, LoopLog, LoopLoggingPort, LoopOperationContext,
 };
 use std::sync::Arc;
 
@@ -18,6 +18,23 @@ pub(crate) struct ActiveLoopOperation {
 }
 
 impl LoopOperationObserver {
+    pub(crate) fn start_canonical_loop(
+        &self,
+        loop_run_id: &str,
+        definition_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.operations
+            .start_canonical_loop(loop_run_id, definition_id)
+    }
+
+    pub(crate) fn signal_canonical_loop(
+        &self,
+        loop_run_id: &str,
+        signal: CanonicalLoopSignal,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.operations.signal_canonical_loop(loop_run_id, signal)
+    }
+
     pub(crate) fn new(
         operations: Arc<dyn AgentTaskPort>,
         logging: Arc<dyn LoopLoggingPort>,

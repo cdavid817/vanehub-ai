@@ -3393,6 +3393,7 @@
   "goals.target.loop": "迴圈",
   "goals.target.work_item": "看板項",
   "goals.target.session": "工作階段",
+  "goals.target.run": "執行",
   "goals.linkProgress.terminal": "已結束",
   "goals.linkProgress.active": "進行中",
   "goals.linkProgress.unresolvable": "已失效",
@@ -3435,5 +3436,11 @@
   "onepiece.contextInspector.rejected": "主要淘汰項",
   "onepiece.contextInspector.sources": "來源狀態",
   "onepiece.contextInspector.yes": "是",
-  "onepiece.contextInspector.no": "否"
+  "onepiece.contextInspector.no": "否",
+  "run.status.created": "已建立", "run.status.preparing": "準備中", "run.status.running": "執行中",
+  "run.status.waiting_approval": "等待核准", "run.status.waiting_user": "等待輸入", "run.status.paused": "已暫停",
+  "run.status.retrying": "重試中", "run.status.blocked": "受阻", "run.status.stuck": "停滯",
+  "run.status.verifying": "驗證中", "run.status.completed": "已完成", "run.status.failed": "失敗",
+  "run.status.cancelled": "已取消", "run.elapsed": "已用時 {{elapsed}}", "run.reason": "原因：{{reason}}",
+  "run.retry": "第 {{count}} 次重試", "run.cancel": "取消", "run.resume": "繼續"
 }

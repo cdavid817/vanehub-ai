@@ -40,7 +40,7 @@ export function probeTarget(targetKind: GoalLinkTarget, targetId: string): GoalL
 }
 
 export function participatesInDerivation(targetKind: GoalLinkTarget): boolean {
-  return targetKind !== "session";
+  return targetKind !== "session" && targetKind !== "run";
 }
 
 export interface GoalProgressTotals {

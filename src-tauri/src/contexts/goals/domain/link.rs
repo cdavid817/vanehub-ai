@@ -9,6 +9,7 @@ pub(crate) enum GoalLinkTarget {
     Loop,
     WorkItem,
     Session,
+    Run,
 }
 
 impl GoalLinkTarget {
@@ -18,6 +19,7 @@ impl GoalLinkTarget {
             Self::Loop => "loop",
             Self::WorkItem => "work_item",
             Self::Session => "session",
+            Self::Run => "run",
         }
     }
 
@@ -27,6 +29,7 @@ impl GoalLinkTarget {
             "loop" => Ok(Self::Loop),
             "work_item" => Ok(Self::WorkItem),
             "session" => Ok(Self::Session),
+            "run" => Ok(Self::Run),
             other => Err(GoalDomainError::InvalidStatus(other.to_string())),
         }
     }
@@ -35,7 +38,7 @@ impl GoalLinkTarget {
     /// semantics, so counting them would leave every goal permanently short of
     /// acceptance.
     pub(crate) fn participates_in_derivation(self) -> bool {
-        !matches!(self, Self::Session)
+        !matches!(self, Self::Session | Self::Run)
     }
 }
 

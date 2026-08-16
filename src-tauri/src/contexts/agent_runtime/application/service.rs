@@ -7,13 +7,13 @@ use super::{
     AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
     AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap,
     AgentUsageRecord, AgentView, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
-    CliProfileSnapshot, CompleteAgentMessage, ConversationHistoryPort,
-    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationStart, EffectivePrompt,
-    EffectivePromptGateway, EmbeddingEndpointView, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, LaunchWorkflowResult, LoopGenerationControlPort,
-    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal, CliProfileSnapshot,
+    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
+    DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
+    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
@@ -1724,10 +1724,35 @@ impl AgentRuntimeApplicationService {
                 );
             }
         };
-        run.user_message_id = user_message.map(|message| message.id);
+        run.user_message_id = user_message.as_ref().map(|message| message.id.clone());
         run.assistant_message_id = Some(assistant.id.clone());
         run.operation_id = Some(operation.id.clone());
         let _ = self.ports.telemetry.start_run(&run);
+        if let Err(error) = self.ports.operations.start_canonical_run(
+            root_context.run_id.as_str(),
+            &assistant.id,
+            seat_ownership
+                .as_ref()
+                .and_then(|ownership| ownership.parent_execution_run_id.as_deref()),
+            CanonicalRunLinks {
+                session_id: &session.id,
+                user_message_id: run.user_message_id.as_deref(),
+                assistant_message_id: &assistant.id,
+                operation_id: &operation.id,
+            },
+        ) {
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                &lease,
+                Some(&operation.id),
+                generation_failure(
+                    "Agent run initialization failed".to_string(),
+                    error.to_string(),
+                ),
+            );
+        }
         if let Err(error) = self.ports.operations.correlate_execution(
             &operation.id,
             root_context.run_id.as_str(),
@@ -2211,6 +2236,16 @@ impl AgentRuntimeApplicationService {
         status: ExecutionStatus,
         error_classification: Option<&str>,
     ) {
+        let outcome = match status {
+            ExecutionStatus::Succeeded => CanonicalRunOutcome::Completed,
+            ExecutionStatus::Cancelled => CanonicalRunOutcome::Cancelled,
+            _ => CanonicalRunOutcome::Failed,
+        };
+        let _ = self.ports.operations.finish_canonical_run(
+            context.run_id.as_str(),
+            outcome,
+            error_classification,
+        );
         let ended_at = self.ports.clock.now();
         let _ = self.ports.telemetry.finish_span(
             &context.run_id,
@@ -2658,6 +2693,19 @@ impl GenerationEventHandler {
         &self,
         event: ToolLifecycleEvent,
     ) -> Result<(), AgentRuntimeApplicationError> {
+        let signal = match event.phase {
+            ToolLifecyclePhase::AwaitingApproval => Some(CanonicalRunSignal::WaitingApproval),
+            ToolLifecyclePhase::AwaitingInput => Some(CanonicalRunSignal::WaitingUser),
+            ToolLifecyclePhase::Started | ToolLifecyclePhase::Updated => {
+                Some(CanonicalRunSignal::Active)
+            }
+            ToolLifecyclePhase::Completed | ToolLifecyclePhase::Failed => None,
+        };
+        if let Some(signal) = signal {
+            self.ports
+                .operations
+                .signal_canonical_run(self.root_context.run_id.as_str(), signal)?;
+        }
         let is_terminal = matches!(
             event.phase,
             ToolLifecyclePhase::Completed | ToolLifecyclePhase::Failed

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use super::application::{GoalApplicationService, LinkProgressProbe};
 use super::infrastructure::{
-    LoopProgressProbe, PlanProgressProbe, SessionProgressProbe, SqliteGoalRepository,
-    WorkItemProgressProbe,
+    LoopProgressProbe, PlanProgressProbe, RunProgressProbe, SessionProgressProbe,
+    SqliteGoalRepository, WorkItemProgressProbe,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -19,6 +19,7 @@ pub(crate) fn build_service(database: NativeDatabase) -> GoalApplicationService 
         Arc::new(LoopProgressProbe::new(database.clone())),
         Arc::new(WorkItemProgressProbe::new(database.clone())),
         Arc::new(SessionProgressProbe::new(database.clone())),
+        Arc::new(RunProgressProbe::new(database.clone())),
     ];
 
     GoalApplicationService::new(Arc::new(SqliteGoalRepository::new(database)), probes)

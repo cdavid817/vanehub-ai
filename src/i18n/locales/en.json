@@ -3393,6 +3393,7 @@
   "goals.target.loop": "Loops",
   "goals.target.work_item": "Work items",
   "goals.target.session": "Sessions",
+  "goals.target.run": "Runs",
   "goals.linkProgress.terminal": "Finished",
   "goals.linkProgress.active": "In progress",
   "goals.linkProgress.unresolvable": "Missing",
@@ -3435,5 +3436,11 @@
   "onepiece.contextInspector.rejected": "Top rejected",
   "onepiece.contextInspector.sources": "Source outcomes",
   "onepiece.contextInspector.yes": "Yes",
-  "onepiece.contextInspector.no": "No"
+  "onepiece.contextInspector.no": "No",
+  "run.status.created": "Created", "run.status.preparing": "Preparing", "run.status.running": "Running",
+  "run.status.waiting_approval": "Waiting for approval", "run.status.waiting_user": "Waiting for input",
+  "run.status.paused": "Paused", "run.status.retrying": "Retrying", "run.status.blocked": "Blocked",
+  "run.status.stuck": "Stuck", "run.status.verifying": "Verifying", "run.status.completed": "Completed",
+  "run.status.failed": "Failed", "run.status.cancelled": "Cancelled", "run.elapsed": "Elapsed {{elapsed}}",
+  "run.reason": "Reason: {{reason}}", "run.retry": "Retry {{count}}", "run.cancel": "Cancel", "run.resume": "Resume"
 }

@@ -156,6 +156,7 @@ Execution metadata SHALL record the bounded set of canonical Skill revisions act
 #### Scenario: CLI configured but not mounted
 - **WHEN** a CLI Skill binding exists but no active mount snapshot was captured
 - **THEN** observability SHALL NOT label that Skill as used or mounted
+
 ### Requirement: Plan execution trace correlation
 The observability system SHALL correlate PlanRun, SubTaskRun, and SubTaskAttempt identities with their Agent sessions, provider generations, tool operations, validation operations, and state transitions while preserving the existing execution-run and trace topology.
 
@@ -196,4 +197,11 @@ The observability system SHALL correlate Plan driver activation, scheduling cycl
 #### Scenario: Inspect final verification evidence
 - **WHEN** a user requests final verification details through the Plan service
 - **THEN** the user-facing bounded evidence path MAY return allowed command summaries while persistent diagnostics SHALL continue excluding unredacted command output
+
+### Requirement: Canonical lifecycle correlation
+Execution observability SHALL reuse the canonical Run id for lifecycle correlation while retaining independent trace/span identity and telemetry status. Canonical transition persistence SHALL NOT depend on OTLP exporter or timeline availability.
+
+#### Scenario: Canonical Run transitions
+- **WHEN** a correlated Run waits, retries, verifies, or terminates
+- **THEN** observability records a bounded safe lifecycle event without replacing the canonical Run state or inventing unavailable child detail
 

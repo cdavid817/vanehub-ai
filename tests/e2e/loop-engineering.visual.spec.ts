@@ -38,6 +38,11 @@ test.describe("Loop engineering visual verification", () => {
         await expect(page.locator("#loop-inspector-drawer")).toBeVisible();
       }
       if (variant.drawer) await page.waitForTimeout(250);
+      if (variant.drawer !== "navigation") {
+        const canonicalStatus = page.getByTestId("agent-run-status");
+        await expect(canonicalStatus).toBeVisible();
+        await expect(canonicalStatus).toHaveAttribute("data-state", "verifying");
+      }
 
       const geometry = await page.evaluate(() => {
         const root = document.querySelector<HTMLElement>("#loop-center");

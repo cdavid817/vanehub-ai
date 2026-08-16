@@ -197,3 +197,10 @@
 - **WHEN** 同一段界面代码分别运行在桌面运行时与 Web 运行时
 - **THEN** 目标的创建、关联、推导与验收行为一致，界面无需分支处理
 
+### Requirement: Goals link to canonical Runs
+Goals SHALL support stable links to canonical Runs for progress evidence while retaining existing manual acceptance and derived completion rules; Session links SHALL remain non-contributing.
+
+#### Scenario: Linked Run completes
+- **WHEN** a canonical Run linked to a Goal completes
+- **THEN** it is available as execution evidence but does not bypass the Goal's existing acceptance rules
+

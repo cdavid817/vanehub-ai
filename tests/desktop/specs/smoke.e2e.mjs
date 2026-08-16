@@ -59,6 +59,30 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
       { sessionId: session.id, path: "review.txt", expectedSnapshot: review.fingerprint, hunkFingerprint: diff.hunks[0].fingerprint, confirmed: true },
     ));
 
+    const agentRun = await globalThis.browser.tauri.execute(({ core }) => core.invoke("create_agent_run", {
+      input: {
+        id: "018f0f17-4d6a-7e20-b41d-66c5271a28e0",
+        owner: { ownerType: "desktop_agent_operation", ownerId: "desktop-smoke" },
+        links: [],
+        parentRunId: null,
+        recoveryPolicy: "not_recoverable",
+        maxRetries: 0,
+        witness: "desktop-smoke-created",
+      },
+    }));
+    assert.equal(agentRun.state, "created");
+    const cancelledRun = await globalThis.browser.tauri.execute(({ core }, input) => core.invoke("cancel_agent_run", input), {
+      runId: agentRun.id,
+      version: agentRun.version,
+    });
+    assert.equal(cancelledRun.state, "cancelled");
+    const runEvents = await globalThis.browser.tauri.execute(({ core }, runId) => core.invoke("list_agent_run_events", {
+      runId,
+      offset: 0,
+      limit: 10,
+    }), agentRun.id);
+    assert.deepEqual(runEvents.map((event) => event.state), ["created", "cancelled"]);
+
     const settingsButton = await globalThis.$('[data-testid="desktop-smoke-settings"]');
     await settingsButton.waitForClickable();
     await settingsButton.click();

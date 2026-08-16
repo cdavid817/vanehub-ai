@@ -1,10 +1,12 @@
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentOperation,
-    AgentRuntimeApplicationError, AgentTaskPort, LoopLog, LoopLoggingPort, LoopOperationContext,
+    AgentRuntimeApplicationError, AgentTaskPort, CanonicalLoopSignal, CanonicalRunLinks,
+    CanonicalRunOutcome, CanonicalRunSignal, LoopLog, LoopLoggingPort, LoopOperationContext,
 };
 use crate::contexts::operations::api::{
-    DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
-    OperationsApi,
+    AgentRunsApi, CreateAgentRun, DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind,
+    OperationLog, OperationLogPort, OperationsApi, RunLink, RunOwner, RunRecoveryPolicy, RunState,
+    RunTrigger,
 };
 use crate::platform::clock::SystemClock;
 use std::collections::BTreeMap;
@@ -40,15 +42,172 @@ impl AgentClockPort for SystemAgentRuntimeClock {
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeOperationAdapter {
     operations: OperationsApi,
+    runs: AgentRunsApi,
 }
 
 impl AgentRuntimeOperationAdapter {
-    pub(crate) fn new(operations: OperationsApi) -> Self {
-        Self { operations }
+    pub(crate) fn new(operations: OperationsApi, runs: AgentRunsApi) -> Self {
+        Self { operations, runs }
     }
 }
 
 impl AgentTaskPort for AgentRuntimeOperationAdapter {
+    fn start_canonical_loop(
+        &self,
+        loop_run_id: &str,
+        definition_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let run_id = canonical_owner_run_id(loop_run_id)?;
+        self.runs
+            .create(CreateAgentRun {
+                id: Some(run_id.clone()),
+                owner: RunOwner {
+                    owner_type: "loop_run".into(),
+                    owner_id: loop_run_id.into(),
+                },
+                links: vec![RunLink {
+                    link_type: "loop_definition".into(),
+                    link_id: definition_id.into(),
+                }],
+                parent_run_id: None,
+                recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+                max_retries: 3,
+                witness: format!("loop-accepted:{run_id}"),
+            })
+            .and_then(|_| self.runs.transition(&run_id, RunTrigger::Prepare, None))
+            .map(|_| ())
+            .map_err(operation_error)
+    }
+
+    fn signal_canonical_loop(
+        &self,
+        loop_run_id: &str,
+        signal: CanonicalLoopSignal,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let run_id = canonical_owner_run_id(loop_run_id)?;
+        let run = self.runs.get(&run_id).map_err(operation_error)?;
+        if run.state.is_terminal() {
+            return Err(operation_error("late Loop lifecycle signal rejected"));
+        }
+        let trigger = match (run.state, signal) {
+            (RunState::Preparing, CanonicalLoopSignal::Running) => RunTrigger::Start,
+            (RunState::Verifying, CanonicalLoopSignal::Running) => RunTrigger::Continue,
+            (RunState::Retrying, CanonicalLoopSignal::Running) => RunTrigger::RetryReady,
+            (_, CanonicalLoopSignal::Paused) => RunTrigger::Pause,
+            (_, CanonicalLoopSignal::Resumed) => RunTrigger::Resume,
+            (_, CanonicalLoopSignal::Retrying) => RunTrigger::Retry,
+            (_, CanonicalLoopSignal::Verifying) => RunTrigger::Verify,
+            (_, CanonicalLoopSignal::Stuck) => RunTrigger::MarkStuck,
+            (_, CanonicalLoopSignal::Completed) => RunTrigger::Complete,
+            (_, CanonicalLoopSignal::Failed) => RunTrigger::Fail,
+            (_, CanonicalLoopSignal::Cancelled) => RunTrigger::CancelUser,
+            _ => return Ok(()),
+        };
+        self.runs
+            .transition(
+                &run_id,
+                trigger,
+                Some(format!("loop_{signal:?}").to_lowercase()),
+            )
+            .map(|_| ())
+            .map_err(operation_error)
+    }
+
+    fn start_canonical_run(
+        &self,
+        run_id: &str,
+        owner_id: &str,
+        parent_run_id: Option<&str>,
+        links: CanonicalRunLinks<'_>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.runs
+            .create(CreateAgentRun {
+                id: Some(run_id.to_string()),
+                owner: RunOwner {
+                    owner_type: "session_generation".into(),
+                    owner_id: owner_id.into(),
+                },
+                links: [
+                    ("session", Some(links.session_id)),
+                    ("user_message", links.user_message_id),
+                    ("assistant_message", Some(links.assistant_message_id)),
+                    ("operation", Some(links.operation_id)),
+                ]
+                .into_iter()
+                .filter_map(|(link_type, link_id)| {
+                    link_id.map(|link_id| RunLink {
+                        link_type: link_type.into(),
+                        link_id: link_id.into(),
+                    })
+                })
+                .collect(),
+                parent_run_id: parent_run_id.map(str::to_string),
+                recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                max_retries: 2,
+                witness: format!("accepted:{run_id}"),
+            })
+            .map_err(operation_error)?;
+        self.runs
+            .transition(run_id, RunTrigger::Prepare, None)
+            .map_err(operation_error)?;
+        self.runs
+            .transition(run_id, RunTrigger::Start, None)
+            .map(|_| ())
+            .map_err(operation_error)
+    }
+
+    fn finish_canonical_run(
+        &self,
+        run_id: &str,
+        outcome: CanonicalRunOutcome,
+        reason: Option<&str>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let trigger = match outcome {
+            CanonicalRunOutcome::Completed => RunTrigger::Complete,
+            CanonicalRunOutcome::Failed => RunTrigger::Fail,
+            CanonicalRunOutcome::Cancelled => RunTrigger::CancelUser,
+        };
+        if outcome == CanonicalRunOutcome::Completed {
+            self.runs
+                .transition(run_id, RunTrigger::Verify, None)
+                .map_err(operation_error)?;
+        }
+        self.runs
+            .transition(run_id, trigger, reason.map(str::to_string))
+            .map(|_| ())
+            .map_err(operation_error)
+    }
+
+    fn signal_canonical_run(
+        &self,
+        run_id: &str,
+        signal: CanonicalRunSignal,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let run = self.runs.get(run_id).map_err(operation_error)?;
+        if run.state.is_terminal() {
+            return Err(operation_error("late Agent lifecycle signal rejected"));
+        }
+        let trigger = match (run.state, signal) {
+            (RunState::Running, CanonicalRunSignal::WaitingApproval) => {
+                Some(RunTrigger::RequestApproval)
+            }
+            (RunState::Running, CanonicalRunSignal::WaitingUser) => Some(RunTrigger::AskUser),
+            (RunState::WaitingApproval, CanonicalRunSignal::Active) => {
+                Some(RunTrigger::ApprovalGranted)
+            }
+            (RunState::WaitingUser, CanonicalRunSignal::Active) => Some(RunTrigger::UserAnswered),
+            _ => None,
+        };
+        match trigger {
+            Some(trigger) => self
+                .runs
+                .transition(run_id, trigger, None)
+                .map(|_| ())
+                .map_err(operation_error),
+            None => Ok(()),
+        }
+    }
+
     fn start_agent_launch(
         &self,
         agent_id: &str,
@@ -267,6 +426,15 @@ fn operation_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationErro
     AgentRuntimeApplicationError::Operation(error.to_string())
 }
 
+fn canonical_owner_run_id(owner_id: &str) -> Result<String, AgentRuntimeApplicationError> {
+    let candidate = owner_id
+        .get(owner_id.len().saturating_sub(36)..)
+        .ok_or_else(|| operation_error("owner run id is invalid"))?;
+    uuid::Uuid::parse_str(candidate)
+        .map(|value| value.to_string())
+        .map_err(|_| operation_error("owner run id is invalid"))
+}
+
 fn logging_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Logging(error.to_string())
 }
@@ -275,6 +443,11 @@ fn logging_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError 
 mod tests {
     use super::*;
     use crate::contexts::operations::api::OperationsError;
+    use crate::contexts::operations::infrastructure::{
+        persistent_operation_service, persistent_run_service,
+    };
+    use crate::platform::database::NativeDatabase;
+    use crate::test_support::TempDirectory;
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -371,5 +544,55 @@ mod tests {
             logs[0].context.get("loopOperation").map(String::as_str),
             Some("verification")
         );
+    }
+
+    #[test]
+    fn canonical_generation_projects_normal_waiting_and_terminal_paths() {
+        let directory = TempDirectory::new("agent-canonical-run");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let runs = AgentRunsApi::new(persistent_run_service(database.clone()));
+        let adapter = AgentRuntimeOperationAdapter::new(
+            OperationsApi::new(persistent_operation_service(database)),
+            runs.clone(),
+        );
+        let run_id = "018f0f17-4d6a-7e20-b41d-66c5271a28d0";
+        adapter
+            .start_canonical_run(
+                run_id,
+                "assistant-1",
+                None,
+                CanonicalRunLinks {
+                    session_id: "session-1",
+                    user_message_id: Some("message-1"),
+                    assistant_message_id: "assistant-1",
+                    operation_id: "operation-1",
+                },
+            )
+            .expect("start");
+        for signal in [
+            CanonicalRunSignal::WaitingApproval,
+            CanonicalRunSignal::Active,
+            CanonicalRunSignal::WaitingUser,
+            CanonicalRunSignal::Active,
+        ] {
+            adapter
+                .signal_canonical_run(run_id, signal)
+                .expect("signal");
+        }
+        adapter
+            .finish_canonical_run(run_id, CanonicalRunOutcome::Completed, None)
+            .expect("complete");
+        assert_eq!(runs.get(run_id).expect("run").state, RunState::Completed);
+        let states = runs
+            .events(run_id, 0, 20)
+            .expect("events")
+            .into_iter()
+            .map(|event| event.state)
+            .collect::<Vec<_>>();
+        assert!(states.contains(&RunState::WaitingApproval));
+        assert!(states.contains(&RunState::WaitingUser));
+        assert!(adapter
+            .signal_canonical_run(run_id, CanonicalRunSignal::Active)
+            .is_err());
     }
 }

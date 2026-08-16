@@ -1,8 +1,8 @@
 use super::loop_orchestrator::{current_iteration, elapsed_seconds};
 use super::{
-    ActiveLoopOperation, AgentLogLevel, AgentRuntimeApplicationError, LoopOperationContext,
-    LoopOperationKind, LoopOrchestratorApplicationService, LoopRoleGenerationTerminal, LoopRunView,
-    LoopVerificationCancellation, StartLoopWorkerRequest,
+    ActiveLoopOperation, AgentLogLevel, AgentRuntimeApplicationError, CanonicalLoopSignal,
+    LoopOperationContext, LoopOperationKind, LoopOrchestratorApplicationService,
+    LoopRoleGenerationTerminal, LoopRunView, LoopVerificationCancellation, StartLoopWorkerRequest,
 };
 use crate::contexts::agent_runtime::domain::{LoopRunPhase, LoopTerminalReason};
 use std::thread;
@@ -47,6 +47,9 @@ impl LoopOrchestratorApplicationService {
         let expected = run.status();
         run.pause_at_boundary()?;
         self.save_run(&run, expected, None)?;
+        self.ports
+            .observer
+            .signal_canonical_loop(run_id, CanonicalLoopSignal::Paused)?;
         Ok(true)
     }
 
@@ -70,6 +73,19 @@ impl LoopOrchestratorApplicationService {
         };
         let now = self.ports.clock.now();
         self.save_run(&run, expected, (!retry).then_some(now.as_str()))?;
+        self.ports.observer.signal_canonical_loop(
+            run_id,
+            if retry {
+                CanonicalLoopSignal::Retrying
+            } else {
+                CanonicalLoopSignal::Failed
+            },
+        )?;
+        if retry {
+            self.ports
+                .observer
+                .signal_canonical_loop(run_id, CanonicalLoopSignal::Running)?;
+        }
         let context = operation_context(&view);
         self.ports.observer.record(
             &context,

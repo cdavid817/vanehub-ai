@@ -166,3 +166,34 @@ impl SessionProgressProbe {
 }
 
 probe_impl!(SessionProgressProbe, GoalLinkTarget::Session, resolve);
+
+pub(crate) struct RunProgressProbe {
+    database: NativeDatabase,
+}
+
+impl RunProgressProbe {
+    pub(crate) fn new(database: NativeDatabase) -> Self {
+        Self { database }
+    }
+
+    fn resolve(&self, run_id: &str) -> Option<LinkProgress> {
+        let connection = self.database.connection().ok()?;
+        let state: String = connection
+            .query_row(
+                "SELECT state FROM agent_runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()??;
+        Some(
+            if matches!(state.as_str(), "completed" | "failed" | "cancelled") {
+                LinkProgress::Terminal
+            } else {
+                LinkProgress::Active
+            },
+        )
+    }
+}
+
+probe_impl!(RunProgressProbe, GoalLinkTarget::Run, resolve);
