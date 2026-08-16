@@ -298,6 +298,7 @@ The native OnePiece runtime SHALL support a repair profile that starts a distinc
 #### Scenario: Repair reaches a limit
 - **WHEN** the repair session reaches its tool, token, or timeout limit
 - **THEN** OnePiece SHALL stop through the existing safe limit boundary and the attempt SHALL retain a classified terminal outcome
+
 ### Requirement: OnePiece extended tool capability and readiness
 The system SHALL project the Browser, Web research, code-execution, OCR, Artifact-publication, and CLI-delegation capabilities only on the built-in OnePiece identity and SHALL expose mode-specific readiness and safe reason codes without making OnePiece chat readiness depend on every optional tool. User-created API Agents SHALL not inherit these capabilities from provider configuration or capability-tag editing.
 
@@ -334,4 +335,17 @@ The frontend SHALL obtain OnePiece extended-capability readiness and operation s
 #### Scenario: Web settings inspect readiness
 - **WHEN** the same surface runs in Web/mock mode
 - **THEN** the Web adapter SHALL return deterministic non-native readiness without implying installed desktop dependencies
+
+### Requirement: OnePiece assembles proactive evidence through the Context Engine
+For eligible project turns, OnePiece SHALL invoke the Context Engine before final provider request construction and SHALL accept only a verified bounded projection; optional candidate-source failure or manifest persistence failure MUST NOT fail the generation.
+
+#### Scenario: Evidence selection succeeds
+- **WHEN** the Context Engine returns a verified evidence set
+- **THEN** OnePiece SHALL include its compact projection in the provider request
+- **AND** it SHALL preserve existing provider, tool, cancellation, accounting, and compaction behavior
+
+#### Scenario: Engine cannot produce a safe projection
+- **WHEN** planning, collection, normalization, ranking, budgeting, or verification cannot safely complete
+- **THEN** OnePiece SHALL continue through the existing request path without partial injected evidence
+- **AND** it SHALL emit only a bounded redacted outcome
 

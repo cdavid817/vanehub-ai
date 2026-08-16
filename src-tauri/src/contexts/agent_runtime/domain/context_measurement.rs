@@ -14,6 +14,7 @@ pub(crate) enum SemanticClass {
     ToolRequest,
     ToolResult,
     Attachment,
+    ContextEvidence,
     Memory,
     Unknown,
 }

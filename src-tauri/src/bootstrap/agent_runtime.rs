@@ -6,12 +6,13 @@ use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
     AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
     ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
-    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextQualityQueryService,
-    ContextQualityRecorder, DelegateCliNativeToolHandler, ExpertRoleApplicationPorts,
-    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
-    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
-    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
-    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextEngineService,
+    ContextManifestQueryService, ContextQualityQueryService, ContextQualityRecorder,
+    DelegateCliNativeToolHandler, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
+    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
+    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
+    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
+    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
@@ -21,25 +22,26 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, migrate_memory_rows, AgentRuntimeLoggingAdapter,
-    AgentRuntimeOperationAdapter, CompositeAgentProcessGateway, CredentialAwareAgentRegistry,
-    FileAgentMemoryStore, HttpOnePieceModelDiscoveryAdapter,
-    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
-    ManualNativeToolOperationAdapter, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    AgentRuntimeOperationAdapter, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
+    CredentialAwareAgentRegistry, ExplicitReferenceContextSource, FileAgentMemoryStore,
+    HttpOnePieceModelDiscoveryAdapter, InMemoryAgentMessageTerminalCompletions,
+    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
+    InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions,
+    ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
+    MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
     NativeSeatTurnCoordinator, NativeSubagentExecutor, NativeUtilityChildExecutor,
     OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
-    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
-    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RetrievalContextSource, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
     RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
     RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
     RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
     SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
-    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SubagentRuntime,
-    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    SqliteContextManifestRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
+    SqliteLoopRepository, SqliteNativeToolRepository, StructuredLoopVerificationProcess,
+    SubagentRuntime, SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
+    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -620,11 +622,38 @@ pub(crate) fn assemble_agent_runtime_api(
         logging.clone(),
         clock.clone(),
     ));
+    let context_manifest_repository = Arc::new(SqliteContextManifestRepository::new(
+        dependencies.database.clone(),
+    ));
+    let context_manifests = ContextManifestQueryService::new(context_manifest_repository.clone());
     let code_intelligence = Arc::new(
         crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter::new(
             dependencies.code_intelligence,
         ),
     );
+    let context_engine = Arc::new(ContextEngineService::new(
+        vec![
+            Arc::new(ExplicitReferenceContextSource),
+            Arc::new(RetrievalContextSource::workspace(
+                dependencies.retrieval.clone(),
+            )),
+            Arc::new(CodeIntelligenceContextSource::definition(
+                code_intelligence.clone(),
+            )),
+            Arc::new(CodeIntelligenceContextSource::references(
+                code_intelligence.clone(),
+            )),
+            Arc::new(RetrievalContextSource::memory(
+                dependencies.retrieval.clone(),
+            )),
+        ],
+        context_manifest_repository,
+        Arc::new(UnifiedContextEngineDiagnostics::new(
+            logging.clone(),
+            clock.clone(),
+        )),
+        Arc::new(MonotonicContextEngineClock::default()),
+    ));
     let utility_projector = Arc::new(RuntimeUtilityLifecycleProjector::new(
         dependencies.evidence.clone(),
         logging.clone(),
@@ -671,6 +700,7 @@ pub(crate) fn assemble_agent_runtime_api(
             agent_personalization.clone(),
         )
         .with_context_quality_recorder(context_quality)
+        .with_context_engine(context_engine)
         .with_evidence(dependencies.evidence.clone())
         .with_utility_delegation(utility_delegation)
         .with_accounting(accounting.clone())
@@ -854,6 +884,7 @@ pub(crate) fn assemble_agent_runtime_api(
             seat_turns,
             guarded_validation,
             context_quality: context_quality_query,
+            context_manifests,
             native_tools,
             browser_handoff,
             manual_native_tools,

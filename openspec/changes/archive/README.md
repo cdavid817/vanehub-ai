@@ -186,5 +186,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
 | 2026-08-16 | enforce-architecture-fitness-functions | continuous-integration, frontend-runtime-architecture, native-runtime-architecture, repository-governance | `openspec/changes/archive/2026-08-16-enforce-architecture-fitness-functions/` |
 | 2026-08-16 | fix-direct-connection-os-proxy-inheritance | app-settings | `openspec/changes/archive/2026-08-16-fix-direct-connection-os-proxy-inheritance/` |
+| 2026-08-16 | unify-agent-context-engine | agent-context-engine, agent-context-evidence-projection, agent-context-measurement, agent-cross-session-memory, lsp-code-intelligence, onepiece-native-agent, retrieval-vector-search, unified-log-management | `openspec/changes/archive/2026-08-16-unify-agent-context-engine/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

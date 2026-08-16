@@ -52,6 +52,18 @@ function createService() {
   return {
     getContextQualitySummary: vi.fn().mockResolvedValue(summary),
     listContextQualityHistory: vi.fn().mockResolvedValue({ items: [assessment], nextCursor: null }),
+    listContextEvidenceManifests: vi.fn().mockResolvedValue({
+      items: [{
+        sessionId: "session-1", turnId: "turn-1", generationId: "generation-1",
+        policyVersion: "context-engine-v1", evidenceBudget: 4096, occupiedTokens: 768,
+        selected: [{ id: "definition", sourceKind: "lsp-definition", sourceRef: "src/lib.rs", startLine: 4, endLine: 12, symbol: "run", tokenEstimate: 200, reasonCodes: ["symbol-relation"] }],
+        rejected: [{ id: "memory", reasonCode: "budget-rejected" }],
+        sourceOutcomes: { retrieval: "ready", lsp: "unavailable" }, duplicateTokensSaved: 100,
+        collectionLatencyBucket: "under-50ms", rankingLatencyBucket: "under-10ms",
+        compactionTriggered: false, runtime: "web-mock",
+      }],
+      nextCursor: null,
+    }),
   } as unknown as AgentService;
 }
 
@@ -140,5 +152,28 @@ describe("OnePieceContextHealthSection", () => {
       .toMatchObject({ contextQualityRetentionDays: 90 }));
     await waitFor(() => expect(service.listContextQualityHistory).toHaveBeenCalledTimes(2));
     expect(service.getContextQualitySummary).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the advanced context inspector collapsed until requested", async () => {
+    const service = createService();
+    const { user } = renderSection(service);
+    const trigger = await screen.findByRole("button", { name: "上下文检查器" });
+    expect(service.listContextEvidenceManifests).not.toHaveBeenCalled();
+
+    await user.click(trigger);
+
+    expect(await screen.findByText("src/lib.rs:4-12")).toBeTruthy();
+    expect(screen.getByText(/memory: budget-rejected/)).toBeTruthy();
+    expect(screen.getByText(/lsp: unavailable/)).toBeTruthy();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows a retry control when context evidence loading fails", async () => {
+    const service = createService();
+    vi.mocked(service.listContextEvidenceManifests).mockRejectedValueOnce(new Error("manifest unavailable"));
+    const { user } = renderSection(service);
+    await user.click(await screen.findByRole("button", { name: "上下文检查器" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("manifest unavailable");
+    expect(screen.getByRole("button", { name: "重试加载上下文证据" })).toBeTruthy();
   });
 });

@@ -3397,5 +3397,18 @@
   "goals.fields.acceptanceNotes": "이 목표를 어떻게 판단할지",
   "goals.fields.projectPath": "프로젝트 경로",
   "goals.fields.targetKind": "종류",
-  "goals.fields.targetId": "대상 ID"
+  "goals.fields.targetId": "대상 ID",
+  "onepiece.contextInspector.title": "컨텍스트 검사기",
+  "onepiece.contextInspector.loading": "컨텍스트 증거 불러오는 중…",
+  "onepiece.contextInspector.retry": "컨텍스트 증거 다시 시도",
+  "onepiece.contextInspector.empty": "아직 컨텍스트 증거가 없습니다.",
+  "onepiece.contextInspector.budget": "증거 예산",
+  "onepiece.contextInspector.duplicates": "중복 제거 토큰 절감",
+  "onepiece.contextInspector.collection": "수집 지연",
+  "onepiece.contextInspector.compaction": "압축 실행",
+  "onepiece.contextInspector.selected": "선택된 증거",
+  "onepiece.contextInspector.rejected": "주요 제외 항목",
+  "onepiece.contextInspector.sources": "소스 상태",
+  "onepiece.contextInspector.yes": "예",
+  "onepiece.contextInspector.no": "아니요"
 }

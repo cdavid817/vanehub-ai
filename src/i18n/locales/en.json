@@ -3397,5 +3397,18 @@
   "goals.fields.acceptanceNotes": "How you will judge this goal",
   "goals.fields.projectPath": "Project path",
   "goals.fields.targetKind": "Kind",
-  "goals.fields.targetId": "Target id"
+  "goals.fields.targetId": "Target id",
+  "onepiece.contextInspector.title": "Context Inspector",
+  "onepiece.contextInspector.loading": "Loading context evidence…",
+  "onepiece.contextInspector.retry": "Retry context evidence",
+  "onepiece.contextInspector.empty": "No context evidence is available yet.",
+  "onepiece.contextInspector.budget": "Evidence budget",
+  "onepiece.contextInspector.duplicates": "Duplicate tokens saved",
+  "onepiece.contextInspector.collection": "Collection latency",
+  "onepiece.contextInspector.compaction": "Compaction triggered",
+  "onepiece.contextInspector.selected": "Selected evidence",
+  "onepiece.contextInspector.rejected": "Top rejected",
+  "onepiece.contextInspector.sources": "Source outcomes",
+  "onepiece.contextInspector.yes": "Yes",
+  "onepiece.contextInspector.no": "No"
 }

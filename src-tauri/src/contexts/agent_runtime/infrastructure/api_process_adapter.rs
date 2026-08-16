@@ -30,34 +30,35 @@ use crate::contexts::agent_runtime::application::{
     AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort,
     AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest, AgentWorkspaceMutation,
     AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
-    BoundSkillPrompt, ContextAnalysisInput, ContextAnalysisService, ContextQualityRecorder,
-    ConversationHistoryPort, ExistingToolHandler, ExistingToolHandlerRegistry,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    NativeToolAuthorizationStatus, NativeToolDispatchRequest, NativeToolDispatcher,
-    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
-    NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, PersonalizationSettings, ProcessStopInitiator, ReportedUsageTotals,
-    SaveMemoryInput, StartedGenerationProcess, StoredToolOperation, StoredToolOperationStatus,
-    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolEligibilityContext, ToolUseBlock,
-    UtilityDelegationApplicationService, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    ASK_USER_QUESTION_TOOL_NAME, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
-    EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
-    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    BoundSkillPrompt, ContextAnalysisInput, ContextAnalysisService, ContextEngineOutcome,
+    ContextEngineService, ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
+    NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
+    ProcessStopInitiator, ReportedUsageTotals, SaveMemoryInput, StartedGenerationProcess,
+    StoredToolOperation, StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME,
+    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME,
+    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
+    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
+    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME,
+    RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME,
+    SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, parse_memory_actions, select_authoritative_compaction,
     verify_optimization_candidate, AutomaticCompactionState, CompactionBypassReason,
     CompactionPath, CompactionTriggerSource, ContextAssessmentInvariants, ContextAssessmentOutcome,
-    ContextAssessmentPath, ContextAssessmentReason, ContextAssessmentTriggerSource,
+    ContextAssessmentPath, ContextAssessmentReason, ContextAssessmentTriggerSource, ContextBudget,
     ContextCompactionEvidence, ContextOptimizationBudget, ContextQualityAssessment,
-    ContextQualityAssessmentInput, ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason,
-    MemoryType, OptimizationActionKind, OptimizationOutcome, RetentionClass, SemanticClass,
-    UsageAnchor, UtilityDelegationLimits, UtilityDelegationRequest,
+    ContextQualityAssessmentInput, ContextQualityAssessmentRecord, ContextRequest, ContextSnapshot,
+    FallbackReason, MemoryType, OptimizationActionKind, OptimizationOutcome, RetentionClass,
+    SemanticClass, UsageAnchor, UtilityDelegationLimits, UtilityDelegationRequest,
     AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
     CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, MEMORY_ACTIONS_INSTRUCTION,
     STRUCTURED_SUMMARY_PROMPT,
@@ -205,6 +206,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
+    context_engine: Option<Arc<ContextEngineService>>,
     accounting: Option<SessionsApi>,
     native_tools: NativeToolRegistry,
     native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
@@ -299,6 +301,7 @@ impl RuntimeAgentApiAdapter {
             workspace_mutations,
             personalization,
             context_quality: None,
+            context_engine: None,
             accounting: None,
             native_tools: NativeToolRegistry::empty(),
             native_tool_operations: None,
@@ -334,6 +337,11 @@ impl RuntimeAgentApiAdapter {
         recorder: Arc<ContextQualityRecorder>,
     ) -> Self {
         self.context_quality = Some(recorder);
+        self
+    }
+
+    pub(crate) fn with_context_engine(mut self, engine: Arc<ContextEngineService>) -> Self {
+        self.context_engine = Some(engine);
         self
     }
 
@@ -445,6 +453,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let workspace_mutations = self.workspace_mutations.clone();
         let personalization = self.personalization.clone();
         let context_quality = self.context_quality.clone();
+        let context_engine = self.context_engine.clone();
         let evidence = self.evidence.clone();
         let utility_delegation = self.utility_delegation.clone();
         let accounting = self.accounting.clone();
@@ -471,6 +480,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 workspace_mutations,
                 personalization,
                 context_quality,
+                context_engine,
                 accounting,
                 native_tools,
                 native_tool_operations,
@@ -537,7 +547,7 @@ impl ToolApprovalPort for RuntimeAgentApiAdapter {
 
 #[allow(clippy::too_many_arguments)]
 fn run_generation(
-    request: GenerationProcessRequest,
+    mut request: GenerationProcessRequest,
     cancelled: Arc<AtomicBool>,
     credentials: Arc<dyn ApiCredentialPort>,
     config: Arc<dyn ApiAgentGateway>,
@@ -554,6 +564,7 @@ fn run_generation(
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
+    context_engine: Option<Arc<ContextEngineService>>,
     accounting: Option<SessionsApi>,
     native_tools: NativeToolRegistry,
     native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
@@ -564,6 +575,43 @@ fn run_generation(
     evidence: RuntimeEvidenceProjector,
     utility_delegation: Option<UtilityDelegationApplicationService>,
 ) {
+    if request.agent.id == "onepiece" {
+        if let Some(engine) = context_engine {
+            let context_request = ContextRequest {
+                session_id: request.session.id.clone(),
+                turn_id: request.message_id.clone(),
+                generation_id: request.operation_id.clone(),
+                task: request.effective_prompt.clone(),
+                workspace_ref: request.session.folder.clone(),
+                explicit_refs: request
+                    .file_references
+                    .iter()
+                    .map(|reference| reference.path.clone())
+                    .collect(),
+                model_capacity: Some(32_768),
+            };
+            let budget = ContextBudget {
+                total: 32_768,
+                reserved_system: 8_192,
+                reserved_task: 4_096,
+                reserved_recent_turns: 12_288,
+                reserve: 2_048,
+            };
+            if let ContextEngineOutcome::Ready(projected) =
+                engine.assemble(&context_request, &budget, cancelled.as_ref())
+            {
+                if !projected.provider_projection.is_empty() {
+                    request
+                        .effective_prompt
+                        .push_str("\n\n<context-evidence>\n");
+                    request
+                        .effective_prompt
+                        .push_str(&projected.provider_projection);
+                    request.effective_prompt.push_str("\n</context-evidence>");
+                }
+            }
+        }
+    }
     let mut observed_skill_revisions = Vec::new();
     let counting_sink = EvidenceCountingSink::new(sink.clone());
     let terminal = execute_with_code_intelligence(
@@ -6657,6 +6705,7 @@ mod tests {
                 long_context: false,
             },
             effective_prompt: "hello".to_string(),
+            file_references: Vec::new(),
             automatic_compaction:
                 crate::contexts::agent_runtime::domain::AutomaticCompactionMode::Automatic,
             role_briefing: None,

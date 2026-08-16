@@ -1625,6 +1625,7 @@ impl AgentRuntimeApplicationService {
             &self.ports.clock.now(),
             None,
         );
+        let generation_file_references = file_references.clone();
         let durable_messages =
             match self
                 .ports
@@ -2013,6 +2014,7 @@ impl AgentRuntimeApplicationService {
                 operation_id: operation.id.clone(),
                 configuration: configuration.clone(),
                 effective_prompt: effective_prompt.content,
+                file_references: generation_file_references,
                 automatic_compaction: AutomaticCompactionMode::Automatic,
                 // Single-Agent sessions carry no briefing, so their invocation is unchanged.
                 role_briefing: role_briefing.clone(),

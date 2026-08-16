@@ -11,6 +11,7 @@ import type {
 import { contextQualityRangeDaysOptions } from "../../../types/context-quality";
 import { contextQualityRetentionDaysOptions } from "../../../types/settings";
 import { useSettings } from "../../settings-provider";
+import { ContextInspector } from "./context-inspector";
 
 function Distribution({ label, values }: { label: string; values: Record<string, number> }) {
   const entries = Object.entries(values);
@@ -129,5 +130,6 @@ export function OnePieceContextHealthSection({ service = defaultAgentService }: 
     {history.length ? <ul className="mt-3 divide-y divide-border/70 rounded-lg border border-border/70">{history.map((item) => <li className="grid gap-1 p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:gap-4" key={item.attemptId}><div className="min-w-0"><p className="truncate font-medium">{item.outcome} · {item.path ?? item.reason ?? "—"}</p><p className="truncate text-xs text-muted-foreground">{new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.recordedAt))}</p></div><span className="text-xs text-muted-foreground">{item.measurementQuality}</span><span className="font-mono text-xs tabular-nums">−{number(item.savedTokens ?? item.savedCharacters)} {item.savedTokens == null ? t("onepiece.contextHealth.characters") : t("onepiece.contextHealth.tokens")}</span></li>)}</ul> : null}
     {historyLoading ? <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground" role="status"><LoaderCircle className="h-4 w-4 animate-spin" />{t("onepiece.contextHealth.loadingHistory")}</p> : null}
     {nextCursor && !historyLoading ? <button className="mt-3 min-h-11 w-full rounded-md border border-border px-3 text-sm font-medium hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => loadHistory(nextCursor, true)} type="button">{t("onepiece.contextHealth.loadMore")}</button> : null}
+    <ContextInspector service={service} />
   </section>;
 }

@@ -1,0 +1,12 @@
+{
+  "cases": [
+    { "name": "definition", "budget": 40, "relevant": ["definition"], "candidates": [["definition", "retrieval", 40, 95], ["noise", "retrieval", 40, 10]] },
+    { "name": "cross-file-reference", "budget": 100, "relevant": ["definition", "caller"], "candidates": [["definition", "tree-sitter", 40, 95], ["caller", "lsp-reference", 40, 90], ["noise", "memory", 20, 5]] },
+    { "name": "test-discovery", "budget": 80, "relevant": ["definition", "test"], "candidates": [["definition", "retrieval", 40, 90], ["test", "test", 40, 90]] },
+    { "name": "explicit-preservation", "budget": 40, "relevant": ["explicit"], "candidates": [["explicit", "explicit-reference", 40, 1], ["noise", "retrieval", 40, 100]] },
+    { "name": "duplicate-elimination", "budget": 40, "relevant": ["same-a"], "duplicates": true, "candidates": [["same-a", "retrieval", 40, 90], ["same-b", "tree-sitter", 40, 90], ["same-c", "lsp-definition", 40, 90]] },
+    { "name": "lsp-fallback", "budget": 40, "relevant": ["fallback"], "candidates": [["fallback", "tree-sitter", 40, 80]] },
+    { "name": "budget-pressure", "budget": 50, "relevant": ["high"], "candidates": [["high", "retrieval", 40, 100], ["low", "retrieval", 40, 1]] },
+    { "name": "memory-relevance", "budget": 100, "relevant": ["code", "memory"], "candidates": [["code", "retrieval", 60, 90], ["memory", "memory", 20, 100], ["old-memory", "memory", 20, 1]] }
+  ]
+}
