@@ -3,6 +3,7 @@ mod floating_assistant;
 mod lifecycle;
 mod localization;
 mod settings;
+mod update;
 
 pub(crate) use error::DesktopSettingsDomainError;
 pub(crate) use floating_assistant::{
@@ -17,3 +18,4 @@ pub(crate) use settings::{
     ApplicationLanguage, AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation,
     DesktopSettings, NetworkProxyPreferences, StartupPreference,
 };
+pub(crate) use update::{admits_update, UpdateChannel};

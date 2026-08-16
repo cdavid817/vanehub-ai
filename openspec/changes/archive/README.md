@@ -184,6 +184,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | add-agent-code-review-center | agent-code-review, frontend-runtime-architecture, native-runtime-architecture, session-project-inspection, session-workspace-tabs, unified-log-management | `openspec/changes/archive/2026-08-16-add-agent-code-review-center/` |
 | 2026-08-16 | add-cross-platform-desktop-automation | continuous-integration, desktop-runtime-verification | `openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/` |
 | 2026-08-16 | add-onepiece-slash-commands | chat-experience, slash-command-runtime | `openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/` |
+| 2026-08-16 | add-signed-release-auto-update | desktop-release-delivery, signed-desktop-auto-update | `openspec/changes/archive/2026-08-16-add-signed-release-auto-update/` |
 | 2026-08-16 | add-two-tier-memory-recall | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/` |
 | 2026-08-16 | enforce-architecture-fitness-functions | continuous-integration, frontend-runtime-architecture, native-runtime-architecture, repository-governance | `openspec/changes/archive/2026-08-16-enforce-architecture-fitness-functions/` |
 | 2026-08-16 | fix-direct-connection-os-proxy-inheritance | app-settings | `openspec/changes/archive/2026-08-16-fix-direct-connection-os-proxy-inheritance/` |

@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, URL } from "node:url";
+
+const directory = await mkdtemp(join(tmpdir(), "vanehub-updater-"));
+await writeFile(join(directory, "VaneHub.AI_1.2.0_x64-setup.exe.sig"), "signed-fixture-".repeat(5));
+await writeFile(join(directory, "VaneHub.AI-macos-arm64.app.tar.gz.sig"), "arm-signature-".repeat(5));
+await writeFile(join(directory, "VaneHub.AI-macos-x64.app.tar.gz.sig"), "mac-signature-".repeat(5));
+await writeFile(join(directory, "VaneHub.AI-linux-x64.AppImage.sig"), "linux-signature-".repeat(5));
+const output = join(directory, "latest.json");
+const generator = fileURLToPath(new URL("./generate-updater-manifest.mjs", import.meta.url));
+const result = spawnSync(process.execPath, [generator, directory, "v1.2.0", "owner/repo", output]);
+assert.equal(result.status, 0, result.stderr.toString());
+const manifest = JSON.parse(await readFile(output, "utf8"));
+assert.equal(manifest.version, "1.2.0");
+assert.match(manifest.platforms["windows-x86_64"].url, /^https:\/\//);
+assert.match(manifest.platforms["darwin-aarch64"].url, /macos-arm64/);
+await writeFile(join(directory, "bad.exe.sig"), "tampered");
+const invalid = spawnSync(process.execPath, [generator, directory, "invalid", "owner/repo", output]);
+assert.notEqual(invalid.status, 0);

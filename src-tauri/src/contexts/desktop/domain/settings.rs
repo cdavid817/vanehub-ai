@@ -193,6 +193,8 @@ pub(crate) enum DesktopSettingKey {
     MemoryToolAssistedChatsEnabled,
     AutomaticContextCompactionEnabled,
     ContextQualityRetentionDays,
+    UpdateAutomaticCheck,
+    UpdateChannel,
 }
 
 impl DesktopSettingKey {
@@ -216,6 +218,8 @@ impl DesktopSettingKey {
             "memoryToolAssistedChatsEnabled" => Ok(Self::MemoryToolAssistedChatsEnabled),
             "automaticContextCompactionEnabled" => Ok(Self::AutomaticContextCompactionEnabled),
             "contextQualityRetentionDays" => Ok(Self::ContextQualityRetentionDays),
+            "updateAutomaticCheck" => Ok(Self::UpdateAutomaticCheck),
+            "updateChannel" => Ok(Self::UpdateChannel),
             _ => Err(DesktopSettingsDomainError::invalid(value)),
         }
     }
@@ -240,6 +244,8 @@ impl DesktopSettingKey {
             Self::MemoryToolAssistedChatsEnabled => "memoryToolAssistedChatsEnabled",
             Self::AutomaticContextCompactionEnabled => "automaticContextCompactionEnabled",
             Self::ContextQualityRetentionDays => "contextQualityRetentionDays",
+            Self::UpdateAutomaticCheck => "updateAutomaticCheck",
+            Self::UpdateChannel => "updateChannel",
         }
     }
 }
@@ -269,6 +275,8 @@ pub(crate) enum DesktopSettingMutation {
     MemoryToolAssistedChatsEnabled(bool),
     AutomaticContextCompactionEnabled(bool),
     ContextQualityRetentionDays(i64),
+    UpdateAutomaticCheck(bool),
+    UpdateChannel(String),
 }
 
 impl DesktopSettingMutation {
@@ -344,9 +352,15 @@ impl DesktopSettingMutation {
                 .filter(|days| matches!(days, 7 | 30 | 90))
                 .map(Self::ContextQualityRetentionDays)
                 .ok_or_else(invalid),
-            DesktopSettingKey::LogDirectory | DesktopSettingKey::DefaultPolicyTemplate => {
-                Err(invalid())
+            DesktopSettingKey::UpdateAutomaticCheck => parse_bool(value)
+                .map(Self::UpdateAutomaticCheck)
+                .ok_or_else(invalid),
+            DesktopSettingKey::UpdateChannel if matches!(value, "stable" | "preview") => {
+                Ok(Self::UpdateChannel(value.to_string()))
             }
+            DesktopSettingKey::LogDirectory
+            | DesktopSettingKey::DefaultPolicyTemplate
+            | DesktopSettingKey::UpdateChannel => Err(invalid()),
         }
     }
 
@@ -378,6 +392,8 @@ impl DesktopSettingMutation {
                 DesktopSettingKey::AutomaticContextCompactionEnabled
             }
             Self::ContextQualityRetentionDays(_) => DesktopSettingKey::ContextQualityRetentionDays,
+            Self::UpdateAutomaticCheck(_) => DesktopSettingKey::UpdateAutomaticCheck,
+            Self::UpdateChannel(_) => DesktopSettingKey::UpdateChannel,
         }
     }
 
@@ -393,12 +409,14 @@ impl DesktopSettingMutation {
             | Self::DefaultPolicyTemplate(value)
             | Self::CustomInstructionsAboutUser(value)
             | Self::CustomInstructionsStyleRules(value) => value.clone(),
+            Self::UpdateChannel(value) => value.clone(),
             Self::AutomaticArchivalEnabled(value)
             | Self::LaunchOnStartup(value)
             | Self::CustomInstructionsEnabled(value)
             | Self::MemoryEnabled(value)
             | Self::MemoryToolAssistedChatsEnabled(value)
             | Self::AutomaticContextCompactionEnabled(value) => value.to_string(),
+            Self::UpdateAutomaticCheck(value) => value.to_string(),
             Self::AutomaticArchivalInactiveDays(value)
             | Self::ContextQualityRetentionDays(value) => value.to_string(),
         }
@@ -427,6 +445,8 @@ pub(crate) struct DesktopSettings {
     memory_tool_assisted_chats_enabled: bool,
     automatic_context_compaction_enabled: bool,
     context_quality_retention_days: i64,
+    update_automatic_check: bool,
+    update_channel: String,
 }
 
 impl DesktopSettings {
@@ -451,6 +471,13 @@ impl DesktopSettings {
             memory_tool_assisted_chats_enabled: true,
             automatic_context_compaction_enabled: true,
             context_quality_retention_days: 30,
+            update_automatic_check: false,
+            update_channel: if env!("CARGO_PKG_VERSION").contains('-') {
+                "preview"
+            } else {
+                "stable"
+            }
+            .to_string(),
         }
     }
 
@@ -500,6 +527,10 @@ impl DesktopSettings {
             DesktopSettingMutation::ContextQualityRetentionDays(value) => {
                 self.context_quality_retention_days = value;
             }
+            DesktopSettingMutation::UpdateAutomaticCheck(value) => {
+                self.update_automatic_check = value
+            }
+            DesktopSettingMutation::UpdateChannel(value) => self.update_channel = value,
         }
     }
 
@@ -565,6 +596,13 @@ impl DesktopSettings {
 
     pub(crate) fn context_quality_retention_days(&self) -> i64 {
         self.context_quality_retention_days
+    }
+
+    pub(crate) fn update_automatic_check(&self) -> bool {
+        self.update_automatic_check
+    }
+    pub(crate) fn update_channel(&self) -> &str {
+        &self.update_channel
     }
 }
 

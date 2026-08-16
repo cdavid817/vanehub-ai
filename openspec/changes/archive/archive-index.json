@@ -2670,6 +2670,21 @@
     },
     {
       "archivedOn": "2026-08-16",
+      "changeName": "add-signed-release-auto-update",
+      "path": "openspec/changes/archive/2026-08-16-add-signed-release-auto-update/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks",
+        "verification"
+      ],
+      "capabilities": [
+        "desktop-release-delivery",
+        "signed-desktop-auto-update"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-16",
       "changeName": "add-two-tier-memory-recall",
       "path": "openspec/changes/archive/2026-08-16-add-two-tier-memory-recall/",
       "artifacts": [

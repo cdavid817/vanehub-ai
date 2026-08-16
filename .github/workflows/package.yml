@@ -117,6 +117,7 @@ jobs:
         run: npm ci
 
       - name: Forward provisioned signing credentials
+        if: github.ref_type == 'tag'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -127,6 +128,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_SIGNER_SUBJECT: ${{ secrets.WINDOWS_SIGNER_SUBJECT }}
         run: |
           # An unset secret expands to an empty string rather than being absent, and the Tauri
           # bundler treats a defined APPLE_CERTIFICATE as a request to sign. Forwarding a blank
@@ -134,7 +138,8 @@ jobs:
           # bundle an unprovisioned repository should get, so only non-empty values are exported.
           for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
                       APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID \
-                      TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+                      TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+                      WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD WINDOWS_SIGNER_SUBJECT; do
             value="${!name}"
             if [[ -n "${value}" ]]; then
               printf '%s<<__VANEHUB_ENV__\n%s\n__VANEHUB_ENV__\n' "${name}" "${value}" >> "${GITHUB_ENV}"
@@ -145,8 +150,94 @@ jobs:
             echo "No Apple signing credentials configured; producing an unsigned, un-notarized bundle."
           fi
 
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            echo "::error::tagged releases require the updater signing key" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME}" != *-* ]]; then
+            if [[ "${RUNNER_OS}" == "Windows" && -z "${WINDOWS_CERTIFICATE}" ]]; then
+              echo "::error::stable Windows releases require signing credentials" >&2
+              exit 1
+            fi
+            if [[ "${RUNNER_OS}" == "macOS" && ( -z "${APPLE_CERTIFICATE}" || -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" ) ]]; then
+              echo "::error::stable macOS releases require signing and notarization credentials" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Generate ephemeral updater key for rehearsal
+        if: github.ref_type != 'tag'
+        shell: bash
+        run: |
+          key_path="${RUNNER_TEMP}/vanehub-rehearsal.key"
+          npx tauri signer generate --ci --force --write-keys "${key_path}" --password "rehearsal-only"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=rehearsal-only" >> "${GITHUB_ENV}"
+          echo "Ephemeral updater key generated for this non-publishing job only."
+
+      - name: Import Windows signing certificate
+        if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "vanehub-release.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $securePassword = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Out-Null
+
       - name: Build package
         run: npm run ${{ matrix.npm_script }}
+
+      - name: Sign Windows installer
+        if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
+          if ($packages.Count -eq 0) { throw "No Windows installer found" }
+          foreach ($package in $packages) {
+            & signtool sign /fd SHA256 /td SHA256 /tr https://timestamp.digicert.com /n $env:WINDOWS_SIGNER_SUBJECT $package.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($package.Name)" }
+          }
+
+      - name: Verify Windows publisher and timestamp
+        if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
+          if ($packages.Count -eq 0) { throw "No Windows installer found" }
+          foreach ($package in $packages) {
+            $signature = Get-AuthenticodeSignature $package.FullName
+            if ($signature.Status -ne "Valid") { throw "Invalid Authenticode signature: $($package.Name)" }
+            if ($signature.SignerCertificate.Subject -notlike "*$env:WINDOWS_SIGNER_SUBJECT*") { throw "Unexpected publisher: $($signature.SignerCertificate.Subject)" }
+            if (-not $signature.TimeStamperCertificate) { throw "Missing trusted timestamp: $($package.Name)" }
+            Write-Output "PASSED publisher=$($signature.SignerCertificate.Subject) timestamp=$($signature.TimeStamperCertificate.NotBefore)"
+          }
+
+      - name: Verify macOS signature, notarization, and staple
+        if: matrix.platform == 'macos' && env.APPLE_CERTIFICATE != ''
+        shell: bash
+        run: |
+          app_bundle="$(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          dmg_bundle="$(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "${app_bundle}" && test -n "${dmg_bundle}"
+          codesign --verify --deep --strict --verbose=2 "${app_bundle}"
+          xcrun stapler validate "${app_bundle}"
+          xcrun stapler validate "${dmg_bundle}"
+          spctl --assess --type execute --verbose=2 "${app_bundle}"
+          echo "PASSED Developer ID signature and stapled notarization ticket"
+
+      - name: Record unsigned rehearsal status
+        if: github.ref_type != 'tag'
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            echo "BLOCKED code-signing-not-applicable; integrity verified during publish rehearsal"
+          elif [[ "${{ matrix.platform }}" == "windows" && -z "${WINDOWS_CERTIFICATE}" ]]; then
+            echo "BLOCKED production signing credentials intentionally unavailable"
+          elif [[ "${{ matrix.platform }}" == "macos" && -z "${APPLE_CERTIFICATE}" ]]; then
+            echo "BLOCKED production signing/notarization credentials intentionally unavailable"
+          else
+            echo "PASSED configured signing verification"
+          fi
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -160,6 +251,7 @@ jobs:
             src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.dmg
             src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.deb
             src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.AppImage
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.sig
           if-no-files-found: error
           retention-days: 7
 
@@ -183,8 +275,29 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: release-assets/packages
-          merge-multiple: true
+          path: release-assets/downloads
+
+      - name: Normalize target-qualified asset names
+        shell: bash
+        run: |
+          mkdir -p release-assets/packages
+          while IFS= read -r -d '' file; do
+            relative="${file#release-assets/downloads/}"
+            artifact_dir="${relative%%/*}"
+            target="${artifact_dir#VaneHub-AI-}"
+            filename="$(basename "${file}")"
+            if [[ "${filename}" == *.sig ]]; then
+              unsigned="${filename%.sig}"
+              extension=".${unsigned##*.}.sig"
+              stem="${unsigned%.*}"
+            else
+              extension=".${filename##*.}"
+              stem="${filename%.*}"
+            fi
+            cp "${file}" "release-assets/packages/${stem}-${target}${extension}"
+          done < <(find release-assets/downloads -type f -print0)
+
+          test "$(find release-assets/packages -type f | wc -l)" -gt 0
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -230,6 +343,13 @@ jobs:
           subject-path: release-assets/packages/**
           sbom-path: release-assets/vanehub-ai-sbom.spdx.json
 
+      - name: Generate signed updater channel metadata
+        run: |
+          channel_manifest="latest.json"
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then channel_manifest="preview.json"; fi
+          node scripts/generate-updater-manifest.mjs release-assets/packages "${GITHUB_REF_NAME}" "${GITHUB_REPOSITORY}" "release-assets/${channel_manifest}"
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1])); if (!value.version || !value.platforms) process.exit(1)' "release-assets/${channel_manifest}"
+
       - name: Publish release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,3 +375,32 @@ jobs:
           fi
 
           gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${args[@]}"
+
+      - name: Publish verified channel metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          channel="stable"
+          manifest="release-assets/latest.json"
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            channel="preview"
+            manifest="release-assets/preview.json"
+          fi
+
+          channel_tag="update-${channel}"
+          if ! gh release view "${channel_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${channel_tag}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "VaneHub AI ${channel} update channel" \
+              --notes "Machine-readable signed updater metadata. Use versioned releases for downloads and release notes." \
+              --prerelease \
+              --latest=false
+          fi
+
+          # This mutable channel release is updated only after every package, signature,
+          # notarization, checksum, SBOM, attestation, and versioned-release step succeeds.
+          cp "${manifest}" "${RUNNER_TEMP}/latest.json"
+          gh release upload "${channel_tag}" "${RUNNER_TEMP}/latest.json" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber

@@ -179,6 +179,7 @@ import { codeIndexLanguages } from "../types/code-index";
 import { normalizeCodeIndexConfiguration } from "./code-index-contract";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
+import { webDesktopUpdateClient } from "./web-desktop-update";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -2550,6 +2551,12 @@ function projectWebOwnerRun(ownerId: string, state: AgentRun["state"]): void {
 }
 
 export const webAgentClient: AgentService = {
+  getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
+  getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
+  saveDesktopUpdatePreferences: webDesktopUpdateClient.savePreferences,
+  checkForDesktopUpdate: webDesktopUpdateClient.check,
+  downloadAndInstallDesktopUpdate: webDesktopUpdateClient.install,
+  restartAfterDesktopUpdate: webDesktopUpdateClient.restart,
   ...webBuiltinToolClient,
   ...webSessionWorkspaceClient,
   ...webCodeReviewClient,
