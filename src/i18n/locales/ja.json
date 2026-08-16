@@ -3397,5 +3397,18 @@
   "goals.fields.acceptanceNotes": "このゴールをどう判断するか",
   "goals.fields.projectPath": "プロジェクトパス",
   "goals.fields.targetKind": "種類",
-  "goals.fields.targetId": "対象 ID"
+  "goals.fields.targetId": "対象 ID",
+  "onepiece.contextInspector.title": "コンテキスト検査",
+  "onepiece.contextInspector.loading": "コンテキスト証拠を読み込み中…",
+  "onepiece.contextInspector.retry": "コンテキスト証拠を再読み込み",
+  "onepiece.contextInspector.empty": "コンテキスト証拠はまだありません。",
+  "onepiece.contextInspector.budget": "証拠予算",
+  "onepiece.contextInspector.duplicates": "重複で節約したトークン",
+  "onepiece.contextInspector.collection": "収集レイテンシ",
+  "onepiece.contextInspector.compaction": "圧縮の実行",
+  "onepiece.contextInspector.selected": "選択された証拠",
+  "onepiece.contextInspector.rejected": "上位の除外項目",
+  "onepiece.contextInspector.sources": "ソース状態",
+  "onepiece.contextInspector.yes": "はい",
+  "onepiece.contextInspector.no": "いいえ"
 }

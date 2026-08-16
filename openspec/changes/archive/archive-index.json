@@ -2692,6 +2692,26 @@
       "capabilities": [
         "app-settings"
       ]
+    },
+    {
+      "archivedOn": "2026-08-16",
+      "changeName": "unify-agent-context-engine",
+      "path": "openspec/changes/archive/2026-08-16-unify-agent-context-engine/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-context-engine",
+        "agent-context-evidence-projection",
+        "agent-context-measurement",
+        "agent-cross-session-memory",
+        "lsp-code-intelligence",
+        "onepiece-native-agent",
+        "retrieval-vector-search",
+        "unified-log-management"
+      ]
     }
   ]
 }

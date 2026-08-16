@@ -261,6 +261,7 @@ import type {
   ContextQualitySummary,
   ContextQualitySummaryQuery,
 } from "../types/context-quality";
+import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
 
 export interface AgentService extends BuiltinToolService {
@@ -287,6 +288,8 @@ export interface AgentService extends BuiltinToolService {
   resetAllMemories(): Promise<void>;
   listContextQualityHistory(input: ContextQualityHistoryQuery): Promise<ContextQualityHistoryPage>;
   getContextQualitySummary(input: ContextQualitySummaryQuery): Promise<ContextQualitySummary>;
+  listContextEvidenceManifests(input: ContextEvidenceManifestQuery): Promise<ContextEvidenceManifestPage>;
+  getContextEvidenceManifest(generationId: string): Promise<ContextEvidenceManifest | null>;
   // Configuration, index status and rebuild are all global: retrieval applies to every agent,
   // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;

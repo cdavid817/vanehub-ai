@@ -1,6 +1,7 @@
 mod context_analysis;
 #[cfg(test)]
 mod context_analysis_tests;
+mod context_engine;
 mod context_quality_query;
 mod context_quality_recording;
 mod context_reinjection;
@@ -41,6 +42,13 @@ mod utility_delegation;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use context_analysis::{ContextAnalysisInput, ContextAnalysisService};
+#[allow(unused_imports)]
+pub(crate) use context_engine::{
+    ContextCandidateSource, ContextEngineClockPort, ContextEngineDiagnostic,
+    ContextEngineDiagnosticPort, ContextEngineOutcome, ContextEngineService,
+    ContextManifestQueryService, ContextManifestRepository, ContextPlan, ContextSourceResult,
+    ProjectedContextEvidence,
+};
 pub(crate) use context_quality_query::ContextQualityQueryService;
 pub(crate) use context_quality_recording::ContextQualityRecorder;
 #[allow(unused_imports)]

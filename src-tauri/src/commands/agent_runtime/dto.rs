@@ -10,6 +10,60 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct ContextManifestQuery {
+    pub(crate) session_id: Option<String>,
+    pub(crate) cursor: Option<String>,
+    pub(crate) limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextEvidenceSummary {
+    pub(crate) id: String,
+    pub(crate) source_kind: String,
+    pub(crate) source_ref: String,
+    pub(crate) start_line: Option<u32>,
+    pub(crate) end_line: Option<u32>,
+    pub(crate) symbol: Option<String>,
+    pub(crate) token_estimate: u64,
+    pub(crate) reason_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextEvidenceRejection {
+    pub(crate) id: String,
+    pub(crate) reason_code: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextEvidenceManifest {
+    pub(crate) session_id: String,
+    pub(crate) turn_id: String,
+    pub(crate) generation_id: String,
+    pub(crate) policy_version: String,
+    pub(crate) evidence_budget: u64,
+    pub(crate) occupied_tokens: u64,
+    pub(crate) selected: Vec<ContextEvidenceSummary>,
+    pub(crate) rejected: Vec<ContextEvidenceRejection>,
+    pub(crate) source_outcomes: BTreeMap<String, String>,
+    pub(crate) duplicate_tokens_saved: u64,
+    pub(crate) collection_latency_bucket: String,
+    pub(crate) ranking_latency_bucket: String,
+    pub(crate) compaction_triggered: bool,
+    pub(crate) runtime: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextEvidenceManifestPage {
+    pub(crate) items: Vec<ContextEvidenceManifest>,
+    pub(crate) next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ContextQualityHistoryQuery {
     pub(crate) range_days: u32,
     pub(crate) cursor: Option<String>,

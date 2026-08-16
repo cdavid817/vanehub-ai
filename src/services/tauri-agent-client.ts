@@ -65,6 +65,7 @@ import type {
   ContextQualitySummary,
   ContextQualitySummaryQuery,
 } from "../types/context-quality";
+import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
@@ -282,6 +283,14 @@ export const tauriAgentClient: AgentService = {
   getContextQualitySummary(input: ContextQualitySummaryQuery) {
     return invoke<ContextQualitySummary>("get_context_quality_summary", { input })
       .catch((error: unknown) => Promise.reject(normalizeContextQualityError(error)));
+  },
+
+  listContextEvidenceManifests(input: ContextEvidenceManifestQuery) {
+    return invoke<ContextEvidenceManifestPage>("list_context_evidence_manifests", { input });
+  },
+
+  getContextEvidenceManifest(generationId: string) {
+    return invoke<ContextEvidenceManifest | null>("get_context_evidence_manifest", { generationId });
   },
 
   deleteAgentMemory(memoryId: string) {

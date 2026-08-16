@@ -3397,5 +3397,18 @@
   "goals.fields.acceptanceNotes": "你將如何判定這個目標",
   "goals.fields.projectPath": "專案路徑",
   "goals.fields.targetKind": "類型",
-  "goals.fields.targetId": "目標 ID"
+  "goals.fields.targetId": "目標 ID",
+  "onepiece.contextInspector.title": "上下文檢查器",
+  "onepiece.contextInspector.loading": "正在載入上下文證據…",
+  "onepiece.contextInspector.retry": "重試載入上下文證據",
+  "onepiece.contextInspector.empty": "尚無上下文證據。",
+  "onepiece.contextInspector.budget": "證據預算",
+  "onepiece.contextInspector.duplicates": "去重節省 Token",
+  "onepiece.contextInspector.collection": "收集延遲",
+  "onepiece.contextInspector.compaction": "是否觸發壓縮",
+  "onepiece.contextInspector.selected": "已選證據",
+  "onepiece.contextInspector.rejected": "主要淘汰項",
+  "onepiece.contextInspector.sources": "來源狀態",
+  "onepiece.contextInspector.yes": "是",
+  "onepiece.contextInspector.no": "否"
 }

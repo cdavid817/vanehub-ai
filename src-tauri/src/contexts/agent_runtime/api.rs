@@ -6,10 +6,10 @@
 
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
-    ContextQualityQueryService, ExpertRoleApplicationService, LoopApplicationService,
-    LoopControlApplicationService, LoopRecoveryApplicationService, LoopVerificationCancellation,
-    LoopVerificationCommandView, LoopVerificationProcessPort, LoopVerificationProcessRequest,
-    LoopVerificationProcessStatus,
+    ContextManifestQueryService, ContextQualityQueryService, ExpertRoleApplicationService,
+    LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
+    LoopVerificationCancellation, LoopVerificationCommandView, LoopVerificationProcessPort,
+    LoopVerificationProcessRequest, LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
     background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
@@ -87,8 +87,9 @@ pub(crate) struct GuardedValidationResult {
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, ContextQualityAssessmentPage, ContextQualitySummary,
-    ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits, LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, ContextEvidenceManifest, ContextEvidenceManifestPage,
+    ContextQualityAssessmentPage, ContextQualitySummary, ExpertRole, ExpertRoleInput,
+    InteractionMode, LoopLimits, LoopVerificationCommand,
 };
 
 /// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
@@ -104,6 +105,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) seat_turns: NativeSeatTurnCoordinator,
     pub(crate) guarded_validation: Arc<dyn LoopVerificationProcessPort>,
     pub(crate) context_quality: ContextQualityQueryService,
+    pub(crate) context_manifests: ContextManifestQueryService,
     pub(crate) native_tools: NativeToolRegistry,
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
@@ -125,6 +127,7 @@ pub(crate) struct AgentRuntimeApi {
     expert_roles: ExpertRoleApplicationService,
     guarded_validation: Arc<dyn LoopVerificationProcessPort>,
     context_quality: ContextQualityQueryService,
+    context_manifests: ContextManifestQueryService,
     native_tools: NativeToolRegistry,
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
@@ -143,6 +146,7 @@ impl AgentRuntimeApi {
             seat_turns,
             guarded_validation,
             context_quality,
+            context_manifests,
             native_tools,
             browser_handoff,
             manual_native_tools,
@@ -158,6 +162,7 @@ impl AgentRuntimeApi {
             seat_turns,
             guarded_validation,
             context_quality,
+            context_manifests,
             native_tools,
             browser_handoff,
             manual_native_tools,
@@ -178,6 +183,26 @@ impl AgentRuntimeApi {
         range_days: u32,
     ) -> Result<ContextQualitySummary, AgentRuntimeApplicationError> {
         self.context_quality.summarize(range_days)
+    }
+
+    pub(crate) fn list_context_evidence_manifests(
+        &self,
+        session_id: Option<&str>,
+        cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<ContextEvidenceManifestPage, AgentRuntimeApplicationError> {
+        self.context_manifests
+            .list(session_id, cursor, limit)
+            .map_err(AgentRuntimeApplicationError::ContextQuality)
+    }
+
+    pub(crate) fn get_context_evidence_manifest(
+        &self,
+        generation_id: &str,
+    ) -> Result<Option<ContextEvidenceManifest>, AgentRuntimeApplicationError> {
+        self.context_manifests
+            .get(generation_id)
+            .map_err(AgentRuntimeApplicationError::ContextQuality)
     }
 
     pub(crate) fn run_guarded_validation_cancellable(

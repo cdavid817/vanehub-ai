@@ -3,6 +3,11 @@ mod context_compaction_control;
 #[cfg(test)]
 mod context_compaction_control_tests;
 mod context_compaction_evidence;
+mod context_engine;
+#[cfg(test)]
+mod context_engine_benchmark_tests;
+#[cfg(test)]
+mod context_engine_tests;
 mod context_measurement;
 #[cfg(test)]
 mod context_measurement_tests;
@@ -47,6 +52,13 @@ pub(crate) use context_compaction_control::{
     CompactionBypassReason, CompactionTriggerSource, AUTOMATIC_COMPACTION_POLICY_VERSION,
 };
 pub(crate) use context_compaction_evidence::{CompactionPath, ContextCompactionEvidence};
+#[allow(unused_imports)]
+pub(crate) use context_engine::{
+    select_context, CandidateSignals, ContextBudget, ContextCandidate, ContextEvidence,
+    ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceSummary, ContextRange,
+    ContextReasonCode, ContextRequest, ContextSelection, ContextSelectionError, ContextSourceKind,
+    ContextSourceOutcome, EstimateQuality, CONTEXT_ENGINE_POLICY_VERSION,
+};
 pub(crate) use context_measurement::{
     classify_components, ContextCapacity, ContextCompactionDecision, ContextComponent,
     ContextRound, ContextSnapshot, MeasurementQuality, ProtocolState, RetentionClass,

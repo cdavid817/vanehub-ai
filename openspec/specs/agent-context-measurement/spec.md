@@ -148,3 +148,11 @@ The system SHALL evaluate a versioned Token-aware compaction decision from each 
 - **THEN** the provider request SHALL continue under character fallback
 - **AND** the failure SHALL NOT alter or discard request content
 
+### Requirement: Injected evidence has distinct occupancy provenance
+Complete request snapshots SHALL measure Context Engine evidence separately from system instructions, declared tools, conversation, and tool-loop additions while retaining compatible aggregate request occupancy and measurement-quality semantics.
+
+#### Scenario: Evidence is projected before provider invocation
+- **WHEN** the Context Engine installs a verified evidence set
+- **THEN** the next request snapshot SHALL include its evidence occupancy and policy version
+- **AND** existing compaction decisions SHALL operate on the complete assembled request
+

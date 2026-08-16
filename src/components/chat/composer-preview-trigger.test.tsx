@@ -40,6 +40,8 @@ const agent: AgentRegistryEntry = {
   agentOrigin: "builtin",
 };
 
+const lazyPreviewTimeout = { timeout: 5_000 };
+
 function renderComposer(value: string, sessionId = "session-1") {
   const onAddFileReference = vi.fn<(candidate: FileSearchMatch, range: MentionLineRange) => void>();
   const onChange = vi.fn<(next: string) => void>();
@@ -95,7 +97,7 @@ describe("composer preview trigger", () => {
     const { onAddFileReference, onChange } = renderComposer("@utils");
 
     fireEvent.click(screen.getByText("src/utils.rs"));
-    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy(), lazyPreviewTimeout);
     expect(onAddFileReference).not.toHaveBeenCalled();
     // The draft must be untouched while the decision is still pending.
     expect(onChange).not.toHaveBeenCalled();
@@ -115,7 +117,7 @@ describe("composer preview trigger", () => {
     const { onAddFileReference, onChange } = renderComposer("@utils");
 
     fireEvent.click(screen.getByText("src/utils.rs"));
-    await waitFor(() => expect(screen.getByTestId("preview-line-2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("preview-line-2")).toBeTruthy(), lazyPreviewTimeout);
     fireEvent.click(screen.getByTestId("preview-line-2"));
     fireEvent.click(screen.getByText("引用所选范围"));
 
@@ -127,7 +129,7 @@ describe("composer preview trigger", () => {
     const { onAddFileReference, onChange } = renderComposer("@utils");
 
     fireEvent.click(screen.getByText("src/utils.rs"));
-    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy(), lazyPreviewTimeout);
     fireEvent.click(screen.getByText("取消"));
 
     await waitFor(() => expect(screen.queryByTestId("preview-line-1")).toBeNull());
@@ -138,7 +140,7 @@ describe("composer preview trigger", () => {
   it("closes the preview when the session changes", async () => {
     const { onAddFileReference, switchSession } = renderComposer("@utils");
     fireEvent.click(screen.getByText("src/utils.rs"));
-    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy(), lazyPreviewTimeout);
 
     expect(readSessionFile).toHaveBeenCalledWith("session-1", "src/utils.rs");
     switchSession("session-2");

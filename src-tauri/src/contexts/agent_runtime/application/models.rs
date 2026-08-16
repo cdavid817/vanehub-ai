@@ -729,6 +729,7 @@ pub(crate) struct GenerationProcessRequest {
     pub(crate) operation_id: String,
     pub(crate) configuration: AgentChatConfiguration,
     pub(crate) effective_prompt: String,
+    pub(crate) file_references: Vec<AgentFileReference>,
     pub(crate) automatic_compaction: AutomaticCompactionMode,
     /**
      * A multi-seat session's role briefing, placed in the CLI's own system-prompt channel so it

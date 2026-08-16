@@ -258,7 +258,7 @@ mod tests {
 
         // Row count rather than maximum version. They agree only while history is dense, so a
         // branch that reserves a number ahead of an unmerged one will see these diverge.
-        assert_eq!(migration_count, 73);
+        assert_eq!(migration_count, 74);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -320,7 +320,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 73);
+        assert_eq!(migration_count, 74);
     }
 
     #[test]
