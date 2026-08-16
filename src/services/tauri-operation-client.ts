@@ -10,4 +10,7 @@ export const tauriOperationClient: OperationService = {
   getOperationStatus(operationId: string) {
     return invoke<OperationTask>("get_operation_status", { operationId });
   },
+  cancelOperation(operationId: string) {
+    return invoke<OperationTask>("cancel_operation", { operationId });
+  },
 };

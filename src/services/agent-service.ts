@@ -263,8 +263,19 @@ import type {
 } from "../types/context-quality";
 import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
+import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends BuiltinToolService {
+  openCodeReview(sessionId: string): Promise<CodeReview>;
+  getCodeReview(reviewId: string): Promise<CodeReview>;
+  loadCodeReviewFile(sessionId: string, path: string, expectedSnapshot: string): Promise<ReviewDiffFile>;
+  addCodeReviewComment(input: AddReviewCommentInput): Promise<ReviewComment>;
+  resolveCodeReviewComment(reviewId: string, commentId: string): Promise<CodeReview>;
+  selectCodeReviewComment(reviewId: string, commentId: string, selected: boolean): Promise<CodeReview>;
+  setCodeReviewDecision(reviewId: string, decision: ReviewDecision): Promise<CodeReview>;
+  revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
+  sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
+  startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;

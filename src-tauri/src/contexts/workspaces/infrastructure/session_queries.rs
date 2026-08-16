@@ -1,18 +1,21 @@
 use crate::contexts::workspaces::application::{
     DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile,
     GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult,
-    SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    SessionWorkspaceContext, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
-    WorkspaceSessionQueryPort,
+    ReviewDiffFile, ReviewDiffHunk, ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest,
+    ReviewSnapshot, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, SessionWorkspaceContext, WorkspaceApplicationError as AppError,
+    WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, MAX_REVIEW_DIFF_BYTES,
+    MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use crate::platform::logging;
 use rusqlite::{params, Connection, OptionalExtension};
+use sha2::Digest;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -99,6 +102,64 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
     fn export_logs(&self, query: &SessionLogQuery) -> Result<SessionLogExportResult, AppError> {
         export_session_logs(&self.app, &*self.connection()?, query)
     }
+}
+
+impl WorkspaceReviewPort for SessionWorkspaceQueryAdapter {
+    fn create_review_snapshot(&self, session_id: &str) -> Result<ReviewSnapshot, AppError> {
+        let connection = self.connection()?;
+        let snapshot = create_review_snapshot(&connection, session_id)?;
+        write_review_event(
+            &connection,
+            "snapshot-created",
+            session_id,
+            snapshot.files.len(),
+        );
+        Ok(snapshot)
+    }
+
+    fn load_review_file(
+        &self,
+        session_id: &str,
+        path: &str,
+        expected_snapshot: &str,
+    ) -> Result<ReviewDiffFile, AppError> {
+        let connection = self.connection()?;
+        let file = load_review_file(&connection, session_id, path, expected_snapshot)?;
+        write_review_event(&connection, "diff-loaded", session_id, file.hunks.len());
+        Ok(file)
+    }
+
+    fn revert_review_change(
+        &self,
+        request: &ReviewRevertRequest,
+    ) -> Result<ReviewRevertReceipt, AppError> {
+        let connection = self.connection()?;
+        let receipt = revert_review_change(&connection, request)?;
+        write_review_event(
+            &connection,
+            "change-reverted",
+            &request.session_id,
+            receipt.reverted_hunks,
+        );
+        Ok(receipt)
+    }
+}
+
+fn write_review_event(conn: &Connection, kind: &str, session_id: &str, item_count: usize) {
+    let Ok(log_dir) = active_log_dir_from_conn(conn) else {
+        return;
+    };
+    let context = BTreeMap::from([
+        ("sessionId".to_string(), session_id.to_string()),
+        ("itemCount".to_string(), item_count.to_string()),
+    ]);
+    let _ = logging::write_message(
+        &log_dir,
+        logging::LogLevel::Info,
+        "session.code-review",
+        kind,
+        context,
+    );
 }
 
 struct SessionWorkspaceRecord {
@@ -950,6 +1011,285 @@ pub(crate) fn get_session_git_diff(
     })
 }
 
+fn create_review_snapshot(conn: &Connection, session_id: &str) -> Result<ReviewSnapshot, AppError> {
+    let root = resolve_session_root(conn, session_id)?
+        .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
+    let Some((_branch, entries)) = git_status_at(&root)? else {
+        return Err(AppError::Validation(
+            "Session workspace is not a Git repository.".to_string(),
+        ));
+    };
+    let truncated = entries.len() > MAX_REVIEW_FILES;
+    let mut accepted_bytes = 0usize;
+    let mut files = Vec::with_capacity(entries.len().min(MAX_REVIEW_FILES));
+    for entry in entries.into_iter().take(MAX_REVIEW_FILES) {
+        let (candidate, normalized) = resolve_git_path(&root, &entry.path)?;
+        let metadata = fs::metadata(&candidate).ok();
+        let size = metadata
+            .as_ref()
+            .map(|value| value.len() as usize)
+            .unwrap_or(0);
+        let oversized = size > MAX_REVIEW_FILE_BYTES;
+        let binary = if metadata.as_ref().is_some_and(|value| value.is_file()) && !oversized {
+            is_binary_file(&candidate)?
+        } else {
+            false
+        };
+        let new_hash = if metadata.as_ref().is_some_and(|value| value.is_file()) && !oversized {
+            Some(hash_file(&candidate)?)
+        } else {
+            None
+        };
+        accepted_bytes = accepted_bytes.saturating_add(size.min(MAX_REVIEW_FILE_BYTES));
+        let change_type = effective_change_type(&entry);
+        files.push(ReviewFileSummary {
+            path: normalized,
+            previous_path: entry.previous_path,
+            change_type,
+            old_hash: None,
+            new_hash,
+            binary,
+            oversized,
+        });
+    }
+    let head_revision = git_revision(&root)?;
+    let fingerprint = crate::contexts::workspaces::application::fingerprint_snapshot(&files);
+    Ok(ReviewSnapshot {
+        workspace_id: hash_text(&root.to_string_lossy()),
+        base_revision: head_revision.clone(),
+        head_revision,
+        fingerprint,
+        files,
+        truncated,
+        accepted_bytes: accepted_bytes.min(MAX_REVIEW_DIFF_BYTES),
+    })
+}
+
+fn load_review_file(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+    expected_snapshot: &str,
+) -> Result<ReviewDiffFile, AppError> {
+    let snapshot = create_review_snapshot(conn, session_id)?;
+    if snapshot.fingerprint != expected_snapshot {
+        return Err(AppError::Validation(
+            "Review snapshot is stale.".to_string(),
+        ));
+    }
+    let summary = snapshot
+        .files
+        .into_iter()
+        .find(|file| file.path == path)
+        .ok_or_else(|| AppError::Validation("Review file is unavailable.".to_string()))?;
+    if summary.binary || summary.oversized {
+        return Ok(ReviewDiffFile {
+            summary,
+            hunks: Vec::new(),
+            truncated: false,
+            accepted_bytes: 0,
+        });
+    }
+    let mut diff = get_session_git_diff(conn, session_id, path, GitDiffSource::Working)?;
+    if diff.files.is_empty() {
+        diff = get_session_git_diff(conn, session_id, path, GitDiffSource::Staged)?;
+    }
+    let accepted_bytes = diff
+        .files
+        .iter()
+        .flat_map(|file| &file.hunks)
+        .flat_map(|hunk| &hunk.lines)
+        .map(|line| line.content.len())
+        .sum::<usize>()
+        .min(MAX_REVIEW_FILE_BYTES);
+    let hunks = diff
+        .files
+        .into_iter()
+        .flat_map(|file| file.hunks)
+        .map(|hunk| ReviewDiffHunk {
+            fingerprint: crate::contexts::workspaces::application::fingerprint_hunk(&hunk),
+            context_fingerprints: (0..hunk.lines.len())
+                .map(|index| {
+                    crate::contexts::workspaces::application::fingerprint_context(&hunk, index)
+                })
+                .collect(),
+            hunk,
+        })
+        .collect();
+    Ok(ReviewDiffFile {
+        summary,
+        hunks,
+        truncated: diff.truncated,
+        accepted_bytes,
+    })
+}
+
+fn effective_change_type(entry: &GitStatusEntry) -> String {
+    if entry.worktree != "unmodified" {
+        entry.worktree.clone()
+    } else {
+        entry.index.clone()
+    }
+}
+
+fn git_revision(root: &Path) -> Result<Option<String>, AppError> {
+    let output = git_output(root, &["rev-parse".into(), "HEAD".into()])?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+fn is_binary_file(path: &Path) -> Result<bool, AppError> {
+    let file = fs::File::open(path).map_err(|error| AppError::Storage(error.to_string()))?;
+    let mut bytes = Vec::new();
+    BufReader::new(file)
+        .take(8192)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    Ok(bytes.contains(&0))
+}
+
+fn hash_file(path: &Path) -> Result<String, AppError> {
+    let file = fs::File::open(path).map_err(|error| AppError::Storage(error.to_string()))?;
+    let mut reader = BufReader::new(file).take(MAX_REVIEW_FILE_BYTES as u64);
+    let mut digest = sha2::Sha256::new();
+    std::io::copy(&mut reader, &mut HashWriter(&mut digest))
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    Ok(digest_hex(digest))
+}
+
+struct HashWriter<'a>(&'a mut sha2::Sha256);
+impl std::io::Write for HashWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn hash_text(value: &str) -> String {
+    use sha2::Digest;
+    let mut digest = sha2::Sha256::new();
+    digest.update(value.as_bytes());
+    digest_hex(digest)
+}
+
+fn digest_hex(digest: sha2::Sha256) -> String {
+    use sha2::Digest;
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn revert_review_change(
+    conn: &Connection,
+    request: &ReviewRevertRequest,
+) -> Result<ReviewRevertReceipt, AppError> {
+    if !request.confirmed {
+        return Err(AppError::PolicyDenied {
+            session_id: request.session_id.clone(),
+            action: "review-revert-confirmation".to_string(),
+        });
+    }
+    static MUTATION_GUARD: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let guard = MUTATION_GUARD
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .map_err(|_| AppError::Storage("Workspace mutation guard is unavailable.".to_string()))?;
+    let current = create_review_snapshot(conn, &request.session_id)?;
+    if current.fingerprint != request.expected_snapshot {
+        return Err(AppError::Validation(
+            "Review snapshot is stale.".to_string(),
+        ));
+    }
+    let root = resolve_session_root(conn, &request.session_id)?
+        .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
+    let (_candidate, normalized) = resolve_git_path(&root, &request.path)?;
+    let file = load_review_file(conn, &request.session_id, &normalized, &current.fingerprint)?;
+    let selected = file
+        .hunks
+        .iter()
+        .filter(|hunk| {
+            request
+                .hunk_fingerprint
+                .as_ref()
+                .is_none_or(|expected| &hunk.fingerprint == expected)
+        })
+        .collect::<Vec<_>>();
+    if selected.is_empty() || (request.hunk_fingerprint.is_some() && selected.len() != 1) {
+        return Err(AppError::Validation(
+            "Review hunk is unavailable or ambiguous.".to_string(),
+        ));
+    }
+    let patch = render_patch(&normalized, &selected);
+    let mut patch_file =
+        tempfile::NamedTempFile::new().map_err(|error| AppError::Storage(error.to_string()))?;
+    patch_file
+        .write_all(patch.as_bytes())
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    patch_file
+        .flush()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    let patch_path = patch_file.path().to_string_lossy().to_string();
+    for check in [true, false] {
+        let mut args = vec![
+            "apply".to_string(),
+            "--reverse".to_string(),
+            "--whitespace=nowarn".to_string(),
+        ];
+        if check {
+            args.push("--check".to_string());
+        }
+        args.push(patch_path.clone());
+        let output = git_output(&root, &args)?;
+        if !output.status.success() {
+            return Err(AppError::Validation(
+                if check {
+                    "Review patch no longer applies exactly."
+                } else {
+                    "Review patch application failed."
+                }
+                .to_string(),
+            ));
+        }
+    }
+    let resulting = create_review_snapshot(conn, &request.session_id)?;
+    drop(guard);
+    Ok(ReviewRevertReceipt {
+        path: normalized,
+        previous_snapshot: current.fingerprint,
+        resulting_snapshot: resulting.fingerprint,
+        reverted_hunks: selected.len(),
+    })
+}
+
+fn render_patch(path: &str, hunks: &[&ReviewDiffHunk]) -> String {
+    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
+    for review_hunk in hunks {
+        let hunk = &review_hunk.hunk;
+        patch.push_str(&hunk.header);
+        patch.push('\n');
+        for line in &hunk.lines {
+            patch.push(match line.kind.as_str() {
+                "addition" => '+',
+                "deletion" => '-',
+                _ => ' ',
+            });
+            patch.push_str(&line.content);
+            patch.push('\n');
+        }
+    }
+    patch
+}
+
 fn filtered_log_entries(
     path: &Path,
     input: &SessionLogQuery,
@@ -1426,6 +1766,55 @@ mod tests {
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[1].previous_path.as_deref(), Some("old.rs"));
         assert_eq!(entries[2].worktree, "untracked");
+    }
+
+    #[test]
+    fn review_revert_requires_confirmation_before_workspace_access() {
+        let connection = Connection::open_in_memory().expect("database");
+        let request = ReviewRevertRequest {
+            session_id: "session-1".into(),
+            path: "src/a.rs".into(),
+            expected_snapshot: "snapshot".into(),
+            hunk_fingerprint: None,
+            confirmed: false,
+        };
+        assert!(matches!(
+            revert_review_change(&connection, &request),
+            Err(AppError::PolicyDenied { .. })
+        ));
+    }
+
+    #[test]
+    fn review_patch_contains_only_selected_hunk() {
+        let hunk = GitDiffHunk {
+            header: "@@ -1 +1 @@".into(),
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![
+                GitDiffLine {
+                    kind: "deletion".into(),
+                    content: "old".into(),
+                    old_line_number: Some(1),
+                    new_line_number: None,
+                },
+                GitDiffLine {
+                    kind: "addition".into(),
+                    content: "new".into(),
+                    old_line_number: None,
+                    new_line_number: Some(1),
+                },
+            ],
+        };
+        let review = ReviewDiffHunk {
+            fingerprint: "hunk".into(),
+            context_fingerprints: Vec::new(),
+            hunk,
+        };
+        let patch = render_patch("src/a.rs", &[&review]);
+        assert!(patch.contains("--- a/src/a.rs\n+++ b/src/a.rs"));
+        assert!(patch.contains("-old\n+new"));
     }
 
     #[test]

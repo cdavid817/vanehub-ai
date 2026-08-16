@@ -64,6 +64,17 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::loops::continue_loop::continue_loop,
         crate::commands::agent_runtime::loops::reject_loop::reject_loop,
         // Sessions
+        crate::commands::sessions::open_code_review::open_code_review,
+        crate::commands::sessions::get_code_review::get_code_review,
+        crate::commands::sessions::load_code_review_file::load_code_review_file,
+        crate::commands::sessions::add_code_review_comment::add_code_review_comment,
+        crate::commands::sessions::resolve_code_review_comment::resolve_code_review_comment,
+        crate::commands::sessions::select_code_review_comment::select_code_review_comment,
+        crate::commands::sessions::set_code_review_decision::set_code_review_decision,
+        crate::commands::sessions::revert_code_review_change::revert_code_review_change,
+        crate::commands::sessions::send_code_review_feedback::send_code_review_feedback,
+        crate::commands::sessions::start_code_review_action::start_code_review_action,
+        crate::commands::sessions::complete_code_review_action::complete_code_review_action,
         crate::commands::sessions::create_session::create_session,
         crate::commands::sessions::list_sessions::list_sessions,
         crate::commands::sessions::list_archived_sessions::list_archived_sessions,
@@ -164,6 +175,7 @@ pub(crate) fn invoke_handler(
         crate::commands::communications::poll_wechat_authorization::poll_wechat_authorization,
         crate::commands::communications::cancel_wechat_authorization::cancel_wechat_authorization,
         // Operations
+        crate::commands::operations::cancel_operation::cancel_operation,
         crate::commands::operations::list_operations::list_operations,
         crate::commands::operations::get_operation_status::get_operation_status,
         // Permissions

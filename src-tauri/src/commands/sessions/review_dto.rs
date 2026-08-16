@@ -1,0 +1,287 @@
+use crate::contexts::sessions::domain::{
+    ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
+    ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession, ReviewStatus,
+};
+use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewAnchorInput {
+    pub(crate) file_path: String,
+    pub(crate) side: String,
+    pub(crate) start_line: u32,
+    pub(crate) end_line: u32,
+    pub(crate) hunk_fingerprint: String,
+    pub(crate) context_fingerprint: String,
+}
+
+impl ReviewAnchorInput {
+    pub(crate) fn into_domain(self) -> Result<ReviewAnchor, String> {
+        ReviewAnchor::try_new(
+            self.file_path,
+            self.side,
+            self.start_line,
+            self.end_line,
+            self.hunk_fingerprint,
+            self.context_fingerprint,
+        )
+        .map_err(|error| format!("{error:?}"))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewAnchorDto {
+    file_path: String,
+    side: String,
+    start_line: u32,
+    end_line: u32,
+    hunk_fingerprint: String,
+    context_fingerprint: String,
+    state: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewFileDto {
+    path: String,
+    previous_path: Option<String>,
+    change_type: String,
+    old_hash: Option<String>,
+    new_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewCommentDto {
+    id: String,
+    anchor: ReviewAnchorDto,
+    body: String,
+    status: &'static str,
+    selected: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewFindingDto {
+    id: String,
+    source: String,
+    title: String,
+    severity: &'static str,
+    anchor: Option<ReviewAnchorDto>,
+    operation_id: String,
+    resolved: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewSessionDto {
+    id: String,
+    session_id: String,
+    workspace_id: String,
+    base_revision: Option<String>,
+    head_revision: Option<String>,
+    fingerprint: String,
+    status: &'static str,
+    decision: &'static str,
+    created_at: String,
+    updated_at: String,
+    files: Vec<ReviewFileDto>,
+    comments: Vec<ReviewCommentDto>,
+    findings: Vec<ReviewFindingDto>,
+}
+
+impl From<ReviewSession> for ReviewSessionDto {
+    fn from(review: ReviewSession) -> Self {
+        let files = review.files().iter().cloned().map(Into::into).collect();
+        let comments = review.comments().iter().cloned().map(Into::into).collect();
+        let findings = review.findings().iter().cloned().map(Into::into).collect();
+        Self {
+            id: review.id,
+            session_id: review.session_id,
+            workspace_id: review.workspace_id,
+            base_revision: review.base_revision,
+            head_revision: review.head_revision,
+            fingerprint: review.fingerprint,
+            status: status(review.status),
+            decision: decision(review.decision),
+            created_at: review.created_at,
+            updated_at: review.updated_at,
+            files,
+            comments,
+            findings,
+        }
+    }
+}
+
+impl From<ReviewFile> for ReviewFileDto {
+    fn from(file: ReviewFile) -> Self {
+        Self {
+            path: file.path,
+            previous_path: file.previous_path,
+            change_type: file.change_type,
+            old_hash: file.old_hash,
+            new_hash: file.new_hash,
+        }
+    }
+}
+
+impl From<ReviewComment> for ReviewCommentDto {
+    fn from(comment: ReviewComment) -> Self {
+        Self {
+            id: comment.id,
+            anchor: comment.anchor.into(),
+            body: comment.body,
+            status: match comment.status {
+                ReviewCommentStatus::Active => "active",
+                ReviewCommentStatus::Resolved => "resolved",
+            },
+            selected: comment.selected,
+        }
+    }
+}
+
+impl From<ReviewFinding> for ReviewFindingDto {
+    fn from(finding: ReviewFinding) -> Self {
+        Self {
+            id: finding.id,
+            source: finding.source,
+            title: finding.title,
+            severity: match finding.severity {
+                ReviewFindingSeverity::Info => "info",
+                ReviewFindingSeverity::Warning => "warning",
+                ReviewFindingSeverity::Error => "error",
+            },
+            anchor: finding.anchor.map(Into::into),
+            operation_id: finding.operation_id,
+            resolved: finding.resolved,
+        }
+    }
+}
+
+impl From<ReviewAnchor> for ReviewAnchorDto {
+    fn from(anchor: ReviewAnchor) -> Self {
+        Self {
+            file_path: anchor.file_path,
+            side: anchor.side,
+            start_line: anchor.start_line,
+            end_line: anchor.end_line,
+            hunk_fingerprint: anchor.hunk_fingerprint,
+            context_fingerprint: anchor.context_fingerprint,
+            state: match anchor.state {
+                ReviewAnchorState::Current => "current",
+                ReviewAnchorState::Relocated => "relocated",
+                ReviewAnchorState::Stale => "stale",
+            },
+        }
+    }
+}
+
+fn status(value: ReviewStatus) -> &'static str {
+    match value {
+        ReviewStatus::Active => "active",
+        ReviewStatus::Completed => "completed",
+    }
+}
+
+fn decision(value: ReviewDecision) -> &'static str {
+    match value {
+        ReviewDecision::Pending => "pending",
+        ReviewDecision::Accepted => "accepted",
+        ReviewDecision::ChangesRequested => "changes-requested",
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewDiffFileDto {
+    path: String,
+    change_type: String,
+    binary: bool,
+    oversized: bool,
+    truncated: bool,
+    accepted_bytes: usize,
+    hunks: Vec<ReviewDiffHunkDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewDiffHunkDto {
+    fingerprint: String,
+    context_fingerprints: Vec<String>,
+    header: String,
+    old_start: usize,
+    old_lines: usize,
+    new_start: usize,
+    new_lines: usize,
+    lines: Vec<ReviewDiffLineDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewDiffLineDto {
+    kind: String,
+    content: String,
+    old_line_number: Option<usize>,
+    new_line_number: Option<usize>,
+}
+
+impl From<ReviewDiffFile> for ReviewDiffFileDto {
+    fn from(file: ReviewDiffFile) -> Self {
+        Self {
+            path: file.summary.path,
+            change_type: file.summary.change_type,
+            binary: file.summary.binary,
+            oversized: file.summary.oversized,
+            truncated: file.truncated,
+            accepted_bytes: file.accepted_bytes,
+            hunks: file
+                .hunks
+                .into_iter()
+                .map(|entry| ReviewDiffHunkDto {
+                    fingerprint: entry.fingerprint,
+                    context_fingerprints: entry.context_fingerprints,
+                    header: entry.hunk.header,
+                    old_start: entry.hunk.old_start,
+                    old_lines: entry.hunk.old_lines,
+                    new_start: entry.hunk.new_start,
+                    new_lines: entry.hunk.new_lines,
+                    lines: entry
+                        .hunk
+                        .lines
+                        .into_iter()
+                        .map(|line| ReviewDiffLineDto {
+                            kind: line.kind,
+                            content: line.content,
+                            old_line_number: line.old_line_number,
+                            new_line_number: line.new_line_number,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewRevertReceiptDto {
+    path: String,
+    previous_snapshot: String,
+    resulting_snapshot: String,
+    reverted_hunks: usize,
+    pub(crate) simulated: bool,
+}
+
+impl From<ReviewRevertReceipt> for ReviewRevertReceiptDto {
+    fn from(receipt: ReviewRevertReceipt) -> Self {
+        Self {
+            path: receipt.path,
+            previous_snapshot: receipt.previous_snapshot,
+            resulting_snapshot: receipt.resulting_snapshot,
+            reverted_hunks: receipt.reverted_hunks,
+            simulated: false,
+        }
+    }
+}

@@ -2,8 +2,9 @@ pub(crate) use super::application::{
     CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
     GitStatusResult, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree, ResizeShellRequest,
+    ReviewDiffFile, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
     SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
-    WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
+    WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel, WorkspaceReviewPort,
 };
 use super::application::{
     WorkspaceApplicationService, WorkspaceQueryApplicationService, WorkspaceShellApplicationService,
@@ -11,12 +12,14 @@ use super::application::{
 pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
 };
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceApi {
     service: WorkspaceApplicationService,
     queries: WorkspaceQueryApplicationService,
     shell: WorkspaceShellApplicationService,
+    review: Arc<dyn WorkspaceReviewPort>,
 }
 
 impl WorkspaceApi {
@@ -24,12 +27,38 @@ impl WorkspaceApi {
         service: WorkspaceApplicationService,
         queries: WorkspaceQueryApplicationService,
         shell: WorkspaceShellApplicationService,
+        review: Arc<dyn WorkspaceReviewPort>,
     ) -> Self {
         Self {
             service,
             queries,
             shell,
+            review,
         }
+    }
+
+    pub(crate) fn create_review_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<ReviewSnapshot, WorkspaceError> {
+        self.review.create_review_snapshot(session_id)
+    }
+
+    pub(crate) fn load_review_file(
+        &self,
+        session_id: &str,
+        path: &str,
+        expected_snapshot: &str,
+    ) -> Result<ReviewDiffFile, WorkspaceError> {
+        self.review
+            .load_review_file(session_id, path, expected_snapshot)
+    }
+
+    pub(crate) fn revert_review_change(
+        &self,
+        request: &ReviewRevertRequest,
+    ) -> Result<ReviewRevertReceipt, WorkspaceError> {
+        self.review.revert_review_change(request)
     }
 
     pub(crate) fn list_known_projects(&self) -> Result<Vec<KnownProject>, WorkspaceError> {

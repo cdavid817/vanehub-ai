@@ -2,6 +2,7 @@ mod error;
 mod models;
 mod ports;
 mod query_service;
+mod review;
 mod service;
 mod shell_service;
 
@@ -22,6 +23,11 @@ pub(crate) use ports::{
     WorkspaceShellRuntimePort,
 };
 pub(crate) use query_service::WorkspaceQueryApplicationService;
+pub(crate) use review::{
+    fingerprint_context, fingerprint_hunk, fingerprint_snapshot, ReviewDiffFile, ReviewDiffHunk,
+    ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
+    WorkspaceReviewPort, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
+};
 pub(crate) use service::WorkspaceApplicationService;
 pub(crate) use shell_service::WorkspaceShellApplicationService;
 

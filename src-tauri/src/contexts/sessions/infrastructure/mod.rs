@@ -1,6 +1,7 @@
 mod chat_profile;
 mod creation_context;
 mod operation_adapter;
+mod review_repository;
 mod rows;
 mod runtime_support;
 pub(crate) mod scheduled_tasks;
@@ -11,6 +12,9 @@ mod usage;
 mod usage_accounting;
 mod usage_accounting_projection;
 
+pub(crate) use review_repository::{
+    apply_schema as apply_review_schema, SqliteReviewRepository, SystemReviewClock, UuidReviewIds,
+};
 pub(crate) use schema::{
     apply_configuration_schema, apply_loop_ownership_schema, apply_message_speaker_schema,
     apply_session_seat_schema, apply_stable_participant_schema,

@@ -2624,6 +2624,24 @@
     },
     {
       "archivedOn": "2026-08-16",
+      "changeName": "add-agent-code-review-center",
+      "path": "openspec/changes/archive/2026-08-16-add-agent-code-review-center/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-code-review",
+        "frontend-runtime-architecture",
+        "native-runtime-architecture",
+        "session-project-inspection",
+        "session-workspace-tabs",
+        "unified-log-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-16",
       "changeName": "add-cross-platform-desktop-automation",
       "path": "openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/",
       "artifacts": [

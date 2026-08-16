@@ -8,8 +8,14 @@ import { DiffView, type DiffViewMode } from "./diff-view";
 import { gitStatusPresentation } from "./git-status-presentation";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { ReviewCenter } from "./review-center";
 
 export function ChangesTab({ sessionId }: { sessionId: string | null }) {
+  if (sessionId && typeof agentService.openCodeReview === "function") return <ReviewCenter sessionId={sessionId} />;
+  return <LegacyChangesTab sessionId={sessionId} />;
+}
+
+function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<GitStatusEntry | null>(null);
   const [source, setSource] = useState<GitDiffSource>("working");
