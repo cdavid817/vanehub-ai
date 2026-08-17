@@ -1,5 +1,6 @@
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{params, params_from_iter, OptionalExtension, Transaction, TransactionBehavior};
+use std::collections::BTreeMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -27,6 +28,13 @@ pub(crate) struct SavedFeedback {
     pub(crate) sanitized_note: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredFeedbackSummary {
+    pub(crate) state: Option<FeedbackState>,
+    pub(crate) revision: u64,
+    pub(crate) sanitized_note: Option<String>,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum FeedbackTransitionError {
     #[error("feedback revision conflict")]
@@ -46,6 +54,72 @@ impl From<EvidenceRepositoryError> for FeedbackTransitionError {
 }
 
 impl SqliteEvolutionEvidenceRepository {
+    pub(crate) fn feedback_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<BTreeMap<String, StoredFeedbackSummary>, EvidenceRepositoryError> {
+        const QUERY_CHUNK: usize = 400;
+        let connection = self
+            .database
+            .connection()
+            .map_err(|_| EvidenceRepositoryError::Storage)?;
+        let mut summaries = BTreeMap::new();
+        for chunk in message_ids.chunks(QUERY_CHUNK) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let current_sql = format!(
+                "SELECT message_id, feedback_state, feedback_revision, sanitized_note \
+                 FROM evolution_feedback_current WHERE message_id IN ({placeholders})"
+            );
+            let mut statement = connection.prepare(&current_sql)?;
+            let rows = statement.query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (message_id, state, revision, sanitized_note) = row?;
+                let state =
+                    parse_feedback_state(&state).ok_or(EvidenceRepositoryError::CorruptFeedback)?;
+                summaries.insert(
+                    message_id,
+                    StoredFeedbackSummary {
+                        state: Some(state),
+                        revision: u64::try_from(revision).unwrap_or_default(),
+                        sanitized_note,
+                    },
+                );
+            }
+
+            let revision_sql = format!(
+                "SELECT message_id, MAX(feedback_revision) FROM evolution_feedback_events \
+                 WHERE message_id IN ({placeholders}) GROUP BY message_id"
+            );
+            let mut statement = connection.prepare(&revision_sql)?;
+            let rows = statement.query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (message_id, revision) = row?;
+                if revision > 0 && !summaries.contains_key(&message_id) {
+                    summaries.insert(
+                        message_id,
+                        StoredFeedbackSummary {
+                            state: None,
+                            revision: u64::try_from(revision).unwrap_or_default(),
+                            sanitized_note: None,
+                        },
+                    );
+                }
+            }
+        }
+        Ok(summaries)
+    }
+
     pub(crate) fn save_feedback(
         &self,
         request: &SaveFeedbackRequest,
@@ -106,6 +180,15 @@ impl SqliteEvolutionEvidenceRepository {
             state: request.state,
             sanitized_note,
         })
+    }
+}
+
+fn parse_feedback_state(value: &str) -> Option<FeedbackState> {
+    match value {
+        "helpful" => Some(FeedbackState::Helpful),
+        "unhelpful" => Some(FeedbackState::Unhelpful),
+        "corrected" => Some(FeedbackState::Corrected),
+        _ => None,
     }
 }
 

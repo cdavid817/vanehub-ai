@@ -6,6 +6,29 @@ use super::resource::Resource;
 use super::risk_level::RiskLevel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillApprovalProvenance {
+    pub(crate) parent_agent_id: String,
+    pub(crate) skill_id: String,
+    pub(crate) tool_id: String,
+    pub(crate) effective_revision: String,
+    pub(crate) source_scope: String,
+    pub(crate) requested_capability: String,
+    pub(crate) delegated_operation: String,
+    pub(crate) redacted_input_summary: String,
+    pub(crate) immutable_witness: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum SkillApprovalInvalidation {
+    Cancellation,
+    RevisionReplaced,
+    Disabled,
+    Quarantined,
+    WitnessMismatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApprovalRequest {
     pub(crate) id: String,
     pub(crate) principal_id: String,
@@ -22,6 +45,7 @@ pub(crate) struct ApprovalRequest {
     pub(crate) action: Action,
     pub(crate) resource: Resource,
     pub(crate) risk_level: RiskLevel,
+    pub(crate) skill: Option<SkillApprovalProvenance>,
     pub(crate) created_at: String,
 }
 

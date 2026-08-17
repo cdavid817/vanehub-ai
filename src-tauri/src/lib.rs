@@ -24,7 +24,8 @@ mod test_support;
 
 /// Starts the VaneHub AI native runtime after handling any process-scoped helper mode.
 pub fn run() {
-    if contexts::tooling::mcp::infrastructure::try_run_from_process_args() {
+    if contexts::tooling::mcp::infrastructure::try_run_from_process_args(bootstrap::relay_telemetry)
+    {
         return;
     }
     bootstrap::run();

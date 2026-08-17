@@ -8,30 +8,29 @@ import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentTerminalState, Session } from "../types/agent";
 import { createTerminalTheme } from "./terminal-theme";
-import { BoundedTextBuffer } from "../lib/bounded-text-buffer";
+import { TerminalReplayStore } from "../lib/terminal-replay-store";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
 const retainedTerminalReplayBytes = 1024 * 1024;
-const replayBySession = new Map<string, BoundedTextBuffer>();
+const retainedTerminalReplayTotalBytes = 8 * retainedTerminalReplayBytes;
+const terminalReplay = new TerminalReplayStore(
+  retainedTerminalReplayBytes,
+  retainedTerminalReplayTotalBytes,
+);
 export const agentTerminalInputClassName =
   "ucd-agent-terminal-input min-h-20 w-full resize-none border-0 px-2 py-1 text-sm outline-hidden disabled:cursor-not-allowed";
 
 function readReplay(sessionId: string) {
-  return replayBySession.get(sessionId)?.snapshot() ?? "";
+  return terminalReplay.read(sessionId);
 }
 
 function appendReplay(sessionId: string, content: string) {
-  let replay = replayBySession.get(sessionId);
-  if (!replay) {
-    replay = new BoundedTextBuffer(retainedTerminalReplayBytes);
-    replayBySession.set(sessionId, replay);
-  }
-  replay.append(content);
+  terminalReplay.append(sessionId, content);
 }
 
 function clearReplay(sessionId: string) {
-  replayBySession.delete(sessionId);
+  terminalReplay.clear(sessionId);
 }
 
 export function AgentTerminalTab({ active, session, sessionActivationKey }: { active: boolean; session: Session | null; sessionActivationKey: number }) {
@@ -76,6 +75,20 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
     const cachedReplay = readReplay(targetSessionId);
     if (cachedReplay) terminal.write(cachedReplay);
     let pendingServerReplayPrefix = cachedReplay;
+    let outputBuffer = "";
+    let outputFrame = 0;
+    const flushOutput = () => {
+      outputFrame = 0;
+      if (!outputBuffer) return;
+      terminal.write(outputBuffer);
+      outputBuffer = "";
+    };
+    const queueOutput = (content: string) => {
+      if (!content) return;
+      appendReplay(targetSessionId, content);
+      outputBuffer += content;
+      if (outputFrame === 0) outputFrame = requestAnimationFrame(flushOutput);
+    };
 
     const inputDisposable = terminal.onData((content) => {
       const terminalId = terminalIdRef.current;
@@ -105,15 +118,11 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
               if (event.content === prefix) return;
               if (event.content.startsWith(prefix)) {
                 const suffix = event.content.slice(prefix.length);
-                if (suffix) {
-                  appendReplay(targetSessionId, suffix);
-                  terminal.write(suffix);
-                }
+                queueOutput(suffix);
                 return;
               }
             }
-            appendReplay(targetSessionId, event.content);
-            terminal.write(event.content);
+            queueOutput(event.content);
             return;
           }
           if (event.type === "runtime_session_id") {
@@ -122,6 +131,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
             return;
           }
           if (event.type === "state") {
+            flushOutput();
             terminalIdRef.current = event.terminalId;
             setState(event.state);
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -161,6 +171,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
       themeObserver.disconnect();
       inputDisposable.dispose();
       unsubscribe?.();
+      if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
       terminal.dispose();
       terminalIdRef.current = null;
       terminalRef.current = null;

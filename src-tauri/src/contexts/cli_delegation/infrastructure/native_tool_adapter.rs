@@ -4,11 +4,11 @@ use super::native_tool_support::{
     envelope, git_head, parse_input, sha256, DelegationInput, REPORT_SCHEMA,
 };
 use super::{ArtifactChangeSetAdapter, IndependentGitWorkspaceAdapter};
-use crate::contexts::agent_runtime::application::{
+use crate::contexts::agent_runtime::api::{
     CliDelegationPort, DelegationStatus as StoredStatus, NativeToolErrorCode,
-    NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus,
+    NativeToolPersistencePort, NativeToolPortRequest, NativeToolResultEnvelope,
+    NativeToolResultStatus,
 };
-use crate::contexts::agent_runtime::infrastructure::SqliteNativeToolRepository;
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::contexts::cli_delegation::application::{
     DelegationChangeSetLimits, DelegationChangeSetPolicy, DelegationChangeSetSealRequest,
@@ -43,7 +43,7 @@ impl ClaudeDelegationNativeToolAdapter {
         cli: CliApi,
         operations_root: PathBuf,
         artifacts: Arc<ArtifactService>,
-        repository: Arc<SqliteNativeToolRepository>,
+        repository: Arc<dyn NativeToolPersistencePort>,
         analyze_ready: bool,
         edit_ready: bool,
     ) -> Self {

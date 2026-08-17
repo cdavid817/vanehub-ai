@@ -463,6 +463,18 @@ pub(crate) struct ToolUseBlock {
     pub(crate) input: Option<Value>,
     pub(crate) output: Option<Value>,
     pub(crate) status: String,
+    pub(crate) skill_provenance: Option<SkillToolUseProvenance>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillToolUseProvenance {
+    pub(crate) skill_id: String,
+    pub(crate) tool_id: String,
+    pub(crate) revision: String,
+    pub(crate) source_scope: String,
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) redacted_result_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

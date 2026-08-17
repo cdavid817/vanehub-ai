@@ -7,6 +7,7 @@ use super::memory_actions::{apply_memory_actions, render_existing_manifest};
 use super::memory_directory::is_within_memory_directory;
 use super::memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
 use super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
+use super::skill_tool_catalog_adapter::resolve_skill_tool_catalog;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_file_image_read, execute_glob,
@@ -37,18 +38,19 @@ use crate::contexts::agent_runtime::application::{
     NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
     NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
     NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
-    ProcessStopInitiator, ReportedUsageTotals, SaveMemoryInput, StartedGenerationProcess,
-    StoredToolOperation, StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME,
-    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
-    MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
-    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME,
-    RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME,
-    SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    ProcessStopInitiator, ReportedUsageTotals, SaveMemoryInput, SkillToolUseProvenance,
+    StartedGenerationProcess, StoredToolOperation, StoredToolOperationStatus, ToolApprovalDecision,
+    ToolApprovalPort, ToolDefinition, ToolEligibilityContext, ToolLifecycleEvent,
+    ToolLifecyclePhase, ToolUseBlock, UtilityDelegationApplicationService, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME, DELEGATE_UTILITY_SKILL_TOOL_NAME,
+    EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS,
+    MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
+    NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, parse_memory_actions, select_authoritative_compaction,
@@ -75,6 +77,11 @@ use crate::contexts::skill_evolution_evidence::application::{
 use crate::contexts::skill_evolution_evidence::domain::{
     EnvelopeCommon, FailureClass, ObservedSkillRevision, OperationClass, SafeCounts,
     SkillAssociationKind, SourceFidelity, TerminalOutcome,
+};
+use crate::contexts::tooling::skill_tools::application::{
+    SkillToolBinding, SkillToolCatalogContext, SkillToolCatalogMode, SkillToolCatalogPort,
+    SkillToolDispatchOutcome, SkillToolExecutionLifecyclePhase, SkillToolExecutionLifecyclePort,
+    SkillToolExecutionPort, SkillToolExecutionRequest,
 };
 use crate::platform::filesystem::BoundedFilesystem;
 use crate::platform::network::blocking_http_client;
@@ -164,6 +171,7 @@ impl AgentProcessEventSink for EvidenceCountingSink {
                 tool.phase,
                 crate::contexts::agent_runtime::application::ToolLifecyclePhase::Completed
                     | crate::contexts::agent_runtime::application::ToolLifecyclePhase::Failed
+                    | crate::contexts::agent_runtime::application::ToolLifecyclePhase::Cancelled
             ) {
                 self.attempts.fetch_add(1, Ordering::Relaxed);
             }
@@ -216,6 +224,8 @@ pub(crate) struct RuntimeAgentApiAdapter {
     ids: Arc<AtomicU64>,
     evidence: RuntimeEvidenceProjector,
     utility_delegation: Option<UtilityDelegationApplicationService>,
+    skill_tool_catalog: Option<Arc<dyn SkillToolCatalogPort>>,
+    skill_tool_execution: Option<Arc<dyn SkillToolExecutionPort>>,
 }
 
 struct ManagedApiGeneration {
@@ -311,6 +321,8 @@ impl RuntimeAgentApiAdapter {
             ids: Arc::new(AtomicU64::new(0)),
             evidence: RuntimeEvidenceProjector::disabled(),
             utility_delegation: None,
+            skill_tool_catalog: None,
+            skill_tool_execution: None,
         }
     }
 
@@ -324,6 +336,24 @@ impl RuntimeAgentApiAdapter {
         service: UtilityDelegationApplicationService,
     ) -> Self {
         self.utility_delegation = Some(service);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_skill_tool_catalog(
+        mut self,
+        catalog: Arc<dyn SkillToolCatalogPort>,
+    ) -> Self {
+        self.skill_tool_catalog = Some(catalog);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_skill_tool_execution(
+        mut self,
+        execution: Arc<dyn SkillToolExecutionPort>,
+    ) -> Self {
+        self.skill_tool_execution = Some(execution);
         self
     }
 
@@ -456,6 +486,8 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let context_engine = self.context_engine.clone();
         let evidence = self.evidence.clone();
         let utility_delegation = self.utility_delegation.clone();
+        let skill_tool_catalog = self.skill_tool_catalog.clone();
+        let skill_tool_execution = self.skill_tool_execution.clone();
         let accounting = self.accounting.clone();
         let native_tools = self.native_tools.clone();
         let native_tool_operations = self.native_tool_operations.clone();
@@ -490,6 +522,8 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 pending_approvals,
                 evidence,
                 utility_delegation,
+                skill_tool_catalog,
+                skill_tool_execution,
             );
             if let Ok(mut generations) = generations.lock() {
                 generations.remove(&process_id);
@@ -574,6 +608,8 @@ fn run_generation(
     pending_approvals: PendingApprovals,
     evidence: RuntimeEvidenceProjector,
     utility_delegation: Option<UtilityDelegationApplicationService>,
+    skill_tool_catalog: Option<Arc<dyn SkillToolCatalogPort>>,
+    skill_tool_execution: Option<Arc<dyn SkillToolExecutionPort>>,
 ) {
     if request.agent.id == "onepiece" {
         if let Some(engine) = context_engine {
@@ -635,6 +671,8 @@ fn run_generation(
         personalization.as_ref(),
         context_quality.as_deref(),
         utility_delegation.as_ref(),
+        skill_tool_catalog.as_deref(),
+        skill_tool_execution.as_deref(),
         &mut observed_skill_revisions,
         accounting.as_ref(),
         &native_tools,
@@ -1235,6 +1273,8 @@ fn execute(
         personalization,
         None,
         None,
+        None,
+        None,
         &mut ignored_observations,
         None,
         &NativeToolRegistry::empty(),
@@ -1266,6 +1306,8 @@ fn execute_with_code_intelligence(
     personalization: &dyn AgentPersonalizationPort,
     context_quality: Option<&ContextQualityRecorder>,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
+    skill_tool_catalog: Option<&dyn SkillToolCatalogPort>,
+    skill_tool_execution: Option<&dyn SkillToolExecutionPort>,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
     accounting: Option<&SessionsApi>,
     native_tools: &NativeToolRegistry,
@@ -1383,6 +1425,55 @@ fn execute_with_code_intelligence(
             readiness: native_tools.readiness_snapshot(),
         }),
     );
+    let mut skill_tool_keys = HashMap::new();
+    let mut _skill_tool_catalog_lease = None;
+    let mut _skill_tool_catalog_generation = None;
+    if let Some(catalog) = skill_tool_catalog {
+        let loaded_roles = observed_skill_revisions
+            .iter()
+            .map(|observed| SkillToolBinding {
+                skill_id: observed.skill_id.clone(),
+                revision: observed.revision.clone(),
+            })
+            .collect::<Vec<_>>();
+        let context = SkillToolCatalogContext::RoleGeneration {
+            workspace_path: request.session.folder.clone(),
+            loaded_roles,
+            mode: if plan_mode {
+                SkillToolCatalogMode::Plan
+            } else {
+                SkillToolCatalogMode::Execute
+            },
+        };
+        let existing_names = tools.iter().map(|tool| tool.name.clone());
+        match resolve_skill_tool_catalog(
+            catalog,
+            &context,
+            existing_names,
+            &provider_config.interface_format,
+        ) {
+            Ok(resolved) => {
+                tools.extend(resolved.definitions);
+                skill_tool_keys = resolved.keys_by_name;
+                _skill_tool_catalog_generation = Some(resolved.generation);
+                _skill_tool_catalog_lease = Some(resolved.lease);
+            }
+            Err(error) => {
+                let _ = logging.record(AgentLog {
+                    level: AgentLogLevel::Warn,
+                    category: "session.runtime.api.skill-tools".to_string(),
+                    message: format!("Skill tool catalog rejected: {}", error.code()),
+                    agent_id: Some(request.agent.id.clone()),
+                    session_id: Some(request.session.id.clone()),
+                    operation_id: Some(request.operation_id.clone()),
+                    run_id: None,
+                    trace_id: None,
+                    span_id: None,
+                    occurred_at: clock.now(),
+                });
+            }
+        }
+    }
     let generation_options = generation_options_from_configuration(
         &request.configuration,
         reviewed_stream_usage_strategy(&provider_config),
@@ -1809,6 +1900,63 @@ fn execute_with_code_intelligence(
                 executed.push((tool_use, outcome.output, outcome.is_error, None));
                 continue;
             }
+            if tool_use.name.starts_with("skill__") {
+                let skill_key = skill_tool_keys.get(&tool_use.name);
+                tool_use.skill_provenance = skill_key.map(skill_tool_provenance);
+                tool_use.status = "running".to_string();
+                if emit_skill_tool_lifecycle(sink, &tool_use, ToolLifecyclePhase::Started).is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                let lifecycle = AgentSkillToolLifecycle {
+                    sink,
+                    tool_use: &tool_use,
+                };
+                let outcome = dispatch_skill_tool(
+                    skill_tool_execution,
+                    skill_key,
+                    &tool_use.id,
+                    agent_id,
+                    request.session.folder.as_deref(),
+                    &request.session.id,
+                    &request.operation_id,
+                    plan_mode,
+                    &input,
+                    &cancelled,
+                    &lifecycle,
+                );
+                if matches!(outcome.output.as_str(), "cancelled")
+                    || cancelled.load(Ordering::SeqCst)
+                {
+                    tool_use.status = "cancelled".to_string();
+                    set_skill_result_summary(&mut tool_use, "cancelled");
+                    let _ =
+                        emit_skill_tool_lifecycle(sink, &tool_use, ToolLifecyclePhase::Cancelled);
+                    return failed_non_retryable("Generation was cancelled.");
+                }
+                tool_use.status = if outcome.is_error {
+                    "failed".to_string()
+                } else {
+                    "completed".to_string()
+                };
+                let terminal_phase = if outcome.is_error {
+                    ToolLifecyclePhase::Failed
+                } else {
+                    ToolLifecyclePhase::Completed
+                };
+                let result_label = if outcome.is_error {
+                    "failed"
+                } else {
+                    "completed"
+                };
+                set_skill_result_summary(&mut tool_use, result_label);
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if emit_skill_tool_lifecycle(sink, &tool_use, terminal_phase).is_err() {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error, None));
+                continue;
+            }
             let (permission_action, permission_resource) =
                 permission_action_and_resource(&tool_use.name, &input);
             let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -1983,6 +2131,127 @@ fn execute_with_code_intelligence(
     }
 
     failed_non_retryable("Tool-use loop exceeded the maximum number of round trips.")
+}
+
+fn skill_tool_outcome(outcome: SkillToolDispatchOutcome) -> ToolExecutionOutcome {
+    match outcome {
+        SkillToolDispatchOutcome::Completed(value) => ToolExecutionOutcome {
+            output: value.to_string(),
+            is_error: false,
+        },
+        SkillToolDispatchOutcome::Denied { reason } => ToolExecutionOutcome {
+            output: format!("Skill tool denied: {reason}"),
+            is_error: true,
+        },
+        SkillToolDispatchOutcome::Failed { code } => ToolExecutionOutcome {
+            output: format!("Skill tool failed: {code}"),
+            is_error: true,
+        },
+        SkillToolDispatchOutcome::Cancelled => ToolExecutionOutcome {
+            output: "cancelled".to_string(),
+            is_error: true,
+        },
+    }
+}
+
+fn skill_tool_provenance(
+    key: &crate::contexts::tooling::skill_tools::domain::SkillToolKey,
+) -> SkillToolUseProvenance {
+    SkillToolUseProvenance {
+        skill_id: key.owner.as_str().to_string(),
+        tool_id: key.tool.as_str().to_string(),
+        revision: key.revision.as_str().to_string(),
+        source_scope: key.source.scope.as_str().to_string(),
+        workspace_path: key.source.workspace_path.clone(),
+        redacted_result_summary: None,
+    }
+}
+
+fn set_skill_result_summary(tool_use: &mut ToolUseBlock, label: &str) {
+    if let Some(provenance) = tool_use.skill_provenance.as_mut() {
+        provenance.redacted_result_summary = Some(label.to_string());
+    }
+}
+
+fn emit_skill_tool_lifecycle(
+    sink: &dyn AgentProcessEventSink,
+    tool_use: &ToolUseBlock,
+    phase: ToolLifecyclePhase,
+) -> Result<(), AgentRuntimeApplicationError> {
+    sink.handle(GenerationProcessEvent::ToolLifecycle(ToolLifecycleEvent {
+        call_id: tool_use.id.clone(),
+        phase,
+        provider_timestamp: None,
+        fidelity: crate::contexts::execution_observability::api::ExecutionFidelity::Native,
+        parent_run_id: None,
+        parent_trace_id: None,
+        parent_span_id: None,
+        delegation_id: None,
+        attempt: None,
+        tool_use: tool_use.clone(),
+    }))
+}
+
+struct AgentSkillToolLifecycle<'a> {
+    sink: &'a dyn AgentProcessEventSink,
+    tool_use: &'a ToolUseBlock,
+}
+
+impl SkillToolExecutionLifecyclePort for AgentSkillToolLifecycle<'_> {
+    fn transition(&self, phase: SkillToolExecutionLifecyclePhase) {
+        let phase = match phase {
+            SkillToolExecutionLifecyclePhase::AwaitingApproval => {
+                ToolLifecyclePhase::AwaitingApproval
+            }
+        };
+        let mut tool_use = self.tool_use.clone();
+        tool_use.status = "awaiting_approval".to_string();
+        let _ = emit_skill_tool_lifecycle(self.sink, &tool_use, phase);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dispatch_skill_tool(
+    execution: Option<&dyn SkillToolExecutionPort>,
+    key: Option<&crate::contexts::tooling::skill_tools::domain::SkillToolKey>,
+    call_id: &str,
+    parent_agent_id: &str,
+    workspace_path: Option<&str>,
+    session_id: &str,
+    generation_id: &str,
+    plan_mode: bool,
+    input: &Value,
+    cancelled: &AtomicBool,
+    lifecycle: &dyn SkillToolExecutionLifecyclePort,
+) -> ToolExecutionOutcome {
+    let (Some(execution), Some(key)) = (execution, key) else {
+        return ToolExecutionOutcome {
+            output: "Skill tool is unknown or stale for this generation.".to_string(),
+            is_error: true,
+        };
+    };
+    execution
+        .execute(SkillToolExecutionRequest {
+            call_id,
+            key,
+            parent_agent_id,
+            workspace_path,
+            session_id,
+            generation_id,
+            mode: if plan_mode {
+                SkillToolCatalogMode::Plan
+            } else {
+                SkillToolCatalogMode::Execute
+            },
+            input,
+            cancelled,
+            lifecycle,
+        })
+        .map(skill_tool_outcome)
+        .unwrap_or_else(|error| ToolExecutionOutcome {
+            output: format!("Skill tool failed: {}", error.code()),
+            is_error: true,
+        })
 }
 
 /// Sums the length of every string value reachable within `turns`, recursively — a
@@ -7807,6 +8076,7 @@ mod tests {
             input: None,
             output: None,
             status: "pending".to_owned(),
+            skill_provenance: None,
         };
         let request = onepiece_request();
         let outcome = execute_registered_native_tool(
@@ -8501,6 +8771,7 @@ mod tests {
             input: None,
             output: None,
             status: "pending".to_owned(),
+            skill_provenance: None,
         };
         let input = json!({"question": "Which?", "options": ["a", "b"]});
         let sink = CapturingSink::default();
@@ -9025,6 +9296,7 @@ mod tests {
             input: Some(input.clone()),
             output: None,
             status: "pending".to_owned(),
+            skill_provenance: None,
         };
         let sink = CapturingSink::default();
         ask_user_question(
@@ -9050,6 +9322,7 @@ mod tests {
             input: Some(input.clone()),
             output: None,
             status: "pending".to_owned(),
+            skill_provenance: None,
         };
         let sink = CapturingSink::default();
         request_plan_exit(
@@ -13370,5 +13643,133 @@ mod tests {
             &request,
         );
         assert_eq!(system, Some("## Reviewer\nReview the diff.".to_string()));
+    }
+
+    struct SkillExecution;
+
+    impl SkillToolExecutionPort for SkillExecution {
+        fn execute(
+            &self,
+            request: SkillToolExecutionRequest<'_>,
+        ) -> Result<
+            SkillToolDispatchOutcome,
+            crate::contexts::tooling::skill_tools::application::SkillToolApplicationError,
+        > {
+            assert_eq!(request.parent_agent_id, "agent");
+            assert_eq!(request.session_id, "session");
+            assert_eq!(request.generation_id, "generation");
+            assert_eq!(request.input, &json!({"value": 1}));
+            assert_eq!(request.mode, SkillToolCatalogMode::Execute);
+            request
+                .lifecycle
+                .transition(SkillToolExecutionLifecyclePhase::AwaitingApproval);
+            Ok(SkillToolDispatchOutcome::Completed(json!({"ok": true})))
+        }
+    }
+
+    struct NoopSkillLifecycle;
+
+    impl SkillToolExecutionLifecyclePort for NoopSkillLifecycle {
+        fn transition(&self, _phase: SkillToolExecutionLifecyclePhase) {}
+    }
+
+    fn skill_tool_test_key() -> crate::contexts::tooling::skill_tools::domain::SkillToolKey {
+        use crate::contexts::tooling::skill_tools::domain::{
+            SkillToolId, SkillToolKey, SkillToolOwnerId, SkillToolRevision, SkillToolSourceScope,
+        };
+        SkillToolKey::new(
+            SkillToolOwnerId::parse("review").expect("owner"),
+            SkillToolSourceScope::global(),
+            SkillToolId::parse("check").expect("tool"),
+            SkillToolRevision::parse(&"a".repeat(64)).expect("revision"),
+        )
+    }
+
+    #[test]
+    fn canonical_skill_dispatch_uses_the_pinned_key_and_unknown_or_stale_calls_fail_closed() {
+        let key = skill_tool_test_key();
+        let cancelled = AtomicBool::new(false);
+        let completed = dispatch_skill_tool(
+            Some(&SkillExecution),
+            Some(&key),
+            "call",
+            "agent",
+            Some("/workspace"),
+            "session",
+            "generation",
+            false,
+            &json!({"value": 1}),
+            &cancelled,
+            &NoopSkillLifecycle,
+        );
+        assert!(!completed.is_error);
+        assert_eq!(completed.output, r#"{"ok":true}"#);
+
+        for (execution, key) in [
+            (None, Some(&key)),
+            (Some(&SkillExecution as &dyn SkillToolExecutionPort), None),
+        ] {
+            let stale = dispatch_skill_tool(
+                execution,
+                key,
+                "call",
+                "agent",
+                None,
+                "session",
+                "generation",
+                false,
+                &Value::Null,
+                &cancelled,
+                &NoopSkillLifecycle,
+            );
+            assert!(stale.is_error);
+            assert!(stale.output.contains("unknown or stale"));
+        }
+    }
+
+    #[test]
+    fn skill_tool_lifecycle_uses_existing_phases_and_redacted_terminal_summaries() {
+        let key = skill_tool_test_key();
+        let sink = CapturingSink::default();
+        let mut tool_use = ToolUseBlock {
+            id: "call-skill".to_string(),
+            name: key.canonical_name().expect("canonical name"),
+            input: Some(json!({"secret": "not-persisted-in-summary"})),
+            output: None,
+            status: "running".to_string(),
+            skill_provenance: Some(skill_tool_provenance(&key)),
+        };
+        emit_skill_tool_lifecycle(&sink, &tool_use, ToolLifecyclePhase::Started).expect("started");
+        let lifecycle = AgentSkillToolLifecycle {
+            sink: &sink,
+            tool_use: &tool_use,
+        };
+        lifecycle.transition(SkillToolExecutionLifecyclePhase::AwaitingApproval);
+        set_skill_result_summary(&mut tool_use, "completed");
+        tool_use.status = "completed".to_string();
+        emit_skill_tool_lifecycle(&sink, &tool_use, ToolLifecyclePhase::Completed)
+            .expect("completed");
+
+        let events = sink.events.lock().expect("events");
+        let phases = events
+            .iter()
+            .filter_map(|event| match event {
+                GenerationProcessEvent::ToolLifecycle(event) => Some(event.phase),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            phases,
+            vec![
+                ToolLifecyclePhase::Started,
+                ToolLifecyclePhase::AwaitingApproval,
+                ToolLifecyclePhase::Completed,
+            ]
+        );
+        let summary = tool_use
+            .skill_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.redacted_result_summary.as_deref());
+        assert_eq!(summary, Some("completed"));
     }
 }

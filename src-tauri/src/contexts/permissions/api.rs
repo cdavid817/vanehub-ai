@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub(crate) use super::application::{PermissionsApplicationError, ResolvedApproval};
 pub(crate) use super::domain::{
     Action, ApprovalDecision, ApprovalRequest, Effect, PolicyTemplateName, Principal, Resource,
-    RiskLevel, Scope, CLAUDE_CODE_AGENT_ID,
+    RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance, CLAUDE_CODE_AGENT_ID,
 };
 
 #[derive(Clone)]
@@ -117,12 +117,45 @@ impl PermissionsApi {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_skill_pending_approval(
+        &self,
+        provenance: SkillApprovalProvenance,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        call_id: &str,
+        project_key: &str,
+    ) -> Result<ApprovalRequest, PermissionsApplicationError> {
+        self.approvals.create_skill_pending(
+            provenance,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            call_id,
+            project_key,
+        )
+    }
+
     pub(crate) fn list_pending_approvals(&self) -> Vec<ApprovalRequest> {
         self.approvals.list_pending()
     }
 
     pub(crate) fn get_pending_approval(&self, request_id: &str) -> Option<ApprovalRequest> {
         self.approvals.get_pending(request_id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn invalidate_skill_pending_approval(
+        &self,
+        request_id: &str,
+        current_witness: &str,
+        reason: SkillApprovalInvalidation,
+    ) -> Option<ApprovalRequest> {
+        self.approvals
+            .invalidate_skill_pending(request_id, current_witness, reason)
     }
 
     /// Finalizes a pending approval. See `ApprovalBroker::finalize` for what `delivered` means

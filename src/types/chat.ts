@@ -59,7 +59,17 @@ export interface ToolUseBlock {
    * affordance differs (choose one of N versus allow/deny), and rendering one as the other would
    * show a security prompt for a clarification.
    */
-  status: "pending" | "running" | "awaiting_approval" | "awaiting_input" | "completed" | "failed";
+  status: "pending" | "running" | "awaiting_approval" | "awaiting_input" | "completed" | "failed" | "cancelled";
+  skillProvenance?: SkillToolUseProvenance;
+}
+
+export interface SkillToolUseProvenance {
+  skillId: string;
+  toolId: string;
+  revision: string;
+  sourceScope: "global" | "workspace";
+  workspacePath?: string;
+  redactedResultSummary?: "completed" | "failed" | "cancelled";
 }
 
 export type RichBlockKind =

@@ -38,6 +38,8 @@ export function ApplicationDialog({
     focusTarget?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
+      const modalStack = Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]'));
+      if (modalStack.at(-1) !== dialog) return;
       if (event.key === "Escape" && !closeDisabledRef.current) closeRef.current();
       if (event.key !== "Tab" || !dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
