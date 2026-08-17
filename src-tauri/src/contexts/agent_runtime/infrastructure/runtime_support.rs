@@ -443,9 +443,7 @@ fn logging_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError 
 mod tests {
     use super::*;
     use crate::contexts::operations::api::OperationsError;
-    use crate::contexts::operations::infrastructure::{
-        persistent_operation_service, persistent_run_service,
-    };
+    use crate::contexts::operations::infrastructure::persistent_operation_service;
     use crate::platform::database::NativeDatabase;
     use crate::test_support::TempDirectory;
     use std::sync::Mutex;
@@ -550,7 +548,7 @@ mod tests {
     fn canonical_generation_projects_normal_waiting_and_terminal_paths() {
         let directory = TempDirectory::new("agent-canonical-run");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        let runs = AgentRunsApi::new(persistent_run_service(database.clone()));
+        let runs = crate::bootstrap::assemble_agent_runs_api(database.clone());
         let adapter = AgentRuntimeOperationAdapter::new(
             OperationsApi::new(persistent_operation_service(database)),
             runs.clone(),

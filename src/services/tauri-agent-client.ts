@@ -70,6 +70,7 @@ import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
+import type { MissionControlActionReceipt, MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
   ContinueLoopInput,
@@ -266,6 +267,9 @@ export const tauriAgentClient: AgentService = {
   listAgentRunEvents: (runId, offset = 0, limit = 50) => invoke<AgentRunEvent[]>("list_agent_run_events", { runId, offset, limit }),
   cancelAgentRun: (runId, version) => invoke<AgentRun>("cancel_agent_run", { runId, version }),
   resumeAgentRun: (runId, version) => invoke<AgentRun>("resume_agent_run", { runId, version }),
+  getMissionControlOverview: (query = {}) => invoke<MissionControlOverview>("get_mission_control_overview", { query }),
+  getMissionControlRun: (runId) => invoke<MissionControlRunDetail>("get_mission_control_run", { runId }),
+  performMissionControlAction: (input) => invoke<MissionControlActionReceipt>("perform_mission_control_action", { input }),
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },

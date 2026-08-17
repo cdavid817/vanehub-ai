@@ -78,6 +78,7 @@ import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent } from "../types/agent-run";
+import type { MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail, MissionControlRunSummary } from "../types/mission-control";
 import type { EvaluationArena, EvaluationTask } from "../types/evaluation";
 import type {
   ContinueLoopInput,
@@ -2548,7 +2549,18 @@ let webAgentRuns: AgentRun[] = [{
   updatedAt: WEB_RUN_TIME,
   version: 4,
   lastWitness: "web-demo-pause",
-}];
+}, ...([
+  ["waiting_approval", "approval_required"], ["waiting_user", "user_question"],
+  ["retrying", "provider_backoff"], ["stuck", "no_progress"],
+  ["failed", "verification_failed"], ["completed", null], ["running", null],
+] as const).map(([state, reasonCode], index): AgentRun => ({
+  id: `018f0f17-4d6a-7e20-b41d-66c5271a29${index}`,
+  owner: { ownerType: index === 5 ? "evaluation" : "agent", ownerId: `web-owner-${index}` },
+  links: [{ linkType: "session", linkId: `web-session-${index}` }, ...(index === 4 ? [{ linkType: "review", linkId: "web-review-1" }] : [])],
+  parentRunId: null, state, recoveryPolicy: "owner_reconciles", retryCount: state === "retrying" ? 1 : 0,
+  maxRetries: 2, reasonCode, createdAt: `2026-08-16T00:0${index + 1}:00.000Z`,
+  updatedAt: `2026-08-16T00:0${index + 1}:30.000Z`, version: 2, lastWitness: `web-${state}`,
+}))];
 const webAgentRunEvents = new Map<string, AgentRunEvent[]>([[webAgentRuns[0].id, [{
   sequence: 4,
   state: "paused",
@@ -2585,6 +2597,55 @@ function projectWebOwnerRun(ownerId: string, state: AgentRun["state"]): void {
   if (run && run.state !== state && !["completed", "failed", "cancelled"].includes(run.state)) {
     updateWebAgentRun(run.id, run.version, state);
   }
+}
+
+const terminalRunStates = new Set<AgentRun["state"]>(["completed", "failed", "cancelled"]);
+const activeRunStates = new Set<AgentRun["state"]>(["created", "preparing", "running", "waiting_approval", "waiting_user", "paused", "retrying", "blocked", "stuck", "verifying"]);
+
+function webMissionSummary(run: AgentRun): MissionControlRunSummary {
+  const session = run.links.find((link) => link.linkType === "session");
+  const review = run.links.find((link) => link.linkType === "review");
+  const attention = run.state === "waiting_approval" ? "approval" : run.state === "waiting_user" ? "user"
+    : ["blocked", "stuck"].includes(run.state) ? "stuck" : run.state === "failed" ? "failed" : review ? "review" : null;
+  const actions: MissionControlRunSummary["actions"] = ["open"];
+  if (!terminalRunStates.has(run.state)) actions.push("cancel");
+  if (["paused", "blocked", "stuck"].includes(run.state)) actions.push("resume");
+  if (["failed", "stuck"].includes(run.state) && run.retryCount < run.maxRetries) actions.push("retry");
+  if (run.state === "waiting_approval") actions.push("approval");
+  if (review) actions.push("review");
+  if (["completed", "failed"].includes(run.state)) actions.push("verify");
+  return {
+    runId: run.id, version: run.version, ownerType: run.owner.ownerType, ownerId: run.owner.ownerId,
+    agentId: run.owner.ownerType === "agent" ? run.owner.ownerId : null, title: `Run ${run.owner.ownerId}`,
+    state: run.state, createdAt: run.createdAt, updatedAt: run.updatedAt,
+    endedAt: terminalRunStates.has(run.state) ? run.updatedAt : null, projectId: null, workspace: null,
+    phase: run.state, attention, reasonCode: run.reasonCode,
+    verification: run.state === "verifying" ? "running" : run.state === "completed" ? "passed" : run.state === "failed" ? "failed" : "unavailable",
+    tokens: null, cost: null, actions,
+    navigation: review ? { kind: "review", id: review.linkId, sessionId: session?.linkId } : session ? { kind: "session", id: session.linkId } : null,
+  };
+}
+
+function webMissionOverview(query: MissionControlQuery): MissionControlOverview {
+  const limit = Math.max(1, Math.min(query.limit ?? 20, 50));
+  const offset = query.cursor ? Number(query.cursor) : 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("invalid mission control cursor");
+  let runs = webAgentRuns.map(webMissionSummary).filter((run) =>
+    (!query.states?.length || query.states.includes(run.state))
+    && (!query.agentId || run.agentId === query.agentId)
+    && (!query.projectId || run.projectId === query.projectId));
+  const priority = (run: MissionControlRunSummary) => run.attention ? 0 : 1;
+  runs = runs.sort((left, right) => query.sort === "oldest"
+    ? left.createdAt.localeCompare(right.createdAt)
+    : query.sort === "attention" ? priority(left) - priority(right) || right.createdAt.localeCompare(left.createdAt)
+      : right.createdAt.localeCompare(left.createdAt));
+  const page = (items: MissionControlRunSummary[]) => ({ items: items.slice(offset, offset + limit), nextCursor: offset + limit < items.length ? String(offset + limit) : null });
+  const count = (state: AgentRun["state"]) => webAgentRuns.filter((run) => run.state === state).length;
+  return {
+    counts: { running: count("running"), waitingApproval: count("waiting_approval"), waitingUser: count("waiting_user"), retrying: count("retrying"), blocked: count("blocked") + count("stuck"), failed: count("failed"), completedRecently: count("completed") },
+    attention: page(runs.filter((run) => run.attention)), active: page(runs.filter((run) => activeRunStates.has(run.state))),
+    recent: page(runs.filter((run) => terminalRunStates.has(run.state))),
+  };
 }
 
 const webEvaluationTasks: EvaluationTask[] = [
@@ -2671,6 +2732,32 @@ export const webAgentClient: AgentService = {
     const run = webAgentRuns.find((item) => item.id === runId);
     if (!run || !["paused", "blocked", "stuck"].includes(run.state)) throw new Error("run cannot be resumed");
     return updateWebAgentRun(runId, version, "running");
+  },
+  async getMissionControlOverview(query = {}) { return structuredClone(webMissionOverview(query)); },
+  async getMissionControlRun(runId): Promise<MissionControlRunDetail> {
+    const run = webAgentRuns.find((item) => item.id === runId);
+    if (!run) throw new Error(`run not found: ${runId}`);
+    const linked = new Set(run.links.map((link) => link.linkType));
+    const facets: MissionControlRunDetail["facets"] = ["overview", "plan", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"].map((facet) => ({
+      facet: facet as MissionControlRunDetail["facets"][number]["facet"],
+      state: facet === "overview" || facet === "timeline" || facet === "logs" || linked.has(facet) ? "available" : "unavailable",
+    }));
+    return structuredClone({ run: webMissionSummary(run), facets });
+  },
+  async performMissionControlAction(input): Promise<MissionControlActionReceipt> {
+    const current = webAgentRuns.find((run) => run.id === input.runId);
+    if (!current) throw new Error(`run not found: ${input.runId}`);
+    if (current.version !== input.version) throw new Error("run version conflict");
+    if (input.action === "cancel") return { run: webMissionSummary(await this.cancelAgentRun(input.runId, input.version)), operationId: null };
+    if (input.action === "resume") return { run: webMissionSummary(await this.resumeAgentRun(input.runId, input.version)), operationId: null };
+    if (input.action === "retry") {
+      if (!["failed", "stuck"].includes(current.state) || current.retryCount >= current.maxRetries) throw new Error("run cannot be retried");
+      const retried = { ...current, id: `${current.id}-retry-${current.retryCount + 1}`, state: "retrying" as const, retryCount: current.retryCount + 1, version: 1, updatedAt: "2026-08-16T00:10:00.000Z", parentRunId: current.id, lastWitness: `web-retry:${current.id}` };
+      webAgentRuns = [retried, ...webAgentRuns];
+      return { run: webMissionSummary(retried), operationId: `web-retry-operation-${retried.id}` };
+    }
+    if (input.action === "verify") return { run: webMissionSummary(current), operationId: `web-verification-${current.id}` };
+    throw new Error("mission control action is unsupported");
   },
   async openExternalUrl(url) {
     const target = requireHttpsExternalUrl(url);
