@@ -222,6 +222,12 @@ pub(crate) enum SkillToolLogAction {
     Quarantine,
     Recover,
     RegistryRefresh,
+    Invocation,
+    HostCall,
+    Permission,
+    Approval,
+    Limit,
+    Cancellation,
 }
 
 impl SkillToolLogAction {
@@ -235,6 +241,12 @@ impl SkillToolLogAction {
             Self::Quarantine => "skill-tool-quarantine",
             Self::Recover => "skill-tool-recover",
             Self::RegistryRefresh => "skill-tool-registry-refresh",
+            Self::Invocation => "skill-tool-invocation",
+            Self::HostCall => "skill-tool-host-call",
+            Self::Permission => "skill-tool-permission",
+            Self::Approval => "skill-tool-approval",
+            Self::Limit => "skill-tool-limit",
+            Self::Cancellation => "skill-tool-cancellation",
         }
     }
 }

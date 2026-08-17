@@ -75,7 +75,10 @@ impl BoundedFilesystem {
         let parent = candidate.parent().ok_or(BoundaryError::MissingParent)?;
         let canonical_parent = parent.canonicalize()?;
         self.ensure_inside(&canonical_parent)?;
-        Ok((candidate, normalized(&relative)))
+        let file_name = candidate
+            .file_name()
+            .ok_or(BoundaryError::MissingFileName)?;
+        Ok((canonical_parent.join(file_name), normalized(&relative)))
     }
 
     fn ensure_inside(&self, path: &Path) -> Result<(), BoundaryError> {

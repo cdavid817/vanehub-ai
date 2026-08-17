@@ -61,7 +61,7 @@ pub(crate) use sdk::assemble_sdk_api;
 pub(crate) use sessions::{
     assemble_sessions_api, start_session_maintenance_jobs, SessionRuntimeDependencies,
 };
-pub(crate) use skills::assemble_skill_api;
+pub(crate) use skills::{assemble_skill_api, assemble_skill_tool_api};
 pub(crate) use ssh_connections::assemble_ssh_connections_api;
 pub(crate) use task_orchestration::assemble_task_orchestration_api;
 pub(crate) use workspaces::assemble_workspace_api;

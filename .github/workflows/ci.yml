@@ -332,6 +332,14 @@ jobs:
       - name: Native cargo build
         run: cargo build --manifest-path src-tauri/Cargo.toml
 
+      - name: Windows Skill Tool hostile fixtures (declarative-only)
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml skill_tool --lib
+
+      - name: Windows Skill Tool hostile fixtures (module runtime)
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features skill-tool-module-runtime skill_tool --lib
+
   e2e:
     name: Playwright E2E
     runs-on: ubuntu-latest

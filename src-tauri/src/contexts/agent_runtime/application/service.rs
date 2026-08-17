@@ -2699,7 +2699,9 @@ impl GenerationEventHandler {
             ToolLifecyclePhase::Started | ToolLifecyclePhase::Updated => {
                 Some(CanonicalRunSignal::Active)
             }
-            ToolLifecyclePhase::Completed | ToolLifecyclePhase::Failed => None,
+            ToolLifecyclePhase::Completed
+            | ToolLifecyclePhase::Failed
+            | ToolLifecyclePhase::Cancelled => None,
         };
         if let Some(signal) = signal {
             self.ports
@@ -2708,7 +2710,9 @@ impl GenerationEventHandler {
         }
         let is_terminal = matches!(
             event.phase,
-            ToolLifecyclePhase::Completed | ToolLifecyclePhase::Failed
+            ToolLifecyclePhase::Completed
+                | ToolLifecyclePhase::Failed
+                | ToolLifecyclePhase::Cancelled
         );
         let (span_id, is_new) = {
             let mut state = self.state()?;
@@ -2781,6 +2785,7 @@ impl GenerationEventHandler {
         let terminal_status = match event.phase {
             ToolLifecyclePhase::Completed => Some(ExecutionStatus::Succeeded),
             ToolLifecyclePhase::Failed => Some(ExecutionStatus::Failed),
+            ToolLifecyclePhase::Cancelled => Some(ExecutionStatus::Cancelled),
             ToolLifecyclePhase::Started
             | ToolLifecyclePhase::Updated
             | ToolLifecyclePhase::AwaitingApproval
@@ -2810,7 +2815,7 @@ impl GenerationEventHandler {
         let _ = self.ports.events.publish(AgentEvent::MessageToolUse {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
-            tool_use: event.tool_use,
+            tool_use: Box::new(event.tool_use),
         });
         Ok(())
     }

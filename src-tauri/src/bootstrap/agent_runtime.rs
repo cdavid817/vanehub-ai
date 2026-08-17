@@ -29,19 +29,21 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions,
     ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
     MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
-    NativeSeatTurnCoordinator, NativeSubagentExecutor, NativeUtilityChildExecutor,
+    NativeSeatTurnCoordinator, NativeSkillToolExecutionAdapter,
+    NativeSkillToolExecutionDependencies, NativeSubagentExecutor, NativeUtilityChildExecutor,
     OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
     RetrievalContextSource, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
     RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
     RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
     RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
-    SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
-    SqliteContextManifestRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
-    SqliteLoopRepository, SqliteNativeToolRepository, StructuredLoopVerificationProcess,
-    SubagentRuntime, SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
-    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteContextManifestRepository, SqliteContextQualityRepository,
+    SqliteExpertRoleRepository, SqliteLoopRepository, SqliteNativeToolRepository,
+    StructuredLoopVerificationProcess, SubagentRuntime, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -91,6 +93,10 @@ use crate::contexts::tooling::extensions::infrastructure::{
 use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
+use crate::contexts::tooling::skill_tools::api::SkillToolApi;
+use crate::contexts::tooling::skill_tools::infrastructure::{
+    FilesystemSkillToolSource, NativeSkillToolModuleRuntime,
+};
 use crate::contexts::tooling::skills::api::SkillApi;
 use crate::contexts::web_research::application::{FetchedBinaryRouter, GuardedFetchService};
 use crate::contexts::web_research::infrastructure::{
@@ -115,6 +121,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
     pub(crate) skills: SkillApi,
+    pub(crate) skill_tools: SkillToolApi,
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
@@ -683,6 +690,26 @@ pub(crate) fn assemble_agent_runtime_api(
             logging: logging.clone(),
         },
     )?;
+    let skill_tool_permissions = Arc::new(SkillToolPermissionAdapter::new(
+        dependencies.permissions.clone(),
+        true,
+    ));
+    let skill_tool_execution = Arc::new(NativeSkillToolExecutionAdapter::new(
+        NativeSkillToolExecutionDependencies {
+            registry: dependencies.skill_tools.registry(),
+            discovery: dependencies.skill_tools.discovery(),
+            states: dependencies.skill_tools.repository(),
+            native: native_tools.clone(),
+            permissions: skill_tool_permissions.clone(),
+            approvals: skill_tool_permissions,
+            logging: dependencies.skill_tools.logging(),
+            module_runtime: Arc::new(
+                NativeSkillToolModuleRuntime::new(FilesystemSkillToolSource::shared())
+                    .map_err(|error| error.code())?,
+            ),
+            skills: dependencies.skills.clone(),
+        },
+    ));
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(
             api_credentials.clone(),
@@ -704,6 +731,8 @@ pub(crate) fn assemble_agent_runtime_api(
         .with_context_engine(context_engine)
         .with_evidence(dependencies.evidence.clone())
         .with_utility_delegation(utility_delegation)
+        .with_skill_tool_catalog(dependencies.skill_tools.registry())
+        .with_skill_tool_execution(skill_tool_execution)
         .with_accounting(accounting.clone())
         .with_native_tool_registry(native_tools.clone())
         .with_artifacts(artifacts.clone())

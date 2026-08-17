@@ -60,7 +60,7 @@ Extraction normalizes separators and Unicode, performs Windows case-fold/reserve
 
 ### 5. Bind preview and confirmation to immutable witnesses
 
-An install-plan witness hashes source trust state, metadata versions, target identity/hash/length, installed state, effective-resolution impact, package-manifest summary, and requested action. Confirmation supplies that witness. The service refreshes/validates critical state before mutation; any mismatch returns stale-preview instead of silently acting on a changed target.
+An install-plan witness hashes source trust state, metadata versions, target identity/hash/length, installed state, effective-resolution impact, package-manifest summary, normalized permission manifest and version-to-version authority diff, and requested action. Confirmation supplies that witness. The service refreshes/validates critical state before mutation; any mismatch returns stale-preview instead of silently acting on a changed target. Every install reviews requested authority. An update that expands filesystem, process, network, secret, or resource authority always requires a fresh explicit confirmation and never inherits a prior approval.
 
 Install/update/downgrade/rollback/uninstall are backend-managed cancellable operations with progress stages. Update checks fetch only bounded metadata using conditional requests and jittered schedules. Package bodies download only after explicit confirmation. No automatic package install is included.
 
@@ -94,9 +94,11 @@ All source and package requests use the Rust-managed network adapter with curren
 
 Registry credentials use the operating-system credential store with preserve/replace/clear semantics. SQLite and DTOs carry only presence/error state. Browser fetch is not used by React.
 
-### 10. Integrate through domain ports and service adapters
+### 10. Integrate as a tooling subdomain through published ports and service adapters
 
-Rust adds a `skill_registry` context for source/trust/catalog/package/install/revocation/cache domains and adapters for repository verification, network, credential store, archive extraction, filesystem transaction, SQLite, tasks, and unified logs. Effective Skill resolution receives installed eligible Registry definitions through a port and never performs network access while assembling a prompt.
+Rust adds `contexts/tooling/skill_registry` as an independent tooling subdomain for source/trust/catalog/package/install/revocation/cache models and adapters for repository verification, network, credential store, archive extraction, filesystem transaction, SQLite, tasks, and unified logs. It publishes a narrow API/port to effective Skill resolution and the sandboxed Skill-tool runtime; consumers never import its repositories or infrastructure, and prompt assembly never performs network access.
+
+The Registry consumes the normalized permission-manifest contract owned by the Skill tool runtime and persists only its canonical digest plus bounded review projection. It does not evaluate operational permissions or create grants. This preserves `tooling` as the existing bounded context and avoids an unregistered peer context or a second permission architecture.
 
 Tauri commands expose source lifecycle, catalog query/detail, refresh, operation preview/start/cancel/status, integrity recheck, and cache/recovery actions. TypeScript contracts extend `AgentService`; `tauri-agent-client.ts` owns native invocation. `web-agent-client.ts` can expose deterministic catalog fixtures or a future secure HTTP service but reports native install/cache/credential actions as unsupported.
 
@@ -121,7 +123,7 @@ All remote display strings are sanitized plain text with length limits. Explicit
 1. Add source/trust/metadata/cache/install persistence and read-only first-party catalog refresh behind a disabled feature flag.
 2. Integrate reviewed repository verification, adversarial metadata fixtures, proxy-aware network transport, and credential isolation.
 3. Add quarantine download, bounded extraction/package validation, install preview, and immutable staging without effective-runtime activation.
-4. Enable atomic Registry-layer installation and effective resolution, then update/downgrade/rollback/uninstall and integrity reconciliation.
+4. Add normalized permission review and update-diff witnesses, then enable atomic Registry-layer installation and effective resolution, update/downgrade/rollback/uninstall, and integrity reconciliation.
 5. Add UI source/catalog/version governance, operation progress, offline states, revocation containment, and recovery.
 6. Roll out custom sources only after trust-bootstrap and rotation tests pass; retain a global registry-network/install kill switch.
 7. Roll back by disabling refresh and new mutations while leaving verified installed snapshots and evidence available; critical locally recorded revocations remain enforced until explicitly repaired by verified metadata or uninstall.

@@ -9,6 +9,7 @@ The effective Skill runtime defines a Registry layer, but VaneHub has no secure 
 - Add bounded catalog search, filtering, details, version history, update checks, and cached read-only browsing without executing or installing catalog content.
 - Download packages through the VaneHub network/proxy boundary into a content-addressed quarantine cache, verify metadata/signatures/hashes, safely extract and validate package structure, and install an immutable snapshot into the Registry layer through an atomic transaction.
 - Add explicit install/update/downgrade/rollback/uninstall previews and confirmations. Updates are discovered automatically but never installed automatically in the first release.
+- Parse the package's normalized permission manifest during quarantine validation and show an install-time permission review plus a version-to-version permission diff. Any authority expansion requires explicit confirmation and can never be silently auto-applied.
 - Keep package provenance trust separate from Overlay trust, configuration values, permission grants, and executable Skill tool trust; a verified package does not receive operational authority.
 - Handle signed security revocations with fail-closed runtime eligibility, retained evidence, recovery guidance, and no silent deletion of user data or Overlay history.
 - Add Registry browsing and installed-version governance to the Skills settings page through the frontend service boundary, with honest Web behavior and unified redacted operation logs.
@@ -27,7 +28,7 @@ The effective Skill runtime defines a Registry layer, but VaneHub has no secure 
 
 ## Impact
 
-- Desktop/native: adds registry clients, trust metadata verification, bounded downloader/cache/extractor, package validator, SQLite repositories, asynchronous operations, Tauri commands, and unified logs.
+- Desktop/native: adds a Registry subdomain inside the existing `tooling` bounded context, with registry clients, trust metadata verification, bounded downloader/cache/extractor, package validator, SQLite repositories, asynchronous operations, Tauri commands, and unified logs.
 - Frontend: extends `AgentService`, Tauri adapter, and Web adapter with registry/catalog/install governance contracts; React components do not call native commands directly.
 - Storage: adds application-owned immutable Registry snapshots, quarantine/cache directories, and additive SQLite state for sources, metadata witnesses, installed versions, operations, revocations, and rollback candidates.
 - Network: uses existing VaneHub-managed HTTPS/proxy settings, strict redirects and limits, conditional refresh, offline cache rules, and credential-store isolation for authenticated registries.

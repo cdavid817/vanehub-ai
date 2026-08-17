@@ -11,7 +11,7 @@ use super::ports::{
 };
 use crate::contexts::permissions::domain::{
     risk_level_for, Action, ApprovalDecision, ApprovalRequest, Effect, Grant, PolicyTemplateName,
-    Principal, Resource, Scope,
+    Principal, Resource, Scope, SkillApprovalInvalidation, SkillApprovalProvenance,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -76,6 +76,54 @@ impl ApprovalBroker {
         call_id: &str,
         project_key: &str,
     ) -> Result<ApprovalRequest, PermissionsApplicationError> {
+        self.create_pending_inner(
+            agent_id,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            call_id,
+            project_key,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_skill_pending(
+        &self,
+        provenance: SkillApprovalProvenance,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        call_id: &str,
+        project_key: &str,
+    ) -> Result<ApprovalRequest, PermissionsApplicationError> {
+        let agent_id = provenance.parent_agent_id.clone();
+        self.create_pending_inner(
+            &agent_id,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            call_id,
+            project_key,
+            Some(provenance),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_pending_inner(
+        &self,
+        agent_id: &str,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        call_id: &str,
+        project_key: &str,
+        skill: Option<SkillApprovalProvenance>,
+    ) -> Result<ApprovalRequest, PermissionsApplicationError> {
         let principal = self.get_or_create_principal(agent_id)?;
         let request = ApprovalRequest {
             id: self.ids.next_id("approval"),
@@ -88,6 +136,7 @@ impl ApprovalBroker {
             risk_level: risk_level_for(&action),
             action,
             resource,
+            skill,
             created_at: self.clock.now(),
         };
         self.pending
@@ -120,6 +169,29 @@ impl ApprovalBroker {
             .cloned()
     }
 
+    pub(crate) fn invalidate_skill_pending(
+        &self,
+        request_id: &str,
+        current_witness: &str,
+        reason: SkillApprovalInvalidation,
+    ) -> Option<ApprovalRequest> {
+        let mut pending = self
+            .pending
+            .lock()
+            .expect("pending approvals mutex poisoned");
+        let request = pending.get(request_id)?;
+        let skill = request.skill.as_ref()?;
+        let witness_matches = skill.immutable_witness == current_witness;
+        let invalid = match reason {
+            SkillApprovalInvalidation::WitnessMismatch => !witness_matches,
+            SkillApprovalInvalidation::Cancellation
+            | SkillApprovalInvalidation::RevisionReplaced
+            | SkillApprovalInvalidation::Disabled
+            | SkillApprovalInvalidation::Quarantined => witness_matches,
+        };
+        invalid.then(|| pending.remove(request_id)).flatten()
+    }
+
     /// Finalizes a pending approval. `delivered` distinguishes two outcomes the caller (the
     /// `permissions` command handler, per design.md D8's refinement) determines by first calling
     /// `AgentRuntimeApi::resolve_tool_approval`: `true` means a live generation was actually
@@ -150,7 +222,7 @@ impl ApprovalBroker {
         } else {
             AuditDecider::StaleGeneration
         };
-        let scope = if request.action.as_str() == "delegation.apply" {
+        let scope = if request.action.as_str() == "delegation.apply" || request.skill.is_some() {
             Scope::Once
         } else {
             scope
@@ -388,6 +460,123 @@ mod tests {
             )
             .unwrap();
         assert_eq!(*events.0.lock().unwrap(), vec![request.id]);
+    }
+
+    #[test]
+    fn skill_pending_carries_provenance_and_never_creates_a_reusable_grant() {
+        let (broker, grants, _audit, _events) = broker(60);
+        let provenance = SkillApprovalProvenance {
+            parent_agent_id: "agent-1".to_string(),
+            skill_id: "review".to_string(),
+            tool_id: "check".to_string(),
+            effective_revision: "a".repeat(64),
+            source_scope: "workspace:/project".to_string(),
+            requested_capability: "tool:write_file".to_string(),
+            delegated_operation: "write_file".to_string(),
+            redacted_input_summary: r#"{"path":"src/lib.rs","content":"[REDACTED]"}"#.to_string(),
+            immutable_witness: "sha256:witness".to_string(),
+        };
+        let request = broker
+            .create_skill_pending(
+                provenance.clone(),
+                Action::file_write(),
+                Resource::file_path("src/lib.rs"),
+                "session-1",
+                "generation-1",
+                "call-1",
+                "project-1",
+            )
+            .unwrap();
+
+        assert_eq!(request.skill, Some(provenance));
+        assert_eq!(request.risk_level, RiskLevel::L1);
+        broker
+            .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
+            .unwrap();
+        assert!(grants.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_skill_lifecycle_invalidation_rejects_a_late_decision() {
+        for reason in [
+            SkillApprovalInvalidation::Cancellation,
+            SkillApprovalInvalidation::RevisionReplaced,
+            SkillApprovalInvalidation::Disabled,
+            SkillApprovalInvalidation::Quarantined,
+            SkillApprovalInvalidation::WitnessMismatch,
+        ] {
+            let (broker, grants, _audit, _events) = broker(60);
+            let request = broker
+                .create_skill_pending(
+                    SkillApprovalProvenance {
+                        parent_agent_id: "agent-1".to_string(),
+                        skill_id: "review".to_string(),
+                        tool_id: "check".to_string(),
+                        effective_revision: "a".repeat(64),
+                        source_scope: "global".to_string(),
+                        requested_capability: "tool:write_file".to_string(),
+                        delegated_operation: "write_file".to_string(),
+                        redacted_input_summary: "{}".to_string(),
+                        immutable_witness: "sha256:original".to_string(),
+                    },
+                    Action::file_write(),
+                    Resource::file_path("src/lib.rs"),
+                    "session-1",
+                    "generation-1",
+                    "call-1",
+                    "project-1",
+                )
+                .unwrap();
+            let current = if reason == SkillApprovalInvalidation::WitnessMismatch {
+                "sha256:replacement"
+            } else {
+                "sha256:original"
+            };
+
+            assert!(broker
+                .invalidate_skill_pending(&request.id, current, reason)
+                .is_some());
+            assert!(broker
+                .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
+                .unwrap()
+                .is_none());
+            assert!(grants.0.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn mismatched_identity_cannot_invalidate_an_unrelated_skill_request() {
+        let (broker, _grants, _audit, _events) = broker(60);
+        let request = broker
+            .create_skill_pending(
+                SkillApprovalProvenance {
+                    parent_agent_id: "agent-1".to_string(),
+                    skill_id: "review".to_string(),
+                    tool_id: "check".to_string(),
+                    effective_revision: "a".repeat(64),
+                    source_scope: "global".to_string(),
+                    requested_capability: "tool:read_file".to_string(),
+                    delegated_operation: "read_file".to_string(),
+                    redacted_input_summary: "{}".to_string(),
+                    immutable_witness: "sha256:exact".to_string(),
+                },
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+                "session-1",
+                "generation-1",
+                "call-1",
+                "project-1",
+            )
+            .unwrap();
+
+        assert!(broker
+            .invalidate_skill_pending(
+                &request.id,
+                "sha256:similarly-named-tool",
+                SkillApprovalInvalidation::Disabled,
+            )
+            .is_none());
+        assert!(broker.get_pending(&request.id).is_some());
     }
 
     #[test]

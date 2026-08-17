@@ -7,6 +7,7 @@ use crate::contexts::tooling::skill_tools::domain::{
     MODULE_DIRECTORY,
 };
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Reads Skill tool content from a package directory on disk.
 ///
@@ -22,6 +23,11 @@ impl FilesystemSkillToolSource {
         Self {
             limits: DEFAULT_MANIFEST_LIMITS,
         }
+    }
+
+    pub(crate) fn shared() -> &'static Self {
+        static SOURCE: OnceLock<FilesystemSkillToolSource> = OnceLock::new();
+        SOURCE.get_or_init(Self::new)
     }
 
     fn contained_path(
