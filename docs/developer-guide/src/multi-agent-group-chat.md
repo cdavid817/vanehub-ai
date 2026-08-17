@@ -154,7 +154,7 @@ npx playwright test tests/e2e/multi-agent-session.spec.ts --headed
 npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 ```
 
-The user guide's [group chat collaboration case](../../user/en/multi-agent-testing-tutorial.html) walks the same ground manually, and its checkpoints map onto these specs. Beyond them, a change here runs the repository's full verification set — see [Testing, packaging, and release](testing-and-release.md).
+The user guide's [group chat collaboration case](../../user-guide/en/src/multi-agent-testing-tutorial.md) walks the same ground manually, and its checkpoints map onto these specs. Beyond them, a change here runs the repository's full verification set — see [Testing, packaging, and release](testing-and-release.md).
 
 **Web/mock verifies the interface, seat changes, and `@` completion, but starts no CLI.** Real Agent replies and automatic handoff require the Tauri desktop runtime.
 

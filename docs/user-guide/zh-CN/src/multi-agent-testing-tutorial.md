@@ -146,4 +146,4 @@
 
 - 机制和限制的完整说明 → [多 Agent 群聊](multi-agent-workflow.md)
 - 席位拿不到发言权、`@` 未触发 → [故障排查](troubleshooting.md)
-- 对应的自动化测试与实现细节 → [《开发者指南》的多 Agent 群聊一章](../../developer/multi-agent-group-chat.html)
+- 对应的自动化测试与实现细节 → [《开发者指南》的多 Agent 群聊一章](../../../developer-guide/src/multi-agent-group-chat.md)

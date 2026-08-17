@@ -1,6 +1,6 @@
 # VaneHub AI User Guide
 
-<a href="../zh-CN/index.html">简体中文</a>
+<a href="../../zh-CN/src/index.md">简体中文</a>
 
 This guide is written for **developers using VaneHub AI**: how to install it, how to use it, and what to check when something goes wrong.
 
@@ -61,7 +61,7 @@ How to read each label is covered in [Runtime and feature labels](runtime-labels
 
 ## What this guide does not cover
 
-**Internal implementation and design rationale are not here.** For how the architecture is divided, why a mechanism is designed the way it is, and where the code lives, see the [VaneHub AI Developer Guide](../../developer/index.html) — written for developers and contributors, with architecture decisions recorded in the `src-tauri/ARCHITECTURE.md` that the [native architecture inventory](../../developer/index.html) points at.
+**Internal implementation and design rationale are not here.** For how the architecture is divided, why a mechanism is designed the way it is, and where the code lives, see the [VaneHub AI Developer Guide](../../../developer-guide/src/index.md) — written for developers and contributors, with architecture decisions recorded in the `src-tauri/ARCHITECTURE.md` that the [native architecture inventory](../../../developer-guide/src/index.md) points at.
 
 The division of labour:
 
@@ -69,9 +69,9 @@ The division of labour:
 | --- | --- |
 | What happens when I press this button | This guide |
 | What to do when something breaks | This guide's [Troubleshooting](troubleshooting.md) |
-| Why this feature is designed this way | The [Developer Guide](../../developer/index.html) |
-| Which file the code is in | The [Developer Guide](../../developer/index.html) |
+| Why this feature is designed this way | The [Developer Guide](../../../developer-guide/src/index.md) |
+| Which file the code is in | The [Developer Guide](../../../developer-guide/src/index.md) |
 
 ## Simplified Chinese
 
-The Simplified Chinese user guide covers the same full set of chapters as this one. See <a href="../zh-CN/index.html">简体中文</a>.
+The Simplified Chinese user guide covers the same full set of chapters as this one. See <a href="../../zh-CN/src/index.md">简体中文</a>.

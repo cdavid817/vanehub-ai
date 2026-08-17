@@ -217,6 +217,6 @@ The supervisor pattern requires one Agent to act as scheduler, which costs token
 
 ## Related
 
-- Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../developer/multi-agent-group-chat.html)
+- Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
 - Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
 - Expert roles and review policy → [Personalization](personalization.md)

@@ -18,9 +18,56 @@ function markdownFiles(path) {
   );
 }
 
-function cleanTarget(target) {
+function splitTarget(target) {
   const decoded = decodeURIComponent(target.replace(/^<|>$/g, ""));
-  return decoded.split("#", 1)[0].split("?", 1)[0];
+  const hash = decoded.indexOf("#");
+  const path = (hash === -1 ? decoded : decoded.slice(0, hash)).split("?", 1)[0];
+  return { path, fragment: hash === -1 ? "" : decoded.slice(hash + 1) };
+}
+
+/**
+ * mdBook derives a heading id by keeping alphanumerics, `_`, `-`, and spaces, lowercasing,
+ * and turning spaces into `-`; everything else is dropped. So `Plan-Agent` keeps its hyphen
+ * and `Fidelity: why…` loses its colon — a link that guesses either way lands at the top of
+ * the page with nothing to indicate it missed.
+ */
+export function normalizeHeadingId(text) {
+  let id = "";
+  for (const character of text) {
+    if (/[\p{L}\p{N}]/u.test(character) || character === "_" || character === "-") {
+      id += character.toLowerCase();
+    } else if (character === " ") {
+      id += "-";
+    }
+  }
+  return id;
+}
+
+const headingIdCache = new Map();
+
+/** Heading ids of one Markdown file, with mdBook's `-1`, `-2` suffixes for repeats. */
+export function headingIds(file, content = undefined) {
+  if (content === undefined && headingIdCache.has(file)) return headingIdCache.get(file);
+  const ids = new Set();
+  const seen = new Map();
+  let inFence = false;
+  for (const line of (content ?? readFileSync(file, "utf8")).split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const heading = /^#{1,6}\s+(.*?)\s*$/.exec(line);
+    if (!heading) continue;
+    // Inline markup is not part of the id, so strip links, code spans, and emphasis first.
+    const text = heading[1].replace(/\[([^\]]*)]\([^)]*\)/g, "$1").replace(/[`*]/g, "");
+    const base = normalizeHeadingId(text);
+    const repeats = seen.get(base) ?? 0;
+    seen.set(base, repeats + 1);
+    ids.add(repeats === 0 ? base : `${base}-${repeats}`);
+  }
+  if (content === undefined) headingIdCache.set(file, ids);
+  return ids;
 }
 
 function resolveAuthoredTarget(file, target) {
@@ -42,24 +89,9 @@ function resolveAuthoredTarget(file, target) {
   ) {
     return resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md");
   }
-  // The two books cross-link by assembled-site path, not by authored path, because that is
-  // what resolves for a reader. Map those back to the authored source so the link check
-  // resolves against a real file instead of a directory that only exists after a build.
-  //
-  // From docs/user-guide/<locale>/src/, the developer guide is `../../developer/<page>.html`.
-  const developerPage = file.includes(`${sep}docs${sep}user-guide${sep}`)
-    && /^\.\.\/\.\.\/developer\/([a-z0-9-]+)\.html$/.exec(target);
-  if (developerPage) {
-    return resolve(repositoryRoot, "docs", "developer-guide", "src", `${developerPage[1]}.md`);
-  }
-  // From docs/developer-guide/src/, a user guide is `../../user/<locale>/<page>.html`.
-  const userPage = file.includes(`${sep}docs${sep}developer-guide${sep}`)
-    && /^\.\.\/\.\.\/user\/(en|zh-CN)\/([a-z0-9-]+)\.html$/.exec(target);
-  if (userPage) {
-    return resolve(
-      repositoryRoot, "docs", "user-guide", userPage[1], "src", `${userPage[2]}.md`,
-    );
-  }
+  // Cross-book links are authored as repository-relative Markdown paths and rewritten to site
+  // paths when the books are built, so ordinary resolution is all that is needed here. An
+  // assembled-site path authored in source is a broken link, not a shape to compensate for.
   return resolve(dirname(file), target);
 }
 
@@ -72,12 +104,24 @@ function validateMarkdown(errors) {
       if (imageMarker === "!" && alt.trim().length === 0) {
         errors.push(`${display}: image "${rawTarget}" has empty alternative text.`);
       }
-      if (/^(?:https?:|mailto:|#|data:)/i.test(rawTarget)) continue;
-      const target = cleanTarget(rawTarget);
-      if (!target) continue;
-      const resolved = resolveAuthoredTarget(file, target);
-      if (resolved && !existsSync(resolved)) {
+      if (/^(?:https?:|mailto:|data:)/i.test(rawTarget)) continue;
+      const { path: target, fragment } = splitTarget(rawTarget);
+      if (!target && !fragment) continue;
+      // An empty path with a fragment is a link into the same document.
+      const resolved = target ? resolveAuthoredTarget(file, target) : file;
+      if (resolved === null) continue;
+      if (!existsSync(resolved)) {
         errors.push(`${display}: missing relative target "${rawTarget}".`);
+        continue;
+      }
+      if (
+        fragment
+        && extname(resolved).toLowerCase() === ".md"
+        && !headingIds(resolved).has(normalizeHeadingId(fragment))
+      ) {
+        errors.push(
+          `${display}: "${rawTarget}" names no heading in ${relative(repositoryRoot, resolved)}.`,
+        );
       }
     }
   }

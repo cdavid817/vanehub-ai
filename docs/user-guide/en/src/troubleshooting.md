@@ -177,7 +177,7 @@ npm run docs:screenshots:update
 
 ### Startup reports `no such table`
 
-When several worktrees share one database, migration version numbers can collide across branches. See the development environment chapter of the [Developer Guide](../../developer/index.html).
+When several worktrees share one database, migration version numbers can collide across branches. See the development environment chapter of the [Developer Guide](../../../developer-guide/src/index.md).
 
 ## Still stuck
 
