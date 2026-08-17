@@ -1388,10 +1388,14 @@ fn execute_with_code_intelligence(
         || agent_id.to_string(),
         |profile| format!("onepiece-profile:{}", profile.profile_id),
     );
-    let fetched_credential = match credentials.fetch(&credential_id) {
-        Ok(Some(key)) => Ok(Some(key)),
-        Ok(None) if request.endpoint_profile.is_some() => credentials.fetch(agent_id),
-        other => other,
+    let fetched_credential = if authentication_mode == "required" {
+        match credentials.fetch(&credential_id) {
+            Ok(Some(key)) => Ok(Some(key)),
+            Ok(None) if request.endpoint_profile.is_some() => credentials.fetch(agent_id),
+            other => other,
+        }
+    } else {
+        Ok(None)
     };
     let api_key = match fetched_credential {
         Ok(Some(key)) => key,

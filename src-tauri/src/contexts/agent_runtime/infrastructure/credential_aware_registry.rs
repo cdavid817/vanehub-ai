@@ -45,14 +45,17 @@ impl CredentialAwareAgentRegistry {
             Ok(value) => value,
             Err(_) => return self.unavailable_after_inspection_failure(agent),
         };
+        if !requires_authentication {
+            return agent.with_availability(AvailabilityAssessment::new(
+                AgentAvailability::Available,
+                None,
+            ));
+        }
         match self.credentials.fetch(agent.id().as_str()) {
             Ok(Some(_)) => agent.with_availability(AvailabilityAssessment::new(
                 AgentAvailability::Available,
                 None,
             )),
-            Ok(None) if !requires_authentication => agent.with_availability(
-                AvailabilityAssessment::new(AgentAvailability::Available, None),
-            ),
             Ok(None) => agent.with_availability(AvailabilityAssessment::new(
                 AgentAvailability::NeedsAuthentication,
                 Some("API agent requires a provider credential.".to_string()),
@@ -254,7 +257,9 @@ mod tests {
                 "api",
                 AgentAvailability::Available,
             )])),
-            Arc::new(Credentials(Ok(None))),
+            Arc::new(Credentials(Err(AgentRuntimeApplicationError::Credential(
+                "desktop secret store unavailable".to_string(),
+            )))),
             Arc::new(AuthenticationPolicy(false)),
             logs,
             Arc::new(Clock),

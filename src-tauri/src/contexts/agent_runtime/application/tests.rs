@@ -4471,6 +4471,12 @@ fn custom_local_profile_preserves_metadata_and_needs_no_credential() {
     runtime
         .activate_onepiece_provider_profile(&profile.id)
         .expect("credential-free activation");
+    assert_eq!(world.credential_reads.load(Ordering::SeqCst), 0);
+    assert!(world
+        .removed_credentials
+        .lock()
+        .expect("removed credentials")
+        .is_empty());
 }
 
 #[test]

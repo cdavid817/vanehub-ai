@@ -54,20 +54,22 @@ impl OnePiecePlanningPort for RuntimeOnePiecePlanningAdapter {
             .into_iter()
             .find(|profile| profile.active)
             .ok_or_else(readiness_error)?;
-        let credential_key = format!("onepiece-profile:{}", profile.id);
-        let credential = match self.credentials.fetch(&credential_key)? {
-            Some(credential) => Some(credential),
-            None => self.credentials.fetch("onepiece")?,
-        };
         let authentication_mode = self
             .profiles
             .endpoint_profile_metadata(&profile.id)?
             .map(|metadata| metadata.authentication_mode)
             .unwrap_or_else(|| "required".to_string());
-        let credential = match credential {
-            Some(credential) => credential,
-            None if authentication_mode != "required" => String::new(),
-            None => return Err(readiness_error()),
+        let credential = if authentication_mode == "required" {
+            let credential_key = format!("onepiece-profile:{}", profile.id);
+            match self.credentials.fetch(&credential_key)? {
+                Some(credential) => credential,
+                None => self
+                    .credentials
+                    .fetch("onepiece")?
+                    .ok_or_else(readiness_error)?,
+            }
+        } else {
+            String::new()
         };
         let provider = ApiProviderConfig {
             source_provider_id: profile.source_provider_id.clone(),

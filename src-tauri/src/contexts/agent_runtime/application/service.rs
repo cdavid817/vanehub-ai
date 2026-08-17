@@ -1365,11 +1365,14 @@ impl AgentRuntimeApplicationService {
                     reserved_output_tokens: 0,
                     context_capacity_provenance: "unknown".to_string(),
                 });
-            let credential_present = self
-                .ports
-                .api_credentials
-                .fetch(&onepiece_profile_credential_key(&profile.id))?
-                .is_some();
+            let credential_present = if metadata.authentication_mode == "required" {
+                self.ports
+                    .api_credentials
+                    .fetch(&onepiece_profile_credential_key(&profile.id))?
+                    .is_some()
+            } else {
+                false
+            };
             let ready = metadata.authentication_mode != "required" || credential_present;
             let invariant_credential =
                 credential_present || metadata.authentication_mode == "required";
@@ -1549,6 +1552,12 @@ impl AgentRuntimeApplicationService {
             .endpoint_profile_metadata(profile_id)?
             .map(|metadata| metadata.authentication_mode)
             .unwrap_or_else(|| "required".to_string());
+        if authentication_mode != "required" {
+            self.ports
+                .api_agents
+                .activate_onepiece_provider_profile(&target.id)?;
+            return self.onepiece_provider_profiles();
+        }
         let target_credential = self.ports.api_credentials.fetch(&target_key)?;
         if authentication_mode == "required" && target_credential.is_none() {
             return Err(AgentRuntimeApplicationError::Validation(
