@@ -123,8 +123,10 @@ pub(crate) use memory_selection::{
     parse_memory_selection, MAX_SELECTED_MEMORIES, MEMORY_SELECTION_INSTRUCTION,
 };
 pub(crate) use provider::{
-    AgentProviderId, ProviderCapabilities, ProviderCapabilityInput, ProviderFamily,
-    ProviderMetadata, ProviderReadinessPrerequisites, ProviderSessionRef, ProviderUsageCapability,
+    AgentProviderId, ProviderCancellationPolicy, ProviderCapabilities, ProviderCapability,
+    ProviderCapabilityInput, ProviderFamily, ProviderHealth, ProviderMetadata,
+    ProviderParserPolicy, ProviderReadinessPrerequisites, ProviderSessionRef,
+    ProviderUsageCapability, ProviderVersionProbe,
 };
 #[allow(unused_imports)]
 pub(crate) use seat_roster::{

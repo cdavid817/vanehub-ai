@@ -193,5 +193,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | unify-agent-run-state-machine | agent-execution-observability, agent-run-state-management, agent-user-question, goal-management, loop-engineering-runtime, multi-agent-group-chat, permissions-approval, plan-execution-runtime, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-16-unify-agent-run-state-machine/` |
 | 2026-08-17 | add-agent-mission-control | agent-mission-control, agent-run-state-management, main-layout-ui | `openspec/changes/archive/2026-08-17-add-agent-mission-control/` |
 | 2026-08-17 | add-sandboxed-skill-tool-runtime | agent-tool-execution, permissions-approval, permissions-core, settings-skill-management-ui, skill-management, skill-tool-runtime | `openspec/changes/archive/2026-08-17-add-sandboxed-skill-tool-runtime/` |
+| 2026-08-17 | extend-provider-runtime-plugin-sdk | agent-provider-runtime, provider-plugin-sdk | `openspec/changes/archive/2026-08-17-extend-provider-runtime-plugin-sdk/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

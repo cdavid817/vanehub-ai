@@ -1,7 +1,8 @@
 use super::AgentRuntimeApplicationError;
 use crate::contexts::agent_runtime::domain::{
-    AgentProviderId, ProviderCapabilities, ProviderMetadata, ProviderReadinessPrerequisites,
-    ProviderSessionRef,
+    AgentProviderId, ProviderCancellationPolicy, ProviderCapabilities, ProviderCapability,
+    ProviderHealth, ProviderMetadata, ProviderParserPolicy, ProviderReadinessPrerequisites,
+    ProviderSessionRef, ProviderVersionProbe,
 };
 use std::collections::BTreeMap;
 use std::fmt;
@@ -48,11 +49,32 @@ pub(crate) struct ProviderInteractiveInvocationRequest<'a> {
     pub(crate) managed_args: &'a [String],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderPermissionMode {
+    Readonly,
+    Standard,
+    Unrestricted,
+}
+
+pub(crate) struct ProviderOptionRequest<'a> {
+    pub(crate) permission: Option<ProviderPermissionMode>,
+    pub(crate) model: Option<&'a str>,
+    pub(crate) reasoning: Option<&'a str>,
+}
+
 pub(crate) trait AgentProvider: Send + Sync {
     fn metadata(&self) -> &ProviderMetadata;
     fn capabilities(&self) -> &ProviderCapabilities;
     fn readiness_prerequisites(&self) -> &ProviderReadinessPrerequisites;
     fn output_format(&self) -> ProviderOutputFormat;
+    fn parser_policy(&self) -> ProviderParserPolicy;
+    fn version_probe(&self) -> &ProviderVersionProbe;
+    fn cancellation_policy(&self) -> ProviderCancellationPolicy;
+    fn classify_health(&self, executable_available: bool, version_valid: bool) -> ProviderHealth;
+    fn map_options(
+        &self,
+        request: ProviderOptionRequest<'_>,
+    ) -> Result<Vec<String>, AgentProviderError>;
     fn prepare_generation(
         &self,
         request: ProviderGenerationInvocationRequest<'_>,
@@ -65,6 +87,12 @@ pub(crate) trait AgentProvider: Send + Sync {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentProviderError {
+    InvalidContract {
+        provider_id: String,
+        reason: String,
+    },
+    InvalidManifest(String),
+    ExternalProviderUnsupported(String),
     DuplicateProvider(String),
     UnsupportedProvider(String),
     UnsupportedCapability {
@@ -80,6 +108,19 @@ pub(crate) enum AgentProviderError {
 impl fmt::Display for AgentProviderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidContract {
+                provider_id,
+                reason,
+            } => write!(
+                formatter,
+                "invalid Agent provider contract '{provider_id}': {reason}"
+            ),
+            Self::InvalidManifest(reason) => {
+                write!(formatter, "invalid Agent provider manifest: {reason}")
+            }
+            Self::ExternalProviderUnsupported(id) => {
+                write!(formatter, "external Agent provider is unsupported: {id}")
+            }
             Self::DuplicateProvider(id) => write!(formatter, "duplicate Agent provider: {id}"),
             Self::UnsupportedProvider(id) => write!(formatter, "unsupported Agent provider: {id}"),
             Self::UnsupportedCapability {
@@ -124,6 +165,11 @@ impl ProviderRegistry {
     }
 
     pub(crate) fn get(&self, id: &str) -> Result<Arc<dyn AgentProvider>, AgentProviderError> {
+        if let Some(external_id) = id.strip_prefix("external:") {
+            return Err(AgentProviderError::ExternalProviderUnsupported(
+                external_id.to_string(),
+            ));
+        }
         let provider_id = AgentProviderId::parse(id)
             .map_err(|_| AgentProviderError::UnsupportedProvider(id.to_string()))?;
         self.providers
@@ -134,6 +180,22 @@ impl ProviderRegistry {
 
     pub(crate) fn list(&self) -> Vec<Arc<dyn AgentProvider>> {
         self.providers.values().cloned().collect()
+    }
+
+    pub(crate) fn require(
+        &self,
+        id: &str,
+        capability: ProviderCapability,
+    ) -> Result<Arc<dyn AgentProvider>, AgentProviderError> {
+        let provider = self.get(id)?;
+        if provider.capabilities().supports(capability) {
+            Ok(provider)
+        } else {
+            Err(AgentProviderError::UnsupportedCapability {
+                provider_id: id.to_string(),
+                capability: capability.as_str().to_string(),
+            })
+        }
     }
 
     pub(crate) fn resolve_session(
@@ -204,6 +266,41 @@ mod tests {
             ProviderOutputFormat::StructuredJsonLines
         }
 
+        fn parser_policy(&self) -> ProviderParserPolicy {
+            ProviderParserPolicy::new(4096, true).expect("parser policy")
+        }
+
+        fn version_probe(&self) -> &ProviderVersionProbe {
+            static PROBE: std::sync::OnceLock<ProviderVersionProbe> = std::sync::OnceLock::new();
+            PROBE.get_or_init(|| {
+                ProviderVersionProbe::new(vec!["--version".to_string()], 1000)
+                    .expect("version probe")
+            })
+        }
+
+        fn cancellation_policy(&self) -> ProviderCancellationPolicy {
+            ProviderCancellationPolicy::process_tree(1000).expect("cancellation policy")
+        }
+
+        fn classify_health(
+            &self,
+            executable_available: bool,
+            version_valid: bool,
+        ) -> ProviderHealth {
+            match (executable_available, version_valid) {
+                (true, true) => ProviderHealth::Ready,
+                (true, false) => ProviderHealth::Degraded,
+                (false, _) => ProviderHealth::Unavailable,
+            }
+        }
+
+        fn map_options(
+            &self,
+            _request: ProviderOptionRequest<'_>,
+        ) -> Result<Vec<String>, AgentProviderError> {
+            Ok(Vec::new())
+        }
+
         fn prepare_generation(
             &self,
             _request: ProviderGenerationInvocationRequest<'_>,
@@ -253,6 +350,10 @@ mod tests {
             registry.get("missing"),
             Err(AgentProviderError::UnsupportedProvider(id)) if id == "missing"
         ));
+        assert!(matches!(
+            registry.get("external:fixture-cli"),
+            Err(AgentProviderError::ExternalProviderUnsupported(id)) if id == "fixture-cli"
+        ));
     }
 
     #[test]
@@ -276,5 +377,19 @@ mod tests {
             registry.resolve_session("provider", None).expect("fresh"),
             None
         );
+    }
+
+    #[test]
+    fn registry_negotiates_capabilities_without_identity_inference() {
+        let registry =
+            ProviderRegistry::new(vec![Arc::new(FakeProvider::new("provider"))]).expect("registry");
+        assert!(registry
+            .require("provider", ProviderCapability::Terminal)
+            .is_ok());
+        assert!(matches!(
+            registry.require("provider", ProviderCapability::Reasoning),
+            Err(AgentProviderError::UnsupportedCapability { provider_id, capability })
+                if provider_id == "provider" && capability == "reasoning"
+        ));
     }
 }

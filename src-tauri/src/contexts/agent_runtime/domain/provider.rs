@@ -57,6 +57,136 @@ pub(crate) enum ProviderUsageCapability {
     HeadlessAndTerminalReported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderCapability {
+    Resume,
+    StructuredOutput,
+    Terminal,
+    Usage,
+    Permissions,
+    ModelSelection,
+    Reasoning,
+    Sandbox,
+    Cancellation,
+}
+
+impl ProviderCapability {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Resume => "resume",
+            Self::StructuredOutput => "structured-output",
+            Self::Terminal => "terminal",
+            Self::Usage => "usage",
+            Self::Permissions => "permissions",
+            Self::ModelSelection => "model-selection",
+            Self::Reasoning => "reasoning",
+            Self::Sandbox => "sandbox",
+            Self::Cancellation => "cancellation",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderCancellationStrategy {
+    ProcessTree,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProviderCancellationPolicy {
+    strategy: ProviderCancellationStrategy,
+    grace_period_ms: u64,
+}
+
+impl ProviderCancellationPolicy {
+    pub(crate) fn process_tree(grace_period_ms: u64) -> Result<Self, AgentRuntimeDomainError> {
+        if grace_period_ms == 0 || grace_period_ms > 30_000 {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "cancellation grace period must be between 1 and 30000 milliseconds".to_string(),
+            ));
+        }
+        Ok(Self {
+            strategy: ProviderCancellationStrategy::ProcessTree,
+            grace_period_ms,
+        })
+    }
+
+    pub(crate) fn grace_period_ms(self) -> u64 {
+        self.grace_period_ms
+    }
+
+    pub(crate) fn uses_process_tree(self) -> bool {
+        self.strategy == ProviderCancellationStrategy::ProcessTree
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProviderParserPolicy {
+    max_buffer_bytes: usize,
+    text_fallback: bool,
+}
+
+impl ProviderParserPolicy {
+    pub(crate) fn new(
+        max_buffer_bytes: usize,
+        text_fallback: bool,
+    ) -> Result<Self, AgentRuntimeDomainError> {
+        if !(1_024..=1_048_576).contains(&max_buffer_bytes) {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "parser buffer must be between 1024 and 1048576 bytes".to_string(),
+            ));
+        }
+        Ok(Self {
+            max_buffer_bytes,
+            text_fallback,
+        })
+    }
+
+    pub(crate) fn max_buffer_bytes(self) -> usize {
+        self.max_buffer_bytes
+    }
+
+    pub(crate) fn text_fallback(self) -> bool {
+        self.text_fallback
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderVersionProbe {
+    args: Vec<String>,
+    timeout_ms: u64,
+}
+
+impl ProviderVersionProbe {
+    pub(crate) fn new(args: Vec<String>, timeout_ms: u64) -> Result<Self, AgentRuntimeDomainError> {
+        if args.is_empty() || args.iter().any(|arg| arg.trim().is_empty()) {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "version probe requires non-empty arguments".to_string(),
+            ));
+        }
+        if timeout_ms == 0 || timeout_ms > 15_000 {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "version probe timeout must be between 1 and 15000 milliseconds".to_string(),
+            ));
+        }
+        Ok(Self { args, timeout_ms })
+    }
+
+    pub(crate) fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    pub(crate) fn timeout_ms(&self) -> u64 {
+        self.timeout_ms
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderHealth {
+    Ready,
+    Unavailable,
+    Degraded,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderCapabilities {
     interaction_modes: Vec<InteractionMode>,
@@ -139,6 +269,11 @@ impl ProviderCapabilities {
         self.usage
     }
 
+    pub(crate) fn with_usage_capability(mut self, usage: ProviderUsageCapability) -> Self {
+        self.usage = usage;
+        self
+    }
+
     pub(crate) fn permissions(&self) -> bool {
         self.permissions
     }
@@ -153,6 +288,20 @@ impl ProviderCapabilities {
 
     pub(crate) fn sandbox(&self) -> bool {
         self.sandbox
+    }
+
+    pub(crate) fn supports(&self, capability: ProviderCapability) -> bool {
+        match capability {
+            ProviderCapability::Resume => self.session_resume,
+            ProviderCapability::StructuredOutput => self.structured_output,
+            ProviderCapability::Terminal => self.terminal,
+            ProviderCapability::Usage => true,
+            ProviderCapability::Permissions => self.permissions,
+            ProviderCapability::ModelSelection => self.model_selection,
+            ProviderCapability::Reasoning => self.reasoning,
+            ProviderCapability::Sandbox => self.sandbox,
+            ProviderCapability::Cancellation => true,
+        }
     }
 }
 
@@ -294,5 +443,22 @@ mod tests {
             " \t "
         )
         .is_err());
+
+        assert!(ProviderCancellationPolicy::process_tree(0).is_err());
+        assert!(ProviderCancellationPolicy::process_tree(30_001).is_err());
+        let cancellation = ProviderCancellationPolicy::process_tree(2_000).expect("policy");
+        assert!(cancellation.uses_process_tree());
+        assert_eq!(cancellation.grace_period_ms(), 2_000);
+
+        assert!(ProviderParserPolicy::new(1_023, true).is_err());
+        let parser = ProviderParserPolicy::new(4_096, true).expect("parser policy");
+        assert_eq!(parser.max_buffer_bytes(), 4_096);
+        assert!(parser.text_fallback());
+
+        assert!(ProviderVersionProbe::new(Vec::new(), 1_000).is_err());
+        let probe =
+            ProviderVersionProbe::new(vec!["--version".to_string()], 1_000).expect("version probe");
+        assert_eq!(probe.args(), &["--version".to_string()]);
+        assert_eq!(probe.timeout_ms(), 1_000);
     }
 }

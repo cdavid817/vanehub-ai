@@ -1,7 +1,7 @@
 use super::providers::{
-    add_codex_output_capture_args, output_parser_for_format, ProviderOutputEvent,
-    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
-    ProviderUsageOverlap,
+    add_codex_output_capture_args, output_parser_for_format, BoundedProviderLines,
+    ProviderOutputEvent, ProviderOutputFramer, ProviderOutputStream, ProviderPromptDelivery,
+    ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
@@ -11,7 +11,9 @@ use crate::contexts::agent_runtime::application::{
     ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
     WorkflowLaunchRequest,
 };
-use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
+use crate::contexts::agent_runtime::domain::{
+    AgentAvailability, InteractionMode, ProviderCapability,
+};
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionIdentityPort, ExecutionSpan,
     ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
@@ -29,7 +31,7 @@ use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -156,13 +158,12 @@ impl RuntimeAgentProcessAdapter {
         let (mount_snapshot, configured_binding_ids) = evidence_cli_snapshot(skill_snapshot);
         let executable =
             normalize_generation_executable(&request.agent.id, &request.cli_profile.executable);
-        let provider = self.providers.get(&request.agent.id)?;
-        if !provider.capabilities().structured_output() {
-            return Err(crate::contexts::agent_runtime::application::AgentProviderError::UnsupportedCapability {
-                provider_id: request.agent.id.clone(),
-                capability: "structured output".to_string(),
-            }
-            .into());
+        let provider = self
+            .providers
+            .require(&request.agent.id, ProviderCapability::StructuredOutput)?;
+        if request.session.runtime_session_id.is_some() {
+            self.providers
+                .require(&request.agent.id, ProviderCapability::Resume)?;
         }
         let provider_session = self.providers.resolve_session(
             &request.agent.id,
@@ -614,6 +615,8 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         let Some(managed) = managed else {
             return Ok(false);
         };
+        self.providers
+            .require(&managed.agent_id, ProviderCapability::Cancellation)?;
         let _ = self.telemetry.record_event(&ExecutionEvent {
             run_id: managed.execution_context.run_id.clone(),
             span_id: managed.execution_context.span_id.clone(),
@@ -738,7 +741,7 @@ impl ProcessMonitor {
         // terminal `GenerationProcessEvent::Completed` below rather than acted on
         // immediately, since the exit code (not this line) decides success/failure.
         let mut reported_usage: Option<ReportedUsageTotals> = None;
-        for line in BufReader::new(stdout).lines() {
+        for line in BoundedProviderLines::new(stdout, 256 * 1024) {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
@@ -795,7 +798,7 @@ impl ProcessMonitor {
                 },
                 Err(error) => {
                     terminal_error = Some(GenerationProcessFailure::retryable(format!(
-                        "Failed to read Agent CLI output: {error}"
+                        "Provider output protocol error: {error}"
                     )));
                     break;
                 }
@@ -1074,14 +1077,42 @@ fn apply_mcp_relay_args(agent_id: &str, args: &mut Vec<String>, relay_args: Vec<
 }
 
 fn read_stderr(stderr: Option<ChildStderr>) -> String {
-    let Some(stderr) = stderr else {
+    let Some(mut stderr) = stderr else {
         return String::new();
     };
-    BufReader::new(stderr)
-        .lines()
-        .map_while(Result::ok)
-        .collect::<Vec<_>>()
-        .join("\n")
+    const LIMIT: usize = 65_536;
+    let mut framer = ProviderOutputFramer::new(LIMIT);
+    let mut buffer = [0u8; 4_096];
+    let mut output = String::new();
+    while output.len() < LIMIT {
+        let Ok(count) = stderr.read(&mut buffer) else {
+            break;
+        };
+        if count == 0 {
+            break;
+        }
+        let Ok(lines) = framer.push(ProviderOutputStream::Stderr, &buffer[..count]) else {
+            return "provider stderr exceeded the bounded diagnostic limit".to_string();
+        };
+        for line in lines {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(&line);
+        }
+    }
+    if let Ok(Some(tail)) = framer.finish(ProviderOutputStream::Stderr) {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&tail);
+    }
+    let mut end = output.len().min(LIMIT);
+    while !output.is_char_boundary(end) {
+        end -= 1;
+    }
+    output.truncate(end);
+    output
 }
 
 fn launch_command(command: Option<&str>) -> Result<(), AgentRuntimeApplicationError> {

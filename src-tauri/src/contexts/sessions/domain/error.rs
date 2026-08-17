@@ -36,7 +36,6 @@ pub(crate) enum SessionsDomainError {
     InvalidFileReferenceRange,
     DuplicateFileReferencePath(String),
     TooManyFileReferences,
-    UnsupportedChatAgent(String),
     UnsupportedExecutionMode,
     ProviderMismatch {
         provider_id: String,
@@ -106,9 +105,6 @@ impl fmt::Display for SessionsDomainError {
             }
             Self::TooManyFileReferences => {
                 formatter.write_str("At most 5 files can be referenced in one message.")
-            }
-            Self::UnsupportedChatAgent(agent_id) => {
-                write!(formatter, "Unsupported chat agent: {agent_id}.")
             }
             Self::UnsupportedExecutionMode => {
                 formatter.write_str("Unsupported execution mode.")
