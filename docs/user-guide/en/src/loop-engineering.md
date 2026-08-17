@@ -23,7 +23,7 @@ The interface has three columns: **definitions** and **run records** on the left
 4. Add the **verification commands** — the must-pass checks. These are the objective criteria.
 5. Save and start.
 
-![The Loop centre three-column layout with no Loop definitions yet](../assets/screenshots/loop-center-en.png)
+![The Loop centre three-column layout with no Loop definitions yet](assets/screenshots/loop-center-en.png)
 
 ## The five phases of one iteration
 

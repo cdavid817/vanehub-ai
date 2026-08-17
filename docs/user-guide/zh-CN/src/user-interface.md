@@ -12,7 +12,7 @@ VaneHub AI 的界面是一套 React 代码服务两种运行时：桌面端和�
 
 选**新建**打开创建会话对话框，选会话类型（单 Agent / 多 Agent）、Agent、工作区（本地/远端）、项目文件夹、会话名称。Git 项目会标 **Git** 标记并可创建 worktree。多 Agent 时分配席位，见 [多 Agent 群聊](multi-agent-workflow.md)。
 
-![创建会话对话框](../assets/screenshots/create-session-zh-CN.png)
+![创建会话对话框](assets/screenshots/create-session-zh-CN.png)
 
 ### 会话列表
 
@@ -126,7 +126,7 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 左侧活动栏的**循环**管理 Loop 工程：运行列表与检视、运行控件（暂停/继续/取消/接受/拒绝）、验证命令编辑器、时间线。Loop 的概念与创建见 [Loop Engineering 工程](loop-engineering.md)。
 
-![循环中心](../assets/screenshots/loop-center-zh-CN.png)
+![循环中心](assets/screenshots/loop-center-zh-CN.png)
 
 ## 计划中心
 

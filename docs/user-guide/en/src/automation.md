@@ -31,7 +31,7 @@ Select **Scheduled tasks** in the activity bar to open the dialog. Existing task
 
 The interval must be positive. A task card shows its **next run time**, and can be **enabled or disabled** at any time without deleting it.
 
-![The scheduled tasks dialog with the task list on the left and the new-task form on the right](../assets/screenshots/scheduled-tasks-en.png)
+![The scheduled tasks dialog with the task list on the left and the new-task form on the right](assets/screenshots/scheduled-tasks-en.png)
 
 ### How the time is computed
 
@@ -87,7 +87,7 @@ Three auxiliary metrics are also shown: **estimated total characters** (a substi
 
 **"Real-data coverage" is worth watching** — it tells you directly how many responses got real measurement, and when the proportion is low, so is the reference value of the trend chart.
 
-![The Usage Statistics settings page showing token cards, daily trend, and per-Agent usage](../assets/screenshots/usage-en.png)
+![The Usage Statistics settings page showing token cards, daily trend, and per-Agent usage](assets/screenshots/usage-en.png)
 
 ### What the numbers mean
 

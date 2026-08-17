@@ -12,7 +12,7 @@
 
 ## 创建一个 Loop
 
-![循环工程中心的三栏布局，尚无循环定义](../assets/screenshots/loop-center-zh-CN.png)
+![循环工程中心的三栏布局，尚无循环定义](assets/screenshots/loop-center-zh-CN.png)
 
 界面分三栏：左侧是**定义**与**运行记录**，中间是主区域，右侧是**检查器**。首次进入时中间显示「暂无循环定义」。
 

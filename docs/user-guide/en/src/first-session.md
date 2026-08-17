@@ -14,7 +14,7 @@ A session is VaneHub AI's basic unit of work: it binds one workspace and one or 
 6. Fill in the **Session name** (left blank, it becomes "New session").
 7. Select **Create**.
 
-![English create-session dialog using synthetic VaneHub Demo project data](../assets/screenshots/create-session-en.png)
+![English create-session dialog using synthetic VaneHub Demo project data](assets/screenshots/create-session-en.png)
 
 ## Two cases when picking a directory
 

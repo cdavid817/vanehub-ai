@@ -177,7 +177,7 @@ npm run docs:screenshots:update
 
 ### 启动报 `no such table`
 
-多个 worktree 共用同一个数据库时，跨分支的迁移版本号可能撞车。见[《开发者指南》](../../developer/index.html)的开发环境搭建一章。
+多个 worktree 共用同一个数据库时，跨分支的迁移版本号可能撞车。见[《开发者指南》](../../../developer-guide/src/index.md)的开发环境搭建一章。
 
 ## 还是没解决
 

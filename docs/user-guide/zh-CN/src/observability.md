@@ -38,7 +38,7 @@ Span 树分四层：
 
 想看到可展开的完整调用链，用 [OnePiece](native-agent.md)。
 
-![会话的链路标签，显示执行时间线、关联标识与链路拓扑](../assets/screenshots/session-traces-zh-CN.png)
+![会话的链路标签，显示执行时间线、关联标识与链路拓扑](assets/screenshots/session-traces-zh-CN.png)
 
 ### 安全关联标识
 
@@ -69,7 +69,7 @@ Span 树分四层：
 
 日志分四级：**错误 / 警告 / 信息 / 调试**。
 
-![会话的日志标签，带搜索、时间定位与级别筛选](../assets/screenshots/session-logs-zh-CN.png)
+![会话的日志标签，带搜索、时间定位与级别筛选](assets/screenshots/session-logs-zh-CN.png)
 
 > **Web 预览模式不支持导出本地日志。**
 
@@ -77,7 +77,7 @@ Span 树分四层：
 
 在**设置 → 执行可观测性**中配置。页面说明是「关联用户任务、Agent 调用、子进程、工具与托管 MCP 边界，**默认不采集内容**」。
 
-![设置中的执行可观测性页面，本地时间线与 OTLP 导出配置](../assets/screenshots/observability-zh-CN.png)
+![设置中的执行可观测性页面，本地时间线与 OTLP 导出配置](assets/screenshots/observability-zh-CN.png)
 
 ### 本地时间线
 

@@ -1,10 +1,12 @@
 import {
   cpSync,
   mkdirSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { repositoryRoot, run, verifyMdbook } from "./docs-tooling.mjs";
 
 const outputRoot = resolve(repositoryRoot, ".docs-build");
@@ -30,6 +32,48 @@ for (const [source, destination] of books) {
   ]);
 }
 
+/**
+ * Cross-book links are authored as repository-relative Markdown paths, because that is the form
+ * that resolves for a reader on the repository page — the only surface this project publishes.
+ * The authored directory layout does not exist in the assembled site, so rewriting them here
+ * keeps the site correct without authoring against a layout nobody reads.
+ *
+ * mdBook already swaps `.md` for `.html` even on a path that leaves the book, so the built
+ * markup carries `developer-guide/src/x.html`. Both extensions are matched so the rewrite does
+ * not silently stop working if that behaviour changes.
+ */
+const crossBookRewrites = [
+  // From user/<locale>/, the developer guide sits at ../../developer/.
+  [
+    /\.\.\/\.\.\/\.\.\/developer-guide\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
+    "../../developer/$1.html",
+  ],
+  // From developer/, a user guide sits at ../user/<locale>/.
+  [
+    /\.\.\/\.\.\/user-guide\/(en|zh-CN)\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
+    "../user/$1/$2.html",
+  ],
+];
+
+function rewriteCrossBookLinks(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      rewriteCrossBookLinks(path);
+      continue;
+    }
+    if (extname(entry.name).toLowerCase() !== ".html") continue;
+    const before = readFileSync(path, "utf8");
+    let after = before;
+    for (const [pattern, replacement] of crossBookRewrites) {
+      after = after.replace(pattern, replacement);
+    }
+    if (after !== before) writeFileSync(path, after, "utf8");
+  }
+}
+
+rewriteCrossBookLinks(outputRoot);
+
 run("cargo", [
   "doc",
   "--manifest-path",
@@ -45,11 +89,6 @@ run("cargo", [
 });
 
 cpSync(resolve(rustTarget, "doc"), resolve(outputRoot, "api"), { recursive: true });
-cpSync(
-  resolve(repositoryRoot, "docs", "user-guide", "assets"),
-  resolve(outputRoot, "user", "assets"),
-  { recursive: true },
-);
 cpSync(
   resolve(repositoryRoot, "docs", "release-signing.md"),
   resolve(outputRoot, "reference", "release-signing.md"),

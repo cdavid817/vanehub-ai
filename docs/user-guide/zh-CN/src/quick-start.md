@@ -38,7 +38,7 @@ claude
 
 ## 4. 在工作区里干活
 
-![会话工作区，顶部 9 个标签页，右侧信息面板](../assets/screenshots/session-workspace-zh-CN.png)
+![会话工作区，顶部 9 个标签页，右侧信息面板](assets/screenshots/session-workspace-zh-CN.png)
 
 界面分三块：左侧**会话列表**、中间**工作区**、右侧**信息面板**（会话、CLI 工具、运行状态、本次模型、工作区路径）。
 

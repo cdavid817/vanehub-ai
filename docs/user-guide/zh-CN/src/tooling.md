@@ -24,7 +24,7 @@ Skill 的管理见[管理 Skill](skill-management.md)。
 
 支持**导入/导出**。导入时的类型判定规则界面上有说明：显式 `type=sse` 导入为旧版 SSE；`type=http`、`streamable_http` 及未声明类型的 URL 导入为 Streamable HTTP。
 
-![设置中的 MCP 服务器页面，显示用户配置与项目配置两组服务器](../assets/screenshots/mcp-zh-CN.png)
+![设置中的 MCP 服务器页面，显示用户配置与项目配置两组服务器](assets/screenshots/mcp-zh-CN.png)
 
 ### 中继：让外部 CLI 也用上同一套 MCP
 
@@ -38,7 +38,7 @@ VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你
 
 在**设置 → Prompt Hook** 中配置，可在提示词生命周期中插入自定义内容。
 
-![设置中的 Prompt Hook 页面](../assets/screenshots/prompt-hooks-zh-CN.png)
+![设置中的 Prompt Hook 页面](assets/screenshots/prompt-hooks-zh-CN.png)
 
 执行时机分两种：**会话初始化时执行一次**、**每一轮都执行**。
 
@@ -58,7 +58,7 @@ VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你
 
 页面顶部有**已安装 / 运行中 / 异常**三个计数，异常时到操作日志里查原因。
 
-![设置中的扩展能力页面，PaddleOCR 与 faster-whisper 框架卡片](../assets/screenshots/extensions-zh-CN.png)
+![设置中的扩展能力页面，PaddleOCR 与 faster-whisper 框架卡片](assets/screenshots/extensions-zh-CN.png)
 
 > 上图是浏览器预览，因此顶部提示「本地扩展的安装和运行仅在 Tauri 桌面端可用」，框架也标着「当前环境不支持」。
 
@@ -78,7 +78,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 **设置 → CLI 管理**集中查看四个 CLI 的安装状态，顶部有**已安装 / 未安装**计数与**诊断安装冲突**、**刷新检测**、**全部升级**三个操作。
 
-![设置中的 CLI 管理页面，四个 CLI 卡片与本地环境检查](../assets/screenshots/cli-zh-CN.png)
+![设置中的 CLI 管理页面，四个 CLI 卡片与本地环境检查](assets/screenshots/cli-zh-CN.png)
 
 > 上图是**浏览器预览**中的画面，卡片里带着「本地 CLI 检测仅在桌面运行时可用」的提示，因此计数显示为 0/4。**桌面端才会显示你机器上的真实安装状态。**
 

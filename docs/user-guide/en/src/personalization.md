@@ -21,7 +21,7 @@ For example, put "Always answer in Chinese. Lead with the conclusion." under **R
 
 The **Enable custom instructions** switch turns injection off entirely — **new sessions stop applying it, and what you saved is not lost**.
 
-![The Personalization settings page showing the custom instructions and memory sections](../assets/screenshots/personalization-en.png)
+![The Personalization settings page showing the custom instructions and memory sections](assets/screenshots/personalization-en.png)
 
 ## Agent memory
 
@@ -83,7 +83,7 @@ Each role holds:
 
 **Responsibility being required is not a formality**: with it empty, other Agents can only guess when handing off.
 
-![The Expert Roles settings page showing the three built-in roles](../assets/screenshots/expert-roles-en.png)
+![The Expert Roles settings page showing the three built-in roles](assets/screenshots/expert-roles-en.png)
 
 ### Review policy
 

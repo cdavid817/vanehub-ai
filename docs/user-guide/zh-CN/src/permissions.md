@@ -19,7 +19,7 @@ Agent 要执行命令、写文件、调用工具或写记忆时，操作会先�
 | **执行命令** | 拒绝 | **询问** | 放行 | 放行 |
 | **写入文件** | 拒绝 | **询问** | 放行 | 放行 |
 
-![设置中的 Agent 权限策略页面，每个 Agent 一行，四档模板可选](../assets/screenshots/permissions-zh-CN.png)
+![设置中的 Agent 权限策略页面，每个 Agent 一行，四档模板可选](assets/screenshots/permissions-zh-CN.png)
 
 **每个 Agent 单独一行**，可以给不同 Agent 配不同档位。默认是**标准**。
 

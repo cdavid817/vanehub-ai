@@ -167,7 +167,7 @@ sequenceDiagram
 3. Give each seat an **expert role**. The role name derives the **handle** other seats use to `@` it.
 4. Choose the project directory, fill in the session title, and create the session.
 
-![English create-session dialog with Multi Agent selected, showing the seat assignment area](../assets/screenshots/create-session-multi-agent-en.png)
+![English create-session dialog with Multi Agent selected, showing the seat assignment area](assets/screenshots/create-session-multi-agent-en.png)
 
 Three built-in expert roles are ready to use, and you can create your own under **Settings → Expert Roles**.
 
@@ -217,6 +217,6 @@ The supervisor pattern requires one Agent to act as scheduler, which costs token
 
 ## Related
 
-- Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../developer/multi-agent-group-chat.html)
+- Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
 - Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
 - Expert roles and review policy → [Personalization](personalization.md)

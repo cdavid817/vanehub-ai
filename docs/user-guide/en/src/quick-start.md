@@ -55,7 +55,7 @@ There are nine tabs across the top:
 
 Write your task in the input box on the **Workspace** tab. **Enter sends, Shift+Enter inserts a newline.**
 
-![The session workspace with nine tabs across the top and the info panel on the right](../assets/screenshots/session-workspace-en.png)
+![The session workspace with nine tabs across the top and the info panel on the right](assets/screenshots/session-workspace-en.png)
 
 ## 5. What next
 

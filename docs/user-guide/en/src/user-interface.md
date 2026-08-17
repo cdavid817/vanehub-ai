@@ -12,7 +12,7 @@ This chapter walks the interface feature by feature: what each one is and how to
 
 Select **New** to open the create-session dialog, then choose the session type (Single Agent / Multi Agent), the Agent, the workspace (Local/Remote), the project folder, and the session name. A Git project is marked **Git** and can create a worktree. For Multi Agent, assign seats — see [Multi-Agent group chat](multi-agent-workflow.md).
 
-![English create-session dialog using synthetic VaneHub Demo project data](../assets/screenshots/create-session-en.png)
+![English create-session dialog using synthetic VaneHub Demo project data](assets/screenshots/create-session-en.png)
 
 ### Session list
 

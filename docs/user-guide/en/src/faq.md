@@ -78,4 +78,4 @@ Five: Simplified Chinese, English, Traditional Chinese, Japanese, and Korean. Sw
 
 ## Where do I look to understand the internals?
 
-This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../developer/index.html) — written for developers and contributors, with architecture notes and code references.
+This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../../developer-guide/src/index.md) — written for developers and contributors, with architecture notes and code references.
