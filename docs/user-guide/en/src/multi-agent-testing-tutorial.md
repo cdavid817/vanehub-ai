@@ -146,4 +146,4 @@ This is the most important regression point: a member leaving may change the cur
 
 - The full description of the mechanism and its limits → [Multi-Agent group chat](multi-agent-workflow.md)
 - A seat cannot get the turn, or `@` does not trigger → [Troubleshooting](troubleshooting.md)
-- The matching automated tests and implementation detail → [the Developer Guide's multi-Agent group chat chapter](../../developer/multi-agent-group-chat.html)
+- The matching automated tests and implementation detail → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)

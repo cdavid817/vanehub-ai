@@ -26,7 +26,7 @@ Two things are easy to misread:
 - **"Read-only" does not forbid everything** — reading files and writing memories are still allowed.
 - **"Trusted" and "Yolo" have identical policy in practice**; they differ only in how firmly you have to confirm when granting them.
 
-![The Agent Policies settings page, one row per Agent with four selectable templates](../assets/screenshots/permissions-en.png)
+![The Agent Policies settings page, one row per Agent with four selectable templates](assets/screenshots/permissions-en.png)
 
 ## Raising privilege needs confirmation
 

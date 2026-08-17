@@ -38,7 +38,7 @@ Every node in the **trace topology** carries a fidelity badge:
 
 For a fully expandable call chain, use [OnePiece](native-agent.md).
 
-![A session Traces tab showing the execution timeline, correlation identifiers, and trace topology](../assets/screenshots/session-traces-en.png)
+![A session Traces tab showing the execution timeline, correlation identifiers, and trace topology](assets/screenshots/session-traces-en.png)
 
 ### Safe correlation identifiers
 
@@ -71,13 +71,13 @@ Logs have four levels: **error / warn / info / debug**.
 
 > **Exporting local logs is not supported in Web preview mode.**
 
-![A session Logs tab with search, time seeking, and level filtering](../assets/screenshots/session-logs-en.png)
+![A session Logs tab with search, time seeking, and level filtering](assets/screenshots/session-logs-en.png)
 
 ## Collection policy and redaction
 
 Configure this under **Settings → Execution Observability**. The page describes itself as correlating user tasks, Agent calls, subprocesses, tools, and managed MCP boundaries, **with content collection off by default**.
 
-![The Execution Observability settings page with local timeline and OTLP export configuration](../assets/screenshots/observability-en.png)
+![The Execution Observability settings page with local timeline and OTLP export configuration](assets/screenshots/observability-en.png)
 
 ### Local timeline
 

@@ -14,7 +14,7 @@
 6. 填**会话名称**（留空则用「新会话」）。
 7. 选择**创建**。
 
-![使用合成的 VaneHub 示例项目数据创建中文会话](../assets/screenshots/create-session-zh-CN.png)
+![使用合成的 VaneHub 示例项目数据创建中文会话](assets/screenshots/create-session-zh-CN.png)
 
 ## 选目录时的两种情况
 
