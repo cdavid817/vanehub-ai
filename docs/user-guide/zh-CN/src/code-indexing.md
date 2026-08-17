@@ -1,4 +1,4 @@
-# 索引工作区代码
+# 代码索引
 
 工作区代码索引让 OnePiece 无需反复扫描所有文件即可定位定义和相关代码。打开**设置 > Agent 配置 > OnePiece**，先配置 OpenAI-compatible embedding 来源，再使用**工作区代码索引**。
 

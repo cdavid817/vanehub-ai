@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,7 +20,6 @@ const base = `<!-- docs-section:overview -->
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-blue.svg)](package.json)
 [![React](https://img.shields.io/badge/React-19.x-blue.svg)](package.json)
 Node.js 22+
-<!-- feature:coordination status:preview -->
 \`\`\`powershell
 npm run dev
 \`\`\`
@@ -58,17 +57,6 @@ test("accepts translated prose with matching stable facts", () => {
   assert.doesNotThrow(() => checkReadmeParity(files, root));
 });
 
-test("reports the translated file and mismatched feature state without rewriting it", () => {
-  const changed = base.replace("status:preview", "status:delivered");
-  const { root, files } = fixture([base, changed, base]);
-  const before = readFileSync(join(root, files[1]), "utf8");
-  assert.throws(
-    () => checkReadmeParity(files, root),
-    /README\.zh-CN\.md: featureStates differ/,
-  );
-  assert.equal(readFileSync(join(root, files[1]), "utf8"), before);
-});
-
 test("reports command and link drift", () => {
   const changed = base
     .replace("npm run dev", "npm run preview")
@@ -80,10 +68,22 @@ test("reports command and link drift", () => {
 test("accepts guide links that differ inside the locale block", () => {
   const translated = base.replace(
     "[Guide](docs/user-guide/en/src/index.md)",
-    "[用户指南](docs/user-guide/zh-CN/src/index.md)\n[架构与实现](docs/zh/src/README.md)",
+    "[用户指南](docs/user-guide/zh-CN/src/index.md)\n[开发者指南](docs/developer-guide/src/index.md)",
   );
   const { root, files } = fixture([base, translated, base]);
   assert.doesNotThrow(() => checkReadmeParity(files, root));
+});
+
+test("reports a README that references the removed docs/zh topology", () => {
+  const translated = base.replace(
+    "[Guide](docs/user-guide/en/src/index.md)",
+    "[架构与实现](docs/zh/src/README.md)",
+  );
+  const { root, files } = fixture([base, translated, base]);
+  assert.throws(
+    () => checkReadmeParity(files, root),
+    /README\.zh-CN\.md: references removed topology path "docs\/zh\/"/,
+  );
 });
 
 test("reports a translation that drops its locale block", () => {

@@ -19,7 +19,6 @@ const books = [
   ["docs/developer-guide", "developer"],
   ["docs/user-guide/en", "user/en"],
   ["docs/user-guide/zh-CN", "user/zh-CN"],
-  ["docs/zh", "zh"],
 ];
 
 for (const [source, destination] of books) {
@@ -52,11 +51,6 @@ cpSync(
   { recursive: true },
 );
 cpSync(
-  resolve(repositoryRoot, "docs", "architecture"),
-  resolve(outputRoot, "reference", "architecture"),
-  { recursive: true },
-);
-cpSync(
   resolve(repositoryRoot, "docs", "release-signing.md"),
   resolve(outputRoot, "reference", "release-signing.md"),
 );
@@ -77,7 +71,6 @@ writeFileSync(
         <li><a href="user/en/index.html">User Guide — English</a></li>
         <li><a href="user/zh-CN/index.html">用户指南 — 简体中文</a></li>
         <li><a href="developer/index.html">Developer Guide</a></li>
-        <li><a href="zh/index.html">中文文档（功能与架构）— 简体中文</a></li>
         <li><a href="api/vanehub_ai_lib/index.html">Native API Reference</a></li>
       </ul>
     </main>

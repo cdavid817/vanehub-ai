@@ -1,6 +1,6 @@
-# Manage Skills
+# Skill management
 
-**Status: Delivered — desktop and Web/mock UI.** Desktop performs local persistence, CLI Skill mounting, and API Agent prompt binding. Web/mock only simulates the same UI and state transitions; it does not change local files or runtime configuration.
+**Status: Implemented — desktop and Web/mock UI.** Desktop performs local persistence, CLI Skill mounting, and API Agent prompt binding. Web/mock only simulates the same UI and state transitions; it does not change local files or runtime configuration.
 
 ## Understand views and states
 
@@ -17,6 +17,8 @@ Enablement and Agent assignment are two independent dimensions.
 “Enabled” does not mean “assigned to every CLI.” Enabling a Skill that has no assignments does not make any Agent use it and does not remove it from Unassigned.
 
 Disabling a Skill pauses it for every assigned Agent without deleting those assignments. When the Skill is enabled again, only the previously assigned Agents resume using it; unassigned Agents remain unaffected.
+
+![The Skill settings page, grouped by Agent on the left with the Skill list on the right](../assets/screenshots/skills-en.png)
 
 ## Understand effective definitions
 
@@ -48,6 +50,60 @@ When the base package changes, the Overlay reports that reconciliation is requir
 Pinning a Skill preserves healthy Overlays that were already effective, but creation, import, promotion, disable, revert, and reconciliation become read-only. Explicitly unpin the Skill before changing it.
 
 Default limits include 1 MiB per supporting file, an 8 MiB import package, 32 MiB expanded content, 512 archive entries, and 256 mutations. Resource paths are limited to 240 characters and eight components; history rolls into linked 4 MiB segments. Desktop commits manifests, resources, history, and counters in one recoverable transaction, so interruption restores either the complete old revision or the complete new revision. Do not edit Overlay storage or history files manually.
+
+## Evolution evidence
+
+**Evolution evidence** in the Skill detail turns an Agent's structured run outcomes into attributable Skill-improvement signals.
+
+The interface states its current boundary: **read-only evidence; target selection and Skill modification are not active**. It only accumulates evidence and candidate seeds for you to review; it changes no Skill content on its own.
+
+### Where the evidence comes from
+
+Six deterministic extractors, **none of which call an LLM**:
+
+| Extractor | Triggered by |
+| --- | --- |
+| Explicit user feedback | The helpful / correction feedback on a message |
+| Execution and tool failure | Agent, provider, process, tool, permission, timeout, limit, and sandbox events |
+| Verification outcome | Test, build, lint, type, security, specification, and acceptance verification |
+| Retry and recovery delta | A retry or repair attempt against the same task fingerprint after a failure |
+| Delegated Utility outcome | A Utility delegation reaching a terminal state |
+| Usage and lifecycle anomaly | Repeated load refusal, missing dependency, conflict, and so on, only once its deterministic threshold is reached |
+
+One classification is worth calling out on its own: **a user cancelling a run is classified as neutral lifecycle evidence by default and is never automatically treated as a Skill defect.**
+
+### What you see
+
+The list presents signals and candidate seeds, filterable by category, extractor, attribution, and fidelity, and shows the category distribution, Skill revisions, source Agents, occurrence time, and the number of independent runs. Ready entries are marked **Ready for review**, and a candidate seed offers **Inspect lineage** to trace where it came from.
+
+Lineage is bounded, and anything beyond the bound is stated — "N bounded lineage entries were omitted" — rather than silently truncated.
+
+### Privacy and retention
+
+**Only metadata evidence is stored, and it is sanitized before storage.** The interface's own wording: raw prompts, conversations, reasoning, commands, tool results, file contents, credentials, and full paths are not copied.
+
+Sanitization covers twelve classes of sensitive content, including private-key blocks, tokens of every kind, authorization headers and cookies, password and credential assignments, credential-bearing URLs and connection strings, secret environment-variable values, user-home paths, email addresses, phone numbers, IP addresses and internal hostnames, and cloud and tenant identifiers.
+
+Two technical details determine how strong that is:
+
+- **Sanitization runs before fingerprint computation**, so task fingerprints and deduplication keys are not derived from a secret.
+- **A redaction marker carries only its class and an installation-scoped non-reversible correlation token** — not the original value, not a reversible encoding, and not a globally comparable unsalted hash. The same marker cannot be compared against markers from another installation.
+
+Evidence has a retention period and a signal quota, and the interface shows the current values along with how many entries have expired.
+
+### Collection failures do not affect the Agent
+
+Collection status is one of **Collection healthy**, **Collection degraded**, or **Collection disabled**. **None of the three affects the Agent getting its work done:**
+
+- Degraded says "Agent operations were not failed by this pipeline"
+- Disabled says "Existing Agent operations continue normally"
+- A failure to load evidence says "Agent operation is unaffected"
+
+### Purge evidence
+
+**Purge this Skill's evidence** removes only three things: the sanitized signals associated with this Skill and workspace, the dependent candidate seeds and lineage, and the evidence-only feedback projections linked to removed signals.
+
+**Source conversations, traces, logs, usage, Skills, and Overlays remain unchanged.**
 
 ## Typical outcomes
 
