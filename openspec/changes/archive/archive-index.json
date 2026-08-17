@@ -2783,6 +2783,21 @@
     },
     {
       "archivedOn": "2026-08-17",
+      "changeName": "add-agent-mission-control",
+      "path": "openspec/changes/archive/2026-08-17-add-agent-mission-control/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-mission-control",
+        "agent-run-state-management",
+        "main-layout-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-17",
       "changeName": "add-sandboxed-skill-tool-runtime",
       "path": "openspec/changes/archive/2026-08-17-add-sandboxed-skill-tool-runtime/",
       "artifacts": [

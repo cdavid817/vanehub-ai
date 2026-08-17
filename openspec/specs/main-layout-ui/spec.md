@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the workspace shell layout, sidebar session organization, main content sizing, collapsible information panel behavior, keep-alive panel tabs, and internal scrolling rules shared by the Tauri desktop frontend and browser Web runtime.
+
 ## Requirements
+
 ### Requirement: Workspace activity bar
 The workspace shell SHALL render a persistent icon-only activity bar at the far left of the workspace body in both the Tauri desktop frontend and browser Web runtime.
 
@@ -908,3 +910,14 @@ Opening the create-session dialog SHALL be expressible as a route.
 - **WHEN** the user closes the create-session dialog without creating a session
 - **THEN** the workspace SHALL return to the destination route it came from
 
+### Requirement: Mission Control workspace destination
+The workspace activity bar SHALL expose a localized icon-only Mission Control destination in both Tauri and Web runtimes, preserve mounted Session workspace state while it is active, and remain operable at desktop and narrow widths.
+
+#### Scenario: Open Mission Control
+- **WHEN** the user activates the Mission Control activity entry
+- **THEN** the workspace opens the Mission Control surface without a runtime-specific component branch
+- **AND** preserves the selected Session and its mounted tab state for return
+
+#### Scenario: Identify Mission Control entry
+- **WHEN** the Mission Control icon-only entry is available
+- **THEN** it provides localized accessible name, tooltip, focus, hover, and active states without shifting adjacent entries
