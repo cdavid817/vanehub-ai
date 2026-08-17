@@ -6,7 +6,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/create-session-en.png"
+      "path": "en/src/assets/screenshots/create-session-en.png"
     },
     {
       "id": "create-session-zh-CN",
@@ -14,7 +14,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/create-session-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/create-session-zh-CN.png"
     },
     {
       "id": "create-session-multi-agent-zh-CN",
@@ -22,7 +22,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/create-session-multi-agent-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/create-session-multi-agent-zh-CN.png"
     },
     {
       "id": "create-session-multi-agent-en",
@@ -30,7 +30,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/create-session-multi-agent-en.png"
+      "path": "en/src/assets/screenshots/create-session-multi-agent-en.png"
     },
     {
       "id": "permissions-zh-CN",
@@ -38,7 +38,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/permissions-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/permissions-zh-CN.png"
     },
     {
       "id": "permissions-en",
@@ -46,7 +46,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/permissions-en.png"
+      "path": "en/src/assets/screenshots/permissions-en.png"
     },
     {
       "id": "personalization-zh-CN",
@@ -54,7 +54,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/personalization-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/personalization-zh-CN.png"
     },
     {
       "id": "personalization-en",
@@ -62,7 +62,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/personalization-en.png"
+      "path": "en/src/assets/screenshots/personalization-en.png"
     },
     {
       "id": "expert-roles-zh-CN",
@@ -70,7 +70,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/expert-roles-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/expert-roles-zh-CN.png"
     },
     {
       "id": "expert-roles-en",
@@ -78,7 +78,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/expert-roles-en.png"
+      "path": "en/src/assets/screenshots/expert-roles-en.png"
     },
     {
       "id": "mcp-zh-CN",
@@ -86,7 +86,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/mcp-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/mcp-zh-CN.png"
     },
     {
       "id": "mcp-en",
@@ -94,7 +94,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/mcp-en.png"
+      "path": "en/src/assets/screenshots/mcp-en.png"
     },
     {
       "id": "cli-zh-CN",
@@ -102,7 +102,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/cli-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/cli-zh-CN.png"
     },
     {
       "id": "cli-en",
@@ -110,7 +110,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/cli-en.png"
+      "path": "en/src/assets/screenshots/cli-en.png"
     },
     {
       "id": "usage-zh-CN",
@@ -118,7 +118,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/usage-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/usage-zh-CN.png"
     },
     {
       "id": "usage-en",
@@ -126,7 +126,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/usage-en.png"
+      "path": "en/src/assets/screenshots/usage-en.png"
     },
     {
       "id": "loop-center-zh-CN",
@@ -134,7 +134,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/loop-center-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/loop-center-zh-CN.png"
     },
     {
       "id": "loop-center-en",
@@ -142,7 +142,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/loop-center-en.png"
+      "path": "en/src/assets/screenshots/loop-center-en.png"
     },
     {
       "id": "skills-zh-CN",
@@ -150,7 +150,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/skills-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/skills-zh-CN.png"
     },
     {
       "id": "skills-en",
@@ -158,7 +158,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/skills-en.png"
+      "path": "en/src/assets/screenshots/skills-en.png"
     },
     {
       "id": "prompt-hooks-zh-CN",
@@ -166,7 +166,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/prompt-hooks-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/prompt-hooks-zh-CN.png"
     },
     {
       "id": "prompt-hooks-en",
@@ -174,7 +174,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/prompt-hooks-en.png"
+      "path": "en/src/assets/screenshots/prompt-hooks-en.png"
     },
     {
       "id": "im-zh-CN",
@@ -182,7 +182,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/im-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/im-zh-CN.png"
     },
     {
       "id": "im-en",
@@ -190,7 +190,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/im-en.png"
+      "path": "en/src/assets/screenshots/im-en.png"
     },
     {
       "id": "ssh-zh-CN",
@@ -198,7 +198,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/ssh-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/ssh-zh-CN.png"
     },
     {
       "id": "ssh-en",
@@ -206,7 +206,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/ssh-en.png"
+      "path": "en/src/assets/screenshots/ssh-en.png"
     },
     {
       "id": "extensions-zh-CN",
@@ -214,7 +214,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/extensions-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/extensions-zh-CN.png"
     },
     {
       "id": "extensions-en",
@@ -222,7 +222,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/extensions-en.png"
+      "path": "en/src/assets/screenshots/extensions-en.png"
     },
     {
       "id": "observability-zh-CN",
@@ -230,7 +230,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/observability-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/observability-zh-CN.png"
     },
     {
       "id": "observability-en",
@@ -238,7 +238,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/observability-en.png"
+      "path": "en/src/assets/screenshots/observability-en.png"
     },
     {
       "id": "scheduled-tasks-zh-CN",
@@ -246,7 +246,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/scheduled-tasks-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/scheduled-tasks-zh-CN.png"
     },
     {
       "id": "scheduled-tasks-en",
@@ -254,7 +254,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/scheduled-tasks-en.png"
+      "path": "en/src/assets/screenshots/scheduled-tasks-en.png"
     },
     {
       "id": "session-workspace-zh-CN",
@@ -262,7 +262,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-workspace-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/session-workspace-zh-CN.png"
     },
     {
       "id": "session-workspace-en",
@@ -270,7 +270,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-workspace-en.png"
+      "path": "en/src/assets/screenshots/session-workspace-en.png"
     },
     {
       "id": "session-traces-zh-CN",
@@ -278,7 +278,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-traces-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/session-traces-zh-CN.png"
     },
     {
       "id": "session-traces-en",
@@ -286,7 +286,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-traces-en.png"
+      "path": "en/src/assets/screenshots/session-traces-en.png"
     },
     {
       "id": "session-logs-zh-CN",
@@ -294,7 +294,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-logs-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/session-logs-zh-CN.png"
     },
     {
       "id": "session-logs-en",
@@ -302,7 +302,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/session-logs-en.png"
+      "path": "en/src/assets/screenshots/session-logs-en.png"
     },
     {
       "id": "im-connected-zh-CN",
@@ -310,7 +310,7 @@
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/im-connected-zh-CN.png"
+      "path": "zh-CN/src/assets/screenshots/im-connected-zh-CN.png"
     },
     {
       "id": "im-connected-en",
@@ -318,7 +318,7 @@
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/im-connected-en.png"
+      "path": "en/src/assets/screenshots/im-connected-en.png"
     }
   ]
 }

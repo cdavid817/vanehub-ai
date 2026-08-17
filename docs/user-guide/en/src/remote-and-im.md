@@ -12,7 +12,7 @@
 
 Add the host, port, user, and authentication details under **Settings → SSH Connections**. Credentials are handed to the operating system keychain.
 
-![The SSH Connections settings page](../assets/screenshots/ssh-en.png)
+![The SSH Connections settings page](assets/screenshots/ssh-en.png)
 
 ### The first connection asks you to confirm the host key
 
@@ -48,7 +48,7 @@ Five connectors can be configured under **Settings → IM Connectors**:
 
 Before configuring, you need to create an application on the corresponding open platform and obtain its credentials.
 
-![The IM Connectors settings page with the default route and five connectors](../assets/screenshots/im-en.png)
+![The IM Connectors settings page with the default route and five connectors](assets/screenshots/im-en.png)
 
 ### Configure the default route first
 
@@ -80,7 +80,7 @@ Connectors have seven states, two of which are easy to confuse:
 
 They are displayed separately and never conflated.
 
-![The Feishu connector shown in a connected state on the IM page](../assets/screenshots/im-connected-en.png)
+![The Feishu connector shown in a connected state on the IM page](assets/screenshots/im-connected-en.png)
 
 ### Sessions triggered from IM
 

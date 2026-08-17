@@ -115,4 +115,4 @@ Any operation labeled **Web/mock only** is not evidence that anything really hap
 
 ## Looking for implementation detail?
 
-This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../developer/index.html) — it is written for developers and contributors and points at the code.
+This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../../developer-guide/src/index.md) — it is written for developers and contributors and points at the code.

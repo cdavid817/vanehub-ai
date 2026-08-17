@@ -31,7 +31,7 @@
 
 间隔必须为正数。任务卡片会显示**下次运行时间**，可随时**启用 / 停用**，不必删除。
 
-![定时任务对话框，左侧任务列表与右侧新建表单](../assets/screenshots/scheduled-tasks-zh-CN.png)
+![定时任务对话框，左侧任务列表与右侧新建表单](assets/screenshots/scheduled-tasks-zh-CN.png)
 
 ### 时间怎么算
 
@@ -87,7 +87,7 @@
 
 **「真实数据覆盖率」值得留意**——它直接告诉你有多少响应拿到了真实计量，比例低时趋势图的参考价值也随之下降。
 
-![设置中的使用统计页面，显示 Token 卡片、每日趋势与 Agent 使用量](../assets/screenshots/usage-zh-CN.png)
+![设置中的使用统计页面，显示 Token 卡片、每日趋势与 Agent 使用量](assets/screenshots/usage-zh-CN.png)
 
 ### 数据口径
 

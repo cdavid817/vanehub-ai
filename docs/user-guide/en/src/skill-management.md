@@ -18,7 +18,7 @@ Enablement and Agent assignment are two independent dimensions.
 
 Disabling a Skill pauses it for every assigned Agent without deleting those assignments. When the Skill is enabled again, only the previously assigned Agents resume using it; unassigned Agents remain unaffected.
 
-![The Skill settings page, grouped by Agent on the left with the Skill list on the right](../assets/screenshots/skills-en.png)
+![The Skill settings page, grouped by Agent on the left with the Skill list on the right](assets/screenshots/skills-en.png)
 
 ## Understand effective definitions
 

@@ -21,7 +21,7 @@
 
 用**启用自定义指令**开关可整体停用注入——**关闭后新会话不再应用，已保存的内容不会丢失**。
 
-![设置中的个性化页面，显示自定义指令与记忆两个区块](../assets/screenshots/personalization-zh-CN.png)
+![设置中的个性化页面，显示自定义指令与记忆两个区块](assets/screenshots/personalization-zh-CN.png)
 
 ## Agent 记忆
 
@@ -70,7 +70,7 @@ Agent 在会话中发现的项目约定会被自动记下，下次开新会话�
 
 > **内置角色只读**。要基于它们调整，点卡片右侧的复制按钮得到一份可编辑的版本。
 
-![设置中的专家角色页面，显示三个内置角色](../assets/screenshots/expert-roles-zh-CN.png)
+![设置中的专家角色页面，显示三个内置角色](assets/screenshots/expert-roles-zh-CN.png)
 
 每个角色包含：
 

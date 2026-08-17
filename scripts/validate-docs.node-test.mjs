@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   boundedContextDrift,
+  headingIds,
   documentedBoundedContexts,
   hasDocumentedSymbol,
+  normalizeHeadingId,
   unclosableEmphasis,
   validateNativeBoundaryContent,
 } from "./validate-docs.mjs";
@@ -118,4 +120,38 @@ test("accepts a table that matches the directories exactly", () => {
     boundedContextDrift(["agent_runtime", "work_board"], ["agent_runtime", "work_board"]),
     { stale: [], undocumented: [] },
   );
+});
+
+test("keeps a hyphen inside a word and drops punctuation around it", () => {
+  // The defect this check exists for: a link guessed `planagent` where mdBook keeps the hyphen.
+  assert.equal(normalizeHeadingId("Plan-Agent loop"), "plan-agent-loop");
+  assert.equal(
+    normalizeHeadingId("Fidelity: why some nodes do not expand"),
+    "fidelity-why-some-nodes-do-not-expand",
+  );
+});
+
+test("keeps CJK characters and lowercases only ASCII", () => {
+  assert.equal(
+    normalizeHeadingId("\u7b2c 24 \u7ae0 OnePiece \u539f\u751f Plan-Agent \u5faa\u73af"),
+    "\u7b2c-24-\u7ae0-onepiece-\u539f\u751f-plan-agent-\u5faa\u73af",
+  );
+});
+
+test("suffixes repeated headings the way mdBook does", () => {
+  const ids = headingIds("<memory>", ["## Limits", "", "## Limits", "", "## Limits"].join("\n"));
+  assert.deepEqual([...ids], ["limits", "limits-1", "limits-2"]);
+});
+
+test("ignores headings inside fenced code and strips inline markup", () => {
+  const ids = headingIds("<memory>", [
+    "## **Bold** heading",
+    "",
+    "```text",
+    "## not a heading",
+    "```",
+    "",
+    "## A [linked](target.md) heading",
+  ].join("\n"));
+  assert.deepEqual([...ids].sort(), ["a-linked-heading", "bold-heading"]);
 });

@@ -114,3 +114,52 @@ Coverage SHALL describe the capability's user-visible behavior using the labels 
 - **WHEN** the authoritative guide gains coverage for a capability while another locale's guide is in a declared transition
 - **THEN** that locale SHALL represent the new chapter in its navigation as an explicit known gap
 - **AND** it SHALL NOT silently omit the chapter
+
+### Requirement: Guide media resolves from the authored source
+
+An image reference in a guide chapter SHALL resolve from that chapter's committed location, not only from a location produced by a build step. A reference that resolves solely in an assembled-site layout SHALL be treated as broken.
+
+Documentation validation MUST NOT rewrite an authored path to a location the path does not name in order to make it resolve. Where an authored path cannot resolve as written, validation SHALL report it.
+
+#### Scenario: A chapter image is read from the repository
+
+- **WHEN** a reader opens a guide chapter's Markdown at its committed path
+- **THEN** every image the chapter references SHALL resolve to a committed file
+- **AND** it SHALL do so without depending on a directory that a build step creates
+
+#### Scenario: Validation compensates for a path instead of reporting it
+
+- **WHEN** documentation validation resolves an authored media path by substituting a different directory from the one the path names
+- **THEN** that substitution SHALL be treated as a defect in the authored path rather than as validation behavior to preserve
+
+#### Scenario: A media path is authored incorrectly
+
+- **WHEN** a chapter references an image by a path that resolves in neither the repository nor the assembled site
+- **THEN** documentation validation SHALL fail and name the chapter and the unresolved path
+
+#### Scenario: A locale's media is scoped to that locale
+
+- **WHEN** a capture exists for one guide locale only
+- **THEN** it SHALL be stored under that locale's book rather than in a location shared with a locale that does not reference it
+
+### Requirement: A link resolves at its anchor, not only its file
+
+Where a documentation link carries a fragment, the fragment SHALL identify a heading that exists in the target document. Documentation validation SHALL verify the fragment, not only the file, using the heading-identifier rules of the documentation toolchain.
+
+A link SHALL be authored for the surface that entry points direct readers to. Where a project publishes no assembled site, a link that resolves only in an assembled site SHALL be treated as broken.
+
+#### Scenario: A fragment names no heading
+
+- **WHEN** a link's fragment does not match any heading identifier in the target document
+- **THEN** documentation validation SHALL fail and name the linking file, the target, and the fragment
+
+#### Scenario: A fragment is only checked as a file today
+
+- **WHEN** documentation validation strips a fragment before checking a target
+- **THEN** that SHALL be treated as missing coverage rather than as intended behavior
+
+#### Scenario: Authored links follow the read surface
+
+- **WHEN** entry points direct readers to documentation in one form and the project publishes no other form
+- **THEN** cross-document links SHALL resolve in that form
+- **AND** any transformation needed by a generated form SHALL be applied when generating it, not by authoring against it

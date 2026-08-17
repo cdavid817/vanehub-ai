@@ -24,7 +24,7 @@ Each server card can **test** its connection, and a passing test lists the tools
 
 **Import/Export** is supported. The type-inference rules on import are stated in the interface: an explicit `type=sse` imports as Legacy SSE; `type=http`, `streamable_http`, and a URL with no declared type import as Streamable HTTP.
 
-![The MCP Servers settings page showing user and project configuration groups](../assets/screenshots/mcp-en.png)
+![The MCP Servers settings page showing user and project configuration groups](assets/screenshots/mcp-en.png)
 
 ### Relay: let external CLIs use the same MCP servers
 
@@ -42,7 +42,7 @@ There are two execution points: **once at session initialization**, and **on eve
 
 > **Prompt hooks can only be bound to the four external CLI Agents and do not apply to OnePiece** — the native Agent has its own core-instruction mechanism.
 
-![The Prompt Hooks settings page](../assets/screenshots/prompt-hooks-en.png)
+![The Prompt Hooks settings page](assets/screenshots/prompt-hooks-en.png)
 
 ## Extension capabilities
 
@@ -58,7 +58,7 @@ What **Settings → Extension Capabilities** installs is **local multimodal AI c
 
 The top of the page has three counters, **Installed / Running / Errors**; when something errors, check the operation logs for the reason.
 
-![The Extension Capabilities settings page with the PaddleOCR and faster-whisper framework cards](../assets/screenshots/extensions-en.png)
+![The Extension Capabilities settings page with the PaddleOCR and faster-whisper framework cards](assets/screenshots/extensions-en.png)
 
 ## Plugin integrations
 
@@ -89,7 +89,7 @@ The third is the most insidious — you believe you are using A while B is what 
 
 **Whether VaneHub AI can upgrade for you depends on the install source**: with a manual installation or an unrecognized source, all it can do is tell you to handle it yourself.
 
-![The CLI Management settings page with CLI cards and the local environment check](../assets/screenshots/cli-en.png)
+![The CLI Management settings page with CLI cards and the local environment check](assets/screenshots/cli-en.png)
 
 ### CLI parameters
 

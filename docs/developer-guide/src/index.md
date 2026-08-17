@@ -23,6 +23,24 @@ Use this guide when you need to answer:
 
 The reference chapter is generated, and is intentionally separate from this narrative guide.
 
+## Other documents in this repository
+
+These live outside the guide's chapter list but are part of the repository's documentation.
+
+| Document | What it covers |
+| --- | --- |
+| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for Claude Code, OpenCode, and Codex CLI, and why saving one never changes the active Agent or Session |
+| [Native build performance](../../build-performance.md) | Platform linker requirements, release-profile behavior, and measured build evidence |
+| [Release signing](../../release-signing.md) | The signing and verification chain for published artifacts |
+
+### Point-in-time surveys
+
+**These are snapshots, not maintained narrative.** They describe the system as of the revision they name, and their `文件:行号` references are anchored to that revision — which is where they are most likely to have drifted. Read them for how a subsystem was shaped, and treat the chapters above and the specs as current.
+
+| Document | Written against |
+| --- | --- |
+| [VaneHub AI 技术架构深度解析](../../VaneHub-AI-技术架构深度解析.md) (Simplified Chinese) | Commit `bb3d28d8`, 2026-08 |
+
 ## Documentation status
 
 This guide documents the `main` branch architecture. A feature is not considered user-delivered merely because a service or native command exists; a user-visible path and its verification evidence must also exist.

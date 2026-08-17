@@ -1,6 +1,6 @@
 # VaneHub AI 用户指南
 
-<a href="../en/index.html">English</a>
+<a href="../../en/src/index.md">English</a>
 
 本指南面向**使用 VaneHub AI 的开发者**，讲清怎么装、怎么用、出问题怎么查。
 
@@ -61,7 +61,7 @@
 
 ## 本指南不讲什么
 
-**内部实现与设计动机不在这里**。想了解架构如何切分、某个机制为什么这样设计、代码在哪，见[《VaneHub AI 开发者指南》](../../developer/index.html)——它面向开发者与贡献者，架构决策记录在 [Native 架构清单](../../developer/index.html) 指向的 `src-tauri/ARCHITECTURE.md`。
+**内部实现与设计动机不在这里**。想了解架构如何切分、某个机制为什么这样设计、代码在哪，见[《VaneHub AI 开发者指南》](../../../developer-guide/src/index.md)——它面向开发者与贡献者，架构决策记录在 [Native 架构清单](../../../developer-guide/src/index.md) 指向的 `src-tauri/ARCHITECTURE.md`。
 
 两者分工：
 
@@ -69,9 +69,9 @@
 | --- | --- |
 | 这个按钮点了会怎样 | 本指南 |
 | 出错了怎么办 | 本指南的[故障排查](troubleshooting.md) |
-| 这个功能为什么这样设计 | [开发者指南](../../developer/index.html) |
-| 代码在哪个文件 | [开发者指南](../../developer/index.html) |
+| 这个功能为什么这样设计 | [开发者指南](../../../developer-guide/src/index.md) |
+| 代码在哪个文件 | [开发者指南](../../../developer-guide/src/index.md) |
 
 ## 英文版
 
-英文用户指南已覆盖与本指南相同的全部章节。见 <a href="../en/index.html">English</a>。
+英文用户指南已覆盖与本指南相同的全部章节。见 <a href="../../en/src/index.md">English</a>。

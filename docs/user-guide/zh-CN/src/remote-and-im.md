@@ -12,7 +12,7 @@
 
 在**设置 → SSH 连接**中添加主机、端口、用户与认证信息。凭据交由操作系统的密钥链保存。
 
-![设置中的 SSH 连接页面](../assets/screenshots/ssh-zh-CN.png)
+![设置中的 SSH 连接页面](assets/screenshots/ssh-zh-CN.png)
 
 ### 首次连接会要求确认主机密钥
 
@@ -48,7 +48,7 @@
 
 配置前需要先在对应开放平台创建应用并获取凭据。
 
-![设置中的 IM 能力页面，默认路由与五个连接器](../assets/screenshots/im-zh-CN.png)
+![设置中的 IM 能力页面，默认路由与五个连接器](assets/screenshots/im-zh-CN.png)
 
 ### 先配默认路由
 
@@ -73,7 +73,7 @@
 
 启用成功后，连接器会显示**已连接**徽标与更新时间。
 
-![IM 页面中飞书连接器处于已连接状态](../assets/screenshots/im-connected-zh-CN.png)
+![IM 页面中飞书连接器处于已连接状态](assets/screenshots/im-connected-zh-CN.png)
 
 > 上图是**浏览器预览中的模拟态**——页面顶部的提示已说明「仅模拟连接器操作，不能接收平台实时消息，也不会安全保存凭据」。**它展示的是界面形态，不代表真的连上了飞书**。真实连接需要桌面端与有效的开放平台凭据。
 
