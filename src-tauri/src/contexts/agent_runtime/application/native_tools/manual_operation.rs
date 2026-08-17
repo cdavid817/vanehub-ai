@@ -26,7 +26,7 @@ impl ManualOperationRecorder {
         id: &str,
         request: &ManualNativeToolRequest,
         generation_id: &str,
-    ) -> Self {
+    ) -> Result<Self, ()> {
         let now = Utc::now().to_rfc3339();
         let recorder = Self {
             port,
@@ -45,8 +45,8 @@ impl ManualOperationRecorder {
                 updated_at: now,
             }),
         };
-        recorder.persist();
-        recorder
+        recorder.persist()?;
+        Ok(recorder)
     }
 
     pub(super) fn transition(
@@ -62,7 +62,8 @@ impl ManualOperationRecorder {
             record.result_artifact_ids = artifacts;
             record.updated_at = Utc::now().to_rfc3339();
         }
-        self.persist();
+        // The infrastructure port records a redacted diagnostic before returning an error.
+        let _ = self.persist();
     }
 
     pub(super) fn complete(&self, result: &NativeToolResultEnvelope) {
@@ -78,10 +79,9 @@ impl ManualOperationRecorder {
         );
     }
 
-    fn persist(&self) {
-        if let Ok(record) = self.record.lock() {
-            let _ = self.port.save(&record);
-        }
+    fn persist(&self) -> Result<(), ()> {
+        let record = self.record.lock().map_err(|_| ())?;
+        self.port.save(&record)
     }
 }
 
@@ -97,7 +97,8 @@ impl NativeToolProgressSink for ManualOperationRecorder {
             record.progress_message = progress.message;
             record.updated_at = Utc::now().to_rfc3339();
         }
-        self.persist();
+        // Progress delivery cannot fail the tool call after execution has started.
+        let _ = self.persist();
     }
 }
 

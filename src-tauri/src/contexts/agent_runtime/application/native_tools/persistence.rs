@@ -210,6 +210,15 @@ pub(crate) struct RecoveryRecord {
     pub(crate) updated_at: String,
 }
 
+pub(crate) trait NativeToolPersistencePort: Send + Sync {
+    fn save_delegation(&self, record: &DelegationRecord) -> Result<(), ()>;
+    fn save_delegation_attempt(&self, record: &DelegationAttemptRecord) -> Result<(), ()>;
+    fn insert_change_set(&self, record: &ChangeSetRecord) -> Result<(), ()>;
+    fn save_apply_attempt(&self, record: &ChangeSetApplyRecord) -> Result<(), ()>;
+    fn is_change_set_available(&self, artifact_id: &str) -> Result<bool, ()>;
+    fn save_recovery(&self, record: &RecoveryRecord) -> Result<(), ()>;
+}
+
 #[cfg(test)]
 #[path = "persistence_tests.rs"]
 mod tests;

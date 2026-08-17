@@ -1,6 +1,6 @@
-# Use live LSP code intelligence
+# LSP code intelligence
 
-> **Feature state:** Delivered for the Tauri desktop runtime and local workspaces. Web/mock mode provides deterministic settings and status previews only; it does not inspect files or launch a language server.
+> **Feature state:** Implemented for the Tauri desktop runtime and local workspaces. Web/mock mode provides deterministic settings and status previews only; it does not inspect files or launch a language server.
 
 Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace.
 

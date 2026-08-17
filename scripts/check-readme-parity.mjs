@@ -157,11 +157,20 @@ export function checkReadmeParity(files = defaultFiles, root = repositoryRoot) {
   const [canonical, ...translations] = analyses;
   const errors = [];
 
+  // The docs/zh/ book was removed by rebuild-project-documentation-topology. No README may
+  // reference it; a reference means a migration was missed or the removed topology was
+  // reintroduced. EN/ZH-CN/JA all carry the Documentation section, so all are covered here.
+  for (const { file, content } of analyses) {
+    if (content.includes("docs/zh/")) {
+      errors.push(
+        `${file}: references removed topology path "docs/zh/". ` +
+          "Point at the surviving user-guide/developer-guide or src-tauri/ARCHITECTURE.md instead.",
+      );
+    }
+  }
+
   if (canonical.analysis.sections.length === 0) {
     errors.push(`${canonical.file}: no docs-section markers found.`);
-  }
-  if (canonical.analysis.featureStates.length === 0) {
-    errors.push(`${canonical.file}: no feature status markers found.`);
   }
   if (canonical.analysis.localeGuides.length !== 1) {
     errors.push(`${canonical.file}: expected exactly one docs-locale-guides block.`);
@@ -183,7 +192,6 @@ export function checkReadmeParity(files = defaultFiles, root = repositoryRoot) {
       "commands",
       "links",
       "facts",
-      "featureStates",
       "localeGuides",
     ]) {
       compareArray(

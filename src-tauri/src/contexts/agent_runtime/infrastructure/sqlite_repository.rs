@@ -64,18 +64,28 @@ impl AgentRegistryRepository for SqliteAgentRuntimeRepository {
     fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
         let connection = self.connection()?;
         let mut statement = connection
-            .prepare("SELECT id FROM agents ORDER BY display_name")
+            .prepare(
+                "SELECT id, display_name, provider, launch_kind, launch_command, \
+                 launch_url, executable_name, managed_sdk_dependency_id, model_id, \
+                 interface_format, base_url, agent_origin \
+                 FROM agents ORDER BY display_name",
+            )
             .map_err(registry_error)?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))
+        let rows = statement
+            .query_map([], AgentRow::read)
             .map_err(registry_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(registry_error)?;
-        ids.into_iter()
-            .map(|agent_id| {
-                self.find_in(&connection, &agent_id)?.ok_or_else(|| {
-                    AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string())
-                })
+        let mut modes = load_all_modes(&connection)?;
+        let mut tags = load_all_tags(&connection)?;
+        rows.into_iter()
+            .map(|row| {
+                let agent_id = row.id.clone();
+                row.into_domain_with_relationships(
+                    modes.remove(&agent_id).unwrap_or_default(),
+                    tags.remove(&agent_id).unwrap_or_default(),
+                    self.availability.as_ref(),
+                )
             })
             .collect()
     }
@@ -639,6 +649,15 @@ impl AgentRow {
     ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
         let modes = load_modes(connection, &self.id)?;
         let capability_tags = load_tags(connection, &self.id)?;
+        self.into_domain_with_relationships(modes, capability_tags, availability)
+    }
+
+    fn into_domain_with_relationships(
+        self,
+        modes: Vec<InteractionMode>,
+        capability_tags: Vec<String>,
+        availability: &dyn AgentAvailabilityGateway,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
         let availability = if self.launch_kind == "api" {
             let has_model = self
                 .model_id
@@ -726,6 +745,47 @@ fn load_tags(
     tags
 }
 
+fn load_all_modes(
+    connection: &Connection,
+) -> Result<BTreeMap<String, Vec<InteractionMode>>, AgentRuntimeApplicationError> {
+    let mut statement = connection
+        .prepare("SELECT agent_id, mode FROM agent_modes ORDER BY agent_id, mode")
+        .map_err(registry_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(registry_error)?;
+    let mut modes = BTreeMap::new();
+    for row in rows {
+        let (agent_id, mode) = row.map_err(registry_error)?;
+        modes
+            .entry(agent_id)
+            .or_insert_with(Vec::new)
+            .push(InteractionMode::parse(&mode)?);
+    }
+    Ok(modes)
+}
+
+fn load_all_tags(
+    connection: &Connection,
+) -> Result<BTreeMap<String, Vec<String>>, AgentRuntimeApplicationError> {
+    let mut statement = connection
+        .prepare("SELECT agent_id, tag FROM agent_capability_tags ORDER BY agent_id, tag")
+        .map_err(registry_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(registry_error)?;
+    let mut tags = BTreeMap::new();
+    for row in rows {
+        let (agent_id, tag) = row.map_err(registry_error)?;
+        tags.entry(agent_id).or_insert_with(Vec::new).push(tag);
+    }
+    Ok(tags)
+}
+
 fn native_desktop_supported() -> bool {
     cfg!(any(
         target_os = "windows",
@@ -784,6 +844,25 @@ mod tests {
                 },
             )
             .expect("register")
+    }
+
+    #[test]
+    fn batched_list_matches_single_agent_hydration() {
+        let (_directory, repository) = fixture("agent-batched-list");
+        register_test_agent(&repository, "batched-agent");
+        let expected = repository
+            .find("batched-agent")
+            .expect("find")
+            .expect("registered agent");
+
+        let actual = repository
+            .list()
+            .expect("list")
+            .into_iter()
+            .find(|agent| agent.id().as_str() == "batched-agent")
+            .expect("listed agent");
+
+        assert_eq!(actual, expected);
     }
 
     fn seed_session(repository: &SqliteAgentRuntimeRepository, agent_id: &str) {

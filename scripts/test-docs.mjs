@@ -7,7 +7,6 @@ for (const book of [
   "docs/developer-guide",
   "docs/user-guide/en",
   "docs/user-guide/zh-CN",
-  "docs/zh",
 ]) {
   run("mdbook", ["test", resolve(repositoryRoot, book)]);
 }

@@ -38,17 +38,6 @@ function resolveAuthoredTarget(file, target) {
   }
   if (
     file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
-    target.startsWith("../reference/architecture/")
-  ) {
-    return resolve(
-      repositoryRoot,
-      "docs",
-      "architecture",
-      target.slice("../reference/architecture/".length),
-    );
-  }
-  if (
-    file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
     target === "../reference/release-signing.md"
   ) {
     return resolve(repositoryRoot, "docs", "release-signing.md");
@@ -59,19 +48,23 @@ function resolveAuthoredTarget(file, target) {
   ) {
     return resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md");
   }
-  // `docs/zh` links to the sibling books by their assembled-site paths, the same way
-  // `developer-guide` links to `../reference/`. Map them back to the authored sources.
-  if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../user/zh-CN/index.html") {
-    return resolve(repositoryRoot, "docs", "user-guide", "zh-CN", "src", "index.md");
+  // The two books cross-link by assembled-site path, not by authored path, because that is
+  // what resolves for a reader. Map those back to the authored source so the link check
+  // resolves against a real file instead of a directory that only exists after a build.
+  //
+  // From docs/user-guide/<locale>/src/, the developer guide is `../../developer/<page>.html`.
+  const developerPage = file.includes(`${sep}docs${sep}user-guide${sep}`)
+    && /^\.\.\/\.\.\/developer\/([a-z0-9-]+)\.html$/.exec(target);
+  if (developerPage) {
+    return resolve(repositoryRoot, "docs", "developer-guide", "src", `${developerPage[1]}.md`);
   }
-  if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../developer/index.html") {
-    return resolve(repositoryRoot, "docs", "developer-guide", "src", "index.md");
-  }
-  if (
-    file.includes(`${sep}docs${sep}user-guide${sep}zh-CN${sep}`) &&
-    target.startsWith("../../zh/")
-  ) {
-    return resolve(repositoryRoot, "docs", "zh", "src", "README.md");
+  // From docs/developer-guide/src/, a user guide is `../../user/<locale>/<page>.html`.
+  const userPage = file.includes(`${sep}docs${sep}developer-guide${sep}`)
+    && /^\.\.\/\.\.\/user\/(en|zh-CN)\/([a-z0-9-]+)\.html$/.exec(target);
+  if (userPage) {
+    return resolve(
+      repositoryRoot, "docs", "user-guide", userPage[1], "src", `${userPage[2]}.md`,
+    );
   }
   return resolve(dirname(file), target);
 }
@@ -311,7 +304,6 @@ function validateAssembled(errors) {
     ".docs-build/developer/index.html",
     ".docs-build/user/en/index.html",
     ".docs-build/user/zh-CN/index.html",
-    ".docs-build/zh/index.html",
     ".docs-build/api/vanehub_ai_lib/index.html",
   ];
   for (const path of expected) {

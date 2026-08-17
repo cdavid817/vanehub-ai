@@ -25,4 +25,4 @@ Persisted events must:
 
 React cannot write local log files. Persisted frontend errors cross the service boundary to the native logging command. Web/mock behavior may expose page-visible simulated logs but cannot claim native persistence.
 
-See [agent execution observability](../reference/architecture/agent-execution-observability.md) for correlation rules.
+Execution observability correlation rules are governed by `openspec/specs/agent-execution-observability/spec.md` and `openspec/specs/unified-log-management/spec.md`; the semantic/log-store split is recorded as ADR-002 in `src-tauri/ARCHITECTURE.md`.

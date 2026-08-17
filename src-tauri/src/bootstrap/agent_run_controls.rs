@@ -78,4 +78,67 @@ impl AgentRunControlsApi {
         }
         self.runs.get(run_id)
     }
+
+    pub(crate) fn retry(&self, run_id: &str, version: u64) -> Result<AgentRun, OperationsError> {
+        let run = self.runs.get(run_id)?;
+        if run.version != version {
+            return Err(OperationsError::Conflict);
+        }
+        if run.owner.owner_type != "plan_run" {
+            return Err(OperationsError::Invalid(
+                "mission control retry is not supported by this run owner".into(),
+            ));
+        }
+        self.plans
+            .request_plan_control(
+                &run.owner.owner_id,
+                "retry",
+                &chrono::Utc::now().to_rfc3339(),
+            )
+            .map_err(|_| OperationsError::Internal("run owner retry failed".into()))?;
+        self.runs.get(run_id)
+    }
+
+    pub(crate) fn verify(&self, run_id: &str, version: u64) -> Result<AgentRun, OperationsError> {
+        let run = self.runs.get(run_id)?;
+        if run.version != version {
+            return Err(OperationsError::Conflict);
+        }
+        if run.owner.owner_type != "plan_run"
+            || !matches!(
+                run.state,
+                crate::contexts::operations::api::RunState::Failed
+                    | crate::contexts::operations::api::RunState::Stuck
+            )
+        {
+            return Err(OperationsError::Invalid(
+                "mission control verification is not supported by this run owner or state".into(),
+            ));
+        }
+        self.plans
+            .request_plan_control(
+                &run.owner.owner_id,
+                "retry",
+                &chrono::Utc::now().to_rfc3339(),
+            )
+            .map_err(|_| OperationsError::Internal("run owner verification failed".into()))?;
+        self.runs.get(run_id)
+    }
+
+    pub(crate) fn perform_action(
+        &self,
+        run_id: &str,
+        version: u64,
+        action: &str,
+    ) -> Result<AgentRun, OperationsError> {
+        match action {
+            "cancel" => self.cancel(run_id, version),
+            "resume" => self.resume(run_id, version),
+            "retry" => self.retry(run_id, version),
+            "verify" => self.verify(run_id, version),
+            _ => Err(OperationsError::Invalid(
+                "invalid mission control action".into(),
+            )),
+        }
+    }
 }

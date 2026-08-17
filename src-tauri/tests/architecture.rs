@@ -202,6 +202,8 @@ fn release_profile_guard_rejects_every_enabled_debug_information_form() {
 enum Layer {
     Domain,
     Application,
+    Infrastructure,
+    Command,
 }
 
 #[derive(Debug)]
@@ -230,6 +232,18 @@ impl DependencyVisitor<'_> {
             return;
         }
         let dependency = segments.join("::");
+        if matches!(self.scope.layer, Layer::Infrastructure | Layer::Command) {
+            if imports_cross_context_concrete_persistence(self.scope, segments) {
+                self.violations.insert(Violation {
+                    line,
+                    dependency,
+                    rule_id: "ARCH-NATIVE-003",
+                    rule: "outer adapters cannot depend on another context's concrete persistence",
+                    repair: "depend on a port published by the owning context api",
+                });
+            }
+            return;
+        }
         if is_forbidden_technology(segments) {
             self.violations.insert(Violation {
                 line,
@@ -263,6 +277,18 @@ impl DependencyVisitor<'_> {
 }
 
 impl<'ast> Visit<'ast> for DependencyVisitor<'_> {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if !is_test_only(&node.attrs) {
+            syn::visit::visit_item_mod(self, node);
+        }
+    }
+
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        if !is_test_only(&node.attrs) {
+            syn::visit::visit_item_fn(self, node);
+        }
+    }
+
     fn visit_item_use(&mut self, node: &'ast ItemUse) {
         let mut imports = Vec::new();
         flatten_use_tree(&node.tree, Vec::new(), &mut imports);
@@ -348,6 +374,7 @@ fn is_forbidden_outer_layer(scope: &SourceScope, segments: &[String]) -> bool {
         return match scope.layer {
             Layer::Domain => matches!(path[3], "application" | "infrastructure" | "interfaces"),
             Layer::Application => matches!(path[3], "infrastructure" | "interfaces"),
+            Layer::Infrastructure | Layer::Command => false,
         };
     }
     false
@@ -360,6 +387,22 @@ fn imports_private_cross_context_module(scope: &SourceScope, segments: &[String]
         && path[1] == "contexts"
         && path[2] != scope.context
         && path[3] != "api"
+        && matches!(scope.layer, Layer::Domain | Layer::Application)
+}
+
+fn imports_cross_context_concrete_persistence(scope: &SourceScope, segments: &[String]) -> bool {
+    if !matches!(scope.layer, Layer::Infrastructure | Layer::Command) {
+        return false;
+    }
+    let path = segments.iter().map(String::as_str).collect::<Vec<_>>();
+    path.len() >= 5
+        && path[0] == "crate"
+        && path[1] == "contexts"
+        && path[2] != scope.context
+        && path[3] == "infrastructure"
+        && path[4..]
+            .iter()
+            .any(|segment| segment.ends_with("Repository") || *segment == "NativeDatabase")
 }
 
 fn source_scope(relative_path: &Path) -> Option<SourceScope> {
@@ -367,14 +410,21 @@ fn source_scope(relative_path: &Path) -> Option<SourceScope> {
         .components()
         .map(|part| part.as_os_str().to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    let contexts = parts.iter().position(|part| part == "contexts")?;
-    let context = parts.get(contexts + 1)?.clone();
-    let layer = match parts.get(contexts + 2).map(String::as_str) {
-        Some("domain") => Layer::Domain,
-        Some("application") => Layer::Application,
-        _ => return None,
-    };
-    Some(SourceScope { context, layer })
+    if let Some(contexts) = parts.iter().position(|part| part == "contexts") {
+        let context = parts.get(contexts + 1)?.clone();
+        let layer = match parts.get(contexts + 2).map(String::as_str) {
+            Some("domain") => Layer::Domain,
+            Some("application") => Layer::Application,
+            Some("infrastructure") => Layer::Infrastructure,
+            _ => return None,
+        };
+        return Some(SourceScope { context, layer });
+    }
+    let commands = parts.iter().position(|part| part == "commands")?;
+    Some(SourceScope {
+        context: parts.get(commands + 1)?.clone(),
+        layer: Layer::Command,
+    })
 }
 
 fn analyze(relative_path: &Path, source: &str) -> Result<Vec<Violation>, String> {
@@ -1003,6 +1053,38 @@ fn detector_rejects_domain_to_infrastructure_dependency() {
             && violation.rule_id == "ARCH-NATIVE-001"
             && violation.dependency.contains("sessions::infrastructure")
     }));
+}
+
+#[test]
+fn detector_rejects_cross_context_concrete_persistence_from_outer_adapters() {
+    let dependency =
+        "use crate::contexts::agent_runtime::infrastructure::SqliteNativeToolRepository;";
+    for path in [
+        "contexts/cli_delegation/infrastructure/adapter.rs",
+        "commands/cli_delegation/start.rs",
+    ] {
+        let violations = analyze(Path::new(path), dependency).expect("analyze outer adapter");
+        assert!(violations.iter().any(|violation| {
+            violation.rule
+                == "outer adapters cannot depend on another context's concrete persistence"
+        }));
+    }
+}
+
+#[test]
+fn detector_allows_outer_adapters_to_use_published_cross_context_ports() {
+    let dependency = "use crate::contexts::agent_runtime::api::NativeToolPersistencePort;";
+    for path in [
+        "contexts/cli_delegation/infrastructure/adapter.rs",
+        "commands/cli_delegation/start.rs",
+    ] {
+        assert!(
+            analyze(Path::new(path), dependency)
+                .expect("analyze published port")
+                .is_empty(),
+            "{path}"
+        );
+    }
 }
 
 #[test]
