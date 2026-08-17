@@ -12,6 +12,8 @@ use super::application::{
 pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
 };
+pub(crate) use super::infrastructure::PreparedEvaluationFixture;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -23,6 +25,29 @@ pub(crate) struct WorkspaceApi {
 }
 
 impl WorkspaceApi {
+    pub(crate) fn prepare_evaluation_fixture(
+        &self,
+        source: &Path,
+        root: &Path,
+        attempt_id: &str,
+    ) -> Result<PreparedEvaluationFixture, String> {
+        super::infrastructure::prepare_evaluation_fixture(source, root, attempt_id)
+    }
+
+    pub(crate) fn cleanup_evaluation_fixture(
+        &self,
+        root: &Path,
+        attempt_id: &str,
+    ) -> Result<(), String> {
+        super::infrastructure::cleanup_evaluation_fixture(root, attempt_id)
+    }
+    pub(crate) fn changed_evaluation_paths(
+        &self,
+        source: &Path,
+        workspace: &Path,
+    ) -> Result<Vec<String>, String> {
+        super::infrastructure::changed_evaluation_paths(source, workspace)
+    }
     pub(crate) fn new(
         service: WorkspaceApplicationService,
         queries: WorkspaceQueryApplicationService,

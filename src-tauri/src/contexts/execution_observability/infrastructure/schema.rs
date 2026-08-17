@@ -99,6 +99,63 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError>
             ON execution_spans(run_id, started_at, span_id);
         CREATE INDEX IF NOT EXISTS idx_execution_events_run_time
             ON execution_events(run_id, timestamp, span_id, sequence);
+
+        CREATE TABLE IF NOT EXISTS evaluation_arenas (
+            arena_id TEXT PRIMARY KEY,
+            operation_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            task_version INTEGER NOT NULL,
+            ranking_version TEXT NOT NULL,
+            safe_snapshot_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            arena_id TEXT NOT NULL,
+            canonical_run_id TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            safe_snapshot_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (arena_id) REFERENCES evaluation_arenas(arena_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_evaluation_arenas_task_time ON evaluation_arenas(task_id, task_version, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_evaluation_arenas_created ON evaluation_arenas(created_at DESC, arena_id DESC);
+        CREATE INDEX IF NOT EXISTS idx_evaluation_attempts_arena ON evaluation_attempts(arena_id, attempt_id);
+        CREATE TABLE IF NOT EXISTS evaluation_catalog (
+            task_id TEXT NOT NULL,
+            task_version INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            safe_manifest_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, task_version)
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_metrics (
+            attempt_id TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            value REAL,
+            unit TEXT NOT NULL,
+            quality TEXT NOT NULL,
+            source TEXT NOT NULL,
+            PRIMARY KEY (attempt_id, metric_name),
+            FOREIGN KEY (attempt_id) REFERENCES evaluation_attempts(attempt_id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_verifications (
+            attempt_id TEXT NOT NULL,
+            check_id TEXT NOT NULL,
+            passed INTEGER NOT NULL,
+            summary TEXT NOT NULL,
+            PRIMARY KEY (attempt_id, check_id),
+            FOREIGN KEY (attempt_id) REFERENCES evaluation_attempts(attempt_id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_artifact_refs (
+            attempt_id TEXT NOT NULL,
+            artifact_id TEXT NOT NULL,
+            PRIMARY KEY (attempt_id, artifact_id),
+            FOREIGN KEY (attempt_id) REFERENCES evaluation_attempts(attempt_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_evaluation_catalog_category ON evaluation_catalog(category, task_id, task_version DESC);
         "#,
     )?;
     ensure_optional_column(
@@ -161,5 +218,7 @@ mod tests {
             defaults,
             (true, false, 30, "metadata_only".to_string(), false)
         );
+        let tables: i64 = connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('evaluation_arenas','evaluation_attempts')", [], |row| row.get(0)).unwrap();
+        assert_eq!(tables, 2);
     }
 }

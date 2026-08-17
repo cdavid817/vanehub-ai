@@ -1,7 +1,8 @@
 use super::ExecutionTelemetryError;
 use crate::contexts::execution_observability::domain::{
-    CapturePolicy, ExecutionContext, ExecutionEvent, ExecutionRun, ExecutionRunId, ExecutionSpan,
-    ExecutionStatus, ExecutionTimeline, ObservabilitySettings, Page, PageRequest, SpanId,
+    CapturePolicy, EvaluationArena, EvaluationAttempt, ExecutionContext, ExecutionEvent,
+    ExecutionRun, ExecutionRunId, ExecutionSpan, ExecutionStatus, ExecutionTimeline,
+    ObservabilitySettings, Page, PageRequest, SpanId,
 };
 use std::time::Duration;
 
@@ -13,6 +14,18 @@ pub(crate) trait ExecutionIdentityPort: Send + Sync {
         mcp_relay_enabled: bool,
     ) -> ExecutionContext;
     fn next_span_id(&self) -> SpanId;
+}
+
+pub(crate) trait EvaluationRepositoryPort: Send + Sync {
+    fn save_terminal(
+        &self,
+        arena: &EvaluationArena,
+        attempt: &EvaluationAttempt,
+        timestamp: &str,
+    ) -> Result<(), String>;
+    fn get(&self, arena_id: &str) -> Result<Option<EvaluationArena>, String>;
+    fn list(&self, offset: usize, limit: usize) -> Result<Vec<EvaluationArena>, String>;
+    fn retain_since(&self, cutoff: &str) -> Result<usize, String>;
 }
 
 pub(crate) trait ExecutionSettingsPort: Send + Sync {

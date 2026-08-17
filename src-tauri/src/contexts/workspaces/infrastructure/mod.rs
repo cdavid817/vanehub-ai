@@ -2,6 +2,7 @@ mod capture_maintenance;
 mod capture_queue;
 mod command_runs;
 mod command_templates;
+mod evaluation_fixture;
 mod filesystem;
 mod git;
 mod output_search;
@@ -16,6 +17,10 @@ mod session_shell_workspace;
 mod shell_support;
 mod sqlite_repository;
 
+pub(crate) use evaluation_fixture::{
+    changed_evaluation_paths, cleanup_evaluation_fixture, prepare_evaluation_fixture,
+    PreparedEvaluationFixture,
+};
 pub(crate) use filesystem::WorkspaceFilesystemAdapter;
 pub(crate) use git::WorkspaceGitAdapter;
 pub(crate) use portable_pty::PortablePtyShellRuntime;
