@@ -46,11 +46,6 @@ run("cargo", [
 
 cpSync(resolve(rustTarget, "doc"), resolve(outputRoot, "api"), { recursive: true });
 cpSync(
-  resolve(repositoryRoot, "docs", "user-guide", "assets"),
-  resolve(outputRoot, "user", "assets"),
-  { recursive: true },
-);
-cpSync(
   resolve(repositoryRoot, "docs", "release-signing.md"),
   resolve(outputRoot, "reference", "release-signing.md"),
 );

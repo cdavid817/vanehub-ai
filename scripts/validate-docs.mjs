@@ -25,12 +25,6 @@ function cleanTarget(target) {
 
 function resolveAuthoredTarget(file, target) {
   if (
-    file.includes(`${sep}docs${sep}user-guide${sep}`) &&
-    target.startsWith("../assets/")
-  ) {
-    return resolve(repositoryRoot, "docs", "user-guide", target.slice("../".length));
-  }
-  if (
     file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
     target.startsWith("../api/")
   ) {

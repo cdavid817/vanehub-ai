@@ -167,7 +167,7 @@ sequenceDiagram
 3. 为每个席位指定**专家角色**。角色名会派生出其他席位 `@` 时使用的**句柄**。
 4. 选择项目目录，填写会话标题，创建会话。
 
-![创建会话对话框中已选中多 Agent 会话类型，显示席位分配区](../assets/screenshots/create-session-multi-agent-zh-CN.png)
+![创建会话对话框中已选中多 Agent 会话类型，显示席位分配区](assets/screenshots/create-session-multi-agent-zh-CN.png)
 
 内置三个专家角色可直接使用，也可以在**设置 → 专家角色**中自建。
 
