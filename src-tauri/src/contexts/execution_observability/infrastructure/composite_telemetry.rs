@@ -450,6 +450,71 @@ mod tests {
         }
     }
 
+    #[test]
+    fn performance_evidence_keeps_safe_correlation_when_export_fails() {
+        let local = CapturingExecutionTelemetry::default();
+        let diagnostics = Arc::new(CapturingDiagnostics::default());
+        let composite = CompositeExecutionTelemetry::with_diagnostics(
+            Arc::new(local.clone()),
+            vec![Arc::new(FailingTelemetry::default())],
+            diagnostics,
+        );
+        let mut measured_run = run();
+        measured_run.operation_id = Some("operation-performance-1".to_string());
+        measured_run.attributes = SafeAttributes::try_from_entries([
+            (
+                "performance.metric.id".to_string(),
+                SafeAttributeValue::String("run.transition-p95".to_string()),
+            ),
+            (
+                "performance.dataset.id".to_string(),
+                SafeAttributeValue::String("runs-1000".to_string()),
+            ),
+            (
+                "performance.dataset.version".to_string(),
+                SafeAttributeValue::Integer(1),
+            ),
+            (
+                "performance.baseline".to_string(),
+                SafeAttributeValue::Integer(31_316),
+            ),
+            (
+                "performance.measured".to_string(),
+                SafeAttributeValue::Integer(31_316),
+            ),
+            (
+                "performance.budget".to_string(),
+                SafeAttributeValue::Integer(39_145),
+            ),
+            (
+                "performance.delta".to_string(),
+                SafeAttributeValue::Integer(0),
+            ),
+            (
+                "gen_ai.prompt".to_string(),
+                SafeAttributeValue::String("must not survive".to_string()),
+            ),
+        ])
+        .expect("performance attributes");
+
+        composite
+            .start_run(&measured_run)
+            .expect("export failure must not change the run outcome");
+
+        let records = local.records().expect("local evidence");
+        let CapturedTelemetryRecord::RunStarted(recorded) = &records[0] else {
+            panic!("run record expected");
+        };
+        assert_eq!(recorded.context.run_id, measured_run.context.run_id);
+        assert_eq!(recorded.operation_id, measured_run.operation_id);
+        assert_eq!(
+            recorded.attributes.entries().get("performance.dataset.id"),
+            Some(&SafeAttributeValue::String("runs-1000".to_string()))
+        );
+        assert!(!recorded.attributes.entries().contains_key("gen_ai.prompt"));
+        assert!(composite.dropped_exports() >= 1);
+    }
+
     fn run() -> ExecutionRun {
         ExecutionRun {
             context: ExecutionContext {

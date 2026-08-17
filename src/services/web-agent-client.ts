@@ -2561,6 +2561,7 @@ let webAgentRuns: AgentRun[] = [{
   maxRetries: 2, reasonCode, createdAt: `2026-08-16T00:0${index + 1}:00.000Z`,
   updatedAt: `2026-08-16T00:0${index + 1}:30.000Z`, version: 2, lastWitness: `web-${state}`,
 }))];
+const defaultWebAgentRuns = structuredClone(webAgentRuns);
 const webAgentRunEvents = new Map<string, AgentRunEvent[]>([[webAgentRuns[0].id, [{
   sequence: 4,
   state: "paused",
@@ -2569,6 +2570,45 @@ const webAgentRunEvents = new Map<string, AgentRunEvent[]>([[webAgentRuns[0].id,
   reasonCode: "web_demo_paused",
   witness: "web-demo-pause",
 }]]]);
+
+export function seedWebMissionControlRunsForTest(count: 100 | 1_000): void {
+  const states: AgentRun["state"][] = [
+    "running", "waiting_approval", "waiting_user", "retrying", "blocked", "failed", "completed",
+  ];
+  webAgentRuns = Array.from({ length: count }, (_, index): AgentRun => {
+    const state = states[index % states.length];
+    const timestamp = new Date(Date.parse(WEB_RUN_TIME) + index * 1_000).toISOString();
+    return {
+      id: `018f0f17-4d6a-7e20-b41d-${String(index).padStart(12, "0")}`,
+      owner: { ownerType: "agent", ownerId: `performance-agent-${index % 10}` },
+      links: [{ linkType: "session", linkId: `performance-session-${index}` }],
+      parentRunId: null,
+      state,
+      recoveryPolicy: "owner_reconciles",
+      retryCount: state === "retrying" ? 1 : 0,
+      maxRetries: 2,
+      reasonCode: ["blocked", "failed"].includes(state) ? `performance_${state}` : null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+      lastWitness: `performance-fixture:${index}`,
+    };
+  });
+  webAgentRunEvents.clear();
+}
+
+export function resetWebMissionControlRunsForTest(): void {
+  webAgentRuns = structuredClone(defaultWebAgentRuns);
+  webAgentRunEvents.clear();
+  webAgentRunEvents.set(webAgentRuns[0].id, [{
+    sequence: 4,
+    state: "paused",
+    trigger: "pause",
+    timestamp: WEB_RUN_TIME,
+    reasonCode: "web_demo_paused",
+    witness: "web-demo-pause",
+  }]);
+}
 
 function updateWebAgentRun(runId: string, version: number, state: AgentRun["state"]): AgentRun {
   const current = webAgentRuns.find((run) => run.id === runId);

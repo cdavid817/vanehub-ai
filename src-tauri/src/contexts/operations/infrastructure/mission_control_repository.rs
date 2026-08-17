@@ -136,7 +136,52 @@ mod tests {
     use crate::contexts::operations::domain::{RunOwner, RunRecoveryPolicy};
     use crate::contexts::operations::infrastructure::persistent_run_service;
     use crate::test_support::TempDirectory;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    struct CountingRepository {
+        inner: SqliteMissionControlRepository,
+        queries: AtomicUsize,
+        counts: AtomicUsize,
+        gets: AtomicUsize,
+    }
+
+    impl CountingRepository {
+        fn new(database: NativeDatabase) -> Self {
+            Self {
+                inner: SqliteMissionControlRepository::new(database),
+                queries: AtomicUsize::new(0),
+                counts: AtomicUsize::new(0),
+                gets: AtomicUsize::new(0),
+            }
+        }
+
+        fn total_overview_queries(&self) -> usize {
+            self.queries.load(Ordering::Relaxed) + self.counts.load(Ordering::Relaxed)
+        }
+    }
+
+    impl MissionControlRepository for CountingRepository {
+        fn query(
+            &self,
+            query: &MissionControlQuery,
+            offset: usize,
+            limit: usize,
+        ) -> Result<Vec<AgentRun>, ApplicationError> {
+            self.queries.fetch_add(1, Ordering::Relaxed);
+            self.inner.query(query, offset, limit)
+        }
+
+        fn counts(&self) -> Result<BTreeMap<String, usize>, ApplicationError> {
+            self.counts.fetch_add(1, Ordering::Relaxed);
+            self.inner.counts()
+        }
+
+        fn get(&self, run_id: &str) -> Result<AgentRun, ApplicationError> {
+            self.gets.fetch_add(1, Ordering::Relaxed);
+            self.inner.get(run_id)
+        }
+    }
 
     #[test]
     fn overview_is_bounded_for_large_history_and_uses_safe_projection() {
@@ -199,5 +244,47 @@ mod tests {
         assert!(plan
             .iter()
             .any(|line| line.contains("idx_agent_runs_state")));
+    }
+
+    #[test]
+    fn overview_query_count_is_constant_for_hundred_and_thousand_runs() {
+        for run_count in [100_usize, 1_000] {
+            let directory = TempDirectory::new(&format!("mission-control-{run_count}"));
+            let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+            let runs = persistent_run_service(database.clone());
+            for index in 0..run_count {
+                runs.create(CreateAgentRun {
+                    id: Some(format!("018f0f17-4d6a-7e20-b41d-{index:012x}")),
+                    owner: RunOwner {
+                        owner_type: "session_generation".into(),
+                        owner_id: format!("agent-{index}"),
+                    },
+                    links: Vec::new(),
+                    parent_run_id: None,
+                    recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                    max_retries: 1,
+                    witness: "safe-witness".into(),
+                })
+                .expect("create run");
+            }
+            let repository = Arc::new(CountingRepository::new(database));
+            let service = MissionControlService::new(repository.clone());
+            let overview = service
+                .overview(MissionControlQuery {
+                    limit: Some(100),
+                    ..MissionControlQuery::default()
+                })
+                .expect("overview");
+            assert_eq!(repository.total_overview_queries(), 4);
+            assert_eq!(repository.gets.load(Ordering::Relaxed), 0);
+            assert_eq!(overview.active.items.len(), 50);
+            assert_eq!(overview.active.next_cursor.as_deref(), Some("50"));
+            let run_id = &overview.active.items[0].run_id;
+            service.detail(run_id).expect("lazy detail");
+            assert_eq!(repository.gets.load(Ordering::Relaxed), 1);
+            eprintln!(
+                "MISSION_CONTROL_PERFORMANCE dataset=runs-{run_count} queries=4 rows=50 lazy_detail_queries=1"
+            );
+        }
     }
 }

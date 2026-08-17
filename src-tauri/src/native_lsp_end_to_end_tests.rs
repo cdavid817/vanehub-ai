@@ -63,13 +63,35 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
     );
     assert_eq!(definition_outcome.value.expect("definition").len(), 1);
 
-    let references = references(adapter.clone(), context.clone()).await;
+    let reference_outcome = references(adapter.clone(), context.clone()).await;
     assert_eq!(
-        references.metadata.status,
+        reference_outcome.metadata.status,
         AgentCodeIntelligenceStatus::Ready
     );
-    assert_eq!(references.value.expect("references").len(), 50);
-    assert!(references.metadata.truncated);
+    assert_eq!(reference_outcome.value.expect("references").len(), 50);
+    assert!(reference_outcome.metadata.truncated);
+
+    let mut definition_samples = Vec::new();
+    let mut reference_samples = Vec::new();
+    for _ in 0..7 {
+        let started = Instant::now();
+        let measured = definition(adapter.clone(), context.clone()).await;
+        definition_samples.push(started.elapsed().as_micros());
+        assert_eq!(measured.value.expect("definition").len(), 1);
+        let started = Instant::now();
+        let measured = references(adapter.clone(), context.clone()).await;
+        reference_samples.push(started.elapsed().as_micros());
+        assert_eq!(measured.value.expect("references").len(), 50);
+    }
+    definition_samples.sort_unstable();
+    reference_samples.sort_unstable();
+    eprintln!(
+        "LSP_PERFORMANCE dataset=repo-small@1 definitionP50Micros={} definitionP95Micros={} referencesP50Micros={} referencesP95Micros={} maxResponseItems=50",
+        definition_samples[3],
+        definition_samples[6],
+        reference_samples[3],
+        reference_samples[6]
+    );
 
     let hover = hover(adapter.clone(), context.clone()).await;
     assert_eq!(hover.metadata.status, AgentCodeIntelligenceStatus::Ready);

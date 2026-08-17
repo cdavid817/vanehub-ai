@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "overrides": [
+    { "metricId": "mission-control.query-count", "measured": 1001 }
+  ]
+}
