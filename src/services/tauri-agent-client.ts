@@ -70,6 +70,7 @@ import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
+import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -207,6 +208,13 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
+  startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
+  listEvaluationArenas: () => invoke<EvaluationArena[]>("list_evaluation_arenas"),
+  getEvaluationArena: (arenaId) => invoke<EvaluationArena>("get_evaluation_arena", { arenaId }),
+  cancelEvaluation: (arenaId) => invoke<EvaluationArena>("cancel_evaluation", { arenaId }),
+  getEvaluationAttempt: (attemptId) => invoke<EvaluationAttempt>("get_evaluation_attempt", { attemptId }),
+  exportEvaluation: (arenaId) => invoke<EvaluationExport>("export_evaluation", { arenaId }),
   getDesktopUpdateSnapshot() { return invoke("get_desktop_update_snapshot"); },
   getDesktopUpdatePreferences() { return invoke("get_desktop_update_preferences"); },
   saveDesktopUpdatePreferences(input) { return invoke("save_desktop_update_preferences", { input }); },
