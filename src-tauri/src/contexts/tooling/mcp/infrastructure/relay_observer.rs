@@ -1,17 +1,14 @@
 use super::relay::RelayObservation;
 use crate::contexts::execution_observability::api::{
-    CapturePolicy, ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionRunId,
-    ExecutionSpan, ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
-    SpanId, TraceId,
+    CapturePolicy, ExecutionContext, ExecutionFidelity, ExecutionRunId, ExecutionSpan,
+    ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes, SpanId, TraceId,
 };
-use crate::contexts::execution_observability::infrastructure::{
-    RandomExecutionIdentity, SqliteExecutionTimelineRepository,
-};
-use crate::platform::database::NativeDatabase;
+use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub(super) struct RelayObserver {
-    repository: SqliteExecutionTimelineRepository,
+    telemetry: Arc<dyn ExecutionTelemetryPort>,
     run_id: ExecutionRunId,
     trace_id: TraceId,
     parent_span_id: SpanId,
@@ -19,18 +16,19 @@ pub(super) struct RelayObserver {
 }
 
 pub(super) struct RelayRequest {
-    repository: SqliteExecutionTimelineRepository,
+    telemetry: Arc<dyn ExecutionTelemetryPort>,
     context: ExecutionContext,
     finished: bool,
 }
 
 impl RelayObserver {
-    pub(super) fn new(observation: Option<&RelayObservation>) -> Option<Self> {
+    pub(super) fn new(
+        observation: Option<&RelayObservation>,
+        telemetry: Option<Arc<dyn ExecutionTelemetryPort>>,
+    ) -> Option<Self> {
         let observation = observation?;
         Some(Self {
-            repository: SqliteExecutionTimelineRepository::new(
-                NativeDatabase::new(observation.database_path.parent()?.to_path_buf()).ok()?,
-            ),
+            telemetry: telemetry?,
             run_id: ExecutionRunId::parse(&observation.run_id).ok()?,
             trace_id: TraceId::parse(&observation.trace_id).ok()?,
             parent_span_id: SpanId::parse(&observation.parent_span_id).ok()?,
@@ -49,7 +47,7 @@ impl RelayObserver {
         let context = ExecutionContext {
             run_id: self.run_id.clone(),
             trace_id: self.trace_id.clone(),
-            span_id: RandomExecutionIdentity.next_span_id(),
+            span_id: next_span_id(),
             capture_policy: self.capture_policy,
             sampling_per_million: 1_000_000,
             mcp_relay_enabled: true,
@@ -69,7 +67,7 @@ impl RelayObserver {
             ),
         ])
         .unwrap_or_default();
-        self.repository
+        self.telemetry
             .start_span(&ExecutionSpan {
                 context: context.clone(),
                 parent_span_id: Some(self.parent_span_id.clone()),
@@ -84,7 +82,7 @@ impl RelayObserver {
             })
             .ok()?;
         Some(RelayRequest {
-            repository: self.repository.clone(),
+            telemetry: self.telemetry.clone(),
             context,
             finished: false,
         })
@@ -96,7 +94,7 @@ impl RelayObserver {
         success: bool,
         error_classification: Option<&str>,
     ) {
-        let _ = request.repository.finish_span(
+        let _ = request.telemetry.finish_span(
             &request.context.run_id,
             &request.context.span_id,
             if success {
@@ -116,7 +114,7 @@ impl Drop for RelayRequest {
         if self.finished {
             return;
         }
-        let _ = self.repository.finish_span(
+        let _ = self.telemetry.finish_span(
             &self.context.run_id,
             &self.context.span_id,
             ExecutionStatus::Failed,
@@ -129,4 +127,10 @@ impl Drop for RelayRequest {
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn next_span_id() -> SpanId {
+    let value = Uuid::new_v4().simple().to_string();
+    SpanId::parse(&value[..16])
+        .unwrap_or_else(|_| unreachable!("UUID v4 prefix always has a valid span id shape"))
 }

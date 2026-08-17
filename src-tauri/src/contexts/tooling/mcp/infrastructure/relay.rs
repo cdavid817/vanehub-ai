@@ -3,6 +3,7 @@ use super::relay_observer::RelayObserver;
 use super::relay_stdio;
 use super::relay_streamable_http;
 use super::runtime_logging::{self, McpRuntimeLogContext};
+use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::tooling::mcp::application::{McpExecutionControl, McpLimits};
 use crate::contexts::tooling::mcp::domain::McpFailureCode;
 use crate::platform::private_relay_fs::PrivateRelayDirectory;
@@ -13,11 +14,14 @@ use std::fs;
 use std::io::BufRead;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
 const RELAY_FLAG: &str = "--vanehub-mcp-relay";
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+
+pub(crate) type RelayTelemetryFactory = fn(&Path) -> Option<Arc<dyn ExecutionTelemetryPort>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "transport", rename_all = "snake_case")]
@@ -81,8 +85,8 @@ pub(crate) fn write_configuration(
     Ok(path)
 }
 
-pub(crate) fn try_run_from_process_args() -> bool {
-    match run_from_process_args(std::env::args_os()) {
+pub(crate) fn try_run_from_process_args(telemetry_factory: RelayTelemetryFactory) -> bool {
+    match run_from_process_args(std::env::args_os(), telemetry_factory) {
         Ok(is_relay) => is_relay,
         Err(_) => std::process::exit(2),
     }
@@ -90,6 +94,7 @@ pub(crate) fn try_run_from_process_args() -> bool {
 
 fn run_from_process_args(
     args: impl IntoIterator<Item = std::ffi::OsString>,
+    telemetry_factory: RelayTelemetryFactory,
 ) -> Result<bool, String> {
     let mut args = args.into_iter();
     let _ = args.next();
@@ -98,11 +103,11 @@ fn run_from_process_args(
     }
     args.next()
         .ok_or_else(|| "relay configuration path is required".to_string())
-        .and_then(|path| run_configuration(Path::new(&path)))?;
+        .and_then(|path| run_configuration(Path::new(&path), telemetry_factory))?;
     Ok(true)
 }
 
-fn run_configuration(path: &Path) -> Result<(), String> {
+fn run_configuration(path: &Path, telemetry_factory: RelayTelemetryFactory) -> Result<(), String> {
     let file = fs::File::open(path).map_err(|error| error.to_string())?;
     fs::remove_file(path).map_err(|error| error.to_string())?;
     let mut bytes = Vec::new();
@@ -120,7 +125,12 @@ fn run_configuration(path: &Path) -> Result<(), String> {
         serde_json::from_slice::<RelayConfiguration>(&bytes).map_err(|error| error.to_string())?;
     let control =
         McpExecutionControl::with_timeout(Duration::from_millis(configuration.timeout_ms.max(1)));
-    let observer = RelayObserver::new(configuration.observation.as_ref());
+    let telemetry = configuration
+        .observation
+        .as_ref()
+        .and_then(|value| value.database_path.parent())
+        .and_then(telemetry_factory);
+    let observer = RelayObserver::new(configuration.observation.as_ref(), telemetry);
     let transport = match &configuration.target {
         RelayTarget::Stdio { .. } => "stdio",
         RelayTarget::LegacySse { .. } => "sse",

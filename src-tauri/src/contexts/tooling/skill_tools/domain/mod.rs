@@ -5,6 +5,7 @@ mod lifecycle;
 mod limits;
 mod manifest;
 mod module_inspection;
+mod permission_manifest;
 mod schema;
 mod trust;
 
@@ -45,6 +46,11 @@ pub(crate) use manifest::{
 #[allow(unused_imports)]
 pub(crate) use module_inspection::{
     inspect_module, ModuleInspection, ModuleInspectionError, HOST_IMPORT_MODULE,
+};
+#[allow(unused_imports)]
+pub(crate) use permission_manifest::{
+    parse_permission_manifest, SkillFilesystemPermissions, SkillNetworkPermissions,
+    SkillProcessCommand, SkillProcessPermissions, SkillProvenanceTrust, SkillToolPermissions,
 };
 #[allow(unused_imports)]
 pub(crate) use schema::{validate_bounded_schema, BoundedJsonSchema, BoundedSchemaMetrics};

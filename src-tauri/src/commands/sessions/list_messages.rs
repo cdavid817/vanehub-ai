@@ -16,6 +16,8 @@ pub(crate) fn list_messages(
         .list_messages(&session_id, limit, before_id)
         .map_err(map_command_error)?;
     let ids = mapper::message_ids(&records);
-    let feedback = evidence.feedback_for_messages(&ids).unwrap_or_default();
+    let feedback = evidence
+        .feedback_for_messages(&ids)
+        .map_err(|_| CommandError::storage("evidence feedback query failed"))?;
     Ok(mapper::messages_to_dto_with_feedback(records, &feedback))
 }

@@ -18,11 +18,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 default = []
 desktop-e2e = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 # Optional WebAssembly runtime for Skill tool modules (`add-sandboxed-skill-tool-runtime`).
-# Off by default and carrying no dependency yet: declarative Skill tools are fully functional
-# without it, so the pinned engine is added only in section 4, after its supply-chain review.
+# Off by default: declarative Skill tools are fully functional without it. The dependency disables
+# Wasmtime's broad defaults and deliberately omits WASI, components, threads, cache, and profiling.
 # Discovery, integrity, trust, and governance all work with this off — a `wasm` tool is then
 # reported as `module-runtime-unavailable` rather than silently missing from the inventory.
-skill-tool-module-runtime = []
+skill-tool-module-runtime = ["dep:wasmtime"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -32,6 +32,7 @@ rusqlite = { version = "0.40", features = ["bundled", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"
 serde = { version = "1", features = ["derive"] }
+wasmtime = { version = "=47.0.3", optional = true, default-features = false, features = ["cranelift", "runtime", "std"] }
 serde_json = "1"
 lsp-types = "0.97"
 tempfile = "3"
@@ -52,7 +53,7 @@ opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = 
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
 flate2 = "1.1"
-html5ever = "0.38"
+html5ever = "0.39"
 russh = { version = "=0.62.5", default-features = false, features = ["ring"] }
 async-trait = "0.1"
 base64 = "0.23"

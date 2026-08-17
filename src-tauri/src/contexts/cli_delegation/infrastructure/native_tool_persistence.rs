@@ -1,16 +1,15 @@
-use crate::contexts::agent_runtime::application::{
+use crate::contexts::agent_runtime::api::{
     ChangeSetFileRecord, ChangeSetRecord, DelegationAttemptRecord, DelegationMode as StoredMode,
     DelegationRecord, DelegationStatus as StoredStatus, DelegationTarget as StoredTarget,
-    FileChangeKind,
+    FileChangeKind, NativeToolPersistencePort,
 };
-use crate::contexts::agent_runtime::infrastructure::SqliteNativeToolRepository;
 use crate::contexts::cli_delegation::application::{
     DelegationChangeKind, DelegationChangeSetCapture, DelegationMode,
 };
 use std::sync::Arc;
 
 pub(super) struct DelegationPersistence {
-    repository: Arc<SqliteNativeToolRepository>,
+    repository: Arc<dyn NativeToolPersistencePort>,
 }
 
 pub(super) struct AttemptUpdate<'a> {
@@ -29,7 +28,7 @@ pub(super) struct AttemptUpdate<'a> {
 }
 
 impl DelegationPersistence {
-    pub(super) fn new(repository: Arc<SqliteNativeToolRepository>) -> Self {
+    pub(super) fn new(repository: Arc<dyn NativeToolPersistencePort>) -> Self {
         Self { repository }
     }
 

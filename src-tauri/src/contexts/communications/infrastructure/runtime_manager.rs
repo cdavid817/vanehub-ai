@@ -355,11 +355,17 @@ impl ConnectorRuntimeManager {
     }
 
     pub async fn health(&self) -> Vec<ConnectorHealth> {
-        let connectors = self.connectors.read().await;
+        let connectors = self
+            .connectors
+            .read()
+            .await
+            .iter()
+            .map(|(kind, managed)| (*kind, managed.clone()))
+            .collect::<Vec<_>>();
         let mut result = Vec::with_capacity(connectors.len());
-        for (kind, managed) in connectors.iter() {
+        for (kind, managed) in connectors {
             let state = managed.state.lock().await;
-            result.push(state.status.health(*kind, state.updated_at.clone()));
+            result.push(state.status.health(kind, state.updated_at.clone()));
         }
         result.sort_by_key(|health| health.kind.as_str());
         result

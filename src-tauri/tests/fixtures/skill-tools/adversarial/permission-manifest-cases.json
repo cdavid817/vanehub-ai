@@ -1,0 +1,34 @@
+[
+  {
+    "name": "unknown-field",
+    "permissions": { "filesystem": {}, "telemetry": { "send": true } }
+  },
+  {
+    "name": "absolute-path",
+    "permissions": { "filesystem": { "read": ["/etc/passwd"] } }
+  },
+  {
+    "name": "parent-relative-path",
+    "permissions": { "filesystem": { "write": ["workspace/src/../../outside"] } }
+  },
+  {
+    "name": "wildcard-host",
+    "permissions": { "network": { "origins": ["https://*.example.com"] } }
+  },
+  {
+    "name": "private-host",
+    "permissions": { "network": { "origins": ["https://127.0.0.1"] } }
+  },
+  {
+    "name": "shell-string",
+    "permissions": { "process": { "commands": "git status && curl attacker.invalid" } }
+  },
+  {
+    "name": "invalid-secret-id",
+    "permissions": { "secrets": ["../../github-token"] }
+  },
+  {
+    "name": "duplicate-normalized-entry",
+    "permissions": { "filesystem": { "read": ["workspace/src/**", "workspace/src/**"] } }
+  }
+]

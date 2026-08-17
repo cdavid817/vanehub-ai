@@ -70,6 +70,7 @@ import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
+import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -113,6 +114,14 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type {
+  SkillToolEnablementInput,
+  SkillToolOwnerInput,
+  SkillToolQuarantineInput,
+  SkillToolRevision,
+  SkillToolRevisionInput,
+  SkillToolTrustInput,
+} from "../types/skill-tools";
 import type {
   SkillOverlayDetail,
   SkillOverlayHistoryPage,
@@ -207,6 +216,13 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
+  startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
+  listEvaluationArenas: () => invoke<EvaluationArena[]>("list_evaluation_arenas"),
+  getEvaluationArena: (arenaId) => invoke<EvaluationArena>("get_evaluation_arena", { arenaId }),
+  cancelEvaluation: (arenaId) => invoke<EvaluationArena>("cancel_evaluation", { arenaId }),
+  getEvaluationAttempt: (attemptId) => invoke<EvaluationAttempt>("get_evaluation_attempt", { attemptId }),
+  exportEvaluation: (arenaId) => invoke<EvaluationExport>("export_evaluation", { arenaId }),
   getDesktopUpdateSnapshot() { return invoke("get_desktop_update_snapshot"); },
   getDesktopUpdatePreferences() { return invoke("get_desktop_update_preferences"); },
   saveDesktopUpdatePreferences(input) { return invoke("save_desktop_update_preferences", { input }); },
@@ -962,6 +978,34 @@ export const tauriAgentClient: AgentService = {
 
   getSkillOverview(input: SkillScopeInput) {
     return invoke<SkillOverview>("get_skill_overview", { input });
+  },
+
+  listSkillTools(input: SkillToolOwnerInput) {
+    return invoke<SkillToolRevision[]>("list_skill_tools", { input });
+  },
+
+  validateSkillToolRevision(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("validate_skill_tool_revision", { input });
+  },
+
+  setSkillToolTrust(input: SkillToolTrustInput) {
+    return invoke<SkillToolRevision>("set_skill_tool_trust", { input });
+  },
+
+  setSkillToolEnabled(input: SkillToolEnablementInput) {
+    return invoke<SkillToolRevision>("set_skill_tool_enabled", { input });
+  },
+
+  quarantineSkillTool(input: SkillToolQuarantineInput) {
+    return invoke<SkillToolRevision>("quarantine_skill_tool", { input });
+  },
+
+  recoverSkillTool(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("recover_skill_tool", { input });
+  },
+
+  getSkillToolDiagnostics(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("get_skill_tool_diagnostics", { input });
   },
 
   bindSkillToCliAgent(skillId: string, input: SkillScopeInput, agentId: string) {

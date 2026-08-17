@@ -108,12 +108,20 @@ impl ManualNativeToolService {
         let operation_id = format!("manual-tool-{}", Uuid::new_v4());
         let generation_id = format!("manual-generation-{}", Uuid::new_v4());
         let cancelled = Arc::new(AtomicBool::new(false));
-        let recorder = Arc::new(ManualOperationRecorder::new(
-            self.operations.clone(),
-            &operation_id,
-            &request,
-            &generation_id,
-        ));
+        let recorder = Arc::new(
+            ManualOperationRecorder::new(
+                self.operations.clone(),
+                &operation_id,
+                &request,
+                &generation_id,
+            )
+            .map_err(|()| {
+                dispatch_error(
+                    NativeToolErrorCode::InternalFailure,
+                    "native tool operation persistence failed",
+                )
+            })?,
+        );
         self.waits
             .register(&operation_id, &request.session_id, cancelled.clone())?;
         let authority = ToolEligibilityContext {

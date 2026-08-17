@@ -166,11 +166,23 @@ impl ManagedChild {
 
 impl Drop for ManagedChild {
     fn drop(&mut self) {
-        if self.status.is_none() {
-            if let Some(child) = self.child.as_mut() {
-                let _ = child.kill();
-            }
+        if self.status.is_some() {
+            return;
         }
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        thread::spawn(move || match child.try_wait() {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        });
     }
 }
 
@@ -467,6 +479,22 @@ mod tests {
             .expect("forced shutdown");
         assert!(!status.success());
         assert!(child.wait_until(Instant::now()).expect("reaped").is_some());
+    }
+
+    #[test]
+    fn managed_child_drop_kills_and_reaps_the_process() {
+        let executable = std::env::current_exe().expect("test executable");
+        let child = ManagedChild::spawn(
+            &executable.to_string_lossy(),
+            &fixture_args("managed_child_hang_fixture"),
+            &BTreeMap::new(),
+        )
+        .expect("managed child");
+        let process_id = child.id().expect("process id");
+
+        drop(child);
+
+        wait_until_process_stops(process_id);
     }
 
     #[tokio::test]

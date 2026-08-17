@@ -180,6 +180,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let plugin_integration_api =
         super::assemble_plugin_integration_api(fallback_log_directory.clone());
     let skill_api = super::assemble_skill_api(database.clone(), fallback_log_directory.clone());
+    let skill_tool_api = super::assemble_skill_tool_api(
+        database.clone(),
+        skill_api.clone(),
+        fallback_log_directory.clone(),
+    );
+    skill_api.bind_runtime_observer(Arc::new(skill_tool_api.clone()));
     let prompt_hook_api =
         super::assemble_prompt_hook_api(database.clone(), fallback_log_directory.clone());
     let ssh_connections_api =
@@ -226,6 +232,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         cli_parameters: cli_parameters_api.clone(),
         prompts: prompt_hook_api.clone(),
         skills: skill_api.clone(),
+        skill_tools: skill_tool_api.clone(),
         mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
@@ -240,6 +247,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
+    let evaluation_api = super::assemble_evaluation_api(
+        database.clone(),
+        operations_api.clone(),
+        agent_runs_api.clone(),
+        agent_runtime_api.clone(),
+        sessions_api.clone(),
+        workspace_api.clone(),
+        fallback_log_directory.join("evaluation-runs"),
+    );
     let super::RetrievalAssembly {
         api: retrieval_api,
         code_index_api,
@@ -320,6 +336,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(extension_api);
     app.manage(plugin_integration_api);
     app.manage(skill_api);
+    app.manage(skill_tool_api);
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     app.manage(workspace_api);
@@ -331,6 +348,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
+    app.manage(evaluation_api);
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());

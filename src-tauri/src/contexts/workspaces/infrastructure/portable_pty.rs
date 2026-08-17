@@ -24,7 +24,8 @@ struct ManagedShell {
     session_id: String,
     root: PathBuf,
     io: Arc<ShellIo>,
-    child: Box<dyn Child + Send + Sync>,
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    killer: Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
 }
 
 /// Larger reads coalesce bursty PTY output into fewer IPC events without adding latency:
@@ -126,12 +127,45 @@ fn terminate_child(
     }
 }
 
+fn terminate_shell(
+    shell: &ManagedShell,
+    logging: &dyn WorkspaceShellLogPort,
+    shell_id: &str,
+    shutdown: bool,
+) {
+    if let Ok(mut killer) = shell.killer.lock() {
+        // portable-pty 0.9 inverts the Windows TerminateProcess result. The authoritative
+        // outcome is the waiter below, which diagnoses an actual failure to reap.
+        let _ = killer.kill();
+    }
+    if let Ok(mut child) = shell.child.lock() {
+        if child.wait().is_err() {
+            let message = if shutdown {
+                "Shell process wait failed during shutdown."
+            } else {
+                "Shell process wait failed."
+            };
+            write_shell_log(
+                logging,
+                WorkspaceLogLevel::Warn,
+                &shell.session_id,
+                shell_id,
+                message,
+            );
+        }
+    }
+}
+
 impl PortablePtyShellRuntime {
     fn insert(&self, shell_id: String, shell: ManagedShell) -> Result<(), AppError> {
-        self.shells
+        let replaced = self
+            .shells
             .lock()
             .map_err(|error| AppError::Storage(error.to_string()))?
             .insert(shell_id, shell);
+        if let Some(replaced) = replaced {
+            terminate_shell(&replaced, self.logging.as_ref(), "replaced", false);
+        }
         Ok(())
     }
 
@@ -178,6 +212,50 @@ impl PortablePtyShellRuntime {
             .and_then(|_| writer.flush())
             .map_err(|error| AppError::Storage(error.to_string()))
     }
+
+    fn start_exit_monitor(
+        &self,
+        shell_id: &str,
+        session_id: &str,
+        io: Arc<ShellIo>,
+        child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    ) -> Result<(), AppError> {
+        let shells = self.shells.clone();
+        let logging = self.logging.clone();
+        let events = self.events.clone();
+        let shell_id = shell_id.to_owned();
+        let session_id = session_id.to_owned();
+        thread::Builder::new()
+            .name(format!("vanehub-shell-monitor-{shell_id}"))
+            .spawn(move || {
+                let wait_failed = child.lock().map_or(true, |mut child| child.wait().is_err());
+                if wait_failed {
+                    write_shell_log(
+                        logging.as_ref(),
+                        WorkspaceLogLevel::Warn,
+                        &session_id,
+                        &shell_id,
+                        "Shell process wait failed after PTY exit.",
+                    );
+                }
+                if let Ok(mut shells) = shells.lock() {
+                    let owns_entry = shells
+                        .get(&shell_id)
+                        .is_some_and(|shell| Arc::ptr_eq(&shell.io, &io));
+                    if owns_entry {
+                        shells.remove(&shell_id);
+                    }
+                }
+                events.publish(ShellEvent::State {
+                    shell_id,
+                    session_id,
+                    state: "disconnected",
+                    error: None,
+                });
+            })
+            .map(|_| ())
+            .map_err(|error| AppError::Storage(error.to_string()))
+    }
 }
 
 impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
@@ -198,7 +276,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             })?;
         let mut command = CommandBuilder::new(default_shell());
         command.cwd(&root);
-        let child = pair.slave.spawn_command(command).map_err(|error| {
+        let mut child = pair.slave.spawn_command(command).map_err(|error| {
             write_shell_log(
                 self.logging.as_ref(),
                 WorkspaceLogLevel::Error,
@@ -209,61 +287,94 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             AppError::LaunchFailed(error.to_string())
         })?;
         drop(pair.slave);
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
+        let mut reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                terminate_child(
+                    child.as_mut(),
+                    self.logging.as_ref(),
+                    &launch.session_id,
+                    &launch.shell_id,
+                    false,
+                );
+                return Err(AppError::Storage(error.to_string()));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                terminate_child(
+                    child.as_mut(),
+                    self.logging.as_ref(),
+                    &launch.session_id,
+                    &launch.shell_id,
+                    false,
+                );
+                return Err(AppError::Storage(error.to_string()));
+            }
+        };
 
+        let killer = child.clone_killer();
+        let child = Arc::new(Mutex::new(child));
         let events = self.events.clone();
         let reader_shell_id = launch.shell_id.clone();
         let reader_session_id = launch.session_id.clone();
-        thread::spawn(move || {
-            let mut buffer = [0u8; SHELL_READ_BUFFER_BYTES];
-            // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence can be
-            // split across two reads; carry the incomplete tail until the next read completes it.
-            let mut pending: Vec<u8> = Vec::new();
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => {
-                        pending.extend_from_slice(&buffer[..count]);
-                        let content = take_decodable_utf8(&mut pending);
-                        if content.is_empty() {
-                            continue;
-                        }
-                        events.publish(ShellEvent::Output {
-                            shell_id: reader_shell_id.clone(),
-                            session_id: reader_session_id.clone(),
-                            content,
-                        })
-                    }
-                    Err(_) => break,
-                }
-            }
-            events.publish(ShellEvent::State {
-                shell_id: reader_shell_id,
-                session_id: reader_session_id,
-                state: "disconnected",
-                error: None,
-            });
+        let io = Arc::new(ShellIo {
+            master: Mutex::new(pair.master),
+            writer: Mutex::new(writer),
         });
-
+        let monitor_io = io.clone();
+        let monitor_child = child.clone();
         self.insert(
             launch.shell_id.clone(),
             ManagedShell {
                 session_id: launch.session_id.clone(),
                 root,
-                io: Arc::new(ShellIo {
-                    master: Mutex::new(pair.master),
-                    writer: Mutex::new(writer),
-                }),
+                io,
                 child,
+                killer: Mutex::new(killer),
             },
-        )
+        )?;
+        let reader_worker = thread::Builder::new()
+            .name(format!("vanehub-shell-reader-{}", launch.shell_id))
+            .spawn(move || {
+                let mut buffer = [0u8; SHELL_READ_BUFFER_BYTES];
+                // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence can be
+                // split across two reads; carry the incomplete tail until the next read completes it.
+                let mut pending: Vec<u8> = Vec::new();
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(count) => {
+                            pending.extend_from_slice(&buffer[..count]);
+                            let content = take_decodable_utf8(&mut pending);
+                            if content.is_empty() {
+                                continue;
+                            }
+                            events.publish(ShellEvent::Output {
+                                shell_id: reader_shell_id.clone(),
+                                session_id: reader_session_id.clone(),
+                                content,
+                            })
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        if let Err(error) = reader_worker {
+            let _ = self.stop(&launch.shell_id);
+            return Err(AppError::Storage(error.to_string()));
+        }
+        if let Err(error) = self.start_exit_monitor(
+            &launch.shell_id,
+            &launch.session_id,
+            monitor_io,
+            monitor_child,
+        ) {
+            let _ = self.stop(&launch.shell_id);
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn write_input(&self, shell_id: &str, content: &str) -> Result<(), AppError> {
@@ -331,16 +442,10 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             .lock()
             .map_err(|error| AppError::Storage(error.to_string()))?
             .remove(shell_id);
-        let Some(mut shell) = shell else {
+        let Some(shell) = shell else {
             return Ok(None);
         };
-        terminate_child(
-            &mut *shell.child,
-            self.logging.as_ref(),
-            &shell.session_id,
-            shell_id,
-            false,
-        );
+        terminate_shell(&shell, self.logging.as_ref(), shell_id, false);
         Ok(Some(shell.session_id))
     }
 
@@ -369,14 +474,8 @@ impl Drop for PortablePtyShellRuntime {
             return;
         }
         if let Ok(mut shells) = self.shells.lock() {
-            for (_, mut shell) in shells.drain() {
-                terminate_child(
-                    &mut *shell.child,
-                    self.logging.as_ref(),
-                    &shell.session_id,
-                    "shutdown",
-                    true,
-                );
+            for (_, shell) in shells.drain() {
+                terminate_shell(&shell, self.logging.as_ref(), "shutdown", true);
             }
         }
     }
@@ -482,6 +581,7 @@ mod tests {
         let mut command = CommandBuilder::new(default_shell());
         command.cwd(root);
         let child = pair.slave.spawn_command(command).expect("test shell");
+        let killer = child.clone_killer();
         drop(pair.slave);
         let writer = pair.master.take_writer().expect("test writer");
         ManagedShell {
@@ -491,7 +591,8 @@ mod tests {
                 master: Mutex::new(pair.master),
                 writer: Mutex::new(writer),
             }),
-            child,
+            child: Arc::new(Mutex::new(child)),
+            killer: Mutex::new(killer),
         }
     }
 
@@ -687,6 +788,70 @@ mod tests {
         );
         manager.stop("shell-two").expect("stop remaining");
         remove_test_dir(&root);
+    }
+
+    #[test]
+    fn externally_exited_shell_is_removed_and_reaped() {
+        let root = temp_dir("natural-exit");
+        std::fs::create_dir_all(&root).expect("root");
+        let (manager, _) = runtime();
+        let pair = native_pty_system()
+            .openpty(terminal_size(TerminalDimensions::bounded(24, 80)))
+            .expect("test pty");
+        let mut command = if cfg!(windows) {
+            CommandBuilder::new("cmd.exe")
+        } else {
+            CommandBuilder::new("/bin/sh")
+        };
+        command.cwd(&root);
+        if cfg!(windows) {
+            command.arg("/C");
+            command.arg("exit 0");
+        } else {
+            command.arg("-c");
+            command.arg("exit 0");
+        }
+        let child = pair
+            .slave
+            .spawn_command(command)
+            .expect("short-lived shell");
+        let mut external_killer = child.clone_killer();
+        let killer = child.clone_killer();
+        let child = Arc::new(Mutex::new(child));
+        drop(pair.slave);
+        let writer = pair.master.take_writer().expect("test writer");
+        let io = Arc::new(ShellIo {
+            master: Mutex::new(pair.master),
+            writer: Mutex::new(writer),
+        });
+        manager
+            .insert(
+                "shell-natural-exit".to_owned(),
+                ManagedShell {
+                    session_id: "session-natural-exit".to_owned(),
+                    root: root.clone(),
+                    io: io.clone(),
+                    child: child.clone(),
+                    killer: Mutex::new(killer),
+                },
+            )
+            .expect("register shell");
+        manager
+            .start_exit_monitor("shell-natural-exit", "session-natural-exit", io, child)
+            .expect("start exit monitor");
+        // portable-pty 0.9 reports an inverted Windows kill result. The waiter observes the
+        // actual process exit, which is the lifecycle behavior this regression test exercises.
+        let _ = external_killer.kill();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if manager.shells.lock().expect("shell map").is_empty() {
+                remove_test_dir(&root);
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("exited shell remained in the live registry");
     }
 
     #[test]

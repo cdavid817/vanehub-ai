@@ -4,13 +4,66 @@ use crate::contexts::agent_runtime::domain::{
     AgentWorkflow, AvailabilityAssessment, InteractionMode, LaunchMetadata, ParsedMemoryActions,
 };
 use crate::contexts::execution_observability::api::{
-    CapturedTelemetryRecord, CapturingExecutionTelemetry, ExecutionFidelity, ExecutionSettingsPort,
-    ExecutionStatus, ExecutionTelemetryError, ObservabilitySettings, RandomExecutionIdentity,
+    CapturedTelemetryRecord, CapturingExecutionTelemetry, ExecutionEvent, ExecutionFidelity,
+    ExecutionRun, ExecutionRunId, ExecutionSettingsPort, ExecutionSpan, ExecutionStatus,
+    ExecutionTelemetryError, ExecutionTelemetryPort, ObservabilitySettings,
+    RandomExecutionIdentity, SpanId,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+struct FailingExecutionTelemetry;
+
+impl ExecutionTelemetryPort for FailingExecutionTelemetry {
+    fn start_run(&self, _: &ExecutionRun) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn finish_run(
+        &self,
+        _: &ExecutionRunId,
+        _: ExecutionStatus,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn start_span(&self, _: &ExecutionSpan) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn finish_span(
+        &self,
+        _: &ExecutionRunId,
+        _: &SpanId,
+        _: ExecutionStatus,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn record_event(&self, _: &ExecutionEvent) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn add_metric(
+        &self,
+        _: &'static str,
+        _: u64,
+        _: &[(&'static str, &'static str)],
+    ) -> Result<(), ExecutionTelemetryError> {
+        Err(ExecutionTelemetryError::Storage("fixture".to_owned()))
+    }
+
+    fn shutdown(&self, _: Duration) -> Result<(), ExecutionTelemetryError> {
+        Ok(())
+    }
+}
 
 #[derive(Default)]
 struct FakeMessageTerminalCompletions {
@@ -1615,7 +1668,15 @@ pub(super) fn service_with_telemetry(
     world: Arc<FakeWorld>,
 ) -> (AgentRuntimeApplicationService, CapturingExecutionTelemetry) {
     let telemetry = CapturingExecutionTelemetry::default();
-    let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
+    let service = service_with_telemetry_port(world, Arc::new(telemetry.clone()));
+    (service, telemetry)
+}
+
+fn service_with_telemetry_port(
+    world: Arc<FakeWorld>,
+    telemetry: Arc<dyn ExecutionTelemetryPort>,
+) -> AgentRuntimeApplicationService {
+    AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: world.clone(),
         workflows: world.clone(),
         sessions: world.clone(),
@@ -1629,7 +1690,7 @@ pub(super) fn service_with_telemetry(
         generations: world.clone(),
         execution_ids: Arc::new(RandomExecutionIdentity),
         execution_settings: world.clone(),
-        telemetry: Arc::new(telemetry.clone()),
+        telemetry,
         loop_completions: world.clone(),
         seat_completions: world.clone(),
         expert_roles: world.clone(),
@@ -1642,8 +1703,7 @@ pub(super) fn service_with_telemetry(
         memories: world.clone(),
         memory_extraction: world.clone(),
         personalization: world,
-    });
-    (service, telemetry)
+    })
 }
 
 pub(super) fn test_world() -> Arc<FakeWorld> {
@@ -2635,6 +2695,7 @@ fn execution_telemetry_preserves_task_agent_and_tool_topology() {
             input: None,
             output: None,
             status: status.to_string(),
+            skill_provenance: None,
         }))
         .expect("tool lifecycle");
     }
@@ -2689,6 +2750,35 @@ fn execution_telemetry_preserves_task_agent_and_tool_topology() {
         }
     )));
     assert!(!format!("{records:?}").contains("secret prompt must not be captured"));
+}
+
+#[test]
+fn telemetry_failures_are_diagnosed_without_failing_message_dispatch() {
+    let world = test_world();
+    let service = service_with_telemetry_port(world.clone(), Arc::new(FailingExecutionTelemetry));
+
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_owned(),
+            content: "content must not enter diagnostics".to_owned(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("telemetry must remain non-authoritative");
+
+    let logs = world.logs.lock().expect("logs");
+    let telemetry_logs = logs
+        .iter()
+        .filter(|log| log.category == "execution_telemetry")
+        .collect::<Vec<_>>();
+    assert!(!telemetry_logs.is_empty());
+    assert!(telemetry_logs.iter().all(|log| {
+        !log.message.contains("content must not enter diagnostics")
+            && log.run_id.is_some()
+            && log.trace_id.is_some()
+            && log.span_id.is_some()
+    }));
 }
 
 #[test]
@@ -2956,6 +3046,7 @@ fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
                 input: None,
                 output: None,
                 status: status.to_string(),
+                skill_provenance: None,
             },
         })
     };
@@ -3104,6 +3195,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
         input: Some(serde_json::json!({"path":"README.md"})),
         output: None,
         status: "running".to_string(),
+        skill_provenance: None,
     }))
     .expect("tool");
     sink.handle(GenerationProcessEvent::RichBlock(

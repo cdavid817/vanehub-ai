@@ -1,9 +1,9 @@
 use super::apply_preflight_backend::RecoveryEntry;
 use super::GitDelegationChangeSetCapture;
-use crate::contexts::agent_runtime::application::{
-    ChangeSetApplyRecord, ChangeSetStatus, RecoveryRecord, RecoveryStatus,
+use crate::contexts::agent_runtime::api::{
+    ChangeSetApplyRecord, ChangeSetStatus, NativeToolPersistencePort, RecoveryRecord,
+    RecoveryStatus,
 };
-use crate::contexts::agent_runtime::infrastructure::SqliteNativeToolRepository;
 use crate::contexts::cli_delegation::application::{
     DelegationApplyPlan, DelegationApplyRecoveryPort, DelegationChangeSetCapturePort,
     DelegationExactApplyPort, DelegationExactApplyRequest, DelegationExactApplyWitness,
@@ -22,13 +22,13 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) struct NativeApplyBackend {
     pub(super) recovery_root: PathBuf,
-    pub(super) repository: Arc<SqliteNativeToolRepository>,
+    pub(super) repository: Arc<dyn NativeToolPersistencePort>,
 }
 
 impl NativeApplyBackend {
     pub(super) fn new(
         recovery_root: PathBuf,
-        repository: Arc<SqliteNativeToolRepository>,
+        repository: Arc<dyn NativeToolPersistencePort>,
     ) -> Result<Self, String> {
         fs::create_dir_all(&recovery_root)
             .map_err(|_| "apply recovery is unavailable".to_owned())?;

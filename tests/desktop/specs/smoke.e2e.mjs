@@ -89,6 +89,30 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
     }), agentRun.id);
     assert.deepEqual(runEvents.map((event) => event.state), ["created", "cancelled"]);
 
+    const evaluationTasks = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_evaluation_tasks"));
+    assert.ok(evaluationTasks.length >= 3);
+    const agents = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_agents", { capabilityTag: null }));
+    const installed = agents.find((agent) => agent.availabilityState === "available"
+      && agent.supportedInteractionModes.includes("cli"));
+    if (!installed) {
+      globalThis.console.warn("BLOCKED: native evaluation requires one installed managed CLI Agent");
+    } else {
+      const evaluation = await globalThis.browser.tauri.execute(({ core }, agentId) => core.invoke("start_evaluation", {
+        input: { taskId: "add-parser-test", taskVersion: 1, agentIds: [agentId] },
+      }), installed.id);
+      assert.equal(evaluation.attempts.length, 1);
+      const terminalEvaluation = await globalThis.browser.waitUntil(async () => {
+        const arenas = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_evaluation_arenas"));
+        const current = arenas.find((arena) => arena.id === evaluation.id);
+        return current && !["queued", "running"].includes(current.attempts[0].outcome) ? current : false;
+      }, { timeout: 150_000, timeoutMsg: "Installed-Agent evaluation did not reach a terminal state." });
+      const exportedEvaluation = await globalThis.browser.tauri.execute(
+        ({ core }, arenaId) => core.invoke("export_evaluation", { arenaId }), terminalEvaluation.id,
+      );
+      assert.equal(exportedEvaluation.schemaVersion, 1);
+      assert.equal(exportedEvaluation.arena.attempts[0].agent.agentId, installed.id);
+    }
+
     const settingsButton = await globalThis.$('[data-testid="desktop-smoke-settings"]');
     await settingsButton.waitForClickable();
     await settingsButton.click();

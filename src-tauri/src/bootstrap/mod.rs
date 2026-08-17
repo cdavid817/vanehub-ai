@@ -44,7 +44,8 @@ pub(crate) use desktop::{
     initialize_desktop_runtime,
 };
 pub(crate) use execution_observability::{
-    assemble_execution_observability_api, start_execution_retention_job,
+    assemble_evaluation_api, assemble_execution_observability_api, relay_telemetry,
+    start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;
@@ -61,7 +62,7 @@ pub(crate) use sdk::assemble_sdk_api;
 pub(crate) use sessions::{
     assemble_sessions_api, start_session_maintenance_jobs, SessionRuntimeDependencies,
 };
-pub(crate) use skills::assemble_skill_api;
+pub(crate) use skills::{assemble_skill_api, assemble_skill_tool_api};
 pub(crate) use ssh_connections::assemble_ssh_connections_api;
 pub(crate) use task_orchestration::assemble_task_orchestration_api;
 pub(crate) use workspaces::assemble_workspace_api;

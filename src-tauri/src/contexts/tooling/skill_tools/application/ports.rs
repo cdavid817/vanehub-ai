@@ -1,13 +1,18 @@
 use super::{
-    SkillToolApplicationError, SkillToolFileEntry, SkillToolLogEvent, SkillToolPackageRef,
+    EffectiveSkillToolPackage, SkillToolApplicationError, SkillToolDiscoveryOutcome,
+    SkillToolFileEntry, SkillToolLogEvent, SkillToolOwnerKind, SkillToolPackageRef,
     SkillToolRevisionState,
 };
 use crate::contexts::tooling::skill_tools::domain::{
-    BoundedJsonSchema, ContentHash, SkillToolCapability, SkillToolDiagnosticSummary, SkillToolKey,
-    SkillToolLifecycle, SkillToolLimits, SkillToolRevision, SkillToolTrustDecision,
-    SkillToolTrustRecord,
+    BoundedJsonSchema, ContentHash, ModuleImplementation, SkillToolCapability,
+    SkillToolDiagnosticSummary, SkillToolKey, SkillToolLifecycle, SkillToolLimits,
+    SkillToolRevision, SkillToolTrustDecision, SkillToolTrustRecord,
 };
 use serde_json::Value;
+use std::any::Any;
+use std::collections::HashSet;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Reads tool content out of one resolved Skill package.
 ///
@@ -105,6 +110,20 @@ pub(crate) trait SkillToolStateRepository: Send + Sync {
     ) -> Result<(), SkillToolApplicationError>;
 }
 
+pub(crate) trait SkillToolEffectiveDiscoveryPort: Send + Sync {
+    fn discover_effective(
+        &self,
+        owner: &SkillToolPackageRef,
+    ) -> Result<
+        (
+            EffectiveSkillToolPackage,
+            SkillToolDiscoveryOutcome,
+            SkillToolOwnerKind,
+        ),
+        SkillToolApplicationError,
+    >;
+}
+
 /// Result of one module invocation, as the sandbox reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SkillToolModuleOutcome {
@@ -114,19 +133,31 @@ pub(crate) enum SkillToolModuleOutcome {
     Cancelled,
 }
 
+pub(crate) trait SkillToolModuleHostCallPort: Send + Sync {
+    fn call(&self, request: &Value) -> Result<SkillToolDispatchOutcome, SkillToolApplicationError>;
+}
+
 /// Executes a WebAssembly tool. Implemented natively in section 4; absent implementations report
 /// `ModuleRuntimeUnavailable` so declarative tools keep working with the module runtime disabled.
 pub(crate) trait SkillToolModuleRuntime: Send + Sync {
     fn is_available(&self) -> bool;
 
+    #[allow(clippy::too_many_arguments)]
     fn invoke(
         &self,
         package: &SkillToolPackageRef,
         key: &SkillToolKey,
+        module: &ModuleImplementation,
         export: &str,
         input: &Value,
         limits: &SkillToolLimits,
+        cancelled: &AtomicBool,
+        host_calls: Arc<dyn SkillToolModuleHostCallPort>,
     ) -> Result<SkillToolModuleOutcome, SkillToolApplicationError>;
+}
+
+pub(crate) trait SkillToolCompiledArtifactPort: Send + Sync {
+    fn retain_revisions(&self, revisions: &HashSet<SkillToolRevision>);
 }
 
 /// One tool as the agent catalog needs to see it: a provider-visible name, a description, and an
@@ -139,13 +170,94 @@ pub(crate) struct SkillToolCatalogEntry {
     pub(crate) key: SkillToolKey,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillToolBinding {
+    pub(crate) skill_id: String,
+    pub(crate) revision: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillToolCatalogMode {
+    Plan,
+    Execute,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SkillToolCatalogContext {
+    RoleGeneration {
+        workspace_path: Option<String>,
+        loaded_roles: Vec<SkillToolBinding>,
+        mode: SkillToolCatalogMode,
+    },
+    UtilityDelegation {
+        workspace_path: Option<String>,
+        utility: SkillToolBinding,
+        mode: SkillToolCatalogMode,
+    },
+    ExternalCli {
+        workspace_path: Option<String>,
+    },
+}
+
+impl SkillToolCatalogContext {
+    pub(crate) fn workspace_path(&self) -> Option<&str> {
+        match self {
+            Self::RoleGeneration { workspace_path, .. }
+            | Self::UtilityDelegation { workspace_path, .. }
+            | Self::ExternalCli { workspace_path } => workspace_path.as_deref(),
+        }
+    }
+
+    pub(crate) fn support_state(&self) -> &'static str {
+        match self {
+            Self::ExternalCli { .. } => "unsupported-external-cli-bridge",
+            _ => "supported-native-api",
+        }
+    }
+}
+
 /// Contributes eligible Skill tools to a generation context.
 pub(crate) trait SkillToolCatalogPort: Send + Sync {
     fn catalog_for(
         &self,
-        workspace_path: Option<&str>,
-        loaded_skill_ids: &[String],
-    ) -> Result<Vec<SkillToolCatalogEntry>, SkillToolApplicationError>;
+        context: &SkillToolCatalogContext,
+    ) -> Result<SkillToolCatalogSnapshot, SkillToolApplicationError>;
+}
+
+pub(crate) struct SkillToolCatalogSnapshot {
+    pub(crate) generation: u64,
+    pub(crate) entries: Vec<SkillToolCatalogEntry>,
+    pub(crate) lease: Arc<dyn Any + Send + Sync>,
+}
+
+pub(crate) struct SkillToolExecutionRequest<'a> {
+    pub(crate) call_id: &'a str,
+    pub(crate) key: &'a SkillToolKey,
+    pub(crate) parent_agent_id: &'a str,
+    pub(crate) workspace_path: Option<&'a str>,
+    pub(crate) session_id: &'a str,
+    pub(crate) generation_id: &'a str,
+    pub(crate) mode: SkillToolCatalogMode,
+    pub(crate) input: &'a Value,
+    pub(crate) cancelled: &'a AtomicBool,
+    pub(crate) lifecycle: &'a dyn SkillToolExecutionLifecyclePort,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillToolExecutionLifecyclePhase {
+    AwaitingApproval,
+}
+
+pub(crate) trait SkillToolExecutionLifecyclePort: Send + Sync {
+    fn transition(&self, phase: SkillToolExecutionLifecyclePhase);
+}
+
+/// Executes only an immutable key retained by the generation's pinned catalog snapshot.
+pub(crate) trait SkillToolExecutionPort: Send + Sync {
+    fn execute(
+        &self,
+        request: SkillToolExecutionRequest<'_>,
+    ) -> Result<SkillToolDispatchOutcome, SkillToolApplicationError>;
 }
 
 /// The identity a delegated host operation is evaluated under.
@@ -155,14 +267,98 @@ pub(crate) struct SkillToolPrincipal {
     pub(crate) key: SkillToolKey,
     pub(crate) workspace_path: Option<String>,
     pub(crate) session_id: Option<String>,
+    pub(crate) generation_id: String,
     pub(crate) delegation_chain: Vec<String>,
+}
+
+impl SkillToolPrincipal {
+    pub(crate) fn new(
+        parent_agent_id: &str,
+        key: SkillToolKey,
+        workspace_path: Option<&str>,
+        session_id: &str,
+        generation_id: &str,
+        delegation_chain: Vec<String>,
+    ) -> Result<Self, SkillToolApplicationError> {
+        let parent_agent_id = required_bounded(parent_agent_id, 128)?;
+        let session_id = required_bounded(session_id, 128)?;
+        let generation_id = required_bounded(generation_id, 128)?;
+        let workspace_path = workspace_path
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if key.source.workspace_path.as_deref() != workspace_path.as_deref()
+            && key.source.workspace_path.is_some()
+        {
+            return Err(SkillToolApplicationError::HostDenied(
+                "principal-workspace".to_string(),
+            ));
+        }
+        if delegation_chain.len() > 4
+            || delegation_chain
+                .iter()
+                .any(|item| item.is_empty() || item.chars().count() > 256)
+        {
+            return Err(SkillToolApplicationError::HostDenied(
+                "principal-delegation".to_string(),
+            ));
+        }
+        Ok(Self {
+            parent_agent_id,
+            key,
+            workspace_path,
+            session_id: Some(session_id),
+            generation_id,
+            delegation_chain,
+        })
+    }
+}
+
+fn required_bounded(value: &str, maximum: usize) -> Result<String, SkillToolApplicationError> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > maximum {
+        Err(SkillToolApplicationError::HostDenied(
+            "principal-context".to_string(),
+        ))
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SkillToolDispatchOutcome {
     Completed(Value),
     Denied { reason: String },
+    Failed { code: String },
     Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillToolPermissionDecision {
+    Allow,
+    Ask,
+    Deny,
+}
+
+/// Evaluates one concrete delegated operation. A manifest declaration is only admission to this
+/// boundary; implementations must resolve policy independently for every call.
+pub(crate) trait SkillToolPermissionPort: Send + Sync {
+    fn evaluate(
+        &self,
+        principal: &SkillToolPrincipal,
+        capability: &SkillToolCapability,
+        arguments: &Value,
+    ) -> SkillToolPermissionDecision;
+}
+
+pub(crate) trait SkillToolApprovalPort: Send + Sync {
+    fn create_pending(
+        &self,
+        principal: &SkillToolPrincipal,
+        capability: &SkillToolCapability,
+        arguments: &Value,
+        call_id: &str,
+    ) -> Result<String, SkillToolApplicationError>;
 }
 
 /// Routes a delegated operation through the existing tool execution and permission boundaries.
@@ -176,6 +372,11 @@ pub(crate) trait SkillToolHostDispatchPort: Send + Sync {
         capability: &SkillToolCapability,
         arguments: &Value,
     ) -> Result<SkillToolDispatchOutcome, SkillToolApplicationError>;
+}
+
+pub(crate) trait SkillToolInvocationBudgetPort: Send + Sync {
+    fn reserve_host_call(&self) -> Result<(), SkillToolApplicationError>;
+    fn consume_output(&self, bytes: u64) -> Result<(), SkillToolApplicationError>;
 }
 
 /// Records a successful invocation against the owning Skill's usage counters.
@@ -194,3 +395,7 @@ pub(crate) trait SkillToolLoggingPort: Send + Sync {
 pub(crate) trait SkillToolClockPort: Send + Sync {
     fn now(&self) -> String;
 }
+
+#[cfg(test)]
+#[path = "principal_tests.rs"]
+mod principal_tests;

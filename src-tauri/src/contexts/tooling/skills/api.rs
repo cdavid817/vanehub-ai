@@ -5,6 +5,8 @@ use crate::contexts::tooling::skills::configuration_facade::SkillConfigurationFa
 use crate::contexts::tooling::skills::infrastructure::require_base_revision;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
+use zeroize::Zeroizing;
 
 pub(crate) use crate::contexts::tooling::skills::application::{
     OverlayApplicationError as OverlayError, OverlayDetail, OverlayHistoryPage,
@@ -43,6 +45,17 @@ pub(crate) struct SkillApi {
     service: SkillApplicationService,
     overlays: Option<SkillOverlayApplicationService>,
     configuration: Option<SkillConfigurationFacade>,
+    runtime_observer: Arc<RwLock<Option<Arc<dyn SkillRuntimeObserver>>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SkillRuntimeMutation {
+    Upsert,
+    Delete,
+}
+
+pub(crate) trait SkillRuntimeObserver: Send + Sync {
+    fn skill_changed(&self, key: &SkillKey, mutation: SkillRuntimeMutation);
 }
 
 /// What the Configuration surface needs in one response: whether this revision is configurable at
@@ -69,12 +82,37 @@ pub(crate) struct CliSkillEvidenceSnapshot {
     pub(crate) configured_binding_ids: Vec<String>,
 }
 
+/// Published backend-only boundary for consuming a configured secret. Implementations return a
+/// zeroizing value; UI and command DTOs intentionally have no equivalent operation.
+pub(crate) trait SkillSecretReadPort: Send + Sync {
+    fn read_secret(
+        &self,
+        record_id: &str,
+        property_key: &str,
+    ) -> Result<Option<Zeroizing<String>>, SkillError>;
+}
+
 impl SkillApi {
     pub(crate) fn new(service: SkillApplicationService) -> Self {
         Self {
             service,
             overlays: None,
             configuration: None,
+            runtime_observer: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub(crate) fn bind_runtime_observer(&self, observer: Arc<dyn SkillRuntimeObserver>) {
+        if let Ok(mut slot) = self.runtime_observer.write() {
+            *slot = Some(observer);
+        }
+    }
+
+    fn observe(&self, key: &SkillKey, mutation: SkillRuntimeMutation) {
+        if let Ok(slot) = self.runtime_observer.read() {
+            if let Some(observer) = slot.as_ref() {
+                observer.skill_changed(key, mutation);
+            }
         }
     }
 
@@ -285,19 +323,27 @@ impl SkillApi {
     }
 
     pub(crate) fn create(&self, request: SkillCreateRequest) -> Result<SkillRecord, SkillError> {
-        self.service.create_skill(request)
+        let record = self.service.create_skill(request)?;
+        self.observe(&record.key, SkillRuntimeMutation::Upsert);
+        Ok(record)
     }
 
     pub(crate) fn update(&self, request: SkillUpdateRequest) -> Result<SkillRecord, SkillError> {
-        self.service.update_skill(request)
+        let record = self.service.update_skill(request)?;
+        self.observe(&record.key, SkillRuntimeMutation::Upsert);
+        Ok(record)
     }
 
     pub(crate) fn delete(&self, key: SkillKey) -> Result<(), SkillError> {
-        self.service.delete_skill(key)
+        self.service.delete_skill(key.clone())?;
+        self.observe(&key, SkillRuntimeMutation::Delete);
+        Ok(())
     }
 
     pub(crate) fn restore_builtin(&self, id: SkillId) -> Result<SkillRecord, SkillError> {
-        self.service.restore_builtin(id)
+        let record = self.service.restore_builtin(id)?;
+        self.observe(&record.key, SkillRuntimeMutation::Upsert);
+        Ok(record)
     }
 
     pub(crate) fn set_enabled(
@@ -305,7 +351,9 @@ impl SkillApi {
         key: SkillKey,
         enabled: bool,
     ) -> Result<SkillRecord, SkillError> {
-        self.service.set_enabled(key, enabled)
+        let record = self.service.set_enabled(key, enabled)?;
+        self.observe(&record.key, SkillRuntimeMutation::Upsert);
+        Ok(record)
     }
 
     pub(crate) fn set_bindings(
@@ -318,6 +366,17 @@ impl SkillApi {
 
     pub(crate) fn overview(&self, query: SkillScopeQuery) -> Result<SkillOverview, SkillError> {
         self.service.skill_overview(query)
+    }
+
+    pub(crate) fn record_tool_use(
+        &self,
+        skill_id: &str,
+        workspace: Option<&str>,
+        revision: &str,
+    ) -> bool {
+        self.service
+            .bump_tool_use(skill_id, workspace, revision)
+            .is_some()
     }
 
     pub(crate) fn bind_to_cli_agent(
@@ -400,7 +459,9 @@ impl SkillApi {
     }
 
     pub(crate) fn import(&self, request: SkillImportRequest) -> Result<SkillRecord, SkillError> {
-        self.service.import_skill(request)
+        let record = self.service.import_skill(request)?;
+        self.observe(&record.key, SkillRuntimeMutation::Upsert);
+        Ok(record)
     }
 
     pub(crate) fn detect_drift(

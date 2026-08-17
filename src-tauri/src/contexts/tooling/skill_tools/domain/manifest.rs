@@ -1,7 +1,8 @@
 use super::{
-    validate_bounded_schema, BoundedJsonSchema, SkillToolDomainError, SkillToolId,
-    SkillToolLimitOverrides, SkillToolLimits, SkillToolManifestLimits, SkillToolOwnerId,
-    DEFAULT_SKILL_TOOL_LIMITS, MODULE_DIRECTORY, SUPPORTED_MANIFEST_VERSION,
+    parse_permission_manifest, validate_bounded_schema, BoundedJsonSchema, SkillToolDomainError,
+    SkillToolId, SkillToolLimitOverrides, SkillToolLimits, SkillToolManifestLimits,
+    SkillToolOwnerId, SkillToolPermissions, DEFAULT_SKILL_TOOL_LIMITS, MODULE_DIRECTORY,
+    SUPPORTED_MANIFEST_VERSION,
 };
 use serde_json::{Map, Value};
 
@@ -47,6 +48,7 @@ const TOOL_FIELDS: &[&str] = &[
     "input",
     "output",
     "capabilities",
+    "permissions",
     "limits",
 ];
 const LIMIT_FIELDS: &[&str] = &[
@@ -58,6 +60,9 @@ const LIMIT_FIELDS: &[&str] = &[
     "hostCalls",
     "delegationDepth",
     "concurrency",
+    "childProcesses",
+    "fileBytes",
+    "networkBytes",
 ];
 
 /// A host operation a tool is allowed to request. Only registered tool operations are
@@ -182,6 +187,7 @@ pub(crate) struct SkillToolDeclaration {
     pub(crate) input: BoundedJsonSchema,
     pub(crate) output: BoundedJsonSchema,
     pub(crate) capabilities: Vec<SkillToolCapability>,
+    pub(crate) permissions: SkillToolPermissions,
     pub(crate) limits: SkillToolLimits,
 }
 
@@ -334,6 +340,7 @@ fn parse_tool(
     )?;
 
     let capabilities = parse_capabilities(object.get("capabilities"), limits)?;
+    let permissions = parse_permission_manifest(object.get("permissions"))?;
     let overrides = parse_limit_overrides(object.get("limits"))?;
     let implementation = parse_implementation(
         object
@@ -351,6 +358,7 @@ fn parse_tool(
         input,
         output,
         capabilities,
+        permissions,
         limits: DEFAULT_SKILL_TOOL_LIMITS.tighten(overrides)?,
     })
 }
@@ -427,6 +435,9 @@ fn parse_limit_overrides(
         host_calls: count("hostCalls")?,
         delegation_depth: count("delegationDepth")?,
         concurrency: count("concurrency")?,
+        child_processes: count("childProcesses")?,
+        file_bytes: number("fileBytes")?,
+        network_bytes: number("networkBytes")?,
     })
 }
 

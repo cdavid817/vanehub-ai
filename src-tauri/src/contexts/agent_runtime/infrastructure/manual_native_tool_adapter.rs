@@ -2,12 +2,15 @@ use crate::contexts::agent_runtime::application::{
     ManualNativeToolAuthorityPort, ManualNativeToolOperationPort, StoredToolOperation,
     StoredToolOperationStatus,
 };
+use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::sessions::api::SessionsApi;
 use crate::platform::database::NativeDatabase;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use rusqlite::params;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 #[derive(Clone)]
@@ -93,17 +96,37 @@ fn canonical_local_workspace(folder: Option<&str>) -> Result<PathBuf, &'static s
 pub(crate) struct ManualNativeToolOperationAdapter {
     repository: super::SqliteNativeToolRepository,
     app: AppHandle,
+    diagnostics: Arc<dyn DiagnosticLogPort>,
 }
 
 impl ManualNativeToolOperationAdapter {
-    pub(crate) fn new(repository: super::SqliteNativeToolRepository, app: AppHandle) -> Self {
-        Self { repository, app }
+    pub(crate) fn new(
+        repository: super::SqliteNativeToolRepository,
+        app: AppHandle,
+        diagnostics: Arc<dyn DiagnosticLogPort>,
+    ) -> Self {
+        Self {
+            repository,
+            app,
+            diagnostics,
+        }
+    }
+
+    fn record_persistence_failure(&self) {
+        let _ = self.diagnostics.write_diagnostic(DiagnosticLog {
+            severity: LogSeverity::Error,
+            category: "native_tool_operation".to_owned(),
+            message: "manual native tool operation persistence failed".to_owned(),
+            context: BTreeMap::new(),
+        });
     }
 }
 
 impl ManualNativeToolOperationPort for ManualNativeToolOperationAdapter {
     fn save(&self, operation: &StoredToolOperation) -> Result<(), ()> {
-        self.repository.save_operation(operation).map_err(|_| ())?;
+        self.repository.save_operation(operation).map_err(|_| {
+            self.record_persistence_failure();
+        })?;
         let _ = self
             .app
             .emit("builtin-tool-operation", operation_event(operation));

@@ -60,6 +60,9 @@ pub(crate) struct SkillToolLimits {
     pub(crate) host_calls: u32,
     pub(crate) delegation_depth: u32,
     pub(crate) concurrency: u32,
+    pub(crate) child_processes: u32,
+    pub(crate) file_bytes: u64,
+    pub(crate) network_bytes: u64,
 }
 
 /// `design.md` decision 2. Fuel is a placeholder budget until the engine adapter calibrates it in
@@ -73,6 +76,9 @@ pub(crate) const DEFAULT_SKILL_TOOL_LIMITS: SkillToolLimits = SkillToolLimits {
     host_calls: 8,
     delegation_depth: 4,
     concurrency: 2,
+    child_processes: 4,
+    file_bytes: 8 * 1024 * 1024,
+    network_bytes: 16 * 1024 * 1024,
 };
 
 /// A manifest's optional overrides. Absent fields keep the ceiling.
@@ -86,6 +92,9 @@ pub(crate) struct SkillToolLimitOverrides {
     pub(crate) host_calls: Option<u32>,
     pub(crate) delegation_depth: Option<u32>,
     pub(crate) concurrency: Option<u32>,
+    pub(crate) child_processes: Option<u32>,
+    pub(crate) file_bytes: Option<u64>,
+    pub(crate) network_bytes: Option<u64>,
 }
 
 impl SkillToolLimits {
@@ -110,6 +119,17 @@ impl SkillToolLimits {
                 overrides.delegation_depth,
             )?,
             concurrency: tighten_u32("concurrency", self.concurrency, overrides.concurrency)?,
+            child_processes: tighten_u32(
+                "childProcesses",
+                self.child_processes,
+                overrides.child_processes,
+            )?,
+            file_bytes: tighten_u64("fileBytes", self.file_bytes, overrides.file_bytes)?,
+            network_bytes: tighten_u64(
+                "networkBytes",
+                self.network_bytes,
+                overrides.network_bytes,
+            )?,
         })
     }
 }

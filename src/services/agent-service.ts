@@ -143,6 +143,7 @@ import type {
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
+import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask, StartEvaluationInput } from "../types/evaluation";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -185,6 +186,14 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type {
+  SkillToolEnablementInput,
+  SkillToolOwnerInput,
+  SkillToolQuarantineInput,
+  SkillToolRevision,
+  SkillToolRevisionInput,
+  SkillToolTrustInput,
+} from "../types/skill-tools";
 import type {
   SkillOverlayDetail,
   SkillOverlayFileInput,
@@ -268,6 +277,13 @@ import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends BuiltinToolService {
+  listEvaluationTasks(): Promise<EvaluationTask[]>;
+  startEvaluation(input: StartEvaluationInput): Promise<EvaluationArena>;
+  listEvaluationArenas(): Promise<EvaluationArena[]>;
+  getEvaluationArena(arenaId: string): Promise<EvaluationArena>;
+  cancelEvaluation(arenaId: string): Promise<EvaluationArena>;
+  getEvaluationAttempt(attemptId: string): Promise<EvaluationAttempt>;
+  exportEvaluation(arenaId: string): Promise<EvaluationExport>;
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -488,6 +504,13 @@ export interface AgentService extends BuiltinToolService {
   deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
+  listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]>;
+  validateSkillToolRevision(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
+  setSkillToolTrust(input: SkillToolTrustInput): Promise<SkillToolRevision>;
+  setSkillToolEnabled(input: SkillToolEnablementInput): Promise<SkillToolRevision>;
+  quarantineSkillTool(input: SkillToolQuarantineInput): Promise<SkillToolRevision>;
+  recoverSkillTool(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
+  getSkillToolDiagnostics(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
   createSkill(input: SkillMutationInput): Promise<Skill>;
