@@ -51,6 +51,8 @@ import type * as SessionWorkspaceContracts from "./session-workspace";
 import type * as SessionWorkspaceTypes from "../types/session-workspace";
 import type * as ContextQualityContracts from "./context-quality";
 import type * as ContextQualityTypes from "../types/context-quality";
+import type * as MissionControlContracts from "./mission-control";
+import type * as MissionControlTypes from "../types/mission-control";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -407,6 +409,15 @@ type ContextQualityAssertions = [
   Assert<Equal<ContextQualityContracts.ContextQualitySafeError, ContextQualityTypes.ContextQualitySafeError>>,
 ];
 
+type MissionControlAssertions = [
+  Assert<Equal<MissionControlContracts.MissionControlQuery, MissionControlTypes.MissionControlQuery>>,
+  Assert<Equal<MissionControlContracts.MissionControlOverview, MissionControlTypes.MissionControlOverview>>,
+  Assert<Equal<MissionControlContracts.MissionControlRunDetail, MissionControlTypes.MissionControlRunDetail>>,
+  Assert<Equal<MissionControlContracts.MissionControlActionInput, MissionControlTypes.MissionControlActionInput>>,
+  Assert<Equal<MissionControlContracts.MissionControlActionReceipt, MissionControlTypes.MissionControlActionReceipt>>,
+  Assert<Equal<MissionControlContracts.MissionControlSafeError, MissionControlTypes.MissionControlSafeError>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as ChatAssertions);
 void (0 as unknown as TokenUsageAssertions);
@@ -421,6 +432,7 @@ void (0 as unknown as SkillConfigurationAssertions);
 void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 void (0 as unknown as ContextQualityAssertions);
+void (0 as unknown as MissionControlAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

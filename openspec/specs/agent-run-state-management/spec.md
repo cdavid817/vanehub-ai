@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change unify-agent-run-state-machine. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Canonical Run identity and ownership
 Every accepted long-running Agent, Plan, Loop, or delegated execution SHALL have one stable UUID Run id before execution begins, an owning type/id, optional typed business links, and an optional parent Run id. Existing business objects SHALL retain their own identities and semantics.
 
@@ -114,3 +116,17 @@ Run transitions SHALL use bounded validation and one atomic snapshot/event persi
 - **WHEN** a Run has reached the supported event bound or many Runs share an owner
 - **THEN** status and timeline queries use bounded pages and indexed access without scanning unrelated payload content
 
+### Requirement: Mission Control Run projection and retry control
+The shared Run service SHALL expose a bounded Mission Control projection over canonical Run state and a retry control that delegates eligibility and execution to the owning runtime. The projection MUST preserve canonical Run identity and terminal semantics and MUST NOT become a second lifecycle authority.
+
+#### Scenario: Projection is queried
+- **WHEN** Mission Control requests a filtered page
+- **THEN** the shared service returns bounded summaries derived from canonical state using contract-compatible Tauri and Web/mock adapters
+
+#### Scenario: Retry is accepted
+- **WHEN** an eligible failed or stuck Run is retried
+- **THEN** the owning runtime creates or transitions work according to its existing retry policy and returns the resulting canonical Run identity and state
+
+#### Scenario: Retry is rejected
+- **WHEN** state, owner policy, permission, or version does not allow retry
+- **THEN** the service returns a safe typed rejection and does not alter the canonical Run
