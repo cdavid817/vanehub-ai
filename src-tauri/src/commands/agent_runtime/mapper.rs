@@ -340,6 +340,16 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
                 input: tool_use.input,
                 output: tool_use.output,
                 status: tool_use.status,
+                skill_provenance: tool_use.skill_provenance.map(|provenance| {
+                    dto::SkillToolUseProvenance {
+                        skill_id: provenance.skill_id,
+                        tool_id: provenance.tool_id,
+                        revision: provenance.revision,
+                        source_scope: provenance.source_scope,
+                        workspace_path: provenance.workspace_path,
+                        redacted_result_summary: provenance.redacted_result_summary,
+                    }
+                }),
             })
             .collect()
     });

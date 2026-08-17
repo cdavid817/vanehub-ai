@@ -187,6 +187,14 @@ import type {
   SkillUpdateInput,
 } from "../types/skill";
 import type {
+  SkillToolEnablementInput,
+  SkillToolOwnerInput,
+  SkillToolQuarantineInput,
+  SkillToolRevision,
+  SkillToolRevisionInput,
+  SkillToolTrustInput,
+} from "../types/skill-tools";
+import type {
   SkillOverlayDetail,
   SkillOverlayFileInput,
   SkillOverlayGuidanceInput,
@@ -496,6 +504,13 @@ export interface AgentService extends BuiltinToolService {
   deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
+  listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]>;
+  validateSkillToolRevision(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
+  setSkillToolTrust(input: SkillToolTrustInput): Promise<SkillToolRevision>;
+  setSkillToolEnabled(input: SkillToolEnablementInput): Promise<SkillToolRevision>;
+  quarantineSkillTool(input: SkillToolQuarantineInput): Promise<SkillToolRevision>;
+  recoverSkillTool(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
+  getSkillToolDiagnostics(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
   createSkill(input: SkillMutationInput): Promise<Skill>;

@@ -13,6 +13,12 @@ const serviceMocks = vi.hoisted(() => ({
   createSkill: vi.fn(),
   deleteSkill: vi.fn(),
   getSkillOverlayDetail: vi.fn(),
+  listSkillTools: vi.fn(),
+  quarantineSkillTool: vi.fn(),
+  recoverSkillTool: vi.fn(),
+  setSkillToolEnabled: vi.fn(),
+  setSkillToolTrust: vi.fn(),
+  validateSkillToolRevision: vi.fn(),
   getSkillEvolutionSeedLineage: vi.fn(),
   getSkillOverview: vi.fn(),
   purgeSkillEvolutionEvidence: vi.fn(),
@@ -135,6 +141,20 @@ function resolvedSkillMocks() {
     scopeDiffs: [], scopeDiffsTruncated: false,
     mutations: [], mutationsTruncated: false, resources: [], resourcesTruncated: false, conflicts: [], conflictsTruncated: false,
   });
+  serviceMocks.listSkillTools.mockResolvedValue([{
+    skillId: skill.id, toolId: "inspect-diff", canonicalId: "skill__reliable-skill__inspect-diff__abcdef123456",
+    revision: "f".repeat(64), sourceScope: "global", implementationKind: "declarative",
+    baseRevision: skill.contentHash, manifestHash: `sha256:${"a".repeat(64)}`, implementationHash: `sha256:${"b".repeat(64)}`,
+    capabilityDigest: "read-workspace", capabilityDiff: { currentDigest: "read-workspace", added: ["filesystem.read"], removed: [], changed: true },
+    validation: "valid", trusted: false, enabled: false, quarantined: false, consecutiveFailures: 0,
+    diagnostics: [{ severity: "info", code: "validated", detail: "manifest accepted" }], runtimeSupport: "supported",
+    enforcementStrength: "bounded-native-io", createdAt: "now", updatedAt: "now",
+  }]);
+  serviceMocks.setSkillToolTrust.mockResolvedValue({ revision: "f".repeat(64) });
+  serviceMocks.validateSkillToolRevision.mockResolvedValue({ revision: "f".repeat(64) });
+  serviceMocks.setSkillToolEnabled.mockResolvedValue({ revision: "f".repeat(64) });
+  serviceMocks.quarantineSkillTool.mockResolvedValue({ revision: "f".repeat(64) });
+  serviceMocks.recoverSkillTool.mockResolvedValue({ revision: "f".repeat(64) });
   serviceMocks.setSkillEnabled.mockResolvedValue(skill);
   serviceMocks.bindSkillToCliAgent.mockResolvedValue(skill);
   serviceMocks.bindSkillToApiAgent.mockResolvedValue(undefined);
@@ -202,6 +222,91 @@ beforeEach(() => {
 });
 
 describe("SkillsPage interactions", () => {
+  it("exposes an accessible Tools tab with governed inventory facts", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const row = await screen.findByText("Reliable Skill");
+    const card = row.closest("article");
+    if (!card) throw new Error("Skill card not found");
+    await user.click(within(card).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    await user.click(screen.getByRole("tab", { name: "工具" }));
+
+    const panel = screen.getByRole("tabpanel", { name: "工具" });
+    expect(await within(panel).findByRole("heading", { name: "inspect-diff" })).toBeTruthy();
+    for (const text of ["DECLARATIVE", "精确修订", "实现哈希", "能力", "未信任", "已禁用", "支持原生执行", "INFO · validated"]) {
+      expect(within(panel).getAllByText(text, { exact: false }).length).toBeGreaterThan(0);
+    }
+    expect(serviceMocks.listSkillTools).toHaveBeenCalledWith({ skillId: skill.id, scope: "global", workspacePath: null });
+  });
+
+  it("reviews exact hashes and capability changes before trust without enabling", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const card = (await screen.findByText("Reliable Skill")).closest("article");
+    if (!card) throw new Error("Skill card not found");
+    await user.click(within(card).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    await user.click(screen.getByRole("tab", { name: "工具" }));
+    await user.click(await screen.findByRole("button", { name: "信任此修订" }));
+
+    const dialog = screen.getByRole("dialog", { name: "信任精确工具修订" });
+    for (const text of ["基础修订", "清单哈希", "实现哈希", "能力摘要", "filesystem.read"]) expect(within(dialog).getByText(text, { exact: false })).toBeTruthy();
+    expect(within(dialog).getByText("信任仅固定到所示精确哈希，且绝不会自动启用执行。")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "信任此修订" }));
+    await waitFor(() => expect(serviceMocks.setSkillToolTrust).toHaveBeenCalledWith({ revision: "f".repeat(64), trusted: true, actor: "settings-user" }));
+    expect(serviceMocks.setSkillEnabled).not.toHaveBeenCalled();
+  });
+
+  it("validates and confirms quarantine against the displayed exact revision", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const card = (await screen.findByText("Reliable Skill")).closest("article");
+    if (!card) throw new Error("Skill card not found");
+    await user.click(within(card).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    await user.click(screen.getByRole("tab", { name: "工具" }));
+    await user.click(await screen.findByRole("button", { name: "校验修订" }));
+    await waitFor(() => expect(serviceMocks.validateSkillToolRevision).toHaveBeenCalledWith({ revision: "f".repeat(64) }));
+    await user.click(screen.getByRole("button", { name: "隔离" }));
+    const dialog = screen.getByRole("dialog", { name: "隔离精确修订" });
+    expect(within(dialog).getByText("f".repeat(64), { exact: false })).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "隔离修订" }));
+    await waitFor(() => expect(serviceMocks.quarantineSkillTool).toHaveBeenCalledWith({ revision: "f".repeat(64), reason: "manual-security-review" }));
+  });
+
+  it("keeps focus bounded and returns it when keyboard users cancel trust review", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const card = (await screen.findByText("Reliable Skill")).closest("article");
+    if (!card) throw new Error("Skill card not found");
+    await user.click(within(card).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    await user.click(screen.getByRole("tab", { name: "工具" }));
+    const trigger = await screen.findByRole("button", { name: "信任此修订" });
+    await user.click(trigger);
+    const confirm = within(screen.getByRole("dialog", { name: "信任精确工具修订" })).getByRole("button", { name: "信任此修订" });
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("surfaces stale trust rejection and recovers from a transient validation failure", async () => {
+    const user = userEvent.setup();
+    serviceMocks.setSkillToolTrust.mockRejectedValueOnce(new Error("stale-revision"));
+    serviceMocks.validateSkillToolRevision.mockRejectedValueOnce(new Error("temporary validation failure"));
+    renderPage();
+    const card = (await screen.findByText("Reliable Skill")).closest("article");
+    if (!card) throw new Error("Skill card not found");
+    await user.click(within(card).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    await user.click(screen.getByRole("tab", { name: "工具" }));
+    await user.click(await screen.findByRole("button", { name: "校验修订" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("temporary validation failure");
+    await user.click(screen.getByRole("button", { name: "校验修订" }));
+    await waitFor(() => expect(serviceMocks.validateSkillToolRevision).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "信任此修订" }));
+    const dialog = screen.getByRole("dialog", { name: "信任精确工具修订" });
+    await user.click(within(dialog).getByRole("button", { name: "信任此修订" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("stale-revision");
+    expect(screen.getByRole("dialog", { name: "信任精确工具修订" })).toBeTruthy();
+  });
+
   it("renders an overview error without claiming an empty or synchronized result", async () => {
     serviceMocks.getSkillOverview.mockRejectedValueOnce(new Error("overview failed"));
     const user = userEvent.setup();

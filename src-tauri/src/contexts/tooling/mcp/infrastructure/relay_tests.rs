@@ -2,17 +2,23 @@ use super::super::relay_jsonrpc::{JsonRpcCorrelation, RelayDirection};
 use super::super::relay_stdio_pump::forward_stdio_frames;
 use super::super::relay_stdio_pump::PumpStop;
 use super::*;
+use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::tooling::mcp::application::McpCancellation;
 use crate::platform::process::ManagedChild;
 use crate::test_support::TempDirectory;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
 fn control(timeout: Duration) -> McpExecutionControl {
     McpExecutionControl::with_timeout(timeout)
+}
+
+fn no_telemetry(_: &Path) -> Option<Arc<dyn ExecutionTelemetryPort>> {
+    None
 }
 
 fn private_directory(label: &str) -> (TempDirectory, PrivateRelayDirectory) {
@@ -23,13 +29,13 @@ fn private_directory(label: &str) -> (TempDirectory, PrivateRelayDirectory) {
 
 #[test]
 fn non_relay_process_arguments_are_ignored() {
-    assert!(!try_run_from_process_args());
-    assert!(!run_from_process_args(["vanehub".into()]).expect("non-relay arguments"));
+    assert!(!try_run_from_process_args(no_telemetry));
+    assert!(!run_from_process_args(["vanehub".into()], no_telemetry).expect("non-relay arguments"));
 }
 
 #[test]
 fn relay_process_arguments_require_and_run_the_configuration_path() {
-    assert!(run_from_process_args(["vanehub".into(), RELAY_FLAG.into()]).is_err());
+    assert!(run_from_process_args(["vanehub".into(), RELAY_FLAG.into()], no_telemetry).is_err());
 
     let (_root, directory) = private_directory("mcp-relay-process-args");
     let path = write_configuration(
@@ -45,11 +51,14 @@ fn relay_process_arguments_require_and_run_the_configuration_path() {
         },
     )
     .expect("write process configuration");
-    assert!(run_from_process_args([
-        "vanehub".into(),
-        RELAY_FLAG.into(),
-        path.as_os_str().to_owned(),
-    ])
+    assert!(run_from_process_args(
+        [
+            "vanehub".into(),
+            RELAY_FLAG.into(),
+            path.as_os_str().to_owned(),
+        ],
+        no_telemetry
+    )
     .expect("run relay configuration"));
     assert!(!path.exists());
 }
@@ -280,7 +289,7 @@ fn configuration_routes_stdio_and_removes_secret_bearing_temporary_files_on_fail
     )
     .expect("write configuration");
 
-    let error = run_configuration(&path).expect_err("missing child must fail");
+    let error = run_configuration(&path, no_telemetry).expect_err("missing child must fail");
 
     assert!(!path.exists());
     assert!(!error.contains("credential-secret"));
@@ -291,7 +300,7 @@ fn malformed_configuration_is_removed_and_rejected() {
     let directory = TempDirectory::new("mcp-relay-malformed");
     let path = directory.write("relay.json", "{not-json");
 
-    assert!(run_configuration(&path).is_err());
+    assert!(run_configuration(&path, no_telemetry).is_err());
     assert!(!path.exists());
 }
 
@@ -330,7 +339,7 @@ fn http_configuration_with_empty_input_uses_the_stream_router() {
     )
     .expect("write configuration");
 
-    run_configuration(&path).expect("empty input performs no HTTP request");
+    run_configuration(&path, no_telemetry).expect("empty input performs no HTTP request");
     assert!(!path.exists());
 }
 

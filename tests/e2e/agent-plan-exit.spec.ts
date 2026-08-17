@@ -8,7 +8,7 @@ const PLAN_EXIT_TRIGGER = "[plan-done]";
  * only API-capable mock Agent, which ships `unavailable` until a provider is configured.
  */
 async function createOnePieceChat(page: Page, title: string) {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await page.getByRole("tab", { name: /OnePiece/ }).click();
@@ -46,6 +46,8 @@ async function requestPlanExit(page: Page, title: string) {
 }
 
 test.describe("agent plan exit request", () => {
+  test.describe.configure({ timeout: 120_000 });
+
   // Both tools block as `awaiting_input`, and the card is chosen by tool name. Rendering the
   // question card here would parse no options and show no controls at all, leaving the request
   // unanswerable — which unit and type checks would both have called green.

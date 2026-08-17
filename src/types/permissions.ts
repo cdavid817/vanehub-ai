@@ -5,6 +5,18 @@ export type ApprovalScope = "once" | "session" | "project" | "global";
 
 export type RiskLevel = "L0" | "L1" | "L2" | "L3";
 
+export interface SkillApprovalProvenance {
+  parentAgentId: string;
+  skillId: string;
+  toolId: string;
+  effectiveRevision: string;
+  sourceScope: string;
+  requestedCapability: string;
+  delegatedOperation: string;
+  redactedInputSummary: string;
+  immutableWitness: string;
+}
+
 export interface PendingApprovalEntry {
   id: string;
   agentId: string;
@@ -13,6 +25,7 @@ export interface PendingApprovalEntry {
   action: string;
   resource: string;
   riskLevel: RiskLevel;
+  skill?: SkillApprovalProvenance;
   createdAt: string;
 }
 

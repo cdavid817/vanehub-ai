@@ -30,6 +30,7 @@ pub(crate) enum SkillToolDomainError {
     UndeclaredCapability(String),
     InvalidTemplate(String),
     TooManyTemplateFields { maximum: usize, actual: usize },
+    InvalidPermissionManifest(String),
     LimitAboveCeiling { limit: &'static str },
     Schema(BoundedSchemaError),
 }
@@ -62,6 +63,7 @@ impl SkillToolDomainError {
             Self::UndeclaredCapability(_) => "undeclared-capability",
             Self::InvalidTemplate(_) => "invalid-template",
             Self::TooManyTemplateFields { .. } => "too-many-template-fields",
+            Self::InvalidPermissionManifest(_) => "invalid-permission-manifest",
             Self::LimitAboveCeiling { .. } => "limit-above-ceiling",
             Self::Schema(error) => error.code(),
         }

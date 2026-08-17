@@ -8,6 +8,7 @@ import type { ShellConnectionState } from "../types/session-workspace";
 import { createTerminalTheme } from "./terminal-theme";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { retainAsyncCleanup } from "../lib/async-cleanup";
 
 export function ShellTab({ active, sessionId }: { active: boolean; sessionId: string | null }) {
   const { t } = useTranslation();
@@ -70,7 +71,8 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
         if (disposed) { await agentService.killShell(shell.shellId); return; }
         shellIdRef.current = shell.shellId; setState(shell.state); setSimulated(shell.capability === "simulated");
         if (shell.capability === "simulated") terminal.writeln(t("sessionTabs.shell.simulatedBanner"));
-        unsubscribe = await agentService.subscribeShellEvents(shell.shellId, (event) => {
+        const nextUnsubscribe = await agentService.subscribeShellEvents(shell.shellId, (event) => {
+          if (disposed) return;
           if (event.type === "output") {
             // PTY backends emit many small chunks under burst output (a build log); writing
             // each synchronously stalls the main thread. Coalesce chunks and write once per
@@ -84,7 +86,10 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
             if (event.error) setError(workspaceErrorKey(event.error));
           }
         });
-      } catch (reason) { setState("failed"); setError(workspaceErrorKey(reason)); }
+        unsubscribe = retainAsyncCleanup(disposed, nextUnsubscribe);
+      } catch (reason) {
+        if (!disposed) { setState("failed"); setError(workspaceErrorKey(reason)); }
+      }
     }
     void connect();
     return () => {

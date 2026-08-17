@@ -1,4 +1,4 @@
-use super::dto::{PendingApprovalEntry, PrincipalEntry};
+use super::dto::{PendingApprovalEntry, PrincipalEntry, SkillApprovalEntry};
 use crate::contexts::agent_runtime::application::ToolApprovalDecision;
 use crate::contexts::permissions::api::{
     ApprovalDecision, ApprovalRequest, PolicyTemplateName, Principal, RiskLevel, Scope,
@@ -13,6 +13,17 @@ pub(super) fn pending_approval_to_dto(request: ApprovalRequest) -> PendingApprov
         action: request.action.as_str().to_string(),
         resource: request.resource.as_str().to_string(),
         risk_level: risk_level_str(request.risk_level).to_string(),
+        skill: request.skill.map(|skill| SkillApprovalEntry {
+            parent_agent_id: skill.parent_agent_id,
+            skill_id: skill.skill_id,
+            tool_id: skill.tool_id,
+            effective_revision: skill.effective_revision,
+            source_scope: skill.source_scope,
+            requested_capability: skill.requested_capability,
+            delegated_operation: skill.delegated_operation,
+            redacted_input_summary: skill.redacted_input_summary,
+            immutable_witness: skill.immutable_witness,
+        }),
         created_at: request.created_at,
     }
 }

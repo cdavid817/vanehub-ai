@@ -151,4 +151,27 @@ describe("Tauri effective Skill adapter", () => {
       ["read_skill_resource", { input: readInput }],
     ]);
   });
+
+  it("routes every Skill tool governance operation through the native boundary", async () => {
+    invokeMock.mockResolvedValue({});
+    const owner = { skillId: "code-review", scope: "global" as const };
+    const revision = { revision: "a".repeat(64) };
+    await tauriAgentClient.listSkillTools(owner);
+    await tauriAgentClient.validateSkillToolRevision(revision);
+    await tauriAgentClient.setSkillToolTrust({ ...revision, trusted: true, actor: "operator" });
+    await tauriAgentClient.setSkillToolEnabled({ ...revision, enabled: true });
+    await tauriAgentClient.quarantineSkillTool({ ...revision, reason: "operator" });
+    await tauriAgentClient.recoverSkillTool(revision);
+    await tauriAgentClient.getSkillToolDiagnostics(revision);
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["list_skill_tools", { input: owner }],
+      ["validate_skill_tool_revision", { input: revision }],
+      ["set_skill_tool_trust", { input: { ...revision, trusted: true, actor: "operator" } }],
+      ["set_skill_tool_enabled", { input: { ...revision, enabled: true } }],
+      ["quarantine_skill_tool", { input: { ...revision, reason: "operator" } }],
+      ["recover_skill_tool", { input: revision }],
+      ["get_skill_tool_diagnostics", { input: revision }],
+    ]);
+  });
 });

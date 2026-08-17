@@ -1,11 +1,11 @@
 use super::apply_artifact::ApplyArtifactAdapter;
 use super::apply_backend::NativeApplyBackend;
 use super::native_tool_support::envelope;
-use crate::contexts::agent_runtime::application::{
+use crate::contexts::agent_runtime::api::{
     ChangeSetApplyPort, ChangeSetApplyRecord, ChangeSetStatus, NativeToolErrorCode,
-    NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus,
+    NativeToolPersistencePort, NativeToolPortRequest, NativeToolResultEnvelope,
+    NativeToolResultStatus,
 };
-use crate::contexts::agent_runtime::infrastructure::SqliteNativeToolRepository;
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::contexts::cli_delegation::application::{
     DelegationApplyPreflightRequest, DelegationApplyPreflightService, DelegationApplyRecoveryPort,
@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct NativeChangeSetApplyAdapter {
     artifacts: Arc<ArtifactService>,
     backend: Arc<NativeApplyBackend>,
-    repository: Arc<SqliteNativeToolRepository>,
+    repository: Arc<dyn NativeToolPersistencePort>,
     lease: Mutex<()>,
 }
 
@@ -35,7 +35,7 @@ struct ApplyInput {
 impl NativeChangeSetApplyAdapter {
     pub(crate) fn new(
         artifacts: Arc<ArtifactService>,
-        repository: Arc<SqliteNativeToolRepository>,
+        repository: Arc<dyn NativeToolPersistencePort>,
         recovery_root: PathBuf,
     ) -> Result<Self, String> {
         Ok(Self {

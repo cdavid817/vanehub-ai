@@ -74,6 +74,9 @@ mod seat_turn_completions;
 mod seat_turn_coordinator;
 mod sessions_gateway;
 mod skill_gateway;
+mod skill_tool_catalog_adapter;
+mod skill_tool_execution_adapter;
+mod skill_tool_permission_adapter;
 mod sqlite_repository;
 mod subagent;
 mod subagent_worktree;
@@ -168,6 +171,13 @@ pub(crate) use seat_turn_completions::InMemorySeatTurnCompletions;
 pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
+#[allow(unused_imports)]
+pub(crate) use skill_tool_catalog_adapter::{resolve_skill_tool_catalog, ResolvedSkillToolCatalog};
+pub(crate) use skill_tool_execution_adapter::{
+    NativeSkillToolExecutionAdapter, NativeSkillToolExecutionDependencies,
+};
+#[allow(unused_imports)]
+pub(crate) use skill_tool_permission_adapter::SkillToolPermissionAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
 pub(crate) use subagent::{NativeSubagentExecutor, SubagentRuntime};
 pub(crate) use terminal_observability::TerminalExecutionObservability;

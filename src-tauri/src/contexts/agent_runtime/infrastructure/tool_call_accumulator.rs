@@ -86,6 +86,7 @@ impl PendingToolCall {
             input,
             output: None,
             status: "pending".to_string(),
+            skill_provenance: None,
         }
     }
 }

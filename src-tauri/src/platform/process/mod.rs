@@ -105,6 +105,7 @@ pub(crate) struct ProcessRequest {
     args: Vec<OsString>,
     current_dir: Option<PathBuf>,
     environment: BTreeMap<OsString, OsString>,
+    clear_environment: bool,
     timeout: Duration,
     cancellation: Option<ProcessCancellation>,
     output_limit: Option<usize>,
@@ -117,6 +118,7 @@ impl ProcessRequest {
             args: Vec::new(),
             current_dir: None,
             environment: BTreeMap::new(),
+            clear_environment: false,
             timeout: Duration::from_secs(30),
             cancellation: None,
             output_limit: None,
@@ -146,6 +148,11 @@ impl ProcessRequest {
         self
     }
 
+    pub(crate) fn env_clear(mut self) -> Self {
+        self.clear_environment = true;
+        self
+    }
+
     pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -165,6 +172,9 @@ impl ProcessRequest {
         let executable = self.executable.to_string_lossy();
         let mut command = std_command(&executable)?;
         command.args(&self.args);
+        if self.clear_environment {
+            command.env_clear();
+        }
         command.envs(&self.environment);
         if let Some(current_dir) = &self.current_dir {
             command.current_dir(current_dir);
