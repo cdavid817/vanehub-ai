@@ -7,9 +7,9 @@
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
     ContextManifestQueryService, ContextQualityQueryService, ExpertRoleApplicationService,
-    LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
-    LoopVerificationCancellation, LoopVerificationCommandView, LoopVerificationProcessPort,
-    LoopVerificationProcessRequest, LoopVerificationProcessStatus,
+    LocalModelDiscoveryService, LoopApplicationService, LoopControlApplicationService,
+    LoopRecoveryApplicationService, LoopVerificationCancellation, LoopVerificationCommandView,
+    LoopVerificationProcessPort, LoopVerificationProcessRequest, LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
     background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
@@ -25,17 +25,20 @@ pub(crate) use super::application::{
     ChangeSetRecord, ChangeSetStatus, CliDelegationPort, ContinueLoopRequest,
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
     DiscoverOnePieceProviderModelsInput, EmbeddingEndpointView, ExecutionToolMode, FileChangeKind,
-    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, ManualApplyDelegationRequest,
-    ManualStartDelegationRequest, NativeToolErrorCode, NativeToolPersistencePort,
-    NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
-    OrchestrationCorrelation, OrchestrationExecutionProfile, ProviderCredentialValidationResult,
-    ReadinessView, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
-    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowView,
+    HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult,
+    LocalEndpointVerificationRequest, LocalModelDiscoveryResult, LoopDefinitionView, LoopRunView,
+    ManualApplyDelegationRequest, ManualStartDelegationRequest, NativeToolErrorCode,
+    NativeToolPersistencePort, NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope,
+    NativeToolResultStatus, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
+    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
+    OpenAgentTerminalRequest, OrchestrationCorrelation, OrchestrationExecutionProfile,
+    ProviderCredentialValidationResult, ReadinessView, RecoveryRecord, RecoveryStatus,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveCustomOnePieceProviderProfileInput,
+    SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
+    SendMessageRequest, StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest,
+    StopGenerationResult, StoredEndpointProfileMetadata, StoredHybridRoutingRule,
+    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowView,
 };
 
 const GUARDED_VALIDATION_OUTPUT_LIMIT: usize = 4_000;
@@ -113,6 +116,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) native_tools: NativeToolRegistry,
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
+    pub(crate) local_discovery: LocalModelDiscoveryService,
 }
 
 #[derive(Clone)]
@@ -135,6 +139,7 @@ pub(crate) struct AgentRuntimeApi {
     native_tools: NativeToolRegistry,
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
+    local_discovery: LocalModelDiscoveryService,
 }
 
 impl AgentRuntimeApi {
@@ -154,6 +159,7 @@ impl AgentRuntimeApi {
             native_tools,
             browser_handoff,
             manual_native_tools,
+            local_discovery,
         } = services;
         Self {
             service,
@@ -170,6 +176,7 @@ impl AgentRuntimeApi {
             native_tools,
             browser_handoff,
             manual_native_tools,
+            local_discovery,
         }
     }
 
@@ -551,6 +558,72 @@ impl AgentRuntimeApi {
         input: SaveOnePieceProviderProfileInput,
     ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
         self.service.save_onepiece_provider_profile(input)
+    }
+
+    pub(crate) fn save_custom_onepiece_provider_profile(
+        &self,
+        input: SaveCustomOnePieceProviderProfileInput,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        self.service.save_custom_onepiece_provider_profile(input)
+    }
+
+    pub(crate) fn endpoint_profile_metadata(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        self.service.endpoint_profile_metadata(profile_id)
+    }
+
+    pub(crate) fn hybrid_routing_rules(
+        &self,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        self.service.hybrid_routing_rules()
+    }
+
+    pub(crate) fn replace_hybrid_routing_rules(
+        &self,
+        rules: Vec<StoredHybridRoutingRule>,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        self.service.replace_hybrid_routing_rules(rules)
+    }
+
+    pub(crate) fn preview_hybrid_route(
+        &self,
+        input: HybridRoutePreviewInput,
+    ) -> Result<HybridRoutePreview, AgentRuntimeApplicationError> {
+        self.service.preview_hybrid_route(input)
+    }
+
+    pub(crate) async fn discover_local_model_endpoints(
+        &self,
+    ) -> Result<LocalModelDiscoveryResult, AgentRuntimeApplicationError> {
+        let service = self.local_discovery.clone();
+        tauri::async_runtime::spawn_blocking(move || service.discover_loopback())
+            .await
+            .map_err(|error| {
+                AgentRuntimeApplicationError::Operation(format!(
+                    "Local endpoint discovery task failed: {error}"
+                ))
+            })?
+    }
+
+    pub(crate) async fn verify_local_model_endpoint(
+        &self,
+        input: LocalEndpointVerificationRequest,
+    ) -> Result<LocalModelDiscoveryResult, AgentRuntimeApplicationError> {
+        let service = self.local_discovery.clone();
+        let (operation_id, endpoint) =
+            tauri::async_runtime::spawn_blocking(move || service.verify_endpoint(input))
+                .await
+                .map_err(|error| {
+                    AgentRuntimeApplicationError::Operation(format!(
+                        "Local endpoint verification task failed: {error}"
+                    ))
+                })??;
+        Ok(LocalModelDiscoveryResult {
+            operation_id,
+            endpoints: vec![endpoint],
+        })
     }
 
     pub(crate) fn activate_onepiece_provider_profile(

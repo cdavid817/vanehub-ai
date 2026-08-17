@@ -57,11 +57,11 @@ use crate::contexts::agent_runtime::domain::{
     verify_optimization_candidate, AutomaticCompactionState, CompactionBypassReason,
     CompactionPath, CompactionTriggerSource, ContextAssessmentInvariants, ContextAssessmentOutcome,
     ContextAssessmentPath, ContextAssessmentReason, ContextAssessmentTriggerSource, ContextBudget,
-    ContextCompactionEvidence, ContextOptimizationBudget, ContextQualityAssessment,
-    ContextQualityAssessmentInput, ContextQualityAssessmentRecord, ContextRequest, ContextSnapshot,
-    FallbackReason, MemoryType, OptimizationActionKind, OptimizationOutcome, RetentionClass,
-    SemanticClass, UsageAnchor, UtilityDelegationLimits, UtilityDelegationRequest,
-    AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
+    ContextCapacity, ContextCompactionEvidence, ContextOptimizationBudget,
+    ContextQualityAssessment, ContextQualityAssessmentInput, ContextQualityAssessmentRecord,
+    ContextRequest, ContextSnapshot, FallbackReason, MemoryType, OptimizationActionKind,
+    OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor, UtilityDelegationLimits,
+    UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
     CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, MEMORY_ACTIONS_INSTRUCTION,
     STRUCTURED_SUMMARY_PROMPT,
 };
@@ -1187,7 +1187,11 @@ pub(crate) fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, 
             build_reply_turns: openai_compatible_provider::build_reply_turns,
             failure_from_http_status: openai_compatible_provider::failure_from_http_status,
             apply_auth: |builder, api_key| {
-                builder.header("Authorization", format!("Bearer {api_key}"))
+                if api_key.is_empty() {
+                    builder
+                } else {
+                    builder.header("Authorization", format!("Bearer {api_key}"))
+                }
             },
         })
     } else {
@@ -1213,15 +1217,21 @@ pub(crate) fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, 
             failure_from_http_status: anthropic_provider::failure_from_http_status,
             apply_auth: if official_anthropic {
                 |builder, api_key| {
-                    builder
-                        .header("x-api-key", api_key)
-                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                    let builder = if api_key.is_empty() {
+                        builder
+                    } else {
+                        builder.header("x-api-key", api_key)
+                    };
+                    builder.header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
                 }
             } else {
                 |builder, api_key| {
-                    builder
-                        .header("Authorization", format!("Bearer {api_key}"))
-                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                    let builder = if api_key.is_empty() {
+                        builder
+                    } else {
+                        builder.header("Authorization", format!("Bearer {api_key}"))
+                    };
+                    builder.header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
                 }
             },
         })
@@ -1316,17 +1326,78 @@ fn execute_with_code_intelligence(
     native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
-    let api_key = match credentials.fetch(agent_id) {
+    let provider_config = if let Some(profile) = request.endpoint_profile.as_ref() {
+        ApiProviderConfig {
+            source_provider_id: profile.source_provider_id.clone(),
+            model_id: profile.model_id.clone(),
+            interface_format: profile.interface_format.clone(),
+            base_url: profile.base_url.clone(),
+            auto_approve_tools: false,
+        }
+    } else {
+        match config.provider_config(agent_id) {
+            Ok(Some(config)) => config,
+            Ok(None) => {
+                return failed_configuration(agent_id, "No model is configured for this agent.");
+            }
+            Err(error) => return failed_non_retryable(&error.to_string()),
+        }
+    };
+    let endpoint_metadata = if request.endpoint_profile.is_some() {
+        None
+    } else {
+        match config.active_endpoint_profile_metadata(agent_id) {
+            Ok(metadata) => metadata,
+            Err(error) => return failed_non_retryable(&error.to_string()),
+        }
+    };
+    let endpoint_capacity = request
+        .endpoint_profile
+        .as_ref()
+        .and_then(|profile| {
+            let window = profile.context_window_tokens?;
+            (profile.context_capacity_provenance != "unknown").then(|| ContextCapacity {
+                context_window_tokens: window,
+                maximum_output_tokens: Some(profile.reserved_output_tokens),
+                metadata_revision: profile.context_capacity_provenance.clone(),
+                source_identity: format!("endpoint-profile:{}", profile.profile_id),
+            })
+        })
+        .or_else(|| {
+            endpoint_metadata.as_ref().and_then(|metadata| {
+                let window = metadata
+                    .context_window_tokens
+                    .and_then(|value| u64::try_from(value).ok())?;
+                (metadata.context_capacity_provenance != "unknown").then(|| ContextCapacity {
+                    context_window_tokens: window,
+                    maximum_output_tokens: u64::try_from(metadata.reserved_output_tokens).ok(),
+                    metadata_revision: metadata.context_capacity_provenance.clone(),
+                    source_identity: format!("endpoint-profile:{}", metadata.profile_id),
+                })
+            })
+        });
+    let authentication_mode = if let Some(profile) = request.endpoint_profile.as_ref() {
+        profile.authentication_mode.clone()
+    } else {
+        match config.api_endpoint_authentication_mode(agent_id) {
+            Ok(mode) => mode,
+            Err(error) => return failed_non_retryable(&error.to_string()),
+        }
+    };
+    let credential_id = request.endpoint_profile.as_ref().map_or_else(
+        || agent_id.to_string(),
+        |profile| format!("onepiece-profile:{}", profile.profile_id),
+    );
+    let fetched_credential = match credentials.fetch(&credential_id) {
+        Ok(Some(key)) => Ok(Some(key)),
+        Ok(None) if request.endpoint_profile.is_some() => credentials.fetch(agent_id),
+        other => other,
+    };
+    let api_key = match fetched_credential {
         Ok(Some(key)) => key,
+        Ok(None) if authentication_mode != "required" => String::new(),
         Ok(None) => {
             return failed_configuration(agent_id, "No API key is stored for this agent.");
-        }
-        Err(error) => return failed_non_retryable(&error.to_string()),
-    };
-    let provider_config = match config.provider_config(agent_id) {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return failed_configuration(agent_id, "No model is configured for this agent.");
         }
         Err(error) => return failed_non_retryable(&error.to_string()),
     };
@@ -1367,7 +1438,15 @@ fn execute_with_code_intelligence(
     // would miss a session's very first tool call if compaction also triggers within that same
     // generation.
     let mut tool_assisted_session = recent.iter().any(|message| !message.tool_use.is_empty());
-    let client = match blocking_http_client(REQUEST_TIMEOUT) {
+    let request_timeout = if let Some(profile) = request.endpoint_profile.as_ref() {
+        Duration::from_millis(profile.timeout_ms)
+    } else {
+        match config.api_endpoint_timeout_ms(agent_id) {
+            Ok(timeout_ms) => Duration::from_millis(timeout_ms),
+            Err(error) => return failed_non_retryable(&error.to_string()),
+        }
+    };
+    let client = match blocking_http_client(request_timeout) {
         Ok(client) => client,
         Err(error) => {
             return GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(
@@ -1425,6 +1504,13 @@ fn execute_with_code_intelligence(
             readiness: native_tools.readiness_snapshot(),
         }),
     );
+    if request
+        .endpoint_profile
+        .as_ref()
+        .is_some_and(|profile| profile.tool_calling_capability != "supported")
+    {
+        tools.clear();
+    }
     let mut skill_tool_keys = HashMap::new();
     let mut _skill_tool_catalog_lease = None;
     let mut _skill_tool_catalog_generation = None;
@@ -1474,10 +1560,18 @@ fn execute_with_code_intelligence(
             }
         }
     }
-    let generation_options = generation_options_from_configuration(
+    let mut generation_options = generation_options_from_configuration(
         &request.configuration,
         reviewed_stream_usage_strategy(&provider_config),
     );
+    if request
+        .endpoint_profile
+        .as_ref()
+        .is_some_and(|profile| profile.reasoning_field_capability != "supported")
+    {
+        generation_options.thinking = false;
+        generation_options.reasoning_depth = None;
+    }
     let mut turns = (wire_format.history_to_turns)(&recent);
     let mut request_sequence = 0u32;
     let mut context_usage_anchor: Option<UsageAnchor> = None;
@@ -1516,11 +1610,22 @@ fn execute_with_code_intelligence(
     // Capability comes from reviewed catalog metadata, never from trying and seeing: a provider
     // that rejects an image-bearing request fails the whole generation after the user has already
     // waited, and the failure text varies by vendor (`add-agent-image-input` D3).
-    let images_supported = model_context_catalog::accepts_image_input(
-        provider_config.source_provider_id.as_deref(),
-        &provider_config.model_id,
+    let images_supported = request.endpoint_profile.as_ref().map_or_else(
+        || {
+            endpoint_metadata.as_ref().map_or_else(
+                || {
+                    model_context_catalog::accepts_image_input(
+                        provider_config.source_provider_id.as_deref(),
+                        &provider_config.model_id,
+                    )
+                },
+                |metadata| metadata.image_input_capability == "supported",
+            )
+        },
+        |profile| profile.image_input_capability == "supported",
     );
     let mut images_in_request = 0_usize;
+    let mut context_recovery_attempted = false;
     for round_trip in 0..MAX_TOOL_ROUND_TRIPS {
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
@@ -1558,10 +1663,16 @@ fn execute_with_code_intelligence(
                 components: projection.components,
                 rounds: projection.rounds,
                 token_estimate_complete: projection.token_estimate_complete,
-                capacity: model_context_catalog::resolve_capacity(
-                    provider_config.source_provider_id.as_deref(),
-                    &provider_config.model_id,
-                ),
+                capacity: endpoint_capacity.clone().or_else(|| {
+                    (endpoint_metadata.is_none() && request.endpoint_profile.is_none()).then(
+                        || {
+                            model_context_catalog::resolve_capacity(
+                                provider_config.source_provider_id.as_deref(),
+                                &provider_config.model_id,
+                            )
+                        },
+                    )?
+                }),
                 active_character_compaction: should_compact(turns_character_count(&turns)),
                 invocation_sequence: sequence,
                 overflow_count: projection.overflow_count,
@@ -1569,6 +1680,25 @@ fn execute_with_code_intelligence(
             context_usage_anchor.as_ref(),
         );
         record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
+        if context_snapshot.capacity.as_ref().is_some_and(|capacity| {
+            context_snapshot.tokens.is_some_and(|tokens| {
+                tokens.saturating_add(context_snapshot.reserved_tokens.unwrap_or_default())
+                    > capacity.context_window_tokens
+            })
+        }) {
+            finish_api_invocation(
+                accounting,
+                invocation.as_ref(),
+                None,
+                None,
+                UsageStatus::Failed,
+                clock,
+                logging,
+            );
+            return failed_non_retryable(
+                "The protected request content exceeds the selected endpoint Profile context budget.",
+            );
+        }
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
         let estimated_input_characters = estimated_input_characters(&body, images_in_request);
@@ -1605,6 +1735,13 @@ fn execute_with_code_intelligence(
                 clock,
                 logging,
             );
+            let context_failure = matches!(status.as_u16(), 400 | 413 | 422)
+                && body_text.to_lowercase().contains("context");
+            if context_failure && !context_recovery_attempted && turns.len() > 1 {
+                context_recovery_attempted = true;
+                turns.remove(0);
+                continue;
+            }
             return GenerationProcessEvent::Failed((wire_format.failure_from_http_status)(
                 status.as_u16(),
                 &body_text,
@@ -6987,6 +7124,7 @@ mod tests {
             // Desktop chat is the interactive default; the non-interactive cases construct their
             // own request and flip this.
             interactive: true,
+            endpoint_profile: None,
         }
     }
 

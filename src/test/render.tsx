@@ -39,6 +39,7 @@ export function createAgentServiceDouble(overrides: Partial<AgentService>): Agen
           simulated: true,
         });
       }
+      if (property === "listHybridRoutingRules") return async () => [];
       return () => Promise.reject(new Error(`Unexpected AgentService call: ${String(property)}`));
     },
   });

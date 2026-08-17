@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
-    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentRegistryRepository,
-    AgentRuntimeApplicationError, ApiCredentialPort,
+    AgentAuthenticationPolicyPort, AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentRegistryRepository, AgentRuntimeApplicationError, ApiCredentialPort,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AvailabilityAssessment,
@@ -10,6 +10,7 @@ use std::sync::Arc;
 pub(crate) struct CredentialAwareAgentRegistry {
     inner: Arc<dyn AgentRegistryRepository>,
     credentials: Arc<dyn ApiCredentialPort>,
+    authentication_policy: Arc<dyn AgentAuthenticationPolicyPort>,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
 }
@@ -18,12 +19,14 @@ impl CredentialAwareAgentRegistry {
     pub(crate) fn new(
         inner: Arc<dyn AgentRegistryRepository>,
         credentials: Arc<dyn ApiCredentialPort>,
+        authentication_policy: Arc<dyn AgentAuthenticationPolicyPort>,
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
     ) -> Self {
         Self {
             inner,
             credentials,
+            authentication_policy,
             logging,
             clock,
         }
@@ -35,34 +38,48 @@ impl CredentialAwareAgentRegistry {
         {
             return agent;
         }
+        let requires_authentication = match self
+            .authentication_policy
+            .requires_authentication(agent.id().as_str())
+        {
+            Ok(value) => value,
+            Err(_) => return self.unavailable_after_inspection_failure(agent),
+        };
         match self.credentials.fetch(agent.id().as_str()) {
             Ok(Some(_)) => agent.with_availability(AvailabilityAssessment::new(
                 AgentAvailability::Available,
                 None,
             )),
+            Ok(None) if !requires_authentication => agent.with_availability(
+                AvailabilityAssessment::new(AgentAvailability::Available, None),
+            ),
             Ok(None) => agent.with_availability(AvailabilityAssessment::new(
                 AgentAvailability::NeedsAuthentication,
                 Some("API agent requires a provider credential.".to_string()),
             )),
-            Err(_) => {
-                let _ = self.logging.record(AgentLog {
-                    level: AgentLogLevel::Warn,
-                    category: "session.runtime.api.credentials".to_string(),
-                    message: "Credential availability could not be inspected; the agent was made non-selectable.".to_string(),
-                    agent_id: Some(agent.id().as_str().to_string()),
-                    session_id: None,
-                    operation_id: None,
-                    run_id: None,
-                    trace_id: None,
-                    span_id: None,
-                    occurred_at: self.clock.now(),
-                });
-                agent.with_availability(AvailabilityAssessment::new(
-                    AgentAvailability::Unavailable,
-                    Some("Credential availability could not be determined.".to_string()),
-                ))
-            }
+            Err(_) => self.unavailable_after_inspection_failure(agent),
         }
+    }
+
+    fn unavailable_after_inspection_failure(&self, agent: AgentDefinition) -> AgentDefinition {
+        let _ = self.logging.record(AgentLog {
+            level: AgentLogLevel::Warn,
+            category: "session.runtime.api.credentials".to_string(),
+            message:
+                "Credential availability could not be inspected; the agent was made non-selectable."
+                    .to_string(),
+            agent_id: Some(agent.id().as_str().to_string()),
+            session_id: None,
+            operation_id: None,
+            run_id: None,
+            trace_id: None,
+            span_id: None,
+            occurred_at: self.clock.now(),
+        });
+        agent.with_availability(AvailabilityAssessment::new(
+            AgentAvailability::Unavailable,
+            Some("Credential availability could not be determined.".to_string()),
+        ))
     }
 }
 
@@ -114,6 +131,17 @@ mod tests {
     }
 
     struct Credentials(Result<Option<String>, AgentRuntimeApplicationError>);
+
+    struct AuthenticationPolicy(bool);
+
+    impl AgentAuthenticationPolicyPort for AuthenticationPolicy {
+        fn requires_authentication(
+            &self,
+            _agent_id: &str,
+        ) -> Result<bool, AgentRuntimeApplicationError> {
+            Ok(self.0)
+        }
+    }
 
     impl ApiCredentialPort for Credentials {
         fn store(
@@ -184,6 +212,7 @@ mod tests {
         CredentialAwareAgentRegistry::new(
             Arc::new(Registry(agents)),
             Arc::new(Credentials(credential)),
+            Arc::new(AuthenticationPolicy(true)),
             logs,
             Arc::new(Clock),
         )
@@ -214,6 +243,27 @@ mod tests {
         .expect("find")
         .expect("agent");
         assert_eq!(present.availability().state(), AgentAvailability::Available);
+    }
+
+    #[test]
+    fn explicitly_unauthenticated_api_agents_are_available_without_a_credential() {
+        let logs = Arc::new(Logs::default());
+        let registry = CredentialAwareAgentRegistry::new(
+            Arc::new(Registry(vec![agent(
+                "onepiece",
+                "api",
+                AgentAvailability::Available,
+            )])),
+            Arc::new(Credentials(Ok(None))),
+            Arc::new(AuthenticationPolicy(false)),
+            logs,
+            Arc::new(Clock),
+        );
+        let available = registry.find("onepiece").expect("find").expect("agent");
+        assert_eq!(
+            available.availability().state(),
+            AgentAvailability::Available
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ mod context_summary_tests;
 mod error;
 mod expert_role;
 mod generation;
+mod hybrid_routing;
 mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
@@ -37,6 +38,7 @@ mod memory_selection;
 #[cfg(test)]
 mod memory_selection_tests;
 mod provider;
+mod provider_profile;
 mod seat_roster;
 mod seat_turn;
 mod utility_delegation;
@@ -93,6 +95,10 @@ pub(crate) use expert_role::{
     ExpertRole, ExpertRoleInput, ExpertRoleOrigin, ExpertRoleReviewPolicy,
 };
 pub(crate) use generation::GenerationAttempt;
+pub(crate) use hybrid_routing::{
+    route_profile, DataPolicy, HybridRouteDecision, HybridRouteReason, HybridRouteRequest,
+    HybridRoutingRule, RequiredCapabilities, RouteCandidate, TaskClass,
+};
 pub(crate) use loop_decision::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome,
     LoopVerifierRecommendation,
@@ -127,6 +133,11 @@ pub(crate) use provider::{
     ProviderCapabilityInput, ProviderFamily, ProviderHealth, ProviderMetadata,
     ProviderParserPolicy, ProviderReadinessPrerequisites, ProviderSessionRef,
     ProviderUsageCapability, ProviderVersionProbe,
+};
+pub(crate) use provider_profile::{
+    AuthenticationMode, CapabilityProvenance, CapabilityState, ContextCapacityProvenance,
+    EndpointCapabilities, EndpointProfileSnapshot, EndpointSource, ProfileCapability,
+    ProfileContextCapacity, ProfilePrivacy, ProfileRuntimeKind,
 };
 #[allow(unused_imports)]
 pub(crate) use seat_roster::{
