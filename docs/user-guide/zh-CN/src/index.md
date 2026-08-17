@@ -22,6 +22,7 @@
 | --- | --- |
 | [多 Agent 群聊](multi-agent-workflow.md) | 一个会话里放多个 Agent，用 `@` 交接发言权 |
 | [群聊协作案例](multi-agent-testing-tutorial.md) | 用架构师、实现者和代码审查走完 UI、交接与历史身份验收 |
+| [Git Worktree](worktree.md) | 让 Agent 在独立工作副本里改代码，不动你的分支 |
 | [Loop Engineering 工程](loop-engineering.md) | 定目标与必过检查，让它自动迭代到达成 |
 | [目标管理](goal-management.md) | 把计划、循环与看板项归到一个目标下追踪 |
 | [任务看板](todo-board.md) | 人工待办与 Agent 工作放在同一块看板 |
@@ -34,6 +35,8 @@
 | [代码索引](code-indexing.md) | 工作区代码的向量索引 |
 | [LSP 代码智能](lsp-code-intelligence.md) | 会话内的符号跳转与诊断 |
 | [工具与扩展](tooling.md) | MCP 服务器、Prompt Hook、本地 OCR/语音扩展 |
+| [MCP 服务器](mcp.md) | 给 Agent 接上外部工具，以及逐次工具审批 |
+| [Prompt Hook](prompt-hooks.md) | 在提示词组装链路里插入内容，草稿/发布/回滚 |
 | [OnePiece（原生 Agent）](native-agent.md) | 不装 CLI 也能用，配 provider、recall 与 Notebook 编辑 |
 | [可观测性](observability.md) | 执行链路、保真度、日志目录与脱敏 |
 | [远程与 IM](remote-and-im.md) | SSH 远程工作区、飞书/钉钉/企微/微信/Telegram |

@@ -2,6 +2,30 @@
 
 **Status: Implemented — desktop and Web/mock UI.** Desktop performs local persistence, CLI Skill mounting, and API Agent prompt binding. Web/mock only simulates the same UI and state transitions; it does not change local files or runtime configuration.
 
+## What a Skill is
+
+**A Skill is a reusable capability package** — a document telling an Agent how to approach a class of task, plus the supporting files it needs.
+
+It is not the same thing as the custom instructions under [Personalization](personalization.md): custom instructions describe **you** (identity, preferences, response style) and apply globally; a Skill describes **how a class of task is done** and is loaded on demand for specific Agents.
+
+Nor is it MCP: [MCP](mcp.md) connects external **tools** to an Agent (things it can call), while a Skill supplies **method** (how to go about it).
+
+## What it can do
+
+- Capture "this project's conventions" or "the right way to make this kind of change" as a package, and give it to the Agents that need it
+- **Assign per Agent**, so different Agents receive different capability packages
+- Use an **Overlay** to customize content without rewriting the base package, keeping full version and rollback history
+- Use **evolution evidence** to accumulate signals about which Skills actually help at runtime
+- Select one effective definition across four content layers (Project / User / Registry / System)
+
+What it cannot do: **a System package's content cannot be edited directly** (only customized through an Overlay), and **Utility delegation, bundled script execution, and remote package installation are not open in the current runtime version**.
+
+## Two independent dimensions: enabled and assigned
+
+This is the easiest thing to conflate, and it is the premise for the next section: **"enabled" and "which Agent it is assigned to" are independent.**
+
+Enabling is the Skill-level master switch; assignment is the relationship between a Skill and one specific Agent. **Enabling a Skill that is not assigned does not make any Agent use it**; disabling an assigned Skill pauses it for every Agent it was assigned to, without deleting those assignments.
+
 ## Understand views and states
 
 Enablement and Agent assignment are two independent dimensions.

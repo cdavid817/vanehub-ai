@@ -194,17 +194,44 @@ VaneHub AI 里有两种多 Agent 协作形态，**不共用编排逻辑**：
 
 单 Agent 会话的席位没有分配角色，不派生句柄、不参与交接。群聊是单 Agent 会话的超集——一个只有一个席位的「群聊」在行为上等同于单 Agent 会话。
 
-## 为什么是对等交接
+## 多 Agent 拓扑：VaneHub 落在哪一格
 
-| 模式 | 谁主导发言权流转 | 典型代表 | VaneHub 的选择 |
-|---|---|---|---|
-| **Supervisor / Orchestrator** | 一个中心调度 Agent 决定谁发言 | AutoGen GroupChat(manager)、CrewAI | 否 |
-| **依赖图协调** | 预定义的 DAG 决定执行顺序 | 早期 LangGraph | **已移除** |
-| **对等交接** | 当前发言的 Agent 自己点名下一位 | 本章 | **是** |
+多 Agent 系统按**谁决定下一步**分类，业界主流的七种拓扑：
 
-Supervisor 模式要求一个 Agent 充当调度器，它会消耗 token 且引入单点；依赖图模式需要预先定义协作流程，不适合探索性任务。对等交接让每个 Agent 读同一份上下文后自行判断该交给谁，更接近真实团队里「谁擅长这个就 @ 谁」的协作方式。
+| 拓扑 | 结构 | 控制方式 | 典型代表 | VaneHub |
+|---|---|---|---|---|
+| **Sequential / Pipeline** | 链式 | 静态 | Plan→Code→Review、ETL 式流程 | **[Loop](loop-engineering.md) 采用** |
+| **Parallel / Fan-out-Fan-in** | 星型并发 | 静态 | 多源检索、并行子任务、Best-of-N | 未实现 |
+| **Supervisor / Orchestrator-Worker** | 中心化单层 | 中心节点路由 | LangGraph Supervisor、CrewAI | **明确不采用** |
+| **Hierarchical** | 树状多层 | 逐层分解 | Supervisor of Supervisors | 未实现 |
+| **Network / Peer-to-peer（Handoff）** | 图状去中心 | Agent 自行移交 | OpenAI Swarm、Agents SDK handoff | **群聊采用** |
+| **Group Chat / Blackboard** | 共享消息池 | 发言权调度器 | AutoGen GroupChat、黑板模型 | **部分采用**，见下 |
+| **Market / Contract Net** | 竞价撮合 | 招标-投标-中标 | 经典 MAS，LLM 领域少见 | 未实现 |
 
-**代价是可预测性**：链路走向由 Agent 自主决定，所以需要深度与提及数两道硬上限兜底。
+### 群聊是「共享消息池 + 对等交接」的混合
+
+它同时借了两格的东西，但**去掉了调度器**：
+
+- **像 Blackboard**：所有席位读同一条共享对话线索，没有私有信道
+- **像 Peer-to-peer**：下一位由**当前发言的 Agent 自己 `@`**，不存在一个决定谁发言的中心节点
+
+所以严格说它不是教科书式的 Group Chat——AutoGen 的 GroupChat 有一个 manager 负责选下一个发言者，而这里没有。**共享的是上下文，不是调度权。**
+
+### Loop 是运行时驱动的 Pipeline
+
+[Loop](loop-engineering.md) 落在另一格：阶段顺序固定（准备 → 执行 → 验证 → 决策 → 收尾），角色分工固定（执行者 → 验证者），**由运行时静态推进**。它不是多 Agent 自由协作，而是两个角色跑一条流水线。
+
+**这也是本产品里两套多 Agent 机制不共用编排逻辑的根本原因**——它们在分类轴上根本不是同一格。
+
+### 为什么不做 Supervisor
+
+Supervisor 模式要求一个 Agent 充当调度器，它会消耗 token 且引入单点故障；依赖图（DAG）模式需要预先定义协作流程，不适合探索性任务。
+
+对等交接让每个 Agent 读同一份上下文后自行判断该交给谁，更接近真实团队里「谁擅长这个就 @ 谁」的协作方式。
+
+**代价是可预测性**：链路走向由 Agent 自主决定，所以需要深度与提及数两道硬上限兜底。这与 Supervisor 模式「调度器决定何时停」是不同的可控性取舍——**换来的是灵活性，付出的是需要外部限额兜底**。
+
+> 早期设计的**依赖图协调（DAG）运行时已被移除**，由对等交接群聊取代。
 
 ## 边界与限制
 
