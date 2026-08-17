@@ -15,6 +15,8 @@ pub(crate) enum EvidenceRepositoryError {
     Storage,
     #[error("evidence receipt references a missing signal")]
     CorruptReceipt,
+    #[error("stored feedback state is invalid")]
+    CorruptFeedback,
 }
 
 impl From<rusqlite::Error> for EvidenceRepositoryError {
