@@ -182,6 +182,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-15 | add-onepiece-visual-tool-returns | agent-image-input | `openspec/changes/archive/2026-08-15-add-onepiece-visual-tool-returns/` |
 | 2026-08-15 | migrate-agent-memory-to-file-store | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-15-migrate-agent-memory-to-file-store/` |
 | 2026-08-16 | add-agent-code-review-center | agent-code-review, frontend-runtime-architecture, native-runtime-architecture, session-project-inspection, session-workspace-tabs, unified-log-management | `openspec/changes/archive/2026-08-16-add-agent-code-review-center/` |
+| 2026-08-16 | add-agent-evaluation-platform | agent-evaluation | `openspec/changes/archive/2026-08-16-add-agent-evaluation-platform/` |
 | 2026-08-16 | add-cross-platform-desktop-automation | continuous-integration, desktop-runtime-verification | `openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/` |
 | 2026-08-16 | add-onepiece-slash-commands | chat-experience, slash-command-runtime | `openspec/changes/archive/2026-08-16-add-onepiece-slash-commands/` |
 | 2026-08-16 | add-signed-release-auto-update | desktop-release-delivery, signed-desktop-auto-update | `openspec/changes/archive/2026-08-16-add-signed-release-auto-update/` |

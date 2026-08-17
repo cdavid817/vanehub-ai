@@ -42,6 +42,8 @@ const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("..
   .then((module) => ({ default: module.WorkBoard }));
 const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
   .then((module) => ({ default: module.GoalCenter }));
+const loadEvaluationCenter: LazyFeatureLoader<Record<string, never>> = () => import("../evaluation-center/evaluation-center")
+  .then((module) => ({ default: module.EvaluationCenter }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -90,6 +92,7 @@ export function MainLayout({
   const [planCenterVisited, setPlanCenterVisited] = useState(false);
   const [workBoardVisited, setWorkBoardVisited] = useState(false);
   const [goalCenterVisited, setGoalCenterVisited] = useState(false);
+  const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
@@ -133,6 +136,7 @@ export function MainLayout({
     if (destination === "plans") setPlanCenterVisited(true);
     if (destination === "work-board") setWorkBoardVisited(true);
     if (destination === "goals") setGoalCenterVisited(true);
+    if (destination === "evaluations") setEvaluationCenterVisited(true);
   }, [destination]);
 
   // The URL and the backend's active session are two claims about the same thing.
@@ -267,6 +271,7 @@ export function MainLayout({
               scheduledTasks: t("layout.activityBar.scheduledTasks"),
               todoBoard: t("layout.activityBar.todoBoard"),
               goals: t("layout.activityBar.goals"),
+              evaluations: t("layout.activityBar.evaluations"),
               settings: t("layout.activityBar.settings"),
               help: t("layout.activityBar.help"),
             }}
@@ -280,6 +285,7 @@ export function MainLayout({
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onWorkBoard={() => goTo({ destination: "work-board" })}
             onGoals={() => goTo({ destination: "goals" })}
+            onEvaluations={() => goTo({ destination: "evaluations" })}
             onSessions={() => {
               if (destination !== "sessions") goTo({ destination: "sessions" });
               else if (conversationFocusMode) setConversationFocusMode(false);
@@ -428,6 +434,9 @@ export function MainLayout({
             id="goal-center"
           >
             {goalCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadGoalCenter} /> : null}
+          </section>
+          <section aria-label={t("layout.activityBar.evaluations")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "evaluations" ? "flex" : "hidden")} id="evaluation-center">
+            {evaluationCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadEvaluationCenter} /> : null}
           </section>
           <section
             aria-label={t("layout.activityBar.loops")}
