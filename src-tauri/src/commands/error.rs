@@ -15,6 +15,7 @@ use crate::contexts::tooling::mcp::api::McpError;
 use crate::contexts::tooling::plugin_integrations::api::PluginIntegrationError;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookError;
 use crate::contexts::tooling::sdk::api::SdkError;
+use crate::contexts::tooling::skill_tools::api::SkillToolApplicationError;
 use crate::contexts::tooling::skills::api::{OverlayError, SkillDomainError, SkillError};
 use crate::contexts::workspaces::api::WorkspaceError;
 use crate::platform::error::InfrastructureError;
@@ -168,6 +169,26 @@ impl From<CliParametersError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),
             },
+        }
+    }
+}
+
+impl From<SkillToolApplicationError> for CommandError {
+    fn from(error: SkillToolApplicationError) -> Self {
+        let code = error.code().to_string();
+        match error {
+            SkillToolApplicationError::NotFound(_) => Self {
+                category: CommandErrorCategory::NotFound,
+                message: code,
+            },
+            SkillToolApplicationError::Storage(_) | SkillToolApplicationError::Filesystem(_) => {
+                Self::redacted(CommandErrorCategory::Infrastructure, code)
+            }
+            SkillToolApplicationError::ModuleRuntimeUnavailable => Self {
+                category: CommandErrorCategory::Unsupported,
+                message: code,
+            },
+            _ => Self::validation(code),
         }
     }
 }

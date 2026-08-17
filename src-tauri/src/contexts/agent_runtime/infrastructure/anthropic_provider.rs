@@ -518,6 +518,7 @@ mod tests {
             input: Some(json!({"command": "ls"})),
             output: None,
             status: "pending".to_string(),
+            skill_provenance: None,
         };
         let turns = build_reply_turns(
             "Let me check.",
@@ -668,6 +669,7 @@ mod tests {
             input: Some(json!({"path": "a.txt"})),
             output: None,
             status: "pending".to_string(),
+            skill_provenance: None,
         };
         let turns = build_reply_turns("", &[(tool_use, "hello".to_string(), false, None)]);
         assert_eq!(turns[1]["content"][0]["content"], "hello");
@@ -682,6 +684,7 @@ mod tests {
             input: Some(json!({"path": "shot.png"})),
             output: None,
             status: "pending".to_string(),
+            skill_provenance: None,
         };
         let turns = build_reply_turns(
             "",

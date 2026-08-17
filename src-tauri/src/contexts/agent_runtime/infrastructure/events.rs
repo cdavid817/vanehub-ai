@@ -103,7 +103,7 @@ enum ChatStreamEvent {
     ToolUse {
         session_id: String,
         message_id: String,
-        tool_use: SerializableToolUse,
+        tool_use: Box<SerializableToolUse>,
     },
     #[serde(rename_all = "camelCase")]
     RichBlock {
@@ -193,6 +193,18 @@ struct SerializableToolUse {
     input: Option<Value>,
     output: Option<Value>,
     status: String,
+    skill_provenance: Option<SerializableSkillToolUseProvenance>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct SerializableSkillToolUseProvenance {
+    skill_id: String,
+    tool_id: String,
+    revision: String,
+    source_scope: String,
+    workspace_path: Option<String>,
+    redacted_result_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -278,7 +290,7 @@ fn chat_event(event: AgentEvent) -> Option<ChatStreamEvent> {
         } => Some(ChatStreamEvent::ToolUse {
             session_id,
             message_id,
-            tool_use: serializable_tool_use(tool_use),
+            tool_use: Box::new(serializable_tool_use(*tool_use)),
         }),
         AgentEvent::MessageRichBlock {
             session_id,
@@ -368,6 +380,16 @@ fn serializable_tool_use(tool_use: ToolUseBlock) -> SerializableToolUse {
         input: tool_use.input,
         output: tool_use.output,
         status: tool_use.status,
+        skill_provenance: tool_use.skill_provenance.map(|provenance| {
+            SerializableSkillToolUseProvenance {
+                skill_id: provenance.skill_id,
+                tool_id: provenance.tool_id,
+                revision: provenance.revision,
+                source_scope: provenance.source_scope,
+                workspace_path: provenance.workspace_path,
+                redacted_result_summary: provenance.redacted_result_summary,
+            }
+        }),
     }
 }
 

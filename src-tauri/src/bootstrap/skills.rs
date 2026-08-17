@@ -1,4 +1,9 @@
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::tooling::skill_tools::api::SkillToolApi;
+use crate::contexts::tooling::skill_tools::infrastructure::{
+    EffectiveSkillToolRevisionValidator, SqliteSkillToolRepository, SystemSkillToolClock,
+    UnifiedSkillToolLoggingAdapter,
+};
 use crate::contexts::tooling::skills::api::SkillApi;
 use crate::contexts::tooling::skills::application::{
     OverlayAppliedSkillSnapshotResolver, SkillApplicationService, SkillOverlayApplicationService,
@@ -107,4 +112,23 @@ pub(crate) fn assemble_skill_api(database: NativeDatabase, fallback_log_dir: Pat
     )
     .with_overlay_service(overlay_service)
     .with_configuration(configuration)
+}
+
+pub(crate) fn assemble_skill_tool_api(
+    database: NativeDatabase,
+    skills: SkillApi,
+    fallback_log_directory: PathBuf,
+) -> SkillToolApi {
+    let unified_logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
+    let validator = Arc::new(EffectiveSkillToolRevisionValidator::new(skills));
+    let registry =
+        Arc::new(crate::contexts::tooling::skill_tools::application::SkillToolRegistry::empty());
+    SkillToolApi::new(
+        Arc::new(SqliteSkillToolRepository::new(Arc::new(database))),
+        validator.clone(),
+        Arc::new(SystemSkillToolClock),
+        Arc::new(UnifiedSkillToolLoggingAdapter::new(unified_logging)),
+        validator,
+        registry,
+    )
 }

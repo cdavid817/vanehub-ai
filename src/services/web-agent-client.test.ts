@@ -2317,4 +2317,24 @@ describe("webAgentClient", () => {
     ).resolves.toBe(false);
   });
 
+  it("exposes Skill tool inspection but never claims local Web execution success", async () => {
+    const tools = await webAgentClient.listSkillTools({
+      skillId: "code-review",
+      scope: "global",
+    });
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({
+      runtimeSupport: "unsupported-web-runtime",
+      trusted: false,
+      enabled: false,
+    });
+    await expect(
+      webAgentClient.setSkillToolEnabled({ revision: tools[0].revision, enabled: true }),
+    ).rejects.toThrow("unsupported-web-runtime");
+    await expect(webAgentClient.validateSkillToolRevision({ revision: tools[0].revision }))
+      .rejects.toThrow("unsupported-web-runtime");
+    await expect(webAgentClient.getSkillToolDiagnostics({ revision: tools[0].revision }))
+      .resolves.toMatchObject({ runtimeSupport: "unsupported-web-runtime" });
+  });
+
 });

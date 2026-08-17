@@ -12,6 +12,7 @@ The design must preserve four properties: external CLI sessions cannot be assume
 - Support common wrappers without code and bounded custom computation when a module is necessary.
 - Make trust, capability, permission, lifecycle, limits, provenance, and rollback explicit and testable.
 - Contain malformed or hostile tools to their own immutable revision and preserve cancellation semantics.
+- Provide one normalized permission manifest and one set of native host-capability gateways for filesystem, process, network, secret, and resource requests without duplicating existing platform safety primitives.
 
 **Non-Goals:**
 
@@ -59,7 +60,7 @@ Refresh builds and validates a complete replacement snapshot, then swaps it atom
 
 ### 5. Keep the runtime behind domain ports and service adapters
 
-Rust adds a `skill_tools` context with domain manifest/trust/lifecycle models, application services, and infrastructure adapters for filesystem discovery, SQLite state, WebAssembly compilation/execution, schema validation, unified logs, and the existing agent tool/permission gateways. The agent runtime receives catalog and execution ports rather than depending on Skill filesystem details.
+Rust adds `contexts/tooling/skill_tools` as an independent subdomain of the existing `tooling` bounded context, with domain manifest/trust/lifecycle models, application services, and infrastructure adapters for filesystem discovery, SQLite state, WebAssembly compilation/execution, schema validation, unified logs, and the existing agent tool/permission gateways. The agent runtime receives catalog and execution ports rather than depending on Skill filesystem details.
 
 Tauri commands expose list, validate, trust/revoke, enable/disable, quarantine/recover, and diagnostics operations as `Result<T, String>` or mapped domain errors. TypeScript contracts extend `AgentService`; `tauri-agent-client.ts` is the only frontend layer that invokes commands. `web-agent-client.ts` returns the same shapes with explicit unsupported native execution state.
 
@@ -83,6 +84,28 @@ The existing Skill detail view gains a Tools tab with inventory and status summa
 
 Components are split below the 300-line limit and use existing Tailwind patterns, accessible labels, focus management, status text, and keyboard actions. No raw module editor or arbitrary execution console is provided.
 
+### 10. Normalize requested authority without turning declarations into grants
+
+`SkillToolPermissionManifestV1` is the canonical, size-bounded representation of requested authority. It has separate filesystem read and write glob sets rooted at the canonical workspace, allowed HTTPS origins, direct executable descriptors with structured argument constraints, opaque secret capability ids, and requested resource ceilings. Unknown fields, unsupported versions, duplicate normalized entries, absolute or parent-relative paths, shell strings, wildcard hosts, and resource values above application ceilings fail validation.
+
+Package provenance maps to `BuiltIn`, `Verified`, `Community`, `Local`, or `Untrusted`. Provenance selects a conservative default policy only. Exact-revision executable trust remains a separate eligibility gate, and every concrete host action still passes unified permission evaluation and approval. This avoids both a parallel permission engine and the misleading implication that a signature grants host authority.
+
+Alternative considered: translate each manifest directly into remembered permission grants. Rejected because requested authority is attacker-controlled package metadata and cannot establish user intent.
+
+### 11. Reuse bounded native gateways for every host effect
+
+Filesystem operations use `platform::filesystem::CanonicalBoundary` with operation-specific read/write admission, hidden/system policy, parent canonicalization for new files, symlink revalidation at use time, application-owned per-invocation temporary directories, file-byte ceilings, and aggregate output accounting. Paths are never authorized by lexical prefix alone.
+
+Process operations accept an executable id plus structured argv, canonical cwd, explicit environment keys, timeout, child-count, and output ceilings. Shell execution is not a Skill capability. The adapter starts a separately controllable process group/job object where the platform supports it, cancels the full observed tree on timeout or parent cancellation, and truncates or terminates at the declared bound. Secret values are resolved only after permission approval, passed only to the exact operation that declares them, and cleared from inherited environments and diagnostics.
+
+Network operations use the managed proxy-aware client with default deny, explicit HTTPS origin admission, DNS/IP checks against loopback and private ranges, manual bounded redirect handling with admission repeated at every hop, origin-scoped credentials, connect/read/total timeouts, and response/network-byte ceilings. Proxy routing never relaxes destination admission.
+
+Alternative considered: let declarative tools call existing filesystem/process/network helpers directly. Rejected because inconsistent admission and accounting would let a tool select the weakest adapter.
+
+### 12. Treat resource limits according to their actual enforcement strength
+
+One invocation budget accounts for wall time, host calls, child processes, output bytes, file bytes, network bytes, and concurrent jobs across nested delegation. Reservations are atomic and released on every terminal path. WASM additionally enforces fuel and linear-memory ceilings. Native subprocess CPU and memory hard isolation varies by operating system and is not claimed in this change; where a platform-specific hard limit is unavailable, timeout, process-tree cancellation, bounded I/O, child count, and concurrency remain mandatory and the UI reports the actual enforcement level.
+
 ## Risks / Trade-offs
 
 - [A WebAssembly engine increases binary size, compile time, and dependency surface] → Keep it behind an optional adapter, pin versions, review advisories/licenses, and retain declarative-only operation when unavailable.
@@ -99,5 +122,6 @@ Components are split below the 300-line limit and use existing Tailwind patterns
 2. Add validation, integrity, trust, and UI inspection; existing Skills without manifests remain unchanged.
 3. Enable declarative tools for trusted test Skills and integrate catalog, permissions, transcript, cancellation, and unified logs.
 4. Add the pinned WebAssembly adapter behind a feature/config gate and pass adversarial resource-limit tests.
-5. Enable per-revision governance actions and quarantine recovery, then expand rollout from system test Skills to explicitly trusted local Skills.
-6. Rollback by disabling Skill tool execution globally and atomically removing contributed tools; retain trust, validation, audit, and usage records for diagnosis. No SKILL.md migration is required.
+5. Enable the filesystem, process, network, and secret host gateways only after their negative suites pass on the current native platform; unsupported hard-isolation features remain explicitly reported rather than simulated.
+6. Enable per-revision governance actions and quarantine recovery, then expand rollout from system test Skills to explicitly trusted local Skills.
+7. Rollback by disabling Skill tool execution globally and atomically removing contributed tools; retain trust, validation, audit, and usage records for diagnosis. No SKILL.md migration is required.

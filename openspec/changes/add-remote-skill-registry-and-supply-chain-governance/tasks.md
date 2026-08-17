@@ -1,6 +1,6 @@
 ## 1. Security protocol and domain contracts
 
-- [ ] 1.1 Add the `skill_registry` Rust context with source, trusted root, publisher namespace, package/Skill/version identity, target, catalog, provenance, snapshot, compatibility, operation, revocation, cache, quarantine, and recovery models.
+- [ ] 1.1 Add the `tooling::skill_registry` Rust subdomain with source, trusted root, publisher namespace, package/Skill/version identity, target, catalog, provenance, snapshot, compatibility, operation, revocation, cache, quarantine, and recovery models.
 - [ ] 1.2 Define ports for repository metadata verification, network transport, credential storage, archive inspection/extraction, package validation, filesystem transaction, SQLite state, effective Skill publication, tasks, clocks, and unified logs.
 - [ ] 1.3 Evaluate and pin maintained repository-security, cryptographic, archive, and semantic-version dependencies after license, advisory, algorithm, test-vector, Windows support, and maintenance review.
 - [ ] 1.4 Define stable shared contracts for source ids, publisher namespaces, target custom metadata, one-package/one-Skill manifests, revocation, immutable preview witnesses, and error codes.
@@ -39,6 +39,8 @@
 - [ ] 5.4 Validate required `SKILL.md`, standard metadata, one-package/one-Skill identity, source/publisher namespace, compatibility, allowed support directories, configuration schema, tool manifests, and complete content hashes.
 - [ ] 5.5 Record bundled executable-tool presence and hashes without registering or trusting them during package installation.
 - [ ] 5.6 Add fuzz/adversarial fixtures for decompression bombs, malformed archives, path ambiguity, parser crashes, package/metadata identity mismatch, and resource-limit exhaustion.
+- [ ] 5.7 Parse and validate the normalized Skill permission manifest, persist its digest and bounded review projection, and compute deterministic install/update authority additions and removals.
+- [ ] 5.8 Require a fresh explicit confirmation for every authority expansion and prove background update checks cannot silently download, install, or inherit approval for it.
 
 ## 6. Immutable installation transactions
 
@@ -87,6 +89,7 @@
 - [ ] 10.6 Show offline/stale metadata, source-disabled, integrity-drift, quarantined, recovery-required, and unsupported Web states without fabricating success.
 - [ ] 10.7 Keep production components below 300 physical lines and add keyboard, focus, screen-reader, non-color status, safe-link, sanitized-text, narrow-layout, and no-overflow tests.
 - [ ] 10.8 Add Playwright flows for browse/install, custom source, credential repair, update failure preservation, rollback, uninstall retention, offline catalog, critical revocation, integrity drift, stale preview, cancellation, and Web unsupported behavior.
+- [ ] 10.9 Add Playwright and stable visual coverage for permission review and update expansion in futuristic/minimal themes at desktop/narrow widths.
 
 ## 11. Audit, operations, and rollout safety
 
@@ -103,4 +106,6 @@
 - [ ] 12.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`, and `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [ ] 12.4 Run repository-security official test vectors, hostile metadata/archive corpus, fuzz targets, proxy/redirect tests, failure-injection transactions, offline/expiry, revocation, concurrency, and Windows path-semantics suites.
 - [ ] 12.5 Run dependency license/advisory review and verify the Registry feature with network/mutation kill switches enabled and disabled.
-- [ ] 12.6 Run `openspec validate add-remote-skill-registry-and-supply-chain-governance --strict` and `openspec validate --specs --strict`, then record implementation, root/protocol fixture versions, and rollback evidence before archive.
+- [ ] 12.6 Run `npm run desktop:unit:test` and `npm run test:desktop` on the current native platform and report Windows/macOS/Linux independently as PASSED, FAILED, BLOCKED, or NOT RUN.
+- [ ] 12.7 Run deterministic package-verification, extraction-budget, metadata-refresh, and permission-diff benchmarks or structural measurements without fragile shared-runner timing assertions.
+- [ ] 12.8 Run `openspec validate add-remote-skill-registry-and-supply-chain-governance --strict` and `openspec validate --specs --strict`, then record implementation, root/protocol fixture versions, visual, native-platform, performance, and rollback evidence before archive.

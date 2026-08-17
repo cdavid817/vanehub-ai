@@ -1016,6 +1016,25 @@ impl SkillApplicationService {
         self.bump_usage(package, SkillUsageActivity::Use, BTreeMap::new())
     }
 
+    pub(crate) fn bump_tool_use(
+        &self,
+        skill_id: &str,
+        workspace: Option<&str>,
+        revision: &str,
+    ) -> Option<SkillUsageSummary> {
+        let package = self
+            .effective_catalog
+            .as_ref()?
+            .effective_catalog(workspace)
+            .ok()?
+            .into_iter()
+            .map(|effective| effective.effective)
+            .find(|package| {
+                package.metadata.id.as_str() == skill_id && package.revision == revision
+            })?;
+        self.bump_use(&package)
+    }
+
     fn bump_usage(
         &self,
         package: &super::SkillPackageDescriptor,

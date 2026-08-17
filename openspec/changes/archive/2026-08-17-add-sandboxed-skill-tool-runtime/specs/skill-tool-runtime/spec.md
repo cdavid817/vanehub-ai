@@ -97,3 +97,57 @@ Discovery, trust changes, enablement changes, validation, invocation lifecycle, 
 - **WHEN** a logged event contains sensitive input or output fields
 - **THEN** the system redacts them before persistence and retains only policy-approved summaries or hashes
 
+### Requirement: Canonical filesystem sandbox
+Filesystem host calls SHALL resolve targets through the existing canonical workspace boundary, distinguish read from write authority, reject hidden or system-sensitive targets by policy, revalidate symlinks at use time, use only invocation-owned temporary directories, and enforce per-file plus aggregate byte ceilings.
+
+#### Scenario: Tool writes outside the workspace
+- **WHEN** a tool supplies an absolute path, `../` traversal, or a target whose canonical parent is outside the authorized workspace
+- **THEN** the write is rejected before any outside file is created or modified
+
+#### Scenario: Symlink escapes the workspace
+- **WHEN** an authorized lexical path resolves through a symlink to a target outside the workspace
+- **THEN** the operation is rejected even if the symlink changed after initial manifest validation
+
+### Requirement: Structured process sandbox
+Process host calls SHALL use an allowlisted executable identity, structured argv, canonical authorized cwd, explicit environment allowlist, bounded child count, wall timeout, process-tree cancellation, and bounded stdout/stderr. Skill input MUST NOT be concatenated into a shell command string.
+
+#### Scenario: Argument attempts shell injection
+- **WHEN** an argument contains shell metacharacters for a direct-exec operation
+- **THEN** it remains one literal argument and cannot create an additional command
+
+#### Scenario: Process exceeds its deadline
+- **WHEN** an allowed command or descendant remains alive after its wall-time budget or parent cancellation
+- **THEN** the runtime terminates the observed process tree and rejects late output
+
+#### Scenario: Process emits excessive output
+- **WHEN** stdout or stderr reaches the invocation output ceiling
+- **THEN** the runtime safely truncates or terminates according to policy and reports the breached limit without unbounded buffering
+
+### Requirement: Origin-bound network sandbox
+Network host calls SHALL be denied by default and SHALL require an admitted HTTPS origin. DNS results, redirects, proxy routing, credential forwarding, response size, network bytes, and timeouts SHALL be checked by the managed native network boundary; every redirect target MUST be re-evaluated and loopback/private destinations MUST be denied unless an explicit higher policy allows the exact destination.
+
+#### Scenario: Tool calls an undeclared host
+- **WHEN** a tool requests a URL whose origin is absent from its manifest
+- **THEN** no network connection is attempted
+
+#### Scenario: Allowed origin redirects to a private address
+- **WHEN** an admitted URL redirects to loopback, link-local, or a private-network address not explicitly allowed
+- **THEN** the redirect is rejected without forwarding credentials or response content
+
+### Requirement: Secret capability isolation
+Secret values SHALL remain in the existing credential boundary and SHALL be resolved only for an exact declared capability after permission approval. They MUST NOT enter Skill prompts, frontend DTOs, inherited child environments, raw tool diagnostics, transcripts, or persisted logs.
+
+#### Scenario: Process does not request a secret
+- **WHEN** a child process is launched without an approved secret capability
+- **THEN** its environment contains no managed Skill secret even if the secret is configured
+
+#### Scenario: Tool attempts secret exfiltration
+- **WHEN** a tool returns, logs, or embeds a granted secret in output
+- **THEN** redaction occurs before display or persistence and the security outcome is recorded without the value
+
+### Requirement: Aggregate invocation resource budget
+Every invocation SHALL atomically account for wall time, child process count, output bytes, file bytes, network bytes, host calls, and concurrent jobs across nested delegation. WASM invocations SHALL additionally enforce fuel and linear-memory ceilings. The product MUST report platform enforcement honestly and MUST NOT claim native CPU or memory hard isolation where it is unavailable.
+
+#### Scenario: Nested calls exhaust a shared budget
+- **WHEN** nested host calls collectively reach any invocation ceiling
+- **THEN** no additional resource reservation succeeds and unrelated invocations retain their own budgets

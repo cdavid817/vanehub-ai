@@ -37,7 +37,23 @@ pub(crate) struct PendingApprovalEntry {
     pub(crate) action: String,
     pub(crate) resource: String,
     pub(crate) risk_level: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) skill: Option<SkillApprovalEntry>,
     pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillApprovalEntry {
+    pub(crate) parent_agent_id: String,
+    pub(crate) skill_id: String,
+    pub(crate) tool_id: String,
+    pub(crate) effective_revision: String,
+    pub(crate) source_scope: String,
+    pub(crate) requested_capability: String,
+    pub(crate) delegated_operation: String,
+    pub(crate) redacted_input_summary: String,
+    pub(crate) immutable_witness: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

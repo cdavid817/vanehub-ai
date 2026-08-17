@@ -123,12 +123,12 @@ pub(crate) use models::{
     ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
     ResizeAgentTerminalRequest, SaveMemoryInput, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SeatTurnOwnership, SeatTurnTerminal, SendMessageRequest,
-    StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
-    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
-    ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
+    SkillToolUseProvenance, StartedAgentMessage, StartedGenerationProcess,
+    StopAgentTerminalRequest, StopGenerationResult, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent,
+    ToolLifecyclePhase, ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
 };
 pub(crate) use ports::ContextQualityRepository;
 
