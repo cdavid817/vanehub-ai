@@ -1,5 +1,7 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
-use crate::contexts::execution_observability::api::ExecutionObservabilityApi;
+use crate::contexts::execution_observability::api::{
+    ExecutionObservabilityApi, ExecutionTelemetryPort,
+};
 use crate::contexts::execution_observability::application::EvaluationRepositoryPort;
 use crate::contexts::execution_observability::infrastructure::OsObservabilityCredentialAdapter;
 use crate::contexts::execution_observability::infrastructure::{
@@ -47,6 +49,13 @@ pub(crate) fn assemble_evaluation_api(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evaluation-fixtures"),
         run_root,
     )
+}
+
+pub(crate) fn relay_telemetry(
+    data_root: &std::path::Path,
+) -> Option<Arc<dyn ExecutionTelemetryPort>> {
+    let database = NativeDatabase::new(data_root.to_path_buf()).ok()?;
+    Some(Arc::new(SqliteExecutionTimelineRepository::new(database)))
 }
 
 pub(crate) fn start_execution_retention_job(

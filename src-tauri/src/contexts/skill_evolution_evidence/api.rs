@@ -10,9 +10,9 @@ use super::infrastructure::{
     EvidenceIngestionProcessor, EvidenceOverview, EvidencePageRequest, EvidencePurgeOutcome,
     EvidencePurgeRequest, EvidencePurgeScope, EvidenceQueryScope, EvidenceRepositoryError,
     EvidenceSeedLineage, FeedbackTransitionError, SaveFeedbackRequest, SavedFeedback,
-    SqliteEvolutionEvidenceRepository,
+    SqliteEvolutionEvidenceRepository, StoredFeedbackSummary,
 };
-use crate::contexts::operations::api::DiagnosticLogPort;
+use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::platform::credentials::OsCredentialStore;
 use crate::platform::database::NativeDatabase;
 
@@ -28,11 +28,24 @@ pub(crate) struct SkillEvolutionEvidenceApi {
 impl SkillEvolutionEvidenceApi {
     pub(crate) fn new(database: NativeDatabase, logging: Arc<dyn DiagnosticLogPort>) -> Self {
         let repository = SqliteEvolutionEvidenceRepository::new(database);
-        let installation_key = load_or_create_key().ok();
+        let installation_key = match load_or_create_key() {
+            Ok(key) => Some(key),
+            Err(()) => {
+                record_initialization_failure(logging.as_ref(), "credential-key-unavailable");
+                None
+            }
+        };
         let pipeline = installation_key.as_deref().and_then(|key| {
-            EvidenceIngestionProcessor::new(repository.clone(), key)
-                .ok()
-                .map(|processor| Arc::new(EvidencePipeline::start(Arc::new(processor), logging)))
+            match EvidenceIngestionProcessor::new(repository.clone(), key) {
+                Ok(processor) => Some(Arc::new(EvidencePipeline::start(
+                    Arc::new(processor),
+                    logging.clone(),
+                ))),
+                Err(_) => {
+                    record_initialization_failure(logging.as_ref(), "processor-unavailable");
+                    None
+                }
+            }
         });
         Self {
             repository,
@@ -63,55 +76,7 @@ impl SkillEvolutionEvidenceApi {
         &self,
         message_ids: &[String],
     ) -> Result<BTreeMap<String, FeedbackSummary>, EvidenceRepositoryError> {
-        let connection = self
-            .repository
-            .database
-            .connection()
-            .map_err(|_| EvidenceRepositoryError::Storage)?;
-        let mut summaries = BTreeMap::new();
-        for message_id in message_ids {
-            let result = connection.query_row(
-                "SELECT feedback_state, feedback_revision, sanitized_note FROM evolution_feedback_current WHERE message_id = ?1",
-                [message_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?)),
-            );
-            match result {
-                Ok((state, revision, note)) => {
-                    if let Some(state) = parse_state(&state) {
-                        summaries.insert(
-                            message_id.clone(),
-                            FeedbackSummary {
-                                state: Some(state),
-                                revision: u64::try_from(revision).unwrap_or_default(),
-                                sanitized_note: note,
-                            },
-                        );
-                    }
-                }
-                Err(rusqlite::Error::QueryReturnedNoRows) => {}
-                Err(_) => return Err(EvidenceRepositoryError::Storage),
-            }
-            if !summaries.contains_key(message_id) {
-                let revision: i64 = connection
-                    .query_row(
-                        "SELECT COALESCE(MAX(feedback_revision), 0) FROM evolution_feedback_events WHERE message_id = ?1",
-                        [message_id],
-                        |row| row.get(0),
-                    )
-                    .map_err(|_| EvidenceRepositoryError::Storage)?;
-                if revision > 0 {
-                    summaries.insert(
-                        message_id.clone(),
-                        FeedbackSummary {
-                            state: None,
-                            revision: u64::try_from(revision).unwrap_or_default(),
-                            sanitized_note: None,
-                        },
-                    );
-                }
-            }
-        }
-        Ok(summaries)
+        self.repository.feedback_for_messages(message_ids)
     }
 
     pub(crate) fn query_overview(
@@ -248,12 +213,16 @@ fn apply_health(overview: &mut EvidenceOverview, health: PipelineHealthSnapshot)
     overview.dropped_count = overview.dropped_count.saturating_add(queue_drops);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FeedbackSummary {
-    pub(crate) state: Option<FeedbackState>,
-    pub(crate) revision: u64,
-    pub(crate) sanitized_note: Option<String>,
+fn record_initialization_failure(logging: &dyn DiagnosticLogPort, reason: &'static str) {
+    let _ = logging.write_diagnostic(DiagnosticLog {
+        severity: LogSeverity::Warn,
+        category: "skill-evolution.pipeline.initialization".to_string(),
+        message: "Skill evolution evidence pipeline disabled safely".to_string(),
+        context: BTreeMap::from([("reason".to_string(), reason.to_string())]),
+    });
 }
+
+pub(crate) type FeedbackSummary = StoredFeedbackSummary;
 
 fn load_or_create_key() -> Result<Zeroizing<Vec<u8>>, ()> {
     let store = OsCredentialStore::new(CREDENTIAL_SERVICE);
@@ -279,13 +248,4 @@ fn decode_key(encoded: &str) -> Result<Zeroizing<Vec<u8>>, ()> {
         .map(|index| u8::from_str_radix(&encoded[index..index + 2], 16).map_err(|_| ()))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Zeroizing::new(bytes))
-}
-
-fn parse_state(value: &str) -> Option<FeedbackState> {
-    match value {
-        "helpful" => Some(FeedbackState::Helpful),
-        "unhelpful" => Some(FeedbackState::Unhelpful),
-        "corrected" => Some(FeedbackState::Corrected),
-        _ => None,
-    }
 }

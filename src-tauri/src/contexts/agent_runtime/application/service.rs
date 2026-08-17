@@ -45,6 +45,29 @@ fn onepiece_profile_credential_key(profile_id: &str) -> String {
     format!("onepiece-profile:{profile_id}")
 }
 
+fn record_telemetry_result(
+    ports: &AgentRuntimeApplicationPorts,
+    context: &ExecutionContext,
+    transition: &'static str,
+    result: Result<(), crate::contexts::execution_observability::api::ExecutionTelemetryError>,
+) {
+    if result.is_ok() {
+        return;
+    }
+    let _ = ports.logging.record(AgentLog {
+        level: AgentLogLevel::Warn,
+        category: "execution_telemetry".to_owned(),
+        message: format!("execution telemetry transition failed: {transition}"),
+        agent_id: None,
+        session_id: None,
+        operation_id: None,
+        run_id: Some(context.run_id.as_str().to_owned()),
+        trace_id: Some(context.trace_id.as_str().to_owned()),
+        span_id: Some(context.span_id.as_str().to_owned()),
+        occurred_at: ports.clock.now(),
+    });
+}
+
 fn restore_credential(credentials: &dyn ApiCredentialPort, key: &str, value: Option<&str>) {
     match value {
         Some(secret) => {
@@ -1575,8 +1598,18 @@ impl AgentRuntimeApplicationService {
             attributes: safe_attributes(root_attributes),
             links: Vec::new(),
         };
-        let _ = self.ports.telemetry.start_run(&run);
-        let _ = self.ports.telemetry.start_span(&root_span);
+        record_telemetry_result(
+            &self.ports,
+            &root_context,
+            "start_run",
+            self.ports.telemetry.start_run(&run),
+        );
+        record_telemetry_result(
+            &self.ports,
+            &root_context,
+            "start_root_span",
+            self.ports.telemetry.start_span(&root_span),
+        );
         let prompt_context = child_context(&root_context, self.ports.execution_ids.next_span_id());
         let prompt_span = ExecutionSpan {
             context: prompt_context.clone(),
@@ -1593,7 +1626,12 @@ impl AgentRuntimeApplicationService {
             )]),
             links: Vec::new(),
         };
-        let _ = self.ports.telemetry.start_span(&prompt_span);
+        record_telemetry_result(
+            &self.ports,
+            &prompt_context,
+            "start_prompt_span",
+            self.ports.telemetry.start_span(&prompt_span),
+        );
         let prompt =
             match self
                 .ports
@@ -1603,12 +1641,17 @@ impl AgentRuntimeApplicationService {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     let ended_at = self.ports.clock.now();
-                    let _ = self.ports.telemetry.finish_span(
-                        &prompt_context.run_id,
-                        &prompt_context.span_id,
-                        ExecutionStatus::Failed,
-                        &ended_at,
-                        Some("prompt_compose_failed"),
+                    record_telemetry_result(
+                        &self.ports,
+                        &prompt_context,
+                        "finish_prompt_span",
+                        self.ports.telemetry.finish_span(
+                            &prompt_context.run_id,
+                            &prompt_context.span_id,
+                            ExecutionStatus::Failed,
+                            &ended_at,
+                            Some("prompt_compose_failed"),
+                        ),
                     );
                     self.finish_execution_root(
                         &root_context,
@@ -1618,12 +1661,17 @@ impl AgentRuntimeApplicationService {
                     return Err(error);
                 }
             };
-        let _ = self.ports.telemetry.finish_span(
-            &prompt_context.run_id,
-            &prompt_context.span_id,
-            ExecutionStatus::Succeeded,
-            &self.ports.clock.now(),
-            None,
+        record_telemetry_result(
+            &self.ports,
+            &prompt_context,
+            "finish_prompt_span",
+            self.ports.telemetry.finish_span(
+                &prompt_context.run_id,
+                &prompt_context.span_id,
+                ExecutionStatus::Succeeded,
+                &self.ports.clock.now(),
+                None,
+            ),
         );
         let generation_file_references = file_references.clone();
         let durable_messages =
@@ -1727,7 +1775,12 @@ impl AgentRuntimeApplicationService {
         run.user_message_id = user_message.as_ref().map(|message| message.id.clone());
         run.assistant_message_id = Some(assistant.id.clone());
         run.operation_id = Some(operation.id.clone());
-        let _ = self.ports.telemetry.start_run(&run);
+        record_telemetry_result(
+            &self.ports,
+            &run.context,
+            "restart_run_correlation",
+            self.ports.telemetry.start_run(&run),
+        );
         if let Err(error) = self.ports.operations.start_canonical_run(
             root_context.run_id.as_str(),
             &assistant.id,
@@ -2027,7 +2080,12 @@ impl AgentRuntimeApplicationService {
             attributes: safe_attributes(agent_attributes),
             links: Vec::new(),
         };
-        let _ = self.ports.telemetry.start_span(&agent_span);
+        record_telemetry_result(
+            &self.ports,
+            &agent_context,
+            "start_agent_span",
+            self.ports.telemetry.start_span(&agent_span),
+        );
         let started = match self
             .ports
             .processes
@@ -2055,12 +2113,17 @@ impl AgentRuntimeApplicationService {
                     PromptExecutionOutcome::Failed,
                     prompt_started_at,
                 );
-                let _ = self.ports.telemetry.finish_span(
-                    &agent_context.run_id,
-                    &agent_context.span_id,
-                    ExecutionStatus::Failed,
-                    &self.ports.clock.now(),
-                    Some("process_start_failed"),
+                record_telemetry_result(
+                    &self.ports,
+                    &agent_context,
+                    "finish_agent_span",
+                    self.ports.telemetry.finish_span(
+                        &agent_context.run_id,
+                        &agent_context.span_id,
+                        ExecutionStatus::Failed,
+                        &self.ports.clock.now(),
+                        Some("process_start_failed"),
+                    ),
                 );
                 return self.fail_prepared_message(
                     &root_context,
@@ -2084,12 +2147,17 @@ impl AgentRuntimeApplicationService {
                 &started.process_id,
                 super::ProcessStopInitiator::RuntimeCleanup,
             );
-            let _ = self.ports.telemetry.finish_span(
-                &agent_context.run_id,
-                &agent_context.span_id,
-                ExecutionStatus::Failed,
-                &self.ports.clock.now(),
-                Some("generation_attach_failed"),
+            record_telemetry_result(
+                &self.ports,
+                &agent_context,
+                "finish_agent_span",
+                self.ports.telemetry.finish_span(
+                    &agent_context.run_id,
+                    &agent_context.span_id,
+                    ExecutionStatus::Failed,
+                    &self.ports.clock.now(),
+                    Some("generation_attach_failed"),
+                ),
             );
             self.record_prompt_execution(
                 &operation.id,
@@ -2141,12 +2209,17 @@ impl AgentRuntimeApplicationService {
                 &started.process_id,
                 super::ProcessStopInitiator::RuntimeCleanup,
             );
-            let _ = self.ports.telemetry.finish_span(
-                &agent_context.run_id,
-                &agent_context.span_id,
-                ExecutionStatus::Failed,
-                &self.ports.clock.now(),
-                Some("generation_monitor_failed"),
+            record_telemetry_result(
+                &self.ports,
+                &agent_context,
+                "finish_agent_span",
+                self.ports.telemetry.finish_span(
+                    &agent_context.run_id,
+                    &agent_context.span_id,
+                    ExecutionStatus::Failed,
+                    &self.ports.clock.now(),
+                    Some("generation_monitor_failed"),
+                ),
             );
             self.record_prompt_execution(
                 &operation.id,
@@ -2247,18 +2320,28 @@ impl AgentRuntimeApplicationService {
             error_classification,
         );
         let ended_at = self.ports.clock.now();
-        let _ = self.ports.telemetry.finish_span(
-            &context.run_id,
-            &context.span_id,
-            status,
-            &ended_at,
-            error_classification,
+        record_telemetry_result(
+            &self.ports,
+            context,
+            "finish_root_span",
+            self.ports.telemetry.finish_span(
+                &context.run_id,
+                &context.span_id,
+                status,
+                &ended_at,
+                error_classification,
+            ),
         );
-        let _ = self.ports.telemetry.finish_run(
-            &context.run_id,
-            status,
-            &ended_at,
-            error_classification,
+        record_telemetry_result(
+            &self.ports,
+            context,
+            "finish_run",
+            self.ports.telemetry.finish_run(
+                &context.run_id,
+                status,
+                &ended_at,
+                error_classification,
+            ),
         );
     }
 
@@ -2763,8 +2846,8 @@ impl GenerationEventHandler {
                 ));
             }
             let links = provider_parent_link(&event);
-            let _ = self.ports.telemetry.start_span(&ExecutionSpan {
-                context,
+            let span = ExecutionSpan {
+                context: context.clone(),
                 parent_span_id: Some(self.agent_context.span_id.clone()),
                 name: format!("execute_tool {}", event.tool_use.name),
                 status: ExecutionStatus::Running,
@@ -2777,7 +2860,13 @@ impl GenerationEventHandler {
                 error_classification: None,
                 attributes: safe_attributes(attributes),
                 links,
-            });
+            };
+            record_telemetry_result(
+                &self.ports,
+                &context,
+                "start_tool_span",
+                self.ports.telemetry.start_span(&span),
+            );
         }
         if !is_new && event.phase == ToolLifecyclePhase::Started {
             return Ok(());
@@ -2798,12 +2887,18 @@ impl GenerationEventHandler {
                 .provider_timestamp
                 .clone()
                 .unwrap_or_else(|| self.ports.clock.now());
-            let _ = self.ports.telemetry.finish_span(
-                &self.agent_context.run_id,
-                &span_id,
-                status,
-                &ended_at,
-                error_classification,
+            let context = child_context(&self.agent_context, span_id.clone());
+            record_telemetry_result(
+                &self.ports,
+                &context,
+                "finish_tool_span",
+                self.ports.telemetry.finish_span(
+                    &self.agent_context.run_id,
+                    &span_id,
+                    status,
+                    &ended_at,
+                    error_classification,
+                ),
             );
             let mut state = self.state()?;
             state.active_tool_spans.remove(&event.call_id);
@@ -3320,34 +3415,55 @@ impl GenerationEventHandler {
         let ended_at = self.ports.clock.now();
         if let Ok(mut state) = self.state() {
             for span_id in std::mem::take(&mut state.active_tool_spans).into_values() {
-                let _ = self.ports.telemetry.finish_span(
-                    &self.root_context.run_id,
-                    &span_id,
-                    ExecutionStatus::Incomplete,
-                    &ended_at,
-                    Some("provider_boundary_missing"),
+                let context = child_context(&self.agent_context, span_id.clone());
+                record_telemetry_result(
+                    &self.ports,
+                    &context,
+                    "finish_orphaned_tool_span",
+                    self.ports.telemetry.finish_span(
+                        &self.root_context.run_id,
+                        &span_id,
+                        ExecutionStatus::Incomplete,
+                        &ended_at,
+                        Some("provider_boundary_missing"),
+                    ),
                 );
             }
         }
-        let _ = self.ports.telemetry.finish_span(
-            &self.agent_context.run_id,
-            &self.agent_context.span_id,
-            status,
-            &ended_at,
-            error_classification,
+        record_telemetry_result(
+            &self.ports,
+            &self.agent_context,
+            "finish_agent_span",
+            self.ports.telemetry.finish_span(
+                &self.agent_context.run_id,
+                &self.agent_context.span_id,
+                status,
+                &ended_at,
+                error_classification,
+            ),
         );
-        let _ = self.ports.telemetry.finish_span(
-            &self.root_context.run_id,
-            &self.root_context.span_id,
-            status,
-            &ended_at,
-            error_classification,
+        record_telemetry_result(
+            &self.ports,
+            &self.root_context,
+            "finish_root_span",
+            self.ports.telemetry.finish_span(
+                &self.root_context.run_id,
+                &self.root_context.span_id,
+                status,
+                &ended_at,
+                error_classification,
+            ),
         );
-        let _ = self.ports.telemetry.finish_run(
-            &self.root_context.run_id,
-            status,
-            &ended_at,
-            error_classification,
+        record_telemetry_result(
+            &self.ports,
+            &self.root_context,
+            "finish_run",
+            self.ports.telemetry.finish_run(
+                &self.root_context.run_id,
+                status,
+                &ended_at,
+                error_classification,
+            ),
         );
     }
 

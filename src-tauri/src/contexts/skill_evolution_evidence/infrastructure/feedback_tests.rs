@@ -128,3 +128,48 @@ fn only_completed_assistant_messages_and_valid_correction_shapes_are_eligible() 
         Err(FeedbackTransitionError::InvalidInput)
     );
 }
+
+#[test]
+fn batched_feedback_lookup_preserves_state_revision_and_cleared_history() {
+    let (_, repository) = fixture("feedback-batched-lookup");
+    repository
+        .save_feedback(&request(0, Some(FeedbackState::Helpful), None), KEY)
+        .expect("create feedback");
+
+    let summaries = repository
+        .feedback_for_messages(&[
+            "assistant-feedback".to_owned(),
+            "missing-message".to_owned(),
+        ])
+        .expect("lookup feedback");
+    let current = summaries
+        .get("assistant-feedback")
+        .expect("current feedback");
+    assert_eq!(current.state, Some(FeedbackState::Helpful));
+    assert_eq!(current.revision, 1);
+    assert!(!summaries.contains_key("missing-message"));
+
+    repository
+        .save_feedback(&request(1, None, None), KEY)
+        .expect("clear feedback");
+    let cleared = repository
+        .feedback_for_messages(&["assistant-feedback".to_owned()])
+        .expect("lookup cleared feedback");
+    assert_eq!(cleared["assistant-feedback"].state, None);
+    assert_eq!(cleared["assistant-feedback"].revision, 2);
+}
+
+#[test]
+fn batched_feedback_lookup_surfaces_storage_failure() {
+    let (database, repository) = fixture("feedback-batched-storage-failure");
+    database
+        .connection()
+        .expect("connection")
+        .execute_batch("DROP TABLE evolution_feedback_current;")
+        .expect("drop feedback table");
+
+    assert!(matches!(
+        repository.feedback_for_messages(&["assistant-feedback".to_owned()]),
+        Err(EvidenceRepositoryError::Storage)
+    ));
+}
