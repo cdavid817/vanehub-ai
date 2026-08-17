@@ -92,7 +92,7 @@ jobs:
           node-version: 22
 
       - name: Validate main specifications
-        run: npx --yes @fission-ai/openspec@1.6.0 validate --specs --strict
+        run: npx --yes @fission-ai/openspec@1.8.0 validate --specs --strict
 
       - name: Validate active changes
         shell: bash
@@ -103,7 +103,7 @@ jobs:
             if [[ "$change_name" == "archive" ]]; then
               continue
             fi
-            npx --yes @fission-ai/openspec@1.6.0 validate "$change_name" --strict
+            npx --yes @fission-ai/openspec@1.8.0 validate "$change_name" --strict
           done
 
   documentation:
