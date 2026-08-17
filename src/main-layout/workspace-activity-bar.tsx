@@ -1,4 +1,4 @@
-import { BarChart3, CalendarClock, CircleHelp, Columns3, ListTree, MessagesSquare, Repeat2, Settings, Target } from "lucide-react";
+import { BarChart3, CalendarClock, CircleHelp, Columns3, ListTree, MessagesSquare, Radar, Repeat2, Settings, Target } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface WorkspaceActivityBarLabels {
@@ -12,12 +12,13 @@ export interface WorkspaceActivityBarLabels {
   todoBoard: string;
   goals: string;
   evaluations: string;
+  missionControl: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "plans" | "work-board" | "goals" | "evaluations";
+  activeDestination: "sessions" | "loops" | "plans" | "work-board" | "goals" | "evaluations" | "mission-control";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
   onHelp: () => void;
@@ -28,6 +29,7 @@ interface WorkspaceActivityBarProps {
   onWorkBoard: () => void;
   onGoals: () => void;
   onEvaluations: () => void;
+  onMissionControl: () => void;
   sessionSidebarExpanded: boolean;
 }
 
@@ -46,6 +48,7 @@ export function WorkspaceActivityBar({
   onWorkBoard,
   onGoals,
   onEvaluations,
+  onMissionControl,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
@@ -87,6 +90,7 @@ export function WorkspaceActivityBar({
         <button aria-controls="work-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "work-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onWorkBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
         <button aria-controls="goal-center" aria-label={labels.goals} className={cn(activityButtonClass, activeDestination === "goals" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onGoals} title={labels.goals} type="button"><Target aria-hidden="true" className="h-5 w-5" /></button>
         <button aria-controls="evaluation-center" aria-label={labels.evaluations} className={cn(activityButtonClass, activeDestination === "evaluations" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onEvaluations} title={labels.evaluations} type="button"><BarChart3 aria-hidden="true" className="h-5 w-5" /></button>
+        <button aria-controls="mission-control" aria-label={labels.missionControl} className={cn(activityButtonClass, activeDestination === "mission-control" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onMissionControl} title={labels.missionControl} type="button"><Radar aria-hidden="true" className="h-5 w-5" /></button>
       </div>
       {/* Scheduled tasks opens a dialog rather than switching destination, so it sits apart from
           the four entries that do change what fills the workspace. */}

@@ -8,14 +8,17 @@ use serde_json::Value;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::contexts::operations::application::AgentRunService;
 pub(crate) use crate::contexts::operations::application::ApplicationError as OperationsError;
 pub(crate) use crate::contexts::operations::application::CreateAgentRun;
 pub(crate) use crate::contexts::operations::application::RunListFilter;
 pub(crate) use crate::contexts::operations::application::RunPage;
+use crate::contexts::operations::application::{AgentRunService, MissionControlService};
 pub(crate) use crate::contexts::operations::application::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
     OperationLogPort,
+};
+pub(crate) use crate::contexts::operations::application::{
+    MissionControlOverview, MissionControlQuery, MissionControlRunDetail,
 };
 use crate::contexts::operations::domain::OperationRecoveryEvidence;
 pub(crate) use crate::contexts::operations::domain::{
@@ -32,11 +35,15 @@ pub(crate) struct OperationsApi {
 #[derive(Clone)]
 pub(crate) struct AgentRunsApi {
     service: AgentRunService,
+    mission_control: MissionControlService,
 }
 
 impl AgentRunsApi {
-    pub(crate) fn new(service: AgentRunService) -> Self {
-        Self { service }
+    pub(crate) fn new(service: AgentRunService, mission_control: MissionControlService) -> Self {
+        Self {
+            service,
+            mission_control,
+        }
     }
     pub(crate) fn create(&self, input: CreateAgentRun) -> Result<AgentRun, ApplicationError> {
         self.service.create(input)
@@ -74,6 +81,18 @@ impl AgentRunsApi {
     }
     pub(crate) fn reconcile_after_restart(&self) -> Result<usize, ApplicationError> {
         self.service.reconcile_after_restart()
+    }
+    pub(crate) fn mission_control_overview(
+        &self,
+        query: MissionControlQuery,
+    ) -> Result<MissionControlOverview, ApplicationError> {
+        self.mission_control.overview(query)
+    }
+    pub(crate) fn mission_control_run(
+        &self,
+        run_id: &str,
+    ) -> Result<MissionControlRunDetail, ApplicationError> {
+        self.mission_control.detail(run_id)
     }
     pub(crate) fn transition(
         &self,

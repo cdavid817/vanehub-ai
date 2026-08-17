@@ -77,11 +77,18 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
       },
     }));
     assert.equal(agentRun.state, "created");
+    const missionOverview = await globalThis.browser.tauri.execute(({ core }) => core.invoke("get_mission_control_overview", {
+      query: { limit: 20, sort: "newest" },
+    }));
+    assert.ok(missionOverview.active.items.some((run) => run.runId === agentRun.id && run.state === "created"));
     const cancelledRun = await globalThis.browser.tauri.execute(({ core }, input) => core.invoke("cancel_agent_run", input), {
       runId: agentRun.id,
       version: agentRun.version,
     });
     assert.equal(cancelledRun.state, "cancelled");
+    const missionDetail = await globalThis.browser.tauri.execute(({ core }, runId) => core.invoke("get_mission_control_run", { runId }), agentRun.id);
+    assert.equal(missionDetail.run.state, "cancelled");
+    assert.equal(missionDetail.run.endedAt, cancelledRun.updatedAt);
     const runEvents = await globalThis.browser.tauri.execute(({ core }, runId) => core.invoke("list_agent_run_events", {
       runId,
       offset: 0,
