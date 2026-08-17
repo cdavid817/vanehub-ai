@@ -5,6 +5,7 @@ import {
   ContextQualityServiceError,
   getWebContextQualitySummary,
   listWebContextQualityHistory,
+  resetWebContextQualityForTest,
 } from "./web-context-quality";
 import { webSettingsClient } from "./web-settings-client";
 
@@ -12,6 +13,7 @@ describe("web context quality contract", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    resetWebContextQualityForTest();
     window.localStorage.clear();
   });
 

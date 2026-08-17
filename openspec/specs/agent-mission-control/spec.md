@@ -2,9 +2,7 @@
 
 ## Purpose
 Provides a bounded, attention-first operational view of canonical Agent Runs while preserving the ownership, security, and detailed workflows of existing Sessions, Plans, Loops, Reviews, Approvals, Evaluations, and logs.
-
 ## Requirements
-
 ### Requirement: Bounded Mission Control overview
 The system SHALL expose summary counts for running, waiting approval, waiting user, retrying, blocked or stuck, failed, and recently completed Runs, plus bounded attention, active, and recent-completion pages derived from canonical Run snapshots. It MUST NOT load full aggregates, logs, diffs, prompts, tool payloads, or artifact bodies as part of the overview query.
 
@@ -137,3 +135,14 @@ The desktop test harness SHALL exercise a minimal real local operation entering 
 #### Scenario: Native operation is observed
 - **WHEN** the desktop smoke starts a supported local test operation
 - **THEN** Mission Control shows its non-terminal state and later reconciles its terminal state through the real desktop service boundary
+
+### Requirement: Mission Control performance fixtures cover 100 and 1,000 Runs
+Mission Control performance coverage SHALL use deterministic 100-Run and 1,000-Run histories to verify indexed selection, bounded pages, lazy detail loading, a query count independent of result count, safe summaries, and coalesced frontend updates.
+
+#### Scenario: One thousand Runs are listed
+- **WHEN** the maximum versioned history is queried and rendered through the existing service boundary
+- **THEN** overview query count SHALL remain constant, returned rows SHALL remain page-bounded, detail SHALL remain lazy, and the frontend SHALL NOT create one update per token event
+
+#### Scenario: N plus one regression is introduced
+- **WHEN** the performance negative fixture reports query count growing with Run count
+- **THEN** the deterministic gate SHALL fail with the query-count baseline, measured value, and budget

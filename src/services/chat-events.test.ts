@@ -89,6 +89,28 @@ describe("applyChatEvent", () => {
 });
 
 describe("applyChatEvents", () => {
+  it("folds a high-rate token stream without rebuilding untouched history", () => {
+    const history = Array.from({ length: 100 }, (_, index): ChatMessage => ({
+      ...baseMessage,
+      id: `assistant-${index}`,
+      content: `history-${index}`,
+    }));
+    const target = history.at(-1)!;
+    const events = Array.from({ length: 10_000 }, (): ChatStreamEvent => ({
+      type: "token",
+      sessionId: "session-1",
+      messageId: target.id,
+      contentDelta: "x",
+    }));
+
+    const next = applyChatEvents(history, events);
+
+    expect(next).not.toBe(history);
+    expect(next.at(-1)).not.toBe(target);
+    expect(next.at(-1)?.content).toHaveLength(target.content.length + events.length);
+    expect(next.slice(0, -1).every((message, index) => message === history[index])).toBe(true);
+  });
+
   it("applies a token burst in one traversal, equivalent to applying each event", () => {
     const target: ChatMessage = { ...baseMessage, id: "assistant-1" };
     const earlier: ChatMessage = { ...baseMessage, id: "assistant-0", content: "earlier" };

@@ -4,12 +4,31 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
+import {
+  resetWebMissionControlRunsForTest,
+  seedWebMissionControlRunsForTest,
+  webAgentClient,
+} from "../services/web-agent-client";
 import type { MissionControlOverview } from "../types/mission-control";
 import { MissionControl } from "./mission-control";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); resetWebMissionControlRunsForTest(); });
 
 describe("MissionControl", () => {
+  it("renders a bounded page from 1,000 Web Runs and loads detail only on inspection", async () => {
+    await i18n.changeLanguage("en");
+    seedWebMissionControlRunsForTest(1_000);
+    const detail = vi.spyOn(webAgentClient, "getMissionControlRun");
+
+    render(<MissionControl />);
+
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']")).toHaveLength(60));
+    expect(detail).not.toHaveBeenCalled();
+    fireEvent.click(document.querySelector("[data-testid^='mission-run-'] button")!);
+    await waitFor(() => expect(detail).toHaveBeenCalledOnce());
+    expect(document.querySelector("[role='tablist']")).toBeTruthy();
+  });
+
   it("prioritizes attention, freezes terminal elapsed time, filters, inspects, and navigates", async () => {
     await i18n.changeLanguage("en"); const navigate = vi.fn();
     render(<MissionControl onNavigate={navigate} />);

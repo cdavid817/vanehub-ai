@@ -70,3 +70,69 @@ impl SqliteTerminalOutputSearch {
             .map_err(|error| error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TempDirectory;
+    use std::time::Instant;
+
+    #[test]
+    fn performance_long_terminal_search_is_indexed_page_bounded_and_content_free() {
+        const CHUNKS: usize = 4_096;
+        const CHUNK_BYTES: usize = 4_096;
+        let directory = TempDirectory::new("terminal-search-performance");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let mut connection = database.connection().expect("connection");
+        connection
+            .execute_batch("PRAGMA foreign_keys=OFF;")
+            .expect("disable fixture foreign keys");
+        let transaction = connection.transaction().expect("transaction");
+        {
+            let mut statement = transaction
+                .prepare("INSERT INTO terminal_output_chunks (stream_id,sequence,session_id,source,content,content_bytes,captured_at) VALUES (?1,?2,'session-performance','pty',?3,?4,?5)")
+                .expect("insert statement");
+            for index in 0..CHUNKS {
+                let prefix = format!("needle-{index:04} ");
+                let content = format!("{prefix}{}", "x".repeat(CHUNK_BYTES - prefix.len()));
+                statement
+                    .execute(params![
+                        "terminal-performance",
+                        index as i64,
+                        content,
+                        CHUNK_BYTES as i64,
+                        format!("2026-08-17T00:{:02}:{:02}Z", (index / 60) % 60, index % 60)
+                    ])
+                    .expect("insert chunk");
+            }
+        }
+        transaction.commit().expect("commit chunks");
+        drop(connection);
+        let search = SqliteTerminalOutputSearch::new(database);
+        let mut samples = Vec::new();
+        for _ in 0..7 {
+            let started = Instant::now();
+            let hits = search
+                .search(
+                    "needle",
+                    Some("session-performance"),
+                    None,
+                    None,
+                    None,
+                    1_000,
+                    0,
+                )
+                .expect("search");
+            samples.push(started.elapsed().as_micros());
+            assert_eq!(hits.len(), 100);
+            assert!(hits.iter().all(|hit| hit.content.len() == CHUNK_BYTES));
+        }
+        samples.sort_unstable();
+        eprintln!(
+            "TERMINAL_SEARCH_PERFORMANCE dataset=terminal-long@1 chunks={CHUNKS} retainedBytes={} queryCount=1 pageRows=100 p50Micros={} p95Micros={}",
+            CHUNKS * CHUNK_BYTES,
+            samples[3],
+            samples[6]
+        );
+    }
+}

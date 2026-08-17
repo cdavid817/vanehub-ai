@@ -45,7 +45,12 @@ function fixture(offsetDays: number, index: number): ContextQualityAssessment {
   };
 }
 
-let ledger = [1, 4, 10, 25, 45, 80].map(fixture);
+const createLedger = () => [1, 4, 10, 25, 45, 80].map(fixture);
+let ledger = createLedger();
+
+export function resetWebContextQualityForTest(): void {
+  ledger = createLedger();
+}
 
 function rangeDays(value: number): ContextQualityRangeDays {
   if (!contextQualityRangeDaysOptions.some((candidate) => candidate === value)) {

@@ -1,4 +1,7 @@
 {
+  "schemaVersion": 1,
+  "datasetId": "repo-small",
+  "datasetVersion": 1,
   "cases": [
     { "name": "definition", "budget": 40, "relevant": ["definition"], "candidates": [["definition", "retrieval", 40, 95], ["noise", "retrieval", 40, 10]] },
     { "name": "cross-file-reference", "budget": 100, "relevant": ["definition", "caller"], "candidates": [["definition", "tree-sitter", 40, 95], ["caller", "lsp-reference", 40, 90], ["noise", "memory", 20, 5]] },

@@ -30,7 +30,15 @@ for (const variant of [
     await openMissionControl(page, variant.theme, variant.width);
     await page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291").first().locator("button").first().click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+    await expect(page.getByLabel("Filter by status")).toBeVisible();
+    await expect(page.getByText("user_question", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("tablist")).toBeAttached();
+    await expect(page.getByText("Select a Run to inspect available details.")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(await page.getByTestId("mission-control").evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.height > 0 && bounds.width > 0;
+    })).toBe(true);
     await page.getByTestId("mission-control").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
   });
 }
