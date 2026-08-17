@@ -2642,6 +2642,19 @@
     },
     {
       "archivedOn": "2026-08-16",
+      "changeName": "add-agent-evaluation-platform",
+      "path": "openspec/changes/archive/2026-08-16-add-agent-evaluation-platform/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-16",
       "changeName": "add-cross-platform-desktop-automation",
       "path": "openspec/changes/archive/2026-08-16-add-cross-platform-desktop-automation/",
       "artifacts": [

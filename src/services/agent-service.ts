@@ -143,6 +143,7 @@ import type {
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
+import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask, StartEvaluationInput } from "../types/evaluation";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -268,6 +269,13 @@ import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends BuiltinToolService {
+  listEvaluationTasks(): Promise<EvaluationTask[]>;
+  startEvaluation(input: StartEvaluationInput): Promise<EvaluationArena>;
+  listEvaluationArenas(): Promise<EvaluationArena[]>;
+  getEvaluationArena(arenaId: string): Promise<EvaluationArena>;
+  cancelEvaluation(arenaId: string): Promise<EvaluationArena>;
+  getEvaluationAttempt(attemptId: string): Promise<EvaluationAttempt>;
+  exportEvaluation(arenaId: string): Promise<EvaluationExport>;
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
