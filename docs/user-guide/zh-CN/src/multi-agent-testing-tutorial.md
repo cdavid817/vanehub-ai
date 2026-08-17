@@ -1,4 +1,4 @@
-# 案例教程：验证同一会话中的多 Agent 协作
+# 群聊协作案例
 
 本教程用一个「架构师 → 实现者 → 代码审查」案例，验证多个 Agent 是否真的出现在**同一个会话**里，以及成员身份、发言状态、`@` 交接和历史归属是否正确。
 
@@ -9,27 +9,6 @@
 3. 成员加入或离席后，已有消息的发言者身份是否保留？
 4. 单 Agent 会话是否仍保持原来的界面和行为？
 
-## 准备测试环境
-
-在 PowerShell 中进入功能 worktree：
-
-```powershell
-Set-Location 'D:\cdavid\Documents\code\vanehub-ai-multi-agent'
-```
-
-先运行最快的一组自动化检查：
-
-```powershell
-npm run lint:ci
-npm run test
-npm run build
-npx playwright test tests/e2e/multi-agent-session.spec.ts
-```
-
-预期结果：lint、单元测试和构建成功；多 Agent 专项 Playwright 用例全部通过。
-
-> Web/mock 适合验证界面、成员增删和 `@` 补全，但不会启动真实 CLI。真实的 Agent 回复与自动交接必须使用 Tauri 桌面端。
-
 ## 案例目标
 
 本案例只要求 Agent 评审一个小改动方案，不要求它们实际修改仓库：
@@ -38,28 +17,18 @@ npx playwright test tests/e2e/multi-agent-session.spec.ts
 
 这样既能产生连续的角色交接，又不会为了测试 UI 引入无关代码。
 
-## 第一步：启动应用
+## 第一步：选好运行环境
 
-### 只验证 UI
+**要验证真实的 Agent 回复与自动交接，必须用桌面端**，并确认计划使用的 CLI 已安装并完成认证。
 
-```powershell
-npm run dev
-```
+浏览器预览适合验证界面、成员增删和 `@` 补全，但**不会启动真实 CLI**，因此走不到真正的交接。判断依据见 [Runtime 与功能状态标签](runtime-labels.md)。
 
-打开终端显示的地址，通常是 `http://127.0.0.1:5173/`。
-
-### 验证真实 Agent 交接
-
-```powershell
-npm run tauri:dev
-```
-
-开始前确认计划使用的 CLI 已安装并完成认证。只有一个 CLI 可用时，也可以把三个角色都绑定到同一个 Agent；席位身份仍然由角色区分。
+只有一个 CLI 可用时，也可以把三个角色都绑定到同一个 Agent；席位身份仍然由角色区分。
 
 ## 第二步：创建三个角色的会话
 
 1. 点击**新建**。
-2. 选择项目目录 `D:\cdavid\Documents\code\vanehub-ai-multi-agent`。
+2. 选择你的项目目录。
 3. 会话标题填写 `多 Agent 健康检查评审`。
 4. 会话类型选择**多 Agent**。
 5. 配置以下席位：
@@ -162,53 +131,6 @@ npm run tauri:dev
 - 消息继续使用普通的 Agent 标签。
 - 原有 Agent Terminal 行为保持不变。
 
-## 自动化用例与检查点映射
-
-专项测试文件是 `tests/e2e/multi-agent-session.spec.ts`：
-
-| 自动化用例 | 覆盖内容 |
-| --- | --- |
-| `the multi-Agent mode is offered and composes a line-up` | 多 Agent 模式和默认席位 |
-| `a seat can be added and removed before the session is created` | 创建前增删成员 |
-| `a multi-seat session shows its seats and switches a seat-scoped tab` | 同会话席位展示和席位级视图 |
-| `a running shared session exposes roster presence...` | 成员条、运行时增删和 `@` 补全 |
-| `a single-Agent session offers no seat switcher` | 单 Agent 回归保护 |
-
-只运行其中一个用例时，可以使用：
-
-```powershell
-npx playwright test tests/e2e/multi-agent-session.spec.ts --grep "running shared session"
-```
-
-需要查看浏览器操作过程时：
-
-```powershell
-npx playwright test tests/e2e/multi-agent-session.spec.ts --headed
-```
-
-失败后打开 trace：
-
-```powershell
-npx playwright show-trace test-results\<失败用例目录>\trace.zip
-```
-
-## 完整验证命令
-
-准备提交前运行：
-
-```powershell
-npm run lint:ci
-npm run test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo check --manifest-path src-tauri/Cargo.toml
-openspec validate complete-multi-agent-session-presence --strict
-openspec validate --specs --strict
-npx playwright test
-```
-
 ## 测试记录模板
 
 | 检查点 | 结果 | 证据或备注 |
@@ -220,4 +142,8 @@ npx playwright test
 | E：稳定历史身份 | 通过 / 失败 |  |
 | F：单 Agent 兼容性 | 通过 / 失败 |  |
 
-机制和限制的完整说明见[多 Agent 群聊与 `@` 交接](multi-agent-workflow.md)。遇到席位无法获得发言权或 `@` 未触发时，查看[故障排查](troubleshooting.md#多-agent-相关)。
+## 相关
+
+- 机制和限制的完整说明 → [多 Agent 群聊](multi-agent-workflow.md)
+- 席位拿不到发言权、`@` 未触发 → [故障排查](troubleshooting.md)
+- 对应的自动化测试与实现细节 → [《开发者指南》的多 Agent 群聊一章](../../developer/multi-agent-group-chat.html)

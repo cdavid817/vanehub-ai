@@ -2,29 +2,76 @@
 
 <a href="../zh-CN/index.html">简体中文</a>
 
-This guide takes you from a verified AI coding CLI to a working VaneHub AI session.
+This guide is written for **developers using VaneHub AI**: how to install it, how to use it, and what to check when something goes wrong.
 
-## Chapters
+## Five steps to get going
+
+| Order | Chapter | What it covers |
+| --- | --- | --- |
+| 1 | [Quick Start](quick-start.md) | Install it, get it running, send the first message |
+| 2 | [Install and authenticate a CLI](getting-started.md) | Installing and authenticating the five CLIs, and how to read availability |
+| 3 | [Create your first session](first-session.md) | Choosing an Agent and a workspace, and the nine session workspace tabs |
+| 4 | [Core concepts](core-concepts.md) | What session, seat, workspace, permission, Loop, and MCP each mean |
+| 5 | [User interface](user-interface.md) | Everything the interface can do, feature by feature |
+
+In a hurry, chapter 1 is enough; come back to the rest as needed.
+
+## Feature deep-dives
 
 | Chapter | What it covers |
 | --- | --- |
-| [Install and authenticate a CLI](getting-started.md) | Getting one of the four CLIs installed, authenticated, and detected |
-| [Create your first session](first-session.md) | Choosing an Agent and a workspace, and reading the session workspace |
-| [Manage Skills](skill-management.md) | Installing Skills and binding them to an Agent |
-| [Multi-Agent group chat](multi-agent-workflow.md) | Several Agent seats in one session, handing the turn over with `@` |
-| [Runtime and feature labels](runtime-labels.md) | How to read the "desktop only" and "Web/mock only" labels |
-| [Troubleshooting](troubleshooting.md) | What to check when something does not work |
+| [Multi-Agent group chat](multi-agent-workflow.md) | Several Agents in one session, handing the turn over with `@` |
+| [Group chat collaboration case](multi-agent-testing-tutorial.md) | Walking UI, handoff, and historical identity acceptance with an architect, an implementer, and code review |
+| [Loop Engineering](loop-engineering.md) | Set a goal and must-pass checks, and let it iterate until it gets there |
+| [Goal management](goal-management.md) | Tracking plans, Loops, and work items under one objective |
+| [Todo Board](todo-board.md) | Manual to-dos and Agent activity on one board |
+| [Slash commands](slash-commands.md) | Switching tabs, flipping switches, and checking usage from the input box |
+| [Code review](code-review.md) | Reading the diff line by line, commenting, and sending feedback to the Agent |
+| [Memory and context](memory-and-context.md) | What carries between sessions, and what happens when context fills up |
+| [Permission approvals](permissions.md) | The four templates, the approval surface, and remembered scopes |
+| [Personalization](personalization.md) | About you, response style, cross-session memory, expert roles |
+| [Manage Skills](skill-management.md) | Installing Skills, binding them to an Agent, drift notices, evolution evidence |
+| [Index workspace code](code-indexing.md) | Vector indexing of workspace code |
+| [Use live LSP code intelligence](lsp-code-intelligence.md) | In-session symbol navigation and diagnostics |
+| [Tools and extensions](tooling.md) | MCP servers, prompt hooks, local OCR and speech extensions |
+| [OnePiece (native Agent)](native-agent.md) | Usable with no CLI installed; providers, recall, and notebook editing |
+| [Observability](observability.md) | Execution traces, fidelity, the log directory, and redaction |
+| [Remote and IM](remote-and-im.md) | SSH remote workspaces; Feishu / DingTalk / WeCom / WeChat / Telegram |
+| [Scheduled and usage](automation.md) | Running on a schedule, and how to read token usage |
+| [Application updates](app-updates.md) | Release channels, signature verification, and automatic updates |
 
-The Simplified Chinese guide covers thirteen further chapters — permissions, personalization,
-tooling, the native API Agent, observability, remote and IM access, scheduled tasks, use cases,
-and an FAQ. Those are not yet translated. See <a href="../zh-CN/index.html">简体中文</a>.
+## Reference
+
+| Chapter | What it covers |
+| --- | --- |
+| [Use cases](use-cases.md) | Five end-to-end scenarios, walked from the start |
+| [FAQ](faq.md) | Direct answers to frequent questions |
+| [Runtime and feature labels](runtime-labels.md) | How to read the "desktop only" and "Web/mock only" labels |
+| [Troubleshooting](troubleshooting.md) | Start here when something breaks |
 
 ## Status labels
 
-- **Delivered** — a user-visible path is implemented and verified.
+- **Implemented** — a user-visible path is implemented and verified.
 - **Preview** — a service or mock contract exists, but the normal product workflow is incomplete.
 - **Web/mock only** — deterministic browser behavior; no native side effects occurred.
 - **Desktop only** — requires the Tauri runtime and local operating-system access.
 - **Planned** — not yet available.
 
-Start with [installing and authenticating a CLI](getting-started.md).
+How to read each label is covered in [Runtime and feature labels](runtime-labels.md).
+
+## What this guide does not cover
+
+**Internal implementation and design rationale are not here.** For how the architecture is divided, why a mechanism is designed the way it is, and where the code lives, see the [VaneHub AI Developer Guide](../../developer/index.html) — written for developers and contributors, with architecture decisions recorded in the `src-tauri/ARCHITECTURE.md` that the [native architecture inventory](../../developer/index.html) points at.
+
+The division of labour:
+
+| What you want to know | Where |
+| --- | --- |
+| What happens when I press this button | This guide |
+| What to do when something breaks | This guide's [Troubleshooting](troubleshooting.md) |
+| Why this feature is designed this way | The [Developer Guide](../../developer/index.html) |
+| Which file the code is in | The [Developer Guide](../../developer/index.html) |
+
+## Simplified Chinese
+
+The Simplified Chinese user guide covers the same full set of chapters as this one. See <a href="../zh-CN/index.html">简体中文</a>.

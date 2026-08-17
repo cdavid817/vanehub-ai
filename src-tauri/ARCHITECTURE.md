@@ -228,3 +228,7 @@ CLI parameter catalogs and persisted selections remain a Tooling subdomain publi
 ### ADR-004: Centralize composition and command registration separately
 
 `bootstrap/runtime.rs` owns construction, Tauri state registration, and background-job startup. `commands/registry.rs` owns the stable invoke surface. This keeps application assembly auditable without placing interface registration back in `lib.rs`.
+
+### ADR-005: Generate TypeScript model contracts from Rust with `ts-rs`
+
+Frontend service interfaces stay hand-authored because they express UI/runtime semantics, but command payload/result models are generated from Rust models with `ts-rs`. Each serializable Rust model that crosses the frontend/backend boundary derives `TS` alongside `Serialize` and `Deserialize`; generated files live under a stable frontend contract directory, and a verification command regenerates contracts and fails when committed contract files are stale. This keeps React components behind service interfaces while reducing silent drift between Rust command models and TypeScript types. `specta` / `tauri-specta` were rejected for tighter Tauri coupling and a broader integration surface; manual TypeScript-only was rejected because parallel Rust/TypeScript models drift silently as Agent, MCP, SDK, and operation models grow.

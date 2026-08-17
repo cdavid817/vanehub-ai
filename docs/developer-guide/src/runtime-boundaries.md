@@ -23,4 +23,4 @@ The Web adapter implements the same frontend contract with deterministic in-memo
 - Keep provider-specific launch behavior behind Agent Runtime infrastructure.
 - Keep user-visible errors localized and native diagnostics in the unified redacted log pipeline.
 
-The architecture rationale and contract examples are expanded in [type contracts](../reference/architecture/type-contracts.md) and [CLI chat runtime v1](../reference/architecture/cli-chat-runtime-v1.md).
+The TypeScript model contract generation decision (`ts-rs`) is recorded as ADR-005 in `src-tauri/ARCHITECTURE.md`. The earlier single-CLI chat runtime narrative has been superseded by the multi-Agent group chat runtime (`openspec/specs/multi-agent-group-chat/`).

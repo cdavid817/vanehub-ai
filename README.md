@@ -40,26 +40,6 @@ Prebuilt desktop packages are published on the [Releases page](https://github.co
 
 The current build is an unsigned preview. Windows and macOS warn before running it, and the release notes carry the steps for each platform. Verify your download against the published `SHA256SUMS` before installing.
 
-<!-- docs-section:feature-status -->
-
-## Feature status
-
-<!-- feature:core-workspace status:delivered -->
-
-- **Delivered:** CLI management, single-Agent sessions, interactive Agent terminals, session organization, project/worktree and SSH workspace tools, settings, MCP/SDK/Skills/Prompt Hooks/extensions, IM connectors, scheduled tasks, notifications, usage reporting, unified redacted logs, and cross-platform packaging.
-
-<!-- feature:multi-agent-runtime status:delivered -->
-
-- **Delivered:** Multi-Agent group chat runtime. A session holds several Agent seats, a reply hands the turn over with an `@` mention, and both mention count and chain depth are bounded. This replaces the earlier dependency-graph coordination runtime, which has been removed.
-
-<!-- feature:multi-agent-ui status:delivered -->
-
-- **Delivered:** Seat assignment in the normal create-session dialog, plus seat switching, speaker attribution, and turn status inside the session workspace.
-
-<!-- feature:japanese-ui status:delivered -->
-
-- **Delivered:** Japanese application UI resources, at key parity with the other supported locales — English, Simplified Chinese, Traditional Chinese, and Korean.
-
 <!-- docs-section:architecture -->
 
 ## Architecture
@@ -112,10 +92,74 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 <!-- docs-locale-guides -->
 
-Pick by what you are doing:
+### User guide
 
-- **Using VaneHub AI** → [Install and authenticate a CLI](docs/user-guide/en/src/getting-started.md), then the rest of the [User Guide](docs/user-guide/en/src/index.md).
-- **Working on it** → [Developer Guide](docs/developer-guide/src/index.md) for repository layout, runtime boundaries, bounded contexts, persistence, testing, and release.
+The Simplified Chinese guide is the authoritative complete set; the English guide mirrors its chapter topology, with not-yet-translated chapters marked as known gaps that link to their Chinese counterpart.
+
+| Topic | Entry |
+| --- | --- |
+| Quick start | [From installing a CLI to working in a workspace](docs/user-guide/en/src/getting-started.md) |
+| User interface overview | [Main layout, navigation, panel toggles, session/conversation/workspace tabs/info panel](docs/user-guide/en/src/user-interface.md) |
+| Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md) |
+| Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md) |
+| Loop center | [Loop run controls, verification command, timeline](docs/user-guide/en/src/loop-engineering.md) |
+| Plan center | [Plan draft, review/approve/run](docs/user-guide/en/src/user-interface.md) |
+| Notification center | [Bell, unread count, mark all read, clear](docs/user-guide/en/src/user-interface.md) |
+| System tray | [Show/hide main window, startup, notification integration](docs/user-guide/en/src/user-interface.md) |
+| CLI install & auth | [Install a CLI, authenticate, and get it detected](docs/user-guide/en/src/getting-started.md) |
+| Multi-Agent group chat | [Seats, `@` handoff, turn bounds](docs/user-guide/en/src/multi-agent-workflow.md) |
+| Scheduled tasks | [Scheduled tasks and usage statistics](docs/user-guide/en/src/automation.md) |
+| Remote workspaces | [SSH workspaces and IM connectors](docs/user-guide/en/src/remote-and-im.md) |
+| Troubleshooting | [Check here first when something fails](docs/user-guide/en/src/troubleshooting.md) |
+| Basic configuration | [Language, theme, font size, default permission template, startup, network proxy, data dir, log dir](docs/user-guide/en/src/user-interface.md) |
+| CLI management | [Model provider API keys, endpoints, model lists](docs/user-guide/en/src/user-interface.md) |
+| CLI parameters | [Per-CLI-Agent launch parameters and global configuration](docs/user-guide/en/src/user-interface.md) |
+| Extensions | [Local extension install/enable/disable](docs/user-guide/en/src/user-interface.md) |
+| Plugins | [Plugin integration management](docs/user-guide/en/src/user-interface.md) |
+| MCP servers | [MCP server configuration and per-Agent binding](docs/user-guide/en/src/tooling.md) |
+| Agent configuration | [Per-Agent model, permission template, runtime parameters](docs/user-guide/en/src/user-interface.md) |
+| Expert roles | [Roles and review policies](docs/user-guide/en/src/personalization.md) |
+| Agent policies | [Agent permission policies and approval template configuration](docs/user-guide/en/src/user-interface.md) |
+| Personalization | [Custom instructions and cross-session memory](docs/user-guide/en/src/personalization.md) |
+| Skills | [Skill installation and binding](docs/user-guide/en/src/skill-management.md) |
+| Prompt Hooks | [Hook management](docs/user-guide/en/src/tooling.md) |
+| IM | [IM connector configuration](docs/user-guide/en/src/remote-and-im.md) |
+| SSH connections | [Saved SSH connections](docs/user-guide/en/src/remote-and-im.md) |
+| Observability | [Execution tracing and log collection policy](docs/user-guide/en/src/observability.md) |
+| Usage statistics | [Token usage statistics](docs/user-guide/en/src/automation.md) |
+| About | [Version, update check, changelog, repository links](docs/user-guide/en/src/user-interface.md) |
+
+### Developer guide
+
+| Topic | Entry |
+| --- | --- |
+| Repository layout | [Repository layout and module ownership](docs/developer-guide/src/repository-orientation.md) |
+| Runtime boundaries | [Frontend service boundaries, Web/mock and Tauri adapters](docs/developer-guide/src/runtime-boundaries.md) |
+| Bounded contexts | [The eleven native bounded contexts](docs/developer-guide/src/native-contexts.md) |
+| Agent lifecycle & provider runtime | [Registered Agent edits, stable provider resolution, capability declarations](docs/developer-guide/src/agent-lifecycle.md) |
+| Terminal & PTY runtime | [Session-scoped Agent Terminal, auto-start/attach, remote terminals](docs/developer-guide/src/terminal-runtime.md) |
+| Tool registry & execution | [Fixed native tool catalog, per-interface_format translation, multi-turn tool loop](docs/developer-guide/src/tool-registry.md) |
+| Permission model | [Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge](docs/developer-guide/src/permission-model.md) |
+| Context compaction | [Character-count trigger, summarization compaction, recent turns kept](docs/developer-guide/src/context-compaction.md) |
+| Retrieval & vector search | [Host-level shared memory pool, workspace code index, graceful degradation](docs/developer-guide/src/retrieval.md) |
+| Tree-sitter code indexing | [Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction](docs/developer-guide/src/tree-sitter-code-indexing.md) |
+| Cross-session memory | [Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction](docs/developer-guide/src/cross-session-memory.md) |
+| Session recovery | [Recovery status orthogonal to lifecycle, durable execution identity and ownership](docs/developer-guide/src/session-recovery.md) |
+| OnePiece native Agent | [Built-in API Agent identity, Profile lifecycle, provider directory](docs/developer-guide/src/onepiece-native-agent.md) |
+| Multi-Agent group chat | [Seat model, mid-session add/remove, turn routing, durable presence](docs/developer-guide/src/multi-agent-group-chat.md) |
+| Skill management | [Dual scope, SKILL.md contract, drift, built-in seeding/reconciliation](docs/developer-guide/src/skill-management.md) |
+| MCP tools & clients | [Transport and configuration model, MCP tools in the native catalog](docs/developer-guide/src/mcp-tools.md) |
+| IM connectors | [Five built-in connectors, first-version direct-message scope, inbound routing](docs/developer-guide/src/im-connectors.md) |
+| Loop & Plan runtimes | [Durable Loop definitions, topology-aware serial subtask scheduling, Worker/Verifier trust](docs/developer-guide/src/loop-and-plan-runtime.md) |
+| Usage statistics | [Reported tokens vs estimated characters, time ranges, per-Agent breakdown](docs/developer-guide/src/usage-statistics.md) |
+| LSP code intelligence | [In-session LSP integration implementation](docs/developer-guide/src/lsp-code-intelligence.md) |
+| Persistence & logging | [SQLite ownership and unified redacted logs](docs/developer-guide/src/persistence-and-logging.md) |
+| Testing & release | [Testing, packaging, and release flow](docs/developer-guide/src/testing-and-release.md) |
+| OpenSpec workflow | [Proposal→design→delta spec→tasks→validation→archive change flow](docs/developer-guide/src/openspec-workflow.md) |
+| Native API reference | [Rustdoc-generated internal contract and ownership documentation](docs/developer-guide/src/native-api-reference.md) |
+| Architecture decisions | [ADR source of truth (ARCHITECTURE.md)](src-tauri/ARCHITECTURE.md) |
+
+User guides are available in English and Simplified Chinese. Japanese, Traditional Chinese, and Korean are delivered as application UI resource locales only; no user guide is provided for those locales.
 
 <!-- /docs-locale-guides -->
 
@@ -143,7 +187,7 @@ New features and architecture changes require an OpenSpec proposal before implem
 
 ## Roadmap
 
-Delivered work and current contracts are recorded in [OpenSpec main specifications](openspec/specs/). Near-term product work includes the Multi-Agent coordination UI, persistent Agent memory, custom Agents, a plugin marketplace, and extended local OCR/speech capabilities.
+Implemented work and current contracts are recorded in [OpenSpec main specifications](openspec/specs/). Near-term product work includes custom Agents, a plugin marketplace, and extended local OCR/speech capabilities.
 
 <!-- docs-section:contributing -->
 

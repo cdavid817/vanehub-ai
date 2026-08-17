@@ -225,13 +225,13 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     openSettings(page, "prompt-hooks", text(locale, "Prompt Hook", "Prompt Hooks")),
 
   "settings-im": (page, locale) =>
-    openSettings(page, "im", text(locale, "IM 能力", "Instant messaging")),
+    openSettings(page, "im", text(locale, "IM 能力", "IM Connectors")),
 
   "settings-ssh": (page, locale) =>
     openSettings(page, "ssh-connections", text(locale, "SSH 连接", "SSH connections")),
 
   "settings-extensions": (page, locale) =>
-    openSettings(page, "extensions", text(locale, "扩展能力", "Extensions")),
+    openSettings(page, "extensions", text(locale, "扩展能力", "Extension Capabilities")),
 
   "settings-observability": (page, locale) =>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
@@ -241,16 +241,16 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     await createSession(page, locale);
     await page.getByRole("button", { name: text(locale, "设置", "Settings") }).click();
     const shell = page.locator("main").first();
-    await shell.getByRole("button", { name: text(locale, "IM 能力", "Instant messaging") }).click();
+    await shell.getByRole("button", { name: text(locale, "IM 能力", "IM Connectors") }).click();
     await waitForFeature(
       shell,
-      shell.getByRole("heading", { level: 2, name: text(locale, "IM 能力", "Instant messaging") }),
+      shell.getByRole("heading", { level: 2, name: text(locale, "IM 能力", "IM Connectors") }),
     );
 
     // Every settings page stays mounted and only the active one is visible, so every
     // control here must be filtered to what is actually on screen.
     const visible = { visible: true } as const;
-    await shell.getByRole("button", { name: /飞书/ }).filter(visible).first().click();
+    await shell.getByRole("button", { name: /飞书|Feishu/ }).filter(visible).first().click();
     const credentials = shell
       .locator('input[type="text"], input[type="password"]')
       .filter(visible);
