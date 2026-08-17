@@ -14,7 +14,7 @@ use crate::contexts::permissions::api::{Action, Effect, Resource};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -156,10 +156,14 @@ impl ManualNativeToolAuthorityPort for Authority {
 #[derive(Default)]
 struct Operations {
     records: Mutex<Vec<StoredToolOperation>>,
+    fail: AtomicBool,
 }
 
 impl ManualNativeToolOperationPort for Operations {
     fn save(&self, operation: &StoredToolOperation) -> Result<(), ()> {
+        if self.fail.load(Ordering::Acquire) {
+            return Err(());
+        }
         self.records.lock().map_err(|_| ())?.push(operation.clone());
         Ok(())
     }
@@ -279,4 +283,29 @@ fn manual_apply_denial_is_terminal_without_invoking_the_backend() {
             .map(|record| record.status),
         Some(StoredToolOperationStatus::Failed)
     );
+}
+
+#[test]
+fn initial_operation_persistence_failure_prevents_execution() {
+    let Fixture {
+        service,
+        executions,
+        operations,
+        ..
+    } = fixture();
+    operations.fail.store(true, Ordering::Release);
+
+    let error = match service.execute(ManualNativeToolRequest {
+        agent_id: "onepiece".to_owned(),
+        session_id: "session-1".to_owned(),
+        tool_name: "apply_delegation_changes".to_owned(),
+        input: json!({"acknowledged": true}),
+        authority_artifact_id: Some("artifact-1".to_owned()),
+    }) {
+        Ok(_) => panic!("persistence failure must fail before dispatch"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.code.as_str(), "internal_failure");
+    assert_eq!(executions.load(Ordering::Acquire), 0);
 }

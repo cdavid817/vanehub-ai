@@ -751,6 +751,7 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(ManualNativeToolOperationAdapter::new(
             SqliteNativeToolRepository::new(dependencies.database.clone()),
             dependencies.app.clone(),
+            diagnostics.clone(),
         )),
     );
     let manual_native_tools =

@@ -59,7 +59,8 @@ pub(crate) use ocr_handler::OcrNativeToolHandler;
 pub(crate) use persistence::{
     ArtifactRecord, ChangeSetApplyRecord, ChangeSetFileRecord, ChangeSetRecord, ChangeSetStatus,
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
-    FileChangeKind, RecoveryRecord, RecoveryStatus, StoredToolOperation, StoredToolOperationStatus,
+    FileChangeKind, NativeToolPersistencePort, RecoveryRecord, RecoveryStatus, StoredToolOperation,
+    StoredToolOperationStatus,
 };
 pub(crate) use ports::{
     ArtifactPort, BrowserAutomationPort, BrowserHandoffControlPort, ChangeSetApplyPort,
