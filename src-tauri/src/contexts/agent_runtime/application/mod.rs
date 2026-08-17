@@ -195,7 +195,8 @@ pub(crate) use ports::{
 pub(crate) use provider::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
     ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
-    ProviderInvocationSpec, ProviderOutputFormat, ProviderPromptDelivery, ProviderRegistry,
+    ProviderInvocationSpec, ProviderOptionRequest, ProviderOutputFormat, ProviderPermissionMode,
+    ProviderPromptDelivery, ProviderRegistry,
 };
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};

@@ -3759,6 +3759,8 @@ fn repositories_round_trip_rows_and_preserve_bounded_query_contracts() {
 
     let preferences = normalize_chat_preferences(
         "codex-cli",
+        "openai",
+        "gpt-5-5",
         ChatConfigurationRequest {
             execution_mode: "execute",
             provider_id: Some("openai"),

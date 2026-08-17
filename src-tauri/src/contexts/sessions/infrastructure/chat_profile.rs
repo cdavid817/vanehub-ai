@@ -1,9 +1,7 @@
 use crate::contexts::sessions::application::{
     ChatConfigurationValues, SessionChatProfilePort, SessionsApplicationError,
 };
-use crate::contexts::sessions::domain::{
-    default_model_for_agent, model_id_from_cli, normalize_reasoning, provider_for_agent,
-};
+use crate::contexts::sessions::domain::normalize_reasoning;
 use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::platform::database::NativeDatabase;
@@ -58,9 +56,9 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             })
             .map(Ok)
             .unwrap_or_else(|| {
-                default_model_for_agent(agent_id)
-                    .map(str::to_string)
-                    .map_err(SessionsApplicationError::from)
+                provider_defaults(agent_id)
+                    .map(|(_, model)| model.to_string())
+                    .ok_or_else(|| unsupported_agent(agent_id))
             })?;
         let reasoning_value = if agent_id == "codex-cli" {
             selections
@@ -80,9 +78,9 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
         Ok(ChatConfigurationValues {
             execution_mode: "inherit".to_string(),
             provider_id: Some(
-                provider_for_agent(agent_id)
-                    .map_err(SessionsApplicationError::from)?
-                    .to_string(),
+                provider_defaults(agent_id)
+                    .map(|(provider, _)| provider.to_string())
+                    .ok_or_else(|| unsupported_agent(agent_id))?,
             ),
             model_id: Some(model_id),
             reasoning_depth,
@@ -94,6 +92,37 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             long_context: agent_id != "opencode",
         })
     }
+}
+
+fn provider_defaults(agent_id: &str) -> Option<(&'static str, &'static str)> {
+    match agent_id {
+        "claude-code" => Some(("anthropic", "claude-opus-4-8")),
+        "codex-cli" => Some(("openai", "gpt-5-5")),
+        "gemini-cli" => Some(("google", "gemini-2-5-pro")),
+        "opencode" => Some(("opencode", "opencode-default")),
+        "antigravity-cli" => Some(("google", "antigravity-default")),
+        _ => None,
+    }
+}
+
+fn model_id_from_cli(agent_id: &str, model: &str) -> Option<String> {
+    match (agent_id, model) {
+        ("claude-code", "opus") => Some("claude-opus-4-8".to_string()),
+        ("claude-code", "sonnet") => Some("claude-sonnet-5".to_string()),
+        ("claude-code", "haiku") => Some("claude-haiku-4-5".to_string()),
+        ("codex-cli", "gpt-5.5") => Some("gpt-5-5".to_string()),
+        ("codex-cli", "gpt-5.4") => Some("gpt-5-4".to_string()),
+        ("codex-cli", "gpt-5.2-codex") => Some("gpt-5-2-codex".to_string()),
+        ("codex-cli", "gpt-5.1-codex-max") => Some("gpt-5-1-codex-max".to_string()),
+        ("gemini-cli", "gemini-2.5-pro") => Some("gemini-2-5-pro".to_string()),
+        ("gemini-cli", "gemini-2.5-flash") => Some("gemini-2-5-flash".to_string()),
+        (_, "") | (_, "default") => None,
+        _ => Some(model.to_string()),
+    }
+}
+
+fn unsupported_agent(agent_id: &str) -> SessionsApplicationError {
+    SessionsApplicationError::Validation(format!("Unsupported chat Agent: {agent_id}"))
 }
 
 impl SqliteSessionChatProfileAdapter {
