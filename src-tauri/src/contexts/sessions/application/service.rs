@@ -802,25 +802,38 @@ impl SessionsApplicationService {
         session_id: &str,
     ) -> Result<SessionChatConfiguration, SessionsApplicationError> {
         let session = self.load_session(session_id)?;
+        let workspace_path = session
+            .workspace
+            .worktree_path
+            .as_deref()
+            .or(session.workspace.project_path.as_deref());
+        let defaults = self
+            .ports
+            .chat_profiles
+            .defaults_for(&session.agent_id, workspace_path)?;
+        let expected_provider = defaults
+            .provider_id
+            .as_deref()
+            .ok_or_else(|| SessionsApplicationError::Validation("Provider is required.".into()))?;
+        let default_model = defaults
+            .model_id
+            .as_deref()
+            .ok_or_else(|| SessionsApplicationError::Validation("Model is required.".into()))?;
         let persisted = self.ports.configurations.load(session.aggregate.id())?;
         let preferences = persisted
             .as_ref()
             .and_then(|values| {
-                restore_chat_preferences(&session.agent_id, values.as_domain_request())
+                restore_chat_preferences(expected_provider, values.as_domain_request())
             })
             .map(Ok)
             .unwrap_or_else(|| {
-                let workspace_path = session
-                    .workspace
-                    .worktree_path
-                    .as_deref()
-                    .or(session.workspace.project_path.as_deref());
-                let defaults = self
-                    .ports
-                    .chat_profiles
-                    .defaults_for(&session.agent_id, workspace_path)?;
-                normalize_chat_preferences(&session.agent_id, defaults.as_domain_request())
-                    .map_err(SessionsApplicationError::from)
+                normalize_chat_preferences(
+                    &session.agent_id,
+                    expected_provider,
+                    default_model,
+                    defaults.as_domain_request(),
+                )
+                .map_err(SessionsApplicationError::from)
             })?;
         Ok(configuration_from_preferences(&session, &preferences))
     }
@@ -830,7 +843,8 @@ impl SessionsApplicationService {
         configuration: SessionChatConfiguration,
     ) -> Result<SessionChatConfiguration, SessionsApplicationError> {
         let session = self.load_session(&configuration.session_id)?;
-        let preferences = normalize_chat_preferences(
+        let preferences = self.normalize_chat_configuration_values(
+            &session,
             &session.agent_id,
             configuration.values.as_domain_request(),
         )?;
@@ -847,7 +861,8 @@ impl SessionsApplicationService {
         configuration: SessionChatConfiguration,
     ) -> Result<SessionChatConfiguration, SessionsApplicationError> {
         let session = self.load_session(&configuration.session_id)?;
-        let preferences = normalize_chat_preferences(
+        let preferences = self.normalize_chat_configuration_values(
+            &session,
             &session.agent_id,
             configuration.values.as_domain_request(),
         )?;
@@ -873,7 +888,8 @@ impl SessionsApplicationService {
                 configuration.agent_id
             )));
         }
-        let preferences = normalize_chat_preferences(
+        let preferences = self.normalize_chat_configuration_values(
+            &session,
             &configuration.agent_id,
             configuration.values.as_domain_request(),
         )?;
@@ -883,6 +899,33 @@ impl SessionsApplicationService {
             interaction_mode: configuration.interaction_mode,
             values: super::ChatConfigurationValues::from_preferences(&preferences),
         })
+    }
+
+    fn normalize_chat_configuration_values(
+        &self,
+        session: &SessionRecord,
+        agent_id: &str,
+        request: crate::contexts::sessions::domain::ChatConfigurationRequest<'_>,
+    ) -> Result<crate::contexts::sessions::domain::ChatPreferences, SessionsApplicationError> {
+        let workspace_path = session
+            .workspace
+            .worktree_path
+            .as_deref()
+            .or(session.workspace.project_path.as_deref());
+        let defaults = self
+            .ports
+            .chat_profiles
+            .defaults_for(agent_id, workspace_path)?;
+        let expected_provider = defaults
+            .provider_id
+            .as_deref()
+            .ok_or_else(|| SessionsApplicationError::Validation("Provider is required.".into()))?;
+        let default_model = defaults
+            .model_id
+            .as_deref()
+            .ok_or_else(|| SessionsApplicationError::Validation("Model is required.".into()))?;
+        normalize_chat_preferences(agent_id, expected_provider, default_model, request)
+            .map_err(SessionsApplicationError::from)
     }
 
     pub(crate) fn find_session(

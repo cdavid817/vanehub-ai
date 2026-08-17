@@ -2,7 +2,7 @@
 use super::providers::output_parser_for;
 use super::providers::{
     output_parser_for_format, prepare_provider_session_capture, ProviderOutputEvent,
-    ProviderSessionCapture, ProviderSessionDiscovery,
+    ProviderOutputFramer, ProviderOutputStream, ProviderSessionCapture, ProviderSessionDiscovery,
 };
 use super::terminal_observability::{
     finish_terminal_execution_trace, start_terminal_execution_trace,
@@ -23,7 +23,7 @@ use crate::contexts::agent_runtime::application::{
     ProviderInteractiveInvocationRequest, ProviderRegistry, ResizeAgentTerminalRequest,
     StopAgentTerminalRequest,
 };
-use crate::contexts::agent_runtime::domain::AgentLifecycle;
+use crate::contexts::agent_runtime::domain::{AgentLifecycle, ProviderCapability};
 use crate::contexts::execution_observability::api::ExecutionStatus;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
@@ -46,6 +46,7 @@ const TERMINAL_READ_BUFFER_BYTES: usize = 64 * 1024;
 
 /// Upper bound on an unterminated parse line, so newline-less output (e.g. `\r` progress
 /// bars) cannot grow the session-id parse buffer without bound.
+#[cfg(test)]
 const MAX_PARSE_LINE_BYTES: usize = 256 * 1024;
 const PROVIDER_SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -297,13 +298,12 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         }
         let agent_id_for_error = request.agent.id.clone();
         let session_id_for_error = request.session.id.clone();
-        let provider = self.providers.get(&request.agent.id)?;
-        if !provider.capabilities().terminal() {
-            return Err(crate::contexts::agent_runtime::application::AgentProviderError::UnsupportedCapability {
-                provider_id: request.agent.id.clone(),
-                capability: "terminal".to_string(),
-            }
-            .into());
+        let provider = self
+            .providers
+            .require(&request.agent.id, ProviderCapability::Terminal)?;
+        if request.session.runtime_session_id.is_some() {
+            self.providers
+                .require(&request.agent.id, ProviderCapability::Resume)?;
         }
         let provider_session = self.providers.resolve_session(
             &request.agent.id,
@@ -592,7 +592,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             // marker is line-delimited JSON), so accumulate across reads and keep the
             // trailing partial line until its newline arrives — otherwise a marker split
             // across two reads is silently dropped.
-            let mut line_buffer = String::new();
+            let mut output_framer = ProviderOutputFramer::new(262_144);
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
@@ -613,10 +613,12 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                 terminal.transcript.append(&content);
                             }
                         }
-                        line_buffer.push_str(&content);
-                        drain_complete_lines(&mut line_buffer, |line| {
+                        let framed_lines = output_framer
+                            .push(ProviderOutputStream::Stdout, &buffer[..count])
+                            .unwrap_or_default();
+                        for line in framed_lines {
                             if let ProviderOutputEvent::SessionId(runtime_session_id) =
-                                parser.parse_line(line)
+                                parser.parse_line(&line)
                             {
                                 let event = record_runtime_session_id(
                                     terminals.as_ref(),
@@ -633,7 +635,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                 let _ = events.publish_terminal(event);
                                 provider_session_capture = None;
                             }
-                        });
+                        }
                         if provider_session_capture.is_some()
                             && last_capture_attempt.is_none_or(|attempt| {
                                 attempt.elapsed() >= PROVIDER_SESSION_DISCOVERY_INTERVAL
@@ -858,6 +860,8 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let Some(terminal) = terminal else {
             return Ok(false);
         };
+        self.providers
+            .require(&terminal.agent_id, ProviderCapability::Cancellation)?;
         terminate_terminal_child(terminal.child.as_ref())?;
         self.sessions
             .update_lifecycle(&terminal.session_id, AgentLifecycle::Stopped)?;
@@ -1150,6 +1154,7 @@ fn agent_terminal_session(terminal: &ManagedAgentTerminal) -> AgentTerminalSessi
 /// Invokes `on_line` for each complete `\n`-terminated line in `line_buffer` (trailing
 /// CR/LF stripped), leaving any unterminated remainder for the next read to finish.
 /// An oversized newline-less remainder is discarded to keep the buffer bounded.
+#[cfg(test)]
 fn drain_complete_lines(line_buffer: &mut String, mut on_line: impl FnMut(&str)) {
     while let Some(newline) = line_buffer.find('\n') {
         let line: String = line_buffer.drain(..=newline).collect();

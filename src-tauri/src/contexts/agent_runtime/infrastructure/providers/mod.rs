@@ -1,5 +1,6 @@
 mod compatibility;
 mod invocation;
+mod manifest;
 mod output;
 mod session_capture;
 
@@ -10,8 +11,9 @@ pub(crate) use invocation::{
     opencode_standard_permission_env_var, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
 };
 pub(crate) use output::{
-    output_parser_for_format, ProviderOutputEvent, ProviderReportedUsage, ProviderToolEvent,
-    ProviderToolPhase, ProviderUsageOverlap,
+    output_parser_for_format, BoundedProviderLines, ProviderOutputEvent, ProviderOutputFramer,
+    ProviderOutputStream, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
+    ProviderUsageOverlap,
 };
 pub(crate) use session_capture::{
     codex_session_root, find_codex_rollout_since, find_gemini_chat_session,

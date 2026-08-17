@@ -92,11 +92,6 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
                     "{relative}: imports concrete provider infrastructure"
                 ));
             }
-            // This legacy Session preference mapper is an explicit migration seam. It remains
-            // until model/policy preferences move behind a later provider capability contract.
-            if relative == "contexts/sessions/domain/chat_configuration.rs" {
-                continue;
-            }
             for provider_id in provider_ids {
                 if production.contains(&format!("\"{provider_id}\"")) {
                     violations.push(format!(
