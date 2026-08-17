@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "datasetRoot": "scripts/performance/fixtures/datasets",
+  "limits": {
+    "maxDatasets": 16,
+    "maxMetrics": 64,
+    "maxFiles": 10000,
+    "maxBytes": 67108864,
+    "maxItems": 100000
+  },
+  "datasets": [
+    { "id": "repo-small", "version": 1, "kind": "repository", "seed": 104729, "fixturePath": "repo-small.json", "scale": { "files": 32, "bytes": 131072, "symbols": 256 } },
+    { "id": "repo-medium", "version": 1, "kind": "repository", "seed": 104729, "fixturePath": "repo-medium.json", "scale": { "files": 512, "bytes": 4194304, "symbols": 8192 } },
+    { "id": "repo-large", "version": 1, "kind": "repository", "seed": 104729, "fixturePath": "repo-large.json", "scale": { "files": 4096, "bytes": 33554432, "symbols": 65536 } },
+    { "id": "sessions-100", "version": 1, "kind": "sessions", "seed": 130363, "fixturePath": "sessions-100.json", "scale": { "items": 100, "messagesPerSession": 20 } },
+    { "id": "runs-100", "version": 1, "kind": "runs", "seed": 155921, "fixturePath": "runs-100.json", "scale": { "items": 100, "eventsPerRun": 8, "concurrentRuns": 16 } },
+    { "id": "runs-1000", "version": 1, "kind": "runs", "seed": 155921, "fixturePath": "runs-1000.json", "scale": { "items": 1000, "eventsPerRun": 8, "concurrentRuns": 64 } },
+    { "id": "terminal-long", "version": 1, "kind": "terminal", "seed": 196613, "fixturePath": "terminal-long.json", "scale": { "chunks": 4096, "chunkBytes": 4096, "searchMatches": 128 } },
+    { "id": "token-stream-high-rate", "version": 1, "kind": "stream", "seed": 196657, "fixturePath": "token-stream-high-rate.json", "scale": { "items": 10000, "eventsPerFrame": 512 } }
+  ],
+  "metrics": [
+    { "id": "context.candidate-operations", "datasetId": "repo-small", "class": "deterministic-gate", "unit": "operations", "direction": "upper", "baseline": 18, "budget": 32, "measured": 18, "headroom": "Existing Context Engine structural ceiling." },
+    { "id": "context.occupancy-overflows", "datasetId": "repo-large", "class": "deterministic-gate", "unit": "count", "direction": "upper", "baseline": 0, "budget": 0, "measured": 0, "headroom": "No selected context may exceed its declared budget." },
+    { "id": "mission-control.query-count", "datasetId": "runs-1000", "class": "deterministic-gate", "unit": "queries", "direction": "upper", "baseline": 4, "budget": 4, "measured": 4, "headroom": "One counts query plus three result-count-independent overview section queries." },
+    { "id": "mission-control.loaded-rows", "datasetId": "runs-1000", "class": "deterministic-gate", "unit": "rows", "direction": "upper", "baseline": 50, "budget": 50, "measured": 50, "headroom": "Existing maximum overview section page." },
+    { "id": "run.retained-events", "datasetId": "runs-1000", "class": "deterministic-gate", "unit": "items", "direction": "upper", "baseline": 8000, "budget": 8000, "measured": 8000, "headroom": "Eight bounded lifecycle events for each versioned Run." },
+    { "id": "stream.update-batches", "datasetId": "token-stream-high-rate", "class": "deterministic-gate", "unit": "batches", "direction": "upper", "baseline": 20, "budget": 20, "measured": 20, "headroom": "Ten thousand events at 512 events per frame." },
+    { "id": "terminal.max-chunk-bytes", "datasetId": "terminal-long", "class": "deterministic-gate", "unit": "bytes", "direction": "upper", "baseline": 4096, "budget": 32768, "measured": 4096, "headroom": "Fixture stays below the existing 32 KiB capture chunk contract." },
+    { "id": "lsp.max-response-items", "datasetId": "repo-large", "class": "deterministic-gate", "unit": "items", "direction": "upper", "baseline": 50, "budget": 50, "measured": 50, "headroom": "Existing bounded definition/reference result cap." },
+    { "id": "context.selection-p95", "datasetId": "repo-large", "class": "dedicated-benchmark", "unit": "milliseconds", "direction": "upper", "baseline": 1.159, "budget": 1.449, "measured": 1.159, "headroom": "Windows debug baseline plus 25 percent; evidence-only on shared CI." },
+    { "id": "app.cold-start", "datasetId": "repo-small", "class": "informational-telemetry", "unit": "milliseconds", "direction": "upper", "baseline": 0, "budget": 0, "measured": 0, "headroom": "Real-device informational capture; zero means not sampled." }
+  ]
+}

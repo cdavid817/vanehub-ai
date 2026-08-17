@@ -97,7 +97,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-01 | add-loop-api-agent-support | loop-engineering-runtime | `openspec/changes/archive/2026-08-01-add-loop-api-agent-support/` |
 | 2026-08-01 | fix-terminal-usage-integrity | agent-execution-observability, agent-terminal-runtime, usage-statistics | `openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/` |
 | 2026-08-02 | add-cli-agent-global-config-switching | agent-switching, cli-agent-config-management | `openspec/changes/archive/2026-08-02-add-cli-agent-global-config-switching/` |
-| 2026-08-02 | add-common-application-locales | app-settings, application-localization, desktop-background-lifecycle, settings-basic-configuration-ui | `openspec/changes/archive/2026-08-02-add-common-application-locales/` |
+| 2026-08-02 | add-common-application-locales | application-localization, app-settings, desktop-background-lifecycle, settings-basic-configuration-ui | `openspec/changes/archive/2026-08-02-add-common-application-locales/` |
 | 2026-08-02 | harden-skill-management-reliability | agent-lifecycle-management, agent-skill-injection, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-02-harden-skill-management-reliability/` |
 | 2026-08-02 | optimize-runtime-performance-foundation | agent-terminal-runtime, runtime-performance-governance, session-management, settings-center-ui | `openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/` |
 | 2026-08-02 | recover-webview-white-screen | desktop-webview-reliability | `openspec/changes/archive/2026-08-02-recover-webview-white-screen/` |
@@ -162,10 +162,10 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | add-onepiece-context-optimizer | agent-context-compaction, agent-context-optimization | `openspec/changes/archive/2026-08-14-add-onepiece-context-optimizer/` |
 | 2026-08-14 | add-onepiece-context-quality-and-policy-evaluation | agent-context-evidence-projection, agent-context-quality-evaluation, app-settings, frontend-runtime-architecture, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-quality-and-policy-evaluation/` |
 | 2026-08-14 | add-onepiece-context-trigger-and-suppression | agent-context-compaction, agent-context-compaction-control, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-trigger-and-suppression/` |
+| 2026-08-14 | address-workspace-destinations-by-route | frontend-runtime-architecture, main-layout-ui | `openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/` |
 | 2026-08-14 | add-skill-evolution-evidence-pipeline | agent-execution-observability, chat-experience, settings-skill-management-ui, skill-evolution-evidence, skill-management | `openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/` |
 | 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 | 2026-08-14 | add-utility-skill-delegation-runtime | effective-skill-runtime, settings-skill-management-ui, skill-management, utility-skill-delegation-runtime | `openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/` |
-| 2026-08-14 | address-workspace-destinations-by-route | frontend-runtime-architecture, main-layout-ui | `openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/` |
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
 | 2026-08-14 | expand-file-mention-candidate-coverage | chat-experience | `openspec/changes/archive/2026-08-14-expand-file-mention-candidate-coverage/` |
 | 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
@@ -193,6 +193,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-16 | unify-agent-run-state-machine | agent-execution-observability, agent-run-state-management, agent-user-question, goal-management, loop-engineering-runtime, multi-agent-group-chat, permissions-approval, plan-execution-runtime, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-16-unify-agent-run-state-machine/` |
 | 2026-08-17 | add-agent-mission-control | agent-mission-control, agent-run-state-management, main-layout-ui | `openspec/changes/archive/2026-08-17-add-agent-mission-control/` |
 | 2026-08-17 | add-sandboxed-skill-tool-runtime | agent-tool-execution, permissions-approval, permissions-core, settings-skill-management-ui, skill-management, skill-tool-runtime | `openspec/changes/archive/2026-08-17-add-sandboxed-skill-tool-runtime/` |
+| 2026-08-17 | expand-runtime-performance-budgets | agent-context-engine, agent-context-measurement, agent-execution-observability, agent-mission-control, agent-run-state-management, lsp-code-intelligence, remote-terminal-runtime, runtime-performance-governance | `openspec/changes/archive/2026-08-17-expand-runtime-performance-budgets/` |
 | 2026-08-17 | extend-provider-runtime-plugin-sdk | agent-provider-runtime, provider-plugin-sdk | `openspec/changes/archive/2026-08-17-extend-provider-runtime-plugin-sdk/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

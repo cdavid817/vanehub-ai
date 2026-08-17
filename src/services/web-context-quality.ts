@@ -45,18 +45,11 @@ function fixture(offsetDays: number, index: number): ContextQualityAssessment {
   };
 }
 
-// Ledger is built lazily on first access so `recordedAt` is derived from the
-// same `Date.now()` the retention window uses. Eager module-scope init would
-// stamp records with the real wall clock at import time, but tests drive the
-// window off `vi.setSystemTime`; the mismatch made the pruned-record count
-// depend on the real date the suite ran on (flaky past a calendar boundary).
-let ledger: ContextQualityAssessment[] | null = null;
+const createLedger = () => [1, 4, 10, 25, 45, 80].map(fixture);
+let ledger = createLedger();
 
-function loadLedger(): ContextQualityAssessment[] {
-  if (ledger === null) {
-    ledger = [1, 4, 10, 25, 45, 80].map(fixture);
-  }
-  return ledger;
+export function resetWebContextQualityForTest(): void {
+  ledger = createLedger();
 }
 
 function rangeDays(value: number): ContextQualityRangeDays {
@@ -69,10 +62,9 @@ function rangeDays(value: number): ContextQualityRangeDays {
 function retainedRecords(range: ContextQualityRangeDays): ContextQualityAssessment[] {
   const retention = readWebAppSettings().contextQualityRetentionDays;
   const retentionCutoff = Date.now() - retention * DAY_MS;
-  const retained = loadLedger().filter((record) => Date.parse(record.recordedAt) >= retentionCutoff).slice(0, HARD_LIMIT);
-  ledger = retained;
+  ledger = ledger.filter((record) => Date.parse(record.recordedAt) >= retentionCutoff).slice(0, HARD_LIMIT);
   const cutoff = Date.now() - range * DAY_MS;
-  return retained.filter((record) => Date.parse(record.recordedAt) >= cutoff);
+  return ledger.filter((record) => Date.parse(record.recordedAt) >= cutoff);
 }
 
 export function listWebContextQualityHistory(input: ContextQualityHistoryQuery): ContextQualityHistoryPage {

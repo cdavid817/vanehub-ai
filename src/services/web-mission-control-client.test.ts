@@ -1,7 +1,34 @@
-import { describe, expect, it } from "vitest";
-import { webAgentClient } from "./web-agent-client";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  resetWebMissionControlRunsForTest,
+  seedWebMissionControlRunsForTest,
+  webAgentClient,
+} from "./web-agent-client";
+
+afterEach(resetWebMissionControlRunsForTest);
 
 describe("web Mission Control adapter", () => {
+  for (const runCount of [100, 1_000] as const) {
+    it(`keeps the ${runCount}-Run fixture page-bounded and detail-lazy`, async () => {
+      seedWebMissionControlRunsForTest(runCount);
+
+      const first = await webAgentClient.getMissionControlOverview({ limit: 50, sort: "attention" });
+      const repeated = await webAgentClient.getMissionControlOverview({ limit: 50, sort: "attention" });
+      const total = Object.values(first.counts).reduce((sum, count) => sum + count, 0);
+
+      expect(total).toBe(runCount);
+      expect(repeated).toEqual(first);
+      expect(first.attention.items.length).toBeLessThanOrEqual(50);
+      expect(first.active.items.length).toBeLessThanOrEqual(50);
+      expect(first.recent.items.length).toBeLessThanOrEqual(50);
+      expect(first.active.nextCursor).not.toBeNull();
+      expect(first.active.items[0]).not.toHaveProperty("facets");
+
+      const detail = await webAgentClient.getMissionControlRun(first.active.items[0].runId);
+      expect(detail.facets).toHaveLength(10);
+    });
+  }
+
   it("provides deterministic bounded attention, filters, detail availability, and safe missing metrics", async () => {
     const first = await webAgentClient.getMissionControlOverview({ limit: 2, sort: "attention" });
     const second = await webAgentClient.getMissionControlOverview({ limit: 2, sort: "attention" });

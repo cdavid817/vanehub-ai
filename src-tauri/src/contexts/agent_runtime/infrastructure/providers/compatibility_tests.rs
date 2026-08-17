@@ -1,10 +1,7 @@
-use super::{
-    compatibility::{builtin_cli_provider_registry, fixture_provider},
-    output_parser_for_format, BoundedProviderLines, ProviderOutputEvent,
-};
+use super::compatibility::{builtin_cli_provider_registry, fixture_provider};
 use crate::contexts::agent_runtime::application::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest, ProviderOptionRequest,
-    ProviderOutputFormat, ProviderPermissionMode, ProviderPromptDelivery, ProviderRegistry,
+    ProviderPermissionMode, ProviderPromptDelivery, ProviderRegistry,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentProviderId, InteractionMode, ProviderCapability, ProviderFamily, ProviderHealth,
@@ -219,6 +216,8 @@ fn provider_sdk_fixed_fixture_benchmark() {
 #[cfg(unix)]
 #[test]
 fn fake_cli_desktop_integration_streams_session_usage_failure_and_cancels() {
+    use super::{output_parser_for_format, BoundedProviderLines, ProviderOutputEvent};
+    use crate::contexts::agent_runtime::application::ProviderOutputFormat;
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;

@@ -125,6 +125,8 @@ mod tests {
     use super::*;
     use crate::contexts::retrieval::domain::content_hash;
     use crate::test_support::TempDirectory;
+    use std::time::Instant;
+    use tree_sitter::{InputEdit, Point};
 
     #[test]
     fn every_parser_and_symbol_query_loads_for_a_minimal_definition() {
@@ -213,5 +215,48 @@ mod tests {
         let parsed =
             load_and_parse(&path, "broken.rs", CodeLanguage::Rust, 1024).expect("parse tree");
         assert!(parsed.has_syntax_errors);
+    }
+
+    #[test]
+    fn performance_tree_sitter_incremental_updates_emit_scale_and_percentile_evidence() {
+        for (dataset, functions) in [
+            ("repo-small", 32_usize),
+            ("repo-medium", 512),
+            ("repo-large", 2_048),
+        ] {
+            let mut source = (0..functions)
+                .map(|index| format!("fn f{index}() -> usize {{ {index} }}\n"))
+                .collect::<String>();
+            let language = grammar_for(CodeLanguage::Rust, "fixture.rs").expect("grammar");
+            let mut parser = Parser::new();
+            parser.set_language(&language).expect("language");
+            let mut tree = parser.parse(&source, None).expect("initial parse");
+            let mut samples = Vec::new();
+            for iteration in 0..7 {
+                source.replace_range(3..4, if iteration % 2 == 0 { "g" } else { "f" });
+                tree.edit(&InputEdit {
+                    start_byte: 3,
+                    old_end_byte: 4,
+                    new_end_byte: 4,
+                    start_position: Point::new(0, 3),
+                    old_end_position: Point::new(0, 4),
+                    new_end_position: Point::new(0, 4),
+                });
+                let started = Instant::now();
+                tree = parser
+                    .parse(&source, Some(&tree))
+                    .expect("incremental parse");
+                samples.push(started.elapsed().as_micros());
+            }
+            assert!(!tree.root_node().has_error());
+            samples.sort_unstable();
+            eprintln!(
+                "TREE_SITTER_PERFORMANCE dataset={dataset}@1 files={} bytes={} symbols={functions} p50Micros={} p95Micros={}",
+                functions,
+                source.len(),
+                samples[3],
+                samples[6]
+            );
+        }
     }
 }

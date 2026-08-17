@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::time::Instant;
 
 use super::*;
 use crate::contexts::retrieval::application::{EmbeddingFailure, RetrievalConfiguration};
@@ -267,4 +268,71 @@ fn confirmed_search_fuses_only_vectors_from_the_bound_workspace() {
     assert_eq!(outcome.hits.len(), 1);
     assert_eq!(outcome.hits[0].file_path, "src/auth.rs");
     assert_eq!(outcome.hits[0].matched_via, MatchedVia::Both);
+}
+
+#[test]
+fn performance_indexed_search_reports_bounded_items_and_percentiles() {
+    let fixture = Fixture::new();
+    let chunks = (0..1_000)
+        .map(|index| {
+            let content = format!("fn performance_target_{index}() {{}}");
+            CodeChunk {
+                source_id: format!("performance-{index}"),
+                content_hash: content_hash(&content),
+                content,
+                language: "rust".to_string(),
+                start_line: index + 1,
+                end_line: index + 1,
+                symbol_name: Some(format!("performance_target_{index}")),
+                symbol_kind: Some("function".to_string()),
+                ordinal: index,
+                chunk_key: format!("chunk-{index}"),
+                redaction_count: 0,
+            }
+        })
+        .collect::<Vec<_>>();
+    let bytes = chunks
+        .iter()
+        .map(|chunk| chunk.content.len())
+        .sum::<usize>();
+    let indexing_started = Instant::now();
+    fixture
+        .code
+        .replace_file(
+            &CodeFileManifest {
+                workspace_id: fixture.first_id.clone(),
+                relative_path: "src/performance.rs".to_string(),
+                language: "rust".to_string(),
+                byte_size: bytes as u64,
+                modified_ns: 1,
+                content_hash: content_hash("performance-fixture-v1"),
+                index_version: CODE_INDEX_VERSION.to_string(),
+            },
+            &chunks,
+            &[],
+        )
+        .expect("replace performance file");
+    let indexing_micros = indexing_started.elapsed().as_micros();
+    let service = fixture.service(Arc::new(QueryEmbedder::default()));
+    let mut samples = Vec::new();
+    for _ in 0..7 {
+        let started = Instant::now();
+        let outcome = service
+            .search_code(&CodeSearchQuery {
+                text: "performance_target".to_string(),
+                limit: 50,
+            })
+            .expect("search");
+        samples.push(started.elapsed().as_micros());
+        assert_eq!(outcome.hits.len(), 50);
+        assert!(outcome
+            .hits
+            .iter()
+            .all(|hit| hit.file_path == "src/performance.rs"));
+    }
+    samples.sort_unstable();
+    eprintln!(
+        "CODE_SEARCH_PERFORMANCE dataset=repo-medium@1 files=1 bytes={bytes} symbols=1000 items=50 indexingMicros={indexing_micros} p50Micros={} p95Micros={}",
+        samples[3], samples[6]
+    );
 }
