@@ -2,7 +2,7 @@
 
 use crate::contexts::agent_runtime::application::{
     ArtifactRecord, ChangeSetApplyRecord, ChangeSetRecord, DelegationAttemptRecord,
-    DelegationRecord, RecoveryRecord, StoredToolOperation,
+    DelegationRecord, NativeToolPersistencePort, RecoveryRecord, StoredToolOperation,
 };
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::params;
@@ -10,6 +10,32 @@ use rusqlite::params;
 #[derive(Clone)]
 pub(crate) struct SqliteNativeToolRepository {
     database: NativeDatabase,
+}
+
+impl NativeToolPersistencePort for SqliteNativeToolRepository {
+    fn save_delegation(&self, record: &DelegationRecord) -> Result<(), ()> {
+        SqliteNativeToolRepository::save_delegation(self, record).map_err(|_| ())
+    }
+
+    fn save_delegation_attempt(&self, record: &DelegationAttemptRecord) -> Result<(), ()> {
+        SqliteNativeToolRepository::save_delegation_attempt(self, record).map_err(|_| ())
+    }
+
+    fn insert_change_set(&self, record: &ChangeSetRecord) -> Result<(), ()> {
+        SqliteNativeToolRepository::insert_change_set(self, record).map_err(|_| ())
+    }
+
+    fn save_apply_attempt(&self, record: &ChangeSetApplyRecord) -> Result<(), ()> {
+        SqliteNativeToolRepository::save_apply_attempt(self, record).map_err(|_| ())
+    }
+
+    fn is_change_set_available(&self, artifact_id: &str) -> Result<bool, ()> {
+        SqliteNativeToolRepository::is_change_set_available(self, artifact_id).map_err(|_| ())
+    }
+
+    fn save_recovery(&self, record: &RecoveryRecord) -> Result<(), ()> {
+        SqliteNativeToolRepository::save_recovery(self, record).map_err(|_| ())
+    }
 }
 
 impl SqliteNativeToolRepository {
