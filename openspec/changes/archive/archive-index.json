@@ -2798,6 +2798,20 @@
         "skill-management",
         "skill-tool-runtime"
       ]
+    },
+    {
+      "archivedOn": "2026-08-17",
+      "changeName": "extend-provider-runtime-plugin-sdk",
+      "path": "openspec/changes/archive/2026-08-17-extend-provider-runtime-plugin-sdk/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-provider-runtime",
+        "provider-plugin-sdk"
+      ]
     }
   ]
 }

@@ -1,12 +1,18 @@
-use super::{build_interactive_invocation, build_invocation_with_role};
+use super::{
+    build_interactive_invocation, build_invocation_with_role, manifest::ValidatedProviderManifest,
+};
+#[cfg(test)]
+use crate::contexts::agent_runtime::application::ProviderPromptDelivery;
 use crate::contexts::agent_runtime::application::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
     ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
-    ProviderInvocationSpec, ProviderOutputFormat, ProviderRegistry,
+    ProviderInvocationSpec, ProviderOptionRequest, ProviderOutputFormat, ProviderPermissionMode,
+    ProviderRegistry,
 };
 use crate::contexts::agent_runtime::domain::{
-    InteractionMode, ProviderCapabilities, ProviderCapabilityInput, ProviderFamily,
-    ProviderMetadata, ProviderReadinessPrerequisites, ProviderUsageCapability,
+    InteractionMode, ProviderCancellationPolicy, ProviderCapabilities, ProviderCapability,
+    ProviderFamily, ProviderHealth, ProviderMetadata, ProviderParserPolicy,
+    ProviderReadinessPrerequisites, ProviderUsageCapability, ProviderVersionProbe,
 };
 use std::sync::Arc;
 
@@ -15,6 +21,9 @@ struct CompatibilityCliProvider {
     capabilities: ProviderCapabilities,
     readiness: ProviderReadinessPrerequisites,
     output_format: ProviderOutputFormat,
+    parser_policy: ProviderParserPolicy,
+    version_probe: ProviderVersionProbe,
+    cancellation_policy: ProviderCancellationPolicy,
 }
 
 struct CompatibilityProviderDefinition {
@@ -86,26 +95,13 @@ impl CompatibilityCliProvider {
         definition: CompatibilityProviderDefinition,
     ) -> Result<Self, AgentProviderError> {
         let provider_id = definition.id.to_string();
-        let metadata = ProviderMetadata::new(
-            definition.id,
-            definition.display_name,
-            ProviderFamily::CodingCli,
-        )
-        .map_err(|error| preparation_error(&provider_id, error))?;
-        let capabilities = ProviderCapabilities::new(ProviderCapabilityInput {
-            interaction_modes: vec![InteractionMode::Cli],
-            session_resume: true,
-            structured_output: true,
-            terminal: true,
-            usage: definition.usage,
-            permissions: true,
-            model_selection: true,
-            reasoning: definition.reasoning,
-            sandbox: definition.sandbox,
-        })
-        .map_err(|error| preparation_error(&provider_id, error))?;
+        let manifest = ValidatedProviderManifest::parse_json(&manifest_json(&definition))?;
+        let metadata = manifest.metadata;
+        let capabilities = manifest
+            .capabilities
+            .with_usage_capability(definition.usage);
         let readiness = ProviderReadinessPrerequisites::new(
-            vec![definition.executable.to_string()],
+            manifest.readiness.executable_names().to_vec(),
             definition.managed_sdk_dependency_id.map(str::to_string),
         )
         .map_err(|error| preparation_error(&provider_id, error))?;
@@ -114,6 +110,12 @@ impl CompatibilityCliProvider {
             capabilities,
             readiness,
             output_format: definition.output_format,
+            parser_policy: ProviderParserPolicy::new(262_144, true)
+                .map_err(|error| preparation_error(&provider_id, error))?,
+            version_probe: ProviderVersionProbe::new(vec!["--version".to_string()], 5_000)
+                .map_err(|error| preparation_error(&provider_id, error))?,
+            cancellation_policy: ProviderCancellationPolicy::process_tree(2_000)
+                .map_err(|error| preparation_error(&provider_id, error))?,
         })
     }
 
@@ -135,6 +137,17 @@ impl CompatibilityCliProvider {
     }
 }
 
+fn manifest_json(definition: &CompatibilityProviderDefinition) -> String {
+    format!(
+        r#"{{"schemaVersion":1,"id":"{}","name":"{}","runtime":"cli","executables":["{}"],"capabilities":{{"terminal":true,"resume":true,"structuredOutput":true,"images":false,"usage":true,"permissions":true,"modelSelection":true,"reasoning":{},"sandbox":{}}}}}"#,
+        definition.id,
+        definition.display_name,
+        definition.executable,
+        definition.reasoning,
+        definition.sandbox
+    )
+}
+
 impl AgentProvider for CompatibilityCliProvider {
     fn metadata(&self) -> &ProviderMetadata {
         &self.metadata
@@ -152,11 +165,73 @@ impl AgentProvider for CompatibilityCliProvider {
         self.output_format
     }
 
+    fn parser_policy(&self) -> ProviderParserPolicy {
+        self.parser_policy
+    }
+
+    fn version_probe(&self) -> &ProviderVersionProbe {
+        &self.version_probe
+    }
+
+    fn cancellation_policy(&self) -> ProviderCancellationPolicy {
+        self.cancellation_policy
+    }
+
+    fn classify_health(&self, executable_available: bool, version_valid: bool) -> ProviderHealth {
+        match (executable_available, version_valid) {
+            (true, true) => ProviderHealth::Ready,
+            (true, false) => ProviderHealth::Degraded,
+            (false, _) => ProviderHealth::Unavailable,
+        }
+    }
+
+    fn map_options(
+        &self,
+        request: ProviderOptionRequest<'_>,
+    ) -> Result<Vec<String>, AgentProviderError> {
+        let mut args = Vec::new();
+        for (capability, value) in [
+            (
+                ProviderCapability::Permissions,
+                request.permission.map(|_| "permission"),
+            ),
+            (ProviderCapability::ModelSelection, request.model),
+            (ProviderCapability::Reasoning, request.reasoning),
+        ] {
+            if value.is_some() && !self.capabilities.supports(capability) {
+                return Err(AgentProviderError::UnsupportedCapability {
+                    provider_id: self.metadata.id().as_str().to_string(),
+                    capability: capability.as_str().to_string(),
+                });
+            }
+        }
+        if let Some(model) = request.model.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--model".to_string(), model.to_string()]);
+        }
+        if let Some(reasoning) = request.reasoning.filter(|value| !value.trim().is_empty()) {
+            args.extend(["--reasoning".to_string(), reasoning.to_string()]);
+        }
+        Ok(args)
+    }
+
     fn prepare_generation(
         &self,
         request: ProviderGenerationInvocationRequest<'_>,
     ) -> Result<ProviderInvocationSpec, AgentProviderError> {
         let external_id = self.external_session_id(request.provider_session)?;
+        #[cfg(test)]
+        if self.metadata.id().as_str() == "fixture-cli" {
+            let mut args = vec!["--json".to_string()];
+            if let Some(external_id) = external_id {
+                args.extend(["--resume".to_string(), external_id.to_string()]);
+            }
+            args.extend_from_slice(request.managed_args);
+            return Ok(ProviderInvocationSpec {
+                executable: request.executable,
+                args,
+                prompt_delivery: ProviderPromptDelivery::Stdin,
+            });
+        }
         build_invocation_with_role(
             self.metadata.id().as_str(),
             request.executable,
@@ -173,6 +248,18 @@ impl AgentProvider for CompatibilityCliProvider {
         request: ProviderInteractiveInvocationRequest<'_>,
     ) -> Result<ProviderInteractiveInvocationSpec, AgentProviderError> {
         let external_id = self.external_session_id(request.provider_session)?;
+        #[cfg(test)]
+        if self.metadata.id().as_str() == "fixture-cli" {
+            let mut args = request.managed_args.to_vec();
+            if let Some(external_id) = external_id {
+                args.extend(["--resume".to_string(), external_id.to_string()]);
+            }
+            return Ok(ProviderInteractiveInvocationSpec {
+                executable: request.executable,
+                args,
+                assigned_runtime_session_id: external_id.map(str::to_string),
+            });
+        }
         build_interactive_invocation(
             self.metadata.id().as_str(),
             request.executable,
@@ -199,6 +286,23 @@ pub(crate) fn builtin_cli_provider_registry() -> Result<ProviderRegistry, AgentP
     let registry = ProviderRegistry::new(providers)?;
     validate_builtin_contracts(&registry)?;
     Ok(registry)
+}
+
+#[cfg(test)]
+pub(super) fn fixture_provider() -> Arc<dyn AgentProvider> {
+    Arc::new(
+        CompatibilityCliProvider::from_definition(CompatibilityProviderDefinition {
+            id: "fixture-cli",
+            display_name: "Fixture CLI",
+            executable: "fixture",
+            managed_sdk_dependency_id: None,
+            output_format: ProviderOutputFormat::StructuredJsonLines,
+            usage: ProviderUsageCapability::HeadlessReported,
+            reasoning: false,
+            sandbox: false,
+        })
+        .expect("valid fixture provider"),
+    )
 }
 
 fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentProviderError> {
@@ -234,6 +338,59 @@ fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentPr
                 metadata.id().as_str(),
                 "built-in provider declaration is incomplete",
             ));
+        }
+        let parser_policy = provider.parser_policy();
+        let cancellation = provider.cancellation_policy();
+        let version_probe = provider.version_probe();
+        let sdk_contract_valid = parser_policy.max_buffer_bytes() >= 1_024
+            && parser_policy.text_fallback()
+            && !version_probe.args().is_empty()
+            && version_probe.timeout_ms() <= 15_000
+            && cancellation.grace_period_ms() <= 30_000
+            && cancellation.uses_process_tree()
+            && provider.classify_health(true, true) == ProviderHealth::Ready
+            && provider
+                .map_options(ProviderOptionRequest {
+                    permission: Some(ProviderPermissionMode::Standard),
+                    model: None,
+                    reasoning: None,
+                })
+                .is_ok()
+            && [
+                ProviderPermissionMode::Readonly,
+                ProviderPermissionMode::Unrestricted,
+            ]
+            .into_iter()
+            .all(|permission| {
+                provider
+                    .map_options(ProviderOptionRequest {
+                        permission: Some(permission),
+                        model: None,
+                        reasoning: None,
+                    })
+                    .is_ok()
+            })
+            && registry
+                .require(metadata.id().as_str(), ProviderCapability::Cancellation)
+                .is_ok();
+        if !sdk_contract_valid {
+            return Err(preparation_error(
+                metadata.id().as_str(),
+                "built-in provider SDK declaration is incomplete",
+            ));
+        }
+        for capability in [
+            ProviderCapability::Resume,
+            ProviderCapability::StructuredOutput,
+            ProviderCapability::Terminal,
+            ProviderCapability::Usage,
+            ProviderCapability::Permissions,
+            ProviderCapability::ModelSelection,
+            ProviderCapability::Reasoning,
+            ProviderCapability::Sandbox,
+            ProviderCapability::Cancellation,
+        ] {
+            let _ = capabilities.supports(capability);
         }
         let definition = DEFINITIONS
             .iter()

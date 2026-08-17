@@ -1,6 +1,218 @@
 use crate::contexts::agent_runtime::application::{GenerationProcessFailure, ProviderOutputFormat};
 use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde_json::Value;
+use std::collections::VecDeque;
+use std::io::Read;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderOutputStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug)]
+pub(crate) struct ProviderOutputFramer {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    max_buffer_bytes: usize,
+}
+
+impl ProviderOutputFramer {
+    pub(crate) fn new(max_buffer_bytes: usize) -> Self {
+        Self {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            max_buffer_bytes,
+        }
+    }
+
+    pub(crate) fn push(
+        &mut self,
+        stream: ProviderOutputStream,
+        chunk: &[u8],
+    ) -> Result<Vec<String>, &'static str> {
+        let buffer = match stream {
+            ProviderOutputStream::Stdout => &mut self.stdout,
+            ProviderOutputStream::Stderr => &mut self.stderr,
+        };
+        if buffer.len().saturating_add(chunk.len()) > self.max_buffer_bytes {
+            buffer.clear();
+            return Err("provider output record exceeds the bounded parser limit");
+        }
+        buffer.extend_from_slice(chunk);
+        let mut lines = Vec::new();
+        while let Some(index) = buffer.iter().position(|byte| *byte == b'\n') {
+            let mut record = buffer.drain(..=index).collect::<Vec<_>>();
+            record.pop();
+            if record.last() == Some(&b'\r') {
+                record.pop();
+            }
+            lines.push(
+                String::from_utf8(record).map_err(|_| "provider output contains invalid UTF-8")?,
+            );
+        }
+        Ok(lines)
+    }
+
+    pub(crate) fn finish(
+        &mut self,
+        stream: ProviderOutputStream,
+    ) -> Result<Option<String>, &'static str> {
+        let buffer = match stream {
+            ProviderOutputStream::Stdout => &mut self.stdout,
+            ProviderOutputStream::Stderr => &mut self.stderr,
+        };
+        if buffer.is_empty() {
+            return Ok(None);
+        }
+        String::from_utf8(std::mem::take(buffer))
+            .map(Some)
+            .map_err(|_| "provider output ends with invalid UTF-8")
+    }
+}
+
+pub(crate) struct BoundedProviderLines<R> {
+    reader: R,
+    framer: ProviderOutputFramer,
+    pending: VecDeque<String>,
+    finished: bool,
+}
+
+impl<R: Read> BoundedProviderLines<R> {
+    pub(crate) fn new(reader: R, max_record_bytes: usize) -> Self {
+        Self {
+            reader,
+            framer: ProviderOutputFramer::new(max_record_bytes),
+            pending: VecDeque::new(),
+            finished: false,
+        }
+    }
+}
+
+impl<R: Read> Iterator for BoundedProviderLines<R> {
+    type Item = Result<String, &'static str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(line) = self.pending.pop_front() {
+                return Some(Ok(line));
+            }
+            if self.finished {
+                return None;
+            }
+            let mut chunk = [0_u8; 8 * 1024];
+            match self.reader.read(&mut chunk) {
+                Ok(0) => {
+                    self.finished = true;
+                    return self.framer.finish(ProviderOutputStream::Stdout).transpose();
+                }
+                Ok(length) => match self
+                    .framer
+                    .push(ProviderOutputStream::Stdout, &chunk[..length])
+                {
+                    Ok(lines) => self.pending.extend(lines),
+                    Err(error) => {
+                        self.finished = true;
+                        return Some(Err(error));
+                    }
+                },
+                Err(_) => {
+                    self.finished = true;
+                    return Some(Err("failed to read provider output"));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod framer_tests {
+    use super::*;
+
+    #[test]
+    fn chunk_partitions_preserve_utf8_and_stream_isolation() {
+        let source = "alpha\n中文🙂\nomega".as_bytes();
+        for width in 1..=source.len() {
+            let mut framer = ProviderOutputFramer::new(1024);
+            let mut lines = Vec::new();
+            for chunk in source.chunks(width) {
+                lines.extend(
+                    framer
+                        .push(ProviderOutputStream::Stdout, chunk)
+                        .expect("valid chunk"),
+                );
+            }
+            lines.extend(
+                framer
+                    .finish(ProviderOutputStream::Stdout)
+                    .expect("valid tail"),
+            );
+            assert_eq!(lines, ["alpha", "中文🙂", "omega"]);
+        }
+
+        let mut framer = ProviderOutputFramer::new(1024);
+        assert!(framer
+            .push(ProviderOutputStream::Stdout, b"out")
+            .expect("stdout")
+            .is_empty());
+        assert_eq!(
+            framer
+                .push(ProviderOutputStream::Stderr, b"err\n")
+                .expect("stderr"),
+            ["err"]
+        );
+        assert_eq!(
+            framer.finish(ProviderOutputStream::Stdout).expect("tail"),
+            Some("out".to_string())
+        );
+    }
+
+    #[test]
+    fn malformed_and_oversized_records_fail_closed() {
+        let mut framer = ProviderOutputFramer::new(4);
+        assert!(framer.push(ProviderOutputStream::Stdout, b"12345").is_err());
+        let mut framer = ProviderOutputFramer::new(1024);
+        assert!(framer
+            .push(ProviderOutputStream::Stdout, &[0xff, b'\n'])
+            .is_err());
+    }
+
+    #[test]
+    fn bounded_line_iterator_preserves_tail_and_classifies_failures() {
+        let lines = BoundedProviderLines::new(&b"one\ntwo"[..], 16)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("bounded lines");
+        assert_eq!(lines, ["one", "two"]);
+
+        let error = BoundedProviderLines::new(&b"oversized"[..], 4)
+            .collect::<Result<Vec<_>, _>>()
+            .expect_err("oversized record");
+        assert_eq!(
+            error,
+            "provider output record exceeds the bounded parser limit"
+        );
+    }
+
+    #[test]
+    fn provider_parser_fixed_fixture_benchmark() {
+        let record = b"{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"ok\"}}\n";
+        let fixture = record.repeat(10_000);
+        let started = std::time::Instant::now();
+        let lines = BoundedProviderLines::new(fixture.as_slice(), 262_144)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fixed parser fixture");
+        let elapsed = started.elapsed();
+        eprintln!(
+            "provider_sdk parser_fixture_bytes={} records={} elapsed={elapsed:?} target={} arch={}",
+            fixture.len(),
+            lines.len(),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+        assert_eq!(lines.len(), 10_000);
+        assert_eq!(lines[0].as_bytes(), &record[..record.len() - 1]);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProviderOutputEvent {
