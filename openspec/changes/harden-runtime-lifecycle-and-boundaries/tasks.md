@@ -23,4 +23,4 @@
 
 - [x] 4.1 Run frontend lint, tests, build, coverage policy, contracts, and Playwright checks required by the affected UI behavior.
 - [x] 4.2 Run Rust fmt, clippy, tests, check, desktop tests, and strict OpenSpec validation.
-- [ ] 4.3 Commit proposal and fixes in focused Conventional Commit groups with English messages.
+- [x] 4.3 Commit proposal and fixes in focused Conventional Commit groups with English messages.
