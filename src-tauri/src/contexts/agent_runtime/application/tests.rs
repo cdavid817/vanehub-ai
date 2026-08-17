@@ -184,6 +184,7 @@ pub(super) struct FakeWorld {
     delete_api_agent_failure: AtomicBool,
     deleted_agent_ids: Mutex<Vec<String>>,
     stored_credentials: Mutex<Vec<(String, String)>>,
+    credential_reads: AtomicUsize,
     current_onepiece_credential: Mutex<Option<String>>,
     profile_credentials: Mutex<BTreeMap<String, String>>,
     removed_credentials: Mutex<Vec<String>>,
@@ -298,6 +299,7 @@ impl FakeWorld {
             delete_api_agent_failure: AtomicBool::new(false),
             deleted_agent_ids: Mutex::new(Vec::new()),
             stored_credentials: Mutex::new(Vec::new()),
+            credential_reads: AtomicUsize::new(0),
             current_onepiece_credential: Mutex::new(None),
             profile_credentials: Mutex::new(BTreeMap::new()),
             removed_credentials: Mutex::new(Vec::new()),
@@ -897,6 +899,7 @@ impl ApiCredentialPort for FakeWorld {
     }
 
     fn fetch(&self, agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        self.credential_reads.fetch_add(1, Ordering::SeqCst);
         if agent_id == "onepiece" {
             return Ok(self
                 .current_onepiece_credential
@@ -4409,7 +4412,7 @@ fn prompt_execution_without_fired_versions_records_no_observation() {
 #[test]
 fn custom_local_profile_preserves_metadata_and_needs_no_credential() {
     let world = test_world();
-    let runtime = service(world);
+    let runtime = service(world.clone());
     let overview = runtime
         .save_custom_onepiece_provider_profile(SaveCustomOnePieceProviderProfileInput {
             id: None,
@@ -4429,6 +4432,12 @@ fn custom_local_profile_preserves_metadata_and_needs_no_credential() {
             reserved_output_tokens: 4_096,
         })
         .expect("save custom local profile");
+    assert_eq!(world.credential_reads.load(Ordering::SeqCst), 0);
+    assert!(world
+        .removed_credentials
+        .lock()
+        .expect("removed credentials")
+        .is_empty());
     let profile = &overview.profiles[0];
     assert!(profile.active);
     assert!(!profile.credential_present);

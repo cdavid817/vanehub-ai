@@ -730,13 +730,20 @@ impl AgentRuntimeApplicationService {
             .map(|profile| profile.id.clone());
         let mut profiles = Vec::with_capacity(stored.len());
         for profile in stored {
-            let credential_key = onepiece_profile_credential_key(&profile.id);
-            let mut credential_present =
-                self.ports.api_credentials.fetch(&credential_key)?.is_some();
-            if profile.active && !credential_present {
-                if let Some(legacy) = self.ports.api_credentials.fetch("onepiece")? {
-                    self.ports.api_credentials.store(&credential_key, &legacy)?;
-                    credential_present = true;
+            let authentication_none = self
+                .ports
+                .api_agents
+                .endpoint_profile_metadata(&profile.id)?
+                .is_some_and(|metadata| metadata.authentication_mode == "none");
+            let mut credential_present = false;
+            if !authentication_none {
+                let credential_key = onepiece_profile_credential_key(&profile.id);
+                credential_present = self.ports.api_credentials.fetch(&credential_key)?.is_some();
+                if profile.active && !credential_present {
+                    if let Some(legacy) = self.ports.api_credentials.fetch("onepiece")? {
+                        self.ports.api_credentials.store(&credential_key, &legacy)?;
+                        credential_present = true;
+                    }
                 }
             }
             profiles.push(OnePieceProviderProfile {
@@ -1195,14 +1202,20 @@ impl AgentRuntimeApplicationService {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         let credential_key = onepiece_profile_credential_key(&id);
-        let previous_credential = self.ports.api_credentials.fetch(&credential_key)?;
+        let previous_credential = if input.authentication_mode == "none" {
+            None
+        } else {
+            self.ports.api_credentials.fetch(&credential_key)?
+        };
         let effective_credential = replacement.clone().or(previous_credential.clone());
         let snapshot = custom_profile_snapshot(&id, &input, effective_credential.is_some())?;
         match snapshot.authentication_mode {
             AuthenticationMode::None => {
-                self.ports.api_credentials.remove(&credential_key)?;
-                if active {
-                    self.ports.api_credentials.remove("onepiece")?;
+                if previous.is_some() {
+                    self.ports.api_credentials.remove(&credential_key)?;
+                    if active {
+                        self.ports.api_credentials.remove("onepiece")?;
+                    }
                 }
             }
             AuthenticationMode::Required | AuthenticationMode::Optional => {
