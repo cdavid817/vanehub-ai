@@ -25,12 +25,28 @@
       "path": "assets/screenshots/create-session-multi-agent-zh-CN.png"
     },
     {
+      "id": "create-session-multi-agent-en",
+      "scenario": "create-session-multi-agent",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/create-session-multi-agent-en.png"
+    },
+    {
       "id": "permissions-zh-CN",
       "scenario": "settings-agent-policies",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/permissions-zh-CN.png"
+    },
+    {
+      "id": "permissions-en",
+      "scenario": "settings-agent-policies",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/permissions-en.png"
     },
     {
       "id": "personalization-zh-CN",
@@ -41,12 +57,28 @@
       "path": "assets/screenshots/personalization-zh-CN.png"
     },
     {
+      "id": "personalization-en",
+      "scenario": "settings-personalization",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/personalization-en.png"
+    },
+    {
       "id": "expert-roles-zh-CN",
       "scenario": "settings-expert-roles",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/expert-roles-zh-CN.png"
+    },
+    {
+      "id": "expert-roles-en",
+      "scenario": "settings-expert-roles",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/expert-roles-en.png"
     },
     {
       "id": "mcp-zh-CN",
@@ -57,12 +89,28 @@
       "path": "assets/screenshots/mcp-zh-CN.png"
     },
     {
+      "id": "mcp-en",
+      "scenario": "settings-mcp",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/mcp-en.png"
+    },
+    {
       "id": "cli-zh-CN",
       "scenario": "settings-cli",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/cli-zh-CN.png"
+    },
+    {
+      "id": "cli-en",
+      "scenario": "settings-cli",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/cli-en.png"
     },
     {
       "id": "usage-zh-CN",
@@ -73,12 +121,28 @@
       "path": "assets/screenshots/usage-zh-CN.png"
     },
     {
+      "id": "usage-en",
+      "scenario": "settings-usage",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/usage-en.png"
+    },
+    {
       "id": "loop-center-zh-CN",
       "scenario": "loop-center",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/loop-center-zh-CN.png"
+    },
+    {
+      "id": "loop-center-en",
+      "scenario": "loop-center",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/loop-center-en.png"
     },
     {
       "id": "skills-zh-CN",
@@ -89,12 +153,28 @@
       "path": "assets/screenshots/skills-zh-CN.png"
     },
     {
+      "id": "skills-en",
+      "scenario": "settings-skills",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/skills-en.png"
+    },
+    {
       "id": "prompt-hooks-zh-CN",
       "scenario": "settings-prompt-hooks",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/prompt-hooks-zh-CN.png"
+    },
+    {
+      "id": "prompt-hooks-en",
+      "scenario": "settings-prompt-hooks",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/prompt-hooks-en.png"
     },
     {
       "id": "im-zh-CN",
@@ -105,12 +185,28 @@
       "path": "assets/screenshots/im-zh-CN.png"
     },
     {
+      "id": "im-en",
+      "scenario": "settings-im",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/im-en.png"
+    },
+    {
       "id": "ssh-zh-CN",
       "scenario": "settings-ssh",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/ssh-zh-CN.png"
+    },
+    {
+      "id": "ssh-en",
+      "scenario": "settings-ssh",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/ssh-en.png"
     },
     {
       "id": "extensions-zh-CN",
@@ -121,12 +217,28 @@
       "path": "assets/screenshots/extensions-zh-CN.png"
     },
     {
+      "id": "extensions-en",
+      "scenario": "settings-extensions",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/extensions-en.png"
+    },
+    {
       "id": "observability-zh-CN",
       "scenario": "settings-observability",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/observability-zh-CN.png"
+    },
+    {
+      "id": "observability-en",
+      "scenario": "settings-observability",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/observability-en.png"
     },
     {
       "id": "scheduled-tasks-zh-CN",
@@ -137,12 +249,28 @@
       "path": "assets/screenshots/scheduled-tasks-zh-CN.png"
     },
     {
+      "id": "scheduled-tasks-en",
+      "scenario": "scheduled-tasks",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/scheduled-tasks-en.png"
+    },
+    {
       "id": "session-workspace-zh-CN",
       "scenario": "session-workspace",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/session-workspace-zh-CN.png"
+    },
+    {
+      "id": "session-workspace-en",
+      "scenario": "session-workspace",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-workspace-en.png"
     },
     {
       "id": "session-traces-zh-CN",
@@ -153,6 +281,14 @@
       "path": "assets/screenshots/session-traces-zh-CN.png"
     },
     {
+      "id": "session-traces-en",
+      "scenario": "session-traces",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-traces-en.png"
+    },
+    {
       "id": "session-logs-zh-CN",
       "scenario": "session-logs",
       "locale": "zh-CN",
@@ -161,12 +297,28 @@
       "path": "assets/screenshots/session-logs-zh-CN.png"
     },
     {
+      "id": "session-logs-en",
+      "scenario": "session-logs",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-logs-en.png"
+    },
+    {
       "id": "im-connected-zh-CN",
       "scenario": "im-connected",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/im-connected-zh-CN.png"
+    },
+    {
+      "id": "im-connected-en",
+      "scenario": "im-connected",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/im-connected-en.png"
     }
   ]
 }

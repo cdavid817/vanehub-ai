@@ -1,4 +1,4 @@
-# Index workspace code
+# Code indexing
 
 Workspace code indexing lets OnePiece locate definitions and relevant code without repeatedly scanning every file. Open **Settings > Agent configurations > OnePiece**, configure an OpenAI-compatible embedding source, then use **Workspace code indexes**.
 

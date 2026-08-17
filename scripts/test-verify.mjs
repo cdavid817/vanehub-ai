@@ -22,7 +22,7 @@ export function repositoryVerificationCommands(npmCli) {
     npm([
       "exec",
       "--yes",
-      "--package=@fission-ai/openspec@1.6.0",
+      "--package=@fission-ai/openspec@1.8.0",
       "--",
       "openspec",
       "validate",
