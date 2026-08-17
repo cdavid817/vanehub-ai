@@ -34,12 +34,12 @@ are not suppressed by this change.
 - Playwright passed 137 tests, including futuristic/minimal and desktop/narrow
   visual variants. Linux native Desktop Smoke crossed the real Tauri IPC boundary
   and passed 1/1 scenarios; desktop harness unit tests passed 11/11.
-- Native platform status: Linux `PASSED`; Windows `NOT RUN`; macOS `NOT RUN`.
-  Only the Linux target is installed on this host, so no result is extrapolated.
-  A follow-up attempt installed the official `x86_64-pc-windows-msvc` Rust standard
-  library and started a dual-state cross-check, but the MSVC dependency graph stopped
-  in `ring` because this Linux host has no Visual Studio `lib.exe`. This is compile-host
-  evidence only and does not replace execution on `windows-latest`.
+- Native platform status: Linux `PASSED`; Windows `PASSED`; macOS `PASSED`.
+  Linux validation ran locally and again in CI. GitHub Actions run `32000007318`
+  passed native Desktop Smoke on all three platforms. Its `windows-latest` Native
+  Check also passed the native build plus both the declarative-only and
+  module-runtime hostile Skill Tool suites. These statuses are reported only for
+  the platforms that actually ran them.
 
 ## Rollout
 

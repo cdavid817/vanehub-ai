@@ -2767,6 +2767,24 @@
         "session-recovery",
         "session-runtime-management"
       ]
+    },
+    {
+      "archivedOn": "2026-08-17",
+      "changeName": "add-sandboxed-skill-tool-runtime",
+      "path": "openspec/changes/archive/2026-08-17-add-sandboxed-skill-tool-runtime/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-tool-execution",
+        "permissions-approval",
+        "permissions-core",
+        "settings-skill-management-ui",
+        "skill-management",
+        "skill-tool-runtime"
+      ]
     }
   ]
 }
