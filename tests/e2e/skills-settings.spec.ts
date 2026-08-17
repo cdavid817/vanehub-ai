@@ -157,6 +157,91 @@ test.describe("Skills management", () => {
     await expect(restoreButton).toBeFocused();
   });
 
+  test("inspects exact tool governance while Web keeps native actions unavailable", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
+    const skill = page.locator('article[data-skill-id="code-review"]');
+    await skill.getByRole("button", { name: /View details for/ }).click();
+    const inspector = page.getByRole("complementary", { name: /details/ });
+    await inspector.getByRole("tab", { name: "Tools" }).click();
+    const tool = inspector.locator('article[data-tool-revision]');
+    await expect(tool).toContainText("inspect-diff");
+    await expect(tool).toContainText("Inspection only; Web cannot execute local tools");
+    await expect(tool).toContainText("Redacted validation and runtime diagnostics");
+    await expect(tool.getByRole("button", { name: "Validate revision" })).toBeDisabled();
+    await expect(tool.getByRole("button", { name: "Trust revision" })).toBeDisabled();
+    await expect(tool.getByRole("button", { name: "Enable separately" })).toBeDisabled();
+    await expect(tool.getByRole("button", { name: "Quarantine" })).toBeDisabled();
+    await expect(tool).toContainText("Inspection data is read-only");
+    await expect(tool).toHaveAttribute("data-tool-revision", /^[a-f0-9]{64}$/);
+  });
+
+  test("governs a mocked native exact revision through trust, enablement, quarantine, and recovery", async ({ page }) => {
+    await page.addInitScript(() => {
+      const callbacks = new Map<number, (value: unknown) => void>();
+      let callbackId = 0;
+      const skill = {
+        id: "native-tools", scope: "global", workspacePath: null, source: "user", enabled: true,
+        skillDir: "/skills/native-tools", skillMdPath: "/skills/native-tools/SKILL.md", contentHash: "base-native",
+        metadata: { id: "native-tools", name: "Native Tool Skill", description: "Native governance fixture", category: "testing", version: "1.0.0", triggers: [] },
+        boundAgentIds: [], bindings: [], createdAt: "now", updatedAt: "now", layer: "user", origin: "created", trust: "trusted",
+        availability: "available", immutable: false, shadowedDefinitions: [], usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
+      };
+      let tool = {
+        skillId: skill.id, toolId: "inspect-native", canonicalId: "skill__native-tools__inspect-native__ffffffffffff", revision: "f".repeat(64),
+        sourceScope: "global", implementationKind: "declarative", baseRevision: "base-native", manifestHash: `sha256:${"a".repeat(64)}`,
+        implementationHash: `sha256:${"b".repeat(64)}`, capabilityDigest: "read-workspace",
+        capabilityDiff: { currentDigest: "read-workspace", added: ["filesystem.read"], removed: [], changed: true },
+        validation: "valid", trusted: false, enabled: false, quarantined: false, consecutiveFailures: 0, diagnostics: [], runtimeSupport: "supported",
+        enforcementStrength: "bounded-native-io", createdAt: "now", updatedAt: "now",
+      };
+      const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+      Object.assign(window, { __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => undefined }, __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
+        transformCallback: (callback: (value: unknown) => void) => { const id = ++callbackId; callbacks.set(id, callback); return id; },
+        unregisterCallback: (id: number) => callbacks.delete(id),
+        invoke: async (command: string) => {
+          if (command === "plugin:event|listen") return 1;
+          if (command === "plugin:event|unlisten") return null;
+          if (command === "get_settings") return { applicationLanguage: "en", fontSize: "14px", theme: "futuristic", defaultFolderPath: "", logDirectory: "", networkProxyUrl: "", networkProxyBypass: "", launchOnStartup: false, defaultPolicyTemplate: "standard", loggingPolicy: { retentionDays: 30, archiveEnabled: true, redactionEnabled: true, levels: ["error", "warn", "info"], canOpenDirectory: true }, customInstructionsAboutUser: "", customInstructionsStyleRules: "", customInstructionsEnabled: false, memoryEnabled: true, memoryToolAssistedChatsEnabled: false, automaticContextCompactionEnabled: true, contextQualityRetentionDays: 30 };
+          if (command === "get_skill_overview") return { skills: [skill], stats: { total: 1, enabled: 1, mounted: 0 }, agents: [], mountPaths: [], apiAgentBindings: {}, restoreCandidates: [], drift: { scope: "global", workspacePath: null, issues: [], driftHash: "clean" } };
+          if (command === "list_skill_tools") return [clone(tool)];
+          if (command === "load_skill") return { status: "refused", refusal: { reason: "unsupported" } };
+          if (command === "get_skill_overlay_detail") throw new Error("overlay unavailable in fixture");
+          if (command === "query_skill_evolution_evidence") throw new Error("evidence unavailable in fixture");
+          if (command === "set_skill_tool_trust") { tool = { ...tool, trusted: true, diagnostics: [{ severity: "info", code: "approval-provenance", detail: "settings-user · exact revision" }] }; return clone(tool); }
+          if (command === "set_skill_tool_enabled") { tool = { ...tool, enabled: true }; return clone(tool); }
+          if (command === "quarantine_skill_tool") { tool = { ...tool, enabled: false, quarantined: true, quarantineReason: "manual-security-review" }; return clone(tool); }
+          if (command === "recover_skill_tool") { tool = { ...tool, revision: "e".repeat(64), canonicalId: "skill__native-tools__inspect-native__eeeeeeeeeeee", trusted: false, enabled: false, quarantined: false, quarantineReason: undefined, validation: "pending", diagnostics: [] }; return clone(tool); }
+          throw new Error(`unsupported fixture command: ${command}`);
+        },
+      } });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
+    const skill = page.locator('article[data-skill-id="native-tools"]');
+    await skill.getByRole("button", { name: /View details for/ }).click();
+    const inspector = page.getByRole("complementary", { name: /details/ });
+    await inspector.getByRole("tab", { name: "Tools" }).click();
+    let tool = inspector.locator('article[data-tool-revision]');
+    await tool.getByRole("button", { name: "Trust revision" }).click();
+    await page.getByRole("dialog", { name: "Trust exact tool revision" }).getByRole("button", { name: "Trust this revision" }).click();
+    await expect(tool).toContainText("approval-provenance");
+    await expect(tool).toContainText("settings-user · exact revision");
+    await tool.getByRole("button", { name: "Enable separately" }).click();
+    await expect(tool).toContainText("Enabled");
+    await tool.getByRole("button", { name: "Quarantine" }).click();
+    await page.getByRole("dialog", { name: "Quarantine exact revision" }).getByRole("button", { name: "Quarantine revision" }).click();
+    await expect(tool).toContainText("manual-security-review");
+    await tool.getByRole("button", { name: "Recover after review" }).click();
+    tool = inspector.locator('article[data-tool-revision]');
+    await expect(tool).toHaveAttribute("data-tool-revision", "e".repeat(64));
+    await expect(tool).toContainText("Validation pending");
+    await expect(tool).toContainText("Untrusted");
+  });
+
   test("exposes Effective, Global, and Project Skill views in session information", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "New", exact: true }).click();

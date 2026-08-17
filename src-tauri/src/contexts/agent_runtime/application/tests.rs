@@ -2635,6 +2635,7 @@ fn execution_telemetry_preserves_task_agent_and_tool_topology() {
             input: None,
             output: None,
             status: status.to_string(),
+            skill_provenance: None,
         }))
         .expect("tool lifecycle");
     }
@@ -2956,6 +2957,7 @@ fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
                 input: None,
                 output: None,
                 status: status.to_string(),
+                skill_provenance: None,
             },
         })
     };
@@ -3104,6 +3106,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
         input: Some(serde_json::json!({"path":"README.md"})),
         output: None,
         status: "running".to_string(),
+        skill_provenance: None,
     }))
     .expect("tool");
     sink.handle(GenerationProcessEvent::RichBlock(

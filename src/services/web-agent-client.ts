@@ -141,6 +141,7 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type { SkillToolOwnerInput, SkillToolRevision } from "../types/skill-tools";
 import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
 import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
 import {
@@ -649,6 +650,41 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
     },
   };
 });
+
+const webSkillToolInspection: SkillToolRevision[] = [
+  {
+    skillId: "code-review",
+    toolId: "inspect-diff",
+    canonicalId: `skill__code-review__inspect-diff__${"f".repeat(12)}`,
+    revision: "f".repeat(64),
+    sourceScope: "global",
+    implementationKind: "declarative",
+    baseRevision: "web-inspection-only",
+    manifestHash: `sha256:${"a".repeat(64)}`,
+    implementationHash: `sha256:${"b".repeat(64)}`,
+    capabilityDigest: "web-inspection-only",
+    validation: "valid",
+    trusted: false,
+    enabled: false,
+    quarantined: false,
+    consecutiveFailures: 0,
+    diagnostics: [],
+    runtimeSupport: "unsupported-web-runtime",
+    enforcementStrength: "bounded-native-io",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  },
+];
+
+function webSkillToolUnsupported(): never {
+  throw new Error("unsupported-web-runtime");
+}
+
+function webSkillToolByRevision(revision: string): SkillToolRevision {
+  const tool = webSkillToolInspection.find((candidate) => candidate.revision === revision);
+  if (!tool) throw new Error("skill-tool-not-found");
+  return structuredClone(tool);
+}
 
 webSkills.push({
   ...webSkills[0],
@@ -4878,6 +4914,41 @@ export const webAgentClient: AgentService = {
       drift: await this.detectSkillDrift(input),
       restoreCandidates: input.scope === "global" ? [...deletedBuiltinSkillIds].sort() : [],
     };
+  },
+
+  async listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]> {
+    return webSkillToolInspection
+      .filter(
+        (tool) =>
+          tool.skillId === input.skillId &&
+          tool.sourceScope === input.scope &&
+          (tool.workspacePath ?? null) === (input.workspacePath ?? null),
+      )
+      .map((tool) => structuredClone(tool));
+  },
+
+  async validateSkillToolRevision() {
+    return webSkillToolUnsupported();
+  },
+
+  async setSkillToolTrust() {
+    return webSkillToolUnsupported();
+  },
+
+  async setSkillToolEnabled() {
+    return webSkillToolUnsupported();
+  },
+
+  async quarantineSkillTool() {
+    return webSkillToolUnsupported();
+  },
+
+  async recoverSkillTool() {
+    return webSkillToolUnsupported();
+  },
+
+  async getSkillToolDiagnostics(input) {
+    return webSkillToolByRevision(input.revision);
   },
 
   async listSkillMountPaths() {

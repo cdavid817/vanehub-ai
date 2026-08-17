@@ -8,6 +8,7 @@ fn call(name: &str, input: Value) -> ToolUseBlock {
         input: Some(input),
         output: None,
         status: "pending".to_owned(),
+        skill_provenance: None,
     }
 }
 

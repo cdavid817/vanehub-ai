@@ -236,6 +236,13 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::sdk::get_sdk_operation_logs::get_sdk_operation_logs,
         // Tooling: Skills
         crate::commands::tooling::skills::list_skills::list_skills,
+        crate::commands::tooling::skills::list_skill_tools::list_skill_tools,
+        crate::commands::tooling::skills::validate_skill_tool_revision::validate_skill_tool_revision,
+        crate::commands::tooling::skills::set_skill_tool_trust::set_skill_tool_trust,
+        crate::commands::tooling::skills::set_skill_tool_enabled::set_skill_tool_enabled,
+        crate::commands::tooling::skills::quarantine_skill_tool::quarantine_skill_tool,
+        crate::commands::tooling::skills::recover_skill_tool::recover_skill_tool,
+        crate::commands::tooling::skills::get_skill_tool_diagnostics::get_skill_tool_diagnostics,
         crate::commands::tooling::skills::load_skill::load_skill,
         crate::commands::tooling::skills::read_skill_resource::read_skill_resource,
         crate::commands::tooling::skills::list_skill_mount_paths::list_skill_mount_paths,

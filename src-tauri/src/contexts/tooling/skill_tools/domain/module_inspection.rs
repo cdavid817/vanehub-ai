@@ -20,6 +20,7 @@ const WASM_PAGE_BYTES: u64 = 64 * 1024;
 /// through one structured host call, so an import from `wasi_snapshot_preview1` or any other
 /// module is refused by name rather than by trying to reason about which of its functions are safe.
 pub(crate) const HOST_IMPORT_MODULE: &str = "vanehub";
+pub(crate) const HOST_IMPORT_FUNCTION: &str = "host_call";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleInspectionError {
@@ -98,7 +99,7 @@ pub(crate) fn inspect_module(
                     // decision is made on the name, not on what the import claims to be.
                     let _kind = section.byte()?;
                     section.leb128()?;
-                    if module != HOST_IMPORT_MODULE {
+                    if module != HOST_IMPORT_MODULE || name != HOST_IMPORT_FUNCTION {
                         return Err(ModuleInspectionError::ForbiddenImport { module, name });
                     }
                     inspection.imports.push(format!("{module}::{name}"));
@@ -287,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_single_host_import_module_is_allowed() {
+    fn only_the_single_structured_host_import_is_allowed() {
         let mut allowed = header();
         allowed.extend(import_section(&[(HOST_IMPORT_MODULE, "host_call")]));
         allowed.extend(export_section(&[("run", 0)]));
@@ -310,6 +311,16 @@ mod tests {
                 })
             );
         }
+        let mut wrong_function = header();
+        wrong_function.extend(import_section(&[(
+            HOST_IMPORT_MODULE,
+            "host_call_unchecked",
+        )]));
+        wrong_function.extend(export_section(&[("run", 0)]));
+        assert!(matches!(
+            inspect_module(&wrong_function, "run", &DEFAULT_SKILL_TOOL_LIMITS),
+            Err(ModuleInspectionError::ForbiddenImport { .. })
+        ));
     }
 
     #[test]

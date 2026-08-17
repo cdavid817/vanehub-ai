@@ -1029,6 +1029,7 @@ fn normalize_provider_tool(tool: ProviderToolEvent, sequence: u64) -> ToolLifecy
             input: tool.input,
             output: tool.output,
             status: tool.status,
+            skill_provenance: None,
         },
     }
 }

@@ -32,6 +32,8 @@ pub(crate) enum SkillToolApplicationError {
     /// content from two revisions into one witness.
     StaleRevision,
     ModuleRuntimeUnavailable,
+    HostDenied(String),
+    ResourceLimit(String),
     NotFound(String),
     Storage(String),
     Filesystem(String),
@@ -50,6 +52,8 @@ impl SkillToolApplicationError {
             Self::MissingImplementationFile(_) => "missing-implementation-file",
             Self::StaleRevision => "stale-revision",
             Self::ModuleRuntimeUnavailable => "module-runtime-unavailable",
+            Self::HostDenied(_) => "host-denied",
+            Self::ResourceLimit(_) => "resource-limit",
             Self::NotFound(_) => "not-found",
             Self::Storage(_) => "storage",
             Self::Filesystem(_) => "filesystem",
@@ -63,7 +67,11 @@ impl SkillToolApplicationError {
     pub(crate) fn is_content_failure(&self) -> bool {
         !matches!(
             self,
-            Self::Storage(_) | Self::Filesystem(_) | Self::StaleRevision
+            Self::Storage(_)
+                | Self::Filesystem(_)
+                | Self::StaleRevision
+                | Self::HostDenied(_)
+                | Self::ResourceLimit(_)
         )
     }
 }

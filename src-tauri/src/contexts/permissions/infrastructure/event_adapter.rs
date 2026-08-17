@@ -89,6 +89,7 @@ mod tests {
             action: Action::shell_exec(),
             resource: Resource::workspace(),
             risk_level: RiskLevel::L2,
+            skill: None,
             created_at: "2026-08-05T00:00:00Z".to_string(),
         };
         let value = serde_json::to_value(pending_approval_event(&request)).expect("serialize");

@@ -589,6 +589,14 @@ fn tool_use_value(tool_use: &ToolUseBlock) -> Value {
         "input": tool_use.input,
         "output": tool_use.output,
         "status": tool_use.status,
+        "skillProvenance": tool_use.skill_provenance.as_ref().map(|provenance| json!({
+            "skillId": provenance.skill_id,
+            "toolId": provenance.tool_id,
+            "revision": provenance.revision,
+            "sourceScope": provenance.source_scope,
+            "workspacePath": provenance.workspace_path,
+            "redactedResultSummary": provenance.redacted_result_summary,
+        })),
     })
 }
 
@@ -602,6 +610,27 @@ fn tool_use_from_value(value: Value) -> Option<ToolUseBlock> {
             .filter(|value| !value.is_null())
             .cloned(),
         status: value.get("status")?.as_str()?.to_string(),
+        skill_provenance: value.get("skillProvenance").and_then(|value| {
+            if value.is_null() {
+                return None;
+            }
+            Some(
+                crate::contexts::agent_runtime::application::SkillToolUseProvenance {
+                    skill_id: value.get("skillId")?.as_str()?.to_string(),
+                    tool_id: value.get("toolId")?.as_str()?.to_string(),
+                    revision: value.get("revision")?.as_str()?.to_string(),
+                    source_scope: value.get("sourceScope")?.as_str()?.to_string(),
+                    workspace_path: value
+                        .get("workspacePath")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    redacted_result_summary: value
+                        .get("redactedResultSummary")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                },
+            )
+        }),
     })
 }
 
@@ -768,5 +797,39 @@ fn session_error(error: SessionsError) -> AgentRuntimeApplicationError {
         | SessionsError::Serialization(message)
         | SessionsError::Workspace(message)
         | SessionsError::Runtime(message) => AgentRuntimeApplicationError::Session(message),
+    }
+}
+
+#[cfg(test)]
+mod skill_tool_provenance_tests {
+    use super::{tool_use_from_value, tool_use_value};
+    use crate::contexts::agent_runtime::application::{SkillToolUseProvenance, ToolUseBlock};
+    use serde_json::json;
+
+    #[test]
+    fn completed_message_round_trips_redacted_skill_tool_provenance() {
+        let tool_use = ToolUseBlock {
+            id: "call-1".to_string(),
+            name: "skill__review__check__aaaaaaaaaaaa".to_string(),
+            input: Some(json!({"secret": "must-not-enter-summary"})),
+            output: Some(json!({"private": "must-not-enter-summary"})),
+            status: "completed".to_string(),
+            skill_provenance: Some(SkillToolUseProvenance {
+                skill_id: "review".to_string(),
+                tool_id: "check".to_string(),
+                revision: "a".repeat(64),
+                source_scope: "global".to_string(),
+                workspace_path: None,
+                redacted_result_summary: Some("completed".to_string()),
+            }),
+        };
+        let persisted = tool_use_value(&tool_use);
+        let restored = tool_use_from_value(persisted.clone()).expect("persisted tool use");
+        assert_eq!(restored, tool_use);
+        let summary = persisted["skillProvenance"]["redactedResultSummary"]
+            .as_str()
+            .expect("summary");
+        assert_eq!(summary, "completed");
+        assert!(!summary.contains("must-not-enter-summary"));
     }
 }

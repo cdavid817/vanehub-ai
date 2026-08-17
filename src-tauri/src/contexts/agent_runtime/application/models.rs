@@ -397,12 +397,23 @@ pub(crate) struct AgentFileReference {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SkillToolUseProvenance {
+    pub(crate) skill_id: String,
+    pub(crate) tool_id: String,
+    pub(crate) revision: String,
+    pub(crate) source_scope: String,
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) redacted_result_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ToolUseBlock {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) input: Option<Value>,
     pub(crate) output: Option<Value>,
     pub(crate) status: String,
+    pub(crate) skill_provenance: Option<SkillToolUseProvenance>,
 }
 
 /// A tool the native tool-use loop can declare to a provider. Provider-agnostic — each wire
@@ -811,6 +822,7 @@ pub(crate) enum ToolLifecyclePhase {
     Updated,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -917,7 +929,7 @@ pub(crate) enum AgentEvent {
     MessageToolUse {
         session_id: String,
         message_id: String,
-        tool_use: ToolUseBlock,
+        tool_use: Box<ToolUseBlock>,
     },
     MessageRichBlock {
         session_id: String,

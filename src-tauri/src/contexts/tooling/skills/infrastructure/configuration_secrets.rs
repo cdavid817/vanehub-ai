@@ -146,6 +146,24 @@ impl<S: SkillSecretStore> SkillConfigurationSecrets<S> {
     }
 }
 
+impl<S: SkillSecretStore> crate::contexts::tooling::skills::api::SkillSecretReadPort
+    for SkillConfigurationSecrets<S>
+{
+    fn read_secret(
+        &self,
+        record_id: &str,
+        property_key: &str,
+    ) -> Result<Option<Zeroizing<String>>, crate::contexts::tooling::skills::api::SkillError> {
+        self.store
+            .read(&secret_alias(record_id, property_key))
+            .map_err(|_| {
+                crate::contexts::tooling::skills::api::SkillError::Repository(
+                    "Skill credential is unavailable".to_string(),
+                )
+            })
+    }
+}
+
 impl<S: SkillSecretStore> StagedSecrets<'_, S> {
     /// Property names whose credential is present after this save. Used to write the record's
     /// secret-presence metadata; it is names only, never values or aliases.

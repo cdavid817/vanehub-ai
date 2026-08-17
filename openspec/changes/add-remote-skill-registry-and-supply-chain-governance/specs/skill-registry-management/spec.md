@@ -72,7 +72,7 @@ Before installation, the system SHALL verify the selected package against author
 - **THEN** installation records their presence and hashes but does not grant executable-tool trust or operational permission
 
 ### Requirement: Explicit installation preview and atomic install
-The system SHALL present exact source, publisher, Skill id, selected version, hashes, size, compatibility, content categories, schema/tool changes, risk, and effective-layer impact before install, update, downgrade, or rollback. A confirmed operation SHALL validate again and atomically publish an immutable Registry-layer snapshot plus matching database state; failure MUST preserve the prior installed/effective revision.
+The system SHALL present exact source, publisher, Skill id, selected version, hashes, size, compatibility, content categories, schema/tool changes, normalized requested permissions, version-to-version permission diff, risk, and effective-layer impact before install, update, downgrade, or rollback. A confirmed operation SHALL validate again and atomically publish an immutable Registry-layer snapshot plus matching database state; failure MUST preserve the prior installed/effective revision.
 
 #### Scenario: Install a verified package
 - **WHEN** the user confirms a compatible verified version and final verification succeeds
@@ -86,6 +86,10 @@ The system SHALL present exact source, publisher, Skill id, selected version, ha
 - **WHEN** an installed Registry Skill id is already supplied by Project or User layer
 - **THEN** the preview and result identify it as installed but shadowed without replacing the higher-priority package
 
+#### Scenario: Update expands requested authority
+- **WHEN** a new version adds a filesystem write scope, process command, network origin, secret capability, or higher resource request
+- **THEN** the update is not installed until the expanded authority is explicitly displayed and confirmed against a fresh immutable preview witness
+
 ### Requirement: Controlled update, downgrade, rollback, and uninstall
 The system SHALL check for compatible updates in the background without downloading package bodies or installing them automatically. Update, downgrade, rollback, and uninstall SHALL require explicit action and preserve immutable prior snapshots according to a bounded rollback policy. Version selection MUST NOT cross a publisher namespace or stable Skill identity silently.
 
@@ -96,6 +100,10 @@ The system SHALL check for compatible updates in the background without download
 #### Scenario: Update validation fails
 - **WHEN** a confirmed update package fails verification or package validation
 - **THEN** the existing installed revision remains active and no trust state is inherited by the rejected revision
+
+#### Scenario: Background check finds a permission expansion
+- **WHEN** metadata advertises an otherwise compatible version with broader requested authority
+- **THEN** the system marks review required and does not download or install the version silently
 
 #### Scenario: User rolls back
 - **WHEN** a retained prior snapshot remains verified under current non-revoked metadata
@@ -140,4 +148,3 @@ Source changes, metadata refresh and verification, catalog use, previews, downlo
 #### Scenario: Authenticated refresh fails
 - **WHEN** a registry request fails with credentials configured
 - **THEN** diagnostics contain the source id, operation, redacted origin, status class, and error code without credentials, tokens, response bodies, or sensitive query values
-

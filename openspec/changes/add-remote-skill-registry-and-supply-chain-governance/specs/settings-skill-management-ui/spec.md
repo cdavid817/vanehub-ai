@@ -19,11 +19,15 @@ The page SHALL let users add, inspect, enable/disable, refresh, repair authentic
 - **THEN** a confirmation surface shows independently supplied root fingerprints and warns that endpoint content cannot establish its own trust
 
 ### Requirement: Install and version-change preview
-Before install, update, downgrade, or rollback, the UI SHALL show exact source/publisher/package/Skill/version, hashes, download/expanded size, compatibility, effective shadowing impact, configuration/tool/resource changes, trust consequences, risk/revocation state, retained rollback state, and requested action. Confirmation SHALL be bound to the immutable preview witness.
+Before install, update, downgrade, or rollback, the UI SHALL show exact source/publisher/package/Skill/version, hashes, download/expanded size, compatibility, effective shadowing impact, configuration/tool/resource changes, normalized filesystem/process/network/secret permissions, authority additions/removals, trust consequences, risk/revocation state, retained rollback state, and requested action. Confirmation SHALL be bound to the immutable preview witness.
 
 #### Scenario: Metadata changes after preview
 - **WHEN** source metadata, selected target, or installed state changes before confirmation executes
 - **THEN** the operation is rejected as stale and the UI requires a refreshed preview
+
+#### Scenario: Update requests broader permissions
+- **WHEN** the selected update expands any requested authority
+- **THEN** the UI identifies each expansion separately and requires a fresh explicit confirmation without reusing the prior version's approval
 
 ### Requirement: Operation progress and recovery
 Registry refresh, download, validation, installation, update, rollback, uninstall, cache cleanup, and recovery SHALL expose cancellable bounded progress, redacted logs, final state, and actionable failure without blocking settings navigation.
@@ -52,4 +56,3 @@ Catalog cards, source controls, previews, provenance, progress, revocation warni
 #### Scenario: Install preview on narrow viewport
 - **WHEN** the preview is opened at the supported narrow breakpoint
 - **THEN** identity, security evidence, compatibility, changes, warning, and confirmation controls remain readable and operable
-

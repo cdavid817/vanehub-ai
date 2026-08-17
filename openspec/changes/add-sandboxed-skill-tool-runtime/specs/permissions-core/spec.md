@@ -29,3 +29,20 @@ Permission evaluation SHALL preserve the complete bounded delegation chain and S
 - **WHEN** a Skill tool invocation would re-enter an ancestor tool in its delegation chain
 - **THEN** the system rejects the call before further execution
 
+### Requirement: Versioned Skill permission manifest
+Every Skill-contributed tool SHALL declare requested host authority through a supported, normalized permission manifest containing separate filesystem read and write scopes, network origins, structured process commands, secret capability ids, and resource ceilings. The manifest SHALL be treated as an upper bound and MUST NOT create a grant, approval, or trust decision.
+
+#### Scenario: Manifest requests workspace write access
+- **WHEN** a tool declares write access to `workspace/src/**`
+- **THEN** only a concrete canonical target matching that scope can proceed to independent permission evaluation
+
+#### Scenario: Manifest contains an unsupported authority form
+- **WHEN** a manifest contains an absolute path, parent traversal, shell command string, wildcard host, unknown secret id, unknown field, or unsupported version
+- **THEN** validation fails closed before the tool becomes eligible
+
+### Requirement: Provenance trust and authorization remain independent
+The system SHALL classify Skill provenance as Built-in, Verified, Community, Local, or Untrusted and MAY use that classification to select a default policy. Provenance, package signature, checksum, or executable trust MUST NOT grant operational permission or reusable approval.
+
+#### Scenario: Verified package requests a protected action
+- **WHEN** a signature-verified Skill tool requests a protected filesystem, process, network, or secret action
+- **THEN** the action receives the same concrete policy and approval evaluation required for an otherwise equivalent unverified principal

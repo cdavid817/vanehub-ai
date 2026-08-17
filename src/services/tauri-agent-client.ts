@@ -114,6 +114,14 @@ import type {
   SkillUpdateInput,
 } from "../types/skill";
 import type {
+  SkillToolEnablementInput,
+  SkillToolOwnerInput,
+  SkillToolQuarantineInput,
+  SkillToolRevision,
+  SkillToolRevisionInput,
+  SkillToolTrustInput,
+} from "../types/skill-tools";
+import type {
   SkillOverlayDetail,
   SkillOverlayHistoryPage,
   SkillOverlayImportReview,
@@ -962,6 +970,34 @@ export const tauriAgentClient: AgentService = {
 
   getSkillOverview(input: SkillScopeInput) {
     return invoke<SkillOverview>("get_skill_overview", { input });
+  },
+
+  listSkillTools(input: SkillToolOwnerInput) {
+    return invoke<SkillToolRevision[]>("list_skill_tools", { input });
+  },
+
+  validateSkillToolRevision(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("validate_skill_tool_revision", { input });
+  },
+
+  setSkillToolTrust(input: SkillToolTrustInput) {
+    return invoke<SkillToolRevision>("set_skill_tool_trust", { input });
+  },
+
+  setSkillToolEnabled(input: SkillToolEnablementInput) {
+    return invoke<SkillToolRevision>("set_skill_tool_enabled", { input });
+  },
+
+  quarantineSkillTool(input: SkillToolQuarantineInput) {
+    return invoke<SkillToolRevision>("quarantine_skill_tool", { input });
+  },
+
+  recoverSkillTool(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("recover_skill_tool", { input });
+  },
+
+  getSkillToolDiagnostics(input: SkillToolRevisionInput) {
+    return invoke<SkillToolRevision>("get_skill_tool_diagnostics", { input });
   },
 
   bindSkillToCliAgent(skillId: string, input: SkillScopeInput, agentId: string) {
