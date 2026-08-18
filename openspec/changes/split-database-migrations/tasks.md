@@ -17,17 +17,17 @@
 ## 3. Move the inline bodies and tests
 
 - [x] 3.1 Move the 24 local `fn apply_*(conn: &Connection)` migration bodies to `migrations/inline_schema.rs` verbatim, re-exporting or importing them into `mod.rs` so the `migrate()` call sites are unchanged
-      — the actual census is **25** named local bodies, not 24; `mod.rs` imports them by name so every `migrate()` call site is textually unchanged
+      — the design guessed 24 local bodies and 56 delegating migrations. The measured census of the 79 is **25** named local `apply_*` bodies, **51** migrations delegating directly to a context-owned `apply_schema`, and **3** inline closures (versions 25 and 44 each delegate to two contexts; version 54 is inline SQL). All 25 named bodies moved; `mod.rs` imports them by name so every `migrate()` call site is textually unchanged. The decision the design drew from its estimate is unaffected — a file per migration would still have produced 51 one-line files
 - [x] 3.2 Move the inline `mod tests` (lines 1425-2301) to `migrations/tests.rs`, declared as `#[cfg(test)] mod tests;`
 - [x] 3.3 Confirm the 56 delegating calls to context-owned `apply_schema` functions are untouched
-      — `migrate()` still issues exactly 79 `apply_migration`/`apply_transactional_migration` calls and 54 `crate::contexts::` references, byte-identical to the original
+      — 51 delegating calls, not 56 (see 3.1). `migrate()` still issues exactly 79 `apply_migration`/`apply_transactional_migration` calls and 54 `crate::contexts::` references — 51 direct delegations plus the 3 inside the two multi-context closures — byte-identical to the original
 - [x] 3.4 Confirm no migration body's SQL text changed, by diffing the moved bodies against the originals
       — all 25 bodies compared line-by-line against the pre-split file: identical except the `pub(super)` prefix and the one `super::super::` depth fix. `migrate()`, `EXPECTED_MIGRATIONS`, and the two application helpers are byte-identical; `tests.rs` is the inline module dedented one level, with two calls reflowed by rustfmt as a result
 
 ## 4. Prove the upgrade path did not move
 
-- [x] 4.1 `migration_sequence_is_dense_and_matches_expected` passes — this is the guard that a migration was not dropped or renumbered
-      — the guard ships under the name `migration_sequence_matches_expected` (plus the runtime `assert_migration_history_is_dense`, covered by `density_check_rejects_a_missing_migration_row`); both pass, and `EXPECTED_MIGRATIONS` still holds exactly 79 entries against 79 `apply_migration`/`apply_transactional_migration` calls
+- [x] 4.1 `migration_sequence_matches_expected` passes — this is the guard that a migration was not dropped or renumbered
+      — the earlier drafts of this change called it `migration_sequence_is_dense_and_matches_expected`, a name no test has ever had; it was copied out of the `EXPECTED_MIGRATIONS` doc comment, which was itself wrong. There is no single density-and-match test. `migration_sequence_matches_expected` compares the registry against the `(version, name)` rows a fresh `migrate()` records; density is enforced separately by the runtime `assert_migration_history_is_dense`, covered in tests by `density_check_rejects_a_missing_migration_row`. All three pass, and `EXPECTED_MIGRATIONS` still holds exactly 79 entries against 79 `apply_migration`/`apply_transactional_migration` calls
 - [x] 4.2 The migration fixture tests replaying versions 1 through 79 pass unchanged
       — all 13 `migration_fixture_tests::*` pass, including `empty_fixture_migrates_to_latest_schema`, `legacy_v1_fixture_upgrades_without_losing_records`, and `runner_projection_migration_preserves_legacy_runtime_evidence_and_local_rollback`
 - [x] 4.3 Re-check all six version assertions from 1.2 still read `79` — this change adds no migration, so any change to them is a defect

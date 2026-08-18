@@ -513,8 +513,8 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
 /// surfaces at startup instead of as an opaque "no such table" crash. This has already
 /// happened across shared local databases (every worktree shares one `ai.vanehub.app`
 /// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
-/// calls in `migrate` — the `migration_sequence_is_dense_and_matches_expected` test guards
-/// against drift.
+/// calls in `migrate` — the `migration_sequence_matches_expected` test guards against drift,
+/// and `assert_migration_history_is_dense` rejects a gapped history at startup.
 const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),

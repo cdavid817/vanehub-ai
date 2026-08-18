@@ -7,7 +7,7 @@ The number that makes this urgent is not the line count but the collision surfac
 ## What Changes
 
 - Convert `migrations.rs` into a directory module `migrations/`, one file per migration, with `mod.rs` retaining `EXPECTED_MIGRATIONS`, `migrate()`, and the existing density verification.
-- Keep `EXPECTED_MIGRATIONS` and the `migration_sequence_is_dense_and_matches_expected` test exactly as the single source of truth. **The optimization ticket proposed adding a registry and a density-and-duplication test; both already exist** — this change preserves them rather than duplicating them.
+- Keep `EXPECTED_MIGRATIONS`, the `migration_sequence_matches_expected` test that guards it, and the runtime `assert_migration_history_is_dense` exactly as the single source of truth. **The optimization ticket proposed adding a registry and a density-and-duplication test; both already exist** — this change preserves them rather than duplicating them.
 - Preserve every one of the six hard-coded `79` version assertions spread across three files, none of which the compiler or clippy can see.
 - **No schema, migration order, migration content, or upgrade-path change.** The migration a database at version N applies to reach N+1 is byte-identical before and after.
 
