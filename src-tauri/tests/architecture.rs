@@ -2107,15 +2107,19 @@ struct SubtreeBudget {
 }
 
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
-    // 978 of these lines are `execute_with_code_intelligence`, one function that
-    // `split-api-adapter-modules` moved without decomposing: finding seams in live tool-dispatch
-    // control flow is its own change with its own risk budget, not something to bury in a
-    // relocation. This entry retires when that function does.
+    // Lowered from 1,166 by `decompose-api-tool-use-loop`, which took six seams out of
+    // `execute_with_code_intelligence` and dropped it from 978 lines to 621. What is left is the
+    // tool-use loop itself plus the two helpers only it has — the SSE round and the tool-outcome
+    // tail. Four further seams were available on a line count and refused: the non-success HTTP
+    // handler (its recovery `continue` silently consumes a round trip), the per-tool-call dispatch
+    // chain (seven branches ending in `continue`, two mutating the image counter), the remaining
+    // setup bindings (no boundary, just position), and the two 27-line `maybe_compact_accounted`
+    // calls (no reduction, only indirection). See that change's design.md.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
-        budget: 1_166,
-        owner: "split-api-adapter-modules",
+        budget: 955,
+        owner: "decompose-api-tool-use-loop",
     },
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
@@ -2162,10 +2166,24 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // No item body was duplicated or edited: the top-level item multiset is identical before and
     // after, 84 of the 138 moved items are byte-identical to their pre-split text, 52 differ only
     // by an added `pub(super)`, and the last 2 are the rustfmt rewraps above.
+    // Raised from 58,357 by `decompose-api-tool-use-loop`. Unlike the split that set the previous
+    // figure, this one is not a pure move, and the +648 says so:
+    //
+    // +382 is the six characterization tests and the `RejectingSink` they need, written against
+    // the un-split function so each seam had coverage before it was cut — `CapturingSink` never
+    // fails, `Effect::Deny` and `ApprovalOutcome::Answered(_)` had no test, and no test in the
+    // suite had ever set `endpoint_profile: Some(..)`. The diff on `tests.rs` is additions only.
+    //
+    // +266 is production, and none of it is a duplicated body: 132 lines of doc comments,
+    // `#[allow]` attributes and parameter lists across eleven new declarations; 17 lines of struct
+    // and enum bodies for the three result types the seams return; 16 for `endpoint.rs`'s module
+    // doc and import block; 7 net new `use` lines in the three existing modules that gained a
+    // helper; and 94 of caller-side `match`/destructure scaffolding at eight call sites, already
+    // net of the 40 lines saved by de-duplicating the five copies of the tool-outcome tail.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 58_357,
-        owner: "split-api-adapter-modules",
+        budget: 59_005,
+        owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`

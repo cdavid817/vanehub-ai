@@ -79,8 +79,8 @@ here so a reviewer knows to read that one closely.
 | 4 | `resolve_image_support` — image-input capability from profile, metadata, or catalog | 384-400 | `endpoint.rs` | none | every `execute()` test (the catalog fallback branch); the profile and metadata branches by the new endpoint-profile test |
 | 5 | `analyze_round_context` — request projection into a `ContextSnapshot` | 430-455 | `invocation.rs` | none | the new endpoint-profile test, which reaches the overflow guard only through this snapshot |
 | 6 | `stream_round` — the SSE read loop | 525-613 | stays in `execution.rs` | 5 × `return <event>` | `execute_skips_the_approval_prompt_for_an_allowed_shell_call`, `execute_returns_mcp_failure_...`, `execute_stops_tool_loop_immediately_when_mcp_call_cancels_generation`, **new** `a_rejected_token_event_fails_the_generation_retryably` |
-| 7 | `record_tool_outcome` — the status/output/emit/push tail, duplicated at five call sites | 5 sites | stays in `execution.rs` | 1 × `return <event>` | `execute_skips_the_approval_prompt_for_an_allowed_shell_call`, `execute_returns_mcp_failure_and_continues_generation`, `remember_tool_call_is_rejected_without_persisting_when_memory_is_disabled`, **new** `a_rejected_completed_tool_use_event_fails_the_generation_retryably` |
-| 8 | `authorize_tool_call` — the permission gate and approval wait | 871-953 | `interactive.rs` | 3 × `continue`, 3 × `return <event>` | `execute_skips_the_approval_prompt_for_an_allowed_shell_call` (Allow), `execute_returns_mcp_failure_...` (Ask→Approved), `execute_denied_mcp_call_...` (Ask→Denied), `execute_stops_tool_loop_immediately_...` (Cancelled), **new** `a_policy_denied_tool_call_returns_denial_data_without_executing` (Deny), **new** `an_answer_delivered_to_an_approval_wait_is_treated_as_a_denial` (Answered) |
+| 7 | `record_tool_outcome` — the status/output/emit/push tail, duplicated at five call sites | 5 sites | stays in `execution.rs` | 1 × `return <event>` | `execute_skips_the_approval_prompt_for_an_allowed_shell_call`, `execute_returns_mcp_failure_as_tool_data_and_continues_generation`, `remember_tool_call_is_rejected_without_persisting_when_memory_is_disabled`, **new** `a_rejected_completed_tool_use_event_fails_the_generation_retryably` |
+| 8 | `authorize_tool_call` — the permission gate and approval wait | 871-953 | `interactive.rs` | 3 × `continue`, 3 × `return <event>` | `execute_skips_the_approval_prompt_for_an_allowed_shell_call` (Allow), `execute_returns_mcp_failure_...` (Ask→Approved), `execute_denied_mcp_call_...` (Ask→Denied), `execute_stops_tool_loop_immediately_...` (Cancelled), **new** `a_policy_denied_tool_call_returns_denial_data_without_executing` (Deny), **new** `an_answer_delivered_to_an_approval_wait_is_treated_as_a_denial` (Answered), **new** `a_rejected_awaiting_approval_event_fails_the_generation_retryably` (the prompt's own sink exit) |
 
 Seams 6 and 7 stay in `execution.rs` because the tool-use loop is the only thing that has them; the
 module's own doc comment is "the tool-use loop and the skill-tool dispatch it drives". Moving them
@@ -113,7 +113,7 @@ the key map, and nothing documents that this is irrelevant.
 
 ### Coverage established before the cut
 
-Four behaviours a seam touches have no test today. Each gets a characterization test written and
+Four behaviours a seam touches have no test today. They get six characterization tests, written and
 confirmed green **against the un-split function**, in a commit that precedes the extraction:
 
 - **No test constructs `endpoint_profile: Some(..)`.** `sample_request` sets it to `None`, and
@@ -181,9 +181,32 @@ would have been abandoned instead.
 - **The subtree budget rises** → it will: new tests, one new module, eight signatures and eight call
   sites. Each component is counted and stated when the budget is raised, so a number that does not
   add up is visible rather than absorbed.
-- **The function is still large afterwards** → yes. It goes from 978 lines to roughly 580. Four
-  further seams were available on a line count and refused on the reasons above. A 580-line function
-  that behaves identically is the better outcome.
+- **The function is still large afterwards** → yes. It goes from 978 lines to 621. Four further
+  seams were available on a line count and refused on the reasons above. A 621-line function that
+  behaves identically is the better outcome.
+
+## Residual after implementation
+
+`execute_with_code_intelligence` is 621 lines, down from 978. `execution.rs` is 955, down from
+1,166. Six seams landed; the four declined above stayed declined, and nothing needed to be
+abandoned mid-implementation.
+
+Two text changes fall outside "the exit rewrite, the receiver rename, and indentation" and are
+recorded here rather than left for a reader to find:
+
+- `resolve_generation_tool_catalog`'s inline comment said the retrieval probe matched "how
+  `plan_mode` itself is derived just above". `plan_mode` is now a parameter, so the sentence would
+  have been false; it reads "derived at the call site".
+- The five copies of the tool-outcome tail were not quite identical: four spelled the status
+  `"failed".to_owned()` and the fifth `"failed".to_string()`. `record_tool_outcome` uses
+  `to_owned()`. Both produce the same `String` from the same `&'static str`.
+
+Four `#[allow]` attributes were needed, all for `GenerationProcessEvent`'s 440-byte size:
+`clippy::result_large_err` on the three seams returning `Result<_, GenerationProcessEvent>` — the
+same allowance `ask_user_question`, `request_plan_exit` and `execute_registered_native_tool`
+already carry in this module — and `clippy::large_enum_variant` on `ToolAuthorization`. Boxing was
+rejected: it would have been the only heap allocation this change introduced, on paths whose whole
+job is to hand an event back unchanged.
 
 ## Migration Plan
 
