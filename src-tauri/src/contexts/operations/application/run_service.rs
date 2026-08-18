@@ -1,7 +1,7 @@
 use super::{ApplicationError, OperationIdGenerator};
 use crate::contexts::operations::domain::{
-    AgentRun, RunCreation, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunState, RunTransition,
-    RunTrigger,
+    AgentRun, RunCreation, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunState,
+    RunTransition, RunTrigger,
 };
 use std::sync::Arc;
 
@@ -86,6 +86,8 @@ pub(crate) struct CreateAgentRun {
     pub(crate) links: Vec<RunLink>,
     pub(crate) parent_run_id: Option<String>,
     pub(crate) recovery_policy: RunRecoveryPolicy,
+    #[serde(default)]
+    pub(crate) runner: Option<RunRunner>,
     pub(crate) max_retries: u32,
     pub(crate) witness: String,
 }
@@ -147,6 +149,11 @@ impl AgentRunService {
         self
     }
 
+    pub(crate) fn with_recovery_port(mut self, recovery: Arc<dyn RunOwnerRecoveryPort>) -> Self {
+        self.recovery = recovery;
+        self
+    }
+
     pub(crate) fn create(&self, input: CreateAgentRun) -> Result<AgentRun, ApplicationError> {
         if let Some(parent_id) = &input.parent_run_id {
             let parent = self.repository.get(parent_id)?;
@@ -163,6 +170,7 @@ impl AgentRunService {
             links: input.links,
             parent_run_id: input.parent_run_id,
             recovery_policy: input.recovery_policy,
+            runner: input.runner,
             max_retries: input.max_retries,
             timestamp: now,
             witness: input.witness,

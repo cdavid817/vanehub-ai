@@ -150,6 +150,7 @@ import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
 import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
+import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask, StartEvaluationInput } from "../types/evaluation";
 import type {
   ContinueLoopInput,
@@ -315,6 +316,7 @@ export interface AgentService extends BuiltinToolService {
   getMissionControlOverview(query?: MissionControlQuery): Promise<MissionControlOverview>;
   getMissionControlRun(runId: string): Promise<MissionControlRunDetail>;
   performMissionControlAction(input: MissionControlActionInput): Promise<MissionControlActionReceipt>;
+  listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;

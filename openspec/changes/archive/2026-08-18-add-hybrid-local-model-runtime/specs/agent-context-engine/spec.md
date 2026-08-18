@@ -15,4 +15,3 @@ Before collecting or projecting evidence, the Context Engine SHALL consume the i
 #### Scenario: Fallback Profile is selected
 - **WHEN** routing chooses a policy-compatible fallback Profile before request construction
 - **THEN** context collection and final projection SHALL be recomputed for the fallback Profile budget rather than reusing an oversized projection
-

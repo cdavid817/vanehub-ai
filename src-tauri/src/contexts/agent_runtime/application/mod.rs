@@ -33,6 +33,9 @@ mod ports;
 #[cfg(test)]
 mod ports_contract_tests;
 mod provider;
+mod runner;
+#[cfg(test)]
+mod runner_tests;
 mod seat_turn;
 #[cfg(test)]
 mod seat_turn_tests;
@@ -102,11 +105,11 @@ pub(crate) use models::{
     AgentCoreInstructions, AgentEvent, AgentFileReference, AgentInvocationUsage, AgentLog,
     AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
     AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
-    AgentSessionDetails, AgentSessionSeat, AgentSkillReadRequest, AgentTerminalCapability,
-    AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
-    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentToolCallOutcome,
-    AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView, ApiProviderConfig,
-    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
+    AgentSessionDetails, AgentSessionRunnerTarget, AgentSessionSeat, AgentSkillReadRequest,
+    AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
+    AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
+    AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
+    ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
     DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
     DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
     FrozenEndpointProfile, GenerationCancellation, GenerationLease, GenerationProcessEvent,
@@ -188,7 +191,7 @@ pub(crate) use ports::{
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
     LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
-    ToolApprovalPort,
+    RunnerDiscoveryPort, ToolApprovalPort,
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{
@@ -203,6 +206,13 @@ pub(crate) use provider::{
     ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
     ProviderInvocationSpec, ProviderOptionRequest, ProviderOutputFormat, ProviderPermissionMode,
     ProviderPromptDelivery, ProviderRegistry,
+};
+#[allow(unused_imports)]
+pub(crate) use runner::{
+    AgentRunner, PreparedRunnerLaunch, RunnerCapabilities, RunnerDescriptor, RunnerError,
+    RunnerErrorKind, RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec,
+    RunnerPermissionContext, RunnerPermissionPort, RunnerPolicyWitness, RunnerRecoveryMode,
+    RunnerReference, RunnerSelection,
 };
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};

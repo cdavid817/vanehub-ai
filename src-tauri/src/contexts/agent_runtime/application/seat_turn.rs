@@ -378,6 +378,7 @@ impl AgentRuntimeApplicationService {
                 // A seat turn is written by the runtime to hand off between participants, not
                 // typed by someone waiting on the thread (`add-agent-user-question`).
                 interactive: false,
+                runner: super::RunnerSelection::local(),
             },
         );
         result.map(|_| ())

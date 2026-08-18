@@ -1,4 +1,4 @@
-import type { AgentRunState } from "./agent-run";
+import type { AgentRunRunner, AgentRunState } from "./agent-run";
 
 export type MissionControlSort = "newest" | "oldest" | "attention";
 export type MissionControlAttention = "approval" | "user" | "stuck" | "failed" | "review";
@@ -12,7 +12,7 @@ export interface MissionControlQuery {
   states?: AgentRunState[];
   agentId?: string;
   projectId?: string;
-  runner?: "local" | "remote";
+  runner?: "local" | "ssh";
   sort?: MissionControlSort;
 }
 
@@ -35,6 +35,7 @@ export interface MissionControlRunSummary {
   verification: "pending" | "running" | "passed" | "failed" | "unavailable";
   tokens: number | null; cost: number | null; actions: MissionControlAction[];
   navigation: MissionControlNavigationTarget | null;
+  runner: AgentRunRunner | null;
 }
 
 export interface MissionControlPage { items: MissionControlRunSummary[]; nextCursor: string | null }

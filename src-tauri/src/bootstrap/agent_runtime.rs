@@ -2,7 +2,7 @@ use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
     web_native_tool_handlers, AgentClockPort, AgentCodeIntelligenceResponderPort, AgentLoggingPort,
-    AgentMemoryPort, AgentRetrievalPort, AgentRuntimeApplicationPorts,
+    AgentMemoryPort, AgentRetrievalPort, AgentRunner, AgentRuntimeApplicationPorts,
     AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
     AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
     ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
@@ -17,8 +17,8 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
-    OnePieceToolFeatureGates, SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
-    UtilityDelegationApplicationService,
+    OnePieceToolFeatureGates, RunnerDiscoveryPort, SubagentNativeToolHandler,
+    UtilityDelegationApplicationPorts, UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, migrate_memory_rows, AgentRuntimeLoggingAdapter,
@@ -27,23 +27,24 @@ use crate::contexts::agent_runtime::infrastructure::{
     HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
-    ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
+    InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
+    ManualNativeToolControl, ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
     NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
     NativeSkillToolExecutionAdapter, NativeSkillToolExecutionDependencies, NativeSubagentExecutor,
     NativeUtilityChildExecutor, OsApiCredentialAdapter, PermissionsPortAdapter,
-    PortablePtyAgentTerminalRuntime, RetrievalContextSource, RuntimeAgentApiAdapter,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
-    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
-    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
-    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
-    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteContextManifestRepository,
-    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SubagentRuntime,
-    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
-    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    PortablePtyAgentTerminalRuntime, RetrievalContextSource, RunnerRegistry,
+    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
+    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
+    RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
+    SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteContextManifestRepository, SqliteContextQualityRepository,
+    SqliteExpertRoleRepository, SqliteLoopRepository, SqliteNativeToolRepository, SshRunner,
+    StructuredLoopVerificationProcess, SubagentRuntime, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -83,6 +84,7 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
+use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -124,6 +126,8 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) skill_tools: SkillToolApi,
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
+    pub(crate) runners: Arc<dyn AgentRunner>,
+    pub(crate) runner_discovery: Arc<dyn RunnerDiscoveryPort>,
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) permissions: PermissionsApi,
     pub(crate) shared_registry: SharedAgentRegistry,
@@ -146,6 +150,18 @@ pub(crate) struct SharedAgentRegistry {
     logging: Arc<AgentRuntimeLoggingAdapter>,
     clock: Arc<SystemAgentRuntimeClock>,
     unified_logging: Arc<UnifiedLoggingAdapter>,
+}
+
+pub(crate) fn assemble_agent_runners(
+    sessions: SessionsApi,
+    ssh_connections: SshConnectionsApi,
+) -> Result<Arc<dyn AgentRunner>, String> {
+    let session_targets = Arc::new(SessionsAgentRuntimeAdapter::new(sessions));
+    let local: Arc<dyn AgentRunner> = Arc::new(LocalRunner::new());
+    let ssh: Arc<dyn AgentRunner> = Arc::new(SshRunner::new(session_targets, ssh_connections));
+    RunnerRegistry::new(vec![local, ssh])
+        .map(|registry| Arc::new(registry) as Arc<dyn AgentRunner>)
+        .map_err(|error| error.code().to_string())
 }
 
 pub(crate) fn assemble_shared_agent_registry(
@@ -562,30 +578,40 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
+    let accounting = dependencies.sessions.clone();
+    let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(
+        dependencies.sessions.clone(),
+    ));
     let provider_registry = Arc::new(
         crate::contexts::agent_runtime::infrastructure::providers::builtin_cli_provider_registry()
             .map_err(|error| error.to_string())?,
     );
+    let runners = dependencies.runners;
+    let agent_permissions = Arc::new(PermissionsPortAdapter::new(
+        dependencies.permissions.clone(),
+    ));
     let cli_processes = Arc::new(RuntimeAgentProcessAdapter::new(
-        logging.clone(),
-        clock.clone(),
-        execution_ids.clone(),
-        telemetry.clone(),
-        Arc::new(InvocationScopedMcpRelayAdapter::new(
-            dependencies.database.clone(),
-        )),
-        provider_registry.clone(),
-        RuntimeProcessEvidenceDependencies {
-            evidence: dependencies.evidence.clone(),
-            skills: dependencies.skills.clone(),
+        crate::contexts::agent_runtime::infrastructure::RuntimeAgentProcessDependencies {
+            logging: logging.clone(),
+            clock: clock.clone(),
+            execution_ids: execution_ids.clone(),
+            telemetry: telemetry.clone(),
+            mcp_relay: Arc::new(InvocationScopedMcpRelayAdapter::new(
+                dependencies.database.clone(),
+            )),
+            providers: provider_registry.clone(),
+            runner: runners,
+            runner_permissions: agent_permissions.clone(),
+            evidence: RuntimeProcessEvidenceDependencies {
+                evidence: dependencies.evidence.clone(),
+                skills: dependencies.skills.clone(),
+            },
         },
     ));
-    let accounting = dependencies.sessions.clone();
     let manual_authority = Arc::new(ManualNativeToolAuthorityAdapter::new(
         dependencies.sessions.clone(),
         dependencies.database.clone(),
     ));
-    let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(
         dependencies.skills.clone(),
         dependencies.evidence.clone(),
@@ -611,9 +637,6 @@ pub(crate) fn assemble_agent_runtime_api(
         diagnostics.clone(),
     );
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
-    let agent_permissions = Arc::new(PermissionsPortAdapter::new(
-        dependencies.permissions.clone(),
-    ));
     let agent_personalization = Arc::new(RuntimeAgentPersonalizationAdapter::new(
         dependencies.desktop_settings,
     ));
@@ -822,6 +845,7 @@ pub(crate) fn assemble_agent_runtime_api(
         memories: agent_memories,
         memory_extraction: agent_memory_extraction,
         personalization: agent_personalization,
+        runner_discovery: dependencies.runner_discovery,
     });
     let local_discovery = LocalModelDiscoveryService::new(
         Arc::new(HttpLocalModelDiscoveryAdapter),

@@ -4,6 +4,7 @@ use thiserror::Error;
 const MAX_ID_LENGTH: usize = 128;
 const MAX_REASON_LENGTH: usize = 64;
 const MAX_LINKS: usize = 8;
+const MAX_RUNNER_LABEL_LENGTH: usize = 160;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +64,44 @@ pub(crate) enum RunRecoveryPolicy {
     OwnerReconciles,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RunRunnerKind {
+    Local,
+    Ssh,
+}
+
+impl RunRunnerKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Ssh => "ssh",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RunRunnerRecovery {
+    None,
+    InspectOnly,
+    Reattach,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunRunner {
+    pub(crate) kind: RunRunnerKind,
+    pub(crate) target_id: String,
+    pub(crate) target_revision: Option<i64>,
+    pub(crate) label: String,
+    pub(crate) host_label: Option<String>,
+    pub(crate) recovery: RunRunnerRecovery,
+    pub(crate) capability_witness: String,
+    pub(crate) authority_witness: String,
+    pub(crate) recovery_reference: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunOwner {
@@ -105,6 +144,8 @@ pub(crate) struct AgentRun {
     pub(crate) parent_run_id: Option<String>,
     pub(crate) state: RunState,
     pub(crate) recovery_policy: RunRecoveryPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) runner: Option<RunRunner>,
     pub(crate) retry_count: u32,
     pub(crate) max_retries: u32,
     pub(crate) reason_code: Option<String>,
@@ -132,6 +173,7 @@ pub(crate) struct RunCreation {
     pub(crate) links: Vec<RunLink>,
     pub(crate) parent_run_id: Option<String>,
     pub(crate) recovery_policy: RunRecoveryPolicy,
+    pub(crate) runner: Option<RunRunner>,
     pub(crate) max_retries: u32,
     pub(crate) timestamp: String,
     pub(crate) witness: String,
@@ -145,6 +187,7 @@ impl AgentRun {
             links,
             parent_run_id,
             recovery_policy,
+            runner,
             max_retries,
             timestamp,
             witness,
@@ -167,6 +210,9 @@ impl AgentRun {
         }
         validate_timestamp(&timestamp)?;
         validate_safe_token(&witness, "witness", MAX_ID_LENGTH)?;
+        if let Some(runner) = &runner {
+            validate_runner(runner)?;
+        }
         let run = Self {
             id,
             owner,
@@ -174,6 +220,7 @@ impl AgentRun {
             parent_run_id,
             state: RunState::Created,
             recovery_policy,
+            runner,
             retry_count: 0,
             max_retries,
             reason_code: None,
@@ -237,6 +284,36 @@ impl AgentRun {
             reason_code: input.reason_code,
             witness: input.witness,
         }))
+    }
+}
+
+fn validate_runner(runner: &RunRunner) -> Result<(), RunDomainError> {
+    validate_safe_token(&runner.target_id, "runner_target_id", MAX_ID_LENGTH)?;
+    validate_display(&runner.label, "runner_label")?;
+    if let Some(host) = &runner.host_label {
+        validate_display(host, "runner_host_label")?;
+    }
+    validate_safe_token(
+        &runner.capability_witness,
+        "runner_capability_witness",
+        MAX_ID_LENGTH,
+    )?;
+    validate_safe_token(
+        &runner.authority_witness,
+        "runner_authority_witness",
+        MAX_ID_LENGTH,
+    )?;
+    if let Some(reference) = &runner.recovery_reference {
+        validate_safe_token(reference, "runner_recovery_reference", MAX_ID_LENGTH)?;
+    }
+    match runner.kind {
+        RunRunnerKind::Local if runner.target_revision.is_some() => {
+            Err(RunDomainError::InvalidField("runner_target_revision"))
+        }
+        RunRunnerKind::Ssh if !runner.target_revision.is_some_and(|revision| revision > 0) => {
+            Err(RunDomainError::InvalidField("runner_target_revision"))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -318,6 +395,17 @@ fn validate_timestamp(value: &str) -> Result<(), RunDomainError> {
     chrono::DateTime::parse_from_rfc3339(value)
         .map(|_| ())
         .map_err(|_| RunDomainError::InvalidField("timestamp"))
+}
+
+fn validate_display(value: &str, field: &'static str) -> Result<(), RunDomainError> {
+    if value.trim().is_empty()
+        || value.chars().count() > MAX_RUNNER_LABEL_LENGTH
+        || value.chars().any(char::is_control)
+    {
+        Err(RunDomainError::InvalidField(field))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

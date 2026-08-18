@@ -1,5 +1,5 @@
 use super::ApplicationError;
-use crate::contexts::operations::domain::{AgentRun, RunState};
+use crate::contexts::operations::domain::{AgentRun, RunRunner, RunState};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -70,6 +70,7 @@ pub(crate) struct MissionControlRunSummary {
     pub(crate) cost: Option<f64>,
     pub(crate) actions: Vec<String>,
     pub(crate) navigation: Option<MissionControlNavigationTarget>,
+    pub(crate) runner: Option<RunRunner>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -130,7 +131,7 @@ impl MissionControlService {
         if query
             .runner
             .as_deref()
-            .is_some_and(|value| !matches!(value, "local" | "remote"))
+            .is_some_and(|value| !matches!(value, "local" | "ssh" | "remote"))
             || query
                 .sort
                 .as_deref()
@@ -342,6 +343,7 @@ pub(crate) fn project(run: AgentRun) -> MissionControlRunSummary {
         cost: None,
         actions,
         navigation,
+        runner: run.runner,
     }
 }
 

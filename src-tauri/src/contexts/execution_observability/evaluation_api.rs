@@ -113,6 +113,7 @@ impl EvaluationApi {
                     links: Vec::new(),
                     parent_run_id: None,
                     recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                    runner: None,
                     max_retries: 0,
                     witness: format!("evaluation:{attempt_id}:created"),
                 })

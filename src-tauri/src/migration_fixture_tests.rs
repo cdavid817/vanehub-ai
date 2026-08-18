@@ -19,9 +19,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// Skill configuration records, migration 73 adds revision-bound Skill tool trust, migration 74
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
-/// migration 78 adds Hybrid local/private Profile metadata and routing rules.
+/// migration 78 adds Hybrid local/private Profile metadata and routing rules, and migration 79
+/// adds nullable Agent Runner projections.
 fn expected_versions() -> Vec<i64> {
-    (1..=78).collect()
+    (1..=79).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -451,6 +452,76 @@ fn current_v20_fixture_is_idempotent_and_readable() {
         .expect("fixture setting"),
         "en"
     );
+}
+
+#[test]
+fn runner_projection_migration_preserves_legacy_runtime_evidence_and_local_rollback() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("initial migration");
+    crate::contexts::agent_runtime::infrastructure::seed_registry(&conn).expect("seed agents");
+    conn.execute_batch(
+        r#"
+        INSERT INTO sessions
+            (id, title, agent_id, interaction_mode, lifecycle_state, created_at, updated_at)
+        VALUES ('runner-session', 'Runner session', 'codex-cli', 'cli', 'idle', '2026-08-18', '2026-08-18');
+        INSERT INTO messages (id, session_id, role, status, content, created_at, updated_at)
+        VALUES ('runner-message', 'runner-session', 'assistant', 'completed', 'preserved', '2026-08-18', '2026-08-18');
+        INSERT INTO ssh_connections
+            (id, name, host, port, user, default_path, auth_mode, key_path, revision, test_status, created_at, updated_at)
+        VALUES ('runner-ssh', 'Runner SSH', 'host.example.test', 22, 'dev', '/work', 'key', '/keys/dev', 3, 'succeeded', '2026-08-18', '2026-08-18');
+        INSERT INTO ssh_host_trust
+            (connection_id, host, port, algorithm, fingerprint, confirmed_at)
+        VALUES ('runner-ssh', 'host.example.test', 22, 'ssh-ed25519', 'SHA256:safe-fixture', '2026-08-18');
+        INSERT INTO agent_runs
+            (run_id, owner_type, owner_id, state, version, updated_at, snapshot_json)
+        VALUES ('legacy-runner-run', 'agent_generation', 'codex-cli', 'completed', 1, '2026-08-18', '{}');
+        INSERT INTO execution_runs
+            (run_id, trace_id, root_span_id, source, status, capture_policy, started_at)
+        VALUES ('runner-execution', 'trace-safe', 'span-safe', 'agent', 'completed', 'metadata_only', '2026-08-18');
+        INSERT INTO operation_recovery_evidence
+            (operation_id, execution_run_id, status, updated_at)
+        VALUES ('runner-operation', 'runner-execution', 'succeeded', '2026-08-18');
+        DROP INDEX idx_agent_runs_runner_state;
+        ALTER TABLE agent_runs DROP COLUMN runner_target_id;
+        ALTER TABLE agent_runs DROP COLUMN runner_kind;
+        DELETE FROM schema_migrations WHERE version = 79;
+        "#,
+    )
+    .expect("simulate schema before Runner projections");
+
+    migrate(&conn).expect("apply Runner projection migration");
+    migrate(&conn).expect("repeat Runner projection migration");
+
+    for (table, column, id) in [
+        ("sessions", "id", "runner-session"),
+        ("messages", "id", "runner-message"),
+        ("ssh_connections", "id", "runner-ssh"),
+        ("ssh_host_trust", "connection_id", "runner-ssh"),
+        ("agent_runs", "run_id", "legacy-runner-run"),
+        ("execution_runs", "run_id", "runner-execution"),
+        (
+            "operation_recovery_evidence",
+            "operation_id",
+            "runner-operation",
+        ),
+    ] {
+        let count: i64 = conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
+                [id],
+                |row| row.get(0),
+            )
+            .expect("preserved record");
+        assert_eq!(count, 1, "{table} record was not preserved");
+    }
+    let projections: (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT runner_kind, runner_target_id FROM agent_runs WHERE run_id = 'legacy-runner-run'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("legacy projections");
+    assert_eq!(projections, (None, None));
 }
 
 #[test]

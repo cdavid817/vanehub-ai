@@ -1136,6 +1136,9 @@ mod tests {
         let redacted_launch = map_command_error(AgentRuntimeApplicationError::Process(
             "token=private-launch-token".to_string(),
         ));
+        let runner = map_command_error(AgentRuntimeApplicationError::Process(
+            "runner_invalid_selection".to_string(),
+        ));
 
         assert_eq!(missing.message(), "agent not found: missing-agent");
         assert_eq!(missing.category(), CommandErrorCategory::NotFound);
@@ -1152,6 +1155,11 @@ mod tests {
             "launch failed: Command 'codex' was not found on PATH."
         );
         assert_eq!(redacted_launch.message(), "launch failed: token=[REDACTED]");
+        assert_eq!(runner.message(), "launch failed: runner_invalid_selection");
+        assert_eq!(
+            serde_json::to_value(runner).expect("serialize runner error"),
+            "launch failed: runner_invalid_selection"
+        );
     }
 
     #[test]

@@ -413,6 +413,11 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         &self,
         request: GenerationProcessRequest,
     ) -> Result<StartedGenerationProcess, AgentRuntimeApplicationError> {
+        if request.runner.kind != crate::contexts::agent_runtime::application::RunnerKind::Local {
+            return Err(AgentRuntimeApplicationError::Process(
+                "runner_unsupported_capability".to_string(),
+            ));
+        }
         if request.agent.launch.kind != "api" {
             return Err(AgentRuntimeApplicationError::Process(format!(
                 "{} launch kind '{}' is unsupported for the API runtime.",
@@ -436,7 +441,11 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 monitoring: false,
             },
         );
-        Ok(StartedGenerationProcess { process_id })
+        Ok(StartedGenerationProcess {
+            process_id,
+            runner_reference: crate::contexts::agent_runtime::application::RunnerReference::local(),
+            process_reference: None,
+        })
     }
 
     fn monitor_generation(
@@ -7128,6 +7137,7 @@ mod tests {
             // Desktop chat is the interactive default; the non-interactive cases construct their
             // own request and flip this.
             interactive: true,
+            runner: crate::contexts::agent_runtime::application::RunnerSelection::local(),
             endpoint_profile: None,
         }
     }

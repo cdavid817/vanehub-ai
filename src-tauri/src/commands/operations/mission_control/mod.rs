@@ -54,6 +54,7 @@ mod tests {
             parent_run_id: None,
             state: RunState::Failed,
             recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+            runner: None,
             retry_count: 0,
             max_retries: 1,
             reason_code: Some("verification_failed".into()),

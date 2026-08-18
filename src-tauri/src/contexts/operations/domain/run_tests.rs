@@ -16,12 +16,90 @@ fn run_with_id(id: &str, max_retries: u32) -> AgentRun {
         links: vec![],
         parent_run_id: None,
         recovery_policy: RunRecoveryPolicy::NotRecoverable,
+        runner: None,
         max_retries,
         timestamp: "2026-08-16T00:00:00Z".into(),
         witness: "created-1".into(),
     })
     .expect("valid run")
     .0
+}
+
+#[test]
+fn runner_metadata_round_trips_while_legacy_snapshots_remain_readable() {
+    let mut value = run(1);
+    value.runner = Some(RunRunner {
+        kind: RunRunnerKind::Ssh,
+        target_id: "ssh-profile-1".into(),
+        target_revision: Some(7),
+        label: "Remote build host".into(),
+        host_label: Some("build.example.com".into()),
+        recovery: RunRunnerRecovery::InspectOnly,
+        capability_witness: "runner-cap-v1".into(),
+        authority_witness: "authority-v7".into(),
+        recovery_reference: Some("remote-process-opaque".into()),
+    });
+    let json = serde_json::to_value(&value).expect("serialize");
+    assert_eq!(json["runner"]["kind"], "ssh");
+    assert_eq!(
+        serde_json::from_value::<AgentRun>(json).expect("round trip"),
+        value
+    );
+
+    let mut legacy = serde_json::to_value(run(1)).expect("legacy");
+    legacy.as_object_mut().expect("object").remove("runner");
+    assert!(serde_json::from_value::<AgentRun>(legacy)
+        .expect("legacy run")
+        .runner
+        .is_none());
+}
+
+#[test]
+fn runner_metadata_enforces_safe_target_revision_and_witnesses() {
+    let create = |runner| {
+        AgentRun::create(RunCreation {
+            id: "018f0f17-4d6a-7e20-b41d-66c5271a28d1".into(),
+            owner: RunOwner {
+                owner_type: "session_generation".into(),
+                owner_id: "generation-1".into(),
+            },
+            links: Vec::new(),
+            parent_run_id: None,
+            recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+            runner: Some(runner),
+            max_retries: 1,
+            timestamp: "2026-08-16T00:00:00Z".into(),
+            witness: "created-1".into(),
+        })
+    };
+    let runner = RunRunner {
+        kind: RunRunnerKind::Ssh,
+        target_id: "ssh-profile-1".into(),
+        target_revision: None,
+        label: "Remote".into(),
+        host_label: None,
+        recovery: RunRunnerRecovery::Reattach,
+        capability_witness: "runner-cap-v1".into(),
+        authority_witness: "authority-v1".into(),
+        recovery_reference: None,
+    };
+    assert_eq!(
+        create(runner.clone()).expect_err("revision"),
+        RunDomainError::InvalidField("runner_target_revision")
+    );
+    let mut unsafe_witness = runner;
+    unsafe_witness.target_revision = Some(1);
+    unsafe_witness.authority_witness = "secret\nmaterial".into();
+    assert_eq!(
+        create(unsafe_witness).expect_err("unsafe witness"),
+        RunDomainError::InvalidField("runner_authority_witness")
+    );
+    assert_eq!(RunRunnerKind::Local.as_str(), "local");
+    assert_eq!(RunRunnerKind::Ssh.as_str(), "ssh");
+    assert_eq!(
+        [RunRunnerRecovery::None, RunRunnerRecovery::Reattach].len(),
+        2
+    );
 }
 
 #[derive(Serialize)]
@@ -134,6 +212,7 @@ fn identities_and_safe_metadata_are_bounded() {
         links: vec![],
         parent_run_id: None,
         recovery_policy: RunRecoveryPolicy::NotRecoverable,
+        runner: None,
         max_retries: 0,
         timestamp: "now".into(),
         witness: "witness".into(),
@@ -148,6 +227,7 @@ fn identities_and_safe_metadata_are_bounded() {
         links: vec![],
         parent_run_id: None,
         recovery_policy: RunRecoveryPolicy::NotRecoverable,
+        runner: None,
         max_retries: 0,
         timestamp: "2026-08-16T00:00:00Z".into(),
         witness: "raw prompt must not persist".into(),

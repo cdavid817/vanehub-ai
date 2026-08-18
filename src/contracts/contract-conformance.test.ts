@@ -53,6 +53,8 @@ import type * as ContextQualityContracts from "./context-quality";
 import type * as ContextQualityTypes from "../types/context-quality";
 import type * as MissionControlContracts from "./mission-control";
 import type * as MissionControlTypes from "../types/mission-control";
+import type * as AgentRunnerContracts from "./agent-runner";
+import type * as AgentRunnerTypes from "../types/agent-runner";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -424,6 +426,16 @@ type MissionControlAssertions = [
   Assert<Equal<MissionControlContracts.MissionControlSafeError, MissionControlTypes.MissionControlSafeError>>,
 ];
 
+type AgentRunnerAssertions = [
+  Assert<Equal<AgentRunnerContracts.AgentRunnerKind, AgentRunnerTypes.AgentRunnerKind>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerRecovery, AgentRunnerTypes.AgentRunnerRecovery>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerSelection, AgentRunnerTypes.AgentRunnerSelection>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerCapabilities, AgentRunnerTypes.AgentRunnerCapabilities>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerDescriptor, AgentRunnerTypes.AgentRunnerDescriptor>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerErrorCode, AgentRunnerTypes.AgentRunnerErrorCode>>,
+  Assert<Equal<AgentRunnerContracts.AgentRunnerSafeError, AgentRunnerTypes.AgentRunnerSafeError>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as ChatAssertions);
 void (0 as unknown as TokenUsageAssertions);
@@ -439,6 +451,7 @@ void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 void (0 as unknown as ContextQualityAssertions);
 void (0 as unknown as MissionControlAssertions);
+void (0 as unknown as AgentRunnerAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

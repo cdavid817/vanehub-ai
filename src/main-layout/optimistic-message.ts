@@ -1,10 +1,12 @@
 import type { ChatConfig, ChatFileReference, ChatMessage } from "../types/chat";
+import type { AgentRunnerSelection } from "../types/agent-runner";
 
 export interface SendMessageMutationInput {
   config: ChatConfig;
   content: string;
   fileReferences: ChatFileReference[];
   sessionId: string;
+  runner?: AgentRunnerSelection;
 }
 
 export function createOptimisticUserMessage({

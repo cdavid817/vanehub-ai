@@ -29,8 +29,8 @@ mod workspaces;
 pub(crate) use crate::contexts::sessions::infrastructure::scheduled_tasks::ScheduledTaskLogDirectory;
 pub(crate) use agent_run_controls::AgentRunControlsApi;
 pub(crate) use agent_runtime::{
-    assemble_agent_runtime_api, assemble_shared_agent_registry, AgentRuntimeAssembly,
-    AgentRuntimeDependencies,
+    assemble_agent_runners, assemble_agent_runtime_api, assemble_shared_agent_registry,
+    AgentRuntimeAssembly, AgentRuntimeDependencies,
 };
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_config::assemble_cli_config_api;
@@ -49,7 +49,9 @@ pub(crate) use execution_observability::{
 };
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;
-pub(crate) use operations::{assemble_agent_runs_api, assemble_operations_api};
+#[cfg(test)]
+pub(crate) use operations::assemble_agent_runs_api;
+pub(crate) use operations::{assemble_agent_runs_api_with_recovery, assemble_operations_api};
 pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;

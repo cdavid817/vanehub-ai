@@ -9,7 +9,7 @@ pub(crate) use super::application::{
     RuntimeMessageSnapshot, RuntimeSessionSnapshot, SessionChatConfiguration,
     SessionCreationOperation, SessionExportFormat, SessionExportRequest, SessionExportResult,
     SessionListScope, SessionMaintenanceResult, SessionRecord, SessionRecoveryProjection,
-    SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
+    SessionRecoverySummary, SessionRunnerTarget, SessionSearchMatchKind, SessionSearchResult,
     SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
     SessionsApplicationError as SessionsError, TokenUsageObservation, UpdateSessionSeatsRequest,
     UsageAccountingSummary, UsageBreakdownDimension, UsageCursor, UsageCursorAdvance,
@@ -263,6 +263,13 @@ impl SessionsApi {
         session_id: &str,
     ) -> Result<super::application::SessionSshBinding, SessionsError> {
         self.service.require_current_remote_ssh_binding(session_id)
+    }
+
+    pub(crate) fn current_runner_target(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionRunnerTarget>, SessionsError> {
+        self.service.current_runner_target(session_id)
     }
 
     pub(crate) fn switch(&self, session_id: &str) -> Result<SessionRecord, SessionsError> {

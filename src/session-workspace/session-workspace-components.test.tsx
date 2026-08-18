@@ -256,4 +256,14 @@ describe("session workspace components", () => {
     expect(source).toContain("state !== \"stopped\" && state !== \"failed\"");
     expect(source).toContain("setConnectNonce");
   });
+
+  it("detaches the Agent terminal renderer without stopping accepted native work", () => {
+    const source = readFileSync(new URL("./agent-terminal-tab.tsx", import.meta.url), "utf8");
+    const cleanup = source.slice(source.indexOf("return () => {"), source.indexOf("}, [connectNonce"));
+
+    expect(cleanup).toContain("unsubscribe?.()");
+    expect(cleanup).toContain("terminal.dispose()");
+    expect(cleanup).not.toContain("stopGeneration(");
+    expect(cleanup).not.toContain("stopAgentTerminal(");
+  });
 });

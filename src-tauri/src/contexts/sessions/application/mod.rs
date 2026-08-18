@@ -23,11 +23,11 @@ pub(crate) use models::{
     SessionCreationOperation, SessionExportFormat, SessionExportRequest, SessionExportResult,
     SessionListScope, SessionMaintenanceResult, SessionProject, SessionRecord,
     SessionRecoveryEvent, SessionRecoveryEventKind, SessionRecoveryProjection,
-    SessionRecoverySummary, SessionRemoteWorkspace, SessionSearchMatch, SessionSearchMatchKind,
-    SessionSearchQuery, SessionSearchResult, SessionSshBinding, SessionSshProfile,
-    SessionUsageAccountingKind, SessionUsageAgentBreakdown, SessionUsageCoverage,
-    SessionUsagePoint, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
-    SessionWorkspace, UpdateSessionSeatsRequest, UsageStatisticsRange,
+    SessionRecoverySummary, SessionRemoteWorkspace, SessionRunnerTarget, SessionSearchMatch,
+    SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult, SessionSshBinding,
+    SessionSshProfile, SessionUsageAccountingKind, SessionUsageAgentBreakdown,
+    SessionUsageCoverage, SessionUsagePoint, SessionUsageStatistics, SessionUsageSummary,
+    SessionUsageUnit, SessionWorkspace, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 pub(crate) use ports::{
     SessionAgentEligibilityPort, SessionCategoryRepository, SessionChatProfilePort,

@@ -4,7 +4,7 @@ import path from "node:path";
 export const METRIC_CLASSES = new Set(["deterministic-gate", "dedicated-benchmark", "informational-telemetry"]);
 export const UNITS = new Set(["allocations", "batches", "bytes", "count", "items", "milliseconds", "operations", "percent", "queries", "rows"]);
 const DIRECTIONS = new Set(["lower", "upper"]);
-const DATASET_KINDS = new Set(["repository", "runs", "sessions", "stream", "terminal"]);
+const DATASET_KINDS = new Set(["repository", "runner", "runs", "sessions", "stream", "terminal"]);
 const SENSITIVE_FIELDS = /^(content|credential|credentials|environment|fileContent|message|messages|prompt|prompts|rawError|rawFrame|response|terminalContent|toolArguments|toolResults|unrestrictedPath)$/i;
 const SAFE_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
@@ -36,6 +36,7 @@ export function validateManifest(input, repositoryRoot) {
     unique(datasetIds, id, "dataset");
     const kind = enumValue(dataset.kind, DATASET_KINDS, `datasets[${index}].kind`);
     const scale = validateScale(object(dataset.scale, `datasets[${index}].scale`), { maxBytes, maxFiles, maxItems });
+    if (kind === "runner") validateRunnerScale(scale);
     const fixturePath = safeFixturePath(datasetRoot, string(dataset.fixturePath, `datasets[${index}].fixturePath`));
     return { id, version: integer(dataset.version, `datasets[${index}].version`, 1, 1_000_000), kind, seed: integer(dataset.seed, `datasets[${index}].seed`, 1, 2_147_483_647), fixturePath, scale };
   });
@@ -123,11 +124,22 @@ function validateProvenance(value) {
 function validateScale(scale, limits) {
   const normalized = {};
   for (const [key, value] of Object.entries(scale)) {
-    const limit = key === "bytes" || key === "chunkBytes" ? limits.maxBytes : key === "files" ? limits.maxFiles : limits.maxItems;
+    const limit = key.toLowerCase().includes("bytes") ? limits.maxBytes : key === "files" ? limits.maxFiles : limits.maxItems;
     normalized[key] = integer(value, `scale.${key}`, 0, limit);
   }
   if (Object.keys(normalized).length === 0) throw new Error("performance-empty-scale");
   return normalized;
+}
+
+function validateRunnerScale(scale) {
+  for (const key of ["activeHandles", "localHandles", "sshHandles", "sshTargets", "maxPerSshTarget", "eventQueueItems", "eventChunkBytes", "reconnectAttempts", "channelsPerRun"]) {
+    if (!(key in scale)) throw new Error(`performance-runner-scale-required: ${key}`);
+  }
+  if (scale.activeHandles !== scale.localHandles + scale.sshHandles) throw new Error("performance-runner-handle-sum");
+  if (scale.activeHandles > 32 || scale.localHandles > 24 || scale.sshHandles > 24) throw new Error("performance-runner-handle-bound");
+  if (scale.maxPerSshTarget > 8 || scale.sshHandles > scale.sshTargets * 8) throw new Error("performance-runner-target-bound");
+  if (scale.eventQueueItems > 256 || scale.eventChunkBytes > 8192) throw new Error("performance-runner-output-bound");
+  if (scale.reconnectAttempts > 1 || scale.channelsPerRun > 1) throw new Error("performance-runner-channel-bound");
 }
 
 function safeFixtureRoot(repositoryRoot, relative) {

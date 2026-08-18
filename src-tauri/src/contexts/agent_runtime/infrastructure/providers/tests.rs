@@ -9,6 +9,9 @@ use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
 };
 use crate::contexts::agent_runtime::domain::InteractionMode;
+use crate::contexts::agent_runtime::infrastructure::process_adapter::{
+    local_runner_launch_spec, provider_prompt_input,
+};
 use crate::contexts::execution_observability::api::ExecutionFidelity;
 use crate::contexts::permissions::api::PolicyTemplateName;
 use serde::Deserialize;
@@ -163,6 +166,55 @@ fn invocation_fixtures_cover_every_stable_provider() {
             spec.args.iter().any(|argument| argument == &fixture.prompt),
             expected_delivery == ProviderPromptDelivery::Argument,
             "prompt delivery leaked into the wrong channel for {}",
+            fixture.agent_id
+        );
+
+        let runner_spec = local_runner_launch_spec(
+            &spec,
+            Some("session-fixture".to_string()),
+            Some("C:/workspace/fixture".to_string()),
+            "00-fixture-trace-fixture-span-01".to_string(),
+        );
+        assert_eq!(
+            runner_spec.executable, fixture.executable,
+            "{}",
+            fixture.agent_id
+        );
+        assert_eq!(runner_spec.session_id.as_deref(), Some("session-fixture"));
+        assert_eq!(
+            runner_spec.arguments, fixture.expected_args,
+            "{}",
+            fixture.agent_id
+        );
+        assert_eq!(
+            runner_spec.cwd.as_deref(),
+            Some("C:/workspace/fixture"),
+            "{}",
+            fixture.agent_id
+        );
+        assert_eq!(
+            runner_spec
+                .environment
+                .get("TRACEPARENT")
+                .map(String::as_str),
+            Some("00-fixture-trace-fixture-span-01"),
+            "{}",
+            fixture.agent_id
+        );
+        assert_eq!(
+            runner_spec.pipe_stdin,
+            expected_delivery == ProviderPromptDelivery::Stdin,
+            "{}",
+            fixture.agent_id
+        );
+        assert_eq!(
+            provider_prompt_input(&spec, &fixture.prompt),
+            (expected_delivery == ProviderPromptDelivery::Stdin).then(|| format!(
+                "{}\n",
+                fixture.prompt
+            )
+            .into_bytes()),
+            "{}",
             fixture.agent_id
         );
     }

@@ -1,13 +1,15 @@
 use super::providers::{
     add_codex_output_capture_args, output_parser_for_format, BoundedProviderLines,
-    ProviderOutputEvent, ProviderOutputFramer, ProviderOutputStream, ProviderPromptDelivery,
-    ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap,
+    ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent,
+    ProviderToolPhase, ProviderUsageOverlap,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRuntimeApplicationError, AgentUsageOverlap, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, ProviderGenerationInvocationRequest,
-    ProviderOutputFormat, ProviderRegistry, ReportedUsageTotals, StartedGenerationProcess,
+    AgentProcessGateway, AgentRunner, AgentRuntimeApplicationError, AgentUsageOverlap,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
+    ProviderGenerationInvocationRequest, ProviderInvocationSpec, ProviderOutputFormat,
+    ProviderRegistry, ReportedUsageTotals, RunnerEvent, RunnerHandle, RunnerLaunchSpec,
+    RunnerPermissionContext, RunnerPermissionPort, RunnerSelection, StartedGenerationProcess,
     ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
     WorkflowLaunchRequest,
 };
@@ -26,14 +28,14 @@ use crate::contexts::skill_evolution_evidence::domain::{
     TerminalOutcome,
 };
 use crate::contexts::tooling::skills::api::{CliSkillEvidenceSnapshot, SkillApi};
-use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStderr, ChildStdout, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -42,6 +44,8 @@ use std::time::Duration;
 #[derive(Clone)]
 pub(crate) struct RuntimeAgentProcessAdapter {
     processes: Arc<Mutex<HashMap<String, ManagedProcess>>>,
+    runner: Arc<dyn AgentRunner>,
+    runner_permissions: Arc<dyn RunnerPermissionPort>,
     process_ids: Arc<AtomicU64>,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
@@ -66,6 +70,19 @@ pub(crate) struct RuntimeProcessEvidenceDependencies {
     pub(crate) skills: SkillApi,
 }
 
+#[derive(Clone)]
+pub(crate) struct RuntimeAgentProcessDependencies {
+    pub(crate) logging: Arc<dyn AgentLoggingPort>,
+    pub(crate) clock: Arc<dyn AgentClockPort>,
+    pub(crate) execution_ids: Arc<dyn ExecutionIdentityPort>,
+    pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
+    pub(crate) mcp_relay: Arc<dyn ManagedMcpRelayPort>,
+    pub(crate) providers: Arc<ProviderRegistry>,
+    pub(crate) runner: Arc<dyn AgentRunner>,
+    pub(crate) runner_permissions: Arc<dyn RunnerPermissionPort>,
+    pub(crate) evidence: RuntimeProcessEvidenceDependencies,
+}
+
 pub(crate) trait ManagedMcpRelayPort: Send + Sync {
     fn prepare(
         &self,
@@ -76,9 +93,7 @@ pub(crate) trait ManagedMcpRelayPort: Send + Sync {
 }
 
 struct ManagedProcess {
-    child: Arc<Mutex<Child>>,
-    stdout: Option<ChildStdout>,
-    stderr: Option<ChildStderr>,
+    runner_handle: RunnerHandle,
     agent_id: String,
     session_id: String,
     operation_id: String,
@@ -94,9 +109,8 @@ struct ManagedProcess {
 }
 
 struct ProcessMonitor {
-    child: Arc<Mutex<Child>>,
-    stdout: ChildStdout,
-    stderr: Option<ChildStderr>,
+    runner: Arc<dyn AgentRunner>,
+    runner_handle: RunnerHandle,
     agent_id: String,
     sink: Arc<dyn AgentProcessEventSink>,
     logging: Arc<dyn AgentLoggingPort>,
@@ -117,27 +131,21 @@ struct ProcessMonitor {
 }
 
 impl RuntimeAgentProcessAdapter {
-    pub(crate) fn new(
-        logging: Arc<dyn AgentLoggingPort>,
-        clock: Arc<dyn AgentClockPort>,
-        execution_ids: Arc<dyn ExecutionIdentityPort>,
-        telemetry: Arc<dyn ExecutionTelemetryPort>,
-        mcp_relay: Arc<dyn ManagedMcpRelayPort>,
-        providers: Arc<ProviderRegistry>,
-        evidence_dependencies: RuntimeProcessEvidenceDependencies,
-    ) -> Self {
+    pub(crate) fn new(dependencies: RuntimeAgentProcessDependencies) -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
+            runner: dependencies.runner,
+            runner_permissions: dependencies.runner_permissions,
             process_ids: Arc::new(AtomicU64::new(0)),
-            logging,
-            clock,
-            execution_ids,
-            telemetry,
-            mcp_relay,
-            providers,
+            logging: dependencies.logging,
+            clock: dependencies.clock,
+            execution_ids: dependencies.execution_ids,
+            telemetry: dependencies.telemetry,
+            mcp_relay: dependencies.mcp_relay,
+            providers: dependencies.providers,
             event_sequence: Arc::new(AtomicU64::new(0)),
-            evidence: evidence_dependencies.evidence,
-            skills: evidence_dependencies.skills,
+            evidence: dependencies.evidence.evidence,
+            skills: dependencies.evidence.skills,
         }
     }
 
@@ -211,39 +219,16 @@ impl RuntimeAgentProcessAdapter {
         } else {
             None
         };
-        let mut command = process::std_command(&spec.executable)
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        command.args(&spec.args);
-        command.env("TRACEPARENT", request.execution_context.traceparent());
-        if let Some(folder) = request
-            .session
-            .folder
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            command.current_dir(normalize_windows_extended_length_path(folder));
-        }
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-        if spec.prompt_delivery == ProviderPromptDelivery::Stdin {
-            command.stdin(Stdio::piped());
-        } else {
-            command.stdin(Stdio::null());
-        }
-        let redacted_args = spec
-            .args
-            .iter()
-            .map(|argument| {
-                if argument == &request.effective_prompt {
-                    "[prompt redacted]".to_string()
-                } else {
-                    argument.clone()
-                }
-            })
-            .collect::<Vec<_>>();
+        let runner_spec = local_runner_launch_spec(
+            &spec,
+            Some(request.session.id.clone()),
+            request.session.folder.clone(),
+            request.execution_context.traceparent(),
+        );
         self.record_log(
             AgentLogLevel::Info,
             "session.runtime.cli",
-            format!("executing {} {}", spec.executable, redacted_args.join(" ")),
+            provider_execution_summary(&spec),
             Some(&request.agent.id),
             Some(&request.session.id),
             Some(&request.operation_id),
@@ -278,9 +263,40 @@ impl RuntimeAgentProcessAdapter {
             ]),
             links: Vec::new(),
         });
-        let mut child = match command.spawn() {
-            Ok(child) => child,
+        let selection = request.runner.clone();
+        let permission_context = RunnerPermissionContext {
+            agent_id: request.agent.id.clone(),
+            session_id: request.session.id.clone(),
+            generation_id: request.operation_id.clone(),
+            project_key: request.session.folder.clone().unwrap_or_default(),
+            action: "shell.exec".to_string(),
+            selection: selection.clone(),
+        };
+        self.record_runner_log(
+            AgentLogLevel::Debug,
+            "prepare",
+            selection.kind,
+            selection.target_id.as_deref().unwrap_or("local"),
+            "started",
+            &request,
+        );
+        let runner_handle = match prepare_and_spawn_authorized(
+            self.runner.as_ref(),
+            self.runner_permissions.as_ref(),
+            &selection,
+            &permission_context,
+            runner_spec,
+        ) {
+            Ok(handle) => handle,
             Err(error) => {
+                self.record_runner_log(
+                    AgentLogLevel::Error,
+                    "spawn",
+                    selection.kind,
+                    selection.target_id.as_deref().unwrap_or("local"),
+                    error.code(),
+                    &request,
+                );
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
@@ -288,61 +304,50 @@ impl RuntimeAgentProcessAdapter {
                     &self.clock.now(),
                     Some("process_spawn_failed"),
                 );
-                return Err(AgentRuntimeApplicationError::Process(error.to_string()));
+                return Err(runner_application_error(error));
             }
         };
+        self.record_runner_log(
+            AgentLogLevel::Info,
+            "spawn",
+            runner_handle.reference.kind,
+            &runner_handle.reference.target_id,
+            "succeeded",
+            &request,
+        );
         self.record_process_event(
             &process_context,
             "process.spawned",
             safe_attributes([(
-                "process.pid".to_string(),
-                SafeAttributeValue::Integer(i64::from(child.id())),
+                "vanehub.runner.handle".to_string(),
+                SafeAttributeValue::String(runner_handle.id.clone()),
             )]),
         );
-        if spec.prompt_delivery == ProviderPromptDelivery::Stdin {
-            if let Some(mut stdin) = child.stdin.take() {
-                if let Err(error) = stdin
-                    .write_all(request.effective_prompt.as_bytes())
-                    .and_then(|_| stdin.write_all(b"\n"))
-                {
-                    terminate_child(&mut child);
-                    let _ = self.telemetry.finish_span(
-                        &process_context.run_id,
-                        &process_context.span_id,
-                        ExecutionStatus::Failed,
-                        &self.clock.now(),
-                        Some("process_stdin_failed"),
-                    );
-                    return Err(AgentRuntimeApplicationError::Process(error.to_string()));
-                }
-            }
-        }
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                terminate_child(&mut child);
+        if let Some(input) = provider_prompt_input(&spec, &request.effective_prompt) {
+            if let Err(error) = self.runner.send_input(&runner_handle, &input) {
+                let _ = self.runner.cancel(&runner_handle);
+                let _ = self.runner.cleanup(&runner_handle);
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
                     ExecutionStatus::Failed,
                     &self.clock.now(),
-                    Some("process_stdout_unavailable"),
+                    Some("process_stdin_failed"),
                 );
-                return Err(AgentRuntimeApplicationError::Process(
-                    "CLI process stdout unavailable.".to_string(),
-                ));
+                return Err(runner_application_error(error));
             }
-        };
-        let stderr = child.stderr.take();
+        }
         let process_id = format!(
-            "agent-process-{}-{}",
-            child.id(),
+            "agent-process-{}",
             self.process_ids.fetch_add(1, Ordering::Relaxed) + 1
         );
+        let runner_reference = runner_handle.reference.clone();
+        let process_reference = runner_handle.process_reference.clone();
         let mut processes = match self.processes.lock() {
             Ok(processes) => processes,
             Err(error) => {
-                terminate_child(&mut child);
+                let _ = self.runner.cancel(&runner_handle);
+                let _ = self.runner.cleanup(&runner_handle);
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
@@ -354,9 +359,7 @@ impl RuntimeAgentProcessAdapter {
             }
         };
         let managed = ManagedProcess {
-            child: Arc::new(Mutex::new(child)),
-            stdout: Some(stdout),
-            stderr,
+            runner_handle,
             agent_id: request.agent.id,
             session_id: request.session.id,
             operation_id: request.operation_id,
@@ -373,7 +376,11 @@ impl RuntimeAgentProcessAdapter {
             configured_binding_ids,
         };
         processes.insert(process_id.clone(), managed);
-        Ok(StartedGenerationProcess { process_id })
+        Ok(StartedGenerationProcess {
+            process_id,
+            runner_reference,
+            process_reference,
+        })
     }
 
     fn record_log(
@@ -414,6 +421,120 @@ impl RuntimeAgentProcessAdapter {
             attributes,
         });
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_runner_log(
+        &self,
+        level: AgentLogLevel,
+        action: &str,
+        kind: crate::contexts::agent_runtime::application::RunnerKind,
+        target_id: &str,
+        category: &str,
+        request: &GenerationProcessRequest,
+    ) {
+        record_runner_lifecycle(
+            self.logging.as_ref(),
+            self.clock.as_ref(),
+            level,
+            action,
+            kind,
+            target_id,
+            category,
+            &request.agent.id,
+            &request.session.id,
+            &request.operation_id,
+            &request.execution_context,
+        );
+    }
+}
+
+fn combined_authority_witness(runner: &str, policy: &str) -> String {
+    let digest = Sha256::digest(format!("v1\0{runner}\0{policy}").as_bytes());
+    let encoded: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("sha256:{encoded}")
+}
+
+fn prepare_and_spawn_authorized(
+    runner: &dyn AgentRunner,
+    permissions: &dyn RunnerPermissionPort,
+    selection: &RunnerSelection,
+    permission_context: &RunnerPermissionContext,
+    spec: RunnerLaunchSpec,
+) -> Result<RunnerHandle, crate::contexts::agent_runtime::application::RunnerError> {
+    let permission_witness = permissions.authorize(permission_context)?;
+    let mut prepared = runner.prepare(selection, spec)?;
+    permissions.revalidate(permission_context, &permission_witness)?;
+    prepared.reference.authority_witness = combined_authority_witness(
+        &prepared.reference.authority_witness,
+        &permission_witness.fingerprint,
+    );
+    runner.spawn(prepared)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_runner_lifecycle(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    level: AgentLogLevel,
+    action: &str,
+    kind: crate::contexts::agent_runtime::application::RunnerKind,
+    target_id: &str,
+    category: &str,
+    agent_id: &str,
+    session_id: &str,
+    operation_id: &str,
+    context: &ExecutionContext,
+) {
+    let _ = logging.record(AgentLog {
+        level,
+        category: "agent.runner.lifecycle".to_string(),
+        message: format!(
+            "action={action} runner={} target={target_id} category={category} attempt=1",
+            kind.as_str()
+        ),
+        agent_id: Some(agent_id.to_string()),
+        session_id: Some(session_id.to_string()),
+        operation_id: Some(operation_id.to_string()),
+        run_id: Some(context.run_id.as_str().to_string()),
+        trace_id: Some(context.trace_id.as_str().to_string()),
+        span_id: Some(context.span_id.as_str().to_string()),
+        occurred_at: clock.now(),
+    });
+}
+
+pub(in crate::contexts::agent_runtime::infrastructure) fn local_runner_launch_spec(
+    provider: &ProviderInvocationSpec,
+    session_id: Option<String>,
+    cwd: Option<String>,
+    traceparent: String,
+) -> RunnerLaunchSpec {
+    RunnerLaunchSpec {
+        session_id,
+        executable: provider.executable.clone(),
+        arguments: provider.args.clone(),
+        cwd: cwd.filter(|value| !value.trim().is_empty()),
+        environment: std::collections::BTreeMap::from([("TRACEPARENT".to_string(), traceparent)]),
+        pipe_stdin: provider.prompt_delivery == ProviderPromptDelivery::Stdin,
+    }
+}
+
+pub(in crate::contexts::agent_runtime::infrastructure) fn provider_prompt_input(
+    provider: &ProviderInvocationSpec,
+    prompt: &str,
+) -> Option<Vec<u8>> {
+    (provider.prompt_delivery == ProviderPromptDelivery::Stdin).then(|| {
+        let mut input = prompt.as_bytes().to_vec();
+        input.push(b'\n');
+        input
+    })
+}
+
+fn provider_execution_summary(provider: &ProviderInvocationSpec) -> String {
+    format!(
+        "executing {} with {} arguments",
+        executable_name(&provider.executable),
+        provider.args.len()
+    )
 }
 
 impl AgentProcessGateway for RuntimeAgentProcessAdapter {
@@ -513,9 +634,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         sink: Arc<dyn AgentProcessEventSink>,
     ) -> Result<(), AgentRuntimeApplicationError> {
         let (
-            child,
-            stdout,
-            stderr,
+            runner_handle,
             agent_id,
             session_id,
             operation_id,
@@ -544,13 +663,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             }
             managed.monitoring = true;
             (
-                managed.child.clone(),
-                managed.stdout.take().ok_or_else(|| {
-                    AgentRuntimeApplicationError::Process(
-                        "CLI process stdout unavailable.".to_string(),
-                    )
-                })?,
-                managed.stderr.take(),
+                managed.runner_handle.clone(),
                 managed.agent_id.clone(),
                 managed.session_id.clone(),
                 managed.operation_id.clone(),
@@ -571,11 +684,11 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         let telemetry = self.telemetry.clone();
         let event_sequence = self.event_sequence.clone();
         let evidence = self.evidence.clone();
+        let runner = self.runner.clone();
         thread::spawn(move || {
             ProcessMonitor {
-                child,
-                stdout,
-                stderr,
+                runner,
+                runner_handle,
                 agent_id,
                 sink,
                 logging,
@@ -628,16 +741,28 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 SafeAttributeValue::String(initiator.as_str().to_string()),
             )]),
         });
-        let mut child = managed
-            .child
-            .lock()
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
+        let inspection = self
+            .runner
+            .inspect(&managed.runner_handle)
+            .map_err(runner_application_error)?;
+        record_runner_lifecycle(
+            self.logging.as_ref(),
+            self.clock.as_ref(),
+            AgentLogLevel::Debug,
+            "inspect",
+            managed.runner_handle.reference.kind,
+            &managed.runner_handle.reference.target_id,
+            "completed",
+            &managed.agent_id,
+            &managed.session_id,
+            &managed.operation_id,
+            &managed.execution_context,
+        );
+        if let crate::contexts::agent_runtime::application::RunnerInspection::Exited(code) =
+            inspection
         {
             if !managed.monitoring {
-                let execution_status = if status.success() {
+                let execution_status = if code == Some(0) {
                     ExecutionStatus::Succeeded
                 } else {
                     ExecutionStatus::Failed
@@ -647,12 +772,28 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                     &managed.execution_context.span_id,
                     execution_status,
                     &self.clock.now(),
-                    (!status.success()).then_some("process_exit_failed"),
+                    (code != Some(0)).then_some("process_exit_failed"),
                 );
+                self.runner
+                    .cleanup(&managed.runner_handle)
+                    .map_err(runner_application_error)?;
             }
             return Ok(false);
         }
-        if let Err(error) = child.kill() {
+        if let Err(error) = self.runner.cancel(&managed.runner_handle) {
+            record_runner_lifecycle(
+                self.logging.as_ref(),
+                self.clock.as_ref(),
+                AgentLogLevel::Error,
+                "cancel",
+                managed.runner_handle.reference.kind,
+                &managed.runner_handle.reference.target_id,
+                error.code(),
+                &managed.agent_id,
+                &managed.session_id,
+                &managed.operation_id,
+                &managed.execution_context,
+            );
             let _ = self.telemetry.finish_span(
                 &managed.execution_context.run_id,
                 &managed.execution_context.span_id,
@@ -660,8 +801,21 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 &self.clock.now(),
                 Some("process_cancel_failed"),
             );
-            return Err(AgentRuntimeApplicationError::Process(error.to_string()));
+            return Err(runner_application_error(error));
         }
+        record_runner_lifecycle(
+            self.logging.as_ref(),
+            self.clock.as_ref(),
+            AgentLogLevel::Info,
+            "cancel",
+            managed.runner_handle.reference.kind,
+            &managed.runner_handle.reference.target_id,
+            "succeeded",
+            &managed.agent_id,
+            &managed.session_id,
+            &managed.operation_id,
+            &managed.execution_context,
+        );
         let (status, error_classification) = match initiator {
             crate::contexts::agent_runtime::application::ProcessStopInitiator::User => {
                 (ExecutionStatus::Cancelled, "user_cancelled")
@@ -678,7 +832,9 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             Some(error_classification),
         );
         if !managed.monitoring {
-            let _ = child.wait();
+            self.runner
+                .cleanup(&managed.runner_handle)
+                .map_err(runner_application_error)?;
             cleanup_final_output(managed.final_output_path.as_deref());
         }
         Ok(true)
@@ -710,9 +866,8 @@ fn evidence_cli_snapshot(
 impl ProcessMonitor {
     fn run(self) {
         let ProcessMonitor {
-            child,
-            stdout,
-            stderr,
+            runner,
+            runner_handle,
             agent_id,
             sink,
             logging,
@@ -731,7 +886,7 @@ impl ProcessMonitor {
             mount_snapshot,
             configured_binding_ids,
         } = self;
-        let stderr_handle = thread::spawn(move || read_stderr(stderr));
+        let mut reader = RunnerEventReader::new(runner.clone(), runner_handle.clone());
         let parser = output_parser_for_format(output_format);
         let mut terminal_error = None;
         let mut emitted_content = false;
@@ -741,7 +896,7 @@ impl ProcessMonitor {
         // terminal `GenerationProcessEvent::Completed` below rather than acted on
         // immediately, since the exit code (not this line) decides success/failure.
         let mut reported_usage: Option<ReportedUsageTotals> = None;
-        for line in BoundedProviderLines::new(stdout, 256 * 1024) {
+        for line in BoundedProviderLines::new(&mut reader, 256 * 1024) {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
@@ -823,21 +978,34 @@ impl ProcessMonitor {
                 }
             }
         }
-        // Reap the child *without* holding the `child` lock across the blocking wait.
-        // `stop_generation` locks the same `Arc<Mutex<Child>>` to kill the process, so
-        // holding the lock across `wait()` — which blocks until the process actually
-        // exits — deadlocks any user-initiated cancellation when a CLI closes stdout but
-        // keeps running (daemonized / detached grandchildren). Poll `try_wait()` with
-        // short holds of the lock so a concurrent `stop_generation` kill can proceed.
-        let exit_status = reap_without_holding_child_lock(&child);
-        let stderr_output = stderr_handle.join().unwrap_or_default();
+        if reader.disconnected {
+            record_runner_lifecycle(
+                logging.as_ref(),
+                clock.as_ref(),
+                AgentLogLevel::Warn,
+                "disconnect",
+                runner_handle.reference.kind,
+                &runner_handle.reference.target_id,
+                "runner_disconnected",
+                &agent_id,
+                &session_id,
+                &operation_id,
+                &execution_context,
+            );
+        }
+        if reader.exit_code.is_none() {
+            let _ = runner.cancel(&runner_handle);
+            reader.drain_to_exit();
+        }
+        let exit_status = runner_exit_outcome(reader.exit_code);
+        let stderr_output = reader.stderr_output();
         if !stderr_output.trim().is_empty() {
             let _ = sink.handle(GenerationProcessEvent::Stderr(
                 stderr_output.trim().to_string(),
             ));
         }
         if terminal_error.is_none()
-            && exit_status.as_ref().is_ok_and(|status| status.success())
+            && matches!(&exit_status, Ok(ProcessExitOutcome::Success))
             && !emitted_content
         {
             if let Some(final_message) = read_final_output(final_output_path.as_deref()) {
@@ -845,30 +1013,15 @@ impl ProcessMonitor {
                 emitted_content = true;
             }
         }
-        let exit_attributes = match &exit_status {
-            Ok(status) => safe_attributes([(
+        let exit_attributes = match reader.exit_code.flatten() {
+            Some(code) => safe_attributes([(
                 "process.exit.code".to_string(),
-                SafeAttributeValue::Integer(i64::from(status.code().unwrap_or(-1))),
+                SafeAttributeValue::Integer(i64::from(code)),
             )]),
-            Err(_) => SafeAttributes::default(),
+            None => SafeAttributes::default(),
         };
-        let terminal = compose_terminal_event(
-            terminal_error,
-            exit_status
-                .as_ref()
-                .map(|status| {
-                    if status.success() {
-                        ProcessExitOutcome::Success
-                    } else {
-                        ProcessExitOutcome::Failure {
-                            status: status.to_string(),
-                        }
-                    }
-                })
-                .map_err(|error| error.clone()),
-            &stderr_output,
-            reported_usage,
-        );
+        let terminal =
+            compose_terminal_event(terminal_error, exit_status, &stderr_output, reported_usage);
         let (process_status, process_error) = match &terminal {
             GenerationProcessEvent::Completed(_) => (ExecutionStatus::Succeeded, None),
             GenerationProcessEvent::Failed(_) => {
@@ -929,9 +1082,9 @@ impl ProcessMonitor {
                 level: AgentLogLevel::Error,
                 category: "session.runtime.cli".to_string(),
                 message: format!("Agent generation terminal event failed: {error}"),
-                agent_id: Some(agent_id),
-                session_id: Some(session_id),
-                operation_id: Some(operation_id),
+                agent_id: Some(agent_id.clone()),
+                session_id: Some(session_id.clone()),
+                operation_id: Some(operation_id.clone()),
                 run_id: Some(execution_context.run_id.as_str().to_string()),
                 trace_id: Some(execution_context.trace_id.as_str().to_string()),
                 span_id: Some(execution_context.span_id.as_str().to_string()),
@@ -939,9 +1092,117 @@ impl ProcessMonitor {
             });
         }
         cleanup_final_output(final_output_path.as_deref());
+        let cleanup = runner.cleanup(&runner_handle);
+        record_runner_lifecycle(
+            logging.as_ref(),
+            clock.as_ref(),
+            if cleanup.is_ok() {
+                AgentLogLevel::Debug
+            } else {
+                AgentLogLevel::Error
+            },
+            "cleanup",
+            runner_handle.reference.kind,
+            &runner_handle.reference.target_id,
+            cleanup
+                .as_ref()
+                .map_or_else(|error| error.code(), |_| "succeeded"),
+            &agent_id,
+            &session_id,
+            &operation_id,
+            &execution_context,
+        );
         if let Some(guard) = relay_guard {
             let _ = guard.cleanup();
         }
+    }
+}
+
+struct RunnerEventReader {
+    runner: Arc<dyn AgentRunner>,
+    handle: RunnerHandle,
+    pending: std::collections::VecDeque<u8>,
+    stderr: Vec<u8>,
+    stderr_truncated: bool,
+    exit_code: Option<Option<i32>>,
+    disconnected: bool,
+}
+
+impl RunnerEventReader {
+    fn new(runner: Arc<dyn AgentRunner>, handle: RunnerHandle) -> Self {
+        Self {
+            runner,
+            handle,
+            pending: std::collections::VecDeque::new(),
+            stderr: Vec::new(),
+            stderr_truncated: false,
+            exit_code: None,
+            disconnected: false,
+        }
+    }
+
+    fn drain_to_exit(&mut self) {
+        while self.exit_code.is_none() {
+            match self.runner.next_event(&self.handle) {
+                Ok(Some(RunnerEvent::Stderr(chunk))) => self.push_stderr(&chunk),
+                Ok(Some(RunnerEvent::Exited(code))) => self.exit_code = Some(code),
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+        }
+    }
+
+    fn push_stderr(&mut self, chunk: &[u8]) {
+        const LIMIT: usize = 65_536;
+        let remaining = LIMIT.saturating_sub(self.stderr.len());
+        self.stderr
+            .extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+        self.stderr_truncated |= chunk.len() > remaining;
+    }
+
+    fn stderr_output(&self) -> String {
+        if self.stderr_truncated {
+            return "provider stderr exceeded the bounded diagnostic limit".to_string();
+        }
+        String::from_utf8_lossy(&self.stderr).trim().to_string()
+    }
+}
+
+impl Read for RunnerEventReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        while self.pending.is_empty() && self.exit_code.is_none() {
+            match self.runner.next_event(&self.handle) {
+                Ok(Some(RunnerEvent::Stdout(chunk))) => self.pending.extend(chunk),
+                Ok(Some(RunnerEvent::Stderr(chunk))) => self.push_stderr(&chunk),
+                Ok(Some(RunnerEvent::Exited(code))) => self.exit_code = Some(code),
+                Ok(Some(RunnerEvent::Disconnected)) => {
+                    self.disconnected = true;
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "Runner disconnected",
+                    ));
+                }
+                Ok(None) => return Ok(0),
+                Err(error) => {
+                    return Err(std::io::Error::other(error.code()));
+                }
+            }
+        }
+        let length = output.len().min(self.pending.len());
+        for slot in output.iter_mut().take(length) {
+            *slot = self.pending.pop_front().unwrap_or_default();
+        }
+        Ok(length)
+    }
+}
+
+fn runner_exit_outcome(exit_code: Option<Option<i32>>) -> Result<ProcessExitOutcome, String> {
+    match exit_code {
+        Some(Some(0)) => Ok(ProcessExitOutcome::Success),
+        Some(code) => Ok(ProcessExitOutcome::Failure {
+            status: code.map_or_else(|| "terminated".to_string(), |value| value.to_string()),
+        }),
+        None => Err("Runner event stream ended without an exit status".to_string()),
     }
 }
 
@@ -1046,9 +1307,10 @@ fn read_final_output(path: Option<&Path>) -> Option<String> {
 }
 
 fn executable_name(executable: &str) -> String {
-    Path::new(executable)
-        .file_name()
-        .and_then(|value| value.to_str())
+    executable
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|value| !value.is_empty())
         .unwrap_or("unknown")
         .to_string()
 }
@@ -1057,6 +1319,12 @@ fn safe_attributes(
     entries: impl IntoIterator<Item = (String, SafeAttributeValue)>,
 ) -> SafeAttributes {
     SafeAttributes::try_from_entries(entries).unwrap_or_default()
+}
+
+fn runner_application_error(
+    error: crate::contexts::agent_runtime::application::RunnerError,
+) -> AgentRuntimeApplicationError {
+    AgentRuntimeApplicationError::Process(error.code().to_string())
 }
 
 fn cleanup_final_output(path: Option<&Path>) {
@@ -1076,45 +1344,6 @@ fn apply_mcp_relay_args(agent_id: &str, args: &mut Vec<String>, relay_args: Vec<
     args.splice(insertion_index..insertion_index, relay_args);
 }
 
-fn read_stderr(stderr: Option<ChildStderr>) -> String {
-    let Some(mut stderr) = stderr else {
-        return String::new();
-    };
-    const LIMIT: usize = 65_536;
-    let mut framer = ProviderOutputFramer::new(LIMIT);
-    let mut buffer = [0u8; 4_096];
-    let mut output = String::new();
-    while output.len() < LIMIT {
-        let Ok(count) = stderr.read(&mut buffer) else {
-            break;
-        };
-        if count == 0 {
-            break;
-        }
-        let Ok(lines) = framer.push(ProviderOutputStream::Stderr, &buffer[..count]) else {
-            return "provider stderr exceeded the bounded diagnostic limit".to_string();
-        };
-        for line in lines {
-            if !output.is_empty() {
-                output.push('\n');
-            }
-            output.push_str(&line);
-        }
-    }
-    if let Ok(Some(tail)) = framer.finish(ProviderOutputStream::Stderr) {
-        if !output.is_empty() {
-            output.push('\n');
-        }
-        output.push_str(&tail);
-    }
-    let mut end = output.len().min(LIMIT);
-    while !output.is_char_boundary(end) {
-        end -= 1;
-    }
-    output.truncate(end);
-    output
-}
-
 fn launch_command(command: Option<&str>) -> Result<(), AgentRuntimeApplicationError> {
     let Some(command) = command else {
         return Ok(());
@@ -1132,36 +1361,6 @@ fn launch_command(command: Option<&str>) -> Result<(), AgentRuntimeApplicationEr
         .spawn()
         .map(|_| ())
         .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))
-}
-
-fn terminate_child(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-/// Reaps a managed child process without holding the lock across the blocking wait.
-///
-/// `stop_generation` locks the same `Arc<Mutex<Child>>` to kill a runaway CLI, so a
-/// monitor that holds the lock across `wait()` — which blocks until the process
-/// actually exits — deadlocks cancellation whenever a CLI closes stdout but keeps
-/// running (daemonized / detached grandchildren). Polling `try_wait()` with short lock
-/// holds lets a concurrent `stop_generation` `kill()` proceed; once it has (or the
-/// process exits on its own), `try_wait()` returns the exit status.
-fn reap_without_holding_child_lock(
-    child: &Arc<Mutex<Child>>,
-) -> Result<std::process::ExitStatus, String> {
-    const POLL_INTERVAL: Duration = Duration::from_millis(50);
-    loop {
-        let status = child
-            .lock()
-            .map_err(|error| error.to_string())?
-            .try_wait()
-            .map_err(|error| error.to_string())?;
-        if let Some(status) = status {
-            return Ok(status);
-        }
-        thread::sleep(POLL_INTERVAL);
-    }
 }
 
 fn codex_output_capture_path(session_id: &str, operation_id: &str) -> PathBuf {
@@ -1292,7 +1491,11 @@ fn compose_terminal_event(
 #[cfg(test)]
 mod terminal_event_tests {
     use super::*;
-    use crate::contexts::agent_runtime::application::GenerationProcessFailureKind;
+    use crate::contexts::agent_runtime::application::{
+        GenerationProcessFailureKind, PreparedRunnerLaunch, RunnerCapabilities, RunnerError,
+        RunnerErrorKind, RunnerInspection, RunnerKind, RunnerPolicyWitness, RunnerRecoveryMode,
+        RunnerReference,
+    };
     use crate::contexts::tooling::skills::api::CliSkillEvidenceEntry;
     use crate::test_support::TempDirectory;
 
@@ -1380,6 +1583,26 @@ mod terminal_event_tests {
         match terminal {
             GenerationProcessEvent::Failed(error) => assert_eq!(error.diagnostic, "boom"),
             other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn runner_log_summary_excludes_arguments_prompts_and_unrestricted_paths() {
+        let provider = ProviderInvocationSpec {
+            executable: "C:\\private\\fixture.exe".to_string(),
+            args: vec![
+                "--json".to_string(),
+                "private prompt".to_string(),
+                "--resume".to_string(),
+                "session-1".to_string(),
+            ],
+            prompt_delivery: ProviderPromptDelivery::Argument,
+        };
+
+        let summary = provider_execution_summary(&provider);
+        assert_eq!(summary, "executing fixture.exe with 4 arguments");
+        for secret in ["private prompt", "session-1", "private\\", "--resume"] {
+            assert!(!summary.contains(secret));
         }
     }
 
@@ -1478,6 +1701,175 @@ mod terminal_event_tests {
         assert_eq!(
             normalize_generation_executable("codex-cli", &shim.to_string_lossy()),
             shim.to_string_lossy().to_string()
+        );
+    }
+
+    struct OrderedPermissions {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+        stale: bool,
+    }
+
+    impl RunnerPermissionPort for OrderedPermissions {
+        fn authorize(
+            &self,
+            _context: &RunnerPermissionContext,
+        ) -> Result<RunnerPolicyWitness, RunnerError> {
+            self.calls.lock().expect("calls").push("authorize");
+            Ok(RunnerPolicyWitness {
+                fingerprint: "sha256:policy".into(),
+            })
+        }
+
+        fn revalidate(
+            &self,
+            _context: &RunnerPermissionContext,
+            _witness: &RunnerPolicyWitness,
+        ) -> Result<(), RunnerError> {
+            self.calls.lock().expect("calls").push("revalidate");
+            if self.stale {
+                Err(RunnerError::new(RunnerErrorKind::AuthorityStale))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    struct OrderedRunner(Arc<Mutex<Vec<&'static str>>>);
+
+    impl AgentRunner for OrderedRunner {
+        fn kind(&self) -> RunnerKind {
+            RunnerKind::Local
+        }
+
+        fn capabilities(&self) -> RunnerCapabilities {
+            RunnerCapabilities {
+                interactive_input: true,
+                pty: false,
+                cancellation: true,
+                inspection: true,
+                recovery: RunnerRecoveryMode::None,
+            }
+        }
+
+        fn prepare(
+            &self,
+            _selection: &RunnerSelection,
+            spec: RunnerLaunchSpec,
+        ) -> Result<PreparedRunnerLaunch, RunnerError> {
+            self.0.lock().expect("calls").push("prepare");
+            Ok(PreparedRunnerLaunch {
+                reference: RunnerReference {
+                    kind: RunnerKind::Local,
+                    target_id: "local".into(),
+                    target_revision: None,
+                    recovery: RunnerRecoveryMode::None,
+                    authority_witness: "runner-v1".into(),
+                },
+                spec,
+                preparation_id: None,
+                admission_id: None,
+            })
+        }
+
+        fn spawn(&self, prepared: PreparedRunnerLaunch) -> Result<RunnerHandle, RunnerError> {
+            self.0.lock().expect("calls").push("spawn");
+            assert!(prepared.reference.authority_witness.starts_with("sha256:"));
+            Ok(RunnerHandle {
+                id: "handle-1".into(),
+                reference: prepared.reference,
+                process_reference: None,
+            })
+        }
+
+        fn send_input(&self, _handle: &RunnerHandle, _content: &[u8]) -> Result<(), RunnerError> {
+            unreachable!()
+        }
+
+        fn next_event(&self, _handle: &RunnerHandle) -> Result<Option<RunnerEvent>, RunnerError> {
+            unreachable!()
+        }
+
+        fn cancel(&self, _handle: &RunnerHandle) -> Result<bool, RunnerError> {
+            unreachable!()
+        }
+
+        fn inspect(&self, _handle: &RunnerHandle) -> Result<RunnerInspection, RunnerError> {
+            unreachable!()
+        }
+
+        fn cleanup(&self, _handle: &RunnerHandle) -> Result<(), RunnerError> {
+            unreachable!()
+        }
+
+        fn recover(
+            &self,
+            _reference: &RunnerReference,
+            _process_reference: Option<&str>,
+        ) -> Result<RunnerInspection, RunnerError> {
+            unreachable!()
+        }
+    }
+
+    fn authorization_context() -> RunnerPermissionContext {
+        RunnerPermissionContext {
+            agent_id: "codex-cli".into(),
+            session_id: "session-1".into(),
+            generation_id: "generation-1".into(),
+            project_key: "workspace".into(),
+            action: "shell.exec".into(),
+            selection: RunnerSelection::local(),
+        }
+    }
+
+    fn runner_launch() -> RunnerLaunchSpec {
+        RunnerLaunchSpec {
+            session_id: Some("session-1".into()),
+            executable: "codex".into(),
+            arguments: vec!["exec".into()],
+            cwd: Some("workspace".into()),
+            environment: Default::default(),
+            pipe_stdin: false,
+        }
+    }
+
+    #[test]
+    fn runner_permission_is_revalidated_immediately_before_spawn() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        prepare_and_spawn_authorized(
+            &OrderedRunner(calls.clone()),
+            &OrderedPermissions {
+                calls: calls.clone(),
+                stale: false,
+            },
+            &RunnerSelection::local(),
+            &authorization_context(),
+            runner_launch(),
+        )
+        .expect("spawn");
+        assert_eq!(
+            *calls.lock().expect("calls"),
+            ["authorize", "prepare", "revalidate", "spawn"]
+        );
+    }
+
+    #[test]
+    fn stale_runner_permission_prevents_spawn() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let error = prepare_and_spawn_authorized(
+            &OrderedRunner(calls.clone()),
+            &OrderedPermissions {
+                calls: calls.clone(),
+                stale: true,
+            },
+            &RunnerSelection::local(),
+            &authorization_context(),
+            runner_launch(),
+        )
+        .expect_err("stale");
+        assert_eq!(error.kind, RunnerErrorKind::AuthorityStale);
+        assert_eq!(
+            *calls.lock().expect("calls"),
+            ["authorize", "prepare", "revalidate"]
         );
     }
 }

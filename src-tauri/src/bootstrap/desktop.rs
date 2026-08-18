@@ -141,6 +141,9 @@ impl DesktopShutdownPort for RuntimeShutdownAdapter {
         // Runs before the fallible shutdowns below so a failure there cannot leave background
         // command trees behind (`add-background-shell-execution`).
         self.agents.reap_all_background_commands();
+        self.agents
+            .shutdown_generations()
+            .map_err(|_| "agent-runner-shutdown-failed".to_string())?;
         let agents = self
             .agents
             .shutdown_agent_terminals()

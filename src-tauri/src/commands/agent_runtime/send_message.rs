@@ -10,13 +10,12 @@ pub(crate) fn send_message(
     content: String,
     config: dto::ChatConfig,
     file_references: Option<Vec<dto::ChatFileReference>>,
+    runner: Option<dto::RunnerSelection>,
 ) -> Result<dto::ChatMessage, CommandError> {
-    api.send_message(mapper::send_message_request(
-        session_id,
-        content,
-        config,
-        file_references,
-    ))
+    api.send_message_with_runner(
+        mapper::send_message_request(session_id, content, config, file_references),
+        mapper::runner_selection_from_dto(runner),
+    )
     .map(mapper::message_to_dto)
     .map_err(map_command_error)
 }

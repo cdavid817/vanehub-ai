@@ -31,8 +31,12 @@ describe("MissionControl", () => {
 
   it("prioritizes attention, freezes terminal elapsed time, filters, inspects, and navigates", async () => {
     await i18n.changeLanguage("en"); const navigate = vi.fn();
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
     render(<MissionControl onNavigate={navigate} />);
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
+    expect(document.querySelector("[data-runner='ssh']")?.textContent).toContain("build.example.test");
+    fireEvent.change(screen.getByLabelText(/Runner/), { target: { value: "ssh" } });
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ runner: "ssh", cursor: null })));
     const statusFilter = document.querySelector("select") as HTMLSelectElement;
     fireEvent.change(statusFilter, { target: { value: "failed" } });
     const failed = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294");

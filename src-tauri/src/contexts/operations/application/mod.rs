@@ -18,5 +18,6 @@ pub(crate) use operation_service::{
     OperationClock, OperationIdGenerator, OperationRepository, OperationService,
 };
 pub(crate) use run_service::{
-    AgentRunRepository, AgentRunService, CreateAgentRun, RunClockPort, RunListFilter, RunPage,
+    AgentRunRepository, AgentRunService, CreateAgentRun, RunClockPort, RunListFilter,
+    RunOwnerRecoveryPort, RunPage, RunRecoveryDecision,
 };

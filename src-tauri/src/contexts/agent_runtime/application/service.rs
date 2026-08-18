@@ -20,14 +20,15 @@ use super::{
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SaveCustomOnePieceProviderProfileInput,
-    SaveMemoryInput, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
-    SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest, StartedAgentMessage,
-    StopGenerationResult, StoredEndpointProfileMetadata, StoredHybridRoutingRule,
-    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
-    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest, WorkflowView,
-    CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor, RunnerDiscoveryPort,
+    RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnCompletionPort,
+    SeatTurnTerminal, SendMessageRequest, StartedAgentMessage, StopGenerationResult,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
+    ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     route_profile, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
@@ -336,6 +337,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
     pub(crate) memory_extraction: Arc<dyn super::AgentMemoryExtractionPort>,
     pub(crate) personalization: Arc<dyn super::AgentPersonalizationPort>,
+    pub(crate) runner_discovery: Arc<dyn RunnerDiscoveryPort>,
 }
 
 #[derive(Clone)]
@@ -364,6 +366,7 @@ pub(super) struct MessageGenerationInput {
     pub(super) record_user_message: bool,
     /// Whether a human can answer a question this generation asks (`add-agent-user-question`).
     pub(super) interactive: bool,
+    pub(super) runner: RunnerSelection,
 }
 
 struct GenerationFailure {
@@ -2092,15 +2095,36 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.send_message_internal(request, false, true)
+        self.send_message_internal(request, RunnerSelection::local(), false, true)
             .map(|(message, _)| message)
+    }
+
+    pub(crate) fn send_message_with_runner(
+        &self,
+        request: SendMessageRequest,
+        runner: RunnerSelection,
+    ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+        runner
+            .validate()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.code().to_string()))?;
+        self.send_message_internal(request, runner, false, true)
+            .map(|(message, _)| message)
+    }
+
+    pub(crate) fn list_runners(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Vec<RunnerDescriptor>, AgentRuntimeApplicationError> {
+        self.ports.runner_discovery.list(session_id, agent_id)
     }
 
     pub(crate) fn send_message_with_completion(
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true, true)?;
+        let (message, terminal) =
+            self.send_message_internal(request, RunnerSelection::local(), true, true)?;
         let terminal = terminal.ok_or_else(|| {
             AgentRuntimeApplicationError::Generation(
                 "message completion registration was not created".to_string(),
@@ -2123,7 +2147,8 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true, false)?;
+        let (message, terminal) =
+            self.send_message_internal(request, RunnerSelection::local(), true, false)?;
         let terminal = terminal.ok_or_else(|| {
             AgentRuntimeApplicationError::Generation(
                 "message completion registration was not created".to_string(),
@@ -2135,6 +2160,7 @@ impl AgentRuntimeApplicationService {
     fn send_message_internal(
         &self,
         request: SendMessageRequest,
+        runner: RunnerSelection,
         register_completion: bool,
         caller_is_interactive: bool,
     ) -> Result<
@@ -2189,6 +2215,7 @@ impl AgentRuntimeApplicationService {
                 role_briefing,
                 seat_ownership,
                 record_user_message: true,
+                runner,
             },
         );
         if result.is_err() && terminal.is_some() {
@@ -2212,6 +2239,7 @@ impl AgentRuntimeApplicationService {
             seat_ownership,
             record_user_message,
             interactive,
+            runner,
         } = input;
         let originated_from_im =
             matches!(&source, super::AgentMessageSource::InstantMessage { .. });
@@ -2468,31 +2496,6 @@ impl AgentRuntimeApplicationService {
             "restart_run_correlation",
             self.ports.telemetry.start_run(&run),
         );
-        if let Err(error) = self.ports.operations.start_canonical_run(
-            root_context.run_id.as_str(),
-            &assistant.id,
-            seat_ownership
-                .as_ref()
-                .and_then(|ownership| ownership.parent_execution_run_id.as_deref()),
-            CanonicalRunLinks {
-                session_id: &session.id,
-                user_message_id: run.user_message_id.as_deref(),
-                assistant_message_id: &assistant.id,
-                operation_id: &operation.id,
-            },
-        ) {
-            return self.fail_prepared_message(
-                &root_context,
-                session,
-                &assistant,
-                &lease,
-                Some(&operation.id),
-                generation_failure(
-                    "Agent run initialization failed".to_string(),
-                    error.to_string(),
-                ),
-            );
-        }
         if let Err(error) = self.ports.operations.correlate_execution(
             &operation.id,
             root_context.run_id.as_str(),
@@ -2790,6 +2793,7 @@ impl AgentRuntimeApplicationService {
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,
                 interactive,
+                runner,
                 endpoint_profile,
             }) {
             Ok(started) => started,
@@ -2826,6 +2830,58 @@ impl AgentRuntimeApplicationService {
                 );
             }
         };
+        if let Err(error) = self.ports.operations.start_canonical_run(
+            root_context.run_id.as_str(),
+            &assistant.id,
+            seat_ownership
+                .as_ref()
+                .and_then(|ownership| ownership.parent_execution_run_id.as_deref()),
+            CanonicalRunLinks {
+                session_id: &session.id,
+                user_message_id: run.user_message_id.as_deref(),
+                assistant_message_id: &assistant.id,
+                operation_id: &operation.id,
+            },
+            &started.runner_reference,
+            started.process_reference.as_deref(),
+        ) {
+            let _ = self.ports.processes.stop_generation(
+                &started.process_id,
+                super::ProcessStopInitiator::RuntimeCleanup,
+            );
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                &lease,
+                Some(&operation.id),
+                generation_failure(
+                    "Agent run initialization failed".to_string(),
+                    error.to_string(),
+                ),
+            );
+        }
+        if let Err(error) = self
+            .ports
+            .operations
+            .signal_canonical_run(root_context.run_id.as_str(), CanonicalRunSignal::Active)
+        {
+            let _ = self.ports.processes.stop_generation(
+                &started.process_id,
+                super::ProcessStopInitiator::RuntimeCleanup,
+            );
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                &lease,
+                Some(&operation.id),
+                generation_failure(
+                    "Agent run start could not be persisted.".to_string(),
+                    error.to_string(),
+                ),
+            );
+        }
         if let Err(error) =
             self.ports
                 .generations
@@ -3135,6 +3191,16 @@ impl AgentRuntimeApplicationService {
             cancelled_message_ids: message_ids.into_iter().collect(),
             process_stopped,
         })
+    }
+
+    pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        let session_ids = self.ports.generations.begin_shutdown()?;
+        let mut stopped = Vec::new();
+        for session_id in session_ids {
+            self.stop_generation(&session_id)?;
+            stopped.push(session_id);
+        }
+        Ok(stopped)
     }
 
     fn deliver_loop_terminal(

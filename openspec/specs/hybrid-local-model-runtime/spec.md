@@ -129,4 +129,3 @@ Discovery, verification, routing, fallback, capability rejection, timeout, and c
 - **WHEN** verification or generation receives an authentication failure
 - **THEN** page-visible operation state SHALL expose a safe category and retry action
 - **AND** logs SHALL exclude credentials, headers, raw response bodies, prompts, code, and full private URLs beyond the permitted origin metadata
-

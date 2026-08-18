@@ -5,10 +5,22 @@ export function measureSyntheticDatasets(manifest) {
   for (const dataset of manifest.datasets) {
     if (dataset.kind === "repository") measurements.set(`repository.${dataset.id}`, sample(() => repositoryWork(dataset)));
     if (dataset.kind === "runs") measurements.set(`runs.${dataset.id}`, sample(() => runWork(dataset)));
+    if (dataset.kind === "runner") measurements.set(`runner.${dataset.id}`, sample(() => runnerWork(dataset)));
     if (dataset.kind === "terminal") measurements.set(`terminal.${dataset.id}`, sample(() => terminalWork(dataset)));
     if (dataset.kind === "stream") measurements.set(`stream.${dataset.id}`, sample(() => streamWork(dataset)));
   }
   return [...measurements].map(([id, value]) => ({ id, ...value }));
+}
+
+function runnerWork(dataset) {
+  const handles = Array.from({ length: dataset.scale.activeHandles }, (_, index) => ({
+    kind: index < dataset.scale.localHandles ? 1 : 2,
+    target: index < dataset.scale.localHandles ? 0 : index % Math.max(1, dataset.scale.sshTargets),
+  }));
+  let checksum = 0;
+  for (const handle of handles) checksum = hash(checksum + handle.kind + handle.target + dataset.seed);
+  handles.length = 0;
+  return checksum;
 }
 
 function sample(work) {

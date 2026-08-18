@@ -20,6 +20,7 @@ pub(crate) mod get_session_details;
 pub(crate) mod get_workflow_state;
 pub(crate) mod launch_active_workflow;
 pub(crate) mod list_agent_memories;
+pub(crate) mod list_agent_runners;
 pub(crate) mod list_agents;
 pub(crate) mod list_context_evidence_manifests;
 pub(crate) mod list_context_quality_history;

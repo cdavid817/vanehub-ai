@@ -5,6 +5,7 @@ pub(crate) fn invoke_handler(
     tauri::generate_handler![
         // Agent Runtime
         crate::commands::agent_runtime::list_agents::list_agents,
+        crate::commands::agent_runtime::list_agent_runners::list_agent_runners,
         crate::commands::agent_runtime::list_agent_memories::list_agent_memories,
         crate::commands::agent_runtime::list_context_quality_history::list_context_quality_history,
         crate::commands::agent_runtime::get_context_quality_summary::get_context_quality_summary,

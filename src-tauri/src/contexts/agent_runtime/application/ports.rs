@@ -320,6 +320,13 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         session_id: &str,
     ) -> Result<Option<AgentSession>, AgentRuntimeApplicationError>;
 
+    fn current_runner_target(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<super::AgentSessionRunnerTarget>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
     fn validate_configuration(
         &self,
         session: &AgentSession,
@@ -574,6 +581,8 @@ pub(crate) trait AgentTaskPort: Send + Sync {
         _owner_id: &str,
         _parent_run_id: Option<&str>,
         _links: CanonicalRunLinks<'_>,
+        _runner: &super::RunnerReference,
+        _process_reference: Option<&str>,
     ) -> Result<(), AgentRuntimeApplicationError> {
         Ok(())
     }
@@ -813,6 +822,18 @@ pub(crate) trait AgentGenerationPort: Send + Sync {
     ) -> Result<Option<super::ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
         Ok(None)
     }
+
+    fn begin_shutdown(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+}
+
+pub(crate) trait RunnerDiscoveryPort: Send + Sync {
+    fn list(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Vec<super::RunnerDescriptor>, AgentRuntimeApplicationError>;
 }
 
 /// Read boundary for recent conversation turns, used by API-based generation to assemble

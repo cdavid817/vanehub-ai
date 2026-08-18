@@ -12,6 +12,8 @@ import { seatMentionOptions } from "../services/seat-mention-options";
 import { canSendToSession } from "../services/session-admission";
 import { useSlashCommands } from "../services/slash-commands/use-slash-commands";
 import type { SlashCommandNavigation } from "../services/slash-commands/types";
+import { RunnerSelector } from "./runner-selector";
+import { useRunnerSelection } from "./use-runner-selection";
 
 const NO_NAVIGATION: SlashCommandNavigation = {
   openAssociatedPlan: null, openDestination: () => undefined, openSessionTab: () => undefined,
@@ -32,6 +34,7 @@ export function ApiSessionComposer({
   const roles = useSessionRoles(isMultiSeat);
   const participantMentions = seatMentionOptions(model.activeSession, model.agents, roles);
   const [pendingLiteralSend, setPendingLiteralSend] = useState(false);
+  const runner = useRunnerSelection(model.activeSession, model.agents);
   // A session with no plan run has nothing for `/plan` to open, and offering a command that does
   // nothing is worse than not offering it — so the handler is withheld, not just left unused.
   const openPlan = model.chatConfig.associatedPlanRun ? onOpenPlan : undefined;
@@ -73,18 +76,28 @@ export function ApiSessionComposer({
   useEffect(() => {
     if (!pendingLiteralSend) return;
     setPendingLiteralSend(false);
-    model.submit();
-  }, [model, pendingLiteralSend]);
+    model.submitWithRunner(runner.selection);
+  }, [model, pendingLiteralSend, runner.selection]);
 
   function submit() {
     const outcome = slash.dispatch(model.draft);
     if (outcome.kind === "handled") { model.setDraft(""); return; }
     if (outcome.kind === "literal") { model.setDraft(outcome.content); setPendingLiteralSend(true); return; }
-    model.submit();
+    model.submitWithRunner(runner.selection);
   }
 
   return (
-    <ChatInputBox
+    <div>
+      <RunnerSelector
+        descriptors={runner.descriptors}
+        disabled={!canSendToSession(model.activeSession) || model.isSending || model.isStreaming}
+        error={runner.error}
+        loading={runner.loading}
+        onChange={runner.setSelection}
+        onRetry={() => void runner.refetch()}
+        value={runner.selection}
+      />
+      <ChatInputBox
       agents={model.chatConfig.availableAgents}
       availableModes={model.chatConfig.availableModes}
       availableModels={model.chatConfig.availableModels}
@@ -117,6 +130,7 @@ export function ApiSessionComposer({
       onSubmit={submit}
       sessionId={model.activeSession?.id ?? null}
       value={model.draft}
-    />
+      />
+    </div>
   );
 }

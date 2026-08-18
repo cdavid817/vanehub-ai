@@ -133,10 +133,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "zh-CN".to_string());
 
     let operations_api = super::assemble_operations_api(database.clone());
-    let agent_runs_api = super::assemble_agent_runs_api(database.clone());
-    agent_runs_api
-        .reconcile_after_restart()
-        .map_err(boxed_error)?;
     let code_intelligence_api =
         super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
     code_intelligence_api.start_maintenance();
@@ -215,6 +211,24 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings_api.clone(),
         app.handle().clone(),
     );
+    let runners = super::assemble_agent_runners(sessions_api.clone(), ssh_connections_api.clone())
+        .map_err(boxed_message)?;
+    let runner_discovery = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::NativeRunnerDiscovery::new(
+            sessions_api.clone(),
+            ssh_connections_api.clone(),
+        ),
+    );
+    let runner_recovery = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::RunnerRunRecoveryAdapter::new(
+            runners.clone(),
+        ),
+    );
+    let agent_runs_api =
+        super::assemble_agent_runs_api_with_recovery(database.clone(), runner_recovery);
+    agent_runs_api
+        .reconcile_after_restart()
+        .map_err(boxed_error)?;
     // `assemble_retrieval` below needs `agent_runtime_api` (the output of this very call), so a
     // real `RetrievalApi` cannot exist yet when `RuntimeAgentApiAdapter`'s `recall` tool is wired
     // up — this cell starts empty and is bound once the real one is ready, a few lines down.
@@ -235,6 +249,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         skill_tools: skill_tool_api.clone(),
         mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
+        runners,
+        runner_discovery,
         workspaces: workspace_api.clone(),
         permissions: permissions_api.clone(),
         shared_registry: shared_agent_registry,

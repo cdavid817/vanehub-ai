@@ -168,9 +168,24 @@ fn input(parent: Option<String>) -> CreateAgentRun {
         links: vec![],
         parent_run_id: parent,
         recovery_policy: RunRecoveryPolicy::NotRecoverable,
+        runner: None,
         max_retries: 1,
         witness: "create".into(),
     }
+}
+
+#[test]
+fn create_input_accepts_legacy_payload_without_runner() {
+    let value = serde_json::json!({
+        "owner": { "ownerType": "generation", "ownerId": "owner" },
+        "links": [],
+        "parentRunId": null,
+        "recoveryPolicy": "not_recoverable",
+        "maxRetries": 1,
+        "witness": "create"
+    });
+    let parsed: CreateAgentRun = serde_json::from_value(value).expect("legacy input");
+    assert!(parsed.runner.is_none());
 }
 
 #[test]
