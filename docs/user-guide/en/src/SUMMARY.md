@@ -11,6 +11,7 @@
 
 - [Multi-Agent group chat](multi-agent-workflow.md)
   - [Group chat collaboration case](multi-agent-testing-tutorial.md)
+- [Git worktrees](worktree.md)
 - [Loop Engineering](loop-engineering.md)
 - [Goal management](goal-management.md)
 - [Todo Board](todo-board.md)
@@ -23,6 +24,8 @@
 - [Code indexing](code-indexing.md)
 - [LSP code intelligence](lsp-code-intelligence.md)
 - [Tools and extensions](tooling.md)
+- [MCP servers](mcp.md)
+- [Prompt Hooks](prompt-hooks.md)
 - [OnePiece (native Agent)](native-agent.md)
 - [Observability](observability.md)
 - [Remote and IM](remote-and-im.md)

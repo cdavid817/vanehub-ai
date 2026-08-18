@@ -71,21 +71,19 @@ export function headingIds(file, content = undefined) {
 }
 
 function resolveAuthoredTarget(file, target) {
-  if (
-    file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
-    target.startsWith("../api/")
-  ) {
+  const isDeveloperGuide = file.includes(`${sep}docs${sep}developer-guide${sep}`);
+  if (isDeveloperGuide && (target.startsWith("../api/") || target.startsWith("../../api/"))) {
     return null;
   }
   if (
-    file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
-    target === "../reference/release-signing.md"
+    isDeveloperGuide &&
+    (target === "../reference/release-signing.md" || target === "../../reference/release-signing.md")
   ) {
     return resolve(repositoryRoot, "docs", "release-signing.md");
   }
   if (
-    file.includes(`${sep}docs${sep}developer-guide${sep}`) &&
-    target === "../reference/native-architecture.md"
+    isDeveloperGuide &&
+    (target === "../reference/native-architecture.md" || target === "../../reference/native-architecture.md")
   ) {
     return resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md");
   }

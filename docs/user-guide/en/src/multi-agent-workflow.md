@@ -194,17 +194,44 @@ VaneHub AI has two forms of multi-Agent collaboration, and **they do not share o
 
 A single-Agent session's seat has no role assigned, derives no handle, and takes no part in handoffs. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session.
 
-## Why peer-to-peer handoff
+## Multi-Agent topologies: where VaneHub sits
 
-| Pattern | Who drives the turn | Typical examples | VaneHub's choice |
-|---|---|---|---|
-| **Supervisor / orchestrator** | A central scheduling Agent decides who speaks | AutoGen GroupChat (manager), CrewAI | No |
-| **Dependency-graph coordination** | A predefined DAG decides the execution order | Early LangGraph | **Removed** |
-| **Peer-to-peer handoff** | The Agent currently speaking names the next one | This chapter | **Yes** |
+Multi-Agent systems are classified by **who decides what happens next**. The seven mainstream topologies:
 
-The supervisor pattern requires one Agent to act as scheduler, which costs tokens and introduces a single point; the dependency-graph pattern requires the collaboration flow to be defined in advance, which does not suit exploratory tasks. Peer-to-peer handoff lets every Agent read the same context and decide for itself who to hand to, which is closer to how a real team works — you `@` whoever is good at this.
+| Topology | Structure | Control | Typical examples | VaneHub |
+|---|---|---|---|---|
+| **Sequential / Pipeline** | Chain | Static | Plan→Code→Review, ETL-style flows | **[Loop](loop-engineering.md) uses this** |
+| **Parallel / Fan-out-Fan-in** | Star concurrency | Static | Multi-source retrieval, parallel subtasks, Best-of-N | Not implemented |
+| **Supervisor / Orchestrator-Worker** | Centralized, single layer | A central node routes | LangGraph Supervisor, CrewAI | **Deliberately not used** |
+| **Hierarchical** | Multi-layer tree | Decomposed layer by layer | Supervisor of Supervisors | Not implemented |
+| **Network / Peer-to-peer (handoff)** | Decentralized graph | Agents hand off themselves | OpenAI Swarm, Agents SDK handoff | **Group chat uses this** |
+| **Group Chat / Blackboard** | Shared message pool | A turn scheduler | AutoGen GroupChat, the blackboard model | **Partly** — see below |
+| **Market / Contract Net** | Bid matching | Tender–bid–award | Classical MAS; rare with LLMs | Not implemented |
 
-**The cost is predictability**: the path a chain takes is decided by the Agents, which is why the depth and mention limits exist as hard backstops.
+### Group chat is a hybrid of shared message pool and peer handoff
+
+It borrows from two rows at once, but **without the scheduler**:
+
+- **Like a blackboard**: every seat reads one shared conversation thread, with no private channels
+- **Like peer-to-peer**: the next speaker is named by **the Agent currently speaking, with `@`** — there is no central node deciding who speaks
+
+So strictly it is not a textbook Group Chat: AutoGen's GroupChat has a manager that selects the next speaker, and there is none here. **What is shared is the context, not the right to schedule.**
+
+### Loop is a runtime-driven pipeline
+
+[Loop](loop-engineering.md) sits in a different row: its phase order is fixed (Preparing → Acting → Verifying → Deciding → Finalizing), its role split is fixed (Worker → Verifier), and it is **advanced statically by the runtime**. It is not free collaboration among Agents; it is two roles running one pipeline.
+
+**That is the underlying reason the product's two multi-Agent mechanisms share no orchestration logic** — on this classification axis they are not even in the same row.
+
+### Why not Supervisor
+
+The supervisor pattern requires one Agent to act as scheduler, which costs tokens and introduces a single point of failure; the dependency-graph (DAG) pattern requires the collaboration flow to be defined in advance, which does not suit exploratory tasks.
+
+Peer-to-peer handoff lets every Agent read the same context and decide for itself who to hand to, which is closer to how a real team works — you `@` whoever is good at this.
+
+**The cost is predictability**: the path a chain takes is decided by the Agents, which is why the depth and mention limits exist as hard backstops. That is a different controllability trade-off from the supervisor pattern, where the scheduler decides when to stop — **you gain flexibility and pay for it with the need for external limits.**
+
+> The **dependency-graph (DAG) coordination runtime** of an earlier design **has been removed** and replaced by peer-to-peer handoff group chat.
 
 ## Boundaries and limits
 
