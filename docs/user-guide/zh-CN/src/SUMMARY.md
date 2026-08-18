@@ -36,5 +36,4 @@
 
 - [使用案例](use-cases.md)
 - [常见问题](faq.md)
-- [Runtime 与功能状态标签](runtime-labels.md)
 - [故障排查](troubleshooting.md)

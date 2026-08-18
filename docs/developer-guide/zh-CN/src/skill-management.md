@@ -2,6 +2,36 @@
 
 Skill 是按需挂载到 Agent 上的能力包。native 侧负责发现、挂载、漂移对账和 Agent 绑定；frontend 不会直接访问文件系统。
 
+## Skill、MCP、Function Calling 三层关系
+
+在理解 Skill 管理之前,先厘清它与 MCP、Function Calling 的边界。三者不是竞争关系,而是**分层协作**:Function Calling 是协议层(怎么调用),MCP 是连接层(调用什么外部系统),Skill 是知识层(什么时候该调用、调用时遵循什么规范)。
+
+| 维度 | Function Calling | MCP | Skill |
+| --- | --- | --- | --- |
+| **本质** | 底层协议:模型生成结构化参数触发一个函数 | 标准化的"外部连接":把工具/数据源接入模型 | 程序化知识:教模型"怎么把事做对" |
+| **类比** | USB 接口的电气规范 | USB-C 接口本身(连接工具和数据) | 说明书 / SOP(标准作业程序) |
+| **是否需要服务端** | 否(只是调用约定) | 是,MCP server 是运行中的程序,桥接外部系统 | 否,Skill 是静态指令注入到上下文 |
+| **触发方式** | 模型主动调用已注册的 function | 模型主动调用已连接的工具 | 基于 `description` 语义匹配,动态加载指令 |
+| **解决的问题** | "怎么把一次调用结构化" | 连接实时数据、执行副作用(查询/fetch/当前状态) | 教会模型如何恰当地思考与行动,而非点哪个按钮或调哪个 API |
+| **状态/权限** | 无状态,仅参数传递 | 有状态,需鉴权、维护连接 | 无状态,纯文本,无需权限系统 |
+| **可移植性** | 依赖具体实现(各家 API 略有差异) | 开放协议,跨客户端通用 | 已开放为标准 |
+
+### Skill 的核心机制
+
+Skill 本质上是**程序化知识**(procedural knowledge),不是工具或连接。它是一个文件夹,含一个 `SKILL.md`(frontmatter + 指令正文),可选附带脚本/模板/参考资料。
+
+- **渐进式加载**(progressive disclosure):Agent 默认只看到 Skill 的 `name` + `description`(几十 token),任务匹配时才把完整指令正文拉进上下文,避免所有 Skill 常驻消耗上下文窗口。本项目里这由 on-demand Role Skill 的 `list_skills`/`load_skill`/`read_skill_resource` 三个固定只读工具实现。
+- **自动触发**:基于 `description` 语义匹配,无需用户显式调用。
+- **无需服务端**:Skill 是指令和文件,没有服务器要跑,纯粹是知识注入。
+- **单一职责**:一个 Skill 对应一类清晰的工作流;不要把多个不相关能力捆在一个 Skill 里,否则匹配逻辑会模糊。
+- **知识是静态的,动作引用外部能力**:Skill 可以写"调用某 MCP 工具""执行某脚本",但 Skill 本身不持有连接状态或凭证——这是与 MCP 的分界线。
+
+### 关系而非竞争
+
+一个判断标准:场景里出现"查询""fetch""当前状态"这类词,说明需要 MCP server 而不是 Skill;如果是"怎么写""按什么规范做""checklist 是什么",那是 Skill 的领域。
+
+在本项目里三者叠加使用:Skill 的指令会告诉 Agent"这一步该用某个 MCP 工具",而 MCP 工具本身经 Function Calling(OnePiece 的 tool-use 循环)被实际触发。详见[工具注册表与执行](tool-registry.md)与[MCP 工具与客户端](mcp-tools.md)。
+
 ## 双重作用域
 
 Skill 在两个相互隔离的作用域中管理：

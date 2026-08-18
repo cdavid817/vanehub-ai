@@ -89,4 +89,43 @@ flowchart TD
 
 desktop 就绪埋点在 `main.tsx` 中处理:渲染完成后无条件设置 `root.dataset.vanehubBootstrap="ready"`(Tauri、web-mock、web-http 三种运行时都会设置),没有向 native 上报 "desktop 就绪" 的命令。唯一桌面相关的条件分支是 `if(import.meta.env.VITE_DESKTOP_E2E==="1")`,在该分支下加载 `@wdio/tauri-plugin` 并注册 `vanehubFatalError` 监听;这条约束由 `desktop-instrumentation-boundary.test.ts` 验证。
 
+## 子进程通信:Headless 与 ACP-stdio
+
+VaneHub 桌面端作为宿主进程,会 spawn 多个**无头(headless)子进程**——不打开窗口、不渲染 UI,只在后台运行,通过 stdio 或 HTTP 对外通信。这些子进程分两类通信模式,本项目按子系统分别选用。
+
+### 两种模式对比
+
+| 维度 | Headless 命令 + 流式 stdout 解析 | ACP-stdio(JSON-RPC over stdio) |
+| --- | --- | --- |
+| 形态 | 子进程以 headless 命令运行,父进程解析其原生 stdout 输出流 | 子进程以 headless 运行,父子间走 JSON-RPC 2.0 报文,用 `Content-Length` 头分帧 |
+| 协议 | 无协议——按各家 CLI 的原生输出格式逐行/按记录解析 | 有协议——标准 JSON-RPC,method/id/params 结构化 |
+| 报文格式 | 各 CLI 自定义文本/JSONL | `Content-Length: <len>\r\n\r\n` + JSON-RPC body(与 LSP 同款) |
+| stderr 用途 | 可用于诊断日志 | 专用于日志,**不得污染 stdout 协议报文** |
+| 适用条件 | 子进程是现成的 CLI、不实现标准协议时 | 子进程实现了 JSON-RPC 协议时(LSP server、MCP server) |
+
+**Headless 模式**指子进程不启动 GUI、完全后台运行,输入输出不走 UI 而走 stdio/网络/IPC——资源占用低、可程序化驱动、适合本地父子进程或服务器部署。
+
+**ACP-stdio** 指 Agent 通信协议(ACP)跑在 stdin/stdout 上,设计几乎与 LSP 一致:父进程 spawn 一个 headless 子进程,经 stdin 发 JSON-RPC 请求、从 stdout 收响应,stderr 专做日志。报文用 `Content-Length` 头声明后续 JSON 长度,` \r\n\r\n ` 分隔头与内容。关键约束是**业务日志必须走 stderr**——往 stdout print 会破坏协议分帧。
+
+### 本项目采用的方案
+
+本项目**按子系统混合采用**两种模式:
+
+| 子系统 | 模式 | 实现 |
+| --- | --- | --- |
+| CLI Agent(claude-code 等) | **Headless 命令 + 流式 stdout 解析** | 各 CLI 以其 **headless 命令契约**启动(非交互、可程序化驱动、流式输出);`ProviderOutputFramer` 按各家原生输出格式解析 stdout,归一化为 `started`/`token`/`thinking`/`tool_use`/`completed`/`failed`/`cancelled` 等 chat 事件。prompt 优先经 stdin 投递而非命令行参数 |
+| LSP 代码智能 | **ACP-stdio(JSON-RPC over stdio)** | LSP server 以 headless 子进程启动,父子间走标准 LSP JSON-RPC;`lsp_framing.rs` 用 `Content-Length: {}\r\n\r\n` 分帧,`json_rpc_actor.rs` 处理请求-响应配对与 `$/cancelRequest` |
+| MCP server | **ACP-stdio(JSON-RPC over stdio)** | MCP server 以 headless 子进程(`relay_stdio`/`bounded_stdio`)启动,走 JSON-RPC 2.0(`relay_jsonrpc.rs` 解析 `jsonrpc: "2.0"` 帧);Claude Code/Codex CLI 还经中继(`--vanehub-mcp-relay`)由 VaneHub 代理 |
+
+**为什么 CLI Agent 不用 ACP-stdio**:各家 Coding CLI(claude-code、codex-cli、gemini-cli 等)并不实现统一的 Agent 通信协议,各自有原生输出格式,无法假定一个标准 JSON-RPC 契约。因此本项目对 CLI Agent 采用 headless 命令 + 按各家 `output_parser_for(agent_id)` 定制解析的方式——尊重每个 CLI 的既有契约,而非强加协议。
+
+**为什么 LSP/MCP 用 ACP-stdio**:LSP 与 MCP 都有标准化的 JSON-RPC 协议且原生支持 stdio transport,正好用同一套 `Content-Length` 分帧机制。本地父子进程通信无需端口、无需网络栈,启动销毁简单、进程隔离干净,适合桌面端 Agent 场景。
+
+### 常见坑点
+
+- **stderr/stdout 混淆** —— ACP-stdio 模式下,业务日志必须走 stderr,写 stdout 会破坏 `Content-Length` 分帧解析。
+- **换行符** —— 协议头须用 ` \r\n `,跨平台一致。
+- **子进程异常退出** —— 父进程须监听子进程 exit,做重启预算(`restart_budget`)与错误上报(LSP 的 `Backoff`/`Failed` 状态机、MCP 的 `RelayFailure`)。
+- **缓冲区** —— stdio 行缓冲,跨读分裂的 UTF-8 须用 `take_decodable_utf8` 重组(CLI Agent 终端的处理)。
+
 服务边界与运行时选择的权威定义见 `openspec/specs/frontend-runtime-architecture/spec.md` 与 `src-tauri/ARCHITECTURE.md`。

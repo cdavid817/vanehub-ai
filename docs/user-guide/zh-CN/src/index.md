@@ -49,18 +49,14 @@
 | --- | --- |
 | [使用案例](use-cases.md) | 五个端到端场景，从头走一遍 |
 | [常见问题](faq.md) | 高频疑问的直接回答 |
-| [Runtime 与功能状态标签](runtime-labels.md) | 「仅桌面端」「仅 Web/mock」这些标签怎么读 |
 | [故障排查](troubleshooting.md) | 出错了先看这里 |
 
 ## 状态标签
 
 - **已实现** —— 用户可见路径已经实现并经过验证。
 - **预览** —— Service 或 mock contract 已存在，但正常产品工作流尚未完成。
-- **仅 Web/mock** —— 确定性的浏览器行为，不会产生 native side effect。
 - **仅桌面端** —— 依赖 Tauri runtime 与本地操作系统访问能力。
 - **规划中** —— 当前尚不可用。
-
-各标签的判读方式见 [Runtime 与功能状态标签](runtime-labels.md)。
 
 ## 本指南不讲什么
 

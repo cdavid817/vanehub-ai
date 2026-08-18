@@ -66,12 +66,6 @@ CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何
 
 **目前只有 Claude Code 与 Codex CLI 走中继**。Gemini CLI、OpenCode 与 Antigravity CLI 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
 
-## 浏览器里打开的和桌面应用一样吗？
-
-界面一样，**能力不一样**。浏览器预览（Web/mock）用确定性模拟数据，**不会启动进程、不写数据库、不碰文件系统**。
-
-判断依据见 [Runtime 与功能状态标签](runtime-labels.md)。
-
 ## 界面支持哪些语言？
 
 五种：简体中文、English、繁體中文、日本語、한국어。在**设置 → 基础配置**中切换。

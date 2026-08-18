@@ -2,6 +2,41 @@
 
 VaneHub 在两个层次上集成 Model Context Protocol（MCP）server：客户端配置/管理，以及将某个 server 的工具暴露到 native Agent 工具目录中。
 
+## MCP 协议背景
+
+MCP(Model Context Protocol)是 Anthropic 推出的标准化协议,解决"AI 模型如何连接外部数据源和工具"。可类比为 AI 领域的 USB-C 接口:在 MCP 之前,每个 AI 应用接入 Slack、GitHub、数据库等外部系统都得写一套定制胶水代码(M×N 问题);MCP 把它变成 M+N——工具方实现一次 MCP Server,任何支持 MCP 的客户端都能接入。
+
+### 核心架构:Host - Client - Server
+
+- **Host(宿主)**:运行 LLM 的应用(本项目里是 VaneHub),负责管理交互与权限、创建维护 Client 实例、把多个 Server 的能力聚合后交给 LLM。
+- **Client(客户端)**:Host 内部的连接管理器,与某个 Server 保持**一对一**会话,负责协议握手、能力协商、消息收发。
+- **Server(服务端)**:暴露能力的一方,通常是独立进程,通过标准化原语向外提供功能。消息格式基于 JSON-RPC 2.0。
+
+### Server 暴露的三类原语
+
+| 原语 | 控制方 | 类比 | 例子 |
+| --- | --- | --- | --- |
+| **Tools** | 模型控制(模型决定何时调用) | function calling 里的函数 | `create_issue`、`query_database` |
+| **Resources** | 应用控制(客户端决定何时读取、注入上下文) | 只读数据源 | 文件内容、schema、API 结构化数据 |
+| **Prompts** | 用户控制(用户显式触发) | 预置提示词模板/斜杠命令 | `/summarize-pr` |
+
+"谁来控制调用时机"是 MCP spec 明确定义的设计原则:Tools 由模型自主判断,Resources 由应用层决定注入哪些上下文,Prompts 由用户主动触发。
+
+### 传输类型
+
+- **stdio** —— Server 作为本地子进程启动,Host 经 stdin/stdout 通信(本项目 `relay_stdio`/`bounded_stdio`)。延迟低、无需网络,只能跑本机,适合文件系统、本地 Git、本地数据库。
+- **Streamable HTTP** —— Server 独立部署为 HTTP 服务,支持 SSE 流式推送;较新 spec 对早期 "HTTP+SSE" 的整合升级。适合远程/云端服务,需处理认证。
+
+### MCP 与 Function Calling、Skill 的关系
+
+三者分层协作,不互斥(详见[Skill 管理](skill-management.md)的三层关系表):
+
+- **Function Calling** 是协议层——模型输出结构化的函数调用意图。
+- **MCP** 是连接层——标准化"调用谁、怎么发现、怎么连接",Server 暴露的 Tools 传给模型时底层转换成 function-calling 的 tool schema。
+- **Skill** 是知识层——教模型"怎么想、怎么做",Skill 可以指导模型如何正确使用某个 MCP Server 暴露的 Tools。
+
+一句话:**Function Calling 是模型吐出调用意图的机制,MCP 是把意图路由到实际工具并标准化工具接入方式的协议层,Skill 教模型何时该调用、调用时遵循什么规范**。
+
 ## Server 配置模型
 
 一个 MCP server 配置具有：全局唯一的 kebab-case 名称；显式的 transport 类型（`stdio`、遗留的 `sse` 或 `streamable_http`）；transport 特定字段；描述；active 标志；作用域；以及 project-path 元数据。未知的 transport 取值会被拒绝——绝不会被静默地重新解释为 `stdio`。历史的 `sse` 行会被事务性地迁移到 `streamable_http`，以保留其此前生效的协议行为。
