@@ -2,6 +2,40 @@
 
 VaneHub 为自主工作运行了两个持久化的 native 执行运行时:**Loop** 运行时(基于目标 + 验收准则对一个 Git 项目反复迭代)与 **Plan** 运行时(感知拓扑的子任务调度)。两者都把状态持久化到 SQLite,并把持久化状态视为权威,而非内存中的调度器状态。面向用户的 Loop/Plan 工作流在用户指南中;本章覆盖 native 设计。
 
+## Loop Engineering 范式背景
+
+Loop Engineering 的核心主张是:**不再给编程 Agent 逐句写提示词,而是设计一套能让 Agent 自主迭代的循环系统**——把"负责下指令的人"从开发者自己换成一套设计好的系统。开发者定义目标,系统自动"执行 → 观察 → 评估 → 修正 → 再执行",直到达成目标。
+
+这不是全新发明。Anthropic《Building Effective Agents》(2024)的 Evaluator-Optimizer(一个模型产出、另一个批判修正)与 Orchestrator-Workers(主代理分派任务给子代理)架构本质都是 Agent 循环系统;Loop Engineering 的不同在于工具链已成熟到可以把这套思路产品化、标准化。
+
+**重点不是自动,是闭环**:定时跑任务的脚本不算 Loop Engineering;能感知自身产出质量、判断是否达标、决定下一步行动的系统才算。它处理的是工程基础设施问题(验证、隔离、记忆、成本、停止条件),而非文笔问题。
+
+### 六大组件
+
+一个能无人值守运行的循环由六个部分组成,本项目的对应实现如下:
+
+| 组件 | 作用 | 本项目对应 |
+| --- | --- | --- |
+| **Automations(自动化)** | 循环的心跳,决定何时运行(定时/事件触发+分诊) | 定时任务(见[定时与用量](../../../user-guide/zh-CN/src/automation.md))、IM 入站触发 |
+| **Worktrees(隔离工作区)** | 独立工作空间,防止并行 Agent 互相冲突 | Loop 在独立 Git worktree 作业(远程工作区不支持 worktree,故 Loop 不适用) |
+| **Skills(技能)** | 把项目知识/编码规范固化一次写好,循环不必每轮重新摸索 | Skill 体系(见[Skill 管理](skill-management.md)) |
+| **Plugins / Connectors** | 基于 MCP 把循环接入真实系统(打开 PR、更新工单) | MCP 工具(见[MCP 工具与客户端](mcp-tools.md)) |
+| **Sub-agents(子代理)** | 把"做事的人"和"检查的人"分开(出题与阅卷不能同一人) | Loop 的 Worker 与 Verifier 角色,Verifier 用 `VerifierRecommendation`(Pass/Revise/Blocked)独立判定 |
+| **Memory / External State** | 外部状态让进度在多次运行间留存,循环"有记性" | 跨会话记忆(见[跨会话记忆](cross-session-memory.md))、持久化到 SQLite 的 Loop 定义与迭代状态 |
+
+### 与 Prompt / Context / Harness Engineering 的关系
+
+AI 工程方法论四次范式跃迁是层叠关系,非替代:
+
+| 层次 | 关注点 | 类比 |
+| --- | --- | --- |
+| **Prompt Engineering** | 单次对话里怎么措辞、给示例、引导推理 | 你怎么问 |
+| **Context Engineering** | 上下文窗口里塞什么信息(检索、记忆、工具描述) | 你让它看见什么 |
+| **Harness Engineering** | Agent 运行的环境、权限、沙箱、工具集 | 你把它放在什么环境里 |
+| **Loop Engineering** | 循环本身如何自主运转、何时停止、怎么验证结果 | 系统怎么自己转起来 |
+
+Prompt Engineering 并未消亡——一个 Loop 由多个 Prompt 组成,写得差的 Prompt 放进 Loop 只会让糟糕的工作更快产出。Loop Engineering 是在 Prompt/Context/Harness 之上的一层。**适用边界**:目标稳定、可自动判定的重复性任务适合上循环;需求一直变化、风险高的事情仍需人类抓方向。
+
 ## Loop 运行时
 
 一个 Loop 定义在持久化时附带稳定的 id、名称、启用状态、本地 Git 项目路径、基线分支、目标、验收准则、允许与受保护的路径、稳定的 Worker 与 Verifier Agent id、结构化验证命令、停止限制、版本与时间戳。Loop 定义保留**稳定的 Agent id**,而不是匹配显示名称。

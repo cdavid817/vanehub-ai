@@ -13,41 +13,93 @@ VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Pro
 
 ## 五个 CLI
 
-VaneHub AI 支持五个外部 CLI Agent。装一个就能开始，不必五个都装。
+VaneHub AI 支持五个外部 CLI Agent。装一个就能开始，不必五个都装。下表汇总各 CLI 的安装方式,各小节给出具体命令。
 
-| Agent | 提供方 | 命令 | npm 包 | 其他安装方式 |
+| Agent | 提供方 | 命令 | 依赖 | 推荐安装方式 |
 | --- | --- | --- | --- | --- |
-| Claude Code | Anthropic | `claude` | `@anthropic-ai/claude-code` | 安装脚本、winget（`Anthropic.ClaudeCode`） |
-| Codex CLI | OpenAI | `codex` | `@openai/codex` | —— |
-| Gemini CLI | Google | `gemini` | `@google/gemini-cli` | —— |
-| OpenCode | OpenCode（开源） | `opencode` | `opencode-ai` | 安装脚本 |
-| Antigravity CLI | Google | `agy` | 无 | 仅安装脚本（Unix `install.sh`、Windows `install.ps1`） |
+| Claude Code | Anthropic | `claude` | 无(原生二进制);npm 需 Node.js 22+ | 原生安装脚本 |
+| Codex CLI | OpenAI | `codex` | 无(原生二进制);npm 需 Node.js 18+ | 一键安装脚本 |
+| Gemini CLI | Google | `gemini` | Node.js 18+ | npm 全局安装 |
+| OpenCode | sst(开源) | `opencode` | 无(原生二进制);npm 需 Node.js | 一键安装脚本 |
+| Antigravity CLI | Google | `agy` | 无(Go 单文件二进制) | 一键安装脚本 |
 
 ### Claude Code
 
-Anthropic 官方的命令行 AI 编程助手，VaneHub AI 里模型族归为 Anthropic。需要 Anthropic 订阅或 API 凭据。认证在普通终端里运行 `claude` 后按提示完成。VaneHub AI 通过 `claude-sdk` 或 PATH 上的 `claude` 判定其可用性，**不保存你的凭据**。
+Anthropic 官方的命令行 AI 编程助手，VaneHub AI 里模型族归为 Anthropic。需要 Claude Pro / Max / Team / Enterprise 账号或 Anthropic Console API 额度。官方现推荐**原生二进制安装**(不依赖 Node.js;npm 包实际也是下载同一份原生二进制):
+
+```bash
+# macOS / Linux
+curl -fsSL https://claude.ai/install.sh | bash
+# Windows(PowerShell)
+irm https://claude.ai/install.ps1 | iex
+# npm(仍可用,需 Node.js 22+;切勿用 sudo npm install -g,改用 nvm 或调整 npm 全局前缀)
+npm install -g @anthropic-ai/claude-code
+```
+
+认证在终端运行 `claude` 后按提示完成(首次会打开浏览器登录)。VaneHub AI 通过 `claude-sdk` 或 PATH 上的 `claude` 判定可用性,**不保存你的凭据**。验证:`claude --version`、`claude doctor`。
 
 ### Codex CLI
 
-OpenAI 官方 CLI，模型族归为 OpenAI。需要 OpenAI 账号。认证在终端里运行 `codex` 后按提示登录，凭据由 Codex CLI 自行管理。
+OpenAI 官方 CLI,模型族归为 OpenAI。需要 OpenAI 账号(Plus / Pro / Business / Edu / Enterprise 计划或 API Key):
+
+```bash
+# macOS / Linux
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+# Windows(PowerShell)
+irm https://chatgpt.com/codex/install.ps1 | iex
+# npm(需 Node.js 18+)
+npm install -g @openai/codex
+# Homebrew(macOS)
+brew install --cask codex
+```
+
+认证在终端运行 `codex` 后选 "Sign in with ChatGPT" 完成。安装脚本默认从 `releases.openai.com` 下载,失败时回退 GitHub Releases(可用 `CODEX_INSTALLER_USE_RELEASES_OPENAI_COM=false` 强制走 GitHub)。验证:`codex --version`。
 
 ### Gemini CLI
 
-Google 官方 CLI，模型族归为 Google。用 Google 账号认证，在终端里运行 `gemini` 后完成。凭据存在 Gemini CLI 自己的位置。
+Google 官方 CLI,模型族归为 Google。用 Google 账号认证(OAuth):
+
+```bash
+npm install -g @google/gemini-cli
+```
+
+认证在终端运行 `gemini` 后选 "Login with Google" 完成。免费个人账号额度约每分钟 60 次、每天 1000 次请求。
+
+> **Gemini CLI 个人版已下线**:自 2026-06-18 起,Google 停止为 Gemini CLI 及 Gemini Code Assist 的免费 / Pro / Ultra 个人用户提供服务,官方建议迁移到 [Antigravity CLI](#antigravity-cli);企业版 Gemini Code Assist Standard/Enterprise 及付费 API Key 渠道不受影响。
 
 ### OpenCode
 
-开源 CLI（`opencode-ai`），支持多家 provider，模型族在 VaneHub AI 内归为 Unknown。认证方式随你选择的 provider 而定，在终端里运行 `opencode` 后配置。注意：OpenCode 不支持长上下文，VaneHub AI 会据此调整其上下文能力。
+开源 CLI(`sst/opencode`),支持多家 provider,模型族在 VaneHub AI 内归为 Unknown。注意 GitHub 上同名的 `opencode-ai/opencode`(Go/Bubble Tea)是另一个不相关项目,VaneHub AI 对接的是 `sst/opencode`:
+
+```bash
+# macOS / Linux(一键脚本)
+curl -fsSL https://opencode.ai/install | bash
+# npm / bun / pnpm / yarn
+npm i -g opencode-ai@latest
+# Homebrew
+brew install sst/tap/opencode
+# Windows
+scoop bucket add extras && scoop install extras/opencode
+```
+
+认证方式随你选择的 provider 而定,在终端运行 `opencode` 后配置。注意:OpenCode 不支持长上下文,VaneHub AI 会据此调整其上下文能力。
 
 ### Antigravity CLI
 
-Google 官方 CLI，命令是 `agy`，模型族归为 Google。**没有 npm 包**，只能通过官方安装脚本安装（Unix `install.sh`、Windows `install.ps1`），因此 CLI 管理页对它不提供 npm 安装/升级/降级操作。它走 **Google 登录**并把凭据存进**系统钥匙串**，配置档里根本没有密钥字段。
+Google 官方 CLI(Gemini CLI 的继任者),命令是 `agy`(不是 `antigravity`),模型族归为 Google。**没有 npm 包**,只能通过官方安装脚本安装:
 
-> **凭据一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完登录，也不保存任何外部 CLI 的 Provider 凭据。
-
-```powershell
-npm install -g @anthropic-ai/claude-code
+```bash
+# macOS / Linux
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+# Windows(PowerShell)
+irm https://antigravity.google/cli/install.ps1 | iex
+# Windows(cmd)
+curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd
 ```
+
+二进制默认放在 `~/.local/bin`(macOS/Linux)或 `%LOCALAPPDATA%\Antigravity\`(Windows)。因此 CLI 管理页对它不提供 npm 安装/升级/降级操作。它走 **Google 登录**并把凭据存进**系统钥匙串**,配置档里根本没有密钥字段。若本机曾装过 Gemini CLI(存在 `~/.gemini` 目录),`agy` 首次运行会提示是否导入旧设置(MCP 配置、命令白名单、快捷键、主题);与 Gemini CLI 的 npm 安装互不冲突,可同时保留。
+
+> **凭据一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完登录，也不保存任何外部 CLI 的 Provider 凭据。安装后建议跑一遍 `claude --version` / `codex --version` / `gemini --version` / `opencode --version` / `agy --version`,确认版本号正常输出后再在 VaneHub AI 中添加会话。
 
 ## 先在终端里跑通
 
