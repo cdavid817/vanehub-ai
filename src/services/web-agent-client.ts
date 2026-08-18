@@ -1,22 +1,13 @@
 import type { AgentService } from "./agent-service";
 import { mockAgents } from "./mock-agent-data";
-import { i18n } from "../i18n";
 import {
   createWebPendingApproval,
   getWebDefaultPolicyTemplate,
   isAgentAutoApproved,
   webPrincipalTemplates,
 } from "./web-permissions-mock-state";
-import type {
-  UpdateSessionSeatsInput,
-  Session,
-  SessionSeat,
-  ImSessionConnector,
-} from "../types/agent";
-import { findWebSshConnection } from "./web-ssh-connection-client";
+import type { ImSessionConnector, Session } from "../types/agent";
 import { readWebAppSettings } from "./web-settings-client";
-import { defaultSessionTitleFromPath } from "../lib/session-path";
-import { snapshotSeat } from "./seat-presentation";
 import type { ChatMessage } from "../types/chat";
 import { webEvaluationClient } from "./web-evaluation-client";
 import { webPromptHookClient } from "./web-prompt-hook-client";
@@ -26,7 +17,6 @@ import { webOnePieceProfileClient } from "./web-onepiece-profile-client";
 import { webHybridRoutingClient } from "./web-hybrid-routing-client";
 import { deleteWebApiAgentProviderConfig } from "./web-api-provider-state";
 import { webCodeIndexClient } from "./web-code-index-client";
-import { discoverWebSessionCodeIndex } from "./web-code-index-state";
 import { webCliToolClient } from "./web-cli-tool-client";
 import { webCliParameterClient } from "./web-cli-parameter-client";
 import { webCliConfigClient } from "./web-cli-config-client";
@@ -49,7 +39,6 @@ import {
 // implementation lives in the extracted module.
 export { resetWebRetrievalForTest, searchWebCodeIndex } from "./web-code-index-state";
 import { nowIso } from "./web-mock-clock";
-import { createWebMockOperation } from "./web-operation-client";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
 import { normalizeChatConfigForSession, withEffectiveExecutionPolicy } from "./chat-configuration";
@@ -61,7 +50,7 @@ import { webSkillCatalogClient } from "./web-skill-catalog-client";
 import { webSkillBindingClient } from "./web-skill-binding-client";
 import { webSkillOverlayClient } from "./web-skill-overlay-client";
 import { webSessionCategoryClient } from "./web-session-category-client";
-import { webExpertRoleClient, listWebExpertRoles } from "./web-expert-role-client";
+import { webExpertRoleClient } from "./web-expert-role-client";
 import { webAgentTerminalClient } from "./web-agent-terminal-client";
 import { webUsageStatisticsClient } from "./web-usage-statistics-client";
 import { webMissionControlClient } from "./web-mission-control-client";
@@ -91,9 +80,6 @@ export {
 import { WEB_MOCK_PLAN_EXIT_TRIGGER, WEB_MOCK_QUESTION_TRIGGER } from "./web-chat-client";
 import {
   createWebMessageId,
-  cancelWebActiveStream,
-  deleteWebChatSubscribers,
-  deleteWebSessionMessages,
   emitWebChatEvent,
   getWebSessionMessages,
   hasWebActiveStream,
@@ -101,10 +87,8 @@ import {
   setWebActiveStream,
   setWebSessionMessages,
 } from "./web-chat-state";
-import { deleteWebSessionChatConfig } from "./web-chat-config-state";
 import { webSessionChatConfigClient } from "./web-session-chat-config-client";
 import { webSessionRecoveryClient } from "./web-session-recovery-client";
-import { deleteWebRecoveryReports } from "./web-session-recovery-state";
 
 export {
   resetWebRecoverySessionsForTest,
@@ -116,32 +100,21 @@ export {
   resetWebMissionControlRunsForTest,
   seedWebMissionControlRunsForTest,
 } from "./web-agent-run-state";
+import { webKnownWorkspaceClient } from "./web-known-workspace-client";
 import {
-  inspectMockProject,
-  joinSiblingPath,
-  normalizeRemoteWorkspace,
-  resolveProjectPath,
-  upsertKnownProject,
-  upsertKnownRemoteWorkspace,
-  validateWorktreeName,
-  webKnownWorkspaceClient,
-} from "./web-known-workspace-client";
-import {
-  createWebSeatId,
-  emitWebSessionEvent,
   findWebSession,
   getWebActiveSessionId,
   getWebWorkflowState,
   listWebSessions,
   nextWebSessionSequence,
   prependWebSession,
-  replaceWebSessions,
   setWebActiveSessionId,
-  setWebWorkflowState,
   subscribeWebSessionStateEvents,
   updateWebSession,
 } from "./web-session-state";
 import { webSessionQueryClient } from "./web-session-query-client";
+import { webSessionLifecycleClient } from "./web-session-lifecycle-client";
+import { webSessionSeatClient } from "./web-session-seat-client";
 import { selectWebRunner, webRunRunner } from "./web-agent-runner";
 import type { Skill } from "../types/skill";
 import {
@@ -152,10 +125,6 @@ import {
   replaceWebSkillMountPaths,
   replaceWebSkills,
 } from "./web-skill-state";
-
-function tr(key: string, values?: Record<string, string | number>) {
-  return i18n.t(key, values);
-}
 
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
@@ -307,260 +276,8 @@ export const webAgentClient: AgentService = {
   ...webSessionChatConfigClient,
   ...webKnownWorkspaceClient,
 
-  async createSession(input) {
-    const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
-    if (!agent) {
-      throw new Error(`Agent not found: ${input.agentId}`);
-    }
-    if (!agent.supportedInteractionModes.includes(input.interactionMode)) {
-      throw new Error(`${agent.displayName} does not support ${input.interactionMode}.`);
-    }
-    if (agent.availabilityState !== "available" && agent.availabilityState !== "unknown") {
-      throw new Error(agent.unavailableReason ?? `${agent.displayName} is not available.`);
-    }
-    const remoteWorkspace = input.remoteWorkspace ? normalizeRemoteWorkspace(input.remoteWorkspace) : null;
-    if (agent.id === "onepiece" && remoteWorkspace) {
-      throw new Error("OnePiece supports local projects and local Git worktrees only.");
-    }
-    const sshConnection = input.remoteWorkspace?.sshConnectionId
-      ? findWebSshConnection(input.remoteWorkspace.sshConnectionId)
-      : null;
-    if (input.remoteWorkspace?.sshConnectionId && !sshConnection) {
-      throw new Error(`SSH connection not found: ${input.remoteWorkspace.sshConnectionId}`);
-    }
-    if (
-      sshConnection &&
-      remoteWorkspace &&
-      (sshConnection.host !== remoteWorkspace.host ||
-        sshConnection.port !== (remoteWorkspace.port ?? 22) ||
-        sshConnection.user !== (remoteWorkspace.user ?? ""))
-    ) {
-      throw new Error(
-        "SSH connection endpoint does not match the remote workspace snapshot.",
-      );
-    }
-    if (remoteWorkspace && input.worktree?.enabled) {
-      throw new Error("Remote workspace cannot use Git worktree");
-    }
-    const projectPath = remoteWorkspace ? null : resolveProjectPath(input);
-    const inspection = projectPath ? inspectMockProject(projectPath) : null;
-    if (inspection) {
-      upsertKnownProject(inspection);
-    }
-    if (remoteWorkspace) {
-      upsertKnownRemoteWorkspace(remoteWorkspace);
-    }
-    let effectiveFolder = remoteWorkspace?.uri ?? projectPath;
-    let worktreePath: string | null = null;
-    let worktreeName: string | null = null;
-    let worktreeBranch: string | null = null;
-    if (input.worktree?.enabled) {
-      if (!inspection?.isGit) {
-        throw new Error("Git worktree unavailable");
-      }
-      worktreeName = validateWorktreeName(input.worktree.name ?? "");
-      worktreePath = joinSiblingPath(inspection.path, worktreeName);
-      worktreeBranch = `vanehub/${worktreeName}`;
-      effectiveFolder = worktreePath;
-    }
-    const timestamp = nowIso();
-    const titleSource = remoteWorkspace?.displayName || effectiveFolder || "";
-    const normalizedSeats = (input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }]).map(
-      (seat) => ({
-        ...snapshotSeat(seat, mockAgents, listWebExpertRoles()),
-        seatId: createWebSeatId(),
-        joinedAt: timestamp,
-        leftAt: null,
-      }),
-    );
-    const session: Session = {
-      id: `web-session-${nextWebSessionSequence()}`,
-      title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
-      agentId: normalizedSeats[0]?.agentId ?? input.agentId,
-      // Mirrors the native normalization: no seats means one seat built from the Agent.
-      seats: normalizedSeats,
-      interactionMode: input.interactionMode,
-      lifecycleState: "idle",
-      recoveryStatus: "clean",
-      recoveryRevision: 0,
-      stateRevision: 0,
-      historyRevision: 0,
-      activeExecutionRunId: null,
-      folder: effectiveFolder,
-      projectPath,
-      worktreePath,
-      worktreeName,
-      worktreeBranch,
-      remoteWorkspace,
-      remoteSshConnectionId: sshConnection?.id ?? null,
-      remoteSshConnectionRevision: sshConnection?.revision ?? null,
-      runtimeSessionId: null,
-      categoryId: null,
-      pinned: false,
-      archived: false,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    prependWebSession(session);
-    setWebActiveSessionId(session.id);
-    discoverWebSessionCodeIndex(session);
-    emitWebSessionEvent({ kind: "active-session-changed", sessionId: session.id });
-    setWebWorkflowState({
-      ...getWebWorkflowState(),
-      activeAgentId: session.agentId,
-      activeInteractionMode: session.interactionMode,
-      lifecycleState: session.lifecycleState,
-    });
-    return createWebMockOperation({
-      id: `web-session-create-${session.id}-${Date.now()}`,
-      kind: "workspace",
-      relatedEntityId: remoteWorkspace?.uri ?? projectPath,
-      message: `Created mock session ${session.id}`,
-      terminalStatus: "succeeded",
-      error: null,
-      result: session as unknown as Record<string, unknown>,
-    });
-  },
-
-  async deleteSession(sessionId: string) {
-    findWebSession(sessionId);
-    cancelWebActiveStream(sessionId);
-    deleteWebSessionMessages(sessionId);
-    deleteWebRecoveryReports(sessionId);
-    deleteWebChatSubscribers(sessionId);
-    deleteWebSessionChatConfig(sessionId);
-    replaceWebSessions(listWebSessions().filter((session) => session.id !== sessionId));
-    if (getWebActiveSessionId() === sessionId) {
-      setWebActiveSessionId(null);
-      emitWebSessionEvent({ kind: "active-session-changed", sessionId: null });
-    }
-  },
-
-  async switchSession(sessionId: string) {
-    const session = findWebSession(sessionId);
-    if (session.archived) {
-      throw new Error(`Cannot switch to archived session: ${sessionId}`);
-    }
-    setWebActiveSessionId(session.id);
-    emitWebSessionEvent({ kind: "active-session-changed", sessionId: session.id });
-    setWebWorkflowState({
-      ...getWebWorkflowState(),
-      activeAgentId: session.agentId,
-      activeInteractionMode: session.interactionMode,
-      lifecycleState: session.lifecycleState,
-    });
-    return session;
-  },
-
-  async renameSession(sessionId: string, title: string) {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      throw new Error(tr("web.error.sessionTitleRequired"));
-    }
-    return updateWebSession(sessionId, { title: trimmedTitle });
-  },
-
-  async updateSessionSeats(input: UpdateSessionSeatsInput) {
-    const session = findWebSession(input.sessionId);
-    if (session.updatedAt !== input.expectedUpdatedAt) {
-      throw new Error("validation error: Session participants changed since they were loaded.");
-    }
-    if (input.seats.length === 0) {
-      throw new Error("validation error: A session must keep at least one active participant.");
-    }
-    const changedAt = nowIso();
-    const historical = session.seats ?? [{
-      seatId: `${session.id}:seat:0`,
-      agentId: session.agentId,
-      roleId: null,
-      joinedAt: session.createdAt,
-      leftAt: null,
-    }];
-    const retained = new Set<string>();
-    const additions: SessionSeat[] = [];
-    for (const requested of input.seats) {
-      const existing = historical.find((seat) =>
-        seat.leftAt == null && !retained.has(seat.seatId ?? "") &&
-        ((Boolean(requested.seatId) && seat.seatId === requested.seatId &&
-          seat.agentId === requested.agentId && seat.roleId === requested.roleId) ||
-          (!requested.seatId && seat.agentId === requested.agentId && seat.roleId === requested.roleId)),
-      );
-      if (existing?.seatId) {
-        retained.add(existing.seatId);
-      } else {
-        additions.push({
-          ...requested,
-          seatId: createWebSeatId(),
-          joinedAt: changedAt,
-          leftAt: null,
-        });
-      }
-    }
-    const seats = [
-      ...historical.map((seat) =>
-        seat.leftAt == null && !retained.has(seat.seatId ?? "")
-          ? { ...seat, leftAt: changedAt }
-          : seat,
-      ),
-      ...additions,
-    ];
-    const firstActive = seats.find((seat) => seat.leftAt == null);
-    if (!firstActive) {
-      throw new Error("validation error: A session must keep at least one active participant.");
-    }
-    return updateWebSession(input.sessionId, { seats, agentId: firstActive.agentId });
-  },
-
-  async rebindRemoteSessionSshConnection(
-    sessionId: string,
-    connectionId: string,
-  ) {
-    const session = findWebSession(sessionId);
-    if (!session.remoteWorkspace) {
-      throw new Error(
-        "Only remote workspace sessions can bind an SSH connection.",
-      );
-    }
-    const connection = findWebSshConnection(connectionId);
-    if (!connection) {
-      throw new Error(`SSH connection not found: ${connectionId}`);
-    }
-    if (
-      connection.host !== session.remoteWorkspace.host ||
-      connection.port !== (session.remoteWorkspace.port ?? 22) ||
-      connection.user !== (session.remoteWorkspace.user ?? "")
-    ) {
-      throw new Error(
-        "SSH connection endpoint does not match the remote workspace snapshot.",
-      );
-    }
-    return updateWebSession(sessionId, {
-      remoteSshConnectionId: connection.id,
-      remoteSshConnectionRevision: connection.revision,
-    });
-  },
-
-  async pinSession(sessionId: string) {
-    return updateWebSession(sessionId, { pinned: true });
-  },
-
-  async unpinSession(sessionId: string) {
-    return updateWebSession(sessionId, { pinned: false });
-  },
-
-  async archiveSession(sessionId: string) {
-    const cancelled = cancelWebActiveStream(sessionId);
-    const session = updateWebSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
-    if (getWebActiveSessionId() === sessionId) {
-      setWebActiveSessionId(null);
-      emitWebSessionEvent({ kind: "active-session-changed", sessionId: null });
-    }
-    return session;
-  },
-
-  async unarchiveSession(sessionId: string) {
-    return updateWebSession(sessionId, { archived: false });
-  },
+  ...webSessionLifecycleClient,
+  ...webSessionSeatClient,
 
   async sendMessage(input) {
     const session = findWebSession(input.sessionId);

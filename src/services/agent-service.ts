@@ -1,8 +1,4 @@
-import type {
-  CreateSessionInput,
-  UpdateSessionSeatsInput,
-  Session,
-} from "../types/agent";
+import type { Session } from "../types/agent";
 import type { ChatMessage, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
@@ -89,7 +85,6 @@ export interface PurgeEvidenceOutcome {
   deletedSeeds: number;
   deletedFeedback: number;
 }
-import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type { EvaluationService } from "./evaluation-service";
 import type {
@@ -145,6 +140,7 @@ import type { AgentRegistryService } from "./agent-registry-service";
 import type { AgentMemoryService } from "./agent-memory-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { SessionChatConfigService } from "./session-chat-config-service";
+import type { SessionLifecycleService, SessionSeatService } from "./session-lifecycle-service";
 import type { SessionQueryService } from "./session-query-service";
 import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
@@ -181,8 +177,10 @@ export interface AgentService extends
   AgentMemoryService,
   ChatMessagingService,
   SessionChatConfigService,
+  SessionLifecycleService,
   SessionQueryService,
   SessionRecoveryService,
+  SessionSeatService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -209,16 +207,6 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  createSession(input: CreateSessionInput): Promise<OperationTask>;
-  deleteSession(sessionId: string): Promise<void>;
-  switchSession(sessionId: string): Promise<Session>;
-  renameSession(sessionId: string, title: string): Promise<Session>;
-  updateSessionSeats(input: UpdateSessionSeatsInput): Promise<Session>;
-  rebindRemoteSessionSshConnection(sessionId: string, connectionId: string): Promise<Session>;
-  pinSession(sessionId: string): Promise<Session>;
-  unpinSession(sessionId: string): Promise<Session>;
-  archiveSession(sessionId: string): Promise<Session>;
-  unarchiveSession(sessionId: string): Promise<Session>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
