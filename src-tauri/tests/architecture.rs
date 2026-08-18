@@ -2041,3 +2041,214 @@ fn every_creation_flags_call_keeps_the_child_console_hidden() {
         violations.join("\n")
     );
 }
+
+/// A recorded ceiling for a path that predates the repository's 300-line limit.
+///
+/// This is a debt marker, not an allowance. Lowering it needs no ceremony; raising it is an
+/// explicit edit that states why. `owner` names the change expected to retire the entry, so a
+/// failure points at the decomposition work rather than at a bare number.
+struct PathBudget {
+    path: &'static str,
+    budget: usize,
+    owner: &'static str,
+}
+
+/// An aggregate ceiling for a directory.
+///
+/// This is what keeps a path budget honest once the file it names becomes a directory module:
+/// the path disappears, but the code that replaced it stays bounded — and a "split" that copies
+/// instead of moves still trips the gate.
+struct SubtreeBudget {
+    root: &'static str,
+    budget: usize,
+    owner: &'static str,
+}
+
+const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
+    PathBudget {
+        path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
+        budget: 13_927,
+        owner: "split-api-process-adapter",
+    },
+    PathBudget {
+        path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
+        budget: 5_110,
+        owner: "relocate-heavyweight-inline-tests",
+    },
+    PathBudget {
+        path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
+        budget: 4_628,
+        owner: "relocate-heavyweight-inline-tests",
+    },
+    PathBudget {
+        path: "src-tauri/src/contexts/tooling/skills/application/tests.rs",
+        budget: 4_049,
+        owner: "relocate-heavyweight-inline-tests",
+    },
+    PathBudget {
+        path: "src-tauri/src/platform/database/migrations.rs",
+        budget: 2_301,
+        owner: "split-database-migrations",
+    },
+];
+
+const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
+    SubtreeBudget {
+        root: "src-tauri/src/contexts/agent_runtime/infrastructure",
+        budget: 58_116,
+        owner: "split-api-process-adapter",
+    },
+    SubtreeBudget {
+        root: "src-tauri/src/platform/database",
+        budget: 2_914,
+        owner: "split-database-migrations",
+    },
+];
+
+fn physical_lines(source: &str) -> usize {
+    source.lines().count()
+}
+
+fn measure_budgeted_path(root: &Path, relative: &str) -> Option<usize> {
+    let path = root.join(relative);
+    if !path.is_file() {
+        return None;
+    }
+    Some(physical_lines(
+        &fs::read_to_string(&path).expect("read budgeted source"),
+    ))
+}
+
+fn measure_budgeted_subtree(root: &Path, relative: &str) -> usize {
+    rust_files(&root.join(relative))
+        .expect("enumerate budgeted subtree")
+        .iter()
+        .map(|path| physical_lines(&fs::read_to_string(path).expect("read budgeted source")))
+        .sum()
+}
+
+/// `None` for `measured` means the path is gone. That is satisfied, not skipped: the subtree
+/// budget bounds whatever replaced it, so a rename cannot dissolve the ceiling.
+fn path_budget_diagnostic(budget: &PathBudget, measured: Option<usize>) -> Option<String> {
+    let measured = measured?;
+    (measured > budget.budget).then(|| {
+        format!(
+            "[ARCH-NATIVE-006] {}: {measured} physical lines exceeds budget {}. Owner: {}. \
+             Repair: reduce the change, or raise the budget in the same commit and state why",
+            budget.path, budget.budget, budget.owner
+        )
+    })
+}
+
+fn subtree_budget_diagnostic(budget: &SubtreeBudget, measured: usize) -> Option<String> {
+    (measured > budget.budget).then(|| {
+        format!(
+            "[ARCH-NATIVE-007] {}: {measured} aggregate physical lines exceeds budget {}. \
+             Owner: {}. Repair: a split must move code, not duplicate it; raise the budget in \
+             the same commit only with a stated reason",
+            budget.root, budget.budget, budget.owner
+        )
+    })
+}
+
+#[test]
+fn oversized_native_paths_stay_within_their_recorded_line_budgets() {
+    let root = project_root();
+    let mut violations = Vec::new();
+    let mut present_paths = 0usize;
+
+    for budget in NATIVE_PATH_BUDGETS {
+        let measured = measure_budgeted_path(&root, budget.path);
+        if measured.is_some() {
+            present_paths += 1;
+        }
+        violations.extend(path_budget_diagnostic(budget, measured));
+    }
+
+    for budget in NATIVE_SUBTREE_BUDGETS {
+        let measured = measure_budgeted_subtree(&root, budget.root);
+        violations.extend(subtree_budget_diagnostic(budget, measured));
+    }
+
+    assert!(
+        present_paths > 0,
+        "every budgeted path is missing, so this guard is asserting nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "recorded line budgets exceeded:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn line_budget_detector_accepts_paths_and_subtrees_within_budget() {
+    let path = PathBudget {
+        path: "within.rs",
+        budget: 10,
+        owner: "some-change",
+    };
+    let subtree = SubtreeBudget {
+        root: "src/within",
+        budget: 10,
+        owner: "some-change",
+    };
+
+    assert_eq!(path_budget_diagnostic(&path, Some(10)), None);
+    assert_eq!(subtree_budget_diagnostic(&subtree, 9), None);
+}
+
+#[test]
+fn line_budget_detector_reports_a_path_over_budget_with_measurement_and_budget() {
+    let budget = PathBudget {
+        path: "oversized.rs",
+        budget: 100,
+        owner: "split-oversized",
+    };
+
+    let diagnostic = path_budget_diagnostic(&budget, Some(101)).expect("path over budget");
+
+    assert!(diagnostic.starts_with("[ARCH-NATIVE-006] oversized.rs:"));
+    assert!(diagnostic.contains("101 physical lines"));
+    assert!(diagnostic.contains("budget 100"));
+    assert!(diagnostic.contains("Owner: split-oversized"));
+}
+
+#[test]
+fn line_budget_detector_names_the_subtree_rather_than_an_individual_file() {
+    let budget = SubtreeBudget {
+        root: "src/oversized",
+        budget: 50,
+        owner: "split-oversized",
+    };
+
+    let diagnostic = subtree_budget_diagnostic(&budget, 51).expect("subtree over budget");
+
+    assert!(diagnostic.starts_with("[ARCH-NATIVE-007] src/oversized:"));
+    assert!(diagnostic.contains("51 aggregate physical lines"));
+    assert!(!diagnostic.contains(".rs"));
+}
+
+#[test]
+fn line_budget_detector_treats_a_missing_path_as_satisfied_while_its_subtree_still_binds() {
+    let path = PathBudget {
+        path: "split-away.rs",
+        budget: 1,
+        owner: "split-away",
+    };
+    let subtree = SubtreeBudget {
+        root: "src/split-away",
+        budget: 1,
+        owner: "split-away",
+    };
+
+    assert_eq!(path_budget_diagnostic(&path, None), None);
+    assert!(subtree_budget_diagnostic(&subtree, 2).is_some());
+}
+
+#[test]
+fn physical_line_counter_matches_newline_terminated_counting() {
+    assert_eq!(physical_lines("a\nb\nc\n"), 3);
+    assert_eq!(physical_lines("a\nb\nc"), 3);
+    assert_eq!(physical_lines(""), 0);
+}
