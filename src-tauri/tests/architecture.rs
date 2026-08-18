@@ -2068,11 +2068,6 @@ struct SubtreeBudget {
 
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     PathBudget {
-        path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
-        budget: 5_720,
-        owner: "extract-api-adapter-inline-tests",
-    },
-    PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
         budget: 5_110,
         owner: "relocate-heavyweight-inline-tests",
