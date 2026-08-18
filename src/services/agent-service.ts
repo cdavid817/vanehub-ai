@@ -1,28 +1,18 @@
 import type {
   AgentMemory,
-  AgentTerminalEvent,
-  AgentTerminalSession,
-  AgentTerminalSize,
-  AssignSessionCategoryInput,
-  CreateSessionCategoryInput,
   ExportSessionInput,
   CreateSessionInput,
   InteractionMode,
-  KnownRemoteWorkspace,
-  RenameSessionCategoryInput,
-  KnownProject,
   LaunchResult,
-  ProjectInspection,
   UpdateSessionSeatsInput,
   Session,
-  SessionCategory,
   SessionDetails,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
   workspace?: string;
@@ -108,12 +98,6 @@ export interface PurgeEvidenceOutcome {
   deletedSeeds: number;
   deletedFeedback: number;
 }
-import type {
-  TokenUsageDetailsPage,
-  TokenUsageDetailsQuery,
-  TokenUsageSummary,
-  TokenUsageSummaryQuery,
-} from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
@@ -157,7 +141,13 @@ import type {
   ApplyCliConfigProfileInput,
   CliConfigApplyResult,
 } from "../types/cli-agent-config";
-import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
+import type {
+  ExpertRoleService,
+  KnownWorkspaceService,
+  SessionCategoryService,
+} from "./session-organization-service";
+import type { AgentTerminalService } from "./agent-terminal-service";
+import type { UsageStatisticsService } from "./usage-statistics-service";
 import type {
   LspConfiguration,
   LspLanguageId,
@@ -194,7 +184,12 @@ export interface AgentService extends
   SkillEvidenceService,
   SkillCatalogService,
   SkillBindingService,
-  SkillOverlayService {
+  SkillOverlayService,
+  SessionCategoryService,
+  ExpertRoleService,
+  KnownWorkspaceService,
+  AgentTerminalService,
+  UsageStatisticsService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -249,11 +244,6 @@ export interface AgentService extends
     expectedRecoveryRevision: number,
   ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
-  listSessionCategories(): Promise<SessionCategory[]>;
-  createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
-  renameSessionCategory(input: RenameSessionCategoryInput): Promise<SessionCategory>;
-  deleteSessionCategory(categoryId: string): Promise<void>;
-  assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
   listLoopDefinitions(): Promise<LoopDefinition[]>;
   createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
   updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
@@ -270,10 +260,6 @@ export interface AgentService extends
   subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void): Promise<() => void>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
-  listKnownProjects(): Promise<KnownProject[]>;
-  listKnownRemoteWorkspaces(): Promise<KnownRemoteWorkspace[]>;
-  inspectProject(path: string): Promise<ProjectInspection>;
-  selectProjectDirectory(): Promise<string | null>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
@@ -288,10 +274,6 @@ export interface AgentService extends
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
-  getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
-  getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
-  getTokenUsageDetails(input: TokenUsageDetailsQuery): Promise<TokenUsageDetailsPage>;
   /**
    * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
    * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a
@@ -306,14 +288,6 @@ export interface AgentService extends
    */
   resolvePlanExit(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
   stopGeneration(sessionId: string): Promise<void>;
-  openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
-  sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
-  resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;
-  stopAgentTerminal(terminalId: string): Promise<boolean>;
-  subscribeAgentTerminalEvents(
-    sessionId: string,
-    handler: (event: AgentTerminalEvent) => void,
-  ): Promise<() => void>;
   subscribeMessageEvents(
     sessionId: string,
     handler: (event: ChatStreamEvent) => void,
@@ -339,10 +313,6 @@ export interface AgentService extends
   killShell(shellId: string): Promise<void>;
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
-  listExpertRoles(): Promise<ExpertRole[]>;
-  saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole>;
-  deleteExpertRole(roleId: string): Promise<void>;
-  selectWorkspaceDirectory(): Promise<string | null>;
 }
 
 export type SessionStateEvent =

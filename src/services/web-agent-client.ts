@@ -18,23 +18,11 @@ import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
   AgentMemoryType,
-  AssignSessionCategoryInput,
-  AgentTerminalEvent,
-  AgentTerminalSession,
   UpdateSessionSeatsInput,
-  AgentTerminalSize,
-  CreateSessionCategoryInput,
-  CreateSessionInput,
   ExportSessionInput,
   InteractionMode,
-  KnownRemoteWorkspace,
-  KnownProject,
-  ProjectInspection,
-  RemoteWorkspace,
-  RenameSessionCategoryInput,
   Session,
   SessionSeat,
-  SessionCategory,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
@@ -43,11 +31,9 @@ import type {
 } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
-import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
+import { defaultSessionTitleFromPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
-import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
-import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
 import type { AgentRun, AgentRunEvent } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail, MissionControlRunSummary } from "../types/mission-control";
@@ -92,12 +78,8 @@ import {
 // Re-exported so the existing Web/mock test seams keep importing from one place while the
 // implementation lives in the extracted module.
 export { resetWebRetrievalForTest, searchWebCodeIndex } from "./web-code-index-state";
-import { daysAgoIso, nowIso } from "./web-mock-clock";
+import { nowIso } from "./web-mock-clock";
 import { createWebMockOperation } from "./web-operation-client";
-import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
-import { builtinExpertRoles } from "../config/builtin-expert-roles";
-import { validateExpertRoleInput } from "./expert-role-runtime";
-import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
 import {
@@ -112,6 +94,20 @@ import { webDesktopUpdateClient } from "./web-desktop-update";
 import { webSkillCatalogClient } from "./web-skill-catalog-client";
 import { webSkillBindingClient } from "./web-skill-binding-client";
 import { webSkillOverlayClient } from "./web-skill-overlay-client";
+import { webSessionCategoryClient } from "./web-session-category-client";
+import { webExpertRoleClient, listWebExpertRoles } from "./web-expert-role-client";
+import { webAgentTerminalClient } from "./web-agent-terminal-client";
+import { webUsageStatisticsClient } from "./web-usage-statistics-client";
+import {
+  inspectMockProject,
+  joinSiblingPath,
+  normalizeRemoteWorkspace,
+  resolveProjectPath,
+  upsertKnownProject,
+  upsertKnownRemoteWorkspace,
+  validateWorktreeName,
+  webKnownWorkspaceClient,
+} from "./web-known-workspace-client";
 import {
   createWebSeatId,
   emitWebSessionEvent,
@@ -142,33 +138,23 @@ function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
 }
 
-const webRetainedTerminalTranscriptBytes = 1_000_000;
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
 
 let nextMessageId = 1;
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
-let sessionCategories: SessionCategory[] = [];
-let nextSessionCategoryId = 1;
 let loopDefinitions: LoopDefinition[] = [];
 let loopRuns: LoopRun[] = [];
 let nextLoopDefinitionId = 1;
 let nextLoopRunId = 1;
 let nextLoopEvidenceId = 1;
-let webExpertRoles: ExpertRole[] = builtinExpertRoles.map((role) => structuredClone(role));
-let nextExpertRoleId = 1;
 const loopSubscribers = new Map<string, Set<(event: LoopEvent) => void>>();
 const loopTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let webLoopPhaseDelayMs = 220;
 const loopRoleSessionIds = new Set<string>();
-let knownProjects: KnownProject[] = [];
-let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
-const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
-const terminalsBySession = new Map<string, AgentTerminalSession>();
-const terminalTranscriptsBySession = new Map<string, string>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
 
@@ -402,126 +388,6 @@ function createAgentMemory(
   return memory;
 }
 
-const representativeUsageRecords: UsageRecord[] = [
-  {
-    messageId: "web-usage-reported",
-    sessionId: "web-usage-session-codex",
-    agentId: "codex-cli",
-    accountingKind: "reported",
-    inputCount: 100,
-    outputCount: 40,
-    cacheReadCount: 10,
-    cacheCreationCount: 5,
-    occurredAt: daysAgoIso(1),
-  },
-  {
-    messageId: "web-usage-estimated",
-    sessionId: "web-usage-session-claude",
-    agentId: "claude-code",
-    accountingKind: "estimated",
-    inputCount: 1_000,
-    outputCount: 400,
-    cacheReadCount: 0,
-    cacheCreationCount: 0,
-    occurredAt: daysAgoIso(2),
-  },
-];
-
-function pathSegments(path: string) {
-  return path.split(/[\\/]/).filter(Boolean);
-}
-
-function displayNameForPath(path: string) {
-  return pathSegments(path).at(-1) ?? path;
-}
-
-function parentPath(path: string) {
-  const normalized = path.replace(/[\\/]+$/, "");
-  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
-  return separatorIndex <= 0 ? normalized : normalized.slice(0, separatorIndex);
-}
-
-function joinSiblingPath(projectPath: string, worktreeName: string) {
-  const separator = projectPath.includes("\\") ? "\\" : "/";
-  return `${parentPath(projectPath)}${separator}${displayNameForPath(projectPath)}-${worktreeName}`;
-}
-
-function validateWorktreeName(name: string) {
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..") || /[\u0000-\u001f]/.test(trimmed)) {
-    throw new Error("Invalid worktree name");
-  }
-  return trimmed;
-}
-
-function inspectMockProject(path: string): ProjectInspection {
-  const trimmedPath = path.trim();
-  const isGit = !/(^|[\\/])(non-git|scratch|plain)([\\/]|$)/i.test(trimmedPath);
-  return {
-    path: trimmedPath,
-    displayName: displayNameForPath(trimmedPath),
-    isGit,
-    gitRoot: isGit ? trimmedPath : null,
-  };
-}
-
-function upsertKnownProject(inspection: ProjectInspection) {
-  const timestamp = nowIso();
-  const project: KnownProject = {
-    path: inspection.path,
-    displayName: inspection.displayName,
-    isGit: inspection.isGit,
-    lastOpenedAt: timestamp,
-  };
-  knownProjects = [project, ...knownProjects.filter((candidate) => candidate.path !== project.path)];
-  return project;
-}
-
-function resolveProjectPath(input: CreateSessionInput) {
-  const path = input.projectPath?.trim() || input.folder?.trim() || "";
-  return path ? normalizeDisplayPath(path) : null;
-}
-
-function displayNameForRemotePath(path: string) {
-  return path.replace(/\/+$/, "").split("/").filter(Boolean).at(-1) ?? path;
-}
-
-function normalizeRemoteWorkspace(input: NonNullable<CreateSessionInput["remoteWorkspace"]>): RemoteWorkspace {
-  const host = input.host.trim();
-  const port = input.port ?? 22;
-  const path = input.path.trim();
-  const user = input.user?.trim() || null;
-  if (!host || !path) {
-    throw new Error("Remote workspace requires host and path");
-  }
-  if (host.includes("/") || host.includes("\\") || /[\u0000-\u001f]/.test(`${host}${path}${user ?? ""}`)) {
-    throw new Error("Invalid remote workspace");
-  }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Invalid remote workspace port");
-  }
-  const authority = user ? `${user}@${host}` : host;
-  const portSegment = port === 22 ? "" : `:${port}`;
-  return {
-    host,
-    port,
-    user,
-    path,
-    displayName: input.displayName?.trim() || `${host}:${displayNameForRemotePath(path)}`,
-    uri: `ssh://${authority}${portSegment}${path.startsWith("/") ? "" : "/"}${path}`,
-  };
-}
-
-function upsertKnownRemoteWorkspace(remoteWorkspace: RemoteWorkspace) {
-  const timestamp = nowIso();
-  const known: KnownRemoteWorkspace = { ...remoteWorkspace, lastOpenedAt: timestamp };
-  knownRemoteWorkspaces = [
-    known,
-    ...knownRemoteWorkspaces.filter((candidate) => candidate.uri !== remoteWorkspace.uri),
-  ];
-  return known;
-}
-
 
 function searchText(value: string | null | undefined, query: string) {
   return (value ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -559,22 +425,6 @@ function sessionSearchMatches(session: Session, query: string): SessionSearchRes
   return matches.length > 0 ? { session: { ...session }, matches } : null;
 }
 
-function findCategory(categoryId: string) {
-  const category = sessionCategories.find((candidate) => candidate.id === categoryId);
-  if (!category) {
-    throw new Error(`Category not found: ${categoryId}`);
-  }
-  return category;
-}
-
-function validateCategoryName(name: string, exceptId?: string) {
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error("Category name cannot be empty.");
-  const duplicate = sessionCategories.some((category) => category.name === trimmed && category.id !== exceptId);
-  if (duplicate) throw new Error("Category name already exists.");
-  return trimmed;
-}
-
 function serializeWebSessionExport(input: ExportSessionInput): SessionExportResult {
   const session = findWebSession(input.sessionId);
   const payload = {
@@ -601,10 +451,6 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
     path: input.destinationDirectory ? `${input.destinationDirectory}\\${session.id}.${input.format === "json" ? "json" : "md"}` : null,
     content,
   };
-}
-
-function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
-  return aggregateUsageRecords(representativeUsageRecords, range);
 }
 
 function createMessageId() {
@@ -789,30 +635,6 @@ function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: b
     },
   });
   return true;
-}
-
-function emitTerminalEvent(event: AgentTerminalEvent, recordOutput = true) {
-  if (recordOutput && event.type === "output") {
-    terminalTranscriptsBySession.set(event.sessionId, appendTerminalTranscript(
-      terminalTranscriptsBySession.get(event.sessionId) ?? "",
-      event.content,
-    ));
-  }
-  const subscribers = terminalSubscribersBySession.get(event.sessionId);
-  subscribers?.forEach((handler) => handler(event));
-}
-
-function appendTerminalTranscript(current: string, content: string) {
-  let transcript = `${current}${content}`;
-  if (transcript.length <= webRetainedTerminalTranscriptBytes) {
-    return transcript;
-  }
-  transcript = transcript.slice(transcript.length - webRetainedTerminalTranscriptBytes);
-  return transcript;
-}
-
-function upsertTerminalSession(session: AgentTerminalSession) {
-  terminalsBySession.set(session.sessionId, session);
 }
 
 function cancelActiveStream(sessionId: string) {
@@ -1546,45 +1368,7 @@ export const webAgentClient: AgentService = {
       error: null,
     };
   },
-
-  async listExpertRoles(): Promise<ExpertRole[]> {
-    return structuredClone(webExpertRoles);
-  },
-
-  async saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole> {
-    const errors = validateExpertRoleInput(input);
-    if (errors.length > 0) throw new Error(errors.join("; "));
-    const timestamp = nowIso();
-    const existing = input.id ? webExpertRoles.find((role) => role.id === input.id) : undefined;
-    if (input.id && !existing) throw new Error(`Expert role not found: ${input.id}`);
-    // Built-in roles are read-only; the UI copies them into a user role instead of editing.
-    if (existing?.origin === "builtin") throw new Error("Built-in expert roles cannot be edited.");
-    const role: ExpertRole = {
-      id: existing?.id ?? `web-expert-role-${nextExpertRoleId++}`,
-      displayName: input.displayName.trim(),
-      avatar: input.avatar,
-      color: input.color,
-      responsibility: input.responsibility.trim(),
-      instruction: input.instruction,
-      skillIds: [...input.skillIds],
-      reviewPolicy: { ...input.reviewPolicy },
-      preferredProviders: [...input.preferredProviders],
-      origin: "user",
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
-    webExpertRoles = existing
-      ? webExpertRoles.map((candidate) => (candidate.id === role.id ? role : candidate))
-      : [...webExpertRoles, role];
-    return structuredClone(role);
-  },
-
-  async deleteExpertRole(roleId: string): Promise<void> {
-    const role = webExpertRoles.find((candidate) => candidate.id === roleId);
-    if (!role) throw new Error(`Expert role not found: ${roleId}`);
-    if (role.origin === "builtin") throw new Error("Built-in expert roles cannot be deleted.");
-    webExpertRoles = webExpertRoles.filter((candidate) => candidate.id !== roleId);
-  },
+  ...webExpertRoleClient,
 
   async getWorkflowState() {
     return getWebWorkflowState();
@@ -1706,42 +1490,7 @@ export const webAgentClient: AgentService = {
     if (!sessionId) return null;
     return listWebSessions().find((session) => session.id === sessionId) ?? null;
   },
-
-  async listSessionCategories() {
-    return [...sessionCategories].sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
-  },
-
-  async createSessionCategory(input: CreateSessionCategoryInput) {
-    const timestamp = nowIso();
-    const category: SessionCategory = {
-      id: `web-category-${nextSessionCategoryId++}`,
-      name: validateCategoryName(input.name),
-      sortOrder: sessionCategories.length,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    sessionCategories = [...sessionCategories, category];
-    return category;
-  },
-
-  async renameSessionCategory(input: RenameSessionCategoryInput) {
-    const category = findCategory(input.categoryId);
-    const timestamp = nowIso();
-    const updated = { ...category, name: validateCategoryName(input.name, input.categoryId), updatedAt: timestamp };
-    sessionCategories = sessionCategories.map((candidate) => (candidate.id === input.categoryId ? updated : candidate));
-    return updated;
-  },
-
-  async deleteSessionCategory(categoryId: string) {
-    findCategory(categoryId);
-    sessionCategories = sessionCategories.filter((category) => category.id !== categoryId);
-    replaceWebSessions(listWebSessions().map((session) => (session.categoryId === categoryId ? { ...session, categoryId: null, updatedAt: nowIso() } : session)));
-  },
-
-  async assignSessionCategory(input: AssignSessionCategoryInput) {
-    if (input.categoryId) findCategory(input.categoryId);
-    return updateWebSession(input.sessionId, { categoryId: input.categoryId });
-  },
+  ...webSessionCategoryClient,
 
   async listLoopDefinitions() {
     return cloneLoopValue([...loopDefinitions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
@@ -1952,25 +1701,7 @@ export const webAgentClient: AgentService = {
     const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
     return withEffectiveExecutionPolicy(normalized, policy);
   },
-
-  async listKnownProjects() {
-    return knownProjects.map((project) => ({ ...project }));
-  },
-
-  async listKnownRemoteWorkspaces() {
-    return knownRemoteWorkspaces.map((workspace) => ({ ...workspace }));
-  },
-
-  async inspectProject(path: string) {
-    if (!path.trim()) {
-      throw new Error(tr("web.error.projectPathRequired"));
-    }
-    return inspectMockProject(path);
-  },
-
-  async selectProjectDirectory() {
-    return "D:\\\\example-workspace";
-  },
+  ...webKnownWorkspaceClient,
 
   async createSession(input) {
     const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
@@ -2032,7 +1763,7 @@ export const webAgentClient: AgentService = {
     const titleSource = remoteWorkspace?.displayName || effectiveFolder || "";
     const normalizedSeats = (input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }]).map(
       (seat) => ({
-        ...snapshotSeat(seat, mockAgents, webExpertRoles),
+        ...snapshotSeat(seat, mockAgents, listWebExpertRoles()),
         seatId: createWebSeatId(),
         joinedAt: timestamp,
         leftAt: null,
@@ -2805,34 +2536,7 @@ export const webAgentClient: AgentService = {
     };
     return message.feedback;
   },
-
-  async getUsageStatistics(input) {
-    return aggregateWebUsageStatistics(input.range);
-  },
-
-  async getSessionUsageSummary(sessionId: string) {
-    findWebSession(sessionId);
-    const generated = aggregateSessionUsageRecords(representativeUsageRecords, sessionId);
-    return generated;
-  },
-
-  async getTokenUsageSummary(input) {
-    if (!input.sessionId) return queryWebTokenUsageSummary(input);
-    const session = findWebSession(input.sessionId);
-    return queryWebTokenUsageSummary({
-      ...input,
-      sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
-    });
-  },
-
-  async getTokenUsageDetails(input) {
-    if (!input.sessionId) return queryWebTokenUsageDetails(input);
-    const session = findWebSession(input.sessionId);
-    return queryWebTokenUsageDetails({
-      ...input,
-      sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
-    });
-  },
+  ...webUsageStatisticsClient,
 
   /**
    * The Web runtime simulates the round trip: nothing is actually blocked on the answer, so this
@@ -2852,100 +2556,7 @@ export const webAgentClient: AgentService = {
     if (!cancelActiveStream(sessionId)) return;
     updateWebSession(sessionId, { lifecycleState: "stopped" });
   },
-
-  async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
-    const session = findWebSession(sessionId);
-    const existing = terminalsBySession.get(sessionId);
-    if (existing?.state === "running") {
-      const transcript = terminalTranscriptsBySession.get(sessionId) ?? "";
-      if (transcript) {
-        setTimeout(() => {
-          emitTerminalEvent(
-            {
-              type: "output",
-              terminalId: existing.terminalId,
-              sessionId,
-              content: transcript,
-            },
-            false,
-          );
-        }, 0);
-      }
-      return existing;
-    }
-    const runtimeSessionId = session.runtimeSessionId ?? `web-runtime-${session.id}`;
-    const terminal: AgentTerminalSession = {
-      terminalId: `web-terminal-${session.id}`,
-      sessionId: session.id,
-      agentId: session.agentId,
-      state: "running",
-      capability: "simulated",
-      size,
-      runtimeSessionId,
-      retained: true,
-    };
-    upsertTerminalSession(terminal);
-    updateWebSession(sessionId, { lifecycleState: "running", runtimeSessionId });
-    setTimeout(() => {
-      emitTerminalEvent({
-        type: "runtime_session_id",
-        terminalId: terminal.terminalId,
-        sessionId,
-        runtimeSessionId,
-      });
-    }, 30);
-    return terminal;
-  },
-
-  async sendAgentTerminalInput(terminalId: string, content: string) {
-    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
-    if (!terminal) {
-      throw new Error("Agent terminal is not connected.");
-    }
-    emitTerminalEvent({
-      type: "output",
-      terminalId,
-      sessionId: terminal.sessionId,
-      content,
-    });
-  },
-
-  async resizeAgentTerminal(terminalId: string, size: AgentTerminalSize) {
-    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
-    if (!terminal) {
-      throw new Error("Agent terminal is not connected.");
-    }
-    upsertTerminalSession({ ...terminal, size });
-  },
-
-  async stopAgentTerminal(terminalId: string) {
-    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
-    if (!terminal) return false;
-    terminalsBySession.delete(terminal.sessionId);
-    terminalTranscriptsBySession.delete(terminal.sessionId);
-    updateWebSession(terminal.sessionId, { lifecycleState: "stopped" });
-    emitTerminalEvent({
-      type: "state",
-      terminalId,
-      sessionId: terminal.sessionId,
-      state: "stopped",
-      error: null,
-    });
-    return true;
-  },
-
-  async subscribeAgentTerminalEvents(sessionId, handler) {
-    const subscribers = terminalSubscribersBySession.get(sessionId) ?? new Set<(event: AgentTerminalEvent) => void>();
-    subscribers.add(handler);
-    terminalSubscribersBySession.set(sessionId, subscribers);
-    return () => {
-      const currentSubscribers = terminalSubscribersBySession.get(sessionId);
-      currentSubscribers?.delete(handler);
-      if (currentSubscribers?.size === 0) {
-        terminalSubscribersBySession.delete(sessionId);
-      }
-    };
-  },
+  ...webAgentTerminalClient,
 
   async subscribeMessageEvents(sessionId, handler) {
     const subscribers = subscribersBySession.get(sessionId) ?? new Set<(event: ChatStreamEvent) => void>();
@@ -2966,8 +2577,4 @@ export const webAgentClient: AgentService = {
   ...webSkillCatalogClient,
   ...webSkillBindingClient,
   ...webSkillOverlayClient,
-
-  async selectWorkspaceDirectory() {
-    return "D:\\\\example-workspace";
-  },
 };
