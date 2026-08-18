@@ -1,18 +1,27 @@
 //! Tool catalog resolution, system prompt assembly, personalization, and memory sections.
 
 use super::super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
+use super::super::skill_tool_catalog_adapter::{
+    resolve_skill_tool_catalog, ResolvedSkillToolCatalog,
+};
 use super::super::tools::task_list_prompt_section;
 use super::{SKILL_AGGREGATE_CHARACTER_BUDGET, SKILL_PER_ITEM_CHARACTER_BUDGET};
 use crate::contexts::agent_runtime::application::{
-    ask_user_question_tool_definition, code_intelligence_tool_definitions, plan_mode_tool_catalog,
-    recall_tool_definition, search_code_tool_definition, tool_catalog, AgentClockPort,
-    AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort,
-    AgentMemory, AgentMemoryPort, AgentMemorySelectionPort, AgentPersonalizationPort,
-    AgentSkillPort, BoundSkillPrompt, GenerationProcessRequest, PersonalizationSettings,
-    ToolDefinition,
+    ask_user_question_tool_definition, code_intelligence_tool_definitions,
+    delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
+    search_code_tool_definition, tool_catalog, AgentClockPort, AgentCodeIntelligenceContext,
+    AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
+    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMemorySelectionPort,
+    AgentPersonalizationPort, AgentRetrievalPort, AgentSkillPort, ApiProviderConfig,
+    BoundSkillPrompt, GenerationProcessRequest, NativeToolExecutionMode, NativeToolRegistry,
+    PersonalizationSettings, ToolDefinition, ToolEligibilityContext,
+    UtilityDelegationApplicationService,
 };
 use crate::contexts::skill_evolution_evidence::domain::{
     ObservedSkillRevision, SkillAssociationKind,
+};
+use crate::contexts::tooling::skill_tools::application::{
+    SkillToolBinding, SkillToolCatalogContext, SkillToolCatalogMode, SkillToolCatalogPort,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -78,6 +87,141 @@ pub(super) fn resolve_tool_catalog_with_code_intelligence(
         tools.push(ask_user_question_tool_definition());
     }
     tools
+}
+
+/// Everything the generation offers the model, assembled once before the round-trip loop: the
+/// reviewed catalog above, then the delegation tool, then the eligible native tools, then the
+/// endpoint Profile's capability veto. The three availability probes live here rather than in the
+/// caller because nothing outside this assembly reads them.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_generation_tool_catalog(
+    request: &GenerationProcessRequest,
+    mcp: &dyn AgentMcpToolPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: &dyn AgentCodeIntelligencePort,
+    native_tools: &NativeToolRegistry,
+    utility_delegation: Option<&UtilityDelegationApplicationService>,
+    plan_mode: bool,
+) -> Vec<ToolDefinition> {
+    // Never blocks, never errors (`AgentRetrievalPort::is_configured`'s own contract) — safe to
+    // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
+    // itself is derived at the call site.
+    let retrieval_available = retrieval.is_configured();
+    let code_search_available = request
+        .session
+        .folder
+        .as_deref()
+        .and_then(|folder| {
+            retrieval
+                .code_retrieval()
+                .map(|code| code.is_available(folder))
+        })
+        .unwrap_or(false);
+    let code_intelligence_context = request
+        .session
+        .folder
+        .as_deref()
+        .map(AgentCodeIntelligenceContext::from_session_workspace);
+    let code_intelligence_available = code_intelligence_context
+        .as_ref()
+        .is_some_and(|context| code_intelligence.is_available(context));
+    let mut tools = resolve_tool_catalog_with_code_intelligence(
+        request,
+        mcp,
+        logging,
+        clock,
+        plan_mode,
+        retrieval_available,
+        code_search_available,
+        code_intelligence_available,
+    );
+    if utility_delegation.is_some() && !plan_mode {
+        tools.push(delegate_utility_skill_tool_definition());
+    }
+    tools.extend(
+        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
+            agent_id: request.agent.id.clone(),
+            session_id: request.session.id.clone(),
+            generation_id: request.operation_id.clone(),
+            canonical_workspace: request.session.folder.as_deref().map(Into::into),
+            execution_mode: if plan_mode {
+                NativeToolExecutionMode::Plan
+            } else {
+                NativeToolExecutionMode::Execute
+            },
+            readiness: native_tools.readiness_snapshot(),
+        }),
+    );
+    if request
+        .endpoint_profile
+        .as_ref()
+        .is_some_and(|profile| profile.tool_calling_capability != "supported")
+    {
+        tools.clear();
+    }
+    tools
+}
+
+/// The skill-tool half of the generation's catalog. `None` means the catalog rejected the request:
+/// that logs a warning and leaves the tools already resolved untouched, exactly as an MCP lookup
+/// failure does above, because skill tools are additive on top of an already-usable catalog.
+///
+/// The resolved lease, generation counter and key map are returned whole rather than unpacked here
+/// so the caller can keep them in the three bindings it already had. The lease is an `Arc` held for
+/// the rest of the generation, and moving the three into one value would reorder their drops.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_generation_skill_tools(
+    catalog: &dyn SkillToolCatalogPort,
+    request: &GenerationProcessRequest,
+    provider_config: &ApiProviderConfig,
+    observed_skill_revisions: &[ObservedSkillRevision],
+    existing_tools: &[ToolDefinition],
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    plan_mode: bool,
+) -> Option<ResolvedSkillToolCatalog> {
+    let loaded_roles = observed_skill_revisions
+        .iter()
+        .map(|observed| SkillToolBinding {
+            skill_id: observed.skill_id.clone(),
+            revision: observed.revision.clone(),
+        })
+        .collect::<Vec<_>>();
+    let context = SkillToolCatalogContext::RoleGeneration {
+        workspace_path: request.session.folder.clone(),
+        loaded_roles,
+        mode: if plan_mode {
+            SkillToolCatalogMode::Plan
+        } else {
+            SkillToolCatalogMode::Execute
+        },
+    };
+    let existing_names = existing_tools.iter().map(|tool| tool.name.clone());
+    match resolve_skill_tool_catalog(
+        catalog,
+        &context,
+        existing_names,
+        &provider_config.interface_format,
+    ) {
+        Ok(resolved) => Some(resolved),
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.skill-tools".to_string(),
+                message: format!("Skill tool catalog rejected: {}", error.code()),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            None
+        }
+    }
 }
 
 /// Resolves the agent's bound, enabled Skills (`add-agent-skill-support`) and stored memories

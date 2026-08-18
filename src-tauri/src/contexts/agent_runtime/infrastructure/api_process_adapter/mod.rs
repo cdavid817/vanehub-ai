@@ -1,4 +1,5 @@
 mod compaction;
+mod endpoint;
 mod execution;
 mod generation;
 mod interactive;
