@@ -2166,11 +2166,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // No item body was duplicated or edited: the top-level item multiset is identical before and
     // after, 84 of the 138 moved items are byte-identical to their pre-split text, 52 differ only
     // by an added `pub(super)`, and the last 2 are the rustfmt rewraps above.
-    // Raised from 58,357 by `decompose-api-tool-use-loop`. Unlike the split that set the previous
-    // figure, this one is not a pure move, and the +648 says so:
+    // Raised from 58,357 by two changes that landed together, and the two halves differ in kind.
+    //
+    // `freeze-panic-shortcuts-in-production-code` adds 5: the four-line
+    // `#![allow(clippy::unwrap_used, clippy::expect_used)]` header plus its blank separator on
+    // `runner_registry.rs`, the one file here carrying a pre-existing panic shortcut. That header
+    // is the debt marker itself, so it falls again when the shortcut is retired.
+    //
+    // `decompose-api-tool-use-loop` adds 648, and unlike the split that set the previous figure it
+    // is not a pure move:
     //
     // +382 is the six characterization tests and the `RejectingSink` they need, written against
-    // the un-split function so each seam had coverage before it was cut — `CapturingSink` never
+    // the un-split function so each seam had coverage before it was cut - `CapturingSink` never
     // fails, `Effect::Deny` and `ApprovalOutcome::Answered(_)` had no test, and no test in the
     // suite had ever set `endpoint_profile: Some(..)`. The diff on `tests.rs` is additions only.
     //
@@ -2182,7 +2189,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // net of the 40 lines saved by de-duplicating the five copies of the tool-outcome tail.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_005,
+        budget: 59_010,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
