@@ -100,8 +100,6 @@ export interface PurgeEvidenceOutcome {
 }
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
-import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
-import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationService } from "./evaluation-service";
 import type {
@@ -147,6 +145,7 @@ import type {
   SessionCategoryService,
 } from "./session-organization-service";
 import type { AgentTerminalService } from "./agent-terminal-service";
+import type { MissionControlService } from "./mission-control-service";
 import type { UsageStatisticsService } from "./usage-statistics-service";
 import type {
   LspConfiguration,
@@ -189,7 +188,8 @@ export interface AgentService extends
   ExpertRoleService,
   KnownWorkspaceService,
   AgentTerminalService,
-  UsageStatisticsService {
+  UsageStatisticsService,
+  MissionControlService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -206,14 +206,6 @@ export interface AgentService extends
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
-  getAgentRun(runId: string): Promise<AgentRun>;
-  listAgentRuns(offset?: number, limit?: number, filter?: AgentRunFilter): Promise<AgentRunPage>;
-  listAgentRunEvents(runId: string, offset?: number, limit?: number): Promise<AgentRunEvent[]>;
-  cancelAgentRun(runId: string, version: number): Promise<AgentRun>;
-  resumeAgentRun(runId: string, version: number): Promise<AgentRun>;
-  getMissionControlOverview(query?: MissionControlQuery): Promise<MissionControlOverview>;
-  getMissionControlRun(runId: string): Promise<MissionControlRunDetail>;
-  performMissionControlAction(input: MissionControlActionInput): Promise<MissionControlActionReceipt>;
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   deleteApiAgent(agentId: string): Promise<void>;
   /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no

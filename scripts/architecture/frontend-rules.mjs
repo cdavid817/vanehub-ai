@@ -14,7 +14,7 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `activeSessionId`、`webSkills`)现在是一对 `list*`/`replace*` 函数。这层是"禁止导出可变绑定"
 // 这条规则的代价,不是重复代码:访问器集合按调用点裁剪,每个都有本模块之外的调用者。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 18860, owner: "extract-web-client-state-modules" },
+  { root: "src/services", budget: 18937, owner: "extract-web-client-state-modules" },
 ]);
 
 const STATE_PACKAGES = new Set([
