@@ -8,11 +8,12 @@ The file is not 79 self-contained migrations. Its actual composition:
 |---|---:|---|
 | `migrate()` orchestration | ~6-490 | 79 ordered `apply_migration` / `apply_transactional_migration` calls |
 | `EXPECTED_MIGRATIONS` | 763-843 | the 79-entry ground-truth registry |
-| Local migration bodies | scattered | **24** `fn apply_*(conn: &Connection)` definitions |
-| Application helpers | 1229-1300 | `apply_migration`, `apply_transactional_migration` |
+| Local migration bodies | scattered | **25** `fn apply_*(conn: &Connection)` definitions |
+| Inline closures | 141, 259, 325 | **3** — versions 25 and 44 each call a pair of context functions, version 54 is a lone `CREATE INDEX` |
+| Application helpers | 1229-1289 | `apply_migration`, `apply_transactional_migration` |
 | Inline `mod tests` | 1425-2301 | **877 lines (38% of the file)** |
 
-The other **56** migrations do not have bodies here at all — they delegate to `apply_schema` functions owned by the bounded context that owns the table, e.g. `crate::contexts::tooling::skills::infrastructure::apply_schema`. That decomposition already happened.
+The other **51** migrations do not have bodies here at all — they delegate to `apply_schema` functions owned by the bounded context that owns the table, e.g. `crate::contexts::tooling::skills::infrastructure::apply_schema`. That decomposition already happened.
 
 ## Goals / Non-Goals
 
@@ -25,30 +26,30 @@ The other **56** migrations do not have bodies here at all — they delegate to 
 **Non-Goals:**
 
 - Renumbering, reordering, merging, or rewriting any migration. Version numbers are load-bearing against databases already in the field.
-- Relocating the 24 local bodies to their owning contexts. That is the right long-term direction — it is what the other 56 already did — but doing it here would mix a mechanical move with 24 ownership judgments.
+- Relocating the 25 local bodies to their owning contexts. That is the right long-term direction — it is what the other 51 already did — but doing it here would mix a mechanical move with 25 ownership judgments.
 - Adding a registry or a density/duplication test. Both already exist.
 
 ## Decisions
 
 ### Split by role, not one file per migration
 
-The optimization ticket proposed `m0001_init.rs … m0052_xxx.rs`, one file per migration. Against the actual file that would produce 56 files containing a single delegating call each — navigation cost with nothing moved into them. The split is instead:
+The optimization ticket proposed `m0001_init.rs … m0052_xxx.rs`, one file per migration. Against the actual file that would produce 51 files containing a single delegating call each — navigation cost with nothing moved into them. The split is instead:
 
 | File | Content |
 |---|---|
 | `migrations/mod.rs` | `migrate()`, `EXPECTED_MIGRATIONS`, `apply_migration`, `apply_transactional_migration`, density verification |
-| `migrations/inline_schema.rs` | the 24 local `apply_*` bodies |
+| `migrations/inline_schema.rs` | the 25 local `apply_*` bodies |
 | `migrations/tests.rs` | the inline `mod tests` |
 
 `mod.rs` then holds the ordered call list and the registry side by side — exactly the two things someone picking a version number needs — with the SQL bodies out of the way.
 
-### Preserve `EXPECTED_MIGRATIONS` and its density test verbatim
+### Preserve `EXPECTED_MIGRATIONS` and its guards verbatim
 
-The ticket asked for "a test asserting migration numbers are contiguous and non-duplicated". `EXPECTED_MIGRATIONS` plus `migration_sequence_is_dense_and_matches_expected` plus the runtime `assert_migration_history_is_dense` already do this, and the registry carries a comment recording the real incident that motivated them. Rewriting them during a file move would put the one guard that catches collisions into the same diff as the move that could introduce one.
+The ticket asked for "a test asserting migration numbers are contiguous and non-duplicated". That already exists, but as three guards rather than one, and it is worth being precise about which does what: `migration_sequence_matches_expected` compares `EXPECTED_MIGRATIONS` against the `(version, name)` rows a fresh `migrate()` actually records, which is what catches a duplicate number (the second claimant is skipped, so the recorded name diverges); the runtime `assert_migration_history_is_dense` rejects a gapped history at startup; and `density_check_rejects_a_missing_migration_row` covers that runtime check in tests. The registry carries a comment recording the real incident that motivated them. Rewriting them during a file move would put the one guard that catches collisions into the same diff as the move that could introduce one.
 
-### The 24 inline bodies move as one block, not 24 decisions
+### The 25 inline bodies move as one block, not 25 decisions
 
-They are the migrations whose owning context either did not exist when they were written or has not claimed them. Grouping them in one file makes that status visible and leaves a clean seam for a later change to relocate them one at a time, matching how the other 56 already live in their contexts.
+They are the migrations whose owning context either did not exist when they were written or has not claimed them. Grouping them in one file makes that status visible and leaves a clean seam for a later change to relocate them one at a time, matching how the other 51 already live in their contexts.
 
 ### The path budget is satisfied by absence; the subtree budget is what actually binds
 
@@ -56,7 +57,7 @@ They are the migrations whose owning context either did not exist when they were
 
 ## Risks / Trade-offs
 
-- **A migration is silently dropped during the move** → `EXPECTED_MIGRATIONS` is the control: `migration_sequence_is_dense_and_matches_expected` compares it against what `migrate()` actually applies, so a dropped call fails the test rather than shipping.
+- **A migration is silently dropped during the move** → `EXPECTED_MIGRATIONS` is the control: `migration_sequence_matches_expected` compares it against what `migrate()` actually applies, so a dropped call fails the test rather than shipping. A drop that also leaves a gap is caught a second time by `assert_migration_history_is_dense`.
 - **The six hard-coded `79` assertions are invisible to the compiler and to clippy** → They are enumerated as explicit tasks rather than left to be discovered: `migrations.rs:480`, `migrations.rs:1747`, `mod.rs:261`, `mod.rs:323`, `migration_fixture_tests.rs:25`, `migration_fixture_tests.rs:487`. This change adds no migration, so all six must keep their current value; any of them changing is a defect in the move.
 - **Every worktree on this machine shares one `ai.vanehub.app` SQLite database** → Do not launch the desktop app from another branch while this lane is open. This change introduces no new version number, so it cannot itself collide, but a concurrent branch that does will present as an opaque "no such table" crash that looks like this lane's fault.
 - **A reviewer cannot tell a moved SQL body from an edited one** → The migration fixture tests run the full 1..=79 upgrade path against a fixture database; a mutated body fails there.
