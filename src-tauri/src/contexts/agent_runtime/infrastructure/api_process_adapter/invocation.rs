@@ -3,7 +3,8 @@
 use super::super::context_projection::PreparedContextProjection;
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::{anthropic_provider, openai_compatible_provider};
-use super::{value_character_count, ExecutedToolCall, GenerationOptions};
+use super::compaction::value_character_count;
+use super::{ExecutedToolCall, GenerationOptions};
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage, ApiProviderConfig,
     GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
