@@ -70,6 +70,7 @@ import { normalizeContextQualityError } from "./context-quality-error";
 import type { TokenUsageDetailsPage, TokenUsageSummary } from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
+import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
@@ -270,6 +271,7 @@ export const tauriAgentClient: AgentService = {
   getMissionControlOverview: (query = {}) => invoke<MissionControlOverview>("get_mission_control_overview", { query }),
   getMissionControlRun: (runId) => invoke<MissionControlRunDetail>("get_mission_control_run", { runId }),
   performMissionControlAction: (input) => invoke<MissionControlActionReceipt>("perform_mission_control_action", { input }),
+  listAgentRunners: (sessionId, agentId) => invoke<AgentRunnerDescriptor[]>("list_agent_runners", { sessionId, agentId }),
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },
@@ -833,6 +835,7 @@ export const tauriAgentClient: AgentService = {
       content: input.content,
       config: input.config,
       fileReferences: input.fileReferences ?? null,
+      runner: input.runner ?? null,
     });
   },
 

@@ -32,10 +32,11 @@ pub(crate) use super::application::{
     OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
     OrchestrationCorrelation, OrchestrationExecutionProfile, ProviderCredentialValidationResult,
     ReadinessView, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
-    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowView,
+    ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection, SaveLoopDefinitionRequest,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowView,
 };
 
 const GUARDED_VALIDATION_OUTPUT_LIMIT: usize = 4_000;
@@ -705,6 +706,27 @@ impl AgentRuntimeApi {
         Ok(message)
     }
 
+    pub(crate) fn send_message_with_runner(
+        &self,
+        request: SendMessageRequest,
+        runner: RunnerSelection,
+    ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+        let session_id = request.session_id.clone();
+        let message = self.service.send_message_with_runner(request, runner)?;
+        if self.service.is_multi_seat_session(&session_id) {
+            self.seat_turns.schedule(&session_id)?;
+        }
+        Ok(message)
+    }
+
+    pub(crate) fn list_runners(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Vec<RunnerDescriptor>, AgentRuntimeApplicationError> {
+        self.service.list_runners(session_id, agent_id)
+    }
+
     pub(crate) fn send_message_with_completion(
         &self,
         request: SendMessageRequest,
@@ -737,6 +759,10 @@ impl AgentRuntimeApi {
         session_id: &str,
     ) -> Result<StopGenerationResult, AgentRuntimeApplicationError> {
         self.service.stop_generation(session_id)
+    }
+
+    pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        self.service.shutdown_generations()
     }
 
     pub(crate) fn open_agent_terminal(

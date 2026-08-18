@@ -192,6 +192,7 @@ impl TaskOrchestrationApi {
                     .collect(),
                 parent_run_id: None,
                 recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+                runner: None,
                 max_retries: 3,
                 witness: format!("plan-accepted:{run_id}"),
             })
@@ -502,6 +503,7 @@ impl TaskOrchestrationApi {
                 }],
                 parent_run_id: Some(canonical_run_id(run_id)?),
                 recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                runner: None,
                 max_retries: 0,
                 witness: format!("attempt-accepted:{attempt_run_id}"),
             })

@@ -25,6 +25,18 @@ pub(crate) struct SessionSshBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionRunnerTarget {
+    pub(crate) session_id: String,
+    pub(crate) connection_id: String,
+    pub(crate) connection_revision: i64,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) user: String,
+    pub(crate) workspace_path: String,
+    pub(crate) display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionSshProfile {
     pub(crate) connection_id: String,
     pub(crate) revision: i64,

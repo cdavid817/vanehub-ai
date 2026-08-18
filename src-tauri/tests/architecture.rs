@@ -482,6 +482,29 @@ fn path_dependencies(source: &str) -> Result<BTreeSet<(usize, Vec<String>)>, Str
     Ok(visitor.dependencies)
 }
 
+fn runner_boundary_violations(relative_path: &Path, source: &str) -> Result<Vec<String>, String> {
+    let mut violations = analyze(relative_path, source)?
+        .into_iter()
+        .map(|violation| format!("{}: {}", violation.line, violation.dependency))
+        .collect::<Vec<_>>();
+    for (line, segments) in path_dependencies(source)? {
+        let path = segments.iter().map(String::as_str).collect::<Vec<_>>();
+        let private_owned_context = context_target(&segments).is_some_and(|(context, layer)| {
+            matches!(
+                context,
+                "ssh_connections" | "permissions" | "sessions" | "operations"
+            ) && layer != "api"
+        });
+        let direct_ssh_transport = path.first() == Some(&"russh");
+        if private_owned_context || direct_ssh_transport {
+            violations.push(format!("{line}: {}", segments.join("::")));
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    Ok(violations)
+}
+
 fn rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     fn visit(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
         for entry in
@@ -1040,6 +1063,77 @@ fn detector_allows_published_cross_context_api() {
     .expect("analyze fixture");
 
     assert!(violations.is_empty());
+}
+
+#[test]
+fn runner_contracts_and_adapters_use_only_published_runtime_boundaries() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let runner_root = source_root.join("contexts/agent_runtime");
+    let mut violations = Vec::new();
+    for path in rust_files(&runner_root).expect("enumerate Agent runtime") {
+        let source = fs::read_to_string(&path).expect("read Agent runtime source");
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if file_name.ends_with("_tests.rs") || file_name == "tests.rs" {
+            continue;
+        }
+        if !file_name.contains("runner") && !source.contains("impl AgentRunner") {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative Runner path");
+        for violation in runner_boundary_violations(relative, &source).expect("analyze Runner") {
+            violations.push(format!("{}:{violation}", relative.display()));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "Runner code must use application ports and published context APIs:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn runner_boundary_detector_allows_apis_and_rejects_private_or_concrete_io() {
+    let allowed = r#"
+use crate::contexts::ssh_connections::api::SshConnectionsApi;
+use crate::contexts::permissions::api::PermissionsApi;
+fn assemble(_ssh: SshConnectionsApi, _permissions: PermissionsApi) {}
+"#;
+    assert!(runner_boundary_violations(
+        Path::new("contexts/agent_runtime/infrastructure/ssh_runner.rs"),
+        allowed
+    )
+    .expect("allowed fixture")
+    .is_empty());
+
+    let private = r#"
+use crate::contexts::ssh_connections::infrastructure::SshConnectionPool;
+use crate::contexts::permissions::infrastructure::SqlitePermissionRepository;
+use russh::client::Handle;
+"#;
+    let violations = runner_boundary_violations(
+        Path::new("contexts/agent_runtime/infrastructure/ssh_runner.rs"),
+        private,
+    )
+    .expect("private fixture");
+    assert_eq!(violations.len(), 3);
+
+    let application_io = r#"
+use std::process::Command;
+use tauri::State;
+fn spawn() { let _ = Command::new("agent"); }
+"#;
+    let violations = runner_boundary_violations(
+        Path::new("contexts/agent_runtime/application/runner_bypass.rs"),
+        application_io,
+    )
+    .expect("application fixture");
+    assert!(violations.iter().any(|item| item.contains("std::process")));
+    assert!(violations.iter().any(|item| item.contains("tauri::State")));
 }
 
 #[test]

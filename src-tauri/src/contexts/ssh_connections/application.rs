@@ -108,6 +108,13 @@ impl SshConnectionApplicationService {
         self.repository.list()
     }
 
+    pub(crate) fn find(
+        &self,
+        id: &str,
+    ) -> Result<Option<SshConnectionProfile>, SshConnectionError> {
+        self.repository.find(id)
+    }
+
     pub(crate) fn create(
         &self,
         mutation: SshConnectionMutation,

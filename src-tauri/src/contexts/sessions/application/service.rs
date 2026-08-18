@@ -989,6 +989,46 @@ impl SessionsApplicationService {
         Ok(current)
     }
 
+    pub(crate) fn current_runner_target(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<super::SessionRunnerTarget>, SessionsApplicationError> {
+        let session = self.load_session(session_id)?;
+        let Some(workspace) = session.workspace.remote_workspace.as_ref() else {
+            return Ok(None);
+        };
+        let binding = session
+            .workspace
+            .remote_ssh_binding
+            .as_ref()
+            .ok_or_else(|| {
+                SessionsApplicationError::Validation(
+                    "Remote session requires an SSH connection binding.".to_string(),
+                )
+            })?;
+        let current = self.resolve_ssh_binding(workspace, &binding.connection_id)?;
+        if current.revision != binding.revision {
+            return Err(SessionsApplicationError::Validation(
+                "Remote session SSH connection binding is stale; explicit rebind is required."
+                    .to_string(),
+            ));
+        }
+        Ok(Some(super::SessionRunnerTarget {
+            session_id: session.id().to_string(),
+            connection_id: current.connection_id,
+            connection_revision: current.revision,
+            host: workspace.host.clone(),
+            port: workspace.port.unwrap_or(22),
+            user: workspace.user.clone().ok_or_else(|| {
+                SessionsApplicationError::Validation(
+                    "Remote Runner workspace requires an SSH user.".to_string(),
+                )
+            })?,
+            workspace_path: workspace.path.clone(),
+            display_name: workspace.display_name.clone(),
+        }))
+    }
+
     pub(crate) fn find_message(
         &self,
         message_id: &str,

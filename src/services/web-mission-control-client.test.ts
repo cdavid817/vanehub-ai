@@ -41,6 +41,14 @@ describe("web Mission Control adapter", () => {
     expect(detail.facets.some((facet) => facet.state === "unavailable")).toBe(true);
   });
 
+  it("normalizes legacy missing Runner metadata and filters explicit Runner metadata", async () => {
+    const legacy = await webAgentClient.getMissionControlOverview({ runner: "local" });
+    expect(legacy.active.items.every((run) => run.runner?.kind === "local")).toBe(true);
+    const overview = await webAgentClient.getMissionControlOverview();
+    expect(overview.active.items.some((run) => run.runner === null)).toBe(true);
+    expect(overview.active.items.some((run) => run.runner?.kind === "ssh")).toBe(true);
+  });
+
   it("rejects invalid cursors and stale or unsupported mutations", async () => {
     await expect(webAgentClient.getMissionControlOverview({ cursor: "../secret" })).rejects.toThrow("invalid mission control cursor");
     const overview = await webAgentClient.getMissionControlOverview({ states: ["completed"] });

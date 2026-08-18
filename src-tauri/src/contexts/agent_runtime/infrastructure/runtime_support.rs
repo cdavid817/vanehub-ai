@@ -2,11 +2,12 @@ use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentOperation,
     AgentRuntimeApplicationError, AgentTaskPort, CanonicalLoopSignal, CanonicalRunLinks,
     CanonicalRunOutcome, CanonicalRunSignal, LoopLog, LoopLoggingPort, LoopOperationContext,
+    RunnerKind, RunnerRecoveryMode, RunnerReference,
 };
 use crate::contexts::operations::api::{
     AgentRunsApi, CreateAgentRun, DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind,
-    OperationLog, OperationLogPort, OperationsApi, RunLink, RunOwner, RunRecoveryPolicy, RunState,
-    RunTrigger,
+    OperationLog, OperationLogPort, OperationsApi, RunLink, RunOwner, RunRecoveryPolicy, RunRunner,
+    RunRunnerKind, RunRunnerRecovery, RunState, RunTrigger,
 };
 use crate::platform::clock::SystemClock;
 use std::collections::BTreeMap;
@@ -71,6 +72,7 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
                 }],
                 parent_run_id: None,
                 recovery_policy: RunRecoveryPolicy::OwnerReconciles,
+                runner: None,
                 max_retries: 3,
                 witness: format!("loop-accepted:{run_id}"),
             })
@@ -119,6 +121,8 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
         owner_id: &str,
         parent_run_id: Option<&str>,
         links: CanonicalRunLinks<'_>,
+        runner: &RunnerReference,
+        process_reference: Option<&str>,
     ) -> Result<(), AgentRuntimeApplicationError> {
         self.runs
             .create(CreateAgentRun {
@@ -142,16 +146,18 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
                 })
                 .collect(),
                 parent_run_id: parent_run_id.map(str::to_string),
-                recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                recovery_policy: if runner.recovery == RunnerRecoveryMode::None {
+                    RunRecoveryPolicy::NotRecoverable
+                } else {
+                    RunRecoveryPolicy::OwnerReconciles
+                },
+                runner: Some(canonical_runner(runner, process_reference)),
                 max_retries: 2,
                 witness: format!("accepted:{run_id}"),
             })
             .map_err(operation_error)?;
         self.runs
             .transition(run_id, RunTrigger::Prepare, None)
-            .map_err(operation_error)?;
-        self.runs
-            .transition(run_id, RunTrigger::Start, None)
             .map(|_| ())
             .map_err(operation_error)
     }
@@ -188,6 +194,7 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
             return Err(operation_error("late Agent lifecycle signal rejected"));
         }
         let trigger = match (run.state, signal) {
+            (RunState::Preparing, CanonicalRunSignal::Active) => Some(RunTrigger::Start),
             (RunState::Running, CanonicalRunSignal::WaitingApproval) => {
                 Some(RunTrigger::RequestApproval)
             }
@@ -289,6 +296,31 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
             .cancel(operation_id)
             .map(|_| ())
             .map_err(operation_error)
+    }
+}
+
+fn canonical_runner(reference: &RunnerReference, process_reference: Option<&str>) -> RunRunner {
+    RunRunner {
+        kind: match reference.kind {
+            RunnerKind::Ssh => RunRunnerKind::Ssh,
+            _ => RunRunnerKind::Local,
+        },
+        target_id: reference.target_id.clone(),
+        target_revision: reference.target_revision,
+        label: if reference.kind == RunnerKind::Ssh {
+            "SSH workspace".to_string()
+        } else {
+            "Local device".to_string()
+        },
+        host_label: None,
+        recovery: match reference.recovery {
+            RunnerRecoveryMode::None => RunRunnerRecovery::None,
+            RunnerRecoveryMode::InspectOnly => RunRunnerRecovery::InspectOnly,
+            RunnerRecoveryMode::Reattach => RunRunnerRecovery::Reattach,
+        },
+        capability_witness: format!("runner-capability-{}", reference.recovery.as_str()),
+        authority_witness: reference.authority_witness.clone(),
+        recovery_reference: process_reference.map(str::to_string),
     }
 }
 
@@ -565,9 +597,18 @@ mod tests {
                     assistant_message_id: "assistant-1",
                     operation_id: "operation-1",
                 },
+                &RunnerReference::local(),
+                None,
             )
             .expect("start");
+        let preparing = runs.get(run_id).expect("preparing run");
+        assert_eq!(preparing.state, RunState::Preparing);
+        assert!(
+            preparing.runner.is_some(),
+            "Runner metadata precedes running"
+        );
         for signal in [
+            CanonicalRunSignal::Active,
             CanonicalRunSignal::WaitingApproval,
             CanonicalRunSignal::Active,
             CanonicalRunSignal::WaitingUser,
@@ -580,7 +621,12 @@ mod tests {
         adapter
             .finish_canonical_run(run_id, CanonicalRunOutcome::Completed, None)
             .expect("complete");
-        assert_eq!(runs.get(run_id).expect("run").state, RunState::Completed);
+        let persisted = runs.get(run_id).expect("run");
+        assert_eq!(persisted.state, RunState::Completed);
+        let runner = persisted.runner.expect("default Local Runner metadata");
+        assert_eq!(runner.kind, RunRunnerKind::Local);
+        assert_eq!(runner.target_id, "local");
+        assert_eq!(runner.recovery, RunRunnerRecovery::None);
         let states = runs
             .events(run_id, 0, 20)
             .expect("events")

@@ -7,12 +7,14 @@ use std::io::Read;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderOutputStream {
     Stdout,
+    #[cfg(test)]
     Stderr,
 }
 
 #[derive(Debug)]
 pub(crate) struct ProviderOutputFramer {
     stdout: Vec<u8>,
+    #[cfg(test)]
     stderr: Vec<u8>,
     max_buffer_bytes: usize,
 }
@@ -21,6 +23,7 @@ impl ProviderOutputFramer {
     pub(crate) fn new(max_buffer_bytes: usize) -> Self {
         Self {
             stdout: Vec::new(),
+            #[cfg(test)]
             stderr: Vec::new(),
             max_buffer_bytes,
         }
@@ -33,6 +36,7 @@ impl ProviderOutputFramer {
     ) -> Result<Vec<String>, &'static str> {
         let buffer = match stream {
             ProviderOutputStream::Stdout => &mut self.stdout,
+            #[cfg(test)]
             ProviderOutputStream::Stderr => &mut self.stderr,
         };
         if buffer.len().saturating_add(chunk.len()) > self.max_buffer_bytes {
@@ -60,6 +64,7 @@ impl ProviderOutputFramer {
     ) -> Result<Option<String>, &'static str> {
         let buffer = match stream {
             ProviderOutputStream::Stdout => &mut self.stdout,
+            #[cfg(test)]
             ProviderOutputStream::Stderr => &mut self.stderr,
         };
         if buffer.is_empty() {

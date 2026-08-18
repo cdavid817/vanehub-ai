@@ -23,11 +23,14 @@ impl MissionControlRepository for SqliteMissionControlRepository {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<AgentRun>, ApplicationError> {
-        if query.runner.as_deref() == Some("remote") {
-            return Ok(Vec::new());
-        }
         let mut clauses = Vec::new();
         let mut values: Vec<Box<dyn ToSql>> = Vec::new();
+        if let Some(runner) = query.runner.as_deref() {
+            clauses.push("runner_kind = ?".into());
+            values.push(Box::new(
+                if runner == "remote" { "ssh" } else { runner }.to_string(),
+            ));
+        }
         if query.attention_only {
             clauses.push("(state IN ('waiting_approval', 'waiting_user', 'blocked', 'stuck', 'failed') OR EXISTS (SELECT 1 FROM agent_run_links attention_link WHERE attention_link.run_id = agent_runs.run_id AND attention_link.link_type = 'review'))".into());
         }
@@ -133,7 +136,9 @@ fn storage(error: impl std::fmt::Display) -> ApplicationError {
 mod tests {
     use super::*;
     use crate::contexts::operations::application::{CreateAgentRun, MissionControlService};
-    use crate::contexts::operations::domain::{RunOwner, RunRecoveryPolicy};
+    use crate::contexts::operations::domain::{
+        RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind, RunRunnerRecovery,
+    };
     use crate::contexts::operations::infrastructure::persistent_run_service;
     use crate::test_support::TempDirectory;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -198,6 +203,7 @@ mod tests {
                 links: Vec::new(),
                 parent_run_id: None,
                 recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                runner: None,
                 max_retries: 1,
                 witness: "safe-witness".into(),
             })
@@ -236,9 +242,78 @@ mod tests {
     }
 
     #[test]
+    fn runner_filter_projects_metadata_and_preserves_legacy_missing_fields() {
+        let directory = TempDirectory::new("mission-control-runner-filter");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let runs = persistent_run_service(database.clone());
+        for (suffix, runner) in [
+            ("000000000001", None),
+            (
+                "000000000002",
+                Some(RunRunner {
+                    kind: RunRunnerKind::Ssh,
+                    target_id: "connection-1".into(),
+                    target_revision: Some(7),
+                    label: "Build host".into(),
+                    host_label: Some("build.example.test".into()),
+                    recovery: RunRunnerRecovery::InspectOnly,
+                    capability_witness: "cap-v1".into(),
+                    authority_witness: "authority-v7".into(),
+                    recovery_reference: None,
+                }),
+            ),
+        ] {
+            runs.create(CreateAgentRun {
+                id: Some(format!("018f0f17-4d6a-7e20-b41d-{suffix}")),
+                owner: RunOwner {
+                    owner_type: "agent_generation".into(),
+                    owner_id: "codex-cli".into(),
+                },
+                links: Vec::new(),
+                parent_run_id: None,
+                recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                runner,
+                max_retries: 0,
+                witness: "created".into(),
+            })
+            .expect("create");
+        }
+        let service =
+            MissionControlService::new(Arc::new(SqliteMissionControlRepository::new(database)));
+        let ssh = service
+            .overview(MissionControlQuery {
+                runner: Some("ssh".into()),
+                ..MissionControlQuery::default()
+            })
+            .expect("ssh overview");
+        assert_eq!(ssh.active.items.len(), 1);
+        assert_eq!(
+            ssh.active.items[0]
+                .runner
+                .as_ref()
+                .expect("runner")
+                .target_revision,
+            Some(7)
+        );
+        let legacy_alias = service
+            .overview(MissionControlQuery {
+                runner: Some("remote".into()),
+                ..MissionControlQuery::default()
+            })
+            .expect("legacy alias");
+        assert_eq!(legacy_alias.active.items.len(), 1);
+        let all = service
+            .overview(MissionControlQuery::default())
+            .expect("all");
+        assert!(all.active.items.iter().any(|run| run.runner.is_none()));
+    }
+
+    #[test]
     fn mission_control_newest_query_uses_existing_state_index() {
         let connection = rusqlite::Connection::open_in_memory().expect("database");
         crate::contexts::operations::infrastructure::apply_run_schema(&connection).expect("schema");
+        crate::contexts::operations::infrastructure::apply_runner_projection_schema(&connection)
+            .expect("runner projection");
         let plan = connection.prepare("EXPLAIN QUERY PLAN SELECT snapshot_json FROM agent_runs WHERE state = 'running' ORDER BY updated_at DESC, run_id LIMIT 20").expect("plan")
             .query_map([], |row| row.get::<_, String>(3)).expect("query").collect::<Result<Vec<_>, _>>().expect("rows");
         assert!(plan
@@ -262,6 +337,7 @@ mod tests {
                     links: Vec::new(),
                     parent_run_id: None,
                     recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                    runner: None,
                     max_retries: 1,
                     witness: "safe-witness".into(),
                 })

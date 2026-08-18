@@ -23,7 +23,7 @@ test("manifest is deterministic and covers every required dataset scale", () => 
   const first = validateManifest(fixture("manifest.v1.json"), repositoryRoot);
   const second = validateManifest(fixture("manifest.v1.json"), repositoryRoot);
   assert.deepEqual(first, second);
-  assert.deepEqual(first.datasets.map(({ id }) => id), ["repo-small", "repo-medium", "repo-large", "sessions-100", "runs-100", "runs-1000", "terminal-long", "token-stream-high-rate"]);
+  assert.deepEqual(first.datasets.map(({ id }) => id), ["repo-small", "repo-medium", "repo-large", "sessions-100", "runs-100", "runs-1000", "terminal-long", "token-stream-high-rate", "runner-mixed-1", "runner-mixed-8", "runner-mixed-32"]);
 });
 
 test("comparison emits complete provenance and only deterministic breaches fail", () => {
@@ -114,6 +114,16 @@ test("rejects oversized dataset and metric collections", () => {
   const tooManyMetrics = fixture("manifest.v1.json");
   tooManyMetrics.limits.maxMetrics = 1;
   assert.throws(() => validateManifest(tooManyMetrics, repositoryRoot), /performance-array-bound: metrics/);
+});
+
+test("each Runner exactly-one-bound fixture fails its named deterministic gate", () => {
+  const manifest = validateManifest(fixture("manifest.v1.json"), repositoryRoot);
+  for (const override of fixture("runner-exactly-one-bound.v1.json").cases) {
+    const changed = applyOverrides(manifest, { schemaVersion: 1, overrides: [override] });
+    const failures = formatFailures(compareManifest(changed, provenance()));
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], new RegExp(`metric=${override.metricId.replaceAll(".", "\\.")}`));
+  }
 });
 
 function provenance() {

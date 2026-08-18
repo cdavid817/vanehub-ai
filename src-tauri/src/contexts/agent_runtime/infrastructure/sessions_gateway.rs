@@ -153,6 +153,32 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         }))
     }
 
+    fn current_runner_target(
+        &self,
+        session_id: &str,
+    ) -> Result<
+        Option<crate::contexts::agent_runtime::application::AgentSessionRunnerTarget>,
+        AgentRuntimeApplicationError,
+    > {
+        self.sessions
+            .current_runner_target(session_id)
+            .map(|target| {
+                target.map(|target| {
+                    crate::contexts::agent_runtime::application::AgentSessionRunnerTarget {
+                        session_id: target.session_id,
+                        connection_id: target.connection_id,
+                        connection_revision: target.connection_revision,
+                        host: target.host,
+                        port: target.port,
+                        user: target.user,
+                        workspace_path: target.workspace_path,
+                        display_name: target.display_name,
+                    }
+                })
+            })
+            .map_err(session_error)
+    }
+
     fn validate_configuration(
         &self,
         session: &AgentSession,

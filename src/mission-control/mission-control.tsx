@@ -14,6 +14,7 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
   const [status, setStatus] = useState("");
   const [agentId, setAgentId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [runner, setRunner] = useState<"" | "local" | "ssh">("");
   const [sort, setSort] = useState<MissionControlSort>("attention");
   const [cursor, setCursor] = useState<string | null>(null);
   const [activeFacet, setActiveFacet] = useState<MissionControlFacet>("overview");
@@ -22,10 +23,10 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setOverview(await agentService.getMissionControlOverview({ agentId: agentId || undefined, cursor, limit: 20, projectId: projectId || undefined, sort, states: status ? [status as MissionControlRunSummary["state"]] : undefined }));
+      setOverview(await agentService.getMissionControlOverview({ agentId: agentId || undefined, cursor, limit: 20, projectId: projectId || undefined, runner: runner || undefined, sort, states: status ? [status as MissionControlRunSummary["state"]] : undefined }));
       setError(null);
     } catch { setError(t("missionControl.loadError")); } finally { setLoading(false); }
-  }, [agentId, cursor, projectId, sort, status, t]);
+  }, [agentId, cursor, projectId, runner, sort, status, t]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -56,6 +57,7 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
       <input aria-label={t("missionControl.filterAgent")} className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setAgentId(event.target.value); setCursor(null); }} placeholder={t("missionControl.filterAgent")} value={agentId} />
       <input aria-label={t("missionControl.filterProject")} className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setProjectId(event.target.value); setCursor(null); }} placeholder={t("missionControl.filterProject")} value={projectId} />
       <select aria-label={t("missionControl.filterStatus")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setStatus(event.target.value); setCursor(null); }} value={status}>{states.map((state) => <option key={state || "all"} value={state}>{state ? t(`missionControl.state.${state}`) : t("missionControl.allStatuses")}</option>)}</select>
+      <select aria-label={t("missionControl.filterRunner")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setRunner(event.target.value as "" | "local" | "ssh"); setCursor(null); }} value={runner}><option value="">{t("missionControl.allRunners")}</option><option value="local">{t("runner.kind.local")}</option><option value="ssh">{t("runner.kind.ssh")}</option></select>
       <select aria-label={t("missionControl.sort")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setSort(event.target.value as MissionControlSort); setCursor(null); }} value={sort}><option value="attention">{t("missionControl.sortAttention")}</option><option value="newest">{t("missionControl.sortNewest")}</option><option value="oldest">{t("missionControl.sortOldest")}</option></select>
       <button aria-label={t("missionControl.refresh")} className="ucd-interactive grid h-8 w-8 place-items-center rounded-md border border-input" onClick={() => void load()} title={t("missionControl.refresh")} type="button"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
     </header>
@@ -86,5 +88,5 @@ function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSumm
   const { t } = useTranslation();
   const ended = run.endedAt ?? run.updatedAt;
   const elapsed = Math.max(0, Date.parse(ended) - Date.parse(run.createdAt));
-  return <article className="rounded-md border border-border bg-card p-3" data-testid={`mission-run-${run.runId}`}><button className="w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void onInspect(run)} type="button"><div className="flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span><span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span></div><p className="mt-1 text-xs text-muted-foreground">{run.agentId ?? run.ownerType} · {t("missionControl.elapsed", { seconds: Math.round(elapsed / 1000) })} · {t(`missionControl.verification.${run.verification}`)}</p>{run.reasonCode ? <p className="mt-1 text-xs text-warning">{run.reasonCode}</p> : null}</button><div className="mt-2 flex flex-wrap gap-1">{run.actions.map((action) => <button className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" data-action={action} key={action} onClick={() => void onAct(run, action)} type="button">{t(`missionControl.action.${action}`)}</button>)}</div></article>;
+  return <article className="rounded-md border border-border bg-card p-3" data-testid={`mission-run-${run.runId}`}><button className="w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void onInspect(run)} type="button"><div className="flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>{run.runner ? <span className="inline-flex max-w-44 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-primary" data-runner={run.runner.kind}><span>{t(`runner.kind.${run.runner.kind}`)}</span>{run.runner.hostLabel ? <span className="truncate text-muted-foreground">· {run.runner.hostLabel}</span> : null}</span> : null}<span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span></div><p className="mt-1 text-xs text-muted-foreground">{run.agentId ?? run.ownerType} · {t("missionControl.elapsed", { seconds: Math.round(elapsed / 1000) })} · {t(`missionControl.verification.${run.verification}`)}</p>{run.reasonCode ? <p className="mt-1 text-xs text-warning">{t(`runner.reason.${run.reasonCode}`, { defaultValue: run.reasonCode })}</p> : null}</button><div className="mt-2 flex flex-wrap gap-1">{run.actions.map((action) => <button className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" data-action={action} key={action} onClick={() => void onAct(run, action)} type="button">{t(`missionControl.action.${action}`)}</button>)}</div></article>;
 }

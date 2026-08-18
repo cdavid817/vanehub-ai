@@ -247,13 +247,13 @@ export function useMainLayoutModel() {
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => { cancelled = true; cleanup?.(); };
   }, [notify, t]);
-  function submit() {
+  function submit(runner?: SendMessageMutationInput["runner"]) {
     if (!canSendToSession(activeSession) || !activeSession || !draft.trim() || isStreaming) return;
     const content = draft.trim();
     const references = fileReferences;
     setDraft("");
     setFileReferences([]);
-    sendMessage.mutate({ sessionId: activeSession.id, content, fileReferences: references, config: { ...chatConfig.config, agentId: chatConfig.config.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
+    sendMessage.mutate({ sessionId: activeSession.id, content, fileReferences: references, runner, config: { ...chatConfig.config, agentId: chatConfig.config.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
   }
   function stop() { if (activeSessionId && isStreaming) stopGeneration.mutate(activeSessionId); }
   function sessionCreated(session: Session) {
@@ -291,9 +291,10 @@ export function useMainLayoutModel() {
     addFileReference,
     removeFileReference,
     setSessionSearchQuery,
-    stop, submit,
+    stop,
+    submit: () => submit(),
+    submitWithRunner: submit,
     switchSession,
   };
 }
-
 export type MainLayoutModel = ReturnType<typeof useMainLayoutModel>;

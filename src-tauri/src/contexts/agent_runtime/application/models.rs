@@ -122,6 +122,18 @@ pub(crate) struct AgentSession {
     pub(crate) loop_ownership: Option<LoopRoleGenerationOwnership>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentSessionRunnerTarget {
+    pub(crate) session_id: String,
+    pub(crate) connection_id: String,
+    pub(crate) connection_revision: i64,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) user: String,
+    pub(crate) workspace_path: String,
+    pub(crate) display_name: String,
+}
+
 /// One participant in a session: an Agent playing an expert role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentSessionSeat {
@@ -754,6 +766,7 @@ pub(crate) struct GenerationProcessRequest {
     /// sessions, and orchestration attempts -- contexts where a blocking question would burn the
     /// attempt's ceiling with nobody able to end the wait.
     pub(crate) interactive: bool,
+    pub(crate) runner: super::RunnerSelection,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -842,6 +855,8 @@ pub(crate) struct ToolLifecycleEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StartedGenerationProcess {
     pub(crate) process_id: String,
+    pub(crate) runner_reference: super::RunnerReference,
+    pub(crate) process_reference: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

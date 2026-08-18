@@ -292,4 +292,5 @@ export interface SendMessageInput {
   content: string;
   config: ChatConfig;
   fileReferences?: ChatFileReference[];
+  runner?: import("./agent-runner").AgentRunnerSelection;
 }

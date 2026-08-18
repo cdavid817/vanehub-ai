@@ -329,6 +329,70 @@ pub(super) fn send_message_request(
     }
 }
 
+pub(super) fn runner_selection_from_dto(
+    selection: Option<dto::RunnerSelection>,
+) -> crate::contexts::agent_runtime::api::RunnerSelection {
+    let Some(selection) = selection else {
+        return crate::contexts::agent_runtime::api::RunnerSelection::local();
+    };
+    crate::contexts::agent_runtime::api::RunnerSelection {
+        kind: match selection.kind {
+            dto::RunnerKind::Local => {
+                crate::contexts::agent_runtime::application::RunnerKind::Local
+            }
+            dto::RunnerKind::Ssh => crate::contexts::agent_runtime::application::RunnerKind::Ssh,
+            dto::RunnerKind::Docker => {
+                crate::contexts::agent_runtime::application::RunnerKind::Docker
+            }
+            dto::RunnerKind::Cloud => {
+                crate::contexts::agent_runtime::application::RunnerKind::Cloud
+            }
+        },
+        target_id: selection.target_id,
+        target_revision: selection.target_revision,
+    }
+}
+
+pub(super) fn runners_to_dto(
+    runners: Vec<crate::contexts::agent_runtime::api::RunnerDescriptor>,
+) -> Vec<dto::RunnerDescriptor> {
+    runners
+        .into_iter()
+        .map(|runner| dto::RunnerDescriptor {
+            selection: dto::RunnerSelection {
+                kind: match runner.selection.kind {
+                    crate::contexts::agent_runtime::application::RunnerKind::Local => {
+                        dto::RunnerKind::Local
+                    }
+                    crate::contexts::agent_runtime::application::RunnerKind::Ssh => {
+                        dto::RunnerKind::Ssh
+                    }
+                    crate::contexts::agent_runtime::application::RunnerKind::Docker => {
+                        dto::RunnerKind::Docker
+                    }
+                    crate::contexts::agent_runtime::application::RunnerKind::Cloud => {
+                        dto::RunnerKind::Cloud
+                    }
+                },
+                target_id: runner.selection.target_id,
+                target_revision: runner.selection.target_revision,
+            },
+            label: runner.label,
+            host_label: runner.host_label,
+            available: runner.available,
+            unavailable_reason: runner.unavailable_reason.map(str::to_string),
+            simulated: runner.simulated,
+            capabilities: dto::RunnerCapabilities {
+                interactive_input: runner.capabilities.interactive_input,
+                pty: runner.capabilities.pty,
+                cancellation: runner.capabilities.cancellation,
+                inspection: runner.capabilities.inspection,
+                recovery: runner.capabilities.recovery.as_str().to_string(),
+            },
+        })
+        .collect()
+}
+
 pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
     let tool_use = (!message.tool_use.is_empty()).then(|| {
         message
@@ -568,6 +632,53 @@ mod tests {
         ContextQualityAssessmentRecord, ContextQualitySummary,
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn runner_transport_defaults_legacy_requests_and_preserves_explicit_metadata() {
+        let legacy = runner_selection_from_dto(None);
+        assert_eq!(
+            legacy,
+            crate::contexts::agent_runtime::api::RunnerSelection::local()
+        );
+        let explicit: dto::RunnerSelection = serde_json::from_value(serde_json::json!({
+            "kind": "ssh", "targetId": "connection-1", "targetRevision": 7
+        }))
+        .expect("explicit selection");
+        let selection = runner_selection_from_dto(Some(explicit));
+        assert_eq!(
+            selection.kind,
+            crate::contexts::agent_runtime::application::RunnerKind::Ssh
+        );
+        assert_eq!(selection.target_id.as_deref(), Some("connection-1"));
+        assert_eq!(selection.target_revision, Some(7));
+        assert!(serde_json::from_value::<dto::RunnerSelection>(serde_json::json!({
+            "kind": "ssh", "targetId": "connection-1", "targetRevision": 7, "credential": "secret"
+        }))
+        .is_err());
+
+        let value = serde_json::to_value(runners_to_dto(vec![
+            crate::contexts::agent_runtime::api::RunnerDescriptor {
+                selection,
+                label: "Remote".to_string(),
+                host_label: Some("host.example.test".to_string()),
+                available: true,
+                unavailable_reason: None,
+                simulated: false,
+                capabilities: crate::contexts::agent_runtime::application::RunnerCapabilities {
+                    interactive_input: true,
+                    pty: true,
+                    cancellation: true,
+                    inspection: true,
+                    recovery: crate::contexts::agent_runtime::application::RunnerRecoveryMode::InspectOnly,
+                },
+            },
+        ]))
+        .expect("serialize descriptor");
+        assert_eq!(value[0]["selection"]["kind"], "ssh");
+        assert_eq!(value[0]["selection"]["targetRevision"], 7);
+        assert_eq!(value[0]["capabilities"]["recovery"], "inspect_only");
+        assert!(value[0].get("credential").is_none());
+    }
 
     #[test]
     fn agent_mapping_preserves_the_existing_camel_case_and_enum_contract() {

@@ -12,9 +12,11 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   await expect(page.getByText("Attention inbox")).toBeVisible();
   await expect(page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290").first()).toContainText("Waiting approval");
   await expect(page.getByText("provider_backoff", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-runner='ssh']").first()).toContainText("build.example.test");
+  await page.getByLabel("Filter by Runner").selectOption("ssh");
   await page.getByLabel("Filter by status").selectOption("failed");
   const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
-  await expect(failed).toContainText("verification_failed"); await failed.locator("button").first().click();
+  await expect(failed).toContainText("Runner interrupted"); await failed.locator("button").first().click();
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
   await failed.locator("[data-action='review']").click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
@@ -31,6 +33,8 @@ for (const variant of [
     await page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291").first().locator("button").first().click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
     await expect(page.getByLabel("Filter by status")).toBeVisible();
+    await expect(page.getByLabel("Filter by Runner")).toBeVisible();
+    await expect(page.locator("[data-runner='ssh']").first()).toContainText("SSH");
     await expect(page.getByText("user_question", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("tablist")).toBeAttached();
     await expect(page.getByText("Select a Run to inspect available details.")).toHaveCount(0);

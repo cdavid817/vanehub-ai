@@ -137,6 +137,13 @@ export const webSshConnectionClient: SshConnectionService = {
     const testedAt = nowIso();
     const updated: SshConnection = {
       ...current,
+      hostTrust: {
+        host: current.host,
+        port: current.port,
+        algorithm: "web-simulated",
+        fingerprint: `web-simulated:${current.host}:${current.port}`,
+        confirmedAt: testedAt,
+      },
       testStatus: "succeeded",
       lastConnectedAt: testedAt,
       lastError: null,

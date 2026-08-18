@@ -30,6 +30,7 @@ mod events;
 mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
+mod local_runner;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
 mod loop_project;
@@ -68,6 +69,10 @@ mod personalization_gateway;
 mod process_adapter;
 mod prompt_gateway;
 pub(crate) mod providers;
+mod remote_command;
+mod runner_discovery;
+mod runner_recovery;
+mod runner_registry;
 mod runtime_support;
 mod schema;
 mod seat_turn_completions;
@@ -78,6 +83,7 @@ mod skill_tool_catalog_adapter;
 mod skill_tool_execution_adapter;
 mod skill_tool_permission_adapter;
 mod sqlite_repository;
+mod ssh_runner;
 mod subagent;
 mod subagent_worktree;
 mod terminal_observability;
@@ -114,6 +120,7 @@ pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
 pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
+pub(crate) use local_runner::LocalRunner;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
 pub(crate) use loop_generation_completions::InMemoryLoopRoleGenerationCompletions;
 pub(crate) use loop_project::WorkspaceLoopProjectAdapter;
@@ -154,9 +161,12 @@ pub(crate) use permission_adapter::PermissionsPortAdapter;
 pub(crate) use personalization_gateway::RuntimeAgentPersonalizationAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
-    RuntimeProcessEvidenceDependencies,
+    RuntimeAgentProcessDependencies, RuntimeProcessEvidenceDependencies,
 };
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
+pub(crate) use runner_discovery::NativeRunnerDiscovery;
+pub(crate) use runner_recovery::RunnerRunRecoveryAdapter;
+pub(crate) use runner_registry::RunnerRegistry;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
     SystemExpertRoleClock, UuidExpertRoleIds,
@@ -179,6 +189,7 @@ pub(crate) use skill_tool_execution_adapter::{
 #[allow(unused_imports)]
 pub(crate) use skill_tool_permission_adapter::SkillToolPermissionAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
+pub(crate) use ssh_runner::SshRunner;
 pub(crate) use subagent::{NativeSubagentExecutor, SubagentRuntime};
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;

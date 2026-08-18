@@ -51,6 +51,23 @@ pub(crate) fn apply_run_schema(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+pub(crate) fn apply_runner_projection_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    for (column, definition) in [("runner_kind", "TEXT"), ("runner_target_id", "TEXT")] {
+        if !crate::platform::database::table_has_column(connection, "agent_runs", column)? {
+            connection.execute(
+                &format!("ALTER TABLE agent_runs ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_runs_runner_state \
+         ON agent_runs(runner_kind, state, updated_at DESC, run_id)",
+        [],
+    )?;
+    Ok(())
+}
+
 struct SqliteRunRepository {
     database: NativeDatabase,
 }
@@ -66,8 +83,8 @@ impl AgentRunRepository for SqliteRunRepository {
         let mut connection = self.database.connection().map_err(storage)?;
         let transaction = connection.transaction().map_err(storage)?;
         transaction.execute(
-            "INSERT INTO agent_runs (run_id, owner_type, owner_id, parent_run_id, state, version, updated_at, snapshot_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![run.id, run.owner.owner_type, run.owner.owner_id, run.parent_run_id, enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?],
+            "INSERT INTO agent_runs (run_id, owner_type, owner_id, parent_run_id, state, version, updated_at, snapshot_json, runner_kind, runner_target_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![run.id, run.owner.owner_type, run.owner.owner_id, run.parent_run_id, enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run)],
         ).map_err(storage)?;
         for link in &run.links {
             transaction
@@ -105,8 +122,8 @@ impl AgentRunRepository for SqliteRunRepository {
         let mut connection = self.database.connection().map_err(storage)?;
         let transaction = connection.transaction().map_err(storage)?;
         let changed = transaction.execute(
-            "UPDATE agent_runs SET state = ?1, version = ?2, updated_at = ?3, snapshot_json = ?4 WHERE run_id = ?5 AND version = ?6",
-            params![enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, run.id, expected as i64],
+            "UPDATE agent_runs SET state = ?1, version = ?2, updated_at = ?3, snapshot_json = ?4, runner_kind = ?5, runner_target_id = ?6 WHERE run_id = ?7 AND version = ?8",
+            params![enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run), run.id, expected as i64],
         ).map_err(storage)?;
         if changed != 1 {
             return Err(ApplicationError::Conflict);
@@ -221,6 +238,12 @@ fn parse<T: serde::de::DeserializeOwned>(value: String) -> Result<T, Application
 fn storage(error: impl std::fmt::Display) -> ApplicationError {
     ApplicationError::infrastructure("agent_run_storage", error.to_string())
 }
+fn runner_kind(run: &AgentRun) -> Option<&'static str> {
+    run.runner.as_ref().map(|runner| runner.kind.as_str())
+}
+fn runner_target_id(run: &AgentRun) -> Option<&str> {
+    run.runner.as_ref().map(|runner| runner.target_id.as_str())
+}
 
 struct UuidRunIds;
 impl OperationIdGenerator for UuidRunIds {
@@ -247,7 +270,9 @@ impl RunClockPort for Rfc3339RunClock {
 mod tests {
     use super::*;
     use crate::contexts::operations::application::CreateAgentRun;
-    use crate::contexts::operations::domain::{RunLink, RunOwner, RunRecoveryPolicy, RunState};
+    use crate::contexts::operations::domain::{
+        RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind, RunRunnerRecovery, RunState,
+    };
     use crate::test_support::TempDirectory;
 
     #[test]
@@ -268,19 +293,67 @@ mod tests {
                 }],
                 parent_run_id: None,
                 recovery_policy: RunRecoveryPolicy::NotRecoverable,
+                runner: Some(RunRunner {
+                    kind: RunRunnerKind::Ssh,
+                    target_id: "ssh-profile-1".into(),
+                    target_revision: Some(3),
+                    label: "Build host".into(),
+                    host_label: Some("build.example.com".into()),
+                    recovery: RunRunnerRecovery::InspectOnly,
+                    capability_witness: "runner-cap-v1".into(),
+                    authority_witness: "authority-v3".into(),
+                    recovery_reference: Some("owned-process-1".into()),
+                }),
                 max_retries: 1,
                 witness: "created".into(),
             })
             .expect("create");
         assert_eq!(service.events(&run.id, 0, 10).expect("events").len(), 1);
+        let projection: (Option<String>, Option<String>) = database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT runner_kind, runner_target_id FROM agent_runs WHERE run_id = ?1",
+                [&run.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("projection");
+        assert_eq!(
+            projection,
+            (Some("ssh".into()), Some("ssh-profile-1".into()))
+        );
         drop(service);
         drop(database);
         let reopened = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
-        let service = persistent_run_service(reopened);
+        let service = persistent_run_service(reopened.clone());
         assert_eq!(service.reconcile_after_restart().expect("reconcile"), 1);
         assert_eq!(service.get(&run.id).expect("run").state, RunState::Failed);
+        assert_eq!(
+            service
+                .get(&run.id)
+                .expect("runner")
+                .runner
+                .expect("metadata")
+                .target_revision,
+            Some(3)
+        );
         assert_eq!(service.reconcile_after_restart().expect("idempotent"), 0);
         assert_eq!(service.events(&run.id, 0, 10).expect("events").len(), 2);
+        let mut legacy = serde_json::to_value(service.get(&run.id).expect("snapshot"))
+            .expect("serialize legacy fixture");
+        legacy
+            .as_object_mut()
+            .expect("snapshot object")
+            .remove("runner");
+        reopened
+            .connection()
+            .expect("connection")
+            .execute(
+                "UPDATE agent_runs SET snapshot_json = ?1, runner_kind = NULL, runner_target_id = NULL WHERE run_id = ?2",
+                params![legacy.to_string(), run.id],
+            )
+            .expect("legacy snapshot");
+        assert!(service.get(&run.id).expect("legacy read").runner.is_none());
     }
 
     #[test]
@@ -312,6 +385,30 @@ mod tests {
     }
 
     #[test]
+    fn runner_projection_migration_rolls_back_all_ddl_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("database");
+        apply_run_schema(&connection).expect("run schema");
+        connection
+            .execute("CREATE TABLE idx_agent_runs_runner_state (id TEXT)", [])
+            .expect("conflicting object");
+        let transaction = connection.transaction().expect("transaction");
+        assert!(apply_runner_projection_schema(&transaction).is_err());
+        transaction.rollback().expect("rollback");
+        assert!(!crate::platform::database::table_has_column(
+            &connection,
+            "agent_runs",
+            "runner_kind"
+        )
+        .expect("column"));
+        assert!(!crate::platform::database::table_has_column(
+            &connection,
+            "agent_runs",
+            "runner_target_id"
+        )
+        .expect("column"));
+    }
+
+    #[test]
     fn owner_history_and_event_queries_use_declared_indexes() {
         let connection = Connection::open_in_memory().expect("database");
         apply_run_schema(&connection).expect("schema");
@@ -331,6 +428,15 @@ mod tests {
         assert!(event_plan
             .iter()
             .any(|line| line.contains("sqlite_autoindex_agent_run_events")));
+        apply_runner_projection_schema(&connection).expect("runner projection");
+        let runner_plan = query_plan(
+            &connection,
+            "SELECT snapshot_json FROM agent_runs WHERE runner_kind = ?1 AND state = ?2 ORDER BY updated_at DESC, run_id LIMIT 10",
+            &[&"ssh", &"running"],
+        );
+        assert!(runner_plan
+            .iter()
+            .any(|line| line.contains("idx_agent_runs_runner_state")));
     }
 
     fn query_plan(

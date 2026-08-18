@@ -5,13 +5,24 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::GenerationAttempt;
 use crate::contexts::execution_observability::api::ExecutionContext;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct InMemoryGenerationCoordinator {
     active: Arc<Mutex<HashMap<String, CoordinatedGeneration>>>,
     lease_ids: Arc<AtomicU64>,
+    accepting: Arc<AtomicBool>,
+}
+
+impl Default for InMemoryGenerationCoordinator {
+    fn default() -> Self {
+        Self {
+            active: Arc::new(Mutex::new(HashMap::new())),
+            lease_ids: Arc::new(AtomicU64::new(0)),
+            accepting: Arc::new(AtomicBool::new(true)),
+        }
+    }
 }
 
 struct CoordinatedGeneration {
@@ -25,6 +36,11 @@ struct CoordinatedGeneration {
 
 impl AgentGenerationPort for InMemoryGenerationCoordinator {
     fn reserve(&self, session_id: &str) -> Result<GenerationLease, AgentRuntimeApplicationError> {
+        if !self.accepting.load(Ordering::Acquire) {
+            return Err(AgentRuntimeApplicationError::Generation(
+                "Agent runtime is shutting down.".to_string(),
+            ));
+        }
         let attempt = GenerationAttempt::reserve(session_id)?;
         let mut active = self.active()?;
         if active.contains_key(session_id) {
@@ -146,6 +162,11 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
                     .map(|context| context.run_id.as_str().to_string()),
             }))
     }
+
+    fn begin_shutdown(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        self.accepting.store(false, Ordering::Release);
+        Ok(self.active()?.keys().cloned().collect())
+    }
 }
 
 impl InMemoryGenerationCoordinator {
@@ -220,6 +241,18 @@ mod tests {
 
         coordinator.release(&lease).expect("release");
         assert!(coordinator.reserve("session-1").is_ok());
+    }
+
+    #[test]
+    fn shutdown_stops_admission_and_returns_every_owned_generation() {
+        let coordinator = InMemoryGenerationCoordinator::default();
+        coordinator.reserve("session-1").expect("first");
+        coordinator.reserve("session-2").expect("second");
+        let mut sessions = coordinator.begin_shutdown().expect("shutdown");
+        sessions.sort();
+        assert_eq!(sessions, ["session-1", "session-2"]);
+        assert!(coordinator.reserve("session-3").is_err());
+        assert!(coordinator.cancel("session-1").expect("cancel").is_some());
     }
 
     #[test]

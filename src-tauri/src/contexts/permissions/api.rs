@@ -188,3 +188,73 @@ impl PermissionsApi {
         self.hook_waits.resolve(request_id, effect)
     }
 }
+
+#[cfg(test)]
+pub(crate) fn test_permissions_api(default_template: PolicyTemplateName) -> PermissionsApi {
+    use super::application::{
+        DefaultTemplatePort, PendingApprovalEventPort, PermissionsApplicationError,
+    };
+    use super::domain::ApprovalRequest;
+    use super::infrastructure::{
+        PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
+        SqliteGrantRepository, SqlitePrincipalRepository,
+    };
+    use crate::platform::database::NativeDatabase;
+    use crate::test_support::TempDirectory;
+
+    struct FixedDefault(PolicyTemplateName);
+    impl DefaultTemplatePort for FixedDefault {
+        fn default_template(&self) -> PolicyTemplateName {
+            self.0
+        }
+    }
+
+    struct NoopEvents;
+    impl PendingApprovalEventPort for NoopEvents {
+        fn publish(&self, _request: &ApprovalRequest) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+    }
+
+    struct NoopHook;
+    impl ClaudeCodeHookPort for NoopHook {
+        fn install(&self) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+
+        fn remove(&self) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+    }
+
+    let directory = TempDirectory::new("published-permissions-api");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let principals = Arc::new(SqlitePrincipalRepository::new(database.clone()));
+    let grants = Arc::new(SqliteGrantRepository::new(database.clone()));
+    let audit = Arc::new(SqliteAuditRepository::new(database));
+    let clock = Arc::new(PermissionsSystemClock);
+    let ids = Arc::new(PermissionsUuidIdGenerator);
+    let evaluation = EvaluationService::new(
+        principals.clone(),
+        grants.clone(),
+        audit.clone(),
+        clock.clone(),
+        ids.clone(),
+        Arc::new(FixedDefault(default_template)),
+    );
+    let approvals = ApprovalBroker::new(
+        principals,
+        grants,
+        audit,
+        clock,
+        ids,
+        Arc::new(NoopEvents),
+        300,
+    );
+    PermissionsApi::new(
+        evaluation,
+        approvals,
+        Arc::new(HookWaitRegistry::new()),
+        Arc::new(NoopHook),
+    )
+}

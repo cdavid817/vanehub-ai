@@ -455,6 +455,47 @@ pub(crate) struct ChatConfig {
     pub(crate) effective_execution_policy: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RunnerKind {
+    Local,
+    Ssh,
+    Docker,
+    Cloud,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RunnerSelection {
+    pub(crate) kind: RunnerKind,
+    #[serde(default)]
+    pub(crate) target_id: Option<String>,
+    #[serde(default)]
+    pub(crate) target_revision: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunnerCapabilities {
+    pub(crate) interactive_input: bool,
+    pub(crate) pty: bool,
+    pub(crate) cancellation: bool,
+    pub(crate) inspection: bool,
+    pub(crate) recovery: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunnerDescriptor {
+    pub(crate) selection: RunnerSelection,
+    pub(crate) label: String,
+    pub(crate) host_label: Option<String>,
+    pub(crate) available: bool,
+    pub(crate) unavailable_reason: Option<String>,
+    pub(crate) simulated: bool,
+    pub(crate) capabilities: RunnerCapabilities,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ToolUseBlock {

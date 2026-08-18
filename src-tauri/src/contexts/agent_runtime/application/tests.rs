@@ -1075,6 +1075,8 @@ impl AgentProcessGateway for FakeWorld {
             .push(request);
         Ok(StartedGenerationProcess {
             process_id: "process-1".to_string(),
+            runner_reference: RunnerReference::local(),
+            process_reference: None,
         })
     }
 
@@ -1702,8 +1704,33 @@ fn service_with_telemetry_port(
         tool_approvals: world.clone(),
         memories: world.clone(),
         memory_extraction: world.clone(),
+        runner_discovery: world.clone(),
         personalization: world,
     })
+}
+
+impl RunnerDiscoveryPort for FakeWorld {
+    fn list(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+    ) -> Result<Vec<RunnerDescriptor>, AgentRuntimeApplicationError> {
+        Ok(vec![RunnerDescriptor {
+            selection: RunnerSelection::local(),
+            label: "Local".to_string(),
+            host_label: Some("This device".to_string()),
+            available: true,
+            unavailable_reason: None,
+            simulated: false,
+            capabilities: RunnerCapabilities {
+                interactive_input: true,
+                pty: false,
+                cancellation: true,
+                inspection: true,
+                recovery: RunnerRecoveryMode::None,
+            },
+        }])
+    }
 }
 
 pub(super) fn test_world() -> Arc<FakeWorld> {
@@ -2640,6 +2667,7 @@ fn send_message_persists_before_reserving_control_and_attaches_effective_prompt_
         .lock()
         .expect("generation requests");
     assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].runner, RunnerSelection::local());
     assert!(requests[0]
         .effective_prompt
         .starts_with("effective::explain this"));
@@ -2666,6 +2694,62 @@ fn send_message_persists_before_reserving_control_and_attaches_effective_prompt_
         .clone();
     assert_eq!(coordinated_context.run_id, process_context.run_id);
     assert_eq!(coordinated_context.trace_id, process_context.trace_id);
+}
+
+#[test]
+fn runner_discovery_and_selected_execution_preserve_the_service_boundary() {
+    let world = test_world();
+    let runtime = service(world.clone());
+    let descriptors = runtime
+        .list_runners("session-1", "codex-cli")
+        .expect("runner discovery");
+    assert_eq!(descriptors.len(), 1);
+    assert_eq!(descriptors[0].selection, RunnerSelection::local());
+
+    let selection = RunnerSelection::ssh("connection-1".to_string(), 7).expect("selection");
+    runtime
+        .send_message_with_runner(
+            SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: "session-1".to_string(),
+                content: "run on selected host".to_string(),
+                configuration: chat_configuration(),
+                file_references: Vec::new(),
+            },
+            selection.clone(),
+        )
+        .expect("send with runner");
+    assert_eq!(
+        world.generation_requests.lock().expect("requests")[0].runner,
+        selection
+    );
+}
+
+#[test]
+fn invalid_runner_selection_has_no_message_or_generation_side_effect() {
+    let world = test_world();
+    let mut invalid = RunnerSelection::local();
+    invalid.target_id = Some("unexpected".to_string());
+    let result = service(world.clone()).send_message_with_runner(
+        SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "must not run".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        },
+        invalid,
+    );
+
+    assert!(
+        matches!(result, Err(AgentRuntimeApplicationError::Process(code)) if code == "runner_invalid_selection")
+    );
+    assert!(world.created_messages.lock().expect("messages").is_empty());
+    assert!(world
+        .generation_requests
+        .lock()
+        .expect("requests")
+        .is_empty());
 }
 
 #[test]

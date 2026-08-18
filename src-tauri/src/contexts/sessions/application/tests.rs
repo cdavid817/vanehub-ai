@@ -1561,6 +1561,23 @@ fn remote_binding_requires_explicit_compatible_rebind_and_detects_stale_profiles
             revision: 1,
         })
     );
+    assert_eq!(
+        fixture
+            .service
+            .current_runner_target(session.id())
+            .expect("runner target")
+            .expect("remote target"),
+        SessionRunnerTarget {
+            session_id: session.id().to_string(),
+            connection_id: "ssh-current".to_string(),
+            connection_revision: 1,
+            host: "remote.example.test".to_string(),
+            port: 22,
+            user: "dev".to_string(),
+            workspace_path: "/work/app".to_string(),
+            display_name: "Remote App".to_string(),
+        }
+    );
 
     let mut deleted = rebound;
     deleted.workspace.remote_ssh_binding = Some(SessionSshBinding {

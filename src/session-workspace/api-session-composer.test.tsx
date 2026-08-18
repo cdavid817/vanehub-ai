@@ -13,6 +13,7 @@ import { ApiSessionComposer } from "./api-session-composer";
 const sendable = { recoveryStatus: "clean", activeExecutionRunId: null, archived: false };
 
 function model(overrides: Record<string, unknown> = {}) {
+  const submit = vi.fn();
   const base = {
     activeSession: { id: "session-1", title: "S", agentId: "onepiece", interactionMode: "api", lifecycleState: "idle", ...sendable },
     agents: [], draft: "", fileReferenceCandidates: [], fileReferences: [],
@@ -25,7 +26,7 @@ function model(overrides: Record<string, unknown> = {}) {
       setStreaming: vi.fn(), setThinking: vi.fn(),
     },
     addFileReference: vi.fn(), removeFileReference: vi.fn(), exportSession: vi.fn(),
-    setDraft: vi.fn(), stop: vi.fn(), submit: vi.fn(),
+    setDraft: vi.fn(), stop: vi.fn(), submit, submitWithRunner: submit,
     ...overrides,
   };
   return base as unknown as MainLayoutModel;

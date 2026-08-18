@@ -662,6 +662,42 @@ describe("webAgentClient", () => {
     ).rejects.toThrow("SSH connection not found");
   });
 
+  it("discovers simulated runners and rejects stale selection without Local fallback", async () => {
+    const connection = await webSshConnectionClient.createConnection({
+      name: "Runner host", host: "runner.example.test", port: 22, user: "dev",
+      defaultPath: "/work/app", authMode: "key", keyPath: "/keys/dev",
+    });
+    await webSshConnectionClient.testConnection(connection.id);
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      remoteWorkspace: {
+        host: connection.host, port: connection.port, user: connection.user,
+        path: "/work/app", displayName: "Runner host", sshConnectionId: connection.id,
+      },
+    });
+    const runners = await webAgentClient.listAgentRunners(session.id, session.agentId);
+
+    expect(runners.map((runner) => [runner.selection.kind, runner.available, runner.simulated])).toEqual([
+      ["local", true, true], ["ssh", true, true], ["docker", false, true], ["cloud", false, true],
+    ]);
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    await expect(webAgentClient.sendMessage({
+      sessionId: session.id, content: "must not run", config,
+      runner: { kind: "ssh", targetId: connection.id, targetRevision: connection.revision + 1 },
+    })).rejects.toThrow("runner_invalid_selection");
+    expect((await webAgentClient.getSession(session.id)).activeExecutionRunId).toBeNull();
+
+    await webAgentClient.sendMessage({
+      sessionId: session.id, content: "run remotely", config,
+      runner: { kind: "ssh", targetId: connection.id, targetRevision: connection.revision },
+    });
+    const overview = await webAgentClient.getMissionControlOverview({ runner: "ssh" });
+    expect(overview.active.items.some((run) => run.runner?.kind === "ssh")).toBe(true);
+    await webAgentClient.stopGeneration(session.id);
+    await webSshConnectionClient.deleteConnection(connection.id);
+  });
+
   it("rejects invalid or unavailable mock worktree requests", async () => {
     await expect(
       webAgentClient.createSession({

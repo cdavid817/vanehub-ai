@@ -20,9 +20,13 @@ pub(crate) use crate::contexts::operations::application::{
 pub(crate) use crate::contexts::operations::application::{
     MissionControlOverview, MissionControlQuery, MissionControlRunDetail,
 };
+pub(crate) use crate::contexts::operations::application::{
+    RunOwnerRecoveryPort, RunRecoveryDecision,
+};
 use crate::contexts::operations::domain::OperationRecoveryEvidence;
 pub(crate) use crate::contexts::operations::domain::{
-    AgentRun, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunState, RunTrigger,
+    AgentRun, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind,
+    RunRunnerRecovery, RunState, RunTrigger,
 };
 pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
 

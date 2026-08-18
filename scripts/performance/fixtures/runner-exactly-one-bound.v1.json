@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "metricId": "runner.active-handles", "measured": 33 },
+    { "metricId": "runner.per-kind-handles", "measured": 25 },
+    { "metricId": "runner.per-ssh-target-handles", "measured": 9 },
+    { "metricId": "runner.event-queue-items", "measured": 257 },
+    { "metricId": "runner.event-chunk-bytes", "measured": 8193 },
+    { "metricId": "runner.retained-output-bytes", "measured": 67108865 },
+    { "metricId": "runner.reconnect-attempts", "measured": 2 },
+    { "metricId": "runner.channels-per-run", "measured": 2 },
+    { "metricId": "runner.ssh-transports", "measured": 3 },
+    { "metricId": "runner.cleanup-live-handles", "measured": 1 }
+  ]
+}

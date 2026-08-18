@@ -78,6 +78,7 @@ import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
 import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent } from "../types/agent-run";
+import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail, MissionControlRunSummary } from "../types/mission-control";
 import type { EvaluationArena, EvaluationTask } from "../types/evaluation";
 import type {
@@ -1938,6 +1939,17 @@ function emitChatEvent(event: ChatStreamEvent) {
 
 function finishWebGeneration(sessionId: string, lifecycleState: Session["lifecycleState"]) {
   const session = findSession(sessionId);
+  const runId = session.activeExecutionRunId;
+  if (runId) {
+    const run = webAgentRuns.find((candidate) => candidate.id === runId);
+    if (run && !terminalRunStates.has(run.state)) {
+      updateWebAgentRun(
+        run.id,
+        run.version,
+        lifecycleState === "idle" ? "completed" : lifecycleState === "failed" ? "failed" : "cancelled",
+      );
+    }
+  }
   updateSession(sessionId, {
     lifecycleState,
     activeExecutionRunId: null,
@@ -2542,6 +2554,10 @@ let webAgentRuns: AgentRun[] = [{
   parentRunId: null,
   state: "paused",
   recoveryPolicy: "not_recoverable",
+  runner: {
+    kind: "local", targetId: "local", targetRevision: null, label: "Local", hostLabel: "This device",
+    recovery: "none", capabilityWitness: "web-demo-local", authorityWitness: "web-demo-local", recoveryReference: null,
+  },
   retryCount: 1,
   maxRetries: 2,
   reasonCode: "web_demo_paused",
@@ -2551,8 +2567,8 @@ let webAgentRuns: AgentRun[] = [{
   lastWitness: "web-demo-pause",
 }, ...([
   ["waiting_approval", "approval_required"], ["waiting_user", "user_question"],
-  ["retrying", "provider_backoff"], ["stuck", "no_progress"],
-  ["failed", "verification_failed"], ["completed", null], ["running", null],
+  ["retrying", "provider_backoff"], ["stuck", "runner_disconnected"],
+  ["failed", "runner_interrupted"], ["completed", null], ["running", null],
 ] as const).map(([state, reasonCode], index): AgentRun => ({
   id: `018f0f17-4d6a-7e20-b41d-66c5271a29${index}`,
   owner: { ownerType: index === 5 ? "evaluation" : "agent", ownerId: `web-owner-${index}` },
@@ -2560,6 +2576,10 @@ let webAgentRuns: AgentRun[] = [{
   parentRunId: null, state, recoveryPolicy: "owner_reconciles", retryCount: state === "retrying" ? 1 : 0,
   maxRetries: 2, reasonCode, createdAt: `2026-08-16T00:0${index + 1}:00.000Z`,
   updatedAt: `2026-08-16T00:0${index + 1}:30.000Z`, version: 2, lastWitness: `web-${state}`,
+  runner: index === 3 || index === 4 || index === 6 ? {
+    kind: "ssh", targetId: "web-demo-ssh", targetRevision: 1, label: "Build host", hostLabel: "build.example.test",
+    recovery: "inspect_only", capabilityWitness: "web-demo-ssh", authorityWitness: "web-demo-ssh-v1", recoveryReference: null,
+  } : undefined,
 }))];
 const defaultWebAgentRuns = structuredClone(webAgentRuns);
 const webAgentRunEvents = new Map<string, AgentRunEvent[]>([[webAgentRuns[0].id, [{
@@ -2663,6 +2683,7 @@ function webMissionSummary(run: AgentRun): MissionControlRunSummary {
     verification: run.state === "verifying" ? "running" : run.state === "completed" ? "passed" : run.state === "failed" ? "failed" : "unavailable",
     tokens: null, cost: null, actions,
     navigation: review ? { kind: "review", id: review.linkId, sessionId: session?.linkId } : session ? { kind: "session", id: session.linkId } : null,
+    runner: run.runner ?? null,
   };
 }
 
@@ -2673,7 +2694,8 @@ function webMissionOverview(query: MissionControlQuery): MissionControlOverview 
   let runs = webAgentRuns.map(webMissionSummary).filter((run) =>
     (!query.states?.length || query.states.includes(run.state))
     && (!query.agentId || run.agentId === query.agentId)
-    && (!query.projectId || run.projectId === query.projectId));
+    && (!query.projectId || run.projectId === query.projectId)
+    && (!query.runner || run.runner?.kind === query.runner));
   const priority = (run: MissionControlRunSummary) => run.attention ? 0 : 1;
   runs = runs.sort((left, right) => query.sort === "oldest"
     ? left.createdAt.localeCompare(right.createdAt)
@@ -2685,6 +2707,82 @@ function webMissionOverview(query: MissionControlQuery): MissionControlOverview 
     counts: { running: count("running"), waitingApproval: count("waiting_approval"), waitingUser: count("waiting_user"), retrying: count("retrying"), blocked: count("blocked") + count("stuck"), failed: count("failed"), completedRecently: count("completed") },
     attention: page(runs.filter((run) => run.attention)), active: page(runs.filter((run) => activeRunStates.has(run.state))),
     recent: page(runs.filter((run) => terminalRunStates.has(run.state))),
+  };
+}
+
+function webRunnerDescriptors(sessionId: string, agentId: string): AgentRunnerDescriptor[] {
+  const session = findSession(sessionId);
+  if (session.agentId !== agentId) throw new Error("runner_invalid_selection");
+  const descriptors: AgentRunnerDescriptor[] = [{
+    selection: { kind: "local" },
+    label: "Local",
+    hostLabel: "This device",
+    available: true,
+    unavailableReason: null,
+    simulated: true,
+    capabilities: { interactiveInput: true, pty: false, cancellation: true, inspection: true, recovery: "none" },
+  }];
+  const connectionId = session.remoteSshConnectionId;
+  const revision = session.remoteSshConnectionRevision;
+  if (connectionId && revision && session.remoteWorkspace) {
+    const connection = findWebSshConnection(connectionId);
+    const credentialConfigured = connection?.authMode === "password" ? connection.hasPassword : Boolean(connection?.keyPath);
+    const available = Boolean(connection
+      && connection.revision === revision
+      && connection.host === session.remoteWorkspace.host
+      && connection.port === (session.remoteWorkspace.port ?? 22)
+      && connection.user === session.remoteWorkspace.user
+      && connection.hostTrust
+      && credentialConfigured);
+    descriptors.push({
+      selection: { kind: "ssh", targetId: connectionId, targetRevision: revision },
+      label: session.remoteWorkspace.displayName,
+      hostLabel: session.remoteWorkspace.host,
+      available,
+      unavailableReason: available ? null : "ssh_authority_unavailable",
+      simulated: true,
+      capabilities: { interactiveInput: true, pty: true, cancellation: true, inspection: true, recovery: "inspect_only" },
+    });
+  }
+  descriptors.push(
+    {
+      selection: { kind: "docker" }, label: "Docker / Sandbox", hostLabel: null,
+      available: false, unavailableReason: "runner_not_implemented", simulated: true,
+      capabilities: { interactiveInput: false, pty: false, cancellation: false, inspection: false, recovery: "none" },
+    },
+    {
+      selection: { kind: "cloud" }, label: "Cloud", hostLabel: null,
+      available: false, unavailableReason: "runner_not_implemented", simulated: true,
+      capabilities: { interactiveInput: false, pty: false, cancellation: false, inspection: false, recovery: "none" },
+    },
+  );
+  return descriptors;
+}
+
+function selectWebRunner(sessionId: string, agentId: string, requested?: AgentRunnerSelection): AgentRunnerDescriptor {
+  const selection = requested ?? { kind: "local" };
+  const descriptor = webRunnerDescriptors(sessionId, agentId).find((candidate) =>
+    candidate.selection.kind === selection.kind
+    && (candidate.selection.targetId ?? null) === (selection.targetId ?? null)
+    && (candidate.selection.targetRevision ?? null) === (selection.targetRevision ?? null));
+  if (!descriptor) throw new Error("runner_invalid_selection");
+  if (!descriptor.available) throw new Error("runner_unsupported_capability");
+  return descriptor;
+}
+
+function webRunRunner(descriptor: AgentRunnerDescriptor): NonNullable<AgentRun["runner"]> {
+  const targetId = descriptor.selection.targetId ?? "local";
+  const targetRevision = descriptor.selection.targetRevision ?? null;
+  return {
+    kind: descriptor.selection.kind as "local" | "ssh",
+    targetId,
+    targetRevision,
+    label: descriptor.label,
+    hostLabel: descriptor.hostLabel,
+    recovery: descriptor.capabilities.recovery,
+    capabilityWitness: `web-simulated:${descriptor.selection.kind}`,
+    authorityWitness: `web-simulated:${targetId}:${targetRevision ?? "none"}`,
+    recoveryReference: null,
   };
 }
 
@@ -4285,6 +4383,10 @@ export const webAgentClient: AgentService = {
     return serializeWebSessionExport(input);
   },
 
+  async listAgentRunners(sessionId, agentId) {
+    return structuredClone(webRunnerDescriptors(sessionId, agentId));
+  },
+
   async sendMessage(input) {
     const session = findSession(input.sessionId);
     if (session.archived) throw new Error("Archived sessions cannot accept messages.");
@@ -4303,6 +4405,7 @@ export const webAgentClient: AgentService = {
     if (activeStreams.has(input.sessionId)) {
       throw new Error("A generation is already active for this session.");
     }
+    const selectedRunner = selectWebRunner(input.sessionId, session.agentId, input.runner);
     const timestamp = nowIso();
     const activeSeats = (session.seats ?? []).filter((seat) => seat.leftAt == null);
     const firstSpeakerSeatId = activeSeats.length > 1 ? activeSeats[0]?.seatId : undefined;
@@ -4312,6 +4415,23 @@ export const webAgentClient: AgentService = {
       0,
     ) + 1;
     const executionRunId = `web-run-${input.sessionId}-${Date.now()}`;
+    webAgentRuns = [{
+      id: executionRunId,
+      owner: { ownerType: "agent_generation", ownerId: session.agentId },
+      links: [{ linkType: "session", linkId: input.sessionId }],
+      parentRunId: null,
+      state: "running",
+      recoveryPolicy: selectedRunner.selection.kind === "ssh" ? "owner_reconciles" : "not_recoverable",
+      runner: webRunRunner(selectedRunner),
+      retryCount: 0,
+      maxRetries: 0,
+      reasonCode: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 2,
+      lastWitness: `web-simulated-runner-start:${selectedRunner.selection.kind}`,
+    }, ...webAgentRuns];
+    webAgentRunEvents.set(executionRunId, []);
     const userMessage: ChatMessage = {
       id: createMessageId(),
       sessionId: input.sessionId,
