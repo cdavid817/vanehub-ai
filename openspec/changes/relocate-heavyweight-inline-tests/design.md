@@ -31,29 +31,36 @@ Four facts about the two files constrain the design:
 
 Each new module is one uninterrupted range of the original file. No test moves past another, and no range is assembled from two places. This is what makes the claim "pure move" checkable: the reviewer confirms the ranges partition the file, and the test-name inventory confirms nothing was lost.
 
-`sessions/infrastructure/tests.rs` (5,110 lines) partitions into six subject ranges plus the retained shared half:
+`sessions/infrastructure/tests.rs` (5,110 lines) partitions into seven subject ranges plus four retained blocks. Ranges are inclusive and start at an item's first attribute line, not its `fn` line:
 
-| New module | Source range | Subject |
-|---|---|---|
-| `tests/usage_accounting.rs` | 53–839 | ledger idempotence, cursor epochs, projection semantics, accounting cardinality |
-| `tests/generation_lifecycle.rs` | 1,229–1,995 | generation claim/terminal atomicity, concurrency, crash-reopen partial writes |
-| `tests/terminal_evidence.rs` | 1,996–2,312 | evidence ordering, bounding, quarantine of malformed payloads |
-| `tests/recovery.rs` | 2,313–3,587 | candidate scan, claim revisions, publication, coordinator passes, file-backed recovery |
-| `tests/search.rs` | 3,834–4,281 | FTS indexing, ranking, query plans |
-| `tests/legacy_usage_retirement.rs` | 4,431–4,775 | post-cutover behavior of the retired usage table |
-| `tests/configuration_and_seats.rs` | 4,776–5,110 | chat configuration mapping, seats, stable participants |
+| New module | Source range | Lines | Subject |
+|---|---|---:|---|
+| *(retained)* | 1–52 | 52 | imports and `Fixture` |
+| `tests/usage_accounting.rs` | 53–838 | 786 | ledger idempotence, cursor epochs, projection semantics, accounting cardinality |
+| *(retained)* | 839–1,227 | 389 | evidence/logging port doubles, `fixture()`, record builders, two tests among them |
+| `tests/generation_lifecycle.rs` | 1,228–1,994 | 767 | generation claim/terminal atomicity, concurrency, crash-reopen partial writes |
+| `tests/terminal_evidence.rs` | 1,995–2,311 | 317 | evidence ordering, bounding, quarantine of malformed payloads |
+| `tests/recovery.rs` | 2,312–3,586 | 1,275 | candidate scan, claim revisions, publication, coordinator passes, file-backed recovery |
+| *(retained)* | 3,587–3,832 | 246 | SSH binding, `usage_record()`, loop ownership, repository round-trips |
+| `tests/search.rs` | 3,833–4,280 | 448 | FTS indexing, ranking, query plans |
+| *(retained)* | 4,281–4,429 | 149 | active-session clearing, row mapping, transaction rollback |
+| `tests/legacy_usage_retirement.rs` | 4,430–4,774 | 345 | post-cutover behavior of the retired usage table |
+| `tests/configuration_and_seats.rs` | 4,775–5,110 | 336 | chat configuration mapping, seats, stable participants |
 
-`agent_runtime/application/tests.rs` (4,628 lines) partitions into seven:
+`agent_runtime/application/tests.rs` (4,628 lines) partitions into seven ranges plus one retained block:
 
-| New module | Source range | Subject |
-|---|---|---|
-| `tests/onepiece_provider.rs` | 1,846–2,294 | OnePiece configuration, profiles, credentials, model discovery |
-| `tests/embedding_models.rs` | 2,295–2,499 | embedding endpoint resolution and model listing |
-| `tests/api_agent_management.rs` | 2,500–2,653 | API agent update/delete and credential handling |
-| `tests/message_dispatch.rs` | 2,654–3,454 | launch, send, telemetry, tool lifecycle, streaming, completion accounting |
-| `tests/loop_and_stream_failures.rs` | 3,455–3,756 | loop role generation, cancellation races, safe terminal errors |
-| `tests/prompt_composition.rs` | 3,757–4,424 | custom instructions, memory injection ordering, extraction triggers |
-| `tests/tool_approval_and_local_profiles.rs` | 4,425–4,628 | tool approval resolution, local/custom profile rules |
+| New module | Source range | Lines | Subject |
+|---|---|---:|---|
+| *(retained)* | 1–1,844 | 1,844 | imports, `FakeWorld` and its ~25 port impls, agent builders, two tests among them |
+| `tests/onepiece_provider.rs` | 1,845–2,293 | 449 | OnePiece configuration, profiles, credentials, model discovery |
+| `tests/embedding_models.rs` | 2,294–2,498 | 205 | embedding endpoint resolution and model listing |
+| `tests/api_agent_management.rs` | 2,499–2,652 | 154 | API agent update/delete and credential handling |
+| `tests/message_dispatch.rs` | 2,653–3,453 | 801 | launch, send, telemetry, tool lifecycle, streaming, completion accounting |
+| `tests/loop_and_stream_failures.rs` | 3,454–3,755 | 302 | loop role generation, cancellation races, safe terminal errors |
+| `tests/prompt_composition.rs` | 3,756–4,423 | 668 | custom instructions, memory injection ordering, extraction triggers |
+| `tests/tool_approval_and_local_profiles.rs` | 4,424–4,628 | 205 | tool approval resolution, local/custom profile rules |
+
+Each moved range gains a `use super::*;` header and each parent gains one `mod` declaration per child, so the only lines the split adds are boilerplate: 7 `mod` declarations plus 7 `use super::*;` per split file — 14 each, 28 across both. The post-split parents measure 843 and 1,851 lines.
 
 ### Shared scaffolding stays in the parent, and is not itself modularized
 
@@ -77,6 +84,16 @@ Capture `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --list` before
 *Alternative rejected — comparing test counts*: a dropped test plus an accidentally duplicated one nets to zero.
 
 Note that the unsorted list *is* expected to differ in module path for every moved test — that is the change. The check is therefore run in two stages: the sorted list of bare test names must be byte-identical, and the full unsorted listing must differ only in the module-path prefix of moved tests, with the same names in the same relative order within each moved range.
+
+### The architecture gate identifies test code by file name, and that had to be fixed
+
+Splitting the tests made `provider_neutral_layers_do_not_select_concrete_cli_providers` fail on three of the new modules for "branching on built-in provider id codex-cli". The tests did not change: they have referenced `"codex-cli"` for as long as they have existed, and were exempt because the rule skipped paths matching `ends_with("tests.rs")`. Moving them into `tests/` left the same code failing a rule it was always meant to be outside of.
+
+Two other rules — `runner_contracts_and_adapters_use_only_published_runtime_boundaries` and `concrete_runtime_dependencies_are_assembled_only_in_bootstrap` — carry their own copy of the same file-name predicate and therefore the same latent gap. They did not fire, which is luck rather than design.
+
+The fix is one `is_test_source` helper, used by all three, that recognizes a test module in either shape: a `tests.rs`/`*_tests.rs` file, or a file inside a `tests/` directory. It is covered by its own fixture test.
+
+This widens no rule's intent. Test code was already exempt from all three; the predicate only stops the exemption from evaporating when a test module is split. The alternative — leaving the rule as-is and contorting the test code to avoid a literal it is entitled to use — would encode a gate defect into the tests, and would leave the next person to split a test module hitting the same wall.
 
 ### Budgets are lowered, not removed
 

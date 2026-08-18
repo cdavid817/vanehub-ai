@@ -66,5 +66,5 @@ None. This is a pure test-code reorganization with no externally observable beha
 - `src-tauri/src/contexts/sessions/infrastructure/tests/` — new subject-named test modules.
 - `src-tauri/src/contexts/agent_runtime/application/tests.rs` — same treatment.
 - `src-tauri/src/contexts/agent_runtime/application/tests/` — new subject-named test modules.
-- `src-tauri/tests/architecture.rs` — two path budgets lowered. Neither subtree has a registered subtree budget, so no subtree ceiling is affected.
+- `src-tauri/tests/architecture.rs` — two path budgets lowered. Neither subtree has a registered subtree budget, so no subtree ceiling is affected. Additionally, three rules that identified test code by file name gain a shared `is_test_source` predicate that also recognizes a `tests/` directory; see design.md.
 - No production Rust file, frontend file, or Tauri command is touched. No frontend/backend isolation or runtime adapter boundary is affected.
