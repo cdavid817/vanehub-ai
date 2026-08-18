@@ -78,7 +78,7 @@ flowchart TD
 
 ### 候选扫描
 
-`recovery_candidates_after` 选出需要恢复的会话,条件为:非 `archived`;`recovery_status NOT IN (action_required, quarantined)`;`active_run` 非空,或生命周期 ∈ `starting`/`running`。
+`recovery_candidates_after` 选出需要恢复的会话,条件为:非 `archived`;`recovery_status NOT IN (action_required, quarantined)`;`active_execution_run_id IS NOT NULL` 或生命周期 ∈ `starting`/`running` 或 `recovery_status='reconciling'`(三选一即可)。
 
 ### 原子 claim
 
@@ -102,7 +102,7 @@ flowchart TD
 
 ### 幂等
 
-`run_until_drained` 逐批游标推进,每批处理完即持久化游标;启动时跑两轮,第一轮处理已认领候选,第二轮确认无新增候选后才结束,保证幂等。
+`run_until_drained` 逐批游标推进,游标 `after_session_id` 是内存中的循环变量(每批处理完更新),不在批间持久化;若扫描期间存储暂时不可用,该批候选会被标记为 `deferred` 而非丢弃。`run_startup_with_retry` 以 `RecoveryTrigger::Startup` 跑首轮,仅当首轮 `deferred > 0`(因存储暂时不可用而延迟)时才以 `RecoveryTrigger::ExplicitRetry` 跑第二轮,保证幂等。
 
 ## 设计所在之处
 

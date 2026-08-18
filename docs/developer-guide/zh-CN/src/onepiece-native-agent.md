@@ -10,9 +10,9 @@ OnePiece 身份由注册表拥有,而非由 provider 配置拥有。它与多个
 
 OnePiece 的 provider 目录是单一真源——前端 JSON `src/config/onepiece-provider-catalog.json` 由 Rust 侧 `include_str!` 直接嵌入二进制(`onepiece_provider_catalog.rs`),解析失败即 panic。
 
-- **目录结构** —— `catalogVersion: 3`,24 家 provider。`category` 仅 `anthropic` 与 `openai` 为 `official`,其余 22 家(含 openrouter、deepseek、zhipu-glm、kimi、siliconflow 等)为 `common`。每条 provider 含 `id`/`displayName`/`defaultModelId`/`fallbackModels`/`apiKeyUrl`/`docsUrl`/`defaultEndpointType`/`endpoints`。
+- **目录结构** —— `catalogVersion: 3`,25 家 provider。`category` 仅 `anthropic` 与 `openai` 为 `official`,其余 23 家(含 openrouter、deepseek、zhipu-glm、kimi、siliconflow 等)为 `common`。每条 provider 含 `id`/`displayName`/`defaultModelId`/`fallbackModels`/`apiKeyUrl`/`docsUrl`/`defaultEndpointType`/`endpoints`。
 - **endpoint 字段** —— `baseUrl`/`interfaceFormat`(`anthropic` | `openai-compatible`)/`authStrategy`(`x-api-key` | `bearer`)/`source`/`modelDiscovery`。
-- **模型发现策略** `modelDiscovery.strategy` 四值:`anthropic`、`openai`(绝大多数)、`openai-array`(仅 Together AI)、`catalog`(运行时保留)。发现时先注入 catalog 静态模型(`fallbackModels` + profile model),再按策略拉取实时模型,过滤非聊天模型(`is_chat_model`,排除 embedding/embed-/rerank/tts/audio/image 等关键词),上限 1000 个;实时发现失败则回落 catalog 并带 `warning: "live-unavailable"`。
+- **模型发现策略** `modelDiscovery.strategy` 四值:`anthropic`、`openai`(绝大多数)、`openai-array`(仅 Together AI)、`catalog`(运行时保留)。发现时先注入 catalog 静态模型(`fallbackModels` + profile model),再按策略拉取实时模型,过滤非聊天模型(`is_chat_model`,排除 embedding/embed-/rerank/tts/audio/image 等关键词),上限 1000 个;实时拉取的响应体上限 2MB(`MAX_RESPONSE_BYTES`),实时发现失败则回落 catalog 并带 `warning: "live-unavailable"`。
 
 ### Profile 数据结构
 
@@ -29,7 +29,7 @@ Profile 的创建/激活/删除都带凭据双向回滚:
 
 ### 凭据校验(保存前实际调用一次)
 
-`validate_onepiece_provider_credential` 在保存前发起一次最小成本探测:`max_tokens=1` / `max_output_tokens=1`、body 仅 "Reply OK."、超时 15s、禁重定向、响应上限 2MB。HTTP 状态分类:2xx→Valid;401/403→InvalidCredential;400/404/405/409/415/422→ConfigurationRejected;429→RateLimited;5xx→ProviderUnavailable;其余→Inconclusive。`discover` 与 `validate` 命令用 `spawn_blocking` 包裹(底层是阻塞式 HTTP 客户端)。
+`validate_onepiece_provider_credential` 在保存前发起一次最小成本探测:`max_tokens=1` / `max_output_tokens=1`、body 仅 "Reply OK."、超时 15s、禁重定向;probe 只读取 HTTP 状态码,不读取响应体。HTTP 状态分类:2xx→Valid;401/403→InvalidCredential;400/404/405/409/415/422→ConfigurationRejected;429→RateLimited;5xx→ProviderUnavailable;其余→Inconclusive。`discover` 与 `validate` 命令用 `spawn_blocking` 包裹(底层是阻塞式 HTTP 客户端)。
 
 ### 自定义 Profile 校验
 

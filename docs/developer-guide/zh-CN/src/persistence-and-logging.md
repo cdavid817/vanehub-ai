@@ -56,7 +56,7 @@ flowchart TD
 
 ## 统一日志架构
 
-native 诊断与操作输出都流经 `src-tauri/src/platform/logging.rs` 的统一写入流水线。一条 `LogEntry` 进入 `write_entry` 后，先做目录维护（限频 1 小时一次），再脱敏，最后才落盘。日志与执行可观测性链路是分离的两条管道——run/trace/span id 不写入日志文件，原始 prompt 与 Agent 输出也不进入诊断通道。
+native 诊断与操作输出都流经 `src-tauri/src/platform/logging.rs` 的统一写入流水线。一条 `LogEntry` 进入 `write_entry` 后，先做目录维护（限频 1 小时一次），再脱敏，最后才落盘。日志与执行可观测性链路在职责上分离——原始 prompt 与 Agent 输出不进入诊断通道；但 run/trace/span id 会作为关联字段写入日志条目的 `context` 映射(`AgentRuntimeLoggingAdapter::record` 把 `runId`/`traceId`/`spanId` 插入 context,经 `UnifiedLoggingAdapter` 落盘)。
 
 ```mermaid
 flowchart TD
@@ -83,7 +83,7 @@ flowchart TD
 - **Bearer token** 形如 `Authorization: Bearer xxx` 被规整为 `Bearer [REDACTED]`，只保留 scheme。
 - **provider token** 按 `sk-`、`ghp_` 等前缀识别并整体抹除。
 - **敏感键** 匹配 `password`/`token`/`secret`/`credential` 等键名时清空其值。
-- **链路与日志分离**：执行可观测性的 run/trace/span id 不写入日志文件；日志只保留安全的元数据（服务端/语言标识、生命周期跃迁、方法类别、时长、计数、重启尝试、超时/取消类别、退出码、安全的工作区标识）。绝不持久化原始协议载荷、源码、hover 内容、诊断消息、stderr、环境变量、可执行文件参数、凭据或私有绝对路径。
+- **链路与日志关联**：执行可观测性的 run/trace/span id 会写入日志条目的 `context` 字段（`AgentRuntimeLoggingAdapter::record` 把 `runId`/`traceId`/`spanId` 插入 context，经 `UnifiedLoggingAdapter` 落盘到日志文件）；日志只保留安全的元数据（服务端/语言标识、生命周期跃迁、方法类别、时长、计数、重启尝试、超时/取消类别、退出码、安全的工作区标识）。绝不持久化原始协议载荷、源码、hover 内容、诊断消息、stderr、环境变量、可执行文件参数、凭据或私有绝对路径。
 - **限频与轮转**：目录维护限频 1 小时一次；活跃日志超过 24 小时改名归档；归档目录中超过 30 天的文件进一步移入 `archive` 子目录做冷保留。
 - **React 不写本地日志**：需要持久化的前端错误越过服务边界上报到 native 日志 command；Web/mock 行为可暴露页面可见的模拟日志，但不能声称具备 native 持久化。
 
@@ -121,6 +121,6 @@ flowchart TD
 
 ### 链路关联
 
-执行可观测性由 `operations/domain/operation.rs` 承载:每条操作带 `trace_id`,`correlate_execution(run_id, trace_id)` 把 run 与 trace 关联起来。run/trace/span id 不写入日志文件,只在执行可观测性管道内流转。
+执行可观测性由 `contexts/operations/domain/operation.rs` 承载:每条操作带 `trace_id`,`correlate_execution(run_id, trace_id)` 把 run 与 trace 关联起来。run/trace/span id 会写入日志文件的 `context` 字段(由 `AgentRuntimeLoggingAdapter::record` 注入),原始 prompt 与 Agent 输出则不进入诊断通道。
 
 统一日志规范的真源是 `openspec/specs/unified-log-management/spec.md`；执行可观测性关联规则见 `openspec/specs/agent-execution-observability/spec.md`。

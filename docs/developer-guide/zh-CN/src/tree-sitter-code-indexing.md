@@ -89,7 +89,7 @@ stateDiagram-v2
 
 ### 脱敏六类
 
-统一策略在持久化、embedding、日志、审计、`search_code` 返回之前,对六类敏感模式按正则替换为 `[REDACTED]`:私钥(PEM 块等)、`api_key=` 形式的赋值、`token=` 形式的赋值、`bearer`/`Authorization: Bearer` 头、provider token 前缀(`sk-`、`ghp_`、`github_pat_`、`ssh-connection` 等)、内部 URL。命中即替换为 `[REDACTED]`,并累计 `redaction_count` 写入 chunk 元数据。原始代码内容不进入检索存储。
+统一策略在持久化、embedding、日志、审计、`search_code` 返回之前,对六类敏感模式按正则替换为 `[REDACTED]`:私钥(PEM 块等)、`api_key=` 形式的赋值、`token=` 形式的赋值、`bearer`/`Authorization: Bearer` 头、provider token 前缀(`sk-`、`ghp_`、`github_pat_`、`AKIA[A-Z0-9]{12,}` 等)、内部 URL。命中即替换为 `[REDACTED]`,并累计 `redaction_count` 写入 chunk 元数据。原始代码内容不进入检索存储。
 
 ### 强制敏感路径 denylist
 

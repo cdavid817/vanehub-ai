@@ -41,7 +41,7 @@ flowchart TB
 
 ## Native 限界上下文
 
-native 侧按 7 个限界上下文切分。**跨上下文调用默认走同步的应用 API**；只有当一个已完成的动作需要独立处理下游反应时才用显式事件。**任何上下文都不得直接伸手到另一上下文的存储或基础设施**。
+native 侧按核心限界上下文切分,下图展示主要的七个上下文;`retrieval` 同样是核心上下文(见 [Native bounded context](native-contexts.md))。仓库还包含后续扩展的上下文,如 `code_intelligence`、`permissions`、`execution_observability`、`artifacts`、`goals`、`task_orchestration`、`work_board`、`ssh_connections`、`browser_automation`、`cli_delegation`、`code_execution`、`web_research` 等(完整清单见 `src-tauri/src/contexts/mod.rs` 与 [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md))。**跨上下文调用默认走同步的应用 API**;只有当一个已完成的动作需要独立处理下游反应时才用显式事件。**任何上下文都不得直接伸手到另一上下文的存储或基础设施**。
 
 ```mermaid
 flowchart LR

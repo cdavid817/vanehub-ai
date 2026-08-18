@@ -8,7 +8,7 @@ Agent 运行时通过一个 **provider registry** 来解析受支持的内置 CL
 
 ## Provider 元数据与能力
 
-每个注册的 provider 各自声明经过校验的元数据、就绪前提与受支持的运行时能力(interaction、resume、structured-output、terminal、usage、permission、model-selection、reasoning),独立于显示名称匹配或调用方推断。provider 未声明的能力不会被静默假设为存在。
+每个注册的 provider 各自声明经过校验的元数据、就绪前提与受支持的运行时能力(interaction、resume、structured-output、terminal、usage、permissions、model-selection、reasoning、sandbox、cancellation),独立于显示名称匹配或调用方推断。provider 未声明的能力不会被静默假设为存在。
 
 ## 从注册表到启动的流程
 
@@ -19,9 +19,9 @@ flowchart TD
     A["注册表中的 Agent 条目"] --> B{"AgentOrigin"}
     B -- "Builtin 内置" --> C["目录内置条目"]
     B -- "User" --> D["用户条目"]
-    C --> E{"AgentRuntimeKind / LaunchKind"}
+    C --> E{"LaunchKind"}
     D --> E
-    E -- "NativeDesktop" --> F["原生桌面运行时<br/>例:OnePiece"]
+    E -- "Api" --> F["原生 API 运行时<br/>例:OnePiece"]
     E -- "Cli" --> G["外部 CLI 运行时<br/>例:五个 CLI"]
     F --> H["稳定 provider 解析<br/>按稳定 id,不按显示名"]
     G --> H
@@ -41,13 +41,13 @@ flowchart TD
 
 - **稳定的 agent id** —— 每个 Agent 以一个持久 id 标识,在该 Agent 参与的所有会话中保持不变。id 是 provider 解析、Loop 定义(Worker/Verifier id)等所有引用的键,而非显示名。
 - **`AgentOrigin`** —— 内置 Agent(`Builtin`)由目录支持;`User` 标记的 Agent 是注册表中的用户条目。
-- **`AgentRuntimeKind` / `LaunchKind`** —— 区分运行时形态:`NativeDesktop`(原生桌面运行时)与 `Cli`(外部 CLI 运行时),以及其他形态。
+- **`LaunchKind`** —— 区分运行时形态:`Api`(原生 API 运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时),以及其他形态(代码枚举为 `Cli`/`Browser`/`NativeDesktop`/`Api`/`Other`)。
 
 ### provider 解析与能力
 
 - **provider 解析稳定性** —— 运行时通过以 Agent registry 条目稳定 id 为键的 **provider registry** 解析受支持的内置 CLI 运行时行为,与 provider 无关的应用与 Session 模块不会按 provider 身份分支选择行为。
 - **无回退** —— 一个没有兼容 provider 注册的 Agent id 返回分类好的 `unsupported-provider` 错误,且不回退到其他 provider。
-- **能力声明** —— 每个注册 provider 各自声明经过校验的元数据、就绪前提与受支持的运行时能力(interaction、resume、structured-output、terminal、usage、permission、model-selection、reasoning),独立于显示名称匹配或调用方推断。provider 未声明的能力不会被静默假设为存在。
+- **能力声明** —— 每个注册 provider 各自声明经过校验的元数据、就绪前提与受支持的运行时能力(interaction、resume、structured-output、terminal、usage、permissions、model-selection、reasoning、sandbox、cancellation),独立于显示名称匹配或调用方推断。provider 未声明的能力不会被静默假设为存在。
 
 ### 可用性状态与选择
 
@@ -64,7 +64,7 @@ flowchart TD
 
 ### 内置 Agent
 
-- **OnePiece** —— `builtin` + `NativeDesktop`,稳定 id `onepiece`;使用由目录支持的专用 provider **Profile** 操作,允许配置多个独立受保护的 provider/endpoint/model 组合与一个显式活跃 Profile。provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析。
+- **OnePiece** —— `builtin` + `LaunchKind::Api`,稳定 id `onepiece`;使用由目录支持的专用 provider **Profile** 操作,允许配置多个独立受保护的 provider/endpoint/model 组合与一个显式活跃 Profile。provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析。
 - **五个 CLI** —— `claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli` 均为 `builtin` + `Cli`,由内置 provider registry 解析运行时行为。
 
 ## 关键类型与常量
@@ -74,7 +74,7 @@ flowchart TD
 ### 起源与运行时形态
 
 - `AgentOrigin` 枚举 —— `Builtin`(由内置目录支持)与 `User`(注册表中的用户条目)。
-- `AgentRuntimeKind` / `LaunchKind` —— `NativeDesktop`(原生桌面运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时,如五个 CLI)。
+- `LaunchKind` —— `Api`(原生 API 运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时,如五个 CLI),另含 `Browser`/`NativeDesktop`/`Other`。
 
 ### 稳定 agent id
 
@@ -90,7 +90,7 @@ flowchart TD
 
 每个注册 provider 各自声明经过校验的元数据、就绪前提与 `capability_tags`,外加受支持的运行时能力:
 
-- `interaction`、`resume`、`structured-output`、`terminal`、`usage`、`permission`、`model-selection`、`reasoning`。
+- `interaction`、`resume`、`structured-output`、`terminal`、`usage`、`permissions`、`model-selection`、`reasoning`、`sandbox`、`cancellation`。
 
 provider 未声明的能力不会被静默假设为存在。
 
@@ -112,9 +112,9 @@ provider 未声明的能力不会被静默假设为存在。
 
 ## 单 Agent 会话的运行时形态
 
-单 Agent 会话里,选定的 Agent 按 `AgentRuntimeKind` 走不同的运行时路径:
+单 Agent 会话里,选定的 Agent 按 `LaunchKind` 走不同的运行时路径:
 
-| 维度 | 内置 CLI Agent(`Cli`) | OnePiece 原生 Agent(`NativeDesktop`) |
+| 维度 | 内置 CLI Agent(`Cli`) | OnePiece 原生 Agent(`Api`) |
 | --- | --- | --- |
 | 进程 | VaneHub 启动并管理 CLI 子进程(经 Agent Terminal / PTY),真正的代码生成由 CLI 完成 | 不启动外部进程,直接在应用内通过 HTTP 调用 active Profile 配置的 provider |
 | 认证 | 由各 CLI 自行管理,VaneHub 不保存其凭据 | API Key 由 VaneHub 保存(Profile scoped 凭据) |

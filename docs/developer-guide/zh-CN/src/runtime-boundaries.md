@@ -57,7 +57,7 @@ flowchart TD
 
 - **单例 `agentService`** 在前端模块图解析期构造一次，组件不自行 `new`。
 - **组件经 hooks 依赖**：React 组件只依赖 `src/hooks/` 暴露的 hook 与 `src/services/agent-service.ts` 的接口，不直接 import `tauri-agent-client` 或 `web-agent-client`，也不直接调用 `invoke()`。
-- **desktop 就绪埋点只在 `main.tsx` 运行时分支**：只有在判定为 Tauri 运行时（`__TAURI_INTERNALS__` 存在）的分支里，才会向 native 侧上报 "desktop 就绪"；web-mock 与 web-http 分支不触发这条埋点，避免误导。
+- **desktop 就绪埋点无条件标记**:`main.tsx` 在所有运行时(Tauri、web-mock、web-http)渲染完成后都会无条件设置 `root.dataset.vanehubBootstrap="ready"`;唯一桌面相关的条件分支是 `if(import.meta.env.VITE_DESKTOP_E2E==="1")`,在该分支下才加载 `@wdio/tauri-plugin` 并注册 `vanehubFatalError` 监听。没有 `desktop_ready`/`report_desktop` 之类的 native 命令——"就绪"只是一个 dataset 标记,不向 native 上报。
 - **web-http 无 adapter 必抛错**：这是防止生产部署静默退化到假数据的关键闸门。新增 service 在 web-http 部署下没有真实后端时，应让该 service 在 web-http 分支抛错，而不是回退到 web-mock。
 
 ## 关键文件与契约
@@ -72,7 +72,7 @@ flowchart TD
 
 ### AgentService 聚合接口
 
-`AgentService`(`src/services/agent-service.ts`,约第 287 行起)是一个超大的聚合接口,覆盖 Agent 生命周期、会话、MCP、工具、IM、扩展、权限、工作板、SDK、SSH 连接等子域。每个子域对应一个 `runtime-*-client.ts` 文件,内部各自调用 `createRuntimeAdapter`,传入成对的实现。
+`AgentService`(`src/services/agent-service.ts`,第 214 行起)是一个超大的聚合接口,覆盖 Agent 生命周期、会话、MCP、工具、IM、扩展、权限、工作板、SDK、SSH 连接等子域。每个子域对应一个 `runtime-*-client.ts` 文件,内部各自调用 `createRuntimeAdapter`,传入成对的实现。
 
 ### 成对实现
 
@@ -87,6 +87,6 @@ flowchart TD
 
 ### desktop 就绪埋点
 
-desktop 就绪埋点只在 `main.tsx` 的 Tauri 运行时分支触发(即 `__TAURI_INTERNALS__` 存在的分支),向 native 侧上报 "desktop 就绪";web-mock 与 web-http 分支不触发。这条约束由 `desktop-instrumentation-boundary.test.ts` 验证,防止 web 分支误报就绪。
+desktop 就绪埋点在 `main.tsx` 中处理:渲染完成后无条件设置 `root.dataset.vanehubBootstrap="ready"`(Tauri、web-mock、web-http 三种运行时都会设置),没有向 native 上报 "desktop 就绪" 的命令。唯一桌面相关的条件分支是 `if(import.meta.env.VITE_DESKTOP_E2E==="1")`,在该分支下加载 `@wdio/tauri-plugin` 并注册 `vanehubFatalError` 监听;这条约束由 `desktop-instrumentation-boundary.test.ts` 验证。
 
-服务边界与运行时选择的权威定义见 `openspec/specs/unified-log-management/spec.md` 与 `src-tauri/ARCHITECTURE.md`。
+服务边界与运行时选择的权威定义见 `openspec/specs/frontend-runtime-architecture/spec.md` 与 `src-tauri/ARCHITECTURE.md`。

@@ -40,7 +40,7 @@ sequenceDiagram
     loop 每个工具调用
         Runtime->>Catalog: 按工具名查找定义
         Catalog-->>Runtime: 固定原生工具 / Skill 工具 / MCP 工具
-        Runtime->>Executor: 执行(shell.exec/file.read/file.write/mcp.tool)
+        Runtime->>Executor: 执行(shell/file/mcp.tool)
         Executor-->>Runtime: 工具结果
     end
     Runtime->>Model: 回填 tool_result
@@ -51,7 +51,7 @@ sequenceDiagram
 ### 循环的终止与边界
 
 - **多轮直到终态** —— 模型返回的响应只要包含 `tool_use`,运行时就执行这些调用并把结果作为新一轮回传;没有工具调用的响应即为该次用户消息的终态响应,等同于一次不带工具的生成。
-- **最大往返约束** —— 每条用户消息有固定最大往返次数,超出上限会被显式处理,不会形成无限循环。
+- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter.rs`),超出上限会被显式处理,不会形成无限循环。
 - **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
 
 ## 接口格式翻译
@@ -79,13 +79,18 @@ sequenceDiagram
 
 | 工具 | 说明 |
 | --- | --- |
-| `shell.exec` | 命令执行 |
-| `file.read` | 读文件 |
-| `file.write` | 写文件 |
-| 内容搜索 | 在文件内容中检索 |
-| 文件名搜索 | 按文件名检索 |
-| 限定范围编辑 | 限定范围的文件编辑 |
+| `shell` | 命令执行 |
+| `file` | 读/写文件(通过 `operation:"read"`/`"write"` 区分) |
+| `grep` | 在文件内容中检索 |
+| `glob` | 按文件名检索 |
+| `edit` | 限定范围的文件编辑 |
 | `remember` | 跨会话内存 |
+| `shell_output` | 读取后台 shell 的累积输出 |
+| `shell_kill` | 终止后台 shell |
+| `todo_write` | 会话级任务列表(整表替换) |
+| `notebook` | Jupyter notebook 读写 |
+
+> 上述为 `tool_catalog()` 的固定原生工具(10 个);加上 Skill 的三个只读工具 `list_skills`/`load_skill`/`read_skill_resource`(见下文 [Skill 提供的工具](#skill-提供的工具)),固定目录共 13 个工具。`recall`、`search_code` 等不在此无条件目录中,按条件另行注入。
 
 ### interface_format 翻译
 
@@ -98,14 +103,14 @@ sequenceDiagram
 
 模型返回的响应只要包含 `tool_use`,运行时执行这些调用并把结果作为 `tool_result` 新一轮回传;没有工具调用的响应即为终态响应,等同于一次不带工具的生成。
 
-- **最大往返约束** —— 每条用户消息有固定最大往返次数,超出上限会被显式处理,不会形成无限循环。
+- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter.rs`),超出上限会被显式处理,不会形成无限循环。
 - **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
 
 ### 工具来源与执行边界
 
 | 工具来源 | 执行位置 | 说明 |
 | --- | --- | --- |
-| 固定原生工具 | 宿主进程内 | `shell.exec`、`file.read`、`file.write`、内容搜索、文件名搜索、限定范围编辑、`remember` |
+| 固定原生工具 | 宿主进程内 | `shell`、`file`(读/写)、`grep`、`glob`、`edit`、`remember`、`shell_output`、`shell_kill`、`todo_write`、`notebook` |
 | Skill 工具 | 沙箱,非宿主进程 | Skill 在固定目录之上贡献工具,在沙箱中执行而非宿主进程(见 `skill-tool-runtime` 安全需求) |
 | MCP 工具 | MCP 客户端中继 | 走 MCP 中继调用,叠加在固定目录之上 |
 

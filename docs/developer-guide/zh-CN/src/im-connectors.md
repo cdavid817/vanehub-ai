@@ -42,7 +42,7 @@ sequenceDiagram
 
 **入站投递准入**：路由器在创建会话前会检查 `pending_delivery_admission`。每个会话(chat)的挂起投递上限为 `MAX_PENDING_PER_CHAT=8`，超过后返回 Busy 但**不阻塞**平台事件确认。运行时还维护两个全局水位：总 pending work 上限 64，active Agent generation 上限 8。空闲 lane 会被回收，以让新的路由请求可以重用执行槽位。
 
-**微信授权流程**：`weixin` connector 被标记为实验性，凭据获取走 QR 授权流程。authorization 状态在 `pending` → `confirmed` / `expired` 之间迁移；凭据写入平台钥匙串(keychain)，读取走 zeroizing reads，使用后立即清零内存副本。
+**微信授权流程**：`weixin` connector 被标记为实验性，凭据获取走 QR 授权流程。`AuthorizationStatus` 有六个状态:`Waiting` → `Scanned` → `Confirmed`,可分别转至 `Expired`/`Error`/`Cancelled`;凭据写入平台钥匙串(keychain)，读取走 zeroizing reads，使用后立即清零内存副本。
 
 **出站策略**：首版本仅支持把 Agent 生成的文本结果直发回原会话。入站路由依赖预先保存的默认路由配置——启用 connector 前必须先配置默认路由(目标 Agent + 工作区)，否则归一化后的消息无法落地执行。
 
