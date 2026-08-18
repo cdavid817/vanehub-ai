@@ -9,6 +9,7 @@ import type {
   SkillScopeInput,
 } from "../types/skill";
 import { normalizeWebPath, normalizeWebSkillLocation } from "./web-skill-location";
+import { mockAgents } from "./mock-agent-data";
 import { nowIso } from "./web-mock-clock";
 import {
   createWebSkillDocumentSeeds,
@@ -102,6 +103,15 @@ export function skillScopeMatches(skill: Skill, input: SkillScopeInput): boolean
     skill.scope === location.scope &&
     (location.scope === "global" || skill.workspacePath === location.workspacePath)
   );
+}
+
+/** Shared by the catalogue and binding clients, so it stays with the skill domain's other
+ * cross-cutting helpers rather than being duplicated into both. */
+export function requireAgentKind(agentId: string, kind: "cli" | "api"): void {
+  const agent = mockAgents.find((candidate) => candidate.id === agentId);
+  if (!agent || agent.launch.kind !== kind) {
+    throw new Error(`Unknown ${kind.toUpperCase()} Agent id: ${agentId}`);
+  }
 }
 
 export function mountPathForAgent(agentId: string): string {

@@ -78,7 +78,7 @@ import { webContextQualityClient } from "./web-context-quality-client";
 import { webSkillGovernanceClient } from "./web-skill-governance-client";
 import { webSkillEvidenceClient } from "./web-skill-evidence-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
-import { normalizeWebPath, normalizeWebSkillLocation } from "./web-skill-location";
+import { normalizeWebPath } from "./web-skill-location";
 import { readWebMockStorage, writeWebMockStorage } from "./web-mock-storage";
 
 export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
@@ -97,24 +97,6 @@ import { createWebMockOperation } from "./web-operation-client";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import { builtinExpertRoles } from "../config/builtin-expert-roles";
 import { validateExpertRoleInput } from "./expert-role-runtime";
-import type {
-  Skill,
-  SkillImportInput,
-  SkillListResult,
-  SkillLoadInput,
-  SkillLoadOutcome,
-  SkillMetadata,
-  SkillMountMigrationReport,
-  SkillMutationInput,
-  SkillOverview,
-  SkillPreview,
-  SkillResourceReadInput,
-  SkillResourceReadOutcome,
-  SkillSource,
-  SkillUpdateInput,
-} from "../types/skill";
-import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
-import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
@@ -127,6 +109,9 @@ import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
 import { webDesktopUpdateClient } from "./web-desktop-update";
+import { webSkillCatalogClient } from "./web-skill-catalog-client";
+import { webSkillBindingClient } from "./web-skill-binding-client";
+import { webSkillOverlayClient } from "./web-skill-overlay-client";
 import {
   createWebSeatId,
   emitWebSessionEvent,
@@ -143,33 +128,14 @@ import {
   subscribeWebSessionStateEvents,
   updateWebSession,
 } from "./web-session-state";
-import { webBuiltinSkillSeeds } from "./web-skill-seeds";
+import type { Skill } from "../types/skill";
 import {
-  buildSkillContent,
-  clearWebBuiltinSkillDeleted,
-  deleteWebSkillDocument,
-  findProgressiveWebSkill,
-  findWebSkill,
-  hydrateSkillBindings,
-  isWebBuiltinSkillDeleted,
-  listDeletedWebBuiltinSkillIds,
   listWebSkillApiAgentBindings,
   listWebSkillMountPaths,
   listWebSkills,
-  markWebBuiltinSkillDeleted,
-  mountPathForAgent,
-  mutationToSkill,
-  nextWebSkillHash,
-  readWebSkillDocument,
-  readWebSkillResourceDocument,
   replaceWebSkillApiAgentBindings,
   replaceWebSkillMountPaths,
   replaceWebSkills,
-  skillDocumentKey,
-  skillScopeMatches,
-  upsertWebSkill,
-  webSkillResources,
-  writeWebSkillDocument,
 } from "./web-skill-state";
 
 function tr(key: string, values?: Record<string, string | number>) {
@@ -556,61 +522,6 @@ function upsertKnownRemoteWorkspace(remoteWorkspace: RemoteWorkspace) {
   return known;
 }
 
-
-function validateWebSkillMetadata(metadata: SkillMetadata) {
-  if (!/^(?!-)[a-z0-9-]+(?<!-)$/.test(metadata.id)) {
-    throw new Error("Skill id must be kebab-case letters, digits, and hyphens");
-  }
-  if (![metadata.name, metadata.description, metadata.category, metadata.version].every((value) => value.trim())) {
-    throw new Error("Skill metadata name, description, category, and version are required");
-  }
-}
-
-function validateWebSkillMutation(input: SkillMutationInput, allowedSource: SkillSource) {
-  validateWebSkillMetadata(input.metadata);
-  if (input.id !== input.metadata.id) throw new Error("Skill request id must match metadata id");
-  if ((input.source ?? "user") !== allowedSource) {
-    throw new Error(`Skill source ${input.source ?? "user"} is invalid for this operation`);
-  }
-  return { ...input, ...normalizeWebSkillLocation(input), source: allowedSource };
-}
-
-function webPathsOverlap(left: string, right: string) {
-  const comparable = (value: string) => (/^[a-zA-Z]:/.test(value) ? value.toLocaleLowerCase() : value);
-  const leftPath = comparable(left);
-  const rightPath = comparable(right);
-  return leftPath === rightPath || leftPath.startsWith(`${rightPath}/`) || rightPath.startsWith(`${leftPath}/`);
-}
-
-function requireAgentKind(agentId: string, kind: "cli" | "api") {
-  const agent = mockAgents.find((candidate) => candidate.id === agentId);
-  if (!agent || agent.launch.kind !== kind) {
-    throw new Error(`Unknown ${kind.toUpperCase()} Agent id: ${agentId}`);
-  }
-}
-
-function validateMountPath(mountPath: string) {
-  const normalized = mountPath.trim().replaceAll("\\", "/");
-  const segments = normalized.split("/");
-  if (
-    !normalized ||
-    normalized.startsWith("/") ||
-    /^[a-zA-Z]:/.test(normalized) ||
-    segments.some((segment) => !segment || segment === "." || segment === "..") ||
-    segments[0]?.toLocaleLowerCase() === ".vanehub"
-  ) {
-    throw new Error(`Invalid Skill mount path: ${mountPath}`);
-  }
-  return normalized;
-}
-
-function skillStats(skills: Skill[]) {
-  return {
-    total: skills.length,
-    enabled: skills.filter((skill) => skill.enabled).length,
-    mounted: skills.filter((skill) => skill.enabled && skill.boundAgentIds.length > 0).length,
-  };
-}
 
 function searchText(value: string | null | undefined, query: string) {
   return (value ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -1230,27 +1141,6 @@ export function setWebLoopPhaseDelayForTest(delayMs: number): void {
 }
 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
-const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
-  const workspacePath = target.scope === "project" && target.workspacePath
-    ? normalizeWebPath(target.workspacePath, "Workspace path")
-    : null;
-  const candidates = listWebSkills().filter((skill) =>
-    skill.id === target.skillId
-      && (skill.scope === "global" || (workspacePath != null && skill.workspacePath === workspacePath)),
-  );
-  const skill = candidates.find((candidate) => candidate.scope === "workspace") ?? candidates[0];
-  if (!skill) throw overlayError("notFound", "skill-not-found", `Skill not found: ${target.skillId}`);
-  const instructions = buildSkillContent(skill);
-  return {
-    skillId: skill.id,
-    layer: skill.layer,
-    instructions,
-    instructionHash: webOverlayHash(instructions),
-    packageHash: skill.contentHash,
-    pinned: false,
-  };
-});
-
 const WEB_RUN_TIME = "2026-08-16T00:00:00.000Z";
 let webAgentRuns: AgentRun[] = [{
   id: "018f0f17-4d6a-7e20-b41d-66c5271a28d0",
@@ -3073,428 +2963,9 @@ export const webAgentClient: AgentService = {
   async subscribeSessionEvents(handler) {
     return subscribeWebSessionStateEvents(handler);
   },
-
-  async listSkills(input): Promise<SkillListResult> {
-    const skills = listWebSkills().filter((skill) => skillScopeMatches(skill, input)).map(hydrateSkillBindings);
-    return { skills, stats: skillStats(skills) };
-  },
-
-  async getSkillOverview(input): Promise<SkillOverview> {
-    const { skills, stats } = await this.listSkills(input);
-    const apiAgentBindings = Object.fromEntries(
-      skills.map((skill) => [
-        skill.id,
-        listWebSkillApiAgentBindings()
-          .filter(
-            (binding) =>
-              binding.skillId === skill.id &&
-              binding.scope === skill.scope &&
-              binding.workspacePath === skill.workspacePath,
-          )
-          .map((binding) => binding.agentId),
-      ]),
-    );
-    return {
-      skills,
-      stats,
-      mountPaths: listWebSkillMountPaths().map((path) => ({ ...path })),
-      agents: mockAgents.map((agent) => ({
-        id: agent.id,
-        displayName: agent.displayName,
-        kind: agent.launch.kind === "api" ? "api" : "cli",
-      })),
-      apiAgentBindings,
-      drift: await this.detectSkillDrift(input),
-      restoreCandidates: input.scope === "global" ? listDeletedWebBuiltinSkillIds().sort() : [],
-    };
-  },
-
-  async listSkillMountPaths() {
-    return listWebSkillMountPaths().map((path) => ({ ...path }));
-  },
-
-  async updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport> {
-    requireAgentKind(agentId, "cli");
-    mountPath = validateMountPath(mountPath);
-    const existing = listWebSkillMountPaths().find((path) => path.agentId === agentId);
-    const oldMountPath = existing?.mountPath ?? mountPathForAgent(agentId);
-    replaceWebSkillMountPaths(listWebSkillMountPaths().map((path) =>
-      path.agentId === agentId ? { agentId, mountPath, isDefault: false } : path,
-    ));
-    if (!existing) {
-      replaceWebSkillMountPaths([...listWebSkillMountPaths(), { agentId, mountPath, isDefault: false }]);
-    }
-    const migrated = listWebSkills()
-      .filter((skill) => skill.boundAgentIds.includes(agentId) && skill.enabled)
-      .map((skill) => skill.id);
-    return {
-      agentId,
-      oldMountPath,
-      newMountPath: mountPath,
-      migrated,
-      removed: migrated.map((skillId) => `${oldMountPath}/${skillId}`),
-      overwritten: [],
-      backedUp: [],
-      failed: [],
-    };
-  },
-
-  async createSkill(input) {
-    const normalized = validateWebSkillMutation(input, "user");
-    if (listWebSkills().some((skill) => skill.id === normalized.id && skillScopeMatches(skill, normalized))) {
-      throw new Error(`Skill already exists: ${normalized.id}`);
-    }
-    for (const agentId of normalized.boundAgentIds) requireAgentKind(agentId, "cli");
-    const skill = mutationToSkill(normalized);
-    return hydrateSkillBindings(upsertWebSkill(skill));
-  },
-
-  async updateSkill(skillId, input: SkillUpdateInput) {
-    validateWebSkillMetadata(input.metadata);
-    if (input.metadata.id !== skillId) {
-      throw new Error(tr("web.error.skillIdImmutable"));
-    }
-    const current = findWebSkill(skillId, input);
-    if (current.contentHash !== input.expectedContentHash) {
-      throw new Error(`Skill changed since it was loaded: ${skillId}`);
-    }
-    writeWebSkillDocument(skillDocumentKey(current), input.body);
-    const updated: Skill = {
-      ...current,
-      metadata: {
-        ...input.metadata,
-        aliases: input.metadata.aliases ?? [],
-        type: input.metadata.type ?? "role",
-        delivery: input.metadata.delivery ?? "eager",
-        compatibilityDefaults: input.metadata.compatibilityDefaults ?? {
-          skillType: input.metadata.type == null,
-          delivery: input.metadata.delivery == null,
-        },
-      },
-      availability: input.metadata.type === "utility" ? "unsupported" : "available",
-      delegationCapability: input.metadata.type === "utility"
-        ? { supported: false, reason: "native-runtime-unavailable" }
-        : { supported: false, reason: "not-utility" },
-      contentHash: nextWebSkillHash(skillId),
-      updatedAt: nowIso(),
-    };
-    return hydrateSkillBindings(upsertWebSkill(updated));
-  },
-
-  async deleteSkill(skillId, input) {
-    const current = findWebSkill(skillId, input);
-    if (current.source === "builtin") {
-      markWebBuiltinSkillDeleted(skillId);
-    }
-    replaceWebSkills(listWebSkills().filter((skill) => !(skill.id === skillId && skillScopeMatches(skill, input))));
-    deleteWebSkillDocument(skillDocumentKey(current));
-    replaceWebSkillApiAgentBindings(listWebSkillApiAgentBindings().filter(
-      (binding) =>
-        !(
-          binding.skillId === current.id &&
-          binding.scope === current.scope &&
-          binding.workspacePath === current.workspacePath
-        ),
-    ));
-  },
-
-  async restoreBuiltinSkill(skillId) {
-    const seed = webBuiltinSkillSeeds.find((candidate) => candidate.id === skillId);
-    if (!seed) {
-      throw new Error(`Unknown built-in Skill: ${skillId}`);
-    }
-    if (!isWebBuiltinSkillDeleted(skillId)) {
-      throw new Error(`Built-in Skill is not eligible for restore: ${skillId}`);
-    }
-    if (listWebSkills().some((skill) => skill.id === skillId && skill.scope === "global")) {
-      throw new Error(`Skill already exists: ${skillId}`);
-    }
-    clearWebBuiltinSkillDeleted(skillId);
-    const restored = {
-      ...mutationToSkill({
-      id: seed.id,
-      scope: "global",
-      workspacePath: null,
-      metadata: {
-        id: seed.id,
-        name: seed.name,
-        description: seed.description,
-        category: seed.category,
-        version: "1.0.0",
-        triggers: seed.triggers,
-      },
-      body: `Web mock restored content for ${seed.id}.`,
-      enabled: true,
-      boundAgentIds: [],
-      source: "builtin",
-      }),
-      layer: "system" as const,
-      origin: "shipped" as const,
-      immutable: true,
-    };
-    return hydrateSkillBindings(upsertWebSkill(restored));
-  },
-
-  async setSkillEnabled(skillId, input, enabled) {
-    const current = findWebSkill(skillId, input);
-    const availability = !enabled
-      ? "disabled" as const
-      : current.metadata.type === "utility" ? "unsupported" as const : "available" as const;
-    const updated = { ...current, enabled, availability, updatedAt: nowIso() };
-    return hydrateSkillBindings(upsertWebSkill(updated));
-  },
-
-  async setSkillAgentBindings(skillId, input, agentIds) {
-    for (const agentId of agentIds) requireAgentKind(agentId, "cli");
-    const current = findWebSkill(skillId, input);
-    const updated = { ...current, boundAgentIds: [...agentIds], updatedAt: nowIso() };
-    return hydrateSkillBindings(upsertWebSkill(updated));
-  },
-
-  async bindSkillToCliAgent(skillId, input, agentId) {
-    requireAgentKind(agentId, "cli");
-    const current = findWebSkill(skillId, input);
-    if (current.boundAgentIds.includes(agentId)) return hydrateSkillBindings(current);
-    const updated = {
-      ...current,
-      boundAgentIds: [...current.boundAgentIds, agentId].sort(),
-      updatedAt: nowIso(),
-    };
-    return hydrateSkillBindings(upsertWebSkill(updated));
-  },
-
-  async unbindSkillFromCliAgent(skillId, input, agentId) {
-    requireAgentKind(agentId, "cli");
-    const current = findWebSkill(skillId, input);
-    const updated = {
-      ...current,
-      boundAgentIds: current.boundAgentIds.filter((id) => id !== agentId),
-      updatedAt: nowIso(),
-    };
-    return hydrateSkillBindings(upsertWebSkill(updated));
-  },
-
-  async bindSkillToApiAgent(skillId, input, agentId) {
-    requireAgentKind(agentId, "api");
-    const skill = findWebSkill(skillId, input);
-    const alreadyBound = listWebSkillApiAgentBindings().some(
-      (binding) =>
-        binding.skillId === skill.id &&
-        binding.scope === skill.scope &&
-        binding.workspacePath === skill.workspacePath &&
-        binding.agentId === agentId,
-    );
-    if (!alreadyBound) {
-      replaceWebSkillApiAgentBindings([
-        ...listWebSkillApiAgentBindings(),
-        { skillId: skill.id, scope: skill.scope, workspacePath: skill.workspacePath, agentId },
-      ]);
-    }
-  },
-
-  async unbindSkillFromApiAgent(skillId, input, agentId) {
-    requireAgentKind(agentId, "api");
-    const skill = findWebSkill(skillId, input);
-    replaceWebSkillApiAgentBindings(listWebSkillApiAgentBindings().filter(
-      (binding) =>
-        !(
-          binding.skillId === skill.id &&
-          binding.scope === skill.scope &&
-          binding.workspacePath === skill.workspacePath &&
-          binding.agentId === agentId
-        ),
-    ));
-  },
-
-  async listSkillApiAgentBindings(skillId, input) {
-    const skill = findWebSkill(skillId, input);
-    return listWebSkillApiAgentBindings()
-      .filter(
-        (binding) =>
-          binding.skillId === skill.id &&
-          binding.scope === skill.scope &&
-          binding.workspacePath === skill.workspacePath,
-      )
-      .map((binding) => binding.agentId);
-  },
-
-  async previewSkill(skillId, input): Promise<SkillPreview> {
-    const skill = hydrateSkillBindings(findWebSkill(skillId, input));
-    return {
-      id: skill.id,
-      scope: skill.scope,
-      workspacePath: skill.workspacePath,
-      path: skill.skillMdPath,
-      content: buildSkillContent(skill),
-      layer: skill.layer,
-      origin: skill.origin,
-      availability: skill.availability,
-      immutable: skill.immutable,
-      shadowedDefinitions: skill.shadowedDefinitions.map((definition) => ({ ...definition })),
-    };
-  },
-
-  async loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome> {
-    const resolved = findProgressiveWebSkill(input);
-    if ("status" in resolved) return resolved;
-    const body = readWebSkillDocument(skillDocumentKey(resolved)) ?? "";
-    const baseUri = `skill://${resolved.id}/`;
-    const expanded = body.replaceAll("{skill_base_dir}", baseUri);
-    const characters = [...expanded];
-    const timestamp = nowIso();
-    upsertWebSkill({
-      ...resolved,
-      usage: {
-        ...resolved.usage,
-        viewCount: resolved.usage.viewCount + 1,
-        lastViewedAt: timestamp,
-        revisionWitness: `${resolved.usage.revisionWitness ?? "web-usage"}-view`,
-      },
-    });
-    return {
-      status: "loaded",
-      result: {
-        id: resolved.id,
-        name: resolved.metadata.name,
-        content: characters.slice(0, 12_000).join(""),
-        truncated: characters.length > 12_000,
-        revision: resolved.contentHash,
-        baseUri,
-        resources: webSkillResources(resolved.id),
-      },
-    };
-  },
-
-  async readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome> {
-    const match = /^skill:\/\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(.+)$/.exec(input.uri);
-    if (!match) {
-      return {
-        status: "refused",
-        refusal: { requested: input.uri, canonicalId: null, reason: "invalid-uri", conflictingIds: [] },
-      };
-    }
-    const skillId = match[1];
-    const resolved = findProgressiveWebSkill({ idOrAlias: skillId, workspacePath: input.workspacePath });
-    if ("status" in resolved) return resolved;
-    if (resolved.contentHash !== input.revision) {
-      return {
-        status: "refused",
-        refusal: { requested: input.uri, canonicalId: skillId, reason: "stale-revision", conflictingIds: [] },
-      };
-    }
-    const content = readWebSkillResourceDocument(input.uri);
-    if (content == null || !webSkillResources(skillId).references.concat(
-      webSkillResources(skillId).templates,
-      webSkillResources(skillId).scripts,
-      webSkillResources(skillId).assets,
-    ).some((entry) => entry.uri === input.uri)) {
-      return {
-        status: "refused",
-        refusal: { requested: input.uri, canonicalId: skillId, reason: "unindexed-resource", conflictingIds: [] },
-      };
-    }
-    return {
-      status: "read",
-      result: {
-        id: skillId,
-        uri: input.uri,
-        revision: input.revision,
-        content,
-        sizeBytes: new TextEncoder().encode(content).byteLength,
-      },
-    };
-  },
-
-  async importSkill(input: SkillImportInput) {
-    const sourcePath = normalizeWebPath(input.sourcePath, "External Skill directory");
-    const id = sourcePath.split("/").at(-1) ?? "";
-    const location = normalizeWebSkillLocation(input);
-    const destinationRoot = location.scope === "global"
-      ? "~/.vanehub/skills"
-      : `${location.workspacePath}/.vanehub/skills`;
-    const destination = normalizeWebPath(`${destinationRoot}/${id}`, "Managed Skill destination");
-    if (webPathsOverlap(sourcePath, destination)) {
-      throw new Error("External Skill source overlaps the managed Skill destination");
-    }
-    const mutation = validateWebSkillMutation({
-      id,
-      scope: location.scope,
-      workspacePath: location.workspacePath,
-      metadata: {
-        id,
-        name: id,
-        description: tr("web.skill.importedDescription"),
-        category: "imported",
-        version: "1.0.0",
-        triggers: [],
-      },
-      body: tr("web.skill.importedBody"),
-      enabled: input.enabled,
-      boundAgentIds: input.boundAgentIds,
-      source: "imported",
-    }, "imported");
-    if (listWebSkills().some((skill) => skill.id === id && skillScopeMatches(skill, mutation))) {
-      throw new Error(`Skill already exists: ${id}`);
-    }
-    for (const agentId of mutation.boundAgentIds) requireAgentKind(agentId, "cli");
-    return hydrateSkillBindings(upsertWebSkill(mutationToSkill(mutation)));
-  },
-
-  async getSkillOverlaySummary(input) {
-    return webSkillOverlayRuntime.getSummary(input);
-  },
-
-  async getSkillOverlayDetail(input) {
-    return webSkillOverlayRuntime.getDetail(input);
-  },
-
-  async previewSkillOverlay(input) {
-    return webSkillOverlayRuntime.preview(input);
-  },
-
-  async getSkillOverlayHistory(input) {
-    return webSkillOverlayRuntime.getHistory(input);
-  },
-
-  async createSkillOverlayPatch(input) {
-    return webSkillOverlayRuntime.createPatch(input);
-  },
-
-  async createSkillOverlayGuidance(input) {
-    return webSkillOverlayRuntime.createGuidance(input);
-  },
-
-  async addSkillOverlayFile(input) {
-    return webSkillOverlayRuntime.addFile(input);
-  },
-
-  async replaceSkillOverlayFile(input) {
-    return webSkillOverlayRuntime.replaceFile(input);
-  },
-
-  async importSkillOverlay(input) {
-    return webSkillOverlayRuntime.importOverlay(input);
-  },
-
-  async promoteSkillOverlay(input) {
-    return webSkillOverlayRuntime.promote(input);
-  },
-
-  async disableSkillOverlayMutation(input) {
-    return webSkillOverlayRuntime.disable(input);
-  },
-
-  async revertSkillOverlayMutation(input) {
-    return webSkillOverlayRuntime.revert(input);
-  },
-
-  async previewSkillOverlayReconciliation(input) {
-    return webSkillOverlayRuntime.previewReconciliation(input);
-  },
-
-  async reconcileSkillOverlay(input) {
-    return webSkillOverlayRuntime.reconcile(input);
-  },
+  ...webSkillCatalogClient,
+  ...webSkillBindingClient,
+  ...webSkillOverlayClient,
 
   async selectWorkspaceDirectory() {
     return "D:\\\\example-workspace";
