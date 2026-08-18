@@ -1307,9 +1307,10 @@ fn read_final_output(path: Option<&Path>) -> Option<String> {
 }
 
 fn executable_name(executable: &str) -> String {
-    Path::new(executable)
-        .file_name()
-        .and_then(|value| value.to_str())
+    executable
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|value| !value.is_empty())
         .unwrap_or("unknown")
         .to_string()
 }
