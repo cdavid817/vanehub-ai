@@ -1,0 +1,13 @@
+[book]
+title = "VaneHub AI 开发者指南"
+authors = ["VaneHub AI contributors"]
+language = "zh-CN"
+src = "src"
+
+[build]
+build-dir = "../../../.docs-build/developer/zh-CN"
+
+[output.html]
+git-repository-url = "https://github.com/cdavid817/vanehub-ai"
+no-section-label = true
+smart-punctuation = true

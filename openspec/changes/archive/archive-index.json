@@ -2892,6 +2892,58 @@
                                               "hybrid-local-model-runtime",
                                               "onepiece-native-agent"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-18",
+                         "changeName":  "extract-api-adapter-inline-tests",
+                         "path":  "openspec/changes/archive/2026-08-18-extract-api-adapter-inline-tests/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-18",
+                         "changeName":  "freeze-large-file-line-budgets",
+                         "path":  "openspec/changes/archive/2026-08-18-freeze-large-file-line-budgets/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "repository-governance"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-18",
+                         "changeName":  "split-database-migrations",
+                         "path":  "openspec/changes/archive/2026-08-18-split-database-migrations/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-18",
+                         "changeName":  "split-web-agent-client",
+                         "path":  "openspec/changes/archive/2026-08-18-split-web-agent-client/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
                      }
                  ]
 }
