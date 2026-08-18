@@ -162,6 +162,36 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 如果 Agent 在会话中提示要登录，去对应的 CLI 里完成认证，然后回到 VaneHub AI 刷新检测。
 
+## 各 CLI 常见参数参考
+
+五个外部 CLI 各自有命令行参数,供在 VaneHub AI 中排查启动参数、脚本化调用时参考。各 CLI 更新较快,`--help` 常滞后于实际支持,完整清单以对应官方 CLI Reference 为准。
+
+| 功能 | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
+| --- | --- | --- | --- | --- | --- |
+| 非交互/单次执行 | `-p, --print` | `run "<prompt>"` | `exec "<prompt>"` | `-p, --prompt` | 无独立子命令,交互式为主 |
+| 指定模型 | `--model` | `-m, --model provider/model` | `-m, --model`/`--profile` | `-m, --model` | 无需指定,自动路由 |
+| 继续最近会话 | `-c, --continue` | `-c, --continue` | `resume --last` | `-r "latest"` | `-c` |
+| 按 ID 恢复会话 | `-r, --resume` | `-s, --session <id>` | `resume <id>` | `-r "<id>"` | `--conversation <id>` |
+| 跳过权限确认(高风险) | `--dangerously-skip-permissions` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo`/`--approval-mode yolo` | `--dangerously-skip-permissions` |
+| 沙箱/权限模式 | `--permission-mode` | agent 的 `permissions` 配置 | `--sandbox`, `--ask-for-approval` | `--sandbox`, `--approval-mode` | 内置审批模式 |
+| 输出格式(脚本用) | `--output-format json/stream-json` | `--format json` | `--json`, `--output-schema` | `-o, --output-format json` | —— |
+| 附加工作目录 | `--add-dir` | `--dir` | `--cd` | `--include-directories` | —— |
+| 版本/帮助 | `-v/--version`, `--help` | `-v/--version`, `-h/--help` | `codex --version` | `-v/--version`, `-h/--help` | `agy --version` |
+
+各 CLI 高频参数:
+
+- **Claude Code** —— `--model <alias|id>`(别名如 sonnet/opus/haiku)、`--permission-mode <default|acceptEdits|plan|bypassPermissions>`、`--allowedTools`/`--disallowedTools`、`--add-dir`、`--max-turns`/`--max-budget-usd`(仅 `-p`)、`--mcp-config`/`--strict-mcp-config`、`--worktree`/`--session-id`、`--verbose`。
+- **OpenCode** —— `-m, --model <provider/model>`(固定格式如 `anthropic/claude-sonnet-4-6`)、`--fork`(从某会话分叉)、`--format json`、`--attach <server-url>`(连到已运行 `opencode serve`)、`--agent <name>`、`serve --port --hostname`(无 UI HTTP 后端)。
+- **Codex CLI** —— `--profile <name>`(config.toml 预定义档)、`--sandbox <read-only|workspace-write|danger-full-access>`、`--ask-for-approval`、`--json`/`--output-schema`、`--ephemeral`(不落盘 rollout)、`--skip-git-repo-check`、`--image`(多模态)。
+- **Gemini CLI** —— `-m, --model`(别名 auto/pro/flash/flash-lite)、`--sandbox`/`-s`、`--approval-mode <default|auto_edit|yolo|plan>`、`--checkpointing`(改文件前快照,可 `/restore` 回滚)、`--include-directories`、`--extensions`、`--worktree`。
+- **Antigravity CLI** —— `agy -c`(继续上次)、`agy --conversation <id>`(恢复指定对话)、`agy --dangerously-skip-permissions`("Turbo 模式")。无需 `--model`(默认自动路由)。MCP/权限配置在 `~/.gemini/antigravity-cli/settings.json`。
+
+> **权限参数是重点**:五款 CLI 都有"跳过确认/自动批准"类参数。VaneHub 的权限模板(只读/标准/信任/Yolo)决定是否附加这些高风险参数,**安全策略优先于便利性配置**——详见[权限审批](permissions.md)。
+
+## 原生 Agent OnePiece 的"参数"
+
+OnePiece 不走外部 CLI,没有上述命令行参数。它的等价配置是 **provider Profile**(在**设置 → Agent 配置**里管理):选 provider 目录条目、填 API Key(保存前校验)、发现并选定模型、按需配自定义兼容端点。Profile 的生命周期与凭据回滚详见[开发者指南:OnePiece native Agent](../../../developer-guide/zh-CN/src/onepiece-native-agent.md)。
+
 ## Web 预览
 
 **状态：仅 Web/mock。** 浏览器预览展示确定性的可用性与执行 fixture，**不会检测也不会认证本地 CLI**。看到「已安装」不代表你机器上真的装了。
