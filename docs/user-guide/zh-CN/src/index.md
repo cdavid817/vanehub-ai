@@ -40,7 +40,7 @@
 | [OnePiece（原生 Agent）](native-agent.md) | 不装 CLI 也能用，配 provider、recall 与 Notebook 编辑 |
 | [可观测性](observability.md) | 执行链路、保真度、日志目录与脱敏 |
 | [远程与 IM](remote-and-im.md) | SSH 远程工作区、飞书/钉钉/企微/微信/Telegram |
-| [定时与用量](automation.md) | 按周期自动跑，以及 token 用量怎么看 |
+| [定时任务与用量统计](automation.md) | 按周期自动跑任务，以及 token 用量怎么看 |
 | [版本更新](app-updates.md) | 发布通道、签名校验与自动更新 |
 
 ## 参考
@@ -64,7 +64,7 @@
 
 ## 本指南不讲什么
 
-**内部实现与设计动机不在这里**。想了解架构如何切分、某个机制为什么这样设计、代码在哪，见[《VaneHub AI 开发者指南》](../../../developer-guide/src/index.md)——它面向开发者与贡献者，架构决策记录在 [Native 架构清单](../../../developer-guide/src/index.md) 指向的 `src-tauri/ARCHITECTURE.md`。
+**内部实现与设计动机不在这里**。想了解架构如何切分、某个机制为什么这样设计、代码在哪，见[《VaneHub AI 开发者指南》](../../../developer-guide/zh-CN/src/index.md)——它面向开发者与贡献者，架构决策记录在 [Native 架构清单](../../../developer-guide/zh-CN/src/index.md) 指向的 `src-tauri/ARCHITECTURE.md`。
 
 两者分工：
 
@@ -72,8 +72,8 @@
 | --- | --- |
 | 这个按钮点了会怎样 | 本指南 |
 | 出错了怎么办 | 本指南的[故障排查](troubleshooting.md) |
-| 这个功能为什么这样设计 | [开发者指南](../../../developer-guide/src/index.md) |
-| 代码在哪个文件 | [开发者指南](../../../developer-guide/src/index.md) |
+| 这个功能为什么这样设计 | [开发者指南](../../../developer-guide/zh-CN/src/index.md) |
+| 代码在哪个文件 | [开发者指南](../../../developer-guide/zh-CN/src/index.md) |
 
 ## 英文版
 

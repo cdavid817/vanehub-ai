@@ -29,7 +29,7 @@
 - [OnePiece（原生 Agent）](native-agent.md)
 - [可观测性](observability.md)
 - [远程与 IM](remote-and-im.md)
-- [定时与用量](automation.md)
+- [定时任务与用量统计](automation.md)
 - [版本更新](app-updates.md)
 
 # 参考

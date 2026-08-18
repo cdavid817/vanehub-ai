@@ -165,6 +165,30 @@ CLI Agent 的记忆提取由 OnePiece 代做——没配就不产生任何记忆
 
 那是**不可见**保真度——外部 CLI 的内部行为属于黑盒。系统只保留边界节点，不会虚构子节点。想要完整可展开的调用链，用 OnePiece。
 
+## 查看日志文件
+
+排查时除了界面里的**日志**标签（见[可观测性](observability.md)），还能直接看落盘的日志文件。
+
+### 日志在哪
+
+日志默认写在应用数据目录的 `logs/` 子目录下，主日志文件名固定为 `vanehub.log`，按天滚动，归档放在 `logs/archive/`，默认保留 30 天。各平台默认路径（应用标识 `ai.vanehub.app`）：
+
+| 平台 | 默认日志目录 |
+| --- | --- |
+| Windows | `%APPDATA%\ai.vanehub.app\logs` |
+| macOS | `~/Library/Application Support/ai.vanehub.app/logs` |
+| Linux | `~/.local/share/ai.vanehub.app/logs` |
+
+### 改日志目录
+
+**设置 → 基础配置**里可改「日志目录」（也可改「数据目录」）。改完重启后按新目录重建。
+
+### 日志内容与脱敏
+
+日志分四级：**错误 / 警告 / 信息 / 调试**。落盘前会脱敏——provider 密钥、Bearer 令牌、私有路径、命令参数等敏感信息会被替换为脱敏标记。因此有些排查场景里日志信息不足，可临时在**设置 → 执行可观测性**把采集策略切到「脱敏内容」。采集策略、保留天数等细节见[可观测性](observability.md)。
+
+> **日志与链路是分开的**：日志里刻意不含任何执行标识符（run/trace/span id），无法用链路 id 去搜日志，两者要用**时间**对上。
+
 ## 开发相关
 
 ### 本地截图和仓库里的不一致
@@ -177,7 +201,7 @@ npm run docs:screenshots:update
 
 ### 启动报 `no such table`
 
-多个 worktree 共用同一个数据库时，跨分支的迁移版本号可能撞车。见[《开发者指南》](../../../developer-guide/src/index.md)的开发环境搭建一章。
+多个 worktree 共用同一个数据库时，跨分支的迁移版本号可能撞车。见[《开发者指南》](../../../developer-guide/zh-CN/src/index.md)的开发环境搭建一章。
 
 ## 还是没解决
 

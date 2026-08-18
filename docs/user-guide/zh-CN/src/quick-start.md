@@ -6,19 +6,39 @@
 
 ## 1. 准备一个 CLI
 
-VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管 Provider 认证。至少装一个：
+VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管 Provider 认证。至少装一个。装法有两种：
+
+**方式 A：在 VaneHub AI 里装（推荐）**
+
+打开**设置 → CLI 管理**，每个 CLI 旁会按状态给出操作：**安装**、**升级**、**降级**、**已是当前版本**、**不可用**或**手动处理**。点**安装**即可，VaneHub AI 会用 npm 替你装好，装完刷新检测。
+
+> Antigravity CLI 没有 npm 包，界面不提供安装/升级操作，只能走方式 B 的官方安装脚本。
+
+**方式 B：手动装**
 
 ```powershell
 npm install -g @anthropic-ai/claude-code
 ```
 
-先在普通终端里跑一次并完成登录，确认它能接受提示词：
+其余 CLI（Codex CLI、Gemini CLI、OpenCode、Antigravity CLI）按各自官方说明安装。详见[安装并认证 CLI](getting-started.md)。
+
+## 1.5 认证 / 配置模型
+
+CLI Agent 和原生 Agent 的认证方式不同：
+
+**外部 CLI（Claude Code、Codex CLI、Gemini CLI 等）——在终端里完成官方登录**
+
+VaneHub AI 不替你走各家的登录流程，也不保存它们的凭据。先在普通终端里跑一次并完成认证：
 
 ```powershell
 claude
 ```
 
-其余 CLI（Codex CLI、Gemini CLI、OpenCode、Antigravity CLI）按各自官方说明安装。详见[安装并认证 CLI](getting-started.md)。
+按提示完成 Anthropic 订阅或 API 凭据登录即可。Codex CLI、Gemini CLI、OpenCode 同理，用各自的登录命令；Antigravity CLI 走 Google 登录并存入系统钥匙串。**在终端里跑不通的 CLI，在 VaneHub AI 里也一样跑不通。**
+
+**原生 Agent OnePiece——在设置里配第三方大模型**
+
+不想装 CLI 也能用。打开**设置 → Agent 配置**进入 OnePiece 配置面板：从 25 家 provider 目录（Anthropic、OpenAI 等官方及常用兼容端点）里选厂商，或填自定义兼容端点；填入 API Key——**保存前会实际调用一次校验，不通过不保存**；校验通过后拉取可用模型列表，选定即可。这里的 API Key 由 VaneHub AI 保存。详见[原生 API Agent](native-agent.md)。
 
 ## 2. 确认 VaneHub AI 检测到它
 
