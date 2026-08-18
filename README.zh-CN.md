@@ -114,7 +114,7 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | CLI 管理 | [各 CLI 的安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
 | CLI 参数 | [按 CLI Agent 配置启动参数与全局配置](docs/user-guide/zh-CN/src/tooling.md) |
 | 扩展能力 | [本地扩展安装/启用/禁用](docs/user-guide/zh-CN/src/tooling.md) |
-| 插件集成 | [插件集成管理](docs/user-guide/zh-CN/src/user-interface.md#设置中心) |
+| 插件集成 | [第三方插件的集成配置](docs/user-guide/zh-CN/src/tooling.md) |
 | MCP 服务器 | [MCP server 配置与按 Agent 绑定](docs/user-guide/zh-CN/src/tooling.md) |
 | Agent 配置 | [按 Agent 配置模型、权限模板、运行参数](docs/user-guide/zh-CN/src/user-interface.md#设置中心) |
 | 专家角色 | [角色与评审策略](docs/user-guide/zh-CN/src/personalization.md) |
