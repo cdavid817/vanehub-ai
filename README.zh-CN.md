@@ -157,7 +157,7 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | 测试与发布 | [测试、打包与发布流程](docs/developer-guide/zh-CN/src/testing-and-release.md) |
 | OpenSpec 工作流 | [提案→设计→delta spec→任务→校验→归档的变更流程](docs/developer-guide/zh-CN/src/openspec-workflow.md) |
 | Native API 参考 | [Rustdoc 生成的内部契约与所有权文档](docs/developer-guide/zh-CN/src/native-api-reference.md) |
-| 架构决策 | [ADR 真源（ARCHITECTURE.md）](src-tauri/ARCHITECTURE.md) |
+| 架构决策 | [仓库结构与模块导览、限界上下文与调用关系](docs/developer-guide/zh-CN/src/repository-orientation.md) |
 
 用户指南提供英文与简体中文两种语言。日文、繁体中文、韩文仅作为应用界面资源语言交付，不提供对应的用户指南。
 
