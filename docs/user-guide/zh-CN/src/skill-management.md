@@ -1,7 +1,5 @@
 # Skill 管理
 
-**状态：已实现——桌面端与 Web/mock 界面。** 桌面端会执行本地持久化、CLI Skill 挂载和 API Agent 提示词绑定；Web/mock 只模拟相同界面和状态变化，不会修改本机文件或运行时配置。
-
 ![设置中的 Skill 管理页面，左侧按 Agent 分组，右侧 Skill 列表](assets/screenshots/skills-zh-CN.png)
 
 ## 什么是 Skill
@@ -148,7 +146,4 @@ Skill 详情中的“演进证据”把 Agent 的结构化运行结果转成可�
 
 如果多个 Agent 都需要使用同一个 Skill，请逐个进入对应 Agent 页面完成分配。关闭“全部 Skill”中的“已启用”会暂停所有这些 Agent；它不是单个 Agent 的开关。
 
-## Runtime 差异
-
-- **桌面端：** 为 CLI Agent 分配 Skill 可能会在其 Skill 挂载目录执行文件系统操作；API Agent 分配会保存提示词绑定。操作失败时，错误会留在对应 Skill 行，分配状态不会提前变化。
-- **Web/mock：** 可以验证筛选、分配、移除和响应式界面，但所有结果都是内存模拟，不能作为本机文件或 native 配置已经改变的证据。
+为 CLI Agent 分配 Skill 可能会在其 Skill 挂载目录执行文件系统操作；API Agent 分配会保存提示词绑定。操作失败时，错误会留在对应 Skill 行，分配状态不会提前变化。
