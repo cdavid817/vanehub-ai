@@ -1,6 +1,5 @@
 import type {
   AgentMemory,
-  AgentRegistryEntry,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
@@ -14,7 +13,6 @@ import type {
   KnownProject,
   LaunchResult,
   ProjectInspection,
-  ReadinessStatus,
   UpdateSessionSeatsInput,
   Session,
   SessionCategory,
@@ -155,7 +153,6 @@ import type {
 import type {
   Skill,
   SkillAgentMountPath,
-  SkillDriftReport,
   SkillImportInput,
   SkillListResult,
   SkillLoadInput,
@@ -167,17 +164,8 @@ import type {
   SkillResourceReadInput,
   SkillResourceReadOutcome,
   SkillScopeInput,
-  SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
-import type {
-  SkillToolEnablementInput,
-  SkillToolOwnerInput,
-  SkillToolQuarantineInput,
-  SkillToolRevision,
-  SkillToolRevisionInput,
-  SkillToolTrustInput,
-} from "../types/skill-tools";
 import type {
   SkillOverlayDetail,
   SkillOverlayFileInput,
@@ -217,7 +205,9 @@ import type {
 } from "../types/lsp";
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
+import type { AgentRegistryService } from "./agent-registry-service";
 import type { CodeIndexService } from "./code-index-service";
+import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
@@ -234,7 +224,10 @@ export interface AgentService extends
   OnePieceProviderService,
   PromptHookService,
   ScheduledTaskService,
-  ContextQualityService {
+  ContextQualityService,
+  AgentRegistryService,
+  SkillGovernanceService,
+  SkillEvidenceService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -260,8 +253,6 @@ export interface AgentService extends
   getMissionControlRun(runId: string): Promise<MissionControlRunDetail>;
   performMissionControlAction(input: MissionControlActionInput): Promise<MissionControlActionReceipt>;
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
-  openExternalUrl(url: string): Promise<void>;
-  listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   deleteApiAgent(agentId: string): Promise<void>;
   /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
    * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
@@ -276,10 +267,8 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;
   selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;
-  checkBrowserReadiness(agentId: string): Promise<ReadinessStatus>;
   launchActiveWorkflow(): Promise<LaunchResult>;
   getSessionDetails(): Promise<SessionDetails>;
   listSessions(): Promise<Session[]>;
@@ -332,9 +321,6 @@ export interface AgentService extends
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  querySkillEvolutionEvidence(input: EvidenceQueryInput): Promise<EvidenceOverview>;
-  getSkillEvolutionSeedLineage(seedId: string, input: EvidenceQueryInput): Promise<EvidenceSeedLineage | null>;
-  purgeSkillEvolutionEvidence(input: PurgeEvidenceInput): Promise<PurgeEvidenceOutcome>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
@@ -391,13 +377,6 @@ export interface AgentService extends
   deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
-  listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]>;
-  validateSkillToolRevision(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
-  setSkillToolTrust(input: SkillToolTrustInput): Promise<SkillToolRevision>;
-  setSkillToolEnabled(input: SkillToolEnablementInput): Promise<SkillToolRevision>;
-  quarantineSkillTool(input: SkillToolQuarantineInput): Promise<SkillToolRevision>;
-  recoverSkillTool(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
-  getSkillToolDiagnostics(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
   createSkill(input: SkillMutationInput): Promise<Skill>;
@@ -415,8 +394,6 @@ export interface AgentService extends
   loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome>;
   readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome>;
   importSkill(input: SkillImportInput): Promise<Skill>;
-  detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;
-  syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
   getSkillOverlaySummary(input: SkillOverlayTargetInput): Promise<SkillOverlaySummary>;
   getSkillOverlayDetail(input: SkillOverlayTargetInput): Promise<SkillOverlayDetail>;
   previewSkillOverlay(input: SkillOverlayPreviewInput): Promise<SkillOverlayPreview>;

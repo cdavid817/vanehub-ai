@@ -45,7 +45,6 @@ import type {
 } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
-import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
@@ -78,6 +77,12 @@ import { webCliParameterClient } from "./web-cli-parameter-client";
 import { webCliConfigClient } from "./web-cli-config-client";
 import { webScheduledTaskClient } from "./web-scheduled-task-client";
 import { webContextQualityClient } from "./web-context-quality-client";
+import { webSkillGovernanceClient } from "./web-skill-governance-client";
+import { webSkillEvidenceClient } from "./web-skill-evidence-client";
+import { webAgentRegistryClient } from "./web-agent-registry-client";
+import { normalizeWebPath, normalizeWebSkillLocation } from "./web-skill-location";
+
+export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
 import {
   findWebCliConfigProfile,
   requireCliConfigAgentId,
@@ -97,7 +102,6 @@ import type {
   Skill,
   SkillAccessRefusalReason,
   SkillAgentMountPath,
-  SkillDriftReport,
   SkillImportInput,
   SkillListResult,
   SkillLoadInput,
@@ -112,10 +116,8 @@ import type {
   SkillScope,
   SkillScopeInput,
   SkillSource,
-  SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
-import type { SkillToolOwnerInput, SkillToolRevision } from "../types/skill-tools";
 import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
 import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
@@ -435,40 +437,6 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
   };
 });
 
-const webSkillToolInspection: SkillToolRevision[] = [
-  {
-    skillId: "code-review",
-    toolId: "inspect-diff",
-    canonicalId: `skill__code-review__inspect-diff__${"f".repeat(12)}`,
-    revision: "f".repeat(64),
-    sourceScope: "global",
-    implementationKind: "declarative",
-    baseRevision: "web-inspection-only",
-    manifestHash: `sha256:${"a".repeat(64)}`,
-    implementationHash: `sha256:${"b".repeat(64)}`,
-    capabilityDigest: "web-inspection-only",
-    validation: "valid",
-    trusted: false,
-    enabled: false,
-    quarantined: false,
-    consecutiveFailures: 0,
-    diagnostics: [],
-    runtimeSupport: "unsupported-web-runtime",
-    enforcementStrength: "bounded-native-io",
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-  },
-];
-
-function webSkillToolUnsupported(): never {
-  throw new Error("unsupported-web-runtime");
-}
-
-function webSkillToolByRevision(revision: string): SkillToolRevision {
-  const tool = webSkillToolInspection.find((candidate) => candidate.revision === revision);
-  if (!tool) throw new Error("skill-tool-not-found");
-  return structuredClone(tool);
-}
 
 webSkills.push({
   ...webSkills[0],
@@ -538,7 +506,6 @@ let webSkillApiAgentBindings: Array<{
 }> = [];
 
 const deletedBuiltinSkillIds = new Set<string>();
-const purgedEvidenceScopes = new Set<string>();
 
 /** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
  * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
@@ -743,32 +710,6 @@ function upsertKnownRemoteWorkspace(remoteWorkspace: RemoteWorkspace) {
   return known;
 }
 
-function normalizeWebPath(value: string, label: string) {
-  const raw = value.trim().replaceAll("\\", "/");
-  if (!raw) throw new Error(`${label} is required`);
-  const drive = raw.match(/^[a-zA-Z]:/)?.[0];
-  const absolute = raw.startsWith("/") || Boolean(drive);
-  const remainder = drive ? raw.slice(drive.length) : raw;
-  const segments: string[] = [];
-  for (const segment of remainder.split("/")) {
-    if (!segment || segment === ".") continue;
-    if (segment === "..") {
-      if (segments.length > 0 && segments.at(-1) !== "..") segments.pop();
-      else if (!absolute) segments.push(segment);
-      continue;
-    }
-    segments.push(segment);
-  }
-  const prefix = drive ? drive.toUpperCase() : raw.startsWith("/") ? "/" : "";
-  const normalized = `${prefix}${prefix && prefix !== "/" && segments.length > 0 ? "/" : ""}${segments.join("/")}`;
-  if (!normalized) throw new Error(`${label} is required`);
-  return normalized;
-}
-
-function normalizeWebSkillLocation(input: SkillScopeInput): SkillScopeInput {
-  if (input.scope === "global") return { scope: "global", workspacePath: null };
-  return { scope: "workspace", workspacePath: normalizeWebPath(input.workspacePath ?? "", "Workspace path") };
-}
 
 function validateWebSkillMetadata(metadata: SkillMetadata) {
   if (!/^(?!-)[a-z0-9-]+(?<!-)$/.test(metadata.id)) {
@@ -1435,10 +1376,6 @@ export function resetWebLoopsForTest() {
   nextLoopEvidenceId = 1;
 }
 
-export function resetWebEvidenceForTest() {
-  purgedEvidenceScopes.clear();
-}
-
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
   const run = findLoopRun(runId);
   if (!["queued", "running", "awaiting-acceptance"].includes(run.status)) {
@@ -1929,6 +1866,9 @@ export const webAgentClient: AgentService = {
   ...webCliConfigClient,
   ...webScheduledTaskClient,
   ...webContextQualityClient,
+  ...webSkillGovernanceClient,
+  ...webSkillEvidenceClient,
+  ...webAgentRegistryClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
   saveDesktopUpdatePreferences: webDesktopUpdateClient.savePreferences,
@@ -1996,16 +1936,6 @@ export const webAgentClient: AgentService = {
     }
     if (input.action === "verify") return { run: webMissionSummary(current), operationId: `web-verification-${current.id}` };
     throw new Error("mission control action is unsupported");
-  },
-  async openExternalUrl(url) {
-    const target = requireHttpsExternalUrl(url);
-    const opened = window.open(target, "_blank", "noopener,noreferrer");
-    if (!opened) throw new Error("The browser blocked the external link.");
-  },
-  async listAgents(capabilityTag) {
-    return capabilityTag
-      ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
-      : mockAgents;
   },
 
   async deleteApiAgent(agentId: string) {
@@ -2128,10 +2058,6 @@ export const webAgentClient: AgentService = {
     webExpertRoles = webExpertRoles.filter((candidate) => candidate.id !== roleId);
   },
 
-  async getAgentById(agentId) {
-    return mockAgents.find((agent) => agent.id === agentId) ?? null;
-  },
-
   async getWorkflowState() {
     return workflowState;
   },
@@ -2151,16 +2077,6 @@ export const webAgentClient: AgentService = {
       lifecycleState: "idle",
     };
     return workflowState;
-  },
-
-  async checkBrowserReadiness(agentId: string) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    const supportsBrowser = agent?.supportedInteractionModes.includes("browser") ?? false;
-    return {
-      ready: supportsBrowser,
-      reason: supportsBrowser ? undefined : "This agent does not support browser interaction mode.",
-      requiresAuthentication: supportsBrowser,
-    };
   },
 
   async launchActiveWorkflow() {
@@ -3362,62 +3278,6 @@ export const webAgentClient: AgentService = {
     return message.feedback;
   },
 
-  async querySkillEvolutionEvidence(input) {
-    const skillId = input.skillId ?? "review";
-    const scenario = input.workspace?.startsWith("mock://") ? input.workspace.slice(7) : "healthy";
-    const scopeKey = `${input.workspace ?? ""}|${skillId}`;
-    const empty = scenario === "empty" || scenario === "disabled" || purgedEvidenceScopes.has(scopeKey);
-    const allSignals = empty ? [] : [
-      { signalId: "mock-signal-3", sourceKind: "plan_verification", category: "verification_outcome", polarity: "positive", severity: "low", attribution: "verified", attributionRationale: "exact_native_observation", sourceFidelity: "native", sourceAgentId: "onepiece", extractorId: "verification_outcome", extractorVersion: 1, safeSummary: "test verification passed; checks=8", occurredAt: "2026-08-13T10:03:00Z", sanitizerVersion: 1, associationTruncatedCount: 0, sourceLinkTruncatedCount: 0 },
-      { signalId: "mock-signal-2", sourceKind: "managed_cli", category: "execution_failure", polarity: "negative", severity: "high", attribution: "correlated", attributionRationale: "binding_and_mount_snapshot", sourceFidelity: "proxied", sourceAgentId: "codex-cli", extractorId: "execution_failure", extractorVersion: 1, safeSummary: "process failed with sandbox classification", occurredAt: "2026-08-13T10:02:00Z", sanitizerVersion: 1, associationTruncatedCount: 1, sourceLinkTruncatedCount: 0 },
-      { signalId: "mock-signal-1", sourceKind: "native_execution", category: "execution_failure", polarity: "negative", severity: "high", attribution: "verified", attributionRationale: "exact_native_observation", sourceFidelity: "native", sourceAgentId: "onepiece", extractorId: "execution_failure", extractorVersion: 1, safeSummary: `${skillId} tool failed with sandbox classification`, occurredAt: "2026-08-13T10:01:00Z", sanitizerVersion: 1, associationTruncatedCount: 0, sourceLinkTruncatedCount: 0 },
-    ];
-    const offset = input.cursor ? Number.parseInt(input.cursor.replace("mock-", ""), 10) || 0 : 0;
-    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
-    const signals = allSignals.slice(offset, offset + limit);
-    const distributions: Record<string, Record<string, number>> = empty ? {} : {
-      category: { execution_failure: 2, verification_outcome: 1 },
-      attribution_strength: { correlated: 1, verified: 2 },
-      extractor_id: { execution_failure: 2, verification_outcome: 1 },
-      source_agent_id: { "codex-cli": 1, onepiece: 2 },
-    };
-    return {
-      signalCount: allSignals.length,
-      seedCount: empty ? 0 : 1,
-      firstOccurredAt: allSignals.at(-1)?.occurredAt,
-      lastOccurredAt: allSignals[0]?.occurredAt,
-      distributions,
-      signals,
-      seeds: empty ? [] : [{ seedId: "mock-seed-1", category: "execution_failure", readiness: "ready", readinessReason: "verified_recovery_delta", safeSummary: "execution_failure pattern; signals=3 runs=2 recovery=true", signalCount: 3, truncatedSignalCount: 0, independentRunCount: 2, hasRecovery: true, firstOccurredAt: "2026-08-13T10:01:00Z", lastOccurredAt: "2026-08-13T10:03:00Z", createdAt: "2026-08-13T10:04:00Z" }],
-      nextCursor: offset + signals.length < allSignals.length ? `mock-${offset + signals.length}` : undefined,
-      pipeline: { collectionEnabled: scenario !== "disabled", status: scenario === "disabled" ? "disabled" as const : scenario === "degraded" || scenario === "quota" ? "degraded" as const : "healthy" as const, queueDepth: scenario === "degraded" ? 12 : 0, failureCount: scenario === "degraded" ? 2 : 0 },
-      retentionDays: 90,
-      signalQuota: 10_000,
-      seedQuota: 2_000,
-      byteQuota: 64 * 1024 * 1024,
-      droppedCount: scenario === "quota" ? 7 : 0,
-      expiredCount: 0,
-    };
-  },
-
-  async getSkillEvolutionSeedLineage(seedId, input) {
-    const overview = await this.querySkillEvolutionEvidence(input);
-    const seed = overview.seeds.find((candidate) => candidate.seedId === seedId);
-    return seed ? { seed, signals: overview.signals } : null;
-  },
-
-  async purgeSkillEvolutionEvidence(input) {
-    if (!input.confirmed) throw new Error("Evidence purge requires confirmation");
-    const current = await this.querySkillEvolutionEvidence({ workspace: input.workspace, skillId: input.skillId });
-    purgedEvidenceScopes.add(`${input.workspace ?? ""}|${input.skillId}`);
-    return {
-      operationId: input.operationId,
-      deletedSignals: current.signalCount,
-      deletedSeeds: current.seedCount,
-      deletedFeedback: 0,
-    };
-  },
-
   async getUsageStatistics(input) {
     return aggregateWebUsageStatistics(input.range);
   },
@@ -3610,41 +3470,6 @@ export const webAgentClient: AgentService = {
       drift: await this.detectSkillDrift(input),
       restoreCandidates: input.scope === "global" ? [...deletedBuiltinSkillIds].sort() : [],
     };
-  },
-
-  async listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]> {
-    return webSkillToolInspection
-      .filter(
-        (tool) =>
-          tool.skillId === input.skillId &&
-          tool.sourceScope === input.scope &&
-          (tool.workspacePath ?? null) === (input.workspacePath ?? null),
-      )
-      .map((tool) => structuredClone(tool));
-  },
-
-  async validateSkillToolRevision() {
-    return webSkillToolUnsupported();
-  },
-
-  async setSkillToolTrust() {
-    return webSkillToolUnsupported();
-  },
-
-  async setSkillToolEnabled() {
-    return webSkillToolUnsupported();
-  },
-
-  async quarantineSkillTool() {
-    return webSkillToolUnsupported();
-  },
-
-  async recoverSkillTool() {
-    return webSkillToolUnsupported();
-  },
-
-  async getSkillToolDiagnostics(input) {
-    return webSkillToolByRevision(input.revision);
   },
 
   async listSkillMountPaths() {
@@ -3976,30 +3801,6 @@ export const webAgentClient: AgentService = {
     }
     for (const agentId of mutation.boundAgentIds) requireAgentKind(agentId, "cli");
     return hydrateSkillBindings(upsertWebSkill(mutationToSkill(mutation)));
-  },
-
-  async detectSkillDrift(input): Promise<SkillDriftReport> {
-    const location = normalizeWebSkillLocation(input);
-    const issues: SkillDriftReport["issues"] = [];
-    return {
-      scope: location.scope,
-      workspacePath: location.workspacePath ?? null,
-      issues,
-      driftHash: `web-${issues.length}`,
-    };
-  },
-
-  async syncSkillDrift(input): Promise<SkillSyncResult> {
-    const report = await this.detectSkillDrift(input);
-    return {
-      mounted: [],
-      unmounted: [],
-      overwritten: [],
-      backedUp: [],
-      restored: [],
-      failed: [],
-      resolvedFrom: report,
-    };
   },
 
   async getSkillOverlaySummary(input) {
