@@ -1279,10 +1279,12 @@ fn native_agent_runtime_injects_configured_lsp_responder_into_normal_and_plan_ca
     let native_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let bootstrap = fs::read_to_string(native_root.join("src/bootstrap/agent_runtime.rs"))
         .expect("read agent runtime bootstrap");
+    // The behavior tests this guard leans on live in the adapter's child test module, not in
+    // the adapter itself (`extract-api-adapter-inline-tests`).
     let adapter = fs::read_to_string(
-        native_root.join("src/contexts/agent_runtime/infrastructure/api_process_adapter.rs"),
+        native_root.join("src/contexts/agent_runtime/infrastructure/api_process_adapter/tests.rs"),
     )
-    .expect("read API process adapter");
+    .expect("read API process adapter tests");
 
     for behavior_test in [
         "normal_generation_registers_all_read_only_lsp_tools_when_available",
@@ -2067,7 +2069,7 @@ struct SubtreeBudget {
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
-        budget: 13_927,
+        budget: 5_720,
         owner: "extract-api-adapter-inline-tests",
     },
     PathBudget {
@@ -2090,7 +2092,7 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
 const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 58_116,
+        budget: 58_072,
         owner: "extract-api-adapter-inline-tests",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
