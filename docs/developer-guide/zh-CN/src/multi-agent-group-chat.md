@@ -154,9 +154,22 @@ npx playwright test tests/e2e/multi-agent-session.spec.ts --headed
 npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 ```
 
-用户指南中的[群组聊天协作案例](../../../user-guide/en/src/multi-agent-testing-tutorial.md)以手工方式走查同样的内容,其检查点与本套件的用例对应。除此之外,此处的改动需运行仓库的完整验证集合——见 [测试、打包与发布](testing-and-release.md)。
+用户指南中的[群组聊天协作案例](../../../user-guide/zh-CN/src/multi-agent-testing-tutorial.md)以手工方式走查同样的内容,其检查点与本套件的用例对应。除此之外,此处的改动需运行仓库的完整验证集合——见 [测试、打包与发布](testing-and-release.md)。
 
 **Web/mock 验证接口、席位变更和 `@` 补全,但不启动 CLI**。真实的 Agent 回复和自动交接需要 Tauri 桌面运行时。
+
+## 席位 Agent 的运行时形态
+
+群聊里的席位可以绑定内置 CLI Agent 或 OnePiece 原生 Agent,两者的运行时形态不同,但都纳入同一套席位/交接/简报机制:
+
+| 维度 | 内置 CLI Agent 席位 | OnePiece 原生 Agent 席位 |
+| --- | --- | --- |
+| 启动方式 | 走 Agent Terminal(PTY 子进程),VaneHub 启动并管理 CLI 进程 | 直接在应用内通过 HTTP 调用 provider,不启动外部进程 |
+| 上下文投递 | 按 `Resume`(续接)/`Inject`(注入)模式,在字符预算内保留最近轮次 | 同样的 `Resume`/`Inject` 机制,经 `AgentSkillPort`/上下文引擎组装 system prompt |
+| 可观测性 | CLI 内部是黑盒,链路只到边界(不可见保真度) | 原生保真度,工具调用可在链路逐层展开 |
+| 模型族判定 | `claude-code`→Anthropic、`codex-cli`→OpenAI、`gemini-cli`/`antigravity-cli`→Google、`opencode`→Unknown | 按其 active Profile 的 provider 判定 |
+
+席位简报(`build_seat_briefing`)对两种形态一视同仁:每个席位发言前收到同场名单(句柄、角色名、Agent 名、模型族、职责、指令);职责字段必填。`@` 交接解析(`parse_handoff_mentions`)也统一基于回复文本中的行首 `@` 提及,不因 Agent 形态不同而分支。**Web/mock 只验证接口、席位变更与 `@` 补全,不启动 CLI**——真实的 Agent 回复与自动交接需要 Tauri 桌面运行时。
 
 ## 主要代码位置索引
 

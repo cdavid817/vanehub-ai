@@ -110,6 +110,20 @@ provider 未声明的能力不会被静默假设为存在。
 1. 先查 `AgentAvailability`,不可用直接拒绝并带原因
 2. 再查该 Agent 是否声明了目标 `InteractionMode`,不支持则拒绝
 
+## 单 Agent 会话的运行时形态
+
+单 Agent 会话里,选定的 Agent 按 `AgentRuntimeKind` 走不同的运行时路径:
+
+| 维度 | 内置 CLI Agent(`Cli`) | OnePiece 原生 Agent(`NativeDesktop`) |
+| --- | --- | --- |
+| 进程 | VaneHub 启动并管理 CLI 子进程(经 Agent Terminal / PTY),真正的代码生成由 CLI 完成 | 不启动外部进程,直接在应用内通过 HTTP 调用 active Profile 配置的 provider |
+| 认证 | 由各 CLI 自行管理,VaneHub 不保存其凭据 | API Key 由 VaneHub 保存(Profile scoped 凭据) |
+| Skill | 经统一 Skill 体系,覆盖层治理后注入 | 经 `AgentSkillPort` 消费生效视图:eager 注入 system prompt,on-demand 经固定只读工具加载 |
+| MCP | Claude Code/Codex CLI 走中继;其余各自配置 | native 工具目录直接纳入可见且 active 的 MCP 工具 |
+| 可观测性 | CLI 内部黑盒,链路只到边界 | 原生保真度,工具调用可逐层展开 |
+
+CLI Agent 的 PTY 与启动详见[终端与 PTY 运行时](terminal-runtime.md);OnePiece 的 provider 调用、上下文组装与工具循环详见[OnePiece native Agent](onepiece-native-agent.md)。两者的 Skill 与 MCP 统一管理架构见[Skill 管理](skill-management.md)与[MCP 工具与客户端](mcp-tools.md)。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威的需求位于规范中。

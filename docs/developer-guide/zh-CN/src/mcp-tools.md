@@ -50,6 +50,24 @@ MCP 基础设施位于 `tooling/mcp/infrastructure/`,实现见各 `relay_*.rs` �
 - **失败观察** `relay_failure` / `relay_observer` —— 中继失败按 `RelayFailure` 分类,`RelayObserver` 记录 `mcp_relay_enabled` 与 `mcp_relay_terminated` 等诊断事件(只含安全元数据)。
 - **配置模型** —— MCP server 配置有全局唯一 kebab-case 名、显式 transport 类型、transport 特定字段、active 标志、作用域与 project-path 元数据。目录构建使用每个 server 最近一次「Test Connection」结果中缓存的有效工具列表,**而非在目录构建时新建实时连接**。
 
+## 统一架构:CLI Agent 与 OnePiece
+
+MCP 的配置与目录是**统一管理**的——同一套 MCP server 配置模型(kebab-case 名、transport、active、scope、project-path)对所有 Agent 生效。统一体现在:
+
+- **同一份 MCP server 配置** —— 不区分消费方;一个 server 配置一次,对当前会话 workspace 可见且 active 的 server 都贡献工具。
+- **同一套 Test Connection 缓存** —— 目录构建使用每个 server 最近一次「Test Connection」结果中缓存的有效工具列表,而非实时新建连接。
+- **同一套目录降级** —— 未测试/失败/inactive/越界的 server 不贡献工具;查询失败时所有消费方都优雅降级为只用固定工具。
+
+差异在**传输路径**(因为 CLI 进程与 OnePiece 的运行时形态不同):
+
+| 维度 | Claude Code / Codex CLI | Gemini CLI / OpenCode / Antigravity CLI | OnePiece 原生 Agent |
+| --- | --- | --- | --- |
+| 是否走中继 | **走中继**(RELAY_FLAG=`--vanehub-mcp-relay`)——VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC | 不走中继,各自独立配置 MCP | 经 native 工具目录直接纳入 |
+| 是否进执行链路 | 中继调用进 VaneHub 执行链路 | **不进执行链路**(黑盒) | 原生保真度,可在链路逐层展开 |
+| 文件系统隔离 | `PrivateRelayDirectory` 隔离中继文件 | 各 CLI 自行管理 | 与固定工具同一目录空间 |
+
+**统计管理 MCP** 的能力对中继路径有效:中继的失败按 `RelayFailure` 分类、`RelayObserver` 记录 `mcp_relay_enabled`/`mcp_relay_terminated` 等诊断事件。非中继的 CLI 与 OnePiece 的 MCP 工具都遵循"目录名永不与固定 `shell`/`file`/`remember` 工具冲突"的统一约束。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

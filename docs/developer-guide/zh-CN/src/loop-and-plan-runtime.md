@@ -27,12 +27,16 @@ stateDiagram-v2
     Acting --> Verifying : Worker 产出
     Verifying --> Deciding : 证据采集完成
     Deciding --> Acting : NextIteration
-    Deciding --> "待人工验收" : AwaitingAcceptance
-    Deciding --> "失败" : Failed
-    Deciding --> "取消" : Cancelled
-    "待人工验收" --> [*]
-    "失败" --> [*]
-    "取消" --> [*]
+    Deciding --> PendingAcceptance : AwaitingAcceptance
+    Deciding --> Failed : Failed
+    Deciding --> Cancelled : Cancelled
+    PendingAcceptance --> [*]
+    Failed --> [*]
+    Cancelled --> [*]
+
+    state "待人工验收" as PendingAcceptance
+    state "失败" as Failed
+    state "取消" as Cancelled
 ```
 
 `Deciding` 的判定输入是 `LoopDecisionInput`,包含三组事实:**必过检查是否通过**、**Verifier 推荐**(`VerifierRecommendation` = `Pass` / `Revise` / `Blocked`)、以及可选的硬终止理由与用户反馈。判定顺序固定。
