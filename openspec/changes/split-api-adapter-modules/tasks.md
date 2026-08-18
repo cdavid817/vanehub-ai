@@ -35,14 +35,14 @@ Each of these leaves `cargo check` green before the next begins.
 
 - [x] 5.1 Test-name lists match the 1.2 baseline byte-for-byte, unsorted included
 - [x] 5.2 The top-level item multiset matches the 1.3 baseline — nothing dropped, nothing duplicated
-- [ ] 5.3 `cargo test --manifest-path src-tauri/Cargo.toml` passes with an unchanged total test count
+- [x] 5.3 `cargo test --manifest-path src-tauri/Cargo.toml` passes with an unchanged total test count
 - [x] 5.4 Confirm no function body differs from its pre-split text apart from indentation
 
 ## 6. Budgets and verification
 
 - [x] 6.1 Remove the now-absent `api_process_adapter.rs` path budget entry; add path budgets for any new module that warrants one
 - [x] 6.2 Confirm the `agent_runtime/infrastructure` subtree stayed within 58,072, or raise it by exactly the measured module-boilerplate amount with a stated reason — investigate rather than absorb anything larger
-- [ ] 6.3 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, and `cargo check --manifest-path src-tauri/Cargo.toml` pass
-- [ ] 6.4 `npm run architecture:check` passes, including the context-boundary rules that would catch a visibility widening crossing a bounded context
+- [x] 6.3 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, and `cargo check --manifest-path src-tauri/Cargo.toml` pass
+- [x] 6.4 `npm run architecture:check` passes, including the context-boundary rules that would catch a visibility widening crossing a bounded context
 - [x] 6.5 Record the residual explicitly: which modules remain above 1,500 lines, and that `execute_with_code_intelligence` is unchanged at ~978 lines awaiting its own change
-- [ ] 6.6 `openspec validate split-api-adapter-modules --strict` and `openspec validate --specs --strict` pass
+- [x] 6.6 `openspec validate split-api-adapter-modules --strict` and `openspec validate --specs --strict` pass
