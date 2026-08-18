@@ -133,7 +133,7 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 
 | 主题 | 入口 |
 | --- | --- |
-| 仓库结构 | [仓库布局与模块归属](docs/developer-guide/zh-CN/src/repository-orientation.md) |
+| 仓库结构 | [仓库布局与模块归属、各限界上下文职责](docs/developer-guide/zh-CN/src/repository-orientation.md) |
 | 运行时边界 | [前端服务边界、Web/mock 与 Tauri 适配器](docs/developer-guide/zh-CN/src/runtime-boundaries.md) |
 | 限界上下文 | [十一个 native bounded contexts](docs/developer-guide/zh-CN/src/native-contexts.md) |
 | Agent 生命周期与 provider 运行时 | [注册 Agent 编辑、稳定 provider 解析、能力声明](docs/developer-guide/zh-CN/src/agent-lifecycle.md) |

@@ -1,7 +1,7 @@
 # 目录
 
 - [开发者指南](index.md)
-- [仓库导览](repository-orientation.md)
+- [仓库结构与模块导览](repository-orientation.md)
 - [运行时与服务边界](runtime-boundaries.md)
 - [有效 Skill 运行时](effective-skill-runtime.md)
 - [Skill 覆盖层治理](skill-overlay-governance.md)
