@@ -5,6 +5,7 @@ verifyMdbook();
 
 for (const book of [
   "docs/developer-guide",
+  "docs/developer-guide/zh-CN",
   "docs/user-guide/en",
   "docs/user-guide/zh-CN",
 ]) {

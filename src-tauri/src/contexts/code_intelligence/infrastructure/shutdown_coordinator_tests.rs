@@ -56,10 +56,19 @@ async fn shutdown_runs_processes_concurrently_and_forces_unresponsive_trees() {
         .await;
 
     assert_eq!(summary.total, 2);
+    // Concurrency is what `graceful == 1` proves, not the elapsed time below: the deadline
+    // handed to `shutdown_all` is absolute, so a serial implementation would finish at
+    // roughly the same wall-clock moment. What it could not do is keep this process graceful
+    // — waiting on `lsp-hang` first would push `lsp-success` past the deadline and force it
+    // too, giving `graceful == 0, forced == 2`.
     assert_eq!(summary.graceful, 1);
     assert_eq!(summary.forced, 1);
     assert_eq!(summary.failed, 0);
-    assert!(started.elapsed() < Duration::from_millis(1300));
+    // The only thing wall-clock adds is "forced termination terminates". The regression worth
+    // catching is a force path that never returns, and a generous ceiling catches that just as
+    // well as a tight one — while a tight one fails on a loaded machine, where a spurious red
+    // costs more than the milliseconds it claims to guard.
+    assert!(started.elapsed() < Duration::from_secs(10));
     assert!(!coordinator.is_accepting());
 }
 

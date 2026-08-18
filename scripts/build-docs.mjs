@@ -19,6 +19,7 @@ mkdirSync(outputRoot, { recursive: true });
 
 const books = [
   ["docs/developer-guide", "developer"],
+  ["docs/developer-guide/zh-CN", "developer/zh-CN"],
   ["docs/user-guide/en", "user/en"],
   ["docs/user-guide/zh-CN", "user/zh-CN"],
 ];
@@ -43,10 +44,15 @@ for (const [source, destination] of books) {
  * not silently stop working if that behaviour changes.
  */
 const crossBookRewrites = [
-  // From user/<locale>/, the developer guide sits at ../../developer/.
+  // From user/<locale>/, the English developer guide sits at ../../developer/.
   [
     /\.\.\/\.\.\/\.\.\/developer-guide\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
     "../../developer/$1.html",
+  ],
+  // From user/zh-CN/, the Simplified Chinese developer guide sits at ../../developer/zh-CN/.
+  [
+    /\.\.\/\.\.\/\.\.\/developer-guide\/zh-CN\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
+    "../../developer/zh-CN/$1.html",
   ],
   // From developer/, a user guide sits at ../user/<locale>/.
   [
@@ -110,6 +116,7 @@ writeFileSync(
         <li><a href="user/en/index.html">User Guide — English</a></li>
         <li><a href="user/zh-CN/index.html">用户指南 — 简体中文</a></li>
         <li><a href="developer/index.html">Developer Guide</a></li>
+        <li><a href="developer/zh-CN/index.html">开发者指南 — 简体中文</a></li>
         <li><a href="api/vanehub_ai_lib/index.html">Native API Reference</a></li>
       </ul>
     </main>
