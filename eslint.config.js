@@ -66,10 +66,10 @@ export default tseslint.config(
   // 禁止新增条目;文件降到 300 行以下后删除该条目,由全局 max-lines 接管。
   // 子树聚合预算在 scripts/architecture/ 里,防止"拆分"退化成复制粘贴。
   ...[
-    ["src/services/web-agent-client.ts", 1877],
+    ["src/services/web-agent-client.ts", 1608],
     ["src/services/tauri-agent-client.ts", 1213],
     ["src/types/agent.ts", 702],
-    ["src/services/agent-service.ts", 364],
+    ["src/services/agent-service.ts", 346],
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],

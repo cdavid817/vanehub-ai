@@ -12,7 +12,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput } from "../types/chat";
+import type { ChatConfig, ChatMessage, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
   workspace?: string;
@@ -152,6 +152,7 @@ import type {
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
+import type { ChatMessagingService } from "./chat-messaging-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
@@ -183,6 +184,7 @@ export interface AgentService extends
   AgentTerminalService,
   UsageStatisticsService,
   MissionControlService,
+  ChatMessagingService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -244,26 +246,6 @@ export interface AgentService extends
   unarchiveSession(sessionId: string): Promise<Session>;
   exportSession(input: ExportSessionInput): Promise<SessionExportResult>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
-  listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
-  saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  /**
-   * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
-   * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a
-   * question that already resolved or whose generation is gone.
-   */
-  resolveAgentQuestion(sessionId: string, callId: string, answer: string): Promise<boolean>;
-  /**
-   * Delivers the user's decision on an `exit_plan_mode` call waiting in `awaiting_input`. Resolves
-   * to whether a live waiter received it — the caller must only change the session's execution
-   * mode when it did, so an approval aimed at a dead generation cannot leave a session
-   * write-capable on the strength of a decision the model never saw.
-   */
-  resolvePlanExit(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
-  stopGeneration(sessionId: string): Promise<void>;
-  subscribeMessageEvents(
-    sessionId: string,
-    handler: (event: ChatStreamEvent) => void,
-  ): Promise<() => void>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

@@ -11,10 +11,8 @@ import {
   createWebPendingApproval,
   getWebDefaultPolicyTemplate,
   isAgentAutoApproved,
-  webPendingApprovals,
   webPrincipalTemplates,
 } from "./web-permissions-mock-state";
-import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
   AgentMemoryType,
@@ -33,7 +31,7 @@ import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
 import { defaultSessionTitleFromPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
-import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatConfig, ChatMessage } from "../types/chat";
 import type { AgentRun } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import { webEvaluationClient } from "./web-evaluation-client";
@@ -89,25 +87,35 @@ import { webAgentTerminalClient } from "./web-agent-terminal-client";
 import { webUsageStatisticsClient } from "./web-usage-statistics-client";
 import { webMissionControlClient } from "./web-mission-control-client";
 import { webLoopClient } from "./web-loop-client";
-import {
-  clearWebLoopStateForTest,
-  clearWebLoopTimersAndSubscribers,
-  isWebLoopRoleSession,
-  listWebLoopDefinitions,
-  snapshotWebLoopRoleSessionIds,
-} from "./web-loop-state";
+import { isWebLoopRoleSession, listWebLoopDefinitions } from "./web-loop-state";
 
 export {
+  resetWebLoopsForTest,
   setWebLoopPhaseDelayForTest,
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
+import { webChatClient } from "./web-chat-client";
+
+export {
+  resolveWebMockToolApproval,
+  WEB_MOCK_PLAN_EXIT_TRIGGER,
+  WEB_MOCK_QUESTION_TRIGGER,
+} from "./web-chat-client";
+import { WEB_MOCK_PLAN_EXIT_TRIGGER, WEB_MOCK_QUESTION_TRIGGER } from "./web-chat-client";
 import {
-  findWebAgentRun,
-  isTerminalWebRunState,
-  prependWebAgentRun,
-  setWebAgentRunEvents,
-  updateWebAgentRun,
-} from "./web-agent-run-state";
+  createWebMessageId,
+  cancelWebActiveStream,
+  deleteWebActiveStream,
+  deleteWebChatSubscribers,
+  deleteWebSessionMessages,
+  emitWebChatEvent,
+  getWebSessionMessages,
+  hasWebActiveStream,
+  publishWebChatEvent,
+  setWebActiveStream,
+  setWebSessionMessages,
+} from "./web-chat-state";
+import { prependWebAgentRun, setWebAgentRunEvents } from "./web-agent-run-state";
 
 export {
   resetWebMissionControlRunsForTest,
@@ -156,11 +164,7 @@ function tr(key: string, values?: Record<string, string | number>) {
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
 
-let nextMessageId = 1;
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
-const messagesBySession = new Map<string, ChatMessage[]>();
-const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
-const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
 
@@ -268,8 +272,8 @@ export function resetWebRecoverySessionsForTest() {
   const recoverySessionIds = new Set(recoveryReportsBySession.keys());
   replaceWebSessions(listWebSessions().filter((session) => !recoverySessionIds.has(session.id)));
   recoverySessionIds.forEach((sessionId) => {
-    messagesBySession.delete(sessionId);
-    activeStreams.delete(sessionId);
+    deleteWebSessionMessages(sessionId);
+    deleteWebActiveStream(sessionId);
   });
   recoveryReportsBySession.clear();
   const activeId = getWebActiveSessionId();
@@ -420,7 +424,7 @@ function sessionSearchMatches(session: Session, query: string): SessionSearchRes
   if (projectMatch) {
     matches.push({ kind: "project", excerpt: projectMatch });
   }
-  const messageMatch = getSessionMessages(session.id).find((message) => searchText(message.content, query));
+  const messageMatch = getWebSessionMessages(session.id).find((message) => searchText(message.content, query));
   if (messageMatch) {
     matches.push({
       kind: "message",
@@ -437,7 +441,7 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
     version: 1,
     exportedAt: nowIso(),
     session,
-    messages: getSessionMessages(session.id),
+    messages: getWebSessionMessages(session.id),
   };
   const content =
     input.format === "json"
@@ -459,214 +463,10 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
   };
 }
 
-function createMessageId() {
-  const id = `web-message-${nextMessageId}`;
-  nextMessageId += 1;
-  return id;
-}
-
-function getSessionMessages(sessionId: string) {
-  return messagesBySession.get(sessionId) ?? [];
-}
-
-function setSessionMessages(sessionId: string, nextMessages: ChatMessage[]) {
-  messagesBySession.set(sessionId, nextMessages);
-}
-
-function upsertMessage(message: ChatMessage) {
-  const messages = getSessionMessages(message.sessionId);
-  const index = messages.findIndex((candidate) => candidate.id === message.id);
-  if (index === -1) {
-    setSessionMessages(message.sessionId, [...messages, message]);
-    return;
-  }
-  const nextMessages = [...messages];
-  nextMessages[index] = message;
-  setSessionMessages(message.sessionId, nextMessages);
-}
-
-function emitChatEvent(event: ChatStreamEvent) {
-  const subscribers = subscribersBySession.get(event.sessionId);
-  subscribers?.forEach((handler) => handler(event));
-}
-
-function finishWebGeneration(sessionId: string, lifecycleState: Session["lifecycleState"]) {
-  const session = findWebSession(sessionId);
-  const runId = session.activeExecutionRunId;
-  if (runId) {
-    const run = findWebAgentRun(runId);
-    if (run && !isTerminalWebRunState(run.state)) {
-      updateWebAgentRun(
-        run.id,
-        run.version,
-        lifecycleState === "idle" ? "completed" : lifecycleState === "failed" ? "failed" : "cancelled",
-      );
-    }
-  }
-  updateWebSession(sessionId, {
-    lifecycleState,
-    activeExecutionRunId: null,
-    stateRevision: session.stateRevision + 1,
-  });
-}
-
-function applyStreamEvent(event: ChatStreamEvent) {
-  // The turn status belongs to the session, not to any message.
-  if (event.type === "turn_status") return;
-  const messages = getSessionMessages(event.sessionId);
-  const message = messages.find((candidate) => candidate.id === event.messageId);
-  if (!message) return;
-  const timestamp = nowIso();
-  if (event.type === "token") {
-    upsertMessage({ ...message, content: `${message.content}${event.contentDelta}`, updatedAt: timestamp });
-  } else if (event.type === "thinking") {
-    upsertMessage({
-      ...message,
-      thinkingContent: `${message.thinkingContent ?? ""}${event.contentDelta}`,
-      updatedAt: timestamp,
-    });
-  } else if (event.type === "tool_use") {
-    upsertMessage({ ...message, toolUse: upsertToolUse(message.toolUse ?? [], event.toolUse), updatedAt: timestamp });
-  } else if (event.type === "rich_block") {
-    const blocks = message.richBlocks ?? [];
-    const blockIndex = blocks.findIndex((block) => block.id === event.block.id);
-    const richBlocks =
-      blockIndex === -1
-        ? [...blocks, event.block]
-        : blocks.map((block, index) => (index === blockIndex ? event.block : block));
-    upsertMessage({ ...message, richBlocks, updatedAt: timestamp });
-  } else if (event.type === "completed") {
-    upsertMessage({ ...message, status: "completed", tokenUsage: event.tokenUsage, updatedAt: timestamp });
-    activeStreams.delete(event.sessionId);
-    finishWebGeneration(event.sessionId, "idle");
-  } else if (event.type === "failed") {
-    upsertMessage({ ...message, status: "failed", error: event.error, updatedAt: timestamp });
-    activeStreams.delete(event.sessionId);
-    finishWebGeneration(event.sessionId, "failed");
-  } else if (event.type === "cancelled") {
-    upsertMessage({ ...message, status: "cancelled", updatedAt: timestamp });
-    activeStreams.delete(event.sessionId);
-    finishWebGeneration(event.sessionId, "stopped");
-  }
-}
-
-function publishChatEvent(event: ChatStreamEvent) {
-  applyStreamEvent(event);
-  emitChatEvent(event);
-}
-
-/**
- * Resolves a simulated tool call awaiting approval and publishes the resulting `tool_use` event
- * — the same behavior `resolveToolApproval` used to provide directly on this client, extracted
- * to a plain export so `web-permissions-client.ts` can call it (`permissions-approval`'s
- * `resolvePendingApproval` is the new frontend entry point; this is its Web/mock backing).
- */
-export function resolveWebMockToolApproval(sessionId: string, callId: string, approved: boolean): boolean {
-  findWebSession(sessionId);
-  const pending = webPendingApprovals.get(callId);
-  if (!pending || pending.sessionId !== sessionId) return false;
-  webPendingApprovals.delete(callId);
-  publishChatEvent({
-    type: "tool_use",
-    sessionId,
-    messageId: pending.messageId,
-    toolUse: {
-      id: callId,
-      name: pending.toolName,
-      input: pending.input ?? { command: "echo mock" },
-      output: approved ? pending.output ?? "mock\n" : "Denied by user.",
-      status: approved ? "completed" : "failed",
-    },
-  });
-  return true;
-}
-
-/**
- * Web/mock backing for `resolveAgentQuestion`. Unlike the desktop runtime there is no blocked
- * generation to resume, so "delivered" means only that a tool block in this session was still
- * showing `awaiting_input` — the mock reports the round trip as simulated rather than implying a
- * real wait ended.
- */
-/**
- * Marker that makes the Web/mock runtime simulate a clarification round trip. Web/mock has no
- * model deciding when to ask, so the trigger stands in for that decision.
- */
-export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
-
-/**
- * Marker that makes the Web/mock runtime simulate a request to leave plan mode. Same reason as the
- * question trigger: the request blocks until decided, so emitting one every turn would leave every
- * other mock conversation waiting on a card.
- */
-export const WEB_MOCK_PLAN_EXIT_TRIGGER = "[plan-done]";
-
-function resolveSimulatedQuestion(sessionId: string, callId: string, answer: string): boolean {
-  findWebSession(sessionId);
-  const message = getSessionMessages(sessionId).find((entry) =>
-    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
-  );
-  const pending = message?.toolUse?.find((tool) => tool.id === callId);
-  if (!message || !pending) return false;
-  publishChatEvent({
-    type: "tool_use",
-    sessionId,
-    messageId: message.id,
-    toolUse: { ...pending, output: answer, status: "completed" },
-  });
-  return true;
-}
-
-/**
- * Web/mock backing for `resolvePlanExit`. Same simulation as an answer: nothing is blocked, so
- * "delivered" means a matching tool block was still showing `awaiting_input`. The recorded output
- * differs by decision so the mock cannot make a decline look like an approval.
- */
-function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: boolean): boolean {
-  findWebSession(sessionId);
-  const message = getSessionMessages(sessionId).find((entry) =>
-    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
-  );
-  const pending = message?.toolUse?.find((tool) => tool.id === callId);
-  if (!message || !pending) return false;
-  publishChatEvent({
-    type: "tool_use",
-    sessionId,
-    messageId: message.id,
-    toolUse: {
-      ...pending,
-      output: approved
-        ? "The user approved your plan and this session has left plan mode."
-        : "The user did not approve this plan. The session is still in plan mode.",
-      status: approved ? "completed" : "failed",
-    },
-  });
-  return true;
-}
-
-function cancelActiveStream(sessionId: string) {
-  const activeStream = activeStreams.get(sessionId);
-  if (!activeStream) return false;
-  activeStream.timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
-  activeStreams.delete(sessionId);
-  publishChatEvent({ type: "cancelled", sessionId, messageId: activeStream.messageId });
-  return true;
-}
-
 /** `add-cli-memory-support`: the shared memory pool is no longer isolated per agent id, so tests
  * that seed memories can leak into later tests within the same file unless explicitly cleared. */
 export function resetWebAgentMemoriesForTest() {
   webAgentMemories = [];
-}
-
-// Split across the two owners rather than moved whole: the loop bindings live in the loop state
-// module, but `messagesBySession` is still owned here, so the ordering is preserved by calling the
-// loop module's two clear steps around the message cleanup.
-export function resetWebLoopsForTest() {
-  clearWebLoopTimersAndSubscribers();
-  const roleSessionIds = snapshotWebLoopRoleSessionIds();
-  replaceWebSessions(listWebSessions().filter((session) => !roleSessionIds.includes(session.id)));
-  roleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
-  clearWebLoopStateForTest();
 }
 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
@@ -1117,10 +917,10 @@ export const webAgentClient: AgentService = {
 
   async deleteSession(sessionId: string) {
     findWebSession(sessionId);
-    cancelActiveStream(sessionId);
-    messagesBySession.delete(sessionId);
+    cancelWebActiveStream(sessionId);
+    deleteWebSessionMessages(sessionId);
     recoveryReportsBySession.delete(sessionId);
-    subscribersBySession.delete(sessionId);
+    deleteWebChatSubscribers(sessionId);
     const configs = { ...readChatConfigs() };
     delete configs[sessionId];
     writeChatConfigs(configs);
@@ -1244,7 +1044,7 @@ export const webAgentClient: AgentService = {
   },
 
   async archiveSession(sessionId: string) {
-    const cancelled = cancelActiveStream(sessionId);
+    const cancelled = cancelWebActiveStream(sessionId);
     const session = updateWebSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
     if (getWebActiveSessionId() === sessionId) {
       setWebActiveSessionId(null);
@@ -1280,14 +1080,14 @@ export const webAgentClient: AgentService = {
       config,
       agentPolicy,
     ).effectiveExecutionPolicy;
-    if (activeStreams.has(input.sessionId)) {
+    if (hasWebActiveStream(input.sessionId)) {
       throw new Error("A generation is already active for this session.");
     }
     const selectedRunner = selectWebRunner(input.sessionId, session.agentId, input.runner);
     const timestamp = nowIso();
     const activeSeats = (session.seats ?? []).filter((seat) => seat.leftAt == null);
     const firstSpeakerSeatId = activeSeats.length > 1 ? activeSeats[0]?.seatId : undefined;
-    const existingMessages = getSessionMessages(input.sessionId);
+    const existingMessages = getWebSessionMessages(input.sessionId);
     const nextSequence = existingMessages.reduce(
       (maximum, message) => Math.max(maximum, message.sessionSequence),
       0,
@@ -1311,7 +1111,7 @@ export const webAgentClient: AgentService = {
     });
     setWebAgentRunEvents(executionRunId, []);
     const userMessage: ChatMessage = {
-      id: createMessageId(),
+      id: createWebMessageId(),
       sessionId: input.sessionId,
       role: "user",
       content: input.content.trim(),
@@ -1323,7 +1123,7 @@ export const webAgentClient: AgentService = {
       executionRunId,
     };
     const assistantMessage: ChatMessage = {
-      id: createMessageId(),
+      id: createWebMessageId(),
       sessionId: input.sessionId,
       role: "assistant",
       speakerSeatId: firstSpeakerSeatId,
@@ -1334,7 +1134,7 @@ export const webAgentClient: AgentService = {
       sessionSequence: nextSequence + 1,
       executionRunId,
     };
-    setSessionMessages(input.sessionId, [...existingMessages, userMessage, assistantMessage]);
+    setWebSessionMessages(input.sessionId, [...existingMessages, userMessage, assistantMessage]);
     updateWebSession(input.sessionId, {
       lifecycleState: "running",
       activeExecutionRunId: executionRunId,
@@ -1355,10 +1155,10 @@ export const webAgentClient: AgentService = {
     const automaticCompactionEnabled = personalizationSettings.automaticContextCompactionEnabled;
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
     const startTimeoutId = setTimeout(() => {
-      emitChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
+      emitWebChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
     }, 80);
     timeoutIds.push(startTimeoutId);
-    const historyCharacterCount = getSessionMessages(input.sessionId).reduce(
+    const historyCharacterCount = getWebSessionMessages(input.sessionId).reduce(
       (total, message) => total + message.content.length,
       0,
     );
@@ -1369,7 +1169,7 @@ export const webAgentClient: AgentService = {
       );
       const savedCharacters = Math.max(0, historyCharacterCount - afterCharacters);
       const compactionTimeoutId = setTimeout(() => {
-        publishChatEvent({
+        publishWebChatEvent({
           type: "rich_block",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1424,7 +1224,7 @@ export const webAgentClient: AgentService = {
             `Extracted from a long conversation: "${userMessage.content.slice(0, 60)}"`,
             "automatic",
           );
-          publishChatEvent({
+          publishWebChatEvent({
             type: "rich_block",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1454,7 +1254,7 @@ export const webAgentClient: AgentService = {
           `Extracted from a CLI session: "${userMessage.content.slice(0, 60)}"`,
           "automatic",
         );
-        publishChatEvent({
+        publishWebChatEvent({
           type: "rich_block",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1479,7 +1279,7 @@ export const webAgentClient: AgentService = {
       // source being configured — memory has to work on an installation without retrieval.
       const injected = simulateMemoryIndexInjection();
       const memoryInjectionTimeoutId = setTimeout(() => {
-        publishChatEvent({
+        publishWebChatEvent({
           type: "rich_block",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1516,7 +1316,7 @@ export const webAgentClient: AgentService = {
       .map((skill) => skill.metadata.name);
     if (boundSkillNames.length > 0) {
       const skillTimeoutId = setTimeout(() => {
-        publishChatEvent({
+        publishWebChatEvent({
           type: "rich_block",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1534,13 +1334,13 @@ export const webAgentClient: AgentService = {
     }
     tokens.forEach((contentDelta, index) => {
       const timeoutId = setTimeout(() => {
-        publishChatEvent({ type: "token", sessionId: input.sessionId, messageId: assistantMessage.id, contentDelta });
+        publishWebChatEvent({ type: "token", sessionId: input.sessionId, messageId: assistantMessage.id, contentDelta });
       }, 240 + index * 90);
       timeoutIds.push(timeoutId);
     });
     if (config.thinking) {
       const thinkingTimeoutId = setTimeout(() => {
-        publishChatEvent({
+        publishWebChatEvent({
           type: "thinking",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1550,7 +1350,7 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(thinkingTimeoutId);
     }
     const toolUseTimeoutId = setTimeout(() => {
-      publishChatEvent({
+      publishWebChatEvent({
         type: "tool_use",
         sessionId: input.sessionId,
         messageId: assistantMessage.id,
@@ -1572,7 +1372,7 @@ export const webAgentClient: AgentService = {
       const callId = `web-tool-approval-${assistantMessage.id}`;
       const approvalTimeoutId = setTimeout(() => {
         if (isTrusted) {
-          publishChatEvent({
+          publishWebChatEvent({
             type: "tool_use",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1596,7 +1396,7 @@ export const webAgentClient: AgentService = {
           riskLevel: "L2",
           createdAt: new Date().toISOString(),
         });
-        publishChatEvent({
+        publishWebChatEvent({
           type: "tool_use",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1614,7 +1414,7 @@ export const webAgentClient: AgentService = {
       // one unconditionally would leave every other mock conversation waiting on a card.
       if (input.content.includes(WEB_MOCK_QUESTION_TRIGGER)) {
         const questionTimeoutId = setTimeout(() => {
-          publishChatEvent({
+          publishWebChatEvent({
             type: "tool_use",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1634,7 +1434,7 @@ export const webAgentClient: AgentService = {
       // Request to leave plan mode (`add-agent-plan-exit-request`).
       if (input.content.includes(WEB_MOCK_PLAN_EXIT_TRIGGER)) {
         const planExitTimeoutId = setTimeout(() => {
-          publishChatEvent({
+          publishWebChatEvent({
             type: "tool_use",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1654,7 +1454,7 @@ export const webAgentClient: AgentService = {
       // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
       // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
       const grepTimeoutId = setTimeout(() => {
-        publishChatEvent({
+        publishWebChatEvent({
           type: "tool_use",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1680,7 +1480,7 @@ export const webAgentClient: AgentService = {
             `User said: "${userMessage.content.slice(0, 60)}"`,
             "explicit",
           );
-          publishChatEvent({
+          publishWebChatEvent({
             type: "tool_use",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1716,7 +1516,7 @@ export const webAgentClient: AgentService = {
       });
       const mcpApprovalTimeoutId = setTimeout(() => {
         if (!mcpSimulation.success) {
-          publishChatEvent({
+          publishWebChatEvent({
             type: "tool_use",
             sessionId: input.sessionId,
             messageId: assistantMessage.id,
@@ -1736,7 +1536,7 @@ export const webAgentClient: AgentService = {
           riskLevel: "L2",
           createdAt: new Date().toISOString(),
         });
-        publishChatEvent({
+        publishWebChatEvent({
           type: "tool_use",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
@@ -1746,7 +1546,7 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(mcpApprovalTimeoutId);
     }
     const richCardTimeoutId = setTimeout(() => {
-      publishChatEvent({
+      publishWebChatEvent({
         type: "rich_block",
         sessionId: input.sessionId,
         messageId: assistantMessage.id,
@@ -1766,7 +1566,7 @@ export const webAgentClient: AgentService = {
     }, 260);
     timeoutIds.push(richCardTimeoutId);
     const richChecklistTimeoutId = setTimeout(() => {
-      publishChatEvent({
+      publishWebChatEvent({
         type: "rich_block",
         sessionId: input.sessionId,
         messageId: assistantMessage.id,
@@ -1784,89 +1584,20 @@ export const webAgentClient: AgentService = {
     }, 300);
     timeoutIds.push(richChecklistTimeoutId);
     const completeTimeoutId = setTimeout(() => {
-      publishChatEvent({
+      publishWebChatEvent({
         type: "completed",
         sessionId: input.sessionId,
         messageId: assistantMessage.id,
       });
     }, 320 + tokens.length * 90);
     timeoutIds.push(completeTimeoutId);
-    activeStreams.set(input.sessionId, { messageId: assistantMessage.id, timeoutIds });
+    setWebActiveStream(input.sessionId, { messageId: assistantMessage.id, timeoutIds });
     return assistantMessage;
   },
 
-  async listMessages(input) {
-    findWebSession(input.sessionId);
-    const limit = input.limit ?? 50;
-    const messages = getSessionMessages(input.sessionId);
-    const endIndex = input.beforeId
-      ? messages.findIndex((message) => message.id === input.beforeId)
-      : messages.length;
-    const boundedEndIndex = endIndex === -1 ? messages.length : endIndex;
-    return messages.slice(Math.max(0, boundedEndIndex - limit), boundedEndIndex);
-  },
-
-  async saveMessageFeedback(input) {
-    const message = Array.from(messagesBySession.values())
-      .flat()
-      .find((candidate) => candidate.id === input.messageId);
-    if (!message || message.role !== "assistant" || message.status !== "completed") {
-      throw new Error("message-not-eligible");
-    }
-    const currentRevision = message.feedback?.revision ?? 0;
-    if (currentRevision !== input.expectedRevision) {
-      throw new Error(`feedback-conflict:${currentRevision}`);
-    }
-    if (input.state === "corrected" && !input.correctionNote?.trim()) {
-      throw new Error("invalid-feedback");
-    }
-    if (input.state === null) {
-      message.feedback = { state: null, revision: currentRevision + 1 };
-      return message.feedback;
-    }
-    message.feedback = {
-      state: input.state,
-      revision: currentRevision + 1,
-      ...(input.correctionNote?.trim()
-        ? { correctionNote: input.correctionNote.trim().slice(0, 1_000) }
-        : {}),
-    };
-    return message.feedback;
-  },
   ...webUsageStatisticsClient,
-
-  /**
-   * The Web runtime simulates the round trip: nothing is actually blocked on the answer, so this
-   * reports delivery only when a matching tool block is still showing `awaiting_input` and marks
-   * it completed with the answer, rather than claiming a real generation resumed.
-   */
-  async resolveAgentQuestion(sessionId: string, callId: string, answer: string) {
-    return resolveSimulatedQuestion(sessionId, callId, answer);
-  },
-
-  async resolvePlanExit(sessionId: string, callId: string, approved: boolean) {
-    return resolveSimulatedPlanExit(sessionId, callId, approved);
-  },
-
-  async stopGeneration(sessionId: string) {
-    findWebSession(sessionId);
-    if (!cancelActiveStream(sessionId)) return;
-    updateWebSession(sessionId, { lifecycleState: "stopped" });
-  },
+  ...webChatClient,
   ...webAgentTerminalClient,
-
-  async subscribeMessageEvents(sessionId, handler) {
-    const subscribers = subscribersBySession.get(sessionId) ?? new Set<(event: ChatStreamEvent) => void>();
-    subscribers.add(handler);
-    subscribersBySession.set(sessionId, subscribers);
-    return () => {
-      const currentSubscribers = subscribersBySession.get(sessionId);
-      currentSubscribers?.delete(handler);
-      if (currentSubscribers?.size === 0) {
-        subscribersBySession.delete(sessionId);
-      }
-    };
-  },
 
   async subscribeSessionEvents(handler) {
     return subscribeWebSessionStateEvents(handler);
