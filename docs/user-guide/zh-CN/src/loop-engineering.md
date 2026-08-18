@@ -1,7 +1,5 @@
 # Loop Engineering 工程：让 Agent 自己迭代到达成
 
-**状态：已实现——仅桌面端。**
-
 ## 什么是 Loop Engineering
 
 **它是一台由运行时驱动的「改—验—判」循环机器。**

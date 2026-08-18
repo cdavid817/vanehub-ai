@@ -1,7 +1,5 @@
 # 安装并认证 CLI
 
-**状态：已实现——桌面端设置。**
-
 VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Provider 凭据。认证始终由各 CLI 自己完成，VaneHub AI 不会要求你输入 Provider 密码。
 
 唯一的例外是 OnePiece——它是内置的原生 API Agent，不需要任何 CLI，API Key 由 VaneHub AI 保存。想跳过 CLI 直接开始，见[原生 API Agent](native-agent.md)。
@@ -65,7 +63,7 @@ npm install -g @google/gemini-cli
 
 认证在终端运行 `gemini` 后选 "Login with Google" 完成。免费个人账号额度约每分钟 60 次、每天 1000 次请求。
 
-> **Gemini CLI 个人版已下线**:自 2026-06-18 起,Google 停止为 Gemini CLI 及 Gemini Code Assist 的免费 / Pro / Ultra 个人用户提供服务,官方建议迁移到 [Antigravity CLI](#antigravity-cli);企业版 Gemini Code Assist Standard/Enterprise 及付费 API Key 渠道不受影响。
+> **Gemini CLI 面向个人用户逐步停用**:Google 已宣布将 Gemini CLI 迁移到 Antigravity CLI,自 2026-06-18 起面向个人/免费用户(免费 / Pro / Ultra)逐步停用 Gemini CLI 及 Gemini Code Assist;官方建议迁移到 [Antigravity CLI](#antigravity-cli)。企业版 Gemini Code Assist Standard/Enterprise 及付费 API Key 渠道不受影响。
 
 ### OpenCode
 
@@ -191,12 +189,6 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 ## 原生 Agent OnePiece 的"参数"
 
 OnePiece 不走外部 CLI,没有上述命令行参数。它的等价配置是 **provider Profile**(在**设置 → Agent 配置**里管理):选 provider 目录条目、填 API Key(保存前校验)、发现并选定模型、按需配自定义兼容端点。Profile 的生命周期与凭据回滚详见[开发者指南:OnePiece native Agent](../../../developer-guide/zh-CN/src/onepiece-native-agent.md)。
-
-## Web 预览
-
-**状态：仅 Web/mock。** 浏览器预览展示确定性的可用性与执行 fixture，**不会检测也不会认证本地 CLI**。看到「已安装」不代表你机器上真的装了。
-
-判断依据见 [Runtime 与功能状态标签](runtime-labels.md)。
 
 ## 下一步
 
