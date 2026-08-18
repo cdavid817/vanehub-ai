@@ -1,10 +1,4 @@
-import type {
-  AgentService,
-  RecoveryDecision,
-  SessionRecoveryAcknowledgement,
-  SessionRecoveryReport,
-  SessionRecoverySummary,
-} from "./agent-service";
+import type { AgentService } from "./agent-service";
 import { mockAgents } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import {
@@ -29,7 +23,7 @@ import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
 import { defaultSessionTitleFromPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
-import type { ChatConfig, ChatMessage } from "../types/chat";
+import type { ChatMessage } from "../types/chat";
 import type { AgentRun } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import { webEvaluationClient } from "./web-evaluation-client";
@@ -50,7 +44,6 @@ import { webSkillGovernanceClient } from "./web-skill-governance-client";
 import { webSkillEvidenceClient } from "./web-skill-evidence-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
 import { normalizeWebPath } from "./web-skill-location";
-import { readWebMockStorage, writeWebMockStorage } from "./web-mock-storage";
 
 export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
 import {
@@ -67,11 +60,7 @@ import { nowIso } from "./web-mock-clock";
 import { createWebMockOperation } from "./web-operation-client";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
-import {
-  defaultChatConfigForSession,
-  normalizeChatConfigForSession,
-  withEffectiveExecutionPolicy,
-} from "./chat-configuration";
+import { normalizeChatConfigForSession, withEffectiveExecutionPolicy } from "./chat-configuration";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
@@ -111,7 +100,6 @@ import { WEB_MOCK_PLAN_EXIT_TRIGGER, WEB_MOCK_QUESTION_TRIGGER } from "./web-cha
 import {
   createWebMessageId,
   cancelWebActiveStream,
-  deleteWebActiveStream,
   deleteWebChatSubscribers,
   deleteWebSessionMessages,
   emitWebChatEvent,
@@ -121,6 +109,15 @@ import {
   setWebActiveStream,
   setWebSessionMessages,
 } from "./web-chat-state";
+import { deleteWebSessionChatConfig } from "./web-chat-config-state";
+import { webSessionChatConfigClient } from "./web-session-chat-config-client";
+import { webSessionRecoveryClient } from "./web-session-recovery-client";
+import { deleteWebRecoveryReports } from "./web-session-recovery-state";
+
+export {
+  resetWebRecoverySessionsForTest,
+  seedWebRecoverySessionForTest,
+} from "./web-session-recovery-state";
 import { prependWebAgentRun, setWebAgentRunEvents } from "./web-agent-run-state";
 
 export {
@@ -169,122 +166,6 @@ function tr(key: string, values?: Record<string, string | number>) {
 
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
-
-const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
-const chatConfigStorageKey = "vanehub.session-chat-config.v1";
-let memoryChatConfigs: Record<string, ChatConfig> = {};
-
-// Chat configs carry model and policy selections, never a credential, so browser storage stays
-// inside the "Honest Web/mock behavior" prohibition on persisting plaintext secrets.
-function readChatConfigs(): Record<string, ChatConfig> {
-  return readWebMockStorage(chatConfigStorageKey, memoryChatConfigs);
-}
-
-function writeChatConfigs(configs: Record<string, ChatConfig>) {
-  memoryChatConfigs = configs;
-  writeWebMockStorage(chatConfigStorageKey, configs);
-}
-
-function mockRecoveryReport(
-  session: Session,
-  recoveryRevision: number,
-  decision: RecoveryDecision,
-): SessionRecoveryReport {
-  return {
-    reportId: `web-recovery-${session.id}-${recoveryRevision}`,
-    sessionId: session.id,
-    recoveryRevision,
-    trigger: decision === "acknowledged" ? "user_acknowledgement" : "startup",
-    observedLifecycle: session.lifecycleState,
-    observedExecutionRunId: session.activeExecutionRunId,
-    decision,
-    reasonCodes: decision === "acknowledged"
-      ? ["acknowledged_by_user"]
-      : ["unfinished_tool_activity"],
-    evidenceRefs: [{
-      kind: "session",
-      sessionId: session.id,
-      stateRevision: session.stateRevision,
-      historyRevision: session.historyRevision,
-    }],
-    createdAt: nowIso(),
-  };
-}
-
-function webRecoverySummary(sessionId: string): SessionRecoverySummary {
-  const session = findWebSession(sessionId);
-  return {
-    session,
-    latestReport: recoveryReportsBySession.get(sessionId)?.[0] ?? null,
-  };
-}
-
-export function seedWebRecoverySessionForTest(
-  status: "action_required" | "quarantined" = "action_required",
-): Session {
-  const timestamp = nowIso();
-  const session: Session = {
-    id: `web-recovery-session-${nextWebSessionSequence()}`,
-    title: "Recovered Web session",
-    agentId: "onepiece",
-    interactionMode: "api",
-    lifecycleState: "failed",
-    recoveryStatus: "clean",
-    recoveryRevision: 0,
-    stateRevision: 0,
-    historyRevision: 0,
-    activeExecutionRunId: null,
-    folder: "D:\\example\\recovery-project",
-    projectPath: "D:\\example\\recovery-project",
-    worktreePath: null,
-    worktreeName: null,
-    worktreeBranch: null,
-    remoteWorkspace: null,
-    remoteSshConnectionId: null,
-    remoteSshConnectionRevision: null,
-    runtimeSessionId: null,
-    categoryId: null,
-    pinned: false,
-    archived: false,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  prependWebSession(session);
-  setWebActiveSessionId(session.id);
-  const recoveryRevision = 1;
-  const recovered = updateWebSession(session.id, {
-    lifecycleState: "failed",
-    recoveryStatus: status,
-    recoveryRevision,
-    stateRevision: session.stateRevision + 1,
-    activeExecutionRunId: null,
-  });
-  recoveryReportsBySession.set(recovered.id, [
-    mockRecoveryReport(
-      recovered,
-      recoveryRevision,
-      status === "quarantined" ? "quarantined" : "action_required",
-    ),
-  ]);
-  emitWebSessionEvent({
-    kind: status === "quarantined" ? "recovery-quarantined" : "recovery-action-required",
-    sessionId: recovered.id,
-    recoveryRevision,
-  });
-  return recovered;
-}
-
-export function resetWebRecoverySessionsForTest() {
-  const recoverySessionIds = new Set(recoveryReportsBySession.keys());
-  replaceWebSessions(listWebSessions().filter((session) => !recoverySessionIds.has(session.id)));
-  recoverySessionIds.forEach((sessionId) => {
-    deleteWebSessionMessages(sessionId);
-    deleteWebActiveStream(sessionId);
-  });
-  recoveryReportsBySession.clear();
-  const activeId = getWebActiveSessionId();
-  if (activeId && recoverySessionIds.has(activeId)) setWebActiveSessionId(null);
-}
 
 export function seedWebImSessionForTest(connector: ImSessionConnector): Session {
   const timestamp = nowIso();
@@ -632,51 +513,7 @@ export const webAgentClient: AgentService = {
     return findWebSession(sessionId);
   },
 
-  async getSessionRecoverySummary(sessionId: string) {
-    return structuredClone(webRecoverySummary(sessionId));
-  },
-
-  async listSessionRecoveryReports(sessionId: string, limit = 20) {
-    findWebSession(sessionId);
-    const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
-    return structuredClone((recoveryReportsBySession.get(sessionId) ?? []).slice(0, boundedLimit));
-  },
-
-  async acknowledgeSessionRecovery(
-    sessionId: string,
-    expectedRecoveryRevision: number,
-  ): Promise<SessionRecoveryAcknowledgement> {
-    const session = findWebSession(sessionId);
-    if (session.recoveryStatus === "quarantined") {
-      throw new Error(`Recovery acknowledgement is not allowed for quarantined session ${sessionId}.`);
-    }
-    if (session.recoveryStatus !== "action_required") {
-      throw new Error(`Recovery acknowledgement is not allowed for session ${sessionId}.`);
-    }
-    if (session.recoveryRevision !== expectedRecoveryRevision) {
-      throw new Error(
-        `Recovery revision conflict for session ${sessionId}; current revision is ${session.recoveryRevision}.`,
-      );
-    }
-    const recoveryRevision = session.recoveryRevision + 1;
-    const updated = updateWebSession(sessionId, {
-      recoveryStatus: "clean",
-      recoveryRevision,
-      stateRevision: session.stateRevision + 1,
-      activeExecutionRunId: null,
-    });
-    const report = mockRecoveryReport(updated, recoveryRevision, "acknowledged");
-    recoveryReportsBySession.set(sessionId, [
-      report,
-      ...(recoveryReportsBySession.get(sessionId) ?? []),
-    ]);
-    emitWebSessionEvent({
-      kind: "recovery-acknowledged",
-      sessionId,
-      recoveryRevision,
-    });
-    return structuredClone({ session: updated, report });
-  },
+  ...webSessionRecoveryClient,
 
   async getActiveSession() {
     const sessionId = getWebActiveSessionId();
@@ -686,24 +523,7 @@ export const webAgentClient: AgentService = {
   ...webSessionCategoryClient,
   ...webLoopClient,
 
-  async getSessionChatConfig(sessionId) {
-    const session = findWebSession(sessionId);
-    const stored = readChatConfigs()[sessionId];
-    const normalized = stored
-      ? normalizeChatConfigForSession(session, stored)
-      : defaultChatConfigForSession(session);
-    const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
-    return withEffectiveExecutionPolicy(normalized, policy);
-  },
-
-  async saveSessionChatConfig(sessionId, config) {
-    const session = findWebSession(sessionId);
-    const normalized = normalizeChatConfigForSession(session, config);
-    writeChatConfigs({ ...readChatConfigs(), [sessionId]: normalized });
-    emitWebSessionEvent({ kind: "configuration-changed", sessionId });
-    const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
-    return withEffectiveExecutionPolicy(normalized, policy);
-  },
+  ...webSessionChatConfigClient,
   ...webKnownWorkspaceClient,
 
   async createSession(input) {
@@ -825,11 +645,9 @@ export const webAgentClient: AgentService = {
     findWebSession(sessionId);
     cancelWebActiveStream(sessionId);
     deleteWebSessionMessages(sessionId);
-    recoveryReportsBySession.delete(sessionId);
+    deleteWebRecoveryReports(sessionId);
     deleteWebChatSubscribers(sessionId);
-    const configs = { ...readChatConfigs() };
-    delete configs[sessionId];
-    writeChatConfigs(configs);
+    deleteWebSessionChatConfig(sessionId);
     replaceWebSessions(listWebSessions().filter((session) => session.id !== sessionId));
     if (getWebActiveSessionId() === sessionId) {
       setWebActiveSessionId(null);

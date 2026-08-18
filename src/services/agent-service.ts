@@ -11,7 +11,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, SendMessageInput } from "../types/chat";
+import type { ChatMessage, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
   workspace?: string;
@@ -153,6 +153,8 @@ import type { CliConfigService, CliParameterService, CliToolService } from "./cl
 import type { AgentRegistryService } from "./agent-registry-service";
 import type { AgentMemoryService } from "./agent-memory-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
+import type { SessionChatConfigService } from "./session-chat-config-service";
+import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
@@ -186,6 +188,8 @@ export interface AgentService extends
   MissionControlService,
   AgentMemoryService,
   ChatMessagingService,
+  SessionChatConfigService,
+  SessionRecoveryService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -221,15 +225,7 @@ export interface AgentService extends
   listArchivedSessions(): Promise<Session[]>;
   searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
   getSession(sessionId: string): Promise<Session>;
-  getSessionRecoverySummary(sessionId: string): Promise<SessionRecoverySummary>;
-  listSessionRecoveryReports(sessionId: string, limit?: number): Promise<SessionRecoveryReport[]>;
-  acknowledgeSessionRecovery(
-    sessionId: string,
-    expectedRecoveryRevision: number,
-  ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
-  getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
-  saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
