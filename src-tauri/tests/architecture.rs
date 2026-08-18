@@ -2162,9 +2162,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // No item body was duplicated or edited: the top-level item multiset is identical before and
     // after, 84 of the 138 moved items are byte-identical to their pre-split text, 52 differ only
     // by an added `pub(super)`, and the last 2 are the rustfmt rewraps above.
+    // Raised again by `freeze-panic-shortcuts-in-production-code`, by exactly 5: the four-line
+    // `#![allow(clippy::unwrap_used, clippy::expect_used)]` header plus its blank separator, added
+    // to `runner_registry.rs`, the one file in this subtree carrying a pre-existing panic shortcut.
+    // The header is the debt marker itself, so this rises now and falls again when the shortcut is
+    // retired and the attribute goes with it.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 58_357,
+        budget: 58_362,
         owner: "split-api-adapter-modules",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

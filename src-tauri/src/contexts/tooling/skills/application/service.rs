@@ -1,3 +1,8 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 12 pre-existing sites.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use super::{
     build_resource_index, logical_base_uri, parse_logical_uri, preview_package, truncate_chars,
     AgentMountConfiguration, BuiltinCleanupStatus, BuiltinReconciliationOutcome,

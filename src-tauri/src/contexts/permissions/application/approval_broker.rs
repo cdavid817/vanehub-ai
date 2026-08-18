@@ -1,3 +1,8 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 6 pre-existing sites.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Owns the pending-approval queue as the Rust-side single source of truth (design.md D7).
 //! Deliberately in-memory, not SQLite-backed: a pending approval only means anything while its
 //! originating generation's process is alive, so there is nothing meaningful to recover across an
