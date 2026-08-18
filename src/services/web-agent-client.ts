@@ -20,14 +20,12 @@ import type {
   AgentMemory,
   AgentMemoryType,
   AssignSessionCategoryInput,
-  AutomaticArchivalSettings,
   AgentTerminalEvent,
   AgentTerminalSession,
   UpdateSessionSeatsInput,
   AgentTerminalSize,
   CreateSessionCategoryInput,
   CreateSessionInput,
-  CreateScheduledTaskInput,
   ExportSessionInput,
   InteractionMode,
   KnownRemoteWorkspace,
@@ -35,9 +33,6 @@ import type {
   ProjectInspection,
   RemoteWorkspace,
   RenameSessionCategoryInput,
-  ScheduledTask,
-  ScheduledTaskRun,
-  SetScheduledTaskEnabledInput,
   Session,
   SessionSeat,
   SessionCategory,
@@ -50,10 +45,6 @@ import type {
 } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
-import {
-  getWebContextQualitySummary,
-  listWebContextQualityHistory,
-} from "./web-context-quality";
 import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
@@ -85,6 +76,8 @@ import { discoverWebSessionCodeIndex } from "./web-code-index-state";
 import { webCliToolClient } from "./web-cli-tool-client";
 import { webCliParameterClient } from "./web-cli-parameter-client";
 import { webCliConfigClient } from "./web-cli-config-client";
+import { webScheduledTaskClient } from "./web-scheduled-task-client";
+import { webContextQualityClient } from "./web-context-quality-client";
 import {
   findWebCliConfigProfile,
   requireCliConfigAgentId,
@@ -133,7 +126,6 @@ import {
   normalizeChatConfigForSession,
   withEffectiveExecutionPolicy,
 } from "./chat-configuration";
-import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
@@ -156,9 +148,6 @@ let sessions: Session[] = [];
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
 let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
-let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
-let scheduledTasks: ScheduledTask[] = [];
-let nextScheduledTaskId = 1;
 let loopDefinitions: LoopDefinition[] = [];
 let loopRuns: LoopRun[] = [];
 let nextLoopDefinitionId = 1;
@@ -1345,29 +1334,6 @@ function createWebSeatId() {
   return seatId;
 }
 
-function findScheduledTask(taskId: string) {
-  const task = scheduledTasks.find((candidate) => candidate.id === taskId);
-  if (!task) throw new Error(`Scheduled task not found: ${taskId}`);
-  return task;
-}
-
-function cloneScheduledTask(task: ScheduledTask): ScheduledTask {
-  return { ...task, frequency: { ...task.frequency } };
-}
-
-function validateScheduledTaskInput(input: CreateScheduledTaskInput) {
-  const name = input.name.trim();
-  const content = input.content.trim();
-  if (!name) throw new Error("Scheduled task name is required.");
-  if (!content) throw new Error("Scheduled task content is required.");
-  const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
-  if (!agent || (agent.id !== "onepiece" && !agent.supportedInteractionModes.includes("cli"))) {
-    throw new Error(`Unsupported Agent: ${input.agentId}`);
-  }
-  validateScheduledTaskFrequency(input.frequency);
-  return { name, content };
-}
-
 function cloneLoopValue<T>(value: T): T {
   return structuredClone(value);
 }
@@ -1961,6 +1927,8 @@ export const webAgentClient: AgentService = {
   ...webCliToolClient,
   ...webCliParameterClient,
   ...webCliConfigClient,
+  ...webScheduledTaskClient,
+  ...webContextQualityClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
   saveDesktopUpdatePreferences: webDesktopUpdateClient.savePreferences,
@@ -2038,39 +2006,6 @@ export const webAgentClient: AgentService = {
     return capabilityTag
       ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
       : mockAgents;
-  },
-
-  async listContextQualityHistory(input) {
-    return listWebContextQualityHistory(input);
-  },
-
-  async getContextQualitySummary(input) {
-    return getWebContextQualitySummary(input);
-  },
-
-  async listContextEvidenceManifests(input) {
-    const manifest = {
-      sessionId: input.sessionId ?? "web-context-session",
-      turnId: "web-context-turn",
-      generationId: "web-context-generation",
-      policyVersion: "context-engine-v1",
-      evidenceBudget: 4096,
-      occupiedTokens: 768,
-      selected: [{ id: "web-definition", sourceKind: "retrieval", sourceRef: "src/example.ts", startLine: 12, endLine: 28, symbol: "example", tokenEstimate: 512, reasonCodes: ["semantic-match", "symbol-relation"] }],
-      rejected: [{ id: "web-memory", reasonCode: "budget-rejected" }],
-      sourceOutcomes: { retrieval: "ready" as const, lsp: "unavailable" as const },
-      duplicateTokensSaved: 256,
-      collectionLatencyBucket: "under-50ms",
-      rankingLatencyBucket: "under-10ms",
-      compactionTriggered: false,
-      runtime: "web-mock" as const,
-    };
-    return { items: input.cursor ? [] : [manifest], nextCursor: null };
-  },
-
-  async getContextEvidenceManifest(generationId) {
-    const page = await this.listContextEvidenceManifests({ cursor: null, limit: 1 });
-    return page.items.find((item) => item.generationId === generationId) ?? null;
   },
 
   async deleteApiAgent(agentId: string) {
@@ -2361,67 +2296,6 @@ export const webAgentClient: AgentService = {
   async assignSessionCategory(input: AssignSessionCategoryInput) {
     if (input.categoryId) findCategory(input.categoryId);
     return updateSession(input.sessionId, { categoryId: input.categoryId });
-  },
-
-  async getAutomaticArchivalSettings() {
-    return { ...automaticArchivalSettings };
-  },
-
-  async saveAutomaticArchivalSettings(input: AutomaticArchivalSettings) {
-    if (input.inactiveDays < 1 || input.inactiveDays > 3650) {
-      throw new Error("Invalid automatic archival threshold.");
-    }
-    automaticArchivalSettings = { ...input };
-    return { ...automaticArchivalSettings };
-  },
-
-  async listScheduledTasks() {
-    return scheduledTasks.map(cloneScheduledTask).sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
-  },
-  async listScheduledTaskRuns(taskId: string) {
-    const task = findScheduledTask(taskId);
-    if (!task.latestRunAt) return [];
-    return [{ id: `scheduled-run:${task.id}:${task.latestRunAt}`, taskId: task.id, sessionId: task.latestRunSessionId, status: task.latestStatus, error: task.latestError, startedAt: task.latestRunAt, completedAt: task.latestRunAt }] satisfies ScheduledTaskRun[];
-  },
-
-  async createScheduledTask(input: CreateScheduledTaskInput) {
-    const { name, content } = validateScheduledTaskInput(input);
-    const timestamp = nowIso();
-    const task: ScheduledTask = {
-      id: `web-scheduled-task-${nextScheduledTaskId++}`,
-      name,
-      content,
-      agentId: input.agentId,
-      frequency: { ...input.frequency },
-      enabled: true,
-      nextRunAt: computeNextScheduledRun(input.frequency),
-      latestStatus: "never-run",
-      latestRunAt: null,
-      latestRunSessionId: null,
-      latestError: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    scheduledTasks = [task, ...scheduledTasks];
-    return cloneScheduledTask(task);
-  },
-
-  async setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput) {
-    const task = findScheduledTask(input.taskId);
-    const timestamp = nowIso();
-    const updated: ScheduledTask = {
-      ...task,
-      enabled: input.enabled,
-      nextRunAt: input.enabled ? computeNextScheduledRun(task.frequency) : task.nextRunAt,
-      updatedAt: timestamp,
-    };
-    scheduledTasks = scheduledTasks.map((candidate) => (candidate.id === input.taskId ? updated : candidate));
-    return cloneScheduledTask(updated);
-  },
-
-  async deleteScheduledTask(taskId: string) {
-    findScheduledTask(taskId);
-    scheduledTasks = scheduledTasks.filter((task) => task.id !== taskId);
   },
 
   async listLoopDefinitions() {

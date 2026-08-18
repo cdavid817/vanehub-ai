@@ -5,7 +5,6 @@ import type {
   AgentTerminalSession,
   AgentTerminalSize,
   AssignSessionCategoryInput,
-  AutomaticArchivalSettings,
   CreateSessionCategoryInput,
   ExportSessionInput,
   CreateSessionInput,
@@ -17,16 +16,12 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   UpdateSessionSeatsInput,
-  CreateScheduledTaskInput,
-  SetScheduledTaskEnabledInput,
   Session,
   SessionCategory,
   SessionDetails,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
-  ScheduledTask,
-  ScheduledTaskRun,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -220,16 +215,10 @@ import type {
   LspWorkspaceTrust,
   LspWorkspaceTrustUpdate,
 } from "../types/lsp";
-import type {
-  ContextQualityHistoryPage,
-  ContextQualityHistoryQuery,
-  ContextQualitySummary,
-  ContextQualitySummaryQuery,
-} from "../types/context-quality";
-import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { CodeIndexService } from "./code-index-service";
+import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends
@@ -243,7 +232,9 @@ export interface AgentService extends
   HybridRoutingService,
   OnePieceProfileService,
   OnePieceProviderService,
-  PromptHookService {
+  PromptHookService,
+  ScheduledTaskService,
+  ContextQualityService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -277,10 +268,6 @@ export interface AgentService extends
   listAllMemories(): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   resetAllMemories(): Promise<void>;
-  listContextQualityHistory(input: ContextQualityHistoryQuery): Promise<ContextQualityHistoryPage>;
-  getContextQualitySummary(input: ContextQualitySummaryQuery): Promise<ContextQualitySummary>;
-  listContextEvidenceManifests(input: ContextEvidenceManifestQuery): Promise<ContextEvidenceManifestPage>;
-  getContextEvidenceManifest(generationId: string): Promise<ContextEvidenceManifest | null>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
   listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
@@ -311,13 +298,6 @@ export interface AgentService extends
   renameSessionCategory(input: RenameSessionCategoryInput): Promise<SessionCategory>;
   deleteSessionCategory(categoryId: string): Promise<void>;
   assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
-  getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
-  saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
-  listScheduledTasks(): Promise<ScheduledTask[]>;
-  listScheduledTaskRuns(taskId: string): Promise<ScheduledTaskRun[]>;
-  createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
-  setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
-  deleteScheduledTask(taskId: string): Promise<void>;
   listLoopDefinitions(): Promise<LoopDefinition[]>;
   createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
   updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
