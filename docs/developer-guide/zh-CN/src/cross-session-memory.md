@@ -15,6 +15,56 @@
 - **OnePiece** 在其自身的 API tool-calling loop 中暴露一个保存记忆的工具。当记忆启用开关打开时，该工具会被自动批准——它无需用户确认即可立即持久化。
 - **CLI 包装的 Agent** 不暴露该工具，因为 VaneHub 不控制 CLI 包装 Agent 自身的内部工具系统。它们通过单独的自动抽取机制产生记忆，该机制由其各自的需求约束。
 
+## 记忆存储与产生机制
+
+记忆以文件形式落盘到一个主机级共享的 `memory/` 目录,并由一个 `MEMORY.md` 索引文件汇总条目。`FileAgentMemoryStore` 是这条路径上唯一的持久化实现:所有写入都走它,所有产生路径都最终落到同一份文件存储上,不区分产生者。下面的流程图展示了三条产生路径如何汇入同一个共享池。
+
+```mermaid
+flowchart LR
+    subgraph 共享池[主机级共享 memory/ 目录]
+        MEM[memory/*.md 记录]
+        IDX[MEMORY.md 索引]
+    end
+
+    STORE[FileAgentMemoryStore<br/>唯一持久化实现]
+
+    subgraph 产生路径
+        P1[OnePiece<br/>remember 工具<br/>tool-calling loop 中]
+        P2[OnePiece 自动提取<br/>随对话压缩触发]
+        P3[CLI Agent<br/>由 OnePiece 代做]
+    end
+
+    P1 --> STORE
+    P2 --> STORE
+    P3 --> STORE
+    STORE --> MEM
+    STORE --> IDX
+```
+
+CLI 包装的 Agent(`claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli`)本身不暴露保存记忆的工具,VaneHub 不控制它们内部的工具系统。它们的记忆由 OnePiece 在 generation 结束时代为提取,复用 OnePiece 已有的 provider 凭据与抽取逻辑,整个过程对 CLI Agent 透明。下面的时序图展示了这条路径,关键约束是**所有失败只记录日志,绝不阻塞生成**。
+
+```mermaid
+sequenceDiagram
+    participant Gen as CLI Agent generation
+    participant OpLoop as OnePiece 代做循环
+    participant Extract as extract_and_save_memory
+    participant Store as FileAgentMemoryStore
+
+    Gen->>OpLoop: generation 完成
+    OpLoop->>OpLoop: is_cli_kind 判定为 CLI Agent
+    OpLoop->>Extract: 复用 OnePiece 凭据<br/>调用 extract_and_save_memory
+    Note over Extract: 不发起任何工具调用<br/>直接从对话文本抽取
+    alt 抽取成功
+        Extract->>Store: apply_memory_actions
+        Store-->>Extract: 写入 memory/ 与 MEMORY.md
+    else 抽取或写入失败
+        Extract-->>OpLoop: 仅 log,不抛错
+        Note over OpLoop: 不阻塞后续生成
+    end
+```
+
+每条记忆记录上的 `provenance` 字段(`agent_id`、`folder`、`source`、`created_at`)只承载**来源元数据**:它们说明这条记忆由哪个 Agent、在哪个 workspace 文件夹、经由哪条路径、何时产生,但**不参与任何过滤**。注入、列出与召回都不会按 `agent_id` 或 `folder` 切分共享池——这就是"主机级共享"的含义:一个共享池服务这台主机上所有 Agent 的所有会话,来源信息只用于事后追溯。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

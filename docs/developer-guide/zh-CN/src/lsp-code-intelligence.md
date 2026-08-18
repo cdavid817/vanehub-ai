@@ -141,3 +141,69 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
 前端适配器、组件与 Web/mock 行为由 Vitest 覆盖;文档化的设置流程由 LSP Playwright 场景覆盖。提交前请运行 `AGENTS.md` 中的仓库级验证命令。
+
+## 进程状态机与请求时序
+
+`ProcessState` 是单个服务端进程的有限状态机。`absent` 是初始与终态；`starting` 表示已 spawn 但尚未完成 `initialize` 握手；`ready` 表示握手完成（不代表后台索引已结束）；`stopping` 是排空式停止路径；`backoff` 与 `failed` 是非预期退出后的有界恢复路径。状态机参数由 `LifecyclePolicy` 默认值承载。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Absent
+    Absent --> Starting: 工具请求 / 预热
+    Starting --> Initializing: 子进程已 spawn
+    Initializing --> Ready: initialize + initialized 握手完成
+    Initializing --> Backoff: 非预期退出 / 超时
+    Starting --> Backoff: spawn 失败
+    Ready --> Stopping: idle_timeout=600s / 配置替换 / 信任撤销 / 应用关闭
+    Backoff --> Starting: 重启预算未耗尽<br/>initial_backoff=1s, 翻倍至 max_backoff=30s
+    Backoff --> Failed: 重启预算 restart_budget=3 耗尽
+    Failed --> Starting: cooldown=300s 后<br/>发放新预算
+    Stopping --> Absent: shutdown/exit 完成<br/>或全局截止时间强制终止
+    Ready --> Backoff: 非预期退出
+```
+
+- `restart_budget = 3`、`initial_backoff = 1s`、`max_backoff = 30s`、`cooldown = 300s`、`idle_timeout = 600s`。
+- `ready` 的进程若无活动请求或文档租约，在十分钟后被关闭。
+- 重启预算耗尽后进入 `failed`，直到 `cooldown` 路径允许一份新预算才可再 `starting`。
+- 配置替换与信任撤销使用同一条排空式 `stopping` 路径。
+
+一次 `find_definition` 的端到端时序如下。文档租约、协议坐标转换与有界请求截止时间是三个值得关注的环节。
+
+```mermaid
+sequenceDiagram
+    participant Tool as Agent 工具调用
+    participant API as CodeIntelligenceApi
+    participant Reg as 进程注册表
+    participant Proc as LSP 服务端进程
+    participant Lease as 文档租约
+    Tool->>API: find_definition(规范路径, 1-based 位置)
+    API->>Reg: acquire(会话根 + 项目根 + 服务端类型 + 配置指纹)
+    alt 进程 Absent
+        Reg->>Proc: spawn(stdin/stdout)
+        Reg->>Proc: initialize 协商
+        Proc-->>Reg: initialize 结果 + 能力
+        Reg->>Proc: initialized 通知
+    end
+    Reg->>Lease: didOpen(规范化路径, 首次请求)
+    API->>API: 1-based → 0-based<br/>按协商编码(UTF-16 回退)
+    API->>Proc: JSON-RPC request_with_control<br/>textDocument/definition, 截止 10s
+    Proc-->>API: Location[] 或空
+    API->>API: 规范化 / 工作区过滤<br/>仅保留通过准入的 file: 位置
+    API-->>Tool: QueryOutcome<br/>ready/warming/timeout/unavailable/failed
+    Note over Tool,API: ready+空是唯一成功无结果状态<br/>可选失败软化为 outcome, 不中断 Agent 生成
+```
+
+- **坐标转换**：Agent 坐标与结果范围是 1 起始的，协议坐标是 0 起始的；编码按 initialize 协商结果，回退为 UTF-16。
+- **请求截止**：`request_with_control` 对单次 JSON-RPC 请求设 10s 截止；超时归为 `timeout` 软失败，不抛给 Agent。
+- **工作区过滤**：返回的位置在规范化后按当前会话工作区过滤，模型不能选择工作区、根、服务端路径或 URI scheme。
+
+## 安全根因
+
+LSP 是只读基础，安全性由四道闸门共同保证，而不是依赖单一检查：
+
+1. **只读工具目录**：`find_definition`/`find_references`/`get_hover`/`get_diagnostics` 全部只读；服务端到客户端的工作区编辑（`workspace/applyEdit` 等）被这个只读基础直接拒绝。
+2. **会话工作区作用域**：工作区始终来自当前会话；只有规范工作区内通过准入的 `file:` 位置能在规范化后留存。
+3. **磁盘为准**：VaneHub 不维护未保存编辑器缓冲区；磁盘内容是权威，Agent 的精确写入会立即使匹配的租约失效。
+4. **隔离测试四阶段**：服务端测试走 `Discovery → Spawn → Initialize → Cleanup` 四阶段，畸形的能力必须失败关闭，且清理仍须运行。
+
+进程、协议与权限边界的权威定义见 `openspec/specs/` 下相关 spec，归属层位于 `src-tauri/src/contexts/code_intelligence/`。

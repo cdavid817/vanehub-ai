@@ -15,6 +15,32 @@ VaneHub 在两个层次上集成 Model Context Protocol（MCP）server：客户�
 - MCP 目录名永远不会与固定的 `shell`/`file`/`remember` 工具冲突或遮蔽它们。
 - 目录查询失败时会优雅降级：生成过程只使用固定目录继续进行，而不是直接失败。
 
+## 传输与中继
+
+MCP server 从配置到进入 native 工具目录的完整路径如下。三种 transport 在入口归一为同一套配置模型，最终只有通过「Test Connection」缓存的工具会进入目录。
+
+```mermaid
+flowchart TD
+    A1[stdio 本地子进程] --> C{MCP server 配置}
+    A2[streamable_http HTTP] --> C
+    A3["遗留 sse(迁移到 streamable_http)"] --> C
+    C --> C1["kebab-case 全局唯一名
+active / scope / project-path"]
+    C1 --> D[Test Connection]
+    D -->|缓存有效工具列表| E[native 工具目录]
+    D -->|未测试或失败| X[不贡献工具]
+    E --> F{"仅对当前会话 workspace
+可见且 active 的 server"}
+    F -->|是| G[贡献工具条目]
+    F -->|否| X
+    G --> H[固定 shell/file/remember 工具
+永不冲突]
+```
+
+**中继(relay)**：VaneHub 可在 CLI 与 MCP server 之间充当代理，标记位为 `RELAY_FLAG=` `--vanehub-mcp-relay`。仅 Claude Code 与 Codex CLI 走中继路径；Gemini CLI、OpenCode、Antigravity CLI 各自独立配置 MCP，其 MCP 调用不进入 VaneHub 的执行链路。中继文件系统由 `PrivateRelayDirectory` 隔离，防止跨会话或跨 Agent 串扰。
+
+**目录降级**：未测试或测试失败的 server 不贡献工具；inactive 或超出当前会话作用域的 server 不贡献工具。MCP 目录名永不与固定的 `shell`/`file`/`remember` 工具冲突或遮蔽。当目录查询本身失败时优雅降级：生成过程只使用固定目录继续进行，而不是直接失败整个请求。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

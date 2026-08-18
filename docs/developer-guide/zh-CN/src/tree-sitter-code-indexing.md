@@ -22,6 +22,55 @@
 
 一个代码索引版本涵盖 grammar 兼容性、Tree-sitter 查询、chunk 拆分与脱敏策略。版本不匹配会把受影响的工作区文件标记为陈旧,并以有边界的批次重建。native worker 执行元数据优先的核对,只读取或解析新增或变更的文件。
 
+## 索引构建管线
+
+工作区代码索引由 `reconcile_workspace_cancellable` 驱动,整体分为三个 phase。每个 phase 都可被取消,取消后会过渡到 `cancelling` 并最终落到 `unavailable` 或重新开始。
+
+```mermaid
+flowchart TB
+    Start([reconcile_workspace_cancellable]) --> P1
+    P1[Phase 1: Scanning<br/>清点 inventory<br/>跳过未变文件] --> P2
+    P2[Phase 2: Parsing<br/>load_and_parse<br/>extract_symbols<br/>chunk_code<br/>redact] --> P3
+    P3{Phase 3: 终态}
+    P3 -->|全部成功| Ready[Ready]
+    P3 -->|部分失败/降级| Degraded[Degraded]
+```
+
+各 phase 的关键细节:
+
+- **Scanning(清点 inventory)**:按 manifest 驱动做选择性协调——只读取或解析新增或变更的文件,未变文件直接跳过。manifest 记录了每个文件的路径、hash、语言与索引版本。
+- **Parsing(load_and_parse + extract_symbols + chunk_code + redact)**:用对应语言的 Tree-sitter grammar 解析,容忍语法错误——只从错误周围的有效具名子树派生 chunk。然后用 `.scm` 查询提取 symbol 定义元数据(名称、种类、定义范围),按预算切块,最后对 chunk 文本做脱敏。
+- **Ready / Degraded**:全部文件成功解析并入库后进入 `Ready`;若部分文件因语法错误或 IO 失败被跳过,但仍产出了可用索引,则进入 `Degraded`。
+
+切块与脱敏的几条硬规则:
+
+- **grammar 支持**:内置 JS、TS、TSX、Python、Rust、Go、Java、C、C++ 的 grammar;不在此清单内的文件不被解析,也不产生 chunk。
+- **切块规则**:默认预算 `DEFAULT_MAX_CHUNK_BYTES=6KB`,在具名子节点边界上切,因此切出的每个 chunk 仍能归属到其源 symbol 与文件范围。
+- **符号提取**:每种语言一组 `.scm` 查询,提取函数、类、方法等定义元数据,在同一文件事务中与 chunk 一起持久化。
+- **脱敏**:统一策略在持久化、embedding、日志、审计、`search_code` 返回之前,对六类敏感模式按正则替换为 `[REDACTED]`,原始代码内容不进入检索存储。
+- **强制敏感路径 denylist**:`.env*`、私钥文件、`.ssh/` 等路径在准入阶段即被拒绝,根本不进入解析流程。
+- **manifest 驱动选择性协调**:未变文件跳过,只处理新增或变更的文件;`CODE_INDEX_VERSION` 标记当前 grammar、查询、切块与脱敏策略的版本,版本不匹配的文件被标记为陈旧并重建。
+
+索引 phase 本身也是一个状态机:
+
+```mermaid
+stateDiagram-v2
+    [*] --> disabled
+    disabled --> scanning : 触发 reconcile
+    scanning --> parsing : inventory 清点完成
+    scanning --> cancelling : 取消
+    parsing --> awaiting_embedding_confirmation : 解析完成,等待嵌入确认
+    parsing --> degraded : 部分文件失败
+    parsing --> cancelling : 取消
+    awaiting_embedding_confirmation --> embedding : 确认通过
+    embedding --> ready : 嵌入完成
+    embedding --> degraded : 部分嵌入失败
+    ready --> scanning : 文件变更/版本陈旧
+    degraded --> scanning : 重新 reconcile
+    cancelling --> unavailable
+    unavailable --> [*]
+```
+
 ## 设计所在
 
 本章用于为贡献者定向。权威的需求位于规范中。

@@ -26,6 +26,49 @@ Native API Agent(包括 OnePiece)接收一个固定的、与 provider 无关的�
 
 Skill 可以在固定目录之上贡献自己的工具,这些工具在沙箱中而非宿主进程中执行。相关需求见 [openspec/specs/skill-tool-runtime](../../../../openspec/specs/skill-tool-runtime/spec.md)。
 
+## 工具调用循环
+
+模型每轮可以请求若干工具调用,运行时解析工具名、执行后回填结果,再交给模型进入下一轮,直到模型返回不带工具调用的终态响应。下图展示一次多轮循环的标准时序。
+
+```mermaid
+sequenceDiagram
+    participant Model as 模型
+    participant Runtime as 运行时
+    participant Catalog as 工具目录
+    participant Executor as 执行器
+    Model->>Runtime: 请求一个或多个 tool_use
+    loop 每个工具调用
+        Runtime->>Catalog: 按工具名查找定义
+        Catalog-->>Runtime: 固定原生工具 / Skill 工具 / MCP 工具
+        Runtime->>Executor: 执行(shell.exec/file.read/file.write/mcp.tool)
+        Executor-->>Runtime: 工具结果
+    end
+    Runtime->>Model: 回填 tool_result
+    Model-->>Runtime: 终态响应(无 tool_use)
+    Note over Runtime,Model: 达到最大往返或终态即结束
+```
+
+### 循环的终止与边界
+
+- **多轮直到终态** —— 模型返回的响应只要包含 `tool_use`,运行时就执行这些调用并把结果作为新一轮回传;没有工具调用的响应即为该次用户消息的终态响应,等同于一次不带工具的生成。
+- **最大往返约束** —— 每条用户消息有固定最大往返次数,超出上限会被显式处理,不会形成无限循环。
+- **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
+
+## 接口格式翻译
+
+每个工具只定义一次,在发送给 provider 前按会话的 `interface_format` 字段翻译成该 provider 要求的请求形态。`interface_format` 与 provider 绑定,运行时不按显示名推断。
+
+- **`anthropic`** —— 翻译为 `{name, description, input_schema}` 形态。
+- **`openai-compatible`** —— 翻译为 `{type: "function", function: {name, description, parameters}}` 形态。
+
+### 工具来源与执行边界
+
+| 工具来源 | 执行位置 | 说明 |
+| --- | --- | --- |
+| 固定原生工具 | 宿主进程内 | `shell`、`file`(读/写)、内容搜索、文件名搜索、限定范围编辑、跨会话内存 |
+| Skill 工具 | 沙箱,非宿主进程 | Skill 在固定目录之上贡献工具,在沙箱中执行而非宿主进程 |
+| MCP 工具 | MCP 客户端中继 | 走 MCP 中继调用,叠加在固定目录之上 |
+
 ## 设计所在之处
 
 本章用于为贡献者定位。权威需求位于规范之中。
