@@ -1,4 +1,5 @@
 mod invocation;
+mod prompt;
 mod sinks;
 
 use super::agent_image::{prepare_image, AgentImage, MAX_IMAGES_PER_REQUEST};
@@ -8,39 +9,34 @@ use super::context_reduction::{build_structured_summary_turns, reconstruct_candi
 use super::memory_actions::{apply_memory_actions, render_existing_manifest};
 use super::memory_directory::is_within_memory_directory;
 use super::memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
-use super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
 use super::model_context_catalog;
 use super::skill_tool_catalog_adapter::resolve_skill_tool_catalog;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_file_image_read, execute_glob,
     execute_grep, execute_notebook, execute_shell, is_reviewed_image_path, render_task_list,
-    task_list_prompt_section, task_list_store, validate_task_list, BackgroundStartError,
-    GrepRequest, KillOutcome, NotebookRequest, ToolExecutionOutcome,
-    MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
+    task_list_store, validate_task_list, BackgroundStartError, GrepRequest, KillOutcome,
+    NotebookRequest, ToolExecutionOutcome, MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
 use super::SqliteNativeToolRepository;
 use crate::contexts::agent_runtime::application::{
-    ask_user_question_tool_definition, code_intelligence_tool_definitions,
-    delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, AgentChatConfiguration, AgentClockPort,
+    delegate_utility_skill_tool_definition, AgentChatConfiguration, AgentClockPort,
     AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome,
     AgentCoreInstructionsPort, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
-    AgentMemorySelectionPort, AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError,
-    AgentSkillPort, AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
-    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput,
-    ContextAnalysisService, ContextEngineOutcome, ContextEngineService, ContextQualityRecorder,
-    ConversationHistoryPort, ExistingToolHandler, ExistingToolHandlerRegistry,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    NativeToolAuthorizationStatus, NativeToolDispatchRequest, NativeToolDispatcher,
-    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
-    NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, PersonalizationSettings, ProcessStopInitiator, ReportedUsageTotals,
-    SaveMemoryInput, SkillToolUseProvenance, StartedGenerationProcess, StoredToolOperation,
-    StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
-    ToolEligibilityContext, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort,
+    AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
+    AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest,
+    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, ContextAnalysisInput, ContextAnalysisService, ContextEngineOutcome,
+    ContextEngineService, ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
+    NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, ProcessStopInitiator,
+    ReportedUsageTotals, SaveMemoryInput, SkillToolUseProvenance, StartedGenerationProcess,
+    StoredToolOperation, StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolEligibilityContext, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
     UtilityDelegationApplicationService, WorkflowLaunchOutcome, WorkflowLaunchRequest,
     ASK_USER_QUESTION_TOOL_NAME, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
     EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
@@ -72,7 +68,7 @@ use crate::contexts::skill_evolution_evidence::application::{
 };
 use crate::contexts::skill_evolution_evidence::domain::{
     EnvelopeCommon, FailureClass, ObservedSkillRevision, OperationClass, SafeCounts,
-    SkillAssociationKind, SourceFidelity, TerminalOutcome,
+    SourceFidelity, TerminalOutcome,
 };
 use crate::contexts::tooling::skill_tools::application::{
     SkillToolBinding, SkillToolCatalogContext, SkillToolCatalogMode, SkillToolCatalogPort,
@@ -84,6 +80,10 @@ use crate::platform::network::blocking_http_client;
 use invocation::{
     begin_api_invocation, estimated_input_characters, finish_api_invocation,
     record_context_snapshot,
+};
+use prompt::{
+    resolve_personalization_settings, resolve_system_prompt_with_settings,
+    resolve_tool_catalog_with_code_intelligence,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -109,9 +109,18 @@ pub(crate) use invocation::{
 // Imports and re-exports that exist only so `tests.rs`'s `use super::*;` keeps
 // resolving. They are not this module's API — no production caller reads them.
 #[cfg(test)]
+use crate::contexts::agent_runtime::application::{
+    ask_user_question_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
+    tool_catalog, AgentMemory, AgentMemorySelectionPort, BoundSkillPrompt, PersonalizationSettings,
+};
+#[cfg(test)]
+use crate::contexts::skill_evolution_evidence::domain::SkillAssociationKind;
+#[cfg(test)]
 pub(crate) use invocation::context_snapshot_diagnostic;
 #[cfg(test)]
 use invocation::{api_invocation_snapshot, record_accounting_diagnostic};
+#[cfg(test)]
+use prompt::{format_custom_instructions_section, format_memory_section, format_system_prompt};
 
 const HISTORY_LIMIT: i64 = 50;
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -1938,376 +1947,6 @@ fn compaction_notice_block(
             "policyVersion": evidence.policy_version,
         },
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn resolve_tool_catalog_with_code_intelligence(
-    request: &GenerationProcessRequest,
-    mcp: &dyn AgentMcpToolPort,
-    logging: &dyn AgentLoggingPort,
-    clock: &dyn AgentClockPort,
-    plan_mode: bool,
-    retrieval_available: bool,
-    code_search_available: bool,
-    code_intelligence_available: bool,
-) -> Vec<ToolDefinition> {
-    if plan_mode {
-        let mut tools = plan_mode_tool_catalog();
-        if retrieval_available {
-            tools.push(recall_tool_definition());
-        }
-        if code_search_available {
-            tools.push(search_code_tool_definition());
-        }
-        if code_intelligence_available {
-            tools.extend(code_intelligence_tool_definitions());
-        }
-        // Plan mode is where clarification matters most -- the whole point of the mode is to
-        // settle what the work is before doing it (`add-agent-user-question`).
-        if request.interactive {
-            tools.push(ask_user_question_tool_definition());
-        }
-        return tools;
-    }
-    let mut tools = tool_catalog();
-    let project_path = request.session.folder.as_deref().unwrap_or_default();
-    match mcp.catalog_entries(project_path) {
-        Ok(mcp_tools) => tools.extend(mcp_tools),
-        Err(error) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.mcp".to_string(),
-                message: format!(
-                    "Failed to resolve MCP-sourced tools; continuing with the fixed tool catalog only: {error}"
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-        }
-    }
-    if retrieval_available {
-        tools.push(recall_tool_definition());
-    }
-    if code_search_available {
-        tools.push(search_code_tool_definition());
-    }
-    if code_intelligence_available {
-        tools.extend(code_intelligence_tool_definitions());
-    }
-    if request.interactive {
-        tools.push(ask_user_question_tool_definition());
-    }
-    tools
-}
-
-/// Resolves the agent's bound, enabled Skills (`add-agent-skill-support`) and stored memories
-/// scoped to `(agent_id, request.session.folder)` (`add-agent-cross-session-memory`) into one
-/// system-prompt string, or `None` if both are empty. Neither source can fail the generation on
-/// lookup error — each logs its own warning and falls back to contributing nothing, matching
-/// context compaction's own established best-effort-enhancement philosophy (design.md Decision 3
-/// in `add-agent-skill-support`).
-/// Fetches host-level personalization settings once, degrading to
-/// `PersonalizationSettings::safe_fallback()` and a logged warning on lookup failure — shared by
-/// every call site that needs a personalization flag (`add-personalization-settings`), matching
-/// this function's neighbors' own established lookup-failure philosophy.
-fn resolve_personalization_settings(
-    personalization: &dyn AgentPersonalizationPort,
-    logging: &dyn AgentLoggingPort,
-    clock: &dyn AgentClockPort,
-    request: &GenerationProcessRequest,
-) -> PersonalizationSettings {
-    match personalization.settings() {
-        Ok(settings) => settings,
-        Err(error) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.personalization".to_string(),
-                message: format!(
-                    "Failed to resolve personalization settings; continuing with safe defaults: {error}"
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            PersonalizationSettings::safe_fallback()
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn resolve_system_prompt_with_settings(
-    agent_id: &str,
-    core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization_settings: &PersonalizationSettings,
-    skills: &dyn AgentSkillPort,
-    memories: &dyn AgentMemoryPort,
-    selection: &dyn AgentMemorySelectionPort,
-    logging: &dyn AgentLoggingPort,
-    clock: &dyn AgentClockPort,
-    request: &GenerationProcessRequest,
-    observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
-) -> Option<String> {
-    let custom_instructions_section = format_custom_instructions_section(personalization_settings);
-    let core_section = match core_instructions.instructions_for(agent_id) {
-        Ok(Some(core)) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Debug,
-                category: "session.runtime.api.prompt".to_string(),
-                message: format!("Applied core instructions version {}.", core.version),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            Some(core.markdown)
-        }
-        Ok(None) => None,
-        Err(_) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.prompt".to_string(),
-                message:
-                    "Failed to resolve core instructions; continuing with optional prompt sections."
-                        .to_string(),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            None
-        }
-    };
-    let skill_section = match skills
-        .bound_skill_prompts(agent_id, request.session.folder.as_deref())
-    {
-        Ok(prompts) if prompts.is_empty() => None,
-        Ok(prompts) => {
-            let observed_at = clock.now();
-            observed_skill_revisions.extend(prompts.iter().map(|prompt| ObservedSkillRevision {
-                skill_id: prompt.id.clone(),
-                revision: prompt.revision.clone(),
-                association_kind: SkillAssociationKind::Injected,
-                observed_at: observed_at.clone(),
-            }));
-            format_system_prompt(&prompts, logging, clock, request)
-        }
-        Err(error) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.skills".to_string(),
-                message: format!(
-                    "Failed to resolve bound Skills; continuing without them in the system prompt: {error}"
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            None
-        }
-    };
-    let (memory_section, memory_bodies_section) = if !personalization_settings.memory_enabled {
-        // Memory master switch off (`add-personalization-settings` D4) — skip the lookup
-        // entirely rather than fetching and discarding, matching design.md D8's "no wasted work
-        // when a feature is off" intent. No selection call is made either.
-        (None, None)
-    } else {
-        match memories.list_all() {
-            Ok(memories) => (
-                format_memory_section(&memories),
-                select_memory_bodies(&memories, selection, logging, clock, request),
-            ),
-            Err(error) => {
-                let _ = logging.record(AgentLog {
-                    level: AgentLogLevel::Warn,
-                    category: "session.runtime.api.memory".to_string(),
-                    message: format!(
-                        "Failed to resolve stored memories; continuing without them in the system prompt: {error}"
-                    ),
-                    agent_id: Some(request.agent.id.clone()),
-                    session_id: Some(request.session.id.clone()),
-                    operation_id: Some(request.operation_id.clone()),
-                    run_id: None,
-                    trace_id: None,
-                    span_id: None,
-                    occurred_at: clock.now(),
-                });
-                (None, None)
-            }
-        }
-    };
-    // Changes on every `todo_write` (`add-agent-task-list` D2), so it is the most volatile section
-    // of all and sits last.
-    let task_list_section = task_list_prompt_section(&request.session.id);
-    // Stable content first, volatile last. A prefix cache is a prefix, so the sections that change
-    // most often sit at the tail where they invalidate the least. The memory index reflects the
-    // pool and the bodies reflect one generation's judgment about it, so the bodies follow the
-    // index; the task list changes more often than either and follows both.
-    let sections: Vec<String> = [
-        core_section,
-        custom_instructions_section,
-        skill_section,
-        memory_section,
-        memory_bodies_section,
-        task_list_section,
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    if sections.is_empty() {
-        None
-    } else {
-        Some(sections.join("\n\n"))
-    }
-}
-
-/// Runs the relevance selection for one generation and formats the chosen bodies.
-///
-/// Runs once here, at generation start, rather than per provider round trip. That is forced by
-/// two things at once: memory content must never enter the turns list compaction manipulates, so
-/// bodies have to live in the system prompt; and a system prompt that changed every round trip
-/// would invalidate the provider prefix cache on every round trip inside a tool loop.
-///
-/// Any failure degrades to index-only injection. Selection is an enhancement — its loss costs
-/// relevance, never the generation, and the index alone still tells the model what exists.
-fn select_memory_bodies(
-    memories: &[AgentMemory],
-    selection: &dyn AgentMemorySelectionPort,
-    logging: &dyn AgentLoggingPort,
-    clock: &dyn AgentClockPort,
-    request: &GenerationProcessRequest,
-) -> Option<String> {
-    if memories.is_empty() {
-        return None;
-    }
-    // Excluded before the call, not after: filtering afterwards would spend the bounded selection
-    // budget on memories this session has already been shown and the caller is about to discard.
-    let candidates = unsurfaced_candidates(&request.session.id, memories);
-    if candidates.is_empty() {
-        return None;
-    }
-    let selected_names = match selection.select(&request.effective_prompt, &candidates) {
-        Ok(names) => names,
-        Err(error) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.memory".to_string(),
-                message: format!(
-                    "Memory relevance selection failed; continuing with the index alone: {error}"
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            return None;
-        }
-    };
-    // Follows the selector's own order so its ranking survives into the prompt.
-    let selected = selected_names
-        .iter()
-        .filter_map(|name| {
-            candidates
-                .iter()
-                .find(|memory| &memory.name == name)
-                .cloned()
-        })
-        .collect::<Vec<_>>();
-    mark_surfaced(&request.session.id, &selected);
-    crate::contexts::agent_runtime::application::format_memory_bodies(
-        &selected,
-        std::time::SystemTime::now(),
-    )
-}
-
-fn format_system_prompt(
-    prompts: &[BoundSkillPrompt],
-    logging: &dyn AgentLoggingPort,
-    clock: &dyn AgentClockPort,
-    request: &GenerationProcessRequest,
-) -> Option<String> {
-    let mut used = 0usize;
-    let mut sections = Vec::new();
-    for prompt in prompts {
-        let section = format!("## {}\n{}", prompt.name, prompt.body);
-        let length = section.chars().count();
-        let reason = if length > SKILL_PER_ITEM_CHARACTER_BUDGET {
-            Some("per-Skill 8,000-character budget")
-        } else if used.saturating_add(length) > SKILL_AGGREGATE_CHARACTER_BUDGET {
-            Some("aggregate 16,000-character budget")
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.skills".to_string(),
-                message: format!(
-                    "Skipped Skill {} because it exceeds the {reason}",
-                    prompt.id
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            continue;
-        }
-        used += length;
-        sections.push(section);
-    }
-    (!sections.is_empty()).then(|| sections.join("\n\n"))
-}
-
-/// Thin delegate to `application::format_memory_index` (the formatting rule lives there so the
-/// CLI-wrapped agents' send path can share it without `application` depending on
-/// `infrastructure` — mirrors `format_custom_instructions_section`'s existing delegation shape).
-///
-/// Binds OnePiece's bounds here rather than at the call site: this surface is the system prompt,
-/// and the CLI surface's far tighter bounds must never be reachable from it by accident.
-fn format_memory_section(memories: &[AgentMemory]) -> Option<String> {
-    crate::contexts::agent_runtime::application::format_memory_index(
-        memories,
-        crate::contexts::agent_runtime::application::ONEPIECE_MEMORY_INDEX_BOUNDS,
-    )
-}
-
-/// Formats enabled, non-empty custom instructions into one `## Custom Instructions` section,
-/// response style before about-you within it (`add-personalization-settings` design.md D3 — style
-/// is a cross-cutting constraint on every response, about-you is background fact, so style gets
-/// the higher-priority earlier position). Returns `None` when disabled or both fields are empty,
-/// omitting either sub-heading individually when only one field is populated.
-/// Thin delegate to `PersonalizationSettings::custom_instructions_block` (moved to `application`
-/// in `add-cli-custom-instructions-injection` so the CLI-wrapped agents' send path can share the
-/// identical formatting rule without `application` depending on `infrastructure`). Kept as a free
-/// function here, rather than updating every call site to the method form, so this file's existing
-/// `format_custom_instructions_section_*` tests need no changes.
-fn format_custom_instructions_section(settings: &PersonalizationSettings) -> Option<String> {
-    settings.custom_instructions_block()
 }
 
 #[derive(Debug)]
