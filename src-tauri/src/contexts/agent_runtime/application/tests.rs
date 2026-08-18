@@ -172,6 +172,8 @@ pub(super) struct FakeWorld {
     provider_config: Mutex<Option<ApiProviderConfig>>,
     onepiece_config: Mutex<StoredOnePieceProviderConfig>,
     onepiece_profiles: Mutex<Vec<StoredOnePieceProviderProfile>>,
+    endpoint_profile_metadata: Mutex<BTreeMap<String, StoredEndpointProfileMetadata>>,
+    hybrid_routing_rules: Mutex<Vec<StoredHybridRoutingRule>>,
     save_onepiece_failure: AtomicBool,
     model_discovery_failure: AtomicBool,
     /// Last request `OnePieceModelDiscoveryPort::list_models` received — lets tests assert which
@@ -182,6 +184,7 @@ pub(super) struct FakeWorld {
     delete_api_agent_failure: AtomicBool,
     deleted_agent_ids: Mutex<Vec<String>>,
     stored_credentials: Mutex<Vec<(String, String)>>,
+    credential_reads: AtomicUsize,
     current_onepiece_credential: Mutex<Option<String>>,
     profile_credentials: Mutex<BTreeMap<String, String>>,
     removed_credentials: Mutex<Vec<String>>,
@@ -287,6 +290,8 @@ impl FakeWorld {
                 auto_approve_tools: false,
             }),
             onepiece_profiles: Mutex::new(Vec::new()),
+            endpoint_profile_metadata: Mutex::new(BTreeMap::new()),
+            hybrid_routing_rules: Mutex::new(Vec::new()),
             save_onepiece_failure: AtomicBool::new(false),
             model_discovery_failure: AtomicBool::new(false),
             last_model_discovery_request: Mutex::new(None),
@@ -294,6 +299,7 @@ impl FakeWorld {
             delete_api_agent_failure: AtomicBool::new(false),
             deleted_agent_ids: Mutex::new(Vec::new()),
             stored_credentials: Mutex::new(Vec::new()),
+            credential_reads: AtomicUsize::new(0),
             current_onepiece_credential: Mutex::new(None),
             profile_credentials: Mutex::new(BTreeMap::new()),
             removed_credentials: Mutex::new(Vec::new()),
@@ -664,12 +670,10 @@ impl AgentCliProfileGateway for FakeWorld {
 impl ApiAgentGateway for FakeWorld {
     fn register(
         &self,
-        _agent_id: &str,
-        _input: &RegisterApiAgentInput,
+        agent_id: &str,
+        input: &RegisterApiAgentInput,
     ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
-        Err(AgentRuntimeApplicationError::Registry(
-            "FakeWorld does not support API agent registration.".to_string(),
-        ))
+        Ok(api_agent(agent_id, &input.display_name, vec!["api"]))
     }
 
     fn provider_config(
@@ -818,7 +822,59 @@ impl ApiAgentGateway for FakeWorld {
                 )
             })?;
         profiles.retain(|profile| profile.id != profile_id);
+        self.endpoint_profile_metadata
+            .lock()
+            .expect("endpoint metadata")
+            .remove(profile_id);
+        self.hybrid_routing_rules
+            .lock()
+            .expect("hybrid rules")
+            .retain(|rule| {
+                rule.preferred_profile_id != profile_id
+                    && rule.fallback_profile_id.as_deref() != Some(profile_id)
+            });
         Ok(active)
+    }
+
+    fn endpoint_profile_metadata(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        Ok(self
+            .endpoint_profile_metadata
+            .lock()
+            .expect("endpoint metadata")
+            .get(profile_id)
+            .cloned())
+    }
+
+    fn save_endpoint_profile_metadata(
+        &self,
+        metadata: &StoredEndpointProfileMetadata,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.endpoint_profile_metadata
+            .lock()
+            .expect("endpoint metadata")
+            .insert(metadata.profile_id.clone(), metadata.clone());
+        Ok(())
+    }
+
+    fn list_hybrid_routing_rules(
+        &self,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        Ok(self
+            .hybrid_routing_rules
+            .lock()
+            .expect("hybrid rules")
+            .clone())
+    }
+
+    fn replace_hybrid_routing_rules(
+        &self,
+        rules: &[StoredHybridRoutingRule],
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        *self.hybrid_routing_rules.lock().expect("hybrid rules") = rules.to_vec();
+        Ok(())
     }
 }
 
@@ -843,6 +899,7 @@ impl ApiCredentialPort for FakeWorld {
     }
 
     fn fetch(&self, agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        self.credential_reads.fetch_add(1, Ordering::SeqCst);
         if agent_id == "onepiece" {
             return Ok(self
                 .current_onepiece_credential
@@ -4434,4 +4491,138 @@ fn prompt_execution_without_fired_versions_records_no_observation() {
         .lock()
         .expect("prompt reports")
         .is_empty());
+}
+
+#[test]
+fn custom_local_profile_preserves_metadata_and_needs_no_credential() {
+    let world = test_world();
+    let runtime = service(world.clone());
+    let overview = runtime
+        .save_custom_onepiece_provider_profile(SaveCustomOnePieceProviderProfileInput {
+            id: None,
+            name: "Local Qwen".to_string(),
+            base_url: "http://127.0.0.1:11434/v1/".to_string(),
+            model_id: "qwen-local".to_string(),
+            runtime_kind: "local".to_string(),
+            authentication_mode: "none".to_string(),
+            api_key: None,
+            timeout_ms: 30_000,
+            privacy_classification: "local".to_string(),
+            tool_calling_capability: "unsupported".to_string(),
+            image_input_capability: "unknown".to_string(),
+            structured_output_capability: "unknown".to_string(),
+            reasoning_field_capability: "unknown".to_string(),
+            context_window_tokens: Some(32_768),
+            reserved_output_tokens: 4_096,
+        })
+        .expect("save custom local profile");
+    assert_eq!(world.credential_reads.load(Ordering::SeqCst), 0);
+    assert!(world
+        .removed_credentials
+        .lock()
+        .expect("removed credentials")
+        .is_empty());
+    let profile = &overview.profiles[0];
+    assert!(profile.active);
+    assert!(!profile.credential_present);
+    assert_eq!(profile.provider, "Local endpoint");
+    let metadata = runtime
+        .endpoint_profile_metadata(&profile.id)
+        .expect("metadata")
+        .expect("stored metadata");
+    assert_eq!(metadata.runtime_kind, "local");
+    assert_eq!(metadata.capability_provenance, "configured");
+    assert_eq!(metadata.context_capacity_provenance, "configured-estimate");
+    runtime
+        .replace_hybrid_routing_rules(vec![StoredHybridRoutingRule {
+            id: "summary-local".to_string(),
+            enabled: true,
+            position: 0,
+            task_class: "summarization".to_string(),
+            preferred_profile_id: profile.id.clone(),
+            fallback_profile_id: None,
+            data_policy: "local-only".to_string(),
+        }])
+        .expect("save route");
+    let frozen = runtime
+        .freeze_endpoint_profile("onepiece", "Summarize this safely")
+        .expect("route")
+        .expect("frozen Profile");
+    assert_eq!(frozen.profile_id, profile.id);
+    assert_eq!(frozen.routing_rule_id.as_deref(), Some("summary-local"));
+    assert_eq!(frozen.routing_reason, "rule-preferred");
+    assert_eq!(frozen.context_window_tokens, Some(32_768));
+    runtime
+        .activate_onepiece_provider_profile(&profile.id)
+        .expect("credential-free activation");
+    assert_eq!(world.credential_reads.load(Ordering::SeqCst), 0);
+    assert!(world
+        .removed_credentials
+        .lock()
+        .expect("removed credentials")
+        .is_empty());
+}
+
+#[test]
+fn custom_local_profile_rejects_non_loopback_location() {
+    let runtime = service(test_world());
+    let invalid =
+        runtime.save_custom_onepiece_provider_profile(SaveCustomOnePieceProviderProfileInput {
+            id: None,
+            name: "Unsafe local".to_string(),
+            base_url: "http://192.168.1.7:11434".to_string(),
+            model_id: "model".to_string(),
+            runtime_kind: "local".to_string(),
+            authentication_mode: "none".to_string(),
+            api_key: None,
+            timeout_ms: 30_000,
+            privacy_classification: "local".to_string(),
+            tool_calling_capability: "unknown".to_string(),
+            image_input_capability: "unknown".to_string(),
+            structured_output_capability: "unknown".to_string(),
+            reasoning_field_capability: "unknown".to_string(),
+            context_window_tokens: None,
+            reserved_output_tokens: 0,
+        });
+    assert!(matches!(
+        invalid,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+}
+
+#[test]
+fn local_api_agent_accepts_explicit_no_auth_while_cloud_stays_authenticated() {
+    let runtime = service(test_world());
+    let local = runtime
+        .register_api_agent(RegisterApiAgentInput {
+            display_name: "Local API Agent".to_string(),
+            provider: "OpenAI-compatible".to_string(),
+            api_key: String::new(),
+            model_id: "local-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:8000/v1".to_string()),
+            runtime_kind: "local".to_string(),
+            authentication_mode: "none".to_string(),
+            timeout_ms: 5_000,
+            privacy_classification: "local".to_string(),
+        })
+        .expect("register unauthenticated local API Agent");
+    assert_eq!(local.display_name, "Local API Agent");
+
+    let cloud = runtime.register_api_agent(RegisterApiAgentInput {
+        display_name: "Unsafe cloud Agent".to_string(),
+        provider: "OpenAI-compatible".to_string(),
+        api_key: String::new(),
+        model_id: "cloud-model".to_string(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        base_url: Some("https://api.example.test/v1".to_string()),
+        runtime_kind: "cloud".to_string(),
+        authentication_mode: "none".to_string(),
+        timeout_ms: 5_000,
+        privacy_classification: "cloud".to_string(),
+    });
+    assert!(matches!(
+        cloud,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
 }

@@ -30,6 +30,7 @@ mod events;
 mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
+mod local_model_discovery;
 mod local_runner;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
@@ -120,6 +121,7 @@ pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
 pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
+pub(crate) use local_model_discovery::HttpLocalModelDiscoveryAdapter;
 pub(crate) use local_runner::LocalRunner;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
 pub(crate) use loop_generation_completions::InMemoryLoopRoleGenerationCompletions;
@@ -173,9 +175,9 @@ pub(crate) use runtime_support::{
 };
 pub(crate) use schema::{
     apply_agent_origin_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
-    apply_expert_role_schema, apply_onepiece_provider_catalog_schema,
-    apply_onepiece_provider_endpoint_schema, apply_onepiece_provider_profiles_schema,
-    apply_openai_compatible_schema, seed_registry,
+    apply_expert_role_schema, apply_hybrid_local_model_schema,
+    apply_onepiece_provider_catalog_schema, apply_onepiece_provider_endpoint_schema,
+    apply_onepiece_provider_profiles_schema, apply_openai_compatible_schema, seed_registry,
 };
 pub(crate) use seat_turn_completions::InMemorySeatTurnCompletions;
 pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;

@@ -11,6 +11,7 @@ mod error;
 mod execution_policy;
 mod existing_tool_registry;
 mod expert_role;
+mod local_model_discovery;
 mod loop_control;
 mod loop_models;
 mod loop_observability;
@@ -67,6 +68,7 @@ pub(crate) use expert_role::{
     ExpertRoleApplicationPorts, ExpertRoleApplicationService, ExpertRoleClockPort,
     ExpertRoleIdPort, ExpertRolePort,
 };
+pub(crate) use local_model_discovery::LocalModelDiscoveryService;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 #[cfg(test)]
 pub(crate) use loop_models::LoopLimitsView;
@@ -110,8 +112,10 @@ pub(crate) use models::{
     ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
     DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
     DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
-    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
+    FrozenEndpointProfile, GenerationCancellation, GenerationLease, GenerationProcessEvent,
+    GenerationProcessFailure, GenerationProcessRequest, HybridRoutePreview,
+    HybridRoutePreviewInput, LaunchWorkflowResult, LocalEndpointVerificationRequest,
+    LocalModelDiscoveryResult, LocalModelEndpointCandidate, LoopLog, LoopOperationContext,
     LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
     LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
     LoopVerificationProcessResult, LoopVerificationProcessStatus, MemoryIndexBounds, MemorySource,
@@ -124,10 +128,11 @@ pub(crate) use models::{
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
     ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
-    ResizeAgentTerminalRequest, SaveMemoryInput, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SeatTurnOwnership, SeatTurnTerminal, SendMessageRequest,
-    SkillToolUseProvenance, StartedAgentMessage, StartedGenerationProcess,
-    StopAgentTerminalRequest, StopGenerationResult, StoredOnePieceProviderConfig,
+    ResizeAgentTerminalRequest, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnOwnership,
+    SeatTurnTerminal, SendMessageRequest, SkillToolUseProvenance, StartedAgentMessage,
+    StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
     StoredOnePieceProviderProfile, ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent,
     ToolLifecyclePhase, ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS,
@@ -171,21 +176,22 @@ pub(crate) use native_tools::{
 pub(crate) use ports::OnePiecePlanningPort;
 pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
-    AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCodeRetrievalHit,
-    AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentCoreInstructionsPort, AgentEventPort,
-    AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryExtractionPort,
-    AgentMemoryPort, AgentMemorySelectionPort, AgentMessageTerminalCompletionPort,
-    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway,
-    AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
-    AgentSessionGateway, AgentSkillPort, AgentTaskPort, AgentTerminalEventPort,
-    AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort,
-    AuthoritativeContextPort, CanonicalLoopSignal, CanonicalRunLinks, CanonicalRunOutcome,
-    CanonicalRunSignal, ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
-    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
-    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
-    LoopRoleSessionPort, LoopSessionRecoveryPort, LoopVerificationProcessPort,
-    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
-    OnePieceModelDiscoveryPort, RunnerDiscoveryPort, ToolApprovalPort,
+    AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCliProfileGateway,
+    AgentClockPort, AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort,
+    AgentCoreInstructionsPort, AgentEventPort, AgentGenerationPort, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemoryExtractionPort, AgentMemoryPort, AgentMemorySelectionPort,
+    AgentMessageTerminalCompletionPort, AgentPermissionPort, AgentPersonalizationPort,
+    AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository, AgentRetrievalHit,
+    AgentRetrievalOutcome, AgentRetrievalPort, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
+    AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
+    ApiCredentialPort, AuthoritativeContextPort, CanonicalLoopSignal, CanonicalRunLinks,
+    CanonicalRunOutcome, CanonicalRunSignal, ConversationHistoryPort, EffectivePromptGateway,
+    LocalModelDiscoveryPort, LoopExecutionControlPort, LoopExecutionLeasePort,
+    LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
+    LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
+    LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
+    RunnerDiscoveryPort, ToolApprovalPort,
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{

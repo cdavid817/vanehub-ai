@@ -767,6 +767,27 @@ pub(crate) struct GenerationProcessRequest {
     /// attempt's ceiling with nobody able to end the wait.
     pub(crate) interactive: bool,
     pub(crate) runner: super::RunnerSelection,
+    pub(crate) endpoint_profile: Option<FrozenEndpointProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FrozenEndpointProfile {
+    pub(crate) profile_id: String,
+    pub(crate) source_provider_id: Option<String>,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) authentication_mode: String,
+    pub(crate) timeout_ms: u64,
+    pub(crate) image_input_capability: String,
+    pub(crate) tool_calling_capability: String,
+    pub(crate) structured_output_capability: String,
+    pub(crate) reasoning_field_capability: String,
+    pub(crate) context_window_tokens: Option<u64>,
+    pub(crate) reserved_output_tokens: u64,
+    pub(crate) context_capacity_provenance: String,
+    pub(crate) routing_rule_id: Option<String>,
+    pub(crate) routing_reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1082,6 +1103,10 @@ pub(crate) struct RegisterApiAgentInput {
     pub(crate) model_id: String,
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
+    pub(crate) runtime_kind: String,
+    pub(crate) authentication_mode: String,
+    pub(crate) timeout_ms: u64,
+    pub(crate) privacy_classification: String,
 }
 
 /// `add-agent-lifecycle-management`. `provider`/`interface_format` are deliberately absent —
@@ -1322,6 +1347,95 @@ pub(crate) struct StoredOnePieceProviderProfile {
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
     pub(crate) active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SaveCustomOnePieceProviderProfileInput {
+    pub(crate) id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) model_id: String,
+    pub(crate) runtime_kind: String,
+    pub(crate) authentication_mode: String,
+    pub(crate) api_key: Option<String>,
+    pub(crate) timeout_ms: u64,
+    pub(crate) privacy_classification: String,
+    pub(crate) tool_calling_capability: String,
+    pub(crate) image_input_capability: String,
+    pub(crate) structured_output_capability: String,
+    pub(crate) reasoning_field_capability: String,
+    pub(crate) context_window_tokens: Option<u64>,
+    pub(crate) reserved_output_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredEndpointProfileMetadata {
+    pub(crate) profile_id: String,
+    pub(crate) runtime_kind: String,
+    pub(crate) endpoint_source: String,
+    pub(crate) authentication_mode: String,
+    pub(crate) timeout_ms: i64,
+    pub(crate) privacy_classification: String,
+    pub(crate) text_generation_capability: String,
+    pub(crate) tool_calling_capability: String,
+    pub(crate) image_input_capability: String,
+    pub(crate) structured_output_capability: String,
+    pub(crate) reasoning_field_capability: String,
+    pub(crate) capability_provenance: String,
+    pub(crate) context_window_tokens: Option<i64>,
+    pub(crate) reserved_output_tokens: i64,
+    pub(crate) context_capacity_provenance: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredHybridRoutingRule {
+    pub(crate) id: String,
+    pub(crate) enabled: bool,
+    pub(crate) position: u32,
+    pub(crate) task_class: String,
+    pub(crate) preferred_profile_id: String,
+    pub(crate) fallback_profile_id: Option<String>,
+    pub(crate) data_policy: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HybridRoutePreviewInput {
+    pub(crate) task_class: String,
+    pub(crate) data_policy: String,
+    pub(crate) active_profile_id: Option<String>,
+    pub(crate) hybrid_enabled: bool,
+    pub(crate) requires_tools: bool,
+    pub(crate) requires_image_input: bool,
+    pub(crate) requires_structured_output: bool,
+    pub(crate) requests_reasoning_field: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HybridRoutePreview {
+    pub(crate) profile_id: Option<String>,
+    pub(crate) rule_id: Option<String>,
+    pub(crate) reason: String,
+    pub(crate) waiting_for_user_choice: bool,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct LocalEndpointVerificationRequest {
+    pub(crate) base_url: String,
+    pub(crate) timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LocalModelEndpointCandidate {
+    pub(crate) service_kind: String,
+    pub(crate) base_url: String,
+    pub(crate) models: Vec<OnePieceDiscoveredModel>,
+    pub(crate) latency_bucket: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LocalModelDiscoveryResult {
+    pub(crate) operation_id: String,
+    pub(crate) endpoints: Vec<LocalModelEndpointCandidate>,
 }
 
 // 凭据是原始字符串，故意不派生 Debug——避免某处 `{:?}` 意外把它写进日志或错误消息，呼应

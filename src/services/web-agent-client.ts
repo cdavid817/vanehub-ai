@@ -29,6 +29,7 @@ import type {
   UpdateSessionSeatsInput,
   AgentTerminalSize,
   RegisterApiAgentInput,
+  SaveCustomOnePieceProviderProfileInput,
   SaveOnePieceProviderConfigInput,
   SaveOnePieceProviderProfileInput,
   CliParameterSelections,
@@ -36,10 +37,14 @@ import type {
   CreateSessionCategoryInput,
   CreateSessionInput,
   CreateScheduledTaskInput,
+  EndpointProfileMetadata,
   ExportSessionInput,
+  HybridRoutePreviewInput,
+  HybridRoutingRule,
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
+  LocalModelDiscoveryResult,
   EmbeddingModelOption,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
@@ -774,6 +779,8 @@ let webOnePieceProviderConfig: OnePieceProviderConfig = {
 };
 let webOnePieceProviderProfiles: OnePieceProviderProfiles = { profiles: [], activeProfileId: null };
 let nextOnePieceProviderProfileId = 1;
+const webEndpointProfileMetadata = new Map<string, EndpointProfileMetadata>();
+let webHybridRoutingRules: HybridRoutingRule[] = [];
 
 function applyWebOnePieceActiveProfile(profileId: string | null) {
   const active = profileId == null
@@ -2946,12 +2953,34 @@ export const webAgentClient: AgentService = {
     const provider = input.provider.trim();
     const apiKey = input.apiKey.trim();
     const modelId = input.modelId.trim();
-    if (!displayName || !provider || !apiKey || !modelId) {
+    const runtimeKind = input.runtimeKind ?? "cloud";
+    const authenticationMode = input.authenticationMode ?? "required";
+    const privacyClassification = input.privacyClassification ?? "cloud";
+    const timeoutMs = input.timeoutMs ?? 30_000;
+    if (!displayName || !provider || !modelId
+      || (authenticationMode === "required" && !apiKey)
+      || (authenticationMode === "none" && Boolean(apiKey))) {
       throw new Error(i18n.t("agents.registerApiAgent.errors.incomplete"));
     }
     const baseUrl = input.baseUrl?.trim() || null;
     if (input.interfaceFormat === "openai-compatible" && !baseUrl) {
       throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
+    }
+    if (input.interfaceFormat !== "openai-compatible" && authenticationMode !== "required") {
+      throw new Error("Only OpenAI-compatible endpoints can use optional authentication.");
+    }
+    let loopback = false;
+    if (baseUrl) {
+      try {
+        loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(baseUrl).hostname);
+      } catch {
+        throw new Error("The API endpoint configuration is invalid or unsafe.");
+      }
+    }
+    if (runtimeKind !== privacyClassification || (runtimeKind === "local" && !loopback)
+      || (runtimeKind === "cloud" && authenticationMode !== "required")
+      || timeoutMs < 100 || timeoutMs > 120_000) {
+      throw new Error("The API endpoint configuration is invalid or unsafe.");
     }
     const baseId = slugify(displayName) || "api-agent";
     let candidateId = baseId;
@@ -3026,6 +3055,8 @@ export const webAgentClient: AgentService = {
 
   async resetOnePieceProviderConfig() {
     webOnePieceProviderProfiles = { profiles: [], activeProfileId: null };
+    webEndpointProfileMetadata.clear();
+    webHybridRoutingRules = [];
     webOnePieceProviderConfig = {
       provider: "VaneHub",
       modelId: null,
@@ -3144,14 +3175,167 @@ export const webAgentClient: AgentService = {
         ? webOnePieceProviderProfiles.profiles.map((candidate) => candidate.id === id ? profile : candidate)
         : [...webOnePieceProviderProfiles.profiles, profile],
     };
+    webEndpointProfileMetadata.set(id, {
+      profileId: id,
+      runtimeKind: "cloud",
+      endpointSource: "catalog",
+      authenticationMode: "required",
+      timeoutMs: 30_000,
+      privacyClassification: "cloud",
+      textGenerationCapability: "supported",
+      toolCallingCapability: "unknown",
+      imageInputCapability: "unknown",
+      structuredOutputCapability: "unknown",
+      reasoningFieldCapability: "unknown",
+      capabilityProvenance: "configured",
+      contextWindowTokens: null,
+      reservedOutputTokens: 0,
+      contextCapacityProvenance: "unknown",
+    });
     if (active) applyWebOnePieceActiveProfile(id);
     return structuredClone(webOnePieceProviderProfiles);
+  },
+
+  async saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput) {
+    const name = input.name.trim();
+    const modelId = input.modelId.trim();
+    const baseUrl = input.baseUrl.trim().replace(/\/$/, "");
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl);
+    } catch {
+      throw new Error("The custom endpoint Profile is invalid or unsafe.");
+    }
+    if (!name || !modelId || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new Error("The custom endpoint Profile is invalid or unsafe.");
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(parsed.hostname);
+    if ((input.runtimeKind === "local" && !loopback) || input.privacyClassification !== input.runtimeKind) {
+      throw new Error("The custom endpoint Profile is invalid or unsafe.");
+    }
+    const credentialPresent = Boolean(input.apiKey?.trim());
+    if ((input.authenticationMode === "required" && !credentialPresent)
+      || (input.authenticationMode === "none" && credentialPresent)
+      || input.timeoutMs < 100 || input.timeoutMs > 120_000
+      || (input.contextWindowTokens == null && input.reservedOutputTokens !== 0)
+      || (input.contextWindowTokens != null && (input.contextWindowTokens < 1_024 || input.reservedOutputTokens >= input.contextWindowTokens))) {
+      throw new Error("The custom endpoint Profile is invalid or unsafe.");
+    }
+    const existing = input.id
+      ? webOnePieceProviderProfiles.profiles.find((profile) => profile.id === input.id)
+      : undefined;
+    if (existing?.sourceProviderId) throw new Error("A catalog Profile cannot be converted to a custom endpoint.");
+    const id = existing?.id ?? `onepiece-profile-${nextOnePieceProviderProfileId++}`;
+    const active = existing?.active ?? webOnePieceProviderProfiles.profiles.length === 0;
+    const profile = {
+      id,
+      name,
+      sourceProviderId: null,
+      sourceEndpointType: null,
+      sourcePresetVersion: null,
+      provider: input.runtimeKind === "local" ? "Local endpoint" : "Private endpoint",
+      modelId,
+      interfaceFormat: "openai-compatible" as const,
+      baseUrl,
+      active,
+      credentialPresent: input.authenticationMode === "none" ? false : credentialPresent || Boolean(existing?.credentialPresent),
+    };
+    webOnePieceProviderProfiles = {
+      activeProfileId: active ? id : webOnePieceProviderProfiles.activeProfileId,
+      profiles: existing
+        ? webOnePieceProviderProfiles.profiles.map((candidate) => candidate.id === id ? profile : candidate)
+        : [...webOnePieceProviderProfiles.profiles, profile],
+    };
+    webEndpointProfileMetadata.set(id, {
+      profileId: id,
+      runtimeKind: input.runtimeKind,
+      endpointSource: "configured",
+      authenticationMode: input.authenticationMode,
+      timeoutMs: input.timeoutMs,
+      privacyClassification: input.privacyClassification,
+      textGenerationCapability: "supported",
+      toolCallingCapability: input.toolCallingCapability,
+      imageInputCapability: input.imageInputCapability,
+      structuredOutputCapability: input.structuredOutputCapability,
+      reasoningFieldCapability: input.reasoningFieldCapability,
+      capabilityProvenance: "configured",
+      contextWindowTokens: input.contextWindowTokens,
+      reservedOutputTokens: input.reservedOutputTokens,
+      contextCapacityProvenance: input.contextWindowTokens == null ? "unknown" : "configured-estimate",
+    });
+    if (active) applyWebOnePieceActiveProfile(id);
+    return structuredClone(webOnePieceProviderProfiles);
+  },
+
+  async getEndpointProfileMetadata(profileId: string) {
+    return structuredClone(webEndpointProfileMetadata.get(profileId) ?? null);
+  },
+
+  async discoverLocalModelEndpoints(): Promise<LocalModelDiscoveryResult> {
+    return {
+      operationId: "web-local-discovery-simulated",
+      candidates: [{
+        service: "ollama",
+        baseUrl: "http://127.0.0.1:11434",
+        models: ["web-simulated-local-model"],
+        metadataProvenance: "verified",
+        latencyBucket: "simulated",
+      }],
+    };
+  },
+
+  async verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number) {
+    if (!baseUrl.trim() || timeoutMs < 100 || timeoutMs > 120_000) throw new Error("Invalid endpoint verification request.");
+    return {
+      operationId: "web-local-verification-simulated",
+      candidates: [{
+        service: "openai-compatible",
+        baseUrl: baseUrl.trim().replace(/\/$/, ""),
+        models: ["web-simulated-local-model"],
+        metadataProvenance: "verified" as const,
+        latencyBucket: "simulated",
+      }],
+    };
+  },
+
+  async listHybridRoutingRules() {
+    return structuredClone(webHybridRoutingRules);
+  },
+
+  async replaceHybridRoutingRules(rules: HybridRoutingRule[]) {
+    if (rules.some((rule, index) => rule.orderIndex !== index
+      || !webOnePieceProviderProfiles.profiles.some((profile) => profile.id === rule.preferredProfileId))) {
+      throw new Error("Hybrid Routing rules are invalid or reference missing Profiles.");
+    }
+    webHybridRoutingRules = structuredClone(rules);
+    return structuredClone(webHybridRoutingRules);
+  },
+
+  async previewHybridRoute(input: HybridRoutePreviewInput) {
+    const rule = input.hybridEnabled
+      ? webHybridRoutingRules.find((candidate) => candidate.enabled && candidate.taskClass === input.taskClass)
+      : undefined;
+    const ids = rule ? [rule.preferredProfileId, rule.fallbackProfileId] : [input.activeProfileId];
+    const selected = ids
+      .filter((id): id is string => Boolean(id))
+      .map((id) => ({ profile: webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === id), metadata: webEndpointProfileMetadata.get(id) }))
+      .find(({ profile, metadata }) => profile && metadata
+        && (input.dataPolicy !== "local-only" || metadata.runtimeKind === "local")
+        && (!input.requiresTools || metadata.toolCallingCapability === "supported")
+        && (!input.requiresImageInput || metadata.imageInputCapability === "supported")
+        && (!input.requiresStructuredOutput || metadata.structuredOutputCapability === "supported")
+        && (!input.requestsReasoningField || metadata.reasoningFieldCapability === "supported"));
+    if (!selected?.profile) {
+      return { profileId: null, ruleId: rule?.id ?? null, reason: input.dataPolicy === "local-only" ? "waiting-local-only" : "no-usable-profile", waitingForUserChoice: input.dataPolicy === "local-only" };
+    }
+    return { profileId: selected.profile.id, ruleId: rule?.id ?? null, reason: rule ? selected.profile.id === rule.preferredProfileId ? "rule-preferred" : "rule-fallback-unavailable" : input.hybridEnabled ? "no-matching-rule" : "hybrid-disabled", waitingForUserChoice: false };
   },
 
   async activateOnePieceProviderProfile(profileId: string) {
     const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
     if (!profile) throw new Error("OnePiece provider profile was not found.");
-    if (!profile.credentialPresent) {
+    const authenticationMode = webEndpointProfileMetadata.get(profileId)?.authenticationMode ?? "required";
+    if (authenticationMode === "required" && !profile.credentialPresent) {
       throw new Error("The selected OnePiece provider Profile has no API key.");
     }
     applyWebOnePieceActiveProfile(profileId);
@@ -3165,6 +3349,9 @@ export const webAgentClient: AgentService = {
       activeProfileId: profile.active ? null : webOnePieceProviderProfiles.activeProfileId,
       profiles: webOnePieceProviderProfiles.profiles.filter((candidate) => candidate.id !== profileId),
     };
+    webEndpointProfileMetadata.delete(profileId);
+    webHybridRoutingRules = webHybridRoutingRules.filter((rule) =>
+      rule.preferredProfileId !== profileId && rule.fallbackProfileId !== profileId);
     if (profile.active) applyWebOnePieceActiveProfile(null);
     return structuredClone(webOnePieceProviderProfiles);
   },

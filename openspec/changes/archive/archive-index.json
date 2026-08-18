@@ -2874,6 +2874,24 @@
                                               "runtime-performance-governance",
                                               "unified-log-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-18",
+                         "changeName":  "add-hybrid-local-model-runtime",
+                         "path":  "openspec/changes/archive/2026-08-18-add-hybrid-local-model-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-context-engine",
+                                              "agent-context-measurement",
+                                              "api-agent-runtime",
+                                              "hybrid-local-model-runtime",
+                                              "onepiece-native-agent"
+                                          ]
                      }
                  ]
 }

@@ -472,6 +472,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         78,
+        "hybrid-local-model-runtime",
+        crate::contexts::agent_runtime::infrastructure::apply_hybrid_local_model_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        79,
         "agent-runner-projections",
         crate::contexts::operations::infrastructure::apply_runner_projection_schema,
     )?;
@@ -832,7 +838,8 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (75, "agent-code-review"),
     (76, "canonical-agent-run-state"),
     (77, "agent-evaluation-platform"),
-    (78, "agent-runner-projections"),
+    (78, "hybrid-local-model-runtime"),
+    (79, "agent-runner-projections"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1737,7 +1744,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (77, 78));
+        assert_eq!(migration_state, (78, 79));
 
         migrate(&connection).expect("upgrade migration");
 

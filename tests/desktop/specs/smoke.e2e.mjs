@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -33,6 +35,115 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
     assert.equal(update.phase, "idle");
     assert.match(update.currentVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
     assert.match(update.channel, /^(stable|preview)$/);
+
+    const localRequests = [];
+    const localServer = createServer((request, response) => {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.on("end", () => {
+        localRequests.push({ method: request.method, url: request.url, body: Buffer.concat(chunks).toString("utf8") });
+        if (request.url === "/api/tags" || request.url === "/v1/models") {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ models: [{ name: "desktop-local-model" }] }));
+          return;
+        }
+        if (request.url === "/v1/chat/completions") {
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          response.write('data: {"choices":[{"index":0,"delta":{"content":"Desktop local response"},"finish_reason":null}]}\n\n');
+          response.write('data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}\n\n');
+          response.end("data: [DONE]\n\n");
+          return;
+        }
+        response.writeHead(404);
+        response.end();
+      });
+    });
+    await new Promise((resolve, reject) => {
+      localServer.once("error", reject);
+      localServer.listen(11434, "127.0.0.1", resolve);
+    });
+    const discovery = await globalThis.browser.tauri.execute(({ core }) => core.invoke("discover_local_model_endpoints"));
+    assert.ok(discovery.candidates.some((candidate) => candidate.models.includes("desktop-local-model")));
+    assert.ok(localRequests.every((request) => request.method === "GET" && request.body === ""));
+    const discoveryOperation = await globalThis.browser.tauri.execute(
+      ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
+      discovery.operationId,
+    );
+    assert.equal(discoveryOperation.status, "succeeded");
+    const verified = await globalThis.browser.tauri.execute(({ core }) => core.invoke("verify_local_model_endpoint", {
+      input: { baseUrl: "http://127.0.0.1:11434/v1", timeoutMs: 5_000 },
+    }));
+    assert.deepEqual(verified.candidates[0].models, ["desktop-local-model"]);
+    const profiles = await globalThis.browser.tauri.execute(({ core }) => core.invoke("save_custom_onepiece_provider_profile", {
+      input: {
+        id: null,
+        name: "Desktop local model",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        modelId: "desktop-local-model",
+        runtimeKind: "local",
+        authenticationMode: "none",
+        apiKey: null,
+        timeoutMs: 5_000,
+        privacyClassification: "local",
+        toolCallingCapability: "unsupported",
+        imageInputCapability: "unsupported",
+        structuredOutputCapability: "unknown",
+        reasoningFieldCapability: "unsupported",
+        contextWindowTokens: 8_192,
+        reservedOutputTokens: 1_024,
+      },
+    }));
+    assert.equal(profiles.profiles.find((profile) => profile.name === "Desktop local model")?.active, true);
+    const localSessionOperation = await globalThis.browser.tauri.execute(({ core }, projectPath) => core.invoke("create_session", {
+      input: {
+        agentId: "onepiece",
+        interactionMode: "api",
+        title: "Desktop local model fixture",
+        folder: projectPath,
+        projectPath,
+        remoteWorkspace: null,
+        worktree: null,
+      },
+    }), repository);
+    const terminalLocalSessionOperation = await globalThis.browser.waitUntil(async () => {
+      const operation = await globalThis.browser.tauri.execute(
+        ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
+        localSessionOperation.id,
+      );
+      return ["succeeded", "failed", "cancelled"].includes(operation.status) ? operation : false;
+    }, { timeout: 30_000, timeoutMsg: "Desktop local session operation did not finish." });
+    assert.equal(terminalLocalSessionOperation.status, "succeeded", terminalLocalSessionOperation.error ?? "session creation failed");
+    const localSession = await globalThis.browser.waitUntil(async () => {
+      const sessions = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_sessions"));
+      return sessions.find((item) => item.title === "Desktop local model fixture") ?? false;
+    }, { timeout: 30_000, timeoutMsg: "Desktop local session was not created." });
+    await globalThis.browser.tauri.execute(({ core }, sessionId) => core.invoke("send_message", {
+      sessionId,
+      content: "Reply from the deterministic local server.",
+      config: {
+        agentId: "onepiece",
+        interactionMode: "api",
+        executionMode: "inherit",
+        providerId: null,
+        modelId: null,
+        reasoningDepth: null,
+        streaming: true,
+        thinking: false,
+        longContext: false,
+      },
+      fileReferences: null,
+    }), localSession.id);
+    await globalThis.browser.waitUntil(async () => {
+      const messages = await globalThis.browser.tauri.execute(({ core }, sessionId) => core.invoke("list_messages", {
+        sessionId,
+        limit: null,
+        beforeId: null,
+      }), localSession.id);
+      return messages.some((message) => message.role === "assistant" && message.content === "Desktop local response");
+    }, { timeout: 30_000, timeoutMsg: "Desktop local response did not stream to completion." });
+    assert.ok(localRequests.some((request) => request.method === "POST" && request.url === "/v1/chat/completions"));
+    await new Promise((resolve, reject) => localServer.close((error) => (error ? reject(error) : resolve())));
+    assert.equal(localServer.listening, false);
 
     await globalThis.browser.tauri.execute(({ core }, projectPath) => core.invoke("create_session", {
       input: {

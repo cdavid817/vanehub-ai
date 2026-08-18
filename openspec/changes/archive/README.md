@@ -196,5 +196,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-17 | expand-runtime-performance-budgets | agent-context-engine, agent-context-measurement, agent-execution-observability, agent-mission-control, agent-run-state-management, lsp-code-intelligence, remote-terminal-runtime, runtime-performance-governance | `openspec/changes/archive/2026-08-17-expand-runtime-performance-budgets/` |
 | 2026-08-17 | extend-provider-runtime-plugin-sdk | agent-provider-runtime, provider-plugin-sdk | `openspec/changes/archive/2026-08-17-extend-provider-runtime-plugin-sdk/` |
 | 2026-08-18 | add-agent-runner-abstraction | agent-mission-control, agent-provider-runtime, agent-runner-runtime, agent-run-state-management, permissions-core, remote-terminal-runtime, runtime-performance-governance, unified-log-management | `openspec/changes/archive/2026-08-18-add-agent-runner-abstraction/` |
+| 2026-08-18 | add-hybrid-local-model-runtime | agent-context-engine, agent-context-measurement, api-agent-runtime, hybrid-local-model-runtime, onepiece-native-agent | `openspec/changes/archive/2026-08-18-add-hybrid-local-model-runtime/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

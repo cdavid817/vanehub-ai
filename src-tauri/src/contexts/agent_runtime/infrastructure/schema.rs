@@ -232,6 +232,111 @@ pub(crate) fn apply_onepiece_provider_endpoint_schema(
     Ok(())
 }
 
+pub(crate) fn apply_hybrid_local_model_schema(
+    conn: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    conn.execute_batch(
+        r#"
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'cloud'
+            CHECK (runtime_kind IN ('cloud', 'local', 'private'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN endpoint_source TEXT NOT NULL DEFAULT 'catalog'
+            CHECK (endpoint_source IN ('catalog', 'configured', 'discovered'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN authentication_mode TEXT NOT NULL DEFAULT 'required'
+            CHECK (authentication_mode IN ('required', 'optional', 'none'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN timeout_ms INTEGER NOT NULL DEFAULT 30000
+            CHECK (timeout_ms BETWEEN 100 AND 120000);
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN privacy_classification TEXT NOT NULL DEFAULT 'cloud'
+            CHECK (privacy_classification IN ('cloud', 'local', 'private'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN text_generation_capability TEXT NOT NULL DEFAULT 'supported'
+            CHECK (text_generation_capability IN ('supported', 'unsupported', 'unknown'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN tool_calling_capability TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (tool_calling_capability IN ('supported', 'unsupported', 'unknown'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN image_input_capability TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (image_input_capability IN ('supported', 'unsupported', 'unknown'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN structured_output_capability TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (structured_output_capability IN ('supported', 'unsupported', 'unknown'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN reasoning_field_capability TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (reasoning_field_capability IN ('supported', 'unsupported', 'unknown'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN capability_provenance TEXT NOT NULL DEFAULT 'configured'
+            CHECK (capability_provenance IN ('configured', 'verified'));
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN context_window_tokens INTEGER
+            CHECK (context_window_tokens IS NULL OR context_window_tokens BETWEEN 1024 AND 10000000);
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN reserved_output_tokens INTEGER NOT NULL DEFAULT 0
+            CHECK (reserved_output_tokens >= 0);
+        ALTER TABLE onepiece_provider_profiles ADD COLUMN context_capacity_provenance TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (context_capacity_provenance IN ('verified', 'configured-estimate', 'unknown'));
+
+        UPDATE onepiece_provider_profiles
+        SET runtime_kind = CASE
+                WHEN lower(base_url) LIKE 'http://localhost%'
+                  OR lower(base_url) LIKE 'https://localhost%'
+                  OR base_url LIKE 'http://127.0.0.1%'
+                  OR base_url LIKE 'https://127.0.0.1%'
+                  OR base_url LIKE 'http://[::1]%'
+                  OR base_url LIKE 'https://[::1]%' THEN 'local'
+                WHEN source_provider_id IS NULL THEN 'private'
+                ELSE 'cloud'
+            END,
+            endpoint_source = CASE WHEN source_provider_id IS NULL THEN 'configured' ELSE 'catalog' END,
+            privacy_classification = CASE
+                WHEN lower(base_url) LIKE 'http://localhost%'
+                  OR lower(base_url) LIKE 'https://localhost%'
+                  OR base_url LIKE 'http://127.0.0.1%'
+                  OR base_url LIKE 'https://127.0.0.1%'
+                  OR base_url LIKE 'http://[::1]%'
+                  OR base_url LIKE 'https://[::1]%' THEN 'local'
+                WHEN source_provider_id IS NULL THEN 'private'
+                ELSE 'cloud'
+            END;
+
+        ALTER TABLE agents ADD COLUMN api_runtime_kind TEXT NOT NULL DEFAULT 'cloud'
+            CHECK (api_runtime_kind IN ('cloud', 'local', 'private'));
+        ALTER TABLE agents ADD COLUMN api_authentication_mode TEXT NOT NULL DEFAULT 'required'
+            CHECK (api_authentication_mode IN ('required', 'optional', 'none'));
+        ALTER TABLE agents ADD COLUMN api_timeout_ms INTEGER NOT NULL DEFAULT 30000
+            CHECK (api_timeout_ms BETWEEN 100 AND 120000);
+        ALTER TABLE agents ADD COLUMN api_privacy_classification TEXT NOT NULL DEFAULT 'cloud'
+            CHECK (api_privacy_classification IN ('cloud', 'local', 'private'));
+        UPDATE agents
+        SET api_runtime_kind = 'local', api_privacy_classification = 'local'
+        WHERE launch_kind = 'api' AND (
+            lower(base_url) LIKE 'http://localhost%'
+            OR lower(base_url) LIKE 'https://localhost%'
+            OR base_url LIKE 'http://127.0.0.1%'
+            OR base_url LIKE 'https://127.0.0.1%'
+            OR base_url LIKE 'http://[::1]%'
+            OR base_url LIKE 'https://[::1]%'
+        );
+
+        CREATE TABLE hybrid_model_routing_rules (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL DEFAULT 'onepiece' CHECK (agent_id = 'onepiece'),
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            position INTEGER NOT NULL CHECK (position >= 0),
+            task_class TEXT NOT NULL CHECK (task_class IN (
+                'summarization', 'embeddings', 'classification', 'code-review', 'planning', 'unknown'
+            )),
+            preferred_profile_id TEXT NOT NULL,
+            fallback_profile_id TEXT,
+            data_policy TEXT NOT NULL CHECK (data_policy IN (
+                'cloud-allowed', 'local-preferred', 'local-only'
+            )),
+            created_at TEXT NOT NULL DEFAULT (strftime('%s', 'now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+            FOREIGN KEY (preferred_profile_id) REFERENCES onepiece_provider_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (fallback_profile_id) REFERENCES onepiece_provider_profiles(id) ON DELETE SET NULL,
+            CHECK (fallback_profile_id IS NULL OR fallback_profile_id <> preferred_profile_id)
+        );
+        CREATE UNIQUE INDEX idx_hybrid_model_routing_rules_position
+            ON hybrid_model_routing_rules(agent_id, position);
+        CREATE INDEX idx_hybrid_model_routing_rules_task
+            ON hybrid_model_routing_rules(agent_id, enabled, task_class, position, id);
+        "#,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn apply_api_agent_schema(
     conn: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {

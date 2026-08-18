@@ -16,11 +16,16 @@ import type {
   CliToolStatus,
   CreateSessionInput,
   DiscoverOnePieceProviderModelsInput,
+  EndpointProfileMetadata,
+  HybridRoutePreview,
+  HybridRoutePreviewInput,
+  HybridRoutingRule,
   InteractionMode,
   KnownRemoteWorkspace,
   RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
+  LocalModelDiscoveryResult,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   OnePieceProviderModelDiscoveryResult,
@@ -32,6 +37,7 @@ import type {
   RetrievalConfiguration,
   RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
+  SaveCustomOnePieceProviderProfileInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
@@ -323,6 +329,13 @@ export interface AgentService extends BuiltinToolService {
   discoverOnePieceProviderModels(input: DiscoverOnePieceProviderModelsInput): Promise<OnePieceProviderModelDiscoveryResult>;
   validateOnePieceProviderCredential(input: ValidateOnePieceProviderCredentialInput): Promise<ProviderCredentialValidationResult>;
   saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
+  saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
+  getEndpointProfileMetadata(profileId: string): Promise<EndpointProfileMetadata | null>;
+  discoverLocalModelEndpoints(): Promise<LocalModelDiscoveryResult>;
+  verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number): Promise<LocalModelDiscoveryResult>;
+  listHybridRoutingRules(): Promise<HybridRoutingRule[]>;
+  replaceHybridRoutingRules(rules: HybridRoutingRule[]): Promise<HybridRoutingRule[]>;
+  previewHybridRoute(input: HybridRoutePreviewInput): Promise<HybridRoutePreview>;
   activateOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
   deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;

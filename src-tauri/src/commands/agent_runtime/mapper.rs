@@ -53,6 +53,14 @@ pub(super) fn register_api_agent_request(
         model_id: input.model_id,
         interface_format: input.interface_format,
         base_url: input.base_url,
+        runtime_kind: input.runtime_kind.unwrap_or_else(|| "cloud".to_string()),
+        authentication_mode: input
+            .authentication_mode
+            .unwrap_or_else(|| "required".to_string()),
+        timeout_ms: input.timeout_ms.unwrap_or(30_000),
+        privacy_classification: input
+            .privacy_classification
+            .unwrap_or_else(|| "cloud".to_string()),
     }
 }
 
@@ -206,6 +214,132 @@ pub(super) fn save_onepiece_provider_profile_request(
         endpoint_type: input.endpoint_type,
         model_id: input.model_id,
         api_key: input.api_key,
+    }
+}
+
+pub(super) fn save_custom_onepiece_provider_profile_request(
+    input: dto::SaveCustomOnePieceProviderProfileInput,
+) -> crate::contexts::agent_runtime::api::SaveCustomOnePieceProviderProfileInput {
+    crate::contexts::agent_runtime::api::SaveCustomOnePieceProviderProfileInput {
+        id: input.id,
+        name: input.name,
+        base_url: input.base_url,
+        model_id: input.model_id,
+        runtime_kind: input.runtime_kind,
+        authentication_mode: input.authentication_mode,
+        api_key: input.api_key,
+        timeout_ms: input.timeout_ms,
+        privacy_classification: input.privacy_classification,
+        tool_calling_capability: input.tool_calling_capability,
+        image_input_capability: input.image_input_capability,
+        structured_output_capability: input.structured_output_capability,
+        reasoning_field_capability: input.reasoning_field_capability,
+        context_window_tokens: input.context_window_tokens,
+        reserved_output_tokens: input.reserved_output_tokens,
+    }
+}
+
+pub(super) fn endpoint_profile_metadata_to_dto(
+    value: crate::contexts::agent_runtime::api::StoredEndpointProfileMetadata,
+) -> dto::EndpointProfileMetadata {
+    dto::EndpointProfileMetadata {
+        profile_id: value.profile_id,
+        runtime_kind: value.runtime_kind,
+        endpoint_source: value.endpoint_source,
+        authentication_mode: value.authentication_mode,
+        timeout_ms: value.timeout_ms,
+        privacy_classification: value.privacy_classification,
+        text_generation_capability: value.text_generation_capability,
+        tool_calling_capability: value.tool_calling_capability,
+        image_input_capability: value.image_input_capability,
+        structured_output_capability: value.structured_output_capability,
+        reasoning_field_capability: value.reasoning_field_capability,
+        capability_provenance: value.capability_provenance,
+        context_window_tokens: value.context_window_tokens,
+        reserved_output_tokens: value.reserved_output_tokens,
+        context_capacity_provenance: value.context_capacity_provenance,
+    }
+}
+
+pub(super) fn hybrid_rule_from_dto(
+    value: dto::HybridRoutingRule,
+) -> crate::contexts::agent_runtime::api::StoredHybridRoutingRule {
+    crate::contexts::agent_runtime::api::StoredHybridRoutingRule {
+        id: value.id,
+        enabled: value.enabled,
+        position: u32::try_from(value.order_index).unwrap_or(u32::MAX),
+        task_class: value.task_class,
+        preferred_profile_id: value.preferred_profile_id,
+        fallback_profile_id: value.fallback_profile_id,
+        data_policy: value.data_policy,
+    }
+}
+
+pub(super) fn hybrid_rule_to_dto(
+    value: crate::contexts::agent_runtime::api::StoredHybridRoutingRule,
+) -> dto::HybridRoutingRule {
+    dto::HybridRoutingRule {
+        id: value.id,
+        enabled: value.enabled,
+        order_index: i64::from(value.position),
+        task_class: value.task_class,
+        preferred_profile_id: value.preferred_profile_id,
+        fallback_profile_id: value.fallback_profile_id,
+        data_policy: value.data_policy,
+    }
+}
+
+pub(super) fn hybrid_preview_request(
+    input: dto::HybridRoutePreviewInput,
+) -> crate::contexts::agent_runtime::api::HybridRoutePreviewInput {
+    crate::contexts::agent_runtime::api::HybridRoutePreviewInput {
+        task_class: input.task_class,
+        data_policy: input.data_policy,
+        active_profile_id: input.active_profile_id,
+        hybrid_enabled: input.hybrid_enabled,
+        requires_tools: input.requires_tools,
+        requires_image_input: input.requires_image_input,
+        requires_structured_output: input.requires_structured_output,
+        requests_reasoning_field: input.requests_reasoning_field,
+    }
+}
+
+pub(super) fn hybrid_preview_to_dto(
+    value: crate::contexts::agent_runtime::api::HybridRoutePreview,
+) -> dto::HybridRoutePreview {
+    dto::HybridRoutePreview {
+        profile_id: value.profile_id,
+        rule_id: value.rule_id,
+        reason: value.reason,
+        waiting_for_user_choice: value.waiting_for_user_choice,
+    }
+}
+
+pub(super) fn local_verification_request(
+    input: dto::LocalEndpointVerificationRequest,
+) -> crate::contexts::agent_runtime::api::LocalEndpointVerificationRequest {
+    crate::contexts::agent_runtime::api::LocalEndpointVerificationRequest {
+        base_url: input.base_url,
+        timeout_ms: input.timeout_ms,
+    }
+}
+
+pub(super) fn local_discovery_to_dto(
+    value: crate::contexts::agent_runtime::api::LocalModelDiscoveryResult,
+) -> dto::LocalModelDiscoveryResult {
+    dto::LocalModelDiscoveryResult {
+        operation_id: value.operation_id,
+        candidates: value
+            .endpoints
+            .into_iter()
+            .map(|candidate| dto::LocalModelEndpointCandidate {
+                service: candidate.service_kind,
+                base_url: candidate.base_url,
+                models: candidate.models.into_iter().map(|model| model.id).collect(),
+                metadata_provenance: "verified".to_string(),
+                latency_bucket: candidate.latency_bucket,
+            })
+            .collect(),
     }
 }
 
