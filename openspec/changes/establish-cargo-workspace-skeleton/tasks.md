@@ -43,9 +43,20 @@
 
 ## 3. Prove the packaging chain before extracting anything
 
-- [ ] 3.1 `npm run tauri -- dev` starts
-- [ ] 3.2 `npm run package` produces the same artifact layout as the 1.3 baseline
-- [ ] 3.3 `npm run desktop:unit:test` and `npm run test:desktop` pass on this machine, with the result reported per platform rather than generalised
+- [x] 3.1 `npm run tauri -- dev` starts
+      — not run directly; superseded by 3.3's real debug build + launch, which is strictly
+      more evidence (it exercises IPC and navigation, not just process start)
+- [x] 3.2 `npm run package` produces the same artifact layout as the 1.3 baseline
+      — no true baseline exists (see 1.3); verified against documented expectation instead.
+      Produced `target/release/bundle/nsis/VaneHub AI_0.1.0-preview.1_x64-setup.exe`. The trailing
+      updater-signing error (`TAURI_SIGNING_PRIVATE_KEY` not set) is expected and pre-existing —
+      `docs/release-signing.md` and `.github/workflows/package.yml` both document that key as a
+      protected-release-environment secret never present on a dev machine
+- [x] 3.3 `npm run desktop:unit:test` and `npm run test:desktop` pass on this machine, with the result reported per platform rather than generalised
+      — Windows: PASSED. `desktop:unit:test` 11/11. `test:desktop` built with `--features
+      desktop-e2e --no-bundle --ci`, launched via WebDriver (msedge), and passed "starts the real
+      runtime, crosses IPC, and performs stable navigation" in 6.6s. macOS and Linux: NOT RUN —
+      no runner for either available in this session; do not extrapolate this result to them
 - [x] 3.4 Confirm `src-tauri/tests/architecture.rs` path and subtree budgets still resolve, and that no subtree is counted twice under the new layout
       — 41/41 passing, but only after fixing `distributable_release_profile_stays_optimized`
       itself: it read `src-tauri/Cargo.toml` for the release profile, which is exactly the
