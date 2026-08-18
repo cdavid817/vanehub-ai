@@ -14,8 +14,6 @@ import {
   webPrincipalTemplates,
 } from "./web-permissions-mock-state";
 import type {
-  AgentMemory,
-  AgentMemoryType,
   UpdateSessionSeatsInput,
   ExportSessionInput,
   InteractionMode,
@@ -94,6 +92,14 @@ export {
   setWebLoopPhaseDelayForTest,
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
+import { webAgentMemoryClient } from "./web-agent-memory-client";
+
+export { resetWebAgentMemoriesForTest } from "./web-agent-memory-state";
+import {
+  createWebAgentMemory,
+  listWebAgentMemories,
+  simulateWebMemoryIndexInjection,
+} from "./web-agent-memory-state";
 import { webChatClient } from "./web-chat-client";
 
 export {
@@ -315,90 +321,6 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
 }
 
 
-/** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
- * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
- * the real backend's shared-pool model. Starts empty; real memories only ever come from a
- * `remember` tool call or extraction, both simulated in `sendMessage`. */
-let webAgentMemories: AgentMemory[] = [];
-let nextAgentMemoryId = 1;
-
-/** Mirrors the native store's deterministic derivation: a writer that supplies no name gets one
- * from the content, and only ASCII survives slugging, so non-Latin content falls back to the
- * sequence number rather than producing an empty stem. */
-function deriveMemoryName(content: string, sequence: number): string {
-  const slug = content
-    .split(/[^a-zA-Z0-9]+/u)
-    .filter(Boolean)
-    .slice(0, 6)
-    .join("-")
-    .toLowerCase();
-  return slug || `memory-${sequence}`;
-}
-
-/** Mirrors the native bounds so the mock truncates where the desktop runtime would. */
-const WEB_MEMORY_INDEX_LINE_CAP = 200;
-
-/** Mirrors the native selection bound. */
-const WEB_MEMORY_SELECTION_CAP = 5;
-
-/**
- * Simulates one generation's memory injection: an index over the whole pool, plus the handful of
- * bodies a selection would have read in full.
- *
- * Deterministic rather than model-driven — the Web runtime must reproduce the desktop's observable
- * shape without issuing a provider request, so it stands in for the selector with recency, which
- * is the same ordering the index already uses.
- */
-function simulateMemoryIndexInjection(): { indexed: number; selected: AgentMemory[] } {
-  const indexed = Math.min(webAgentMemories.length, WEB_MEMORY_INDEX_LINE_CAP);
-  return {
-    indexed,
-    selected: webAgentMemories.slice(0, Math.min(indexed, WEB_MEMORY_SELECTION_CAP)),
-  };
-}
-
-function disambiguateMemoryName(base: string): string {
-  if (!webAgentMemories.some((memory) => memory.name === base)) {
-    return base;
-  }
-  let suffix = 2;
-  while (webAgentMemories.some((memory) => memory.name === `${base}-${suffix}`)) {
-    suffix += 1;
-  }
-  return `${base}-${suffix}`;
-}
-
-function createAgentMemory(
-  agentId: string,
-  folder: string | null,
-  content: string,
-  source: AgentMemory["source"],
-  metadata: { name?: string; description?: string; memoryType?: AgentMemoryType | null } = {},
-): AgentMemory {
-  // An explicit name addresses an existing memory, so it is used as-is and replaces. A derived one
-  // must not: two agents recording the same fact are two memories in the shared pool, so the
-  // native store's collision suffix is mirrored here rather than silently merging them.
-  const name = metadata.name ?? disambiguateMemoryName(deriveMemoryName(content, nextAgentMemoryId));
-  const memory: AgentMemory = {
-    // The native store's identity is the file path, so the mock mirrors that shape rather than
-    // inventing an opaque id the management view would have to special-case.
-    id: `${name}.md`,
-    agentId,
-    folder,
-    name,
-    description: metadata.description ?? content.split("\n")[0] ?? content,
-    memoryType: metadata.memoryType ?? null,
-    content,
-    source,
-    createdAt: nowIso(),
-  };
-  nextAgentMemoryId += 1;
-  // Saving under an existing name replaces that memory, matching the native store's update path.
-  webAgentMemories = [memory, ...webAgentMemories.filter((existing) => existing.name !== name)];
-  return memory;
-}
-
-
 function searchText(value: string | null | undefined, query: string) {
   return (value ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
 }
@@ -461,12 +383,6 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
     path: input.destinationDirectory ? `${input.destinationDirectory}\\${session.id}.${input.format === "json" ? "json" : "md"}` : null,
     content,
   };
-}
-
-/** `add-cli-memory-support`: the shared memory pool is no longer isolated per agent id, so tests
- * that seed memories can leak into later tests within the same file unless explicitly cleared. */
-export function resetWebAgentMemoriesForTest() {
-  webAgentMemories = [];
 }
 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
@@ -582,7 +498,7 @@ export const webAgentClient: AgentService = {
     const blocking: string[] = [];
     const sessionCount = listWebSessions().filter((session) => session.agentId === agentId).length;
     if (sessionCount > 0) blocking.push(`${sessionCount} sessions`);
-    const memoryCount = webAgentMemories.filter((memory) => memory.agentId === agentId).length;
+    const memoryCount = listWebAgentMemories().filter((memory) => memory.agentId === agentId).length;
     if (memoryCount > 0) blocking.push(`${memoryCount} memories`);
     const workerCount = listWebLoopDefinitions().filter((definition) => definition.workerAgentId === agentId).length;
     if (workerCount > 0) blocking.push(`${workerCount} Loop definitions as worker`);
@@ -602,17 +518,7 @@ export const webAgentClient: AgentService = {
     replaceWebSkillMountPaths(listWebSkillMountPaths().filter((path) => path.agentId !== agentId));
   },
 
-  async listAllMemories() {
-    return webAgentMemories;
-  },
-
-  async deleteAgentMemory(memoryId: string) {
-    webAgentMemories = webAgentMemories.filter((memory) => memory.id !== memoryId);
-  },
-
-  async resetAllMemories() {
-    webAgentMemories = [];
-  },
+  ...webAgentMemoryClient,
 
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);
@@ -1218,7 +1124,7 @@ export const webAgentClient: AgentService = {
         mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api"
       ) {
         const extractionTimeoutId = setTimeout(() => {
-          const memory = createAgentMemory(
+          const memory = createWebAgentMemory(
             session.agentId,
             session.folder,
             `Extracted from a long conversation: "${userMessage.content.slice(0, 60)}"`,
@@ -1248,7 +1154,7 @@ export const webAgentClient: AgentService = {
     // extraction (see `personalization.memory.toolAssistedDesc`).
     if (memoryEnabled && mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "cli") {
       const cliExtractionTimeoutId = setTimeout(() => {
-        const memory = createAgentMemory(
+        const memory = createWebAgentMemory(
           session.agentId,
           session.folder,
           `Extracted from a CLI session: "${userMessage.content.slice(0, 60)}"`,
@@ -1272,12 +1178,12 @@ export const webAgentClient: AgentService = {
     }
     // Shared pool (`add-cli-memory-support`): any memory from any agent counts, not just ones
     // produced by this session's own agent/folder.
-    const hadExistingMemories = webAgentMemories.length > 0;
+    const hadExistingMemories = listWebAgentMemories().length > 0;
     if (memoryEnabled && hadExistingMemories) {
       // `add-two-tier-memory-recall`: the index is what every request carries, so the mock reports
       // how many memories it names. Neither this nor the selection below depends on an embedding
       // source being configured — memory has to work on an installation without retrieval.
-      const injected = simulateMemoryIndexInjection();
+      const injected = simulateWebMemoryIndexInjection();
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishWebChatEvent({
           type: "rich_block",
@@ -1474,7 +1380,7 @@ export const webAgentClient: AgentService = {
       // saves (`add-personalization-settings`).
       if (memoryEnabled) {
         const rememberTimeoutId = setTimeout(() => {
-          const memory = createAgentMemory(
+          const memory = createWebAgentMemory(
             session.agentId,
             session.folder,
             `User said: "${userMessage.content.slice(0, 60)}"`,

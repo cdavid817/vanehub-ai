@@ -1,5 +1,4 @@
 import type {
-  AgentMemory,
   ExportSessionInput,
   CreateSessionInput,
   InteractionMode,
@@ -152,6 +151,7 @@ import type {
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
+import type { AgentMemoryService } from "./agent-memory-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
@@ -184,6 +184,7 @@ export interface AgentService extends
   AgentTerminalService,
   UsageStatisticsService,
   MissionControlService,
+  AgentMemoryService,
   ChatMessagingService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
@@ -204,11 +205,6 @@ export interface AgentService extends
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   deleteApiAgent(agentId: string): Promise<void>;
-  /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
-   * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
-  listAllMemories(): Promise<AgentMemory[]>;
-  deleteAgentMemory(memoryId: string): Promise<void>;
-  resetAllMemories(): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
   listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
