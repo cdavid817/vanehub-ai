@@ -1,7 +1,7 @@
 use crate::contexts::agent_runtime::application::{
     AgentRunner, PreparedRunnerLaunch, RunnerCapabilities, RunnerError, RunnerErrorKind,
-    RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec, RunnerRecoveryMode,
-    RunnerReference, RunnerSelection,
+    RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec, RunnerReference,
+    RunnerSelection,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -122,13 +122,7 @@ impl AgentRunner for RunnerRegistry {
         // features while over-reporting would invite callers into paths nothing supports.
         let Some(local) = self.runners.get(&RunnerKind::Local) else {
             debug_assert!(false, "RunnerRegistry validates Local at construction");
-            return RunnerCapabilities {
-                interactive_input: false,
-                pty: false,
-                cancellation: false,
-                inspection: false,
-                recovery: RunnerRecoveryMode::None,
-            };
+            return RunnerCapabilities::none();
         };
         local.capabilities()
     }

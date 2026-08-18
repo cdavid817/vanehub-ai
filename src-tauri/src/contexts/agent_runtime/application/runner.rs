@@ -52,6 +52,21 @@ pub(crate) struct RunnerCapabilities {
     pub(crate) recovery: RunnerRecoveryMode,
 }
 
+impl RunnerCapabilities {
+    /// Reports no capability at all — the conservative answer for a runner that cannot be
+    /// resolved. Under-reporting only degrades features, while over-reporting would invite
+    /// callers into paths nothing supports.
+    pub(crate) const fn none() -> Self {
+        Self {
+            interactive_input: false,
+            pty: false,
+            cancellation: false,
+            inspection: false,
+            recovery: RunnerRecoveryMode::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RunnerSelection {
     pub(crate) kind: RunnerKind,
