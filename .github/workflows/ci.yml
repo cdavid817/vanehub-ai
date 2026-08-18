@@ -242,6 +242,13 @@ jobs:
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # Scoped to non-test targets on purpose. unwrap/expect are permitted in tests, and
+      # `[lints.clippy]` in Cargo.toml has no target selectivity — setting these lints there
+      # would make the --all-targets step above fail on ~9,560 test sites. Reuses this job's
+      # build cache, so the marginal cost is analysing two targets rather than a rebuild.
+      - name: Rust production panic shortcuts
+        run: npm run native:panic:check
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 

@@ -1,28 +1,18 @@
 import type {
   AgentMemory,
-  AgentTerminalEvent,
-  AgentTerminalSession,
-  AgentTerminalSize,
-  AssignSessionCategoryInput,
-  CreateSessionCategoryInput,
   ExportSessionInput,
   CreateSessionInput,
   InteractionMode,
-  KnownRemoteWorkspace,
-  RenameSessionCategoryInput,
-  KnownProject,
   LaunchResult,
-  ProjectInspection,
   UpdateSessionSeatsInput,
   Session,
-  SessionCategory,
   SessionDetails,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
   workspace?: string;
@@ -108,16 +98,8 @@ export interface PurgeEvidenceOutcome {
   deletedSeeds: number;
   deletedFeedback: number;
 }
-import type {
-  TokenUsageDetailsPage,
-  TokenUsageDetailsQuery,
-  TokenUsageSummary,
-  TokenUsageSummaryQuery,
-} from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
-import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
-import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationService } from "./evaluation-service";
 import type {
@@ -126,14 +108,6 @@ import type {
   OnePieceProfileService,
   OnePieceProviderService,
 } from "./api-provider-service";
-import type {
-  ContinueLoopInput,
-  LoopDefinition,
-  LoopEvent,
-  LoopRun,
-  SaveLoopDefinitionInput,
-  StartLoopResult,
-} from "../types/loop";
 import type {
   CreateShellInput,
   DirectoryListing,
@@ -150,50 +124,22 @@ import type {
   ShellEvent,
   ShellSession,
 } from "../types/session-workspace";
-import type {
-  Skill,
-  SkillAgentMountPath,
-  SkillImportInput,
-  SkillListResult,
-  SkillLoadInput,
-  SkillLoadOutcome,
-  SkillMountMigrationReport,
-  SkillMutationInput,
-  SkillOverview,
-  SkillPreview,
-  SkillResourceReadInput,
-  SkillResourceReadOutcome,
-  SkillScopeInput,
-  SkillUpdateInput,
-} from "../types/skill";
-import type {
-  SkillOverlayDetail,
-  SkillOverlayFileInput,
-  SkillOverlayGuidanceInput,
-  SkillOverlayHistoryInput,
-  SkillOverlayHistoryPage,
-  SkillOverlayImportInput,
-  SkillOverlayImportReview,
-  SkillOverlayMutationOutcome,
-  SkillOverlayMutationStateInput,
-  SkillOverlayPatchInput,
-  SkillOverlayPreview,
-  SkillOverlayPreviewInput,
-  SkillOverlayPromotionInput,
-  SkillOverlaySummary,
-  SkillOverlayTargetInput,
-} from "../types/skill-overlay";
-import type {
-  SkillOverlayReconciliationInput,
-  SkillOverlayReconciliationPreview,
-} from "../types/skill-overlay-reconciliation";
+import type { SkillBindingService, SkillCatalogService, SkillOverlayService } from "./skill-service";
 import type { PromptHookService } from "./prompt-hook-service";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
 import type {
   ApplyCliConfigProfileInput,
   CliConfigApplyResult,
 } from "../types/cli-agent-config";
-import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
+import type {
+  ExpertRoleService,
+  KnownWorkspaceService,
+  SessionCategoryService,
+} from "./session-organization-service";
+import type { AgentTerminalService } from "./agent-terminal-service";
+import type { MissionControlService } from "./mission-control-service";
+import type { LoopService } from "./loop-service";
+import type { UsageStatisticsService } from "./usage-statistics-service";
 import type {
   LspConfiguration,
   LspLanguageId,
@@ -227,7 +173,17 @@ export interface AgentService extends
   ContextQualityService,
   AgentRegistryService,
   SkillGovernanceService,
-  SkillEvidenceService {
+  SkillEvidenceService,
+  SkillCatalogService,
+  SkillBindingService,
+  SkillOverlayService,
+  SessionCategoryService,
+  ExpertRoleService,
+  KnownWorkspaceService,
+  AgentTerminalService,
+  UsageStatisticsService,
+  MissionControlService,
+  LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -244,14 +200,6 @@ export interface AgentService extends
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
-  getAgentRun(runId: string): Promise<AgentRun>;
-  listAgentRuns(offset?: number, limit?: number, filter?: AgentRunFilter): Promise<AgentRunPage>;
-  listAgentRunEvents(runId: string, offset?: number, limit?: number): Promise<AgentRunEvent[]>;
-  cancelAgentRun(runId: string, version: number): Promise<AgentRun>;
-  resumeAgentRun(runId: string, version: number): Promise<AgentRun>;
-  getMissionControlOverview(query?: MissionControlQuery): Promise<MissionControlOverview>;
-  getMissionControlRun(runId: string): Promise<MissionControlRunDetail>;
-  performMissionControlAction(input: MissionControlActionInput): Promise<MissionControlActionReceipt>;
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   deleteApiAgent(agentId: string): Promise<void>;
   /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
@@ -282,31 +230,8 @@ export interface AgentService extends
     expectedRecoveryRevision: number,
   ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
-  listSessionCategories(): Promise<SessionCategory[]>;
-  createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
-  renameSessionCategory(input: RenameSessionCategoryInput): Promise<SessionCategory>;
-  deleteSessionCategory(categoryId: string): Promise<void>;
-  assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
-  listLoopDefinitions(): Promise<LoopDefinition[]>;
-  createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
-  updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
-  deleteLoopDefinition(definitionId: string): Promise<void>;
-  listLoopRuns(definitionId?: string): Promise<LoopRun[]>;
-  getLoopRun(runId: string): Promise<LoopRun>;
-  startLoop(definitionId: string): Promise<StartLoopResult>;
-  pauseLoop(runId: string): Promise<LoopRun>;
-  resumeLoop(runId: string): Promise<LoopRun>;
-  cancelLoop(runId: string): Promise<LoopRun>;
-  acceptLoop(runId: string): Promise<LoopRun>;
-  continueLoop(input: ContinueLoopInput): Promise<LoopRun>;
-  rejectLoop(runId: string): Promise<LoopRun>;
-  subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void): Promise<() => void>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
-  listKnownProjects(): Promise<KnownProject[]>;
-  listKnownRemoteWorkspaces(): Promise<KnownRemoteWorkspace[]>;
-  inspectProject(path: string): Promise<ProjectInspection>;
-  selectProjectDirectory(): Promise<string | null>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
@@ -321,10 +246,6 @@ export interface AgentService extends
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
-  getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
-  getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
-  getTokenUsageDetails(input: TokenUsageDetailsQuery): Promise<TokenUsageDetailsPage>;
   /**
    * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
    * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a
@@ -339,14 +260,6 @@ export interface AgentService extends
    */
   resolvePlanExit(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
   stopGeneration(sessionId: string): Promise<void>;
-  openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
-  sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
-  resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;
-  stopAgentTerminal(terminalId: string): Promise<boolean>;
-  subscribeAgentTerminalEvents(
-    sessionId: string,
-    handler: (event: AgentTerminalEvent) => void,
-  ): Promise<() => void>;
   subscribeMessageEvents(
     sessionId: string,
     handler: (event: ChatStreamEvent) => void,
@@ -372,51 +285,6 @@ export interface AgentService extends
   killShell(shellId: string): Promise<void>;
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
-  listExpertRoles(): Promise<ExpertRole[]>;
-  saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole>;
-  deleteExpertRole(roleId: string): Promise<void>;
-  listSkills(input: SkillScopeInput): Promise<SkillListResult>;
-  getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
-  listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
-  updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
-  createSkill(input: SkillMutationInput): Promise<Skill>;
-  updateSkill(skillId: string, input: SkillUpdateInput): Promise<Skill>;
-  deleteSkill(skillId: string, input: SkillScopeInput): Promise<void>;
-  restoreBuiltinSkill(skillId: string): Promise<Skill>;
-  setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean): Promise<Skill>;
-  setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]): Promise<Skill>;
-  bindSkillToCliAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<Skill>;
-  unbindSkillFromCliAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<Skill>;
-  bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
-  unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
-  listSkillApiAgentBindings(skillId: string, input: SkillScopeInput): Promise<string[]>;
-  previewSkill(skillId: string, input: SkillScopeInput): Promise<SkillPreview>;
-  loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome>;
-  readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome>;
-  importSkill(input: SkillImportInput): Promise<Skill>;
-  getSkillOverlaySummary(input: SkillOverlayTargetInput): Promise<SkillOverlaySummary>;
-  getSkillOverlayDetail(input: SkillOverlayTargetInput): Promise<SkillOverlayDetail>;
-  previewSkillOverlay(input: SkillOverlayPreviewInput): Promise<SkillOverlayPreview>;
-  getSkillOverlayHistory(input: SkillOverlayHistoryInput): Promise<SkillOverlayHistoryPage>;
-  createSkillOverlayPatch(input: SkillOverlayPatchInput): Promise<SkillOverlayMutationOutcome>;
-  createSkillOverlayGuidance(input: SkillOverlayGuidanceInput): Promise<SkillOverlayMutationOutcome>;
-  addSkillOverlayFile(input: SkillOverlayFileInput): Promise<SkillOverlayMutationOutcome>;
-  replaceSkillOverlayFile(input: SkillOverlayFileInput): Promise<SkillOverlayMutationOutcome>;
-  importSkillOverlay(input: SkillOverlayImportInput): Promise<SkillOverlayImportReview>;
-  promoteSkillOverlay(input: SkillOverlayPromotionInput): Promise<SkillOverlayMutationOutcome>;
-  disableSkillOverlayMutation(
-    input: SkillOverlayMutationStateInput,
-  ): Promise<SkillOverlayMutationOutcome>;
-  revertSkillOverlayMutation(
-    input: SkillOverlayMutationStateInput,
-  ): Promise<SkillOverlayMutationOutcome>;
-  previewSkillOverlayReconciliation(
-    input: SkillOverlayReconciliationInput,
-  ): Promise<SkillOverlayReconciliationPreview>;
-  reconcileSkillOverlay(
-    input: SkillOverlayReconciliationInput,
-  ): Promise<SkillOverlayMutationOutcome>;
-  selectWorkspaceDirectory(): Promise<string | null>;
 }
 
 export type SessionStateEvent =

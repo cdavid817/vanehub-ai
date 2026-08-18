@@ -1,3 +1,9 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 6 pre-existing sites, in a domain
+// module — the least defensible placement for a panic shortcut, so clear these first.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use regex::{Captures, Regex};
 use std::sync::OnceLock;
 

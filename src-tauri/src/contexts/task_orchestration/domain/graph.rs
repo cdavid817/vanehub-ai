@@ -1,3 +1,9 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 3 pre-existing sites, in a domain
+// module — the least defensible placement for a panic shortcut, so clear these first.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use super::{DependencyEdge, PlanDraft};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;

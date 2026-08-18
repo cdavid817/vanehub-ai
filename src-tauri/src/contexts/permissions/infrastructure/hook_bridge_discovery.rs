@@ -1,3 +1,8 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Per-launch port/token generation and the local discovery file the hook wrapper reads
 //! (design.md D3, D6). Both are regenerated every application start — nothing here is meant to
 //! survive a restart.

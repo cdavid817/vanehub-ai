@@ -46,9 +46,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 rmcp = { version = "3.0.1", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 http = "1"
 opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
-opentelemetry-semantic-conventions = { version = "=0.32.1", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
@@ -81,9 +79,6 @@ toml = "1.1"
 toml_edit = "0.25.12"
 json5 = "1.3.1"
 dirs = "6"
-tracing = { version = "=0.1.44", features = ["attributes", "std"] }
-tracing-opentelemetry = { version = "=0.33.0", default-features = false }
-tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

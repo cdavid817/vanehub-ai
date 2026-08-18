@@ -1,3 +1,8 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::contexts::agent_runtime::application::{
     AgentRunner, PreparedRunnerLaunch, RunnerCapabilities, RunnerError, RunnerErrorKind,
     RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec, RunnerReference,
