@@ -13,17 +13,37 @@ VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Pro
 
 ## 五个 CLI
 
-| Agent | 命令 | npm 包 | 其他安装方式 |
-| --- | --- | --- | --- |
-| Claude Code | `claude` | `@anthropic-ai/claude-code` | 安装脚本、winget（`Anthropic.ClaudeCode`） |
-| Codex CLI | `codex` | `@openai/codex` | —— |
-| Gemini CLI | `gemini` | `@google/gemini-cli` | —— |
-| OpenCode | `opencode` | `opencode-ai` | 安装脚本 |
-| Antigravity CLI | `agy` | 无 | 仅安装脚本（Unix `install.sh`、Windows `install.ps1`） |
+VaneHub AI 支持五个外部 CLI Agent。装一个就能开始，不必五个都装。
 
-装一个就能开始，不必五个都装。
+| Agent | 提供方 | 命令 | npm 包 | 其他安装方式 |
+| --- | --- | --- | --- | --- |
+| Claude Code | Anthropic | `claude` | `@anthropic-ai/claude-code` | 安装脚本、winget（`Anthropic.ClaudeCode`） |
+| Codex CLI | OpenAI | `codex` | `@openai/codex` | —— |
+| Gemini CLI | Google | `gemini` | `@google/gemini-cli` | —— |
+| OpenCode | OpenCode（开源） | `opencode` | `opencode-ai` | 安装脚本 |
+| Antigravity CLI | Google | `agy` | 无 | 仅安装脚本（Unix `install.sh`、Windows `install.ps1`） |
 
-> **Antigravity CLI 没有 npm 包**，只能通过官方安装脚本安装，因此 CLI 管理页对它不提供 npm 升级/降级操作。
+### Claude Code
+
+Anthropic 官方的命令行 AI 编程助手，VaneHub AI 里模型族归为 Anthropic。需要 Anthropic 订阅或 API 凭据。认证在普通终端里运行 `claude` 后按提示完成。VaneHub AI 通过 `claude-sdk` 或 PATH 上的 `claude` 判定其可用性，**不保存你的凭据**。
+
+### Codex CLI
+
+OpenAI 官方 CLI，模型族归为 OpenAI。需要 OpenAI 账号。认证在终端里运行 `codex` 后按提示登录，凭据由 Codex CLI 自行管理。
+
+### Gemini CLI
+
+Google 官方 CLI，模型族归为 Google。用 Google 账号认证，在终端里运行 `gemini` 后完成。凭据存在 Gemini CLI 自己的位置。
+
+### OpenCode
+
+开源 CLI（`opencode-ai`），支持多家 provider，模型族在 VaneHub AI 内归为 Unknown。认证方式随你选择的 provider 而定，在终端里运行 `opencode` 后配置。注意：OpenCode 不支持长上下文，VaneHub AI 会据此调整其上下文能力。
+
+### Antigravity CLI
+
+Google 官方 CLI，命令是 `agy`，模型族归为 Google。**没有 npm 包**，只能通过官方安装脚本安装（Unix `install.sh`、Windows `install.ps1`），因此 CLI 管理页对它不提供 npm 安装/升级/降级操作。它走 **Google 登录**并把凭据存进**系统钥匙串**，配置档里根本没有密钥字段。
+
+> **凭据一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完登录，也不保存任何外部 CLI 的 Provider 凭据。
 
 ```powershell
 npm install -g @anthropic-ai/claude-code

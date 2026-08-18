@@ -10,37 +10,11 @@ Skill 的管理见[管理 Skill](skill-management.md)。
 
 ## MCP 服务器
 
-在**设置 → MCP 服务器**中注册，点**添加 MCP**新建。三种**传输方式**：
-
-| 传输方式 | 必填 |
-| --- | --- |
-| **stdio（本地进程）** | 启动命令 |
-| **旧版 SSE** | URL |
-| **Streamable HTTP** | URL |
-
-配置按作用域分成**用户配置**与**项目配置**两组展示。状态有四种：**测试通过**、**测试失败**、**未测试**、**已禁用**——注意「已禁用」是你主动关的，与「测试失败」是两回事；「未测试」也不代表不可用，只是还没验证过。
-
-每个服务器卡片可**测试**连接，测试通过后会列出发现到的工具与耗时。
-
-支持**导入/导出**。导入时的类型判定规则界面上有说明：显式 `type=sse` 导入为旧版 SSE；`type=http`、`streamable_http` 及未声明类型的 URL 导入为 Streamable HTTP。
-
-![设置中的 MCP 服务器页面，显示用户配置与项目配置两组服务器](assets/screenshots/mcp-zh-CN.png)
-
-### 中继：让外部 CLI 也用上同一套 MCP
-
-VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你不用在 CLI 里重复配置。
-
-> **中继目前只对 Claude Code 与 Codex CLI 启用**。Gemini CLI、OpenCode 与 Antigravity CLI 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
-
-走中继的调用会以「代理」保真度出现在[链路](observability.md)里。
+MCP 服务器把外部工具接给 Agent，在**设置 → MCP 服务器**中集中注册。三种传输方式、命名规则、连接测试与状态缓存、Claude Desktop 导入导出、中继范围、逐次工具审批与资源上限，见[MCP 服务器](mcp.md)。
 
 ## Prompt Hook
 
-在**设置 → Prompt Hook** 中配置，可在提示词生命周期中插入自定义内容。
-
-![设置中的 Prompt Hook 页面](assets/screenshots/prompt-hooks-zh-CN.png)
-
-执行时机分两种：**会话初始化时执行一次**、**每一轮都执行**。
+Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hook** 中配置。七种分类、两个执行阶段、模板变量允许清单、草稿/发布/回滚与效果评估，见[Prompt Hook](prompt-hooks.md)。
 
 > **Prompt Hook 只能绑定到四个外部 CLI Agent，不作用于 OnePiece**——原生 Agent 有自己的核心指令机制。
 

@@ -10,39 +10,13 @@ Skill management has its own chapter: [Manage Skills](skill-management.md).
 
 ## MCP servers
 
-Register them under **Settings → MCP Servers**, using **Add MCP** to create one. There are three **transports**:
+An MCP server connects external tools to an Agent, registered centrally under **Settings → MCP Servers**. The three transports, the naming rules, connection testing and status caching, Claude Desktop import and export, the relay's scope, per-call tool approval, and the resource limits are all in [MCP servers](mcp.md).
 
-| Transport | Required |
-| --- | --- |
-| **stdio (local process)** | The launch command |
-| **Legacy SSE** | A URL |
-| **Streamable HTTP** | A URL |
+## Prompt Hooks
 
-Configuration is displayed in two groups by scope, **User configuration** and **Project configuration**. There are four states: **Test passed**, **Test failed**, **Not tested**, and **Disabled** — note that "Disabled" is something you turned off deliberately, which is not the same thing as "Test failed"; and "Not tested" does not mean unusable, only unverified.
+A Prompt Hook inserts content into the prompt assembly pipeline, configured under **Settings → Prompt Hooks**. The seven categories, the two execution stages, the template variable allowlist, draft/publish/rollback, and evaluation are all in [Prompt Hooks](prompt-hooks.md).
 
-Each server card can **test** its connection, and a passing test lists the tools it discovered along with the elapsed time.
-
-**Import/Export** is supported. The type-inference rules on import are stated in the interface: an explicit `type=sse` imports as Legacy SSE; `type=http`, `streamable_http`, and a URL with no declared type import as Streamable HTTP.
-
-![The MCP Servers settings page showing user and project configuration groups](assets/screenshots/mcp-en.png)
-
-### Relay: let external CLIs use the same MCP servers
-
-VaneHub AI can forward centrally registered MCP servers to external CLIs, so you do not have to configure them again inside the CLI.
-
-> **Relay is currently enabled only for Claude Code and Codex CLI.** Gemini CLI, OpenCode, and Antigravity CLI need their own configuration, and their MCP calls do not appear in the execution trace.
-
-Calls that go through the relay appear in the [trace](observability.md) with "relayed" fidelity.
-
-## Prompt hooks
-
-Configure them under **Settings → Prompt Hooks** to insert custom content into the prompt lifecycle.
-
-There are two execution points: **once at session initialization**, and **on every turn**.
-
-> **Prompt hooks can only be bound to the four external CLI Agents and do not apply to OnePiece** — the native Agent has its own core-instruction mechanism.
-
-![The Prompt Hooks settings page](assets/screenshots/prompt-hooks-en.png)
+> **Prompt Hooks can only be bound to the four external CLI Agents and do not apply to OnePiece** — the native Agent has its own core-instruction mechanism.
 
 ## Extension capabilities
 
