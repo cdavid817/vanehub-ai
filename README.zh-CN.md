@@ -112,16 +112,16 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | 定时任务 | [定时任务与用量统计](docs/user-guide/zh-CN/src/automation.md) |
 | 远程工作区 | [SSH 工作区与 IM 接入](docs/user-guide/zh-CN/src/remote-and-im.md) |
 | CLI 管理 | [各 CLI 的安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
-| CLI 参数 | [按 CLI Agent 配置启动参数与全局配置](docs/user-guide/zh-CN/src/tooling.md) |
-| 扩展能力 | [本地扩展安装/启用/禁用](docs/user-guide/zh-CN/src/tooling.md) |
-| 插件集成 | [第三方插件的集成配置](docs/user-guide/zh-CN/src/tooling.md) |
-| MCP 服务器 | [MCP server 配置与按 Agent 绑定](docs/user-guide/zh-CN/src/tooling.md) |
+| CLI 参数 | [按 CLI Agent 配置启动参数与全局配置](docs/user-guide/zh-CN/src/tooling.md#cli-参数) |
+| 扩展能力 | [本地扩展安装/启用/禁用](docs/user-guide/zh-CN/src/tooling.md#扩展能力) |
+| 插件集成 | [第三方插件的集成配置](docs/user-guide/zh-CN/src/tooling.md#插件集成) |
+| MCP 服务器 | [MCP server 配置与按 Agent 绑定](docs/user-guide/zh-CN/src/mcp.md) |
 | Agent 配置 | [按 Agent 配置模型、权限模板、运行参数](docs/user-guide/zh-CN/src/user-interface.md#设置中心) |
 | 专家角色 | [角色与评审策略](docs/user-guide/zh-CN/src/personalization.md) |
 | Agent 权限策略 | [Agent 权限策略与审批模板配置](docs/user-guide/zh-CN/src/permissions.md) |
 | 个性化 | [Custom Instructions 与跨会话记忆](docs/user-guide/zh-CN/src/personalization.md) |
 | Skill 管理 | [Skill 安装与绑定](docs/user-guide/zh-CN/src/skill-management.md) |
-| Prompt Hook | [钩子管理](docs/user-guide/zh-CN/src/tooling.md) |
+| Prompt Hook | [钩子管理](docs/user-guide/zh-CN/src/prompt-hooks.md) |
 | IM 能力 | [IM 连接器配置](docs/user-guide/zh-CN/src/remote-and-im.md) |
 | SSH 连接 | [保存的 SSH 连接](docs/user-guide/zh-CN/src/remote-and-im.md) |
 | 执行可观测性 | [执行追踪与日志采集策略](docs/user-guide/zh-CN/src/observability.md) |
