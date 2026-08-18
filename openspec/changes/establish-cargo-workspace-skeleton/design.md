@@ -117,6 +117,56 @@ path bug at, and on a workflow this repository's CI does not otherwise exercise.
 Fixed to `target/${{ matrix.rust_target }}/release/bundle` across all nine sites, with one comment
 at the first use rather than nine repeated ones.
 
+## What extracting the permission hook surfaced
+
+Creating a genuine second member turned three more silently-scoped commands into gaps, none of
+which the single-member skeleton could have shown — a workspace with one member cannot expose a
+tool that forgets to check every member, because there is only one to check.
+
+### `native:panic:check` never looked at the second member
+
+The panic-shortcut gate ran `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --bins`.
+Without `--workspace`, `--manifest-path` scopes target selection to the package it points at, so
+the new crate's `main.rs` was invisible to it — not exempted, just never examined. The hook binary
+turned out to have zero production `unwrap`/`expect` (its ten sites are all inside `#[cfg(test)]`),
+so nothing was hiding today, but the gate would not have caught one added tomorrow. Fixed to
+`cargo clippy --workspace --lib --bins`.
+
+### The CI `Rust` job's check/clippy/test steps had the same gap
+
+`cargo check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path
+src-tauri/Cargo.toml --all-targets`, and `cargo test --manifest-path src-tauri/Cargo.toml` all
+carried the same scoping as the panic gate, for the same reason. This is task 5.1 done at the point
+it became necessary rather than deferred: CI would otherwise never compile, lint, or test the second
+member at all. `cargo fmt --manifest-path src-tauri/Cargo.toml --all` was checked and needs no fix —
+verified empirically by injecting a misformatted line into the new crate and confirming `--all`
+caught it regardless of which member's manifest `--manifest-path` names; unlike target selection,
+`--all` already resolves to the whole workspace.
+
+`scripts/run-native-coverage.mjs` carried the identical `--manifest-path src-tauri/Cargo.toml`
+pattern for `cargo llvm-cov`. Fixed to `--workspace` for consistency, though not re-verified with a
+full instrumented run in this session — that build is expensive enough that it is scoped to CI's
+dedicated `native-coverage` job rather than required on every local change.
+
+The three fixes share one lesson: `--manifest-path <member>` and `--workspace` read as
+interchangeable ways to "point cargo at the project" until a second member exists, and every command
+in this repository that used the former needed to become the latter, one at a time, discoverable
+only by having something for it to silently miss.
+
+### ESLint and Vite's ignore lists covered `src-tauri/target/` by accident, through `src-tauri/`
+
+Both configs ignored `"src-tauri"` (ESLint) or `"**/src-tauri/**"` (Vite), which implicitly covered
+the old target directory as a side effect of covering the whole member. Neither config had a
+top-level entry for `target` itself, because there was never a reason to write one.
+
+Moving the target directory to the workspace root exposed both gaps at once. `npm run lint:ci`
+started reporting 479 errors against a Tauri build-script-generated JS file living under
+`target/**/build/**/out/`. Vite's dev-server watcher and test excludes were pointed at the same
+blind spot — un-excluded, watching a Cargo target directory (hundreds of thousands of build
+artifacts) is the exact failure mode already on record in this repository as the cause of nested
+worktrees stalling Vite past the e2e timeout; same cause, new location. Both fixed by adding
+`target` / `**/target/**` alongside the existing `src-tauri` entries.
+
 ## Risks / Trade-offs
 
 - **The Tauri bundler or the sidecar script depends on the current target-directory layout** → This is the specific risk the single-member skeleton exists to surface. Desktop Smoke runs on all three platforms and is the check; a local pass on one OS is not evidence for the others.

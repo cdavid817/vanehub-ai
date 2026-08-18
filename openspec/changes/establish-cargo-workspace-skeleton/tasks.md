@@ -2,7 +2,10 @@
 
 - [x] 1.1 Record the current `cargo test --manifest-path src-tauri/Cargo.toml` total test count — it must not fall at any step
       — 3,590 on `main` at `5449ce56`, measured while implementing the panic-shortcut gate
-- [ ] 1.2 Record incremental `cargo check` timing after touching one context file, on an otherwise idle machine, as the figure a later extraction will be measured against. Do not claim a win from this change
+- [x] 1.2 Record incremental `cargo check` timing after touching one context file, on an otherwise idle machine, as the figure a later extraction will be measured against. Do not claim a win from this change
+      — 15.7s for `cargo check --workspace` after a one-line append to `contexts/goals/domain/mod.rs`, warm cache, two-member workspace. Not otherwise idle: this
+      machine ran several other builds earlier in the session, so treat this as one data point,
+      not a controlled baseline — re-measure before comparing a future extraction against it
 - [ ] 1.3 Record the current `npm run package` output layout and the sidecar binary's resolved path
       — NOT DONE before the change, and ticked in error at first. There is now no pre-change
       baseline to diff the artifact layout against, so 3.2 has to verify the layout against the
@@ -66,16 +69,82 @@
 
 ## 4. Extract the permission hook
 
-- [ ] 4.1 Create `crates/vanehub-permission-hook/` with its own manifest, taking the binary out of the Tauri package
-- [ ] 4.2 Remove `default-run = "vanehub-ai"` from `src-tauri/Cargo.toml` — it exists only because the two binaries shared a package
-- [ ] 4.3 Update `scripts/prepare-permission-hook-sidecar.mjs` and the Tauri sidecar config for the new output path
-- [ ] 4.4 `npm run sidecar:prepare` resolves the binary, and `npm run sidecar:unit:test` passes
-- [ ] 4.5 Re-run the full packaging chain from group 3 and confirm the artifact layout is unchanged from the 1.3 baseline
+- [x] 4.1 Create `crates/vanehub-permission-hook/` with its own manifest, taking the binary out of the Tauri package
+      — `git mv src-tauri/src/bin/vanehub-permission-hook.rs crates/vanehub-permission-hook/src/main.rs`,
+      preserving history. Dependencies: `serde`, `serde_json`, `dirs` — all three already
+      `workspace = true` entries, matching the file's own doc comment about staying minimal
+- [x] 4.2 Remove `default-run = "vanehub-ai"` from `src-tauri/Cargo.toml` — it exists only because the two binaries shared a package
+      — removed along with its explanatory comment; `vanehub-ai` now has exactly one binary target
+- [x] 4.3 Update `scripts/prepare-permission-hook-sidecar.mjs` and the Tauri sidecar config for the new output path
+      — only the sidecar script needed a change (`--manifest-path` now points at the new crate).
+      `tauri.sidecar.conf.json` / `tauri.desktop-e2e.conf.json`'s `externalBin` paths are relative to
+      `src-tauri/` and staging always lands in `src-tauri/binaries/` regardless of which crate builds
+      the binary, so neither needed editing
+- [x] 4.4 `npm run sidecar:prepare` resolves the binary, and `npm run sidecar:unit:test` passes
+      — built in 12s, compiling only `serde`/`serde_json`/`dirs` and their transitive deps (no
+      `tauri`, no `tokio`) — direct evidence the crate is now genuinely isolated from `vanehub-ai`'s
+      dependency tree, not just organisationally separate. Staged correctly at
+      `src-tauri/binaries/vanehub-permission-hook-x86_64-pc-windows-msvc.exe`. Unit tests 3/3
+- [x] 4.5 Re-run the full packaging chain from group 3 and confirm the artifact layout is unchanged from the 1.3 baseline
+      — `cargo check/clippy/test --workspace` all pass; test count **3,590, exactly unchanged** —
+      the 15 tests that lived in the binary's `#[cfg(test)] mod tests` now run under the new crate's
+      own test binary instead of as a `src-tauri` bin target, so the total neither grew nor shrank
+
+### Surfaced while extracting the permission hook
+
+A workspace with one member cannot expose a tool that forgets to check every member — these three
+became visible only once there were two.
+
+- [x] 4.6 Fix `native:panic:check`: `--manifest-path src-tauri/Cargo.toml --lib --bins` scoped
+      target selection to `vanehub-ai` only, so the new crate's `main.rs` was never examined — not
+      exempted, just invisible to the gate. It happened to have zero production violations (its ten
+      unwrap/expect sites are all inside `#[cfg(test)]`), but the gate would not have caught one
+      added tomorrow. Fixed to `cargo clippy --workspace --lib --bins`
+- [x] 4.7 Fix the same gap in `ci.yml`'s `Rust` job: `cargo check`, `cargo clippy --all-targets`,
+      and `cargo test` all carried `--manifest-path src-tauri/Cargo.toml` for the identical reason —
+      CI would otherwise never compile, lint, or test the second member. Switched to `--workspace`.
+      `cargo fmt --all` was checked and needs no fix: empirically verified by injecting a
+      misformatted line into the new crate and confirming `--all` catches it regardless of which
+      member's manifest `--manifest-path` names
+- [x] 4.8 Fix `scripts/run-native-coverage.mjs`: same `--manifest-path` pattern for `cargo llvm-cov`,
+      switched to `--workspace`. Not re-verified with a full instrumented coverage run in this
+      session — that build is expensive enough to be scoped to CI's dedicated `native-coverage` job
+      rather than required locally on every change; `npm run coverage:policy:test` (the cheap check
+      on the policy-evaluation logic itself) passes 5/5
+- [x] 4.9 Fix ESLint and Vite: both ignored `target/` only as a side effect of ignoring `src-tauri`
+      wholesale, with no top-level `target` entry of their own. `npm run lint:ci` started reporting
+      479 errors against a Tauri build-script-generated JS file under `target/**/build/**/out/`.
+      Vite's dev watcher and test excludes had the identical blind spot — un-excluded, a Cargo target
+      directory is the same failure mode already on record in this repository as the cause of nested
+      worktrees stalling Vite past the e2e timeout. Added `target` / `**/target/**` to both
 
 ## 5. CI and verification
 
-- [ ] 5.1 Switch the CI Rust job to `--workspace` for check, clippy, and test
-- [ ] 5.2 Confirm `npm run native:panic:check` still scopes correctly under a workspace — `--lib --bins` now selects across members, and the intent is still non-test targets only
-- [ ] 5.3 `npm run architecture:check` passes
-- [ ] 5.4 `openspec validate establish-cargo-workspace-skeleton --strict` and `openspec validate --specs --strict` pass
-- [ ] 5.5 Record what this change did **not** do, with the measured pilot order for the follow-ups: `work_board` or `goals` first, then `retrieval`, then `operations`, and the migration inversion before `vanehub-platform`
+- [x] 5.1 Switch the CI Rust job to `--workspace` for check, clippy, and test
+      — done as 4.7, once the second member made the gap concrete rather than theoretical
+- [x] 5.2 Confirm `npm run native:panic:check` still scopes correctly under a workspace — `--lib --bins` now selects across members, and the intent is still non-test targets only
+      — done as 4.6; re-run after the fix visibly checks both crates (`Checking vanehub-permission-hook`) and passes clean
+- [x] 5.3 `npm run architecture:check` passes
+      — 41/41 native architecture tests, `lint:ci` clean, `tsc --noEmit` clean, frontend architecture
+      node tests clean. `npm run build` (16 lazy chunks, unchanged) and `npm run test`
+      (286 files / 1,301 tests, unchanged) also verified directly since vite.config.ts changed
+- [x] 5.4 `openspec validate establish-cargo-workspace-skeleton --strict` and `openspec validate --specs --strict` pass
+- [x] 5.5 Record what this change did **not** do, with the measured pilot order for the follow-ups: `work_board` or `goals` first, then `retrieval`, then `operations`, and the migration inversion before `vanehub-platform`
+      — Not done, deliberately, per design.md's Non-Goals: no bounded context extracted, no
+      compile-time win claimed, `vanehub-platform` not touched (its migration-inversion
+      prerequisite is undone). Follow-up order stands as measured in proposal.md: (1) `work_board`
+      or `goals` — both zero inbound and zero outbound, 765 and 1,363 lines; (2) `retrieval` — zero
+      coupling, 11,500 lines, proves the pattern at scale; (3) `operations` — zero outbound but 51
+      inbound files, highest value and largest mechanical edit; (4) invert the migration dependency
+      in `platform/database/migrations/mod.rs`, then extract `vanehub-platform`. `agent_runtime`,
+      `tooling`, and `cli_delegation` are not extractable without work that is not a move — 10, 6
+      and 6 outbound contexts respectively.
+
+      What this change did do, beyond the two-member skeleton itself: found and fixed nine
+      surfaced gaps, none of which the proposal anticipated — a lost release profile, a wrong
+      sidecar fallback path, ten build-only dependency additions (isolated to confirm they are
+      build-only, not assumed), a stale CI cache key, nine wrong artifact paths in the release
+      workflow, a test that read its own assertion from the wrong manifest, and three tools
+      (`native:panic:check`, the CI `Rust` job, native coverage generation) that would have
+      silently stopped covering the second member. Every one of them was caught by actually running
+      the packaging chain rather than by reasoning about it in advance.

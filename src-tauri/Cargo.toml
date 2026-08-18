@@ -4,11 +4,6 @@ version = "0.1.0-preview.1"
 description = "Unified AI coding agent management"
 authors = ["vanehub-ai"]
 edition = "2021"
-# Disambiguates `cargo run` now that `src/bin/vanehub-permission-hook.rs` (the Claude Code
-# permission hook wrapper, add-claude-code-permission-callback) is a second binary target —
-# without this, Tauri's own `tauri dev`/`tauri build` (which invoke plain `cargo run`/`cargo
-# build` with no `--bin`) fail outright with "could not determine which binary to run".
-default-run = "vanehub-ai"
 
 [lib]
 name = "vanehub_ai_lib"

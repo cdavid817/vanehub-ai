@@ -18,6 +18,11 @@ export default tseslint.config(
       "node_modules",
       "playwright-report",
       "src-tauri",
+      // Cargo's target directory moved to the workspace root under establish-cargo-workspace-
+      // skeleton; it used to be covered implicitly by the "src-tauri" entry above. Build scripts
+      // (tauri-build here) generate JS artifacts under target/**/build/**/out/, which ESLint would
+      // otherwise lint as source.
+      "target",
       "test-results",
     ],
   },

@@ -50,7 +50,10 @@ export function preparePermissionHookSidecar({
   const cargoArgs = [
     "build",
     "--manifest-path",
-    resolve(root, "src-tauri", "Cargo.toml"),
+    // Its own crate as of `establish-cargo-workspace-skeleton`, not src-tauri/Cargo.toml. Cargo
+    // still resolves the shared workspace target directory regardless of which member's manifest
+    // is passed here, so `sidecarPaths()` above needs no matching change.
+    resolve(root, "crates", "vanehub-permission-hook", "Cargo.toml"),
     "--bin",
     binaryName,
     "--target",

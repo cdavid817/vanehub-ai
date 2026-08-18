@@ -1,9 +1,11 @@
-# Workspace root for the native side. `src-tauri` is the only member today: the skeleton is
-# deliberately proved on its own before any bounded context is extracted, because what a workspace
-# migration actually breaks is the packaging chain — `npm run package`, the sidecar preparation
-# script, and the Tauri bundler's expectations about target directories — not the compiler.
+# Workspace root for the native side. `vanehub-permission-hook` is the one extraction with no
+# prerequisites — it shared a package with `vanehub-ai` purely by history, which is what forced
+# `default-run` on the Tauri crate. No bounded context is extracted yet: the skeleton was
+# deliberately proved on its own first, because what a workspace migration actually breaks is the
+# packaging chain — `npm run package`, the sidecar preparation script, and the Tauri bundler's
+# expectations about target directories — not the compiler.
 #
-# Extraction order, measured rather than guessed (see
+# Extraction order for what remains, measured rather than guessed (see
 # `openspec/changes/establish-cargo-workspace-skeleton/design.md`): `work_board` or `goals` first,
 # both zero-coupling in each direction; then `retrieval`, isolated but 11,500 lines, to prove the
 # pattern holds at scale; then `operations`, which nothing needs but 51 files need. `platform`
@@ -11,7 +13,7 @@
 # runs platform -> contexts and must be inverted first.
 [workspace]
 resolver = "2"
-members = ["src-tauri"]
+members = ["src-tauri", "crates/vanehub-permission-hook"]
 
 # Every shared version declaration lives here; members inherit with `workspace = true` and add only
 # what is member-local (`optional`, or an extra feature such as opentelemetry_sdk's `testing` in

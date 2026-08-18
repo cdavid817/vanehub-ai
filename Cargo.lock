@@ -7402,6 +7402,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vanehub-permission-hook"
+version = "0.1.0-preview.1"
+dependencies = [
+ "dirs 6.0.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
