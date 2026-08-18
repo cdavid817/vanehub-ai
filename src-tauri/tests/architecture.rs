@@ -2107,10 +2107,24 @@ struct SubtreeBudget {
 }
 
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
+    // 978 of these lines are `execute_with_code_intelligence`, one function that
+    // `split-api-adapter-modules` moved without decomposing: finding seams in live tool-dispatch
+    // control flow is its own change with its own risk budget, not something to bury in a
+    // relocation. This entry retires when that function does.
     PathBudget {
-        path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
-        budget: 5_720,
-        owner: "extract-api-adapter-inline-tests",
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
+        budget: 1_166,
+        owner: "split-api-adapter-modules",
+    },
+    // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
+    // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
+    // Every other module the split produced is small enough for the subtree budget alone.
+    PathBudget {
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
+        budget: 1_478,
+        owner: "split-api-adapter-modules",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
     // modules out into `tests/`. What stays is the scaffolding they share — `Fixture`, the
@@ -2138,10 +2152,20 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
 ];
 
 const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
+    // Raised from 58,072 by `split-api-adapter-modules`, which turned `api_process_adapter.rs`
+    // into a directory module. The +285 is entirely per-file scaffolding: +228 `use` lines (each
+    // of the eight new modules carries its own explicit import list instead of inheriting the
+    // parent's, plus `mod.rs`'s re-export blocks), +22 `#[cfg(test)]` attributes on the re-exports
+    // that exist only for `tests.rs`'s `use super::*;`, +11 blank separators, +8 module docs,
+    // +8 `mod` declarations, +4 comment lines heading the two re-export blocks, and +4 from
+    // rustfmt rewrapping two signatures that a `pub(super)` qualifier pushed past 100 columns.
+    // No item body was duplicated or edited: the top-level item multiset is identical before and
+    // after, 84 of the 138 moved items are byte-identical to their pre-split text, 52 differ only
+    // by an added `pub(super)`, and the last 2 are the rustfmt rewraps above.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 58_072,
-        owner: "extract-api-adapter-inline-tests",
+        budget: 58_357,
+        owner: "split-api-adapter-modules",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
