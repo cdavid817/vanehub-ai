@@ -100,6 +100,23 @@ job keyed its cache on `hashFiles('src-tauri/Cargo.lock')`, and `hashFiles()` on
 returns a constant — so this would have degraded into a cache that never invalidates rather than
 failing.
 
+### `.github/workflows/package.yml` located artifacts by a path that no longer exists
+
+Nine references to `src-tauri/target/${{ matrix.rust_target }}/release/bundle` — in the Windows
+signing step, the Windows Authenticode verification step, the macOS notarization verification
+step, and the artifact upload step. All nine assumed the pre-workspace target directory.
+
+This was not caught by any of the verification run so far, because none of it exercises the
+release workflow: `npm run package` was run locally without a `--target`, landing at
+`target/release/bundle/` directly, and CI's `ci.yml` never builds a distributable. It surfaced only
+because verifying the local packaging output prompted a direct check for other consumers of the old
+path. The upload step has `if-no-files-found: error`, so this would not have failed silently, but
+it would have failed only when a release was actually cut — the most expensive point to discover a
+path bug at, and on a workflow this repository's CI does not otherwise exercise.
+
+Fixed to `target/${{ matrix.rust_target }}/release/bundle` across all nine sites, with one comment
+at the first use rather than nine repeated ones.
+
 ## Risks / Trade-offs
 
 - **The Tauri bundler or the sidecar script depends on the current target-directory layout** → This is the specific risk the single-member skeleton exists to surface. Desktop Smoke runs on all three platforms and is the check; a local pass on one OS is not evidence for the others.
