@@ -1,10 +1,18 @@
 ## 1. Map the cut lines
 
-- [ ] 1.1 Record the baseline: `web-agent-client.ts` physical lines, its inline `async` method count, and the `src/services` aggregate
-- [ ] 1.2 Build the state-ownership map: for each of the 15 module-level `let` bindings, list every method that reads or reassigns it
-- [ ] 1.3 Group the 218 inline methods into candidate bounded contexts, marking each group extractable only if every `let` it touches is touched by no other group
-- [ ] 1.4 List the methods that share state across candidate groups; these stay in the composition root for this change, and the reason is recorded
-- [ ] 1.5 Enumerate the 10 `this.` call sites and note, for each, whether caller and callee land in the same group
+- [x] 1.1 Record the baseline: `web-agent-client.ts` physical lines, its inline `async` method count, and the `src/services` aggregate
+  - `web-agent-client.ts`: 6,013 physical lines. `webAgentClient` holds 228 properties — 218 inline `async` methods, 6 per-method delegations, 4 whole-module spreads.
+  - `src/services` aggregate: 18,149 physical lines across 143 production files — exactly the `[ARCH-FE-004]` budget, so the subtree starts with zero headroom.
+- [x] 1.2 Build the state-ownership map: for each of the 15 module-level `let` bindings, list every method that reads or reassigns it
+  - The file has **43** module-level `let` bindings, not 15. The map was built from the TypeScript AST, taking the transitive closure through the 141 top-level helpers, so a method that reaches `sessions` only via `updateSession()` is counted as touching `sessions`.
+- [x] 1.3 Group the 218 inline methods into candidate bounded contexts, marking each group extractable only if every `let` it touches is touched by no other group
+  - Union-find over shared `let` bindings yields 89 components. One hub component holds 101 methods over 29 bindings (`sessions`, `activeSessionId`, `workflowState`, `webSkills`, `loopRuns`, `webAgentRuns`, …); the other 88 are already disjoint and extractable as-is.
+- [x] 1.4 List the methods that share state across candidate groups; these stay in the composition root for this change, and the reason is recorded
+  - The hub component is held together by a small set of cascade methods, each of which mutates state belonging to two or more otherwise-disjoint contexts: `deleteApiAgent` (sessions + loops + memories + skills + skill bindings), `sendMessage` (sessions + runs + memories + skills), `createSession` (sessions + projects + remote workspaces + expert roles + retrieval config), `applyCliConfigProfile` (CLI config + workflow), `deleteSession` / `archiveSession` / `resolveAgentQuestion` / `resolvePlanExit` / `stopGeneration` (sessions + runs), `startLoop` / `resumeLoop` / `continueLoop` (loops + sessions + runs), `deleteSessionCategory` / `assignSessionCategory` (categories + sessions), `getSessionChatConfig` / `saveSessionChatConfig` (chat configs + sessions).
+  - These stay in the composition root. Extracting one of them would force its co-owned `let` to be exported from the module that keeps it, and an exported mutable binding read from two modules is the divergent-mock-world failure design.md rules out.
+- [x] 1.5 Enumerate the 10 `this.` call sites and note, for each, whether caller and callee land in the same group
+  - `cancelEvaluation` → `getEvaluationArena` and `exportEvaluation` → `getEvaluationArena` (same group, evaluation); `performMissionControlAction` → `cancelAgentRun` and → `resumeAgentRun` (same group, agent runs); `getContextEvidenceManifest` → `listContextEvidenceManifests` (same group, context evidence); `getSkillEvolutionSeedLineage` → and `purgeSkillEvolutionEvidence` → `querySkillEvolutionEvidence` (same group, skill evolution evidence); `getSkillOverview` → `listSkills` and → `detectSkillDrift`; `syncSkillDrift` → `detectSkillDrift`.
+  - Caller and callee land in the same group in every case, so no call is rewritten; each moved caller declares `this: AgentService` so the binding stays late-bound through the composed object.
 
 ## 2. Extract group by group
 

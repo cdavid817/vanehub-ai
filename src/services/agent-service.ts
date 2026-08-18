@@ -151,7 +151,7 @@ import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences }
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
 import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
-import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask, StartEvaluationInput } from "../types/evaluation";
+import type { EvaluationService } from "./evaluation-service";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -284,14 +284,7 @@ import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvide
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
-export interface AgentService extends BuiltinToolService {
-  listEvaluationTasks(): Promise<EvaluationTask[]>;
-  startEvaluation(input: StartEvaluationInput): Promise<EvaluationArena>;
-  listEvaluationArenas(): Promise<EvaluationArena[]>;
-  getEvaluationArena(arenaId: string): Promise<EvaluationArena>;
-  cancelEvaluation(arenaId: string): Promise<EvaluationArena>;
-  getEvaluationAttempt(attemptId: string): Promise<EvaluationAttempt>;
-  exportEvaluation(arenaId: string): Promise<EvaluationExport>;
+export interface AgentService extends BuiltinToolService, EvaluationService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
