@@ -24,8 +24,7 @@ flowchart TD
     A1[stdio 本地子进程] --> C{MCP server 配置}
     A2[streamable_http HTTP] --> C
     A3["遗留 sse(迁移到 streamable_http)"] --> C
-    C --> C1["kebab-case 全局唯一名
-active / scope / project-path"]
+    C --> C1["kebab-case 全局唯一名<br/>active / scope / project-path"]
     C1 --> D[Test Connection]
     D -->|缓存有效工具列表| E[native 工具目录]
     D -->|未测试或失败| X[不贡献工具]
@@ -33,8 +32,7 @@ active / scope / project-path"]
 可见且 active 的 server"}
     F -->|是| G[贡献工具条目]
     F -->|否| X
-    G --> H[固定 shell/file/remember 工具
-永不冲突]
+    G --> H["固定 shell/file/remember 工具<br/>永不冲突"]
 ```
 
 **中继(relay)**：VaneHub 可在 CLI 与 MCP server 之间充当代理，标记位为 `RELAY_FLAG=` `--vanehub-mcp-relay`。仅 Claude Code 与 Codex CLI 走中继路径；Gemini CLI、OpenCode、Antigravity CLI 各自独立配置 MCP，其 MCP 调用不进入 VaneHub 的执行链路。中继文件系统由 `PrivateRelayDirectory` 隔离，防止跨会话或跨 Agent 串扰。
