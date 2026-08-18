@@ -15,8 +15,18 @@ export const RULES = Object.freeze({
     id: "ARCH-FE-003",
     repair: "Type both runtime clients explicitly as AgentService.",
   },
+  lineBudget: {
+    id: "ARCH-FE-004",
+    repair:
+      "A split must move code, not duplicate it; raise the budget in the same commit only with a stated reason.",
+  },
 });
 
 export function architectureDiagnostic(rule, file, line, message) {
   return `[${rule.id}] ${file}:${line}: ${message} Repair: ${rule.repair}`;
+}
+
+// 子树预算说的是整个目录,没有哪一行可指——硬塞个行号只会把读者引到无关的位置。
+export function architectureSummaryDiagnostic(rule, subject, message) {
+  return `[${rule.id}] ${subject}: ${message} Repair: ${rule.repair}`;
 }

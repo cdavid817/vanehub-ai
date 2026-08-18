@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { architectureDiagnostic, RULES } from "./rules.mjs";
+import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./rules.mjs";
+
+// 每文件预算(eslint.config.js)管不住"把一个超大文件拆成十个大文件",也管不住
+// 拆分时把代码复制而非搬移。聚合预算才能。预算只能下调;上调必须在同一个 commit 写明原因。
+const SUBTREE_LINE_BUDGETS = Object.freeze([
+  { root: "src/services", budget: 18149, owner: "split-web-agent-client" },
+]);
 
 const STATE_PACKAGES = new Set([
   "redux",
@@ -101,6 +107,30 @@ function adapterConformance(projectRoot, relativeFile, exportName) {
   return [architectureDiagnostic(RULES.adapterParity, relativeFile, 1, `\`${exportName}\` is not explicitly checked against AgentService`)];
 }
 
+// 与 wc -l 和 Rust 侧的 str::lines().count() 一致:结尾换行不额外算一行,缺结尾换行
+// 也不少算最后一行,空文件是 0 行——"".split("\n") 会给出 [""],不特判就会变成 1。
+export function physicalLines(source) {
+  if (source === "") return 0;
+  return source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
+}
+
+export function subtreeBudgetDiagnostics(projectRoot, budgets = SUBTREE_LINE_BUDGETS) {
+  return budgets.flatMap((entry) => {
+    const measured = productionFiles(path.join(projectRoot, entry.root)).reduce(
+      (total, file) => total + physicalLines(fs.readFileSync(file, "utf8")),
+      0,
+    );
+    if (measured <= entry.budget) return [];
+    return [
+      architectureSummaryDiagnostic(
+        RULES.lineBudget,
+        entry.root,
+        `${measured} aggregate physical lines exceeds budget ${entry.budget}. Owner: ${entry.owner}.`,
+      ),
+    ];
+  });
+}
+
 export function checkFrontendArchitecture(projectRoot) {
   const srcRoot = path.join(projectRoot, "src");
   const diagnostics = productionFiles(srcRoot).flatMap((file) => {
@@ -109,5 +139,6 @@ export function checkFrontendArchitecture(projectRoot) {
   });
   diagnostics.push(...adapterConformance(projectRoot, "src/services/tauri-agent-client.ts", "tauriAgentClient"));
   diagnostics.push(...adapterConformance(projectRoot, "src/services/web-agent-client.ts", "webAgentClient"));
+  diagnostics.push(...subtreeBudgetDiagnostics(projectRoot));
   return diagnostics;
 }
