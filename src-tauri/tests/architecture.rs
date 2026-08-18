@@ -2077,6 +2077,15 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
         budget: 1_166,
         owner: "split-api-adapter-modules",
     },
+    // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
+    // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
+    // Every other module the split produced is small enough for the subtree budget alone.
+    PathBudget {
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
+        budget: 1_478,
+        owner: "split-api-adapter-modules",
+    },
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
         budget: 5_110,
