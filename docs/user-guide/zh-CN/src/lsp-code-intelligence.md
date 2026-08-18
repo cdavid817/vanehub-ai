@@ -2,6 +2,45 @@
 
 语言服务器协议（LSP）集成让原生 API Agent 可以向本地语言服务器查询定义、引用、悬停信息和当前诊断。该功能默认停用；必须先启用对应语言，并为每个本地工作区显式授予信任。
 
+## LSP 是什么
+
+LSP 出现之前,每个编辑器要支持"智能感知"(补全、跳转定义、错误提示)都得为每种语言各写一套插件——这是经典的 **M×N 问题**:M 个编辑器 × N 种语言 = M×N 套独立实现。微软在 2016 年提出 LSP,把它拆成 **M+N**:
+
+- 每种语言只实现**一个** Language Server(懂这门语言的语法与类型系统)
+- 每个编辑器只实现**一个** LSP Client(懂如何与任意 Language Server 通信)
+
+两边通过统一协议对话,互不关心对方内部实现。VaneHub AI 扮演的就是 Client 一侧——它替 Agent 跟本地已装的 Language Server 说话。
+
+**通信方式**:传输层通常是 stdio(子进程管道);消息格式是 JSON-RPC 2.0,每条消息带 `Content-Length` 头 + JSON 体;消息分两类——Request/Response(一问一答,如"这个符号定义在哪")与 Notification(单向通知,不需回复,如"文件内容变了")。
+
+**生命周期**:Client 启动 Server 子进程 → 发 `initialize` 声明自己支持哪些能力 → Server 回自己支持哪些能力,握手完成 → 进入正常工作 → `shutdown` → `exit` 优雅关闭。这个**能力协商**很关键:双方都可以只实现协议的子集,通过 capabilities 字段知道对方能干什么。
+
+### LSP 的核心功能
+
+协议本身覆盖的能力远不止 VaneHub AI 暴露给 Agent 的这四个:
+
+| 功能 | 方法名 | 作用 |
+| --- | --- | --- |
+| 跳转定义 | `textDocument/definition` | Go to Definition |
+| 查找引用 | `textDocument/references` | Find All References |
+| 悬浮提示 | `textDocument/hover` | 显示类型/文档 |
+| 诊断报错 | `textDocument/publishDiagnostics` | 实时语法/类型错误(**Server 主动推送**) |
+| 自动补全 | `textDocument/completion` | 光标处候选列表 |
+| 重命名 | `textDocument/rename` | 跨文件安全重命名 |
+| 代码操作 | `textDocument/codeAction` | 快速修复、重构建议 |
+| 格式化 | `textDocument/formatting` | 代码格式化 |
+| 语义高亮 | `textDocument/semanticTokens` | 比正则高亮更准确的着色 |
+| 大纲符号 | `textDocument/documentSymbol` | 文件结构树 |
+
+文档同步方面,Client 用 `didOpen`/`didChange`/`didClose` 把文件状态实时告诉 Server,Server 内部维护文档快照做增量分析。**VaneHub AI 只向 Agent 暴露前四个只读能力**——重命名、代码操作、格式化这些会改文件的能力不开放,见下文[限制与结果状态](#限制与结果状态)。
+
+## 为什么 Agent 需要 LSP
+
+- **精准上下文提取** —— 相比"整个文件塞给模型"或纯 grep 抓取,LSP 给的是**语义级**信息:某函数的所有调用点、某类型的完整定义、跨文件符号解析。这比单纯的 AST/正则更准,因为 Language Server 做了真正的类型检查与跨模块解析。
+- **降低"幻觉编辑"风险** —— Agent 改代码前可以先用 definition/references 确认影响面,而不是靠猜。
+- **诊断回路** —— 改完代码后直接拿到编译器/类型检查器的报错,形成"编辑 → 验证 → 修正"闭环,不用等你手动跑 build。
+- **成本权衡** —— 启动 Language Server(尤其 rust-analyzer 对大 workspace 的首次索引)有可观的时间与内存开销。这正是 VaneHub AI 把 LSP 做成**默认停用、按语言启用、按工作区授信**的原因,而不是每个会话都拉起一个实例。
+
 ## 支持的服务器与工具
 
 | 语言 | 服务器 | 项目根标记 |
