@@ -1,3 +1,5 @@
+mod sinks;
+
 use super::agent_image::{prepare_image, AgentImage, MAX_IMAGES_PER_REQUEST};
 use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, locations_outcome};
 use super::context_projection::ContextWireShape;
@@ -86,6 +88,7 @@ use crate::platform::network::blocking_http_client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sinks::{EvidenceCountingSink, EvidenceToolCounts};
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::Path;
@@ -124,61 +127,6 @@ type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecis
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
 /// formats need to build a reply turn from.
 type ExecutedToolCall = (ToolUseBlock, String, bool, Option<AgentImage>);
-
-#[derive(Debug, Clone, Copy)]
-struct EvidenceToolCounts {
-    attempts: u32,
-    failures: u32,
-}
-
-struct EvidenceCountingSink {
-    inner: Arc<dyn AgentProcessEventSink>,
-    attempts: AtomicU64,
-    failures: AtomicU64,
-}
-
-impl EvidenceCountingSink {
-    fn new(inner: Arc<dyn AgentProcessEventSink>) -> Self {
-        Self {
-            inner,
-            attempts: AtomicU64::new(0),
-            failures: AtomicU64::new(0),
-        }
-    }
-
-    fn counts(&self) -> EvidenceToolCounts {
-        EvidenceToolCounts {
-            attempts: self
-                .attempts
-                .load(Ordering::Relaxed)
-                .min(u64::from(u32::MAX)) as u32,
-            failures: self
-                .failures
-                .load(Ordering::Relaxed)
-                .min(u64::from(u32::MAX)) as u32,
-        }
-    }
-}
-
-impl AgentProcessEventSink for EvidenceCountingSink {
-    fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError> {
-        if let GenerationProcessEvent::ToolLifecycle(tool) = &event {
-            if matches!(
-                tool.phase,
-                crate::contexts::agent_runtime::application::ToolLifecyclePhase::Completed
-                    | crate::contexts::agent_runtime::application::ToolLifecyclePhase::Failed
-                    | crate::contexts::agent_runtime::application::ToolLifecyclePhase::Cancelled
-            ) {
-                self.attempts.fetch_add(1, Ordering::Relaxed);
-            }
-            if tool.phase == crate::contexts::agent_runtime::application::ToolLifecyclePhase::Failed
-            {
-                self.failures.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        self.inner.handle(event)
-    }
-}
 
 /// `AgentProcessGateway` implementation for `launch_kind = "api"` agents: no subprocess is
 /// spawned, generation is a direct streaming HTTP call to the provider's Messages API.
