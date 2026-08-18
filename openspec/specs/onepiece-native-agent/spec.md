@@ -26,93 +26,91 @@ The system SHALL maintain OnePiece as a built-in Agent with stable id `onepiece`
 - **AND** it SHALL NOT overwrite or delete the conflicting row
 
 ### Requirement: OnePiece configuration lifecycle
-The system SHALL keep the OnePiece identity separate from multiple named catalog-backed upstream-provider Profiles, SHALL secure credentials independently per Profile, SHALL use at most one explicitly active Profile for runtime generation, and SHALL expose provider-directory, list, save, activate, delete, and remove-all operations through the shared frontend service boundary. New Profile creation SHALL select a reviewed endpoint type owned by the chosen provider and SHALL NOT accept an arbitrary provider identity, interface format, or Base URL from the user.
+The system SHALL keep the OnePiece identity separate from multiple named endpoint Profiles, secure credentials independently per Profile, use at most one explicitly active Profile for direct generation, and expose provider-directory, custom endpoint, list, save, activate, delete, remove-all, privacy, capability, and routing operations through the shared frontend service boundary. Catalog Profiles SHALL resolve immutable reviewed endpoints; custom local/private Profiles SHALL accept only validated explicit OpenAI-compatible endpoint metadata and SHALL retain user-configured provenance.
 
 #### Scenario: Browse supported providers
 - **WHEN** a user starts adding an OnePiece configuration
-- **THEN** the settings surface SHALL show the shared searchable versioned 25-provider directory used by Agent configuration
-- **AND** each provider SHALL supply its identity, reviewed endpoint records, default and fallback models, provider icon key, and safe documentation links
-- **AND** each endpoint record SHALL supply its protocol type, interface format, immutable Base URL, authentication strategy, and model-discovery metadata
-- **AND** the surface SHALL NOT offer a custom-provider action or editable Base URL field
+- **THEN** the settings surface SHALL show the shared searchable versioned provider directory and a separate custom local/private endpoint action
+- **AND** catalog endpoint records SHALL remain immutable and provenance-bearing
 
 #### Scenario: Choose among provider endpoints
-- **WHEN** a selected provider exposes more than one endpoint type supported by the OnePiece runtime
+- **WHEN** a selected catalog provider exposes more than one endpoint type supported by the OnePiece runtime
 - **THEN** the settings surface SHALL require or default an explicit endpoint selection and show the endpoint protocol and immutable Base URL
 - **AND** saving SHALL persist the selected endpoint type with the Profile
 
 #### Scenario: Reject an unavailable provider protocol
-- **WHEN** a selected provider does not publish the requested Anthropic or OpenAI endpoint, or the OnePiece runtime does not support that endpoint type
-- **THEN** the settings and application boundaries SHALL reject the selection without synthesizing a URL, storing a credential, or changing the active Profile
+- **WHEN** a selected catalog provider does not publish the requested Anthropic or OpenAI endpoint, or the runtime does not support it
+- **THEN** settings and application boundaries SHALL reject the selection without synthesizing a URL, storing a credential, or changing the active Profile
 
 #### Scenario: Show unconfigured OnePiece
-- **WHEN** OnePiece has no complete provider configuration or stored credential
+- **WHEN** OnePiece has no complete endpoint Profile
 - **THEN** registry and settings surfaces SHALL still show OnePiece with an actionable non-selectable readiness state
 
 #### Scenario: Add the first provider Profile
-- **WHEN** a user selects a supported provider endpoint and supplies a Profile name, model id, and API credential while no OnePiece Profile exists
+- **WHEN** a user selects a supported provider endpoint and supplies a Profile name, model id, and required credential while no OnePiece Profile exists
 - **THEN** the system SHALL persist the non-secret Profile and automatically make it active
-- **AND** provider identity, endpoint type, interface format, and Base URL SHALL be resolved from the selected directory endpoint rather than user input
-- **AND** it SHALL store the credential through the platform credential service without returning or persisting the raw secret in SQLite
-- **AND** the OnePiece Agent row SHALL project the active Profile for existing runtime consumers
+- **AND** it SHALL resolve catalog-owned fields from the directory and secure the credential through the existing credential boundary
+
+#### Scenario: Add the first custom local Profile
+- **WHEN** a user supplies a Profile name, validated Base URL, OpenAI-compatible interface, model id, authentication mode, timeout, privacy classification, capabilities, and context metadata while no Profile exists
+- **THEN** the system SHALL persist the Profile with configured provenance and automatically make it active only when structurally ready
+- **AND** optional absent authentication SHALL remain absent rather than becoming a placeholder key
 
 #### Scenario: Add another provider Profile
-- **WHEN** one or more OnePiece Profiles already exist and the user activates “Add API provider”
-- **THEN** the settings surface SHALL open an application-owned provider-catalog dialog instead of displaying a permanently expanded editor or custom endpoint form
-- **AND** the new valid Profile SHALL be saved without replacing or activating over the current Profile
+- **WHEN** one or more OnePiece Profiles already exist and the user adds a catalog or custom endpoint
+- **THEN** the new valid Profile SHALL be saved without replacing or activating over the current Profile
 
 #### Scenario: Review multiple provider Profiles
 - **WHEN** OnePiece has saved provider Profiles
-- **THEN** the settings surface SHALL show one summary card per Profile with Profile name, provider, endpoint protocol, interface format, model, endpoint URL, credential-presence, readiness, and active-state metadata
-- **AND** the active Profile SHALL have persistent visual emphasis and an explicit active label
+- **THEN** the settings surface SHALL show Profile name, Local or Private label where justified, provider/runtime kind, interface, model, endpoint origin, authentication presence, timeout, privacy, capabilities, context provenance, readiness, and active state
+- **AND** it SHALL NOT describe a Profile as secure merely because it is local
 
 #### Scenario: Edit a provider Profile
 - **WHEN** a user edits a saved OnePiece Profile
-- **THEN** the system SHALL preserve the Profile id and any stored credential unless a replacement credential is submitted
-- **AND** it SHALL preserve the catalog provider identity, endpoint type, interface format, and resolved Base URL while allowing Profile name and model changes
-- **AND** the dialog SHALL NOT repopulate the stored credential
-- **AND** editing an active Profile SHALL update the runtime projection without changing stable Agent id `onepiece`
+- **THEN** the system SHALL preserve its id and stored credential unless a replacement or authentication-mode change is submitted
+- **AND** catalog-owned endpoint fields SHALL remain immutable while custom configured fields may be validated and changed
+- **AND** editing an active Profile SHALL update future runtime snapshots without changing stable Agent id `onepiece`
 
 #### Scenario: Reject an unknown or forged provider selection
-- **WHEN** a caller saves a new Profile with an unknown provider id or endpoint type, or attempts to provide provider/interface/Base URL values outside the catalog contract
-- **THEN** the application boundary SHALL reject the request without storing credentials or changing the active Profile
-- **AND** it SHALL NOT contact the submitted endpoint
+- **WHEN** a caller provides provider, interface, or Base URL values outside a selected catalog endpoint contract
+- **THEN** the application SHALL reject the request without storing credentials, contacting the submitted endpoint, or changing the active Profile
+
+#### Scenario: Reject an unsafe custom endpoint
+- **WHEN** a caller submits credentials in a URL, an unsupported scheme, an empty host, invalid timeout or context bounds, or inconsistent capabilities
+- **THEN** the application SHALL reject the request before persistence or network contact
 
 #### Scenario: Activate a provider Profile
-- **WHEN** a user confirms activation of a ready inactive Profile
-- **THEN** the system SHALL make it the only active Profile and use its configuration and credential for subsequent OnePiece generations
-- **AND** it SHALL NOT change the selected Agent, current Session, or stable Agent id
-- **AND** an in-flight generation SHALL retain the configuration snapshot captured when that generation started
+- **WHEN** a user confirms activation of a structurally ready inactive Profile
+- **THEN** the system SHALL make it the only active Profile for direct generation
+- **AND** it SHALL preserve the selected Agent, current Session, and stable Agent id
+- **AND** an in-flight generation SHALL retain its starting Profile snapshot
 
 #### Scenario: Reject activation without a credential
-- **WHEN** a user attempts to activate a Profile that has no stored credential or incomplete structural configuration
-- **THEN** the system SHALL reject activation without changing the current active Profile
-- **AND** it SHALL NOT contact the provider
+- **WHEN** a Profile requires a credential that is absent or has incomplete structural configuration
+- **THEN** activation SHALL fail without changing the current active Profile or contacting the provider
 
 #### Scenario: Delete an inactive provider Profile
 - **WHEN** a user confirms deletion of an inactive Profile
-- **THEN** the system SHALL remove that Profile and its scoped credential
+- **THEN** the system SHALL remove that Profile, its scoped credential, and routing references to it
 - **AND** it SHALL leave the active runtime configuration unchanged
 
 #### Scenario: Delete the active provider Profile
 - **WHEN** a user confirms deletion of the active Profile
-- **THEN** the system SHALL remove that Profile and its scoped credential, clear the runtime provider projection and active runtime credential, and leave any remaining Profiles inactive
-- **AND** OnePiece SHALL return to a visible non-selectable readiness state until another Profile is explicitly activated
+- **THEN** the system SHALL remove it and its scoped credential, clear direct active projection, disable rules that require it, and leave remaining Profiles inactive
 
 #### Scenario: Use OnePiece provider setup on a narrow viewport
-- **WHEN** the configuration surface renders at a narrow supported viewport
-- **THEN** the toolbar, status, provider cards, and dialog actions SHALL remain usable without horizontal page overflow
+- **WHEN** the configuration and routing surfaces render at a narrow supported viewport
+- **THEN** controls, Profile summaries, rule rows, status, and dialogs SHALL remain usable without horizontal page overflow
 
 #### Scenario: Remove all OnePiece configuration
 - **WHEN** a caller confirms the remove-all compatibility operation
-- **THEN** the system SHALL delete every provider Profile and scoped credential, clear the active runtime provider fields and credential, and disable automatic tool approval
-- **AND** it SHALL preserve the OnePiece identity, sessions, Skill bindings, memories, usage, and Loop references
-- **AND** OnePiece SHALL return to a visible non-selectable readiness state
+- **THEN** the system SHALL delete all Profiles, credentials, and Hybrid rules, clear active runtime fields, and disable automatic tool approval
+- **AND** it SHALL preserve OnePiece identity, sessions, Skill bindings, memories, usage, and Loop references
 
 #### Scenario: Migrate a legacy single provider binding
-- **WHEN** migration finds a complete pre-Profile OnePiece provider binding
-- **THEN** it SHALL create one deterministic active Profile that preserves its provider fields
-- **AND** it SHALL associate provider and endpoint ids only when the provider/interface/endpoint exactly matches a supported endpoint record, otherwise retaining a non-creatable legacy source
-- **AND** the Profile-aware service SHALL preserve the existing runtime credential into the Profile-scoped credential account before the first provider switch
+- **WHEN** migration reads a catalog-backed or legacy OnePiece Profile created before Hybrid metadata existed
+- **THEN** it SHALL preserve id, selection, provider fields, model, endpoint, credential mapping, and active state
+- **AND** it SHALL assign conservative compatibility defaults without classifying an arbitrary endpoint as local or verified
 
 ### Requirement: OnePiece provider model discovery
 The system SHALL discover selectable OnePiece chat models through a shared service contract using only the selected catalog endpoint's model-list URL and authentication strategy, SHALL provide reviewed catalog models when live discovery is unavailable, and SHALL NOT require or permit free-text model identifiers in the OnePiece configuration UI.
@@ -348,4 +346,19 @@ For eligible project turns, OnePiece SHALL invoke the Context Engine before fina
 - **WHEN** planning, collection, normalization, ranking, budgeting, or verification cannot safely complete
 - **THEN** OnePiece SHALL continue through the existing request path without partial injected evidence
 - **AND** it SHALL emit only a bounded redacted outcome
+
+### Requirement: OnePiece Profile operations preserve adapter parity
+Desktop and Web/mock adapters SHALL expose contract-compatible Profile, discovery, verification, capability, privacy, and routing states; Web/mock SHALL simulate them without SQLite, credential-store, or network access.
+
+#### Scenario: Configure Hybrid Routing in Web mode
+- **WHEN** a user creates Profiles and rules through the Web/mock settings surface
+- **THEN** deterministic in-memory state SHALL produce the same frontend contract and validation semantics as desktop
+
+### Requirement: OnePiece uses routed Profiles through the shared API gateway
+OnePiece SHALL execute a selected local, private, or cloud Profile through the existing API generation gateway and MUST NOT add endpoint-product-specific generation branches.
+
+#### Scenario: Complete a local text turn
+- **WHEN** routing selects a ready OpenAI-compatible localhost Profile that supports text generation
+- **THEN** OnePiece SHALL stream the turn through the shared API request/event path
+- **AND** endpoint-product identity SHALL not alter generic request orchestration
 

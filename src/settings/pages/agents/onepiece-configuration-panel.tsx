@@ -12,6 +12,7 @@ import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../..
 import { OnePieceProfileActionDialog, type OnePieceProfileAction } from "./onepiece-profile-action-dialog";
 import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
 import { OnePieceToolReadiness } from "./onepiece-tool-readiness";
+import { HybridLocalRuntimeSection } from "./hybrid-local-runtime-section";
 
 const queryKey = ["agents", "onepiece-provider-profiles"] as const;
 
@@ -84,6 +85,8 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
       </section>
 
       <OnePieceToolReadiness service={service} />
+
+      <HybridLocalRuntimeSection overview={overview} service={service} onSaved={(value) => updateOverview(value, t("onepiece.saved"))} />
 
       <section aria-labelledby="onepiece-providers-heading">
         <div className="mb-3"><h3 className="font-semibold" id="onepiece-providers-heading">{t("onepiece.providers.title")}</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">{t("onepiece.providers.description")}</p></div>

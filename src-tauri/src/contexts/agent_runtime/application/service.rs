@@ -10,26 +10,32 @@ use super::{
     CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal, CliProfileSnapshot,
     CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
     DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
-    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
-    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
-    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    FrozenEndpointProfile, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult, LoopGenerationControlPort,
+    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
+    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SaveMemoryInput, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
-    StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
-    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
-    ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    RegisterApiAgentInput, ReportedUsageTotals, SaveCustomOnePieceProviderProfileInput,
+    SaveMemoryInput, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
+    SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest, StartedAgentMessage,
+    StopGenerationResult, StoredEndpointProfileMetadata, StoredHybridRoutingRule,
+    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
+    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, UpdateApiAgentInput,
+    ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest, WorkflowView,
+    CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
-    AutomaticCompactionMode, InteractionMode, MemoryActionKind,
+    route_profile, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
+    AuthenticationMode, AutomaticCompactionMode, CapabilityProvenance, CapabilityState,
+    ContextCapacityProvenance, DataPolicy, EndpointCapabilities, EndpointProfileSnapshot,
+    EndpointSource, HybridRouteDecision, HybridRouteReason, HybridRouteRequest, HybridRoutingRule,
+    InteractionMode, MemoryActionKind, ProfileCapability, ProfileContextCapacity, ProfilePrivacy,
+    ProfileRuntimeKind, RequiredCapabilities, RouteCandidate, TaskClass,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -43,6 +49,212 @@ use uuid::Uuid;
 
 fn onepiece_profile_credential_key(profile_id: &str) -> String {
     format!("onepiece-profile:{profile_id}")
+}
+
+fn custom_profile_snapshot(
+    id: &str,
+    input: &SaveCustomOnePieceProviderProfileInput,
+    credential_present: bool,
+) -> Result<EndpointProfileSnapshot, AgentRuntimeApplicationError> {
+    let runtime_kind = match input.runtime_kind.as_str() {
+        "local" => ProfileRuntimeKind::Local,
+        "private" => ProfileRuntimeKind::Private,
+        _ => {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "A custom endpoint runtime must be local or private.".to_string(),
+            ))
+        }
+    };
+    let authentication_mode = match input.authentication_mode.as_str() {
+        "required" => AuthenticationMode::Required,
+        "optional" => AuthenticationMode::Optional,
+        "none" => AuthenticationMode::None,
+        _ => {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Invalid endpoint authentication mode.".to_string(),
+            ))
+        }
+    };
+    let privacy = match input.privacy_classification.as_str() {
+        "local" => ProfilePrivacy::Local,
+        "private" => ProfilePrivacy::Private,
+        _ => {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "A custom endpoint privacy classification must match its runtime.".to_string(),
+            ))
+        }
+    };
+    let capability = |value: &str| match value {
+        "supported" => Ok(ProfileCapability::configured(CapabilityState::Supported)),
+        "unsupported" => Ok(ProfileCapability::configured(CapabilityState::Unsupported)),
+        "unknown" => Ok(ProfileCapability::configured(CapabilityState::Unknown)),
+        _ => Err(AgentRuntimeApplicationError::Validation(
+            "Invalid endpoint capability state.".to_string(),
+        )),
+    };
+    let capacity_provenance = if input.context_window_tokens.is_some() {
+        ContextCapacityProvenance::ConfiguredEstimate
+    } else {
+        ContextCapacityProvenance::Unknown
+    };
+    EndpointProfileSnapshot::new(EndpointProfileSnapshot {
+        id: id.to_string(),
+        agent_id: "onepiece".to_string(),
+        runtime_kind,
+        endpoint_source: EndpointSource::Configured,
+        base_url: input.base_url.clone(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        model_id: input.model_id.clone(),
+        authentication_mode,
+        credential_present,
+        timeout_ms: input.timeout_ms,
+        privacy,
+        capabilities: EndpointCapabilities {
+            text_generation: ProfileCapability::configured(CapabilityState::Supported),
+            tool_calling: capability(&input.tool_calling_capability)?,
+            image_input: capability(&input.image_input_capability)?,
+            structured_output: capability(&input.structured_output_capability)?,
+            reasoning_field: capability(&input.reasoning_field_capability)?,
+        },
+        context_capacity: ProfileContextCapacity {
+            context_window_tokens: input.context_window_tokens,
+            reserved_output_tokens: input.reserved_output_tokens,
+            provenance: capacity_provenance,
+        },
+    })
+    .map_err(|_| {
+        AgentRuntimeApplicationError::Validation(
+            "The custom endpoint Profile is invalid or unsafe.".to_string(),
+        )
+    })
+}
+
+fn task_class(value: &str) -> Result<TaskClass, AgentRuntimeApplicationError> {
+    match value {
+        "summarization" => Ok(TaskClass::Summarization),
+        "embeddings" => Ok(TaskClass::Embeddings),
+        "classification" => Ok(TaskClass::Classification),
+        "code-review" => Ok(TaskClass::CodeReview),
+        "planning" => Ok(TaskClass::Planning),
+        "unknown" => Ok(TaskClass::Unknown),
+        _ => Err(AgentRuntimeApplicationError::Validation(
+            "Invalid Hybrid Routing task class.".to_string(),
+        )),
+    }
+}
+
+fn classify_task(prompt: &str) -> &'static str {
+    let prompt = prompt.trim().to_lowercase();
+    if ["summarize", "summary", "总结", "摘要"]
+        .iter()
+        .any(|prefix| prompt.starts_with(prefix))
+    {
+        "summarization"
+    } else {
+        "unknown"
+    }
+}
+
+fn data_policy(value: &str) -> Result<DataPolicy, AgentRuntimeApplicationError> {
+    match value {
+        "cloud-allowed" => Ok(DataPolicy::CloudAllowed),
+        "local-preferred" => Ok(DataPolicy::LocalPreferred),
+        "local-only" => Ok(DataPolicy::LocalOnly),
+        _ => Err(AgentRuntimeApplicationError::Validation(
+            "Invalid Hybrid Routing data policy.".to_string(),
+        )),
+    }
+}
+
+fn profile_snapshot(
+    profile: &StoredOnePieceProviderProfile,
+    metadata: StoredEndpointProfileMetadata,
+    credential_present: bool,
+) -> Result<EndpointProfileSnapshot, AgentRuntimeApplicationError> {
+    let runtime_kind = match metadata.runtime_kind.as_str() {
+        "cloud" => ProfileRuntimeKind::Cloud,
+        "local" => ProfileRuntimeKind::Local,
+        "private" => ProfileRuntimeKind::Private,
+        _ => ProfileRuntimeKind::Private,
+    };
+    let endpoint_source = match metadata.endpoint_source.as_str() {
+        "catalog" => EndpointSource::Catalog,
+        "discovered" => EndpointSource::Discovered,
+        _ => EndpointSource::Configured,
+    };
+    let authentication_mode = match metadata.authentication_mode.as_str() {
+        "none" => AuthenticationMode::None,
+        "optional" => AuthenticationMode::Optional,
+        _ => AuthenticationMode::Required,
+    };
+    let privacy = match metadata.privacy_classification.as_str() {
+        "cloud" => ProfilePrivacy::Cloud,
+        "local" => ProfilePrivacy::Local,
+        _ => ProfilePrivacy::Private,
+    };
+    let provenance = if metadata.capability_provenance == "verified" {
+        CapabilityProvenance::Verified
+    } else {
+        CapabilityProvenance::Configured
+    };
+    let capability = |value: &str| ProfileCapability {
+        state: match value {
+            "supported" => CapabilityState::Supported,
+            "unsupported" => CapabilityState::Unsupported,
+            _ => CapabilityState::Unknown,
+        },
+        provenance,
+    };
+    let capacity_provenance = match metadata.context_capacity_provenance.as_str() {
+        "verified" => ContextCapacityProvenance::Verified,
+        "configured-estimate" => ContextCapacityProvenance::ConfiguredEstimate,
+        _ => ContextCapacityProvenance::Unknown,
+    };
+    EndpointProfileSnapshot::new(EndpointProfileSnapshot {
+        id: profile.id.clone(),
+        agent_id: "onepiece".to_string(),
+        runtime_kind,
+        endpoint_source,
+        base_url: profile.base_url.clone().unwrap_or_default(),
+        interface_format: profile.interface_format.clone(),
+        model_id: profile.model_id.clone(),
+        authentication_mode,
+        credential_present,
+        timeout_ms: u64::try_from(metadata.timeout_ms).unwrap_or_default(),
+        privacy,
+        capabilities: EndpointCapabilities {
+            text_generation: capability(&metadata.text_generation_capability),
+            tool_calling: capability(&metadata.tool_calling_capability),
+            image_input: capability(&metadata.image_input_capability),
+            structured_output: capability(&metadata.structured_output_capability),
+            reasoning_field: capability(&metadata.reasoning_field_capability),
+        },
+        context_capacity: ProfileContextCapacity {
+            context_window_tokens: metadata
+                .context_window_tokens
+                .and_then(|value| u64::try_from(value).ok()),
+            reserved_output_tokens: u64::try_from(metadata.reserved_output_tokens)
+                .unwrap_or_default(),
+            provenance: capacity_provenance,
+        },
+    })
+    .map_err(|_| {
+        AgentRuntimeApplicationError::Validation(
+            "Stored endpoint Profile metadata is invalid.".to_string(),
+        )
+    })
+}
+
+fn route_reason(reason: HybridRouteReason) -> &'static str {
+    match reason {
+        HybridRouteReason::ActiveRoutingDisabled => "hybrid-disabled",
+        HybridRouteReason::RulePreferred => "rule-preferred",
+        HybridRouteReason::RuleFallbackUnavailable => "rule-fallback-unavailable",
+        HybridRouteReason::RuleFallbackIncapable => "rule-fallback-incapable",
+        HybridRouteReason::ActiveNoMatch => "no-matching-rule",
+        HybridRouteReason::WaitingLocalOnly => "waiting-local-only",
+        HybridRouteReason::NoUsableProfile => "no-usable-profile",
+    }
 }
 
 fn record_telemetry_result(
@@ -281,9 +493,14 @@ impl AgentRuntimeApplicationService {
             ));
         }
         let api_key = input.api_key.trim().to_string();
-        if api_key.is_empty() {
+        if input.authentication_mode == "required" && api_key.is_empty() {
             return Err(AgentRuntimeApplicationError::Validation(
                 "API key cannot be empty.".to_string(),
+            ));
+        }
+        if input.authentication_mode == "none" && !api_key.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "An unauthenticated API Agent cannot store an API key.".to_string(),
             ));
         }
         let (provider, model_id, interface_format, base_url) = normalize_api_provider_config(
@@ -293,8 +510,85 @@ impl AgentRuntimeApplicationService {
             input.base_url.as_deref(),
         )?;
 
+        if input.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE
+            && input.authentication_mode != "required"
+        {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Only OpenAI-compatible endpoints can use optional authentication.".to_string(),
+            ));
+        }
+        let runtime_kind = match input.runtime_kind.as_str() {
+            "cloud" => ProfileRuntimeKind::Cloud,
+            "local" => ProfileRuntimeKind::Local,
+            "private" => ProfileRuntimeKind::Private,
+            _ => {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "Invalid API endpoint runtime kind.".to_string(),
+                ))
+            }
+        };
+        let privacy = match input.privacy_classification.as_str() {
+            "cloud" => ProfilePrivacy::Cloud,
+            "local" => ProfilePrivacy::Local,
+            "private" => ProfilePrivacy::Private,
+            _ => {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "Invalid API endpoint privacy classification.".to_string(),
+                ))
+            }
+        };
+        if runtime_kind == ProfileRuntimeKind::Cloud && input.authentication_mode != "required" {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Cloud API endpoints require authentication.".to_string(),
+            ));
+        }
+        if input.interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            let authentication_mode = match input.authentication_mode.as_str() {
+                "required" => AuthenticationMode::Required,
+                "optional" => AuthenticationMode::Optional,
+                "none" => AuthenticationMode::None,
+                _ => {
+                    return Err(AgentRuntimeApplicationError::Validation(
+                        "Invalid API endpoint authentication mode.".to_string(),
+                    ))
+                }
+            };
+            EndpointProfileSnapshot::new(EndpointProfileSnapshot {
+                id: "api-agent-registration".to_string(),
+                agent_id: "api-agent-registration".to_string(),
+                runtime_kind,
+                endpoint_source: EndpointSource::Configured,
+                base_url: base_url.clone().unwrap_or_default(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                model_id: model_id.clone(),
+                authentication_mode,
+                credential_present: !api_key.is_empty(),
+                timeout_ms: input.timeout_ms,
+                privacy,
+                capabilities: EndpointCapabilities {
+                    text_generation: ProfileCapability::configured(CapabilityState::Supported),
+                    tool_calling: ProfileCapability::configured(CapabilityState::Unknown),
+                    image_input: ProfileCapability::configured(CapabilityState::Unknown),
+                    structured_output: ProfileCapability::configured(CapabilityState::Unknown),
+                    reasoning_field: ProfileCapability::configured(CapabilityState::Unknown),
+                },
+                context_capacity: ProfileContextCapacity {
+                    context_window_tokens: None,
+                    reserved_output_tokens: 0,
+                    provenance: ContextCapacityProvenance::Unknown,
+                },
+            })
+            .map_err(|_| {
+                AgentRuntimeApplicationError::Validation(
+                    "The API endpoint configuration is invalid or unsafe.".to_string(),
+                )
+            })?;
+        }
+
         let agent_id = self.unique_api_agent_id(&display_name)?;
-        self.ports.api_credentials.store(&agent_id, &api_key)?;
+        if !api_key.is_empty() {
+            self.ports.api_credentials.store(&agent_id, &api_key)?;
+        }
 
         let normalized = RegisterApiAgentInput {
             display_name,
@@ -303,9 +597,26 @@ impl AgentRuntimeApplicationService {
             model_id,
             interface_format,
             base_url,
+            runtime_kind: input.runtime_kind.clone(),
+            authentication_mode: input.authentication_mode.clone(),
+            timeout_ms: input.timeout_ms,
+            privacy_classification: input.privacy_classification.clone(),
         };
         match self.ports.api_agents.register(&agent_id, &normalized) {
-            Ok(definition) => Ok(AgentView::from(&definition)),
+            Ok(definition) => {
+                if let Err(error) = self.ports.api_agents.save_api_endpoint_metadata(
+                    &agent_id,
+                    &input.runtime_kind,
+                    &input.authentication_mode,
+                    input.timeout_ms,
+                    &input.privacy_classification,
+                ) {
+                    let _ = self.ports.api_agents.delete(&agent_id);
+                    let _ = self.ports.api_credentials.remove(&agent_id);
+                    return Err(error);
+                }
+                Ok(AgentView::from(&definition))
+            }
             Err(error) => {
                 let _ = self.ports.api_credentials.remove(&agent_id);
                 Err(error)
@@ -419,13 +730,20 @@ impl AgentRuntimeApplicationService {
             .map(|profile| profile.id.clone());
         let mut profiles = Vec::with_capacity(stored.len());
         for profile in stored {
-            let credential_key = onepiece_profile_credential_key(&profile.id);
-            let mut credential_present =
-                self.ports.api_credentials.fetch(&credential_key)?.is_some();
-            if profile.active && !credential_present {
-                if let Some(legacy) = self.ports.api_credentials.fetch("onepiece")? {
-                    self.ports.api_credentials.store(&credential_key, &legacy)?;
-                    credential_present = true;
+            let authentication_none = self
+                .ports
+                .api_agents
+                .endpoint_profile_metadata(&profile.id)?
+                .is_some_and(|metadata| metadata.authentication_mode == "none");
+            let mut credential_present = false;
+            if !authentication_none {
+                let credential_key = onepiece_profile_credential_key(&profile.id);
+                credential_present = self.ports.api_credentials.fetch(&credential_key)?.is_some();
+                if profile.active && !credential_present {
+                    if let Some(legacy) = self.ports.api_credentials.fetch("onepiece")? {
+                        self.ports.api_credentials.store(&credential_key, &legacy)?;
+                        credential_present = true;
+                    }
                 }
             }
             profiles.push(OnePieceProviderProfile {
@@ -858,6 +1176,362 @@ impl AgentRuntimeApplicationService {
         self.onepiece_provider_profiles()
     }
 
+    pub(crate) fn save_custom_onepiece_provider_profile(
+        &self,
+        input: SaveCustomOnePieceProviderProfileInput,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        let existing = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let id = input
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("onepiece-profile-{}", Uuid::new_v4()));
+        let previous = existing.iter().find(|profile| profile.id == id).cloned();
+        if previous
+            .as_ref()
+            .is_some_and(|profile| profile.source_provider_id.is_some())
+        {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "A catalog Profile cannot be converted to a custom endpoint.".to_string(),
+            ));
+        }
+        let active = previous.as_ref().is_some_and(|profile| profile.active) || existing.is_empty();
+        let replacement = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let credential_key = onepiece_profile_credential_key(&id);
+        let previous_credential = if input.authentication_mode == "none" {
+            None
+        } else {
+            self.ports.api_credentials.fetch(&credential_key)?
+        };
+        let effective_credential = replacement.clone().or(previous_credential.clone());
+        let snapshot = custom_profile_snapshot(&id, &input, effective_credential.is_some())?;
+        match snapshot.authentication_mode {
+            AuthenticationMode::None => {
+                if previous.is_some() {
+                    self.ports.api_credentials.remove(&credential_key)?;
+                    if active {
+                        self.ports.api_credentials.remove("onepiece")?;
+                    }
+                }
+            }
+            AuthenticationMode::Required | AuthenticationMode::Optional => {
+                if let Some(credential) = effective_credential.as_deref() {
+                    self.ports
+                        .api_credentials
+                        .store(&credential_key, credential)?;
+                    if active {
+                        self.ports.api_credentials.store("onepiece", credential)?;
+                    }
+                }
+            }
+        }
+        let stored = StoredOnePieceProviderProfile {
+            id: id.clone(),
+            name: input.name.trim().to_string(),
+            source_preset_id: None,
+            source_provider_id: None,
+            source_endpoint_type: None,
+            source_preset_version: None,
+            provider: if snapshot.is_local() {
+                "Local endpoint".to_string()
+            } else {
+                "Private endpoint".to_string()
+            },
+            model_id: snapshot.model_id.clone(),
+            interface_format: snapshot.interface_format.clone(),
+            base_url: Some(snapshot.base_url.clone()),
+            active,
+        };
+        self.ports
+            .api_agents
+            .save_onepiece_provider_profile(&stored)?;
+        self.ports
+            .api_agents
+            .save_endpoint_profile_metadata(&StoredEndpointProfileMetadata {
+                profile_id: id,
+                runtime_kind: input.runtime_kind,
+                endpoint_source: "configured".to_string(),
+                authentication_mode: input.authentication_mode,
+                timeout_ms: i64::try_from(input.timeout_ms).map_err(|_| {
+                    AgentRuntimeApplicationError::Validation(
+                        "Invalid endpoint timeout.".to_string(),
+                    )
+                })?,
+                privacy_classification: input.privacy_classification,
+                text_generation_capability: "supported".to_string(),
+                tool_calling_capability: input.tool_calling_capability,
+                image_input_capability: input.image_input_capability,
+                structured_output_capability: input.structured_output_capability,
+                reasoning_field_capability: input.reasoning_field_capability,
+                capability_provenance: "configured".to_string(),
+                context_window_tokens: input
+                    .context_window_tokens
+                    .map(i64::try_from)
+                    .transpose()
+                    .map_err(|_| {
+                    AgentRuntimeApplicationError::Validation(
+                        "Invalid context capacity.".to_string(),
+                    )
+                })?,
+                reserved_output_tokens: i64::try_from(input.reserved_output_tokens).map_err(
+                    |_| {
+                        AgentRuntimeApplicationError::Validation(
+                            "Invalid context reserve.".to_string(),
+                        )
+                    },
+                )?,
+                context_capacity_provenance: if input.context_window_tokens.is_some() {
+                    "configured-estimate"
+                } else {
+                    "unknown"
+                }
+                .to_string(),
+            })?;
+        self.onepiece_provider_profiles()
+    }
+
+    pub(crate) fn endpoint_profile_metadata(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        self.ports.api_agents.endpoint_profile_metadata(profile_id)
+    }
+
+    pub(crate) fn hybrid_routing_rules(
+        &self,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        self.ports.api_agents.list_hybrid_routing_rules()
+    }
+
+    pub(crate) fn replace_hybrid_routing_rules(
+        &self,
+        rules: Vec<StoredHybridRoutingRule>,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let mut ids = BTreeSet::new();
+        for (expected_order, rule) in rules.iter().enumerate() {
+            if rule.id.trim().is_empty()
+                || !ids.insert(rule.id.as_str())
+                || rule.position != u32::try_from(expected_order).unwrap_or(u32::MAX)
+                || task_class(&rule.task_class).is_err()
+                || data_policy(&rule.data_policy).is_err()
+                || !profiles
+                    .iter()
+                    .any(|profile| profile.id == rule.preferred_profile_id)
+                || rule.fallback_profile_id.as_ref().is_some_and(|id| {
+                    !profiles.iter().any(|profile| profile.id == *id)
+                        || id == &rule.preferred_profile_id
+                })
+            {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "Hybrid Routing rules are invalid or reference missing Profiles.".to_string(),
+                ));
+            }
+        }
+        self.ports.api_agents.replace_hybrid_routing_rules(&rules)?;
+        self.hybrid_routing_rules()
+    }
+
+    pub(crate) fn preview_hybrid_route(
+        &self,
+        input: HybridRoutePreviewInput,
+    ) -> Result<HybridRoutePreview, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let mut snapshots = Vec::with_capacity(profiles.len());
+        let mut readiness = Vec::with_capacity(profiles.len());
+        for profile in &profiles {
+            let metadata = self
+                .ports
+                .api_agents
+                .endpoint_profile_metadata(&profile.id)?
+                .unwrap_or(StoredEndpointProfileMetadata {
+                    profile_id: profile.id.clone(),
+                    runtime_kind: "cloud".to_string(),
+                    endpoint_source: "catalog".to_string(),
+                    authentication_mode: "required".to_string(),
+                    timeout_ms: 30_000,
+                    privacy_classification: "cloud".to_string(),
+                    text_generation_capability: "supported".to_string(),
+                    tool_calling_capability: "unknown".to_string(),
+                    image_input_capability: "unknown".to_string(),
+                    structured_output_capability: "unknown".to_string(),
+                    reasoning_field_capability: "unknown".to_string(),
+                    capability_provenance: "configured".to_string(),
+                    context_window_tokens: None,
+                    reserved_output_tokens: 0,
+                    context_capacity_provenance: "unknown".to_string(),
+                });
+            let credential_present = if metadata.authentication_mode == "required" {
+                self.ports
+                    .api_credentials
+                    .fetch(&onepiece_profile_credential_key(&profile.id))?
+                    .is_some()
+            } else {
+                false
+            };
+            let ready = metadata.authentication_mode != "required" || credential_present;
+            let invariant_credential =
+                credential_present || metadata.authentication_mode == "required";
+            snapshots.push(profile_snapshot(profile, metadata, invariant_credential)?);
+            readiness.push(ready);
+        }
+        let candidates = snapshots
+            .iter()
+            .zip(readiness)
+            .map(|(profile, ready)| RouteCandidate { profile, ready })
+            .collect::<Vec<_>>();
+        let stored_rules = self.ports.api_agents.list_hybrid_routing_rules()?;
+        let rules = stored_rules
+            .iter()
+            .map(|rule| {
+                Ok(HybridRoutingRule {
+                    id: rule.id.clone(),
+                    enabled: rule.enabled,
+                    order: rule.position,
+                    task_class: task_class(&rule.task_class)?,
+                    preferred_profile_id: rule.preferred_profile_id.clone(),
+                    fallback_profile_id: rule.fallback_profile_id.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, AgentRuntimeApplicationError>>()?;
+        let decision = route_profile(HybridRouteRequest {
+            routing_enabled: input.hybrid_enabled,
+            task_class: task_class(&input.task_class)?,
+            data_policy: data_policy(&input.data_policy)?,
+            active_profile_id: input.active_profile_id.as_deref(),
+            required_capabilities: RequiredCapabilities {
+                tools: input.requires_tools,
+                image: input.requires_image_input,
+                structured_output: input.requires_structured_output,
+                reasoning: input.requests_reasoning_field,
+            },
+            rules: &rules,
+            candidates: &candidates,
+        });
+        Ok(match decision {
+            HybridRouteDecision::Selected {
+                profile_id,
+                rule_id,
+                reason,
+            } => HybridRoutePreview {
+                profile_id: Some(profile_id),
+                rule_id,
+                reason: route_reason(reason).to_string(),
+                waiting_for_user_choice: false,
+            },
+            HybridRouteDecision::WaitingForUserChoice { rule_id, reason } => HybridRoutePreview {
+                profile_id: None,
+                rule_id,
+                reason: route_reason(reason).to_string(),
+                waiting_for_user_choice: true,
+            },
+            HybridRouteDecision::Rejected { reason } => HybridRoutePreview {
+                profile_id: None,
+                rule_id: None,
+                reason: route_reason(reason).to_string(),
+                waiting_for_user_choice: false,
+            },
+        })
+    }
+
+    pub(super) fn freeze_endpoint_profile(
+        &self,
+        agent_id: &str,
+        prompt: &str,
+    ) -> Result<Option<FrozenEndpointProfile>, AgentRuntimeApplicationError> {
+        if agent_id != "onepiece" {
+            return Ok(None);
+        }
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let active_profile_id = profiles
+            .iter()
+            .find(|profile| profile.active)
+            .map(|profile| profile.id.clone());
+        let rules = self.ports.api_agents.list_hybrid_routing_rules()?;
+        let task = classify_task(prompt);
+        let matching_rule = rules
+            .iter()
+            .filter(|rule| rule.enabled && rule.task_class == task)
+            .min_by_key(|rule| (rule.position, rule.id.as_str()));
+        let policy = matching_rule
+            .map(|rule| rule.data_policy.as_str())
+            .unwrap_or("cloud-allowed");
+        let decision = self.preview_hybrid_route(HybridRoutePreviewInput {
+            task_class: task.to_string(),
+            data_policy: policy.to_string(),
+            active_profile_id,
+            hybrid_enabled: rules.iter().any(|rule| rule.enabled),
+            requires_tools: false,
+            requires_image_input: false,
+            requires_structured_output: false,
+            requests_reasoning_field: false,
+        })?;
+        let Some(profile_id) = decision.profile_id else {
+            return Err(AgentRuntimeApplicationError::Validation(
+                if decision.waiting_for_user_choice {
+                    "Local-only routing is waiting for a usable local Profile.".to_string()
+                } else {
+                    "Hybrid Routing found no usable Profile.".to_string()
+                },
+            ));
+        };
+        let profile = profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The routed endpoint Profile no longer exists.".to_string(),
+                )
+            })?;
+        let metadata = self
+            .ports
+            .api_agents
+            .endpoint_profile_metadata(&profile.id)?
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The routed endpoint Profile has no metadata.".to_string(),
+                )
+            })?;
+        Ok(Some(FrozenEndpointProfile {
+            profile_id: profile.id,
+            source_provider_id: profile.source_provider_id,
+            model_id: profile.model_id,
+            interface_format: profile.interface_format,
+            base_url: profile.base_url,
+            authentication_mode: metadata.authentication_mode,
+            timeout_ms: u64::try_from(metadata.timeout_ms).map_err(|_| {
+                AgentRuntimeApplicationError::Validation("Invalid endpoint timeout.".to_string())
+            })?,
+            image_input_capability: metadata.image_input_capability,
+            tool_calling_capability: metadata.tool_calling_capability,
+            structured_output_capability: metadata.structured_output_capability,
+            reasoning_field_capability: metadata.reasoning_field_capability,
+            context_window_tokens: metadata
+                .context_window_tokens
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| {
+                    AgentRuntimeApplicationError::Validation(
+                        "Invalid endpoint context capacity.".to_string(),
+                    )
+                })?,
+            reserved_output_tokens: u64::try_from(metadata.reserved_output_tokens).map_err(
+                |_| {
+                    AgentRuntimeApplicationError::Validation(
+                        "Invalid endpoint context reserve.".to_string(),
+                    )
+                },
+            )?,
+            context_capacity_provenance: metadata.context_capacity_provenance,
+            routing_rule_id: decision.rule_id,
+            routing_reason: decision.reason,
+        }))
+    }
+
     pub(crate) fn activate_onepiece_provider_profile(
         &self,
         profile_id: &str,
@@ -872,15 +1546,24 @@ impl AgentRuntimeApplicationService {
                 )
             })?;
         let target_key = onepiece_profile_credential_key(profile_id);
-        let target_credential =
+        let authentication_mode = self
+            .ports
+            .api_agents
+            .endpoint_profile_metadata(profile_id)?
+            .map(|metadata| metadata.authentication_mode)
+            .unwrap_or_else(|| "required".to_string());
+        if authentication_mode != "required" {
             self.ports
-                .api_credentials
-                .fetch(&target_key)?
-                .ok_or_else(|| {
-                    AgentRuntimeApplicationError::Validation(
-                        "The selected OnePiece provider Profile has no API key.".to_string(),
-                    )
-                })?;
+                .api_agents
+                .activate_onepiece_provider_profile(&target.id)?;
+            return self.onepiece_provider_profiles();
+        }
+        let target_credential = self.ports.api_credentials.fetch(&target_key)?;
+        if authentication_mode == "required" && target_credential.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "The selected OnePiece provider Profile has no API key.".to_string(),
+            ));
+        }
         let previous_runtime = self.ports.api_credentials.fetch("onepiece")?;
         if let Some(current) = profiles.iter().find(|profile| profile.active) {
             let current_key = onepiece_profile_credential_key(&current.id);
@@ -890,11 +1573,14 @@ impl AgentRuntimeApplicationService {
                 }
             }
         }
-        if let Err(error) = self
-            .ports
-            .api_credentials
-            .store("onepiece", &target_credential)
-        {
+        let credential_update = if let Some(target_credential) = target_credential.as_deref() {
+            self.ports
+                .api_credentials
+                .store("onepiece", target_credential)
+        } else {
+            self.ports.api_credentials.remove("onepiece")
+        };
+        if let Err(error) = credential_update {
             restore_credential(
                 self.ports.api_credentials.as_ref(),
                 "onepiece",
@@ -1529,6 +2215,7 @@ impl AgentRuntimeApplicationService {
         } = input;
         let originated_from_im =
             matches!(&source, super::AgentMessageSource::InstantMessage { .. });
+        let endpoint_profile = self.freeze_endpoint_profile(agent.id().as_str(), &content)?;
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
                 "execution observability settings are unavailable".to_string(),
@@ -2103,6 +2790,7 @@ impl AgentRuntimeApplicationService {
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,
                 interactive,
+                endpoint_profile,
             }) {
             Ok(started) => started,
             Err(error) => {

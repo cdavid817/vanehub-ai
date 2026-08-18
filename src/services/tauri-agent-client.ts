@@ -24,11 +24,16 @@ import type {
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
   DiscoverOnePieceProviderModelsInput,
+  EndpointProfileMetadata,
   ExportSessionInput,
   InteractionMode,
+  HybridRoutePreview,
+  HybridRoutePreviewInput,
+  HybridRoutingRule,
   KnownRemoteWorkspace,
   KnownProject,
   LaunchResult,
+  LocalModelDiscoveryResult,
   ManagedCliAgentId,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
@@ -41,6 +46,7 @@ import type {
   RetrievalConfiguration,
   RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
+  SaveCustomOnePieceProviderProfileInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
@@ -316,6 +322,36 @@ export const tauriAgentClient: AgentService = {
 
   saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput) {
     return invoke<OnePieceProviderProfiles>("save_onepiece_provider_profile", { input });
+  },
+
+  saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput) {
+    return invoke<OnePieceProviderProfiles>("save_custom_onepiece_provider_profile", { input });
+  },
+
+  getEndpointProfileMetadata(profileId: string) {
+    return invoke<EndpointProfileMetadata | null>("get_endpoint_profile_metadata", { profileId });
+  },
+
+  discoverLocalModelEndpoints() {
+    return invoke<LocalModelDiscoveryResult>("discover_local_model_endpoints");
+  },
+
+  verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number) {
+    return invoke<LocalModelDiscoveryResult>("verify_local_model_endpoint", {
+      input: { baseUrl, timeoutMs },
+    });
+  },
+
+  listHybridRoutingRules() {
+    return invoke<HybridRoutingRule[]>("list_hybrid_routing_rules");
+  },
+
+  replaceHybridRoutingRules(rules: HybridRoutingRule[]) {
+    return invoke<HybridRoutingRule[]>("replace_hybrid_routing_rules", { rules });
+  },
+
+  previewHybridRoute(input: HybridRoutePreviewInput) {
+    return invoke<HybridRoutePreview>("preview_hybrid_route", { input });
   },
 
   activateOnePieceProviderProfile(profileId: string) {

@@ -12,14 +12,15 @@ use super::{
     CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
     DurableAgentGenerationMessages, DurableAgentGenerationStart, EffectivePrompt,
     GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
-    LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog,
-    LoopOperationContext, LoopOwnedRecoverySession, LoopRoleGenerationTerminal,
-    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, NewAgentMessage, OnePieceDiscoveredModel,
-    OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, SaveMemoryInput,
-    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
-    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    LocalEndpointVerificationRequest, LocalModelEndpointCandidate, LoopChildRecoveryProjection,
+    LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext,
+    LoopOwnedRecoverySession, LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, NewAgentMessage,
+    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
+    SaveMemoryInput, StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision,
+    ToolDefinition, ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
@@ -837,6 +838,31 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
         agent_id: &str,
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError>;
 
+    fn api_endpoint_authentication_mode(
+        &self,
+        _agent_id: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        Ok("required".to_string())
+    }
+
+    fn api_endpoint_timeout_ms(
+        &self,
+        _agent_id: &str,
+    ) -> Result<u64, AgentRuntimeApplicationError> {
+        Ok(120_000)
+    }
+
+    fn save_api_endpoint_metadata(
+        &self,
+        _agent_id: &str,
+        _runtime_kind: &str,
+        _authentication_mode: &str,
+        _timeout_ms: u64,
+        _privacy_classification: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
     /// Updates `display_name`/`model_id`/`base_url` in place (`add-agent-lifecycle-management`).
     /// `input.new_api_key` is ignored here — credential rotation goes through
     /// `ApiCredentialPort` at the application layer, exactly like `register`'s own `api_key`
@@ -911,6 +937,59 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
             "onepiece".to_string(),
         ))
     }
+
+    fn endpoint_profile_metadata(
+        &self,
+        _profile_id: &str,
+    ) -> Result<Option<super::StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
+    fn active_endpoint_profile_metadata(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<super::StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
+    fn save_endpoint_profile_metadata(
+        &self,
+        _metadata: &super::StoredEndpointProfileMetadata,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn list_hybrid_routing_rules(
+        &self,
+    ) -> Result<Vec<super::StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+
+    fn replace_hybrid_routing_rules(
+        &self,
+        _rules: &[super::StoredHybridRoutingRule],
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+}
+
+pub(crate) trait AgentAuthenticationPolicyPort: Send + Sync {
+    fn requires_authentication(&self, agent_id: &str)
+        -> Result<bool, AgentRuntimeApplicationError>;
+}
+
+impl<T: ApiAgentGateway + ?Sized> AgentAuthenticationPolicyPort for T {
+    fn requires_authentication(
+        &self,
+        agent_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.api_endpoint_authentication_mode(agent_id)
+            .map(|mode| mode == "required")
+    }
 }
 
 /// Secret storage boundary for API-based agent provider credentials.
@@ -932,6 +1011,17 @@ pub(crate) trait OnePieceModelDiscoveryPort: Send + Sync {
         &self,
         request: super::ProviderCredentialProbeRequest,
     ) -> Result<super::ProviderCredentialValidationResult, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait LocalModelDiscoveryPort: Send + Sync {
+    fn discover_loopback(
+        &self,
+    ) -> Result<Vec<LocalModelEndpointCandidate>, AgentRuntimeApplicationError>;
+
+    fn verify_endpoint(
+        &self,
+        request: LocalEndpointVerificationRequest,
+    ) -> Result<LocalModelEndpointCandidate, AgentRuntimeApplicationError>;
 }
 
 #[cfg(test)]

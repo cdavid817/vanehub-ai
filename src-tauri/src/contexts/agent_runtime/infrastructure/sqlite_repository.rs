@@ -1,8 +1,9 @@
 use crate::contexts::agent_runtime::application::{
     AgentAvailabilityGateway, AgentRegistryRepository, AgentRuntimeApplicationError,
     AgentWorkflowRepository, ApiAgentGateway, ApiProviderConfig, RegisterApiAgentInput,
-    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, UpdateApiAgentInput,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, UpdateApiAgentInput, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentOrigin,
@@ -284,6 +285,78 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
                     })
                 })
             })
+    }
+
+    fn api_endpoint_authentication_mode(
+        &self,
+        agent_id: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.connection()?
+            .query_row(
+                "SELECT COALESCE(
+                    (SELECT authentication_mode FROM onepiece_provider_profiles
+                     WHERE agent_id = agents.id AND active = 1 LIMIT 1),
+                    api_authentication_mode)
+                 FROM agents WHERE id = ?1",
+                [agent_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(registry_error)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
+    }
+
+    fn save_api_endpoint_metadata(
+        &self,
+        agent_id: &str,
+        runtime_kind: &str,
+        authentication_mode: &str,
+        timeout_ms: u64,
+        privacy_classification: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let timeout_ms = i64::try_from(timeout_ms).map_err(|_| {
+            AgentRuntimeApplicationError::Validation("Invalid endpoint timeout.".to_string())
+        })?;
+        let changed = self
+            .connection()?
+            .execute(
+                "UPDATE agents SET api_runtime_kind = ?2, api_authentication_mode = ?3,
+                 api_timeout_ms = ?4, api_privacy_classification = ?5 WHERE id = ?1",
+                params![
+                    agent_id,
+                    runtime_kind,
+                    authentication_mode,
+                    timeout_ms,
+                    privacy_classification
+                ],
+            )
+            .map_err(registry_error)?;
+        if changed == 0 {
+            return Err(AgentRuntimeApplicationError::AgentNotFound(
+                agent_id.to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn api_endpoint_timeout_ms(&self, agent_id: &str) -> Result<u64, AgentRuntimeApplicationError> {
+        let value: i64 = self
+            .connection()?
+            .query_row(
+                "SELECT COALESCE(
+                    (SELECT timeout_ms FROM onepiece_provider_profiles
+                     WHERE agent_id = agents.id AND active = 1 LIMIT 1),
+                    api_timeout_ms)
+                 FROM agents WHERE id = ?1",
+                [agent_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(registry_error)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))?;
+        u64::try_from(value).map_err(|_| {
+            AgentRuntimeApplicationError::Validation("Invalid endpoint timeout.".to_string())
+        })
     }
 
     fn update(
@@ -607,6 +680,176 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         transaction.commit().map_err(registry_error)?;
         Ok(active)
     }
+
+    fn endpoint_profile_metadata(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        connection
+            .query_row(
+                "SELECT id, runtime_kind, endpoint_source, authentication_mode, timeout_ms,
+                        privacy_classification, text_generation_capability,
+                        tool_calling_capability, image_input_capability,
+                        structured_output_capability, reasoning_field_capability,
+                        capability_provenance, context_window_tokens,
+                        reserved_output_tokens, context_capacity_provenance
+                 FROM onepiece_provider_profiles
+                 WHERE agent_id = 'onepiece' AND id = ?1",
+                [profile_id],
+                |row| {
+                    Ok(StoredEndpointProfileMetadata {
+                        profile_id: row.get(0)?,
+                        runtime_kind: row.get(1)?,
+                        endpoint_source: row.get(2)?,
+                        authentication_mode: row.get(3)?,
+                        timeout_ms: row.get(4)?,
+                        privacy_classification: row.get(5)?,
+                        text_generation_capability: row.get(6)?,
+                        tool_calling_capability: row.get(7)?,
+                        image_input_capability: row.get(8)?,
+                        structured_output_capability: row.get(9)?,
+                        reasoning_field_capability: row.get(10)?,
+                        capability_provenance: row.get(11)?,
+                        context_window_tokens: row.get(12)?,
+                        reserved_output_tokens: row.get(13)?,
+                        context_capacity_provenance: row.get(14)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(registry_error)
+    }
+
+    fn active_endpoint_profile_metadata(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<StoredEndpointProfileMetadata>, AgentRuntimeApplicationError> {
+        let profile_id = self
+            .connection()?
+            .query_row(
+                "SELECT id FROM onepiece_provider_profiles
+                 WHERE agent_id = ?1 AND active = 1 LIMIT 1",
+                [agent_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(registry_error)?;
+        profile_id
+            .as_deref()
+            .map(|profile_id| self.endpoint_profile_metadata(profile_id))
+            .transpose()
+            .map(Option::flatten)
+    }
+
+    fn save_endpoint_profile_metadata(
+        &self,
+        metadata: &StoredEndpointProfileMetadata,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                "UPDATE onepiece_provider_profiles
+                 SET runtime_kind = ?2, endpoint_source = ?3, authentication_mode = ?4,
+                     timeout_ms = ?5, privacy_classification = ?6,
+                     text_generation_capability = ?7, tool_calling_capability = ?8,
+                     image_input_capability = ?9, structured_output_capability = ?10,
+                     reasoning_field_capability = ?11, capability_provenance = ?12,
+                     context_window_tokens = ?13, reserved_output_tokens = ?14,
+                     context_capacity_provenance = ?15,
+                     updated_at = strftime('%s', 'now')
+                 WHERE agent_id = 'onepiece' AND id = ?1",
+                params![
+                    metadata.profile_id,
+                    metadata.runtime_kind,
+                    metadata.endpoint_source,
+                    metadata.authentication_mode,
+                    metadata.timeout_ms,
+                    metadata.privacy_classification,
+                    metadata.text_generation_capability,
+                    metadata.tool_calling_capability,
+                    metadata.image_input_capability,
+                    metadata.structured_output_capability,
+                    metadata.reasoning_field_capability,
+                    metadata.capability_provenance,
+                    metadata.context_window_tokens,
+                    metadata.reserved_output_tokens,
+                    metadata.context_capacity_provenance,
+                ],
+            )
+            .map_err(registry_error)?;
+        if changed == 0 {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "OnePiece provider profile was not found.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn list_hybrid_routing_rules(
+        &self,
+    ) -> Result<Vec<StoredHybridRoutingRule>, AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, enabled, position, task_class, preferred_profile_id,
+                        fallback_profile_id, data_policy
+                 FROM hybrid_model_routing_rules
+                 WHERE agent_id = 'onepiece'
+                 ORDER BY position, id",
+            )
+            .map_err(registry_error)?;
+        let rules = statement
+            .query_map([], |row| {
+                Ok(StoredHybridRoutingRule {
+                    id: row.get(0)?,
+                    enabled: row.get(1)?,
+                    position: row.get(2)?,
+                    task_class: row.get(3)?,
+                    preferred_profile_id: row.get(4)?,
+                    fallback_profile_id: row.get(5)?,
+                    data_policy: row.get(6)?,
+                })
+            })
+            .map_err(registry_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(registry_error)?;
+        Ok(rules)
+    }
+
+    fn replace_hybrid_routing_rules(
+        &self,
+        rules: &[StoredHybridRoutingRule],
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(registry_error)?;
+        transaction
+            .execute(
+                "DELETE FROM hybrid_model_routing_rules WHERE agent_id = 'onepiece'",
+                [],
+            )
+            .map_err(registry_error)?;
+        for rule in rules {
+            transaction
+                .execute(
+                    "INSERT INTO hybrid_model_routing_rules
+                        (id, agent_id, enabled, position, task_class, preferred_profile_id,
+                         fallback_profile_id, data_policy)
+                     VALUES (?1, 'onepiece', ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        rule.id,
+                        rule.enabled,
+                        rule.position,
+                        rule.task_class,
+                        rule.preferred_profile_id,
+                        rule.fallback_profile_id,
+                        rule.data_policy,
+                    ],
+                )
+                .map_err(registry_error)?;
+        }
+        transaction.commit().map_err(registry_error)
+    }
 }
 
 struct AgentRow {
@@ -841,6 +1084,10 @@ mod tests {
                     model_id: "gpt-test".to_string(),
                     interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
                     base_url: None,
+                    runtime_kind: "cloud".to_string(),
+                    authentication_mode: "required".to_string(),
+                    timeout_ms: 30_000,
+                    privacy_classification: "cloud".to_string(),
                 },
             )
             .expect("register")

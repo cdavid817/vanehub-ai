@@ -58,4 +58,42 @@ describe("Tauri OnePiece adapter", () => {
       ["delete_onepiece_provider_profile", { profileId: "profile-1" }],
     ]);
   });
+
+  it("maps hybrid local runtime methods only through Tauri commands", async () => {
+    const input = {
+      name: "Local model",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen",
+      runtimeKind: "local" as const,
+      authenticationMode: "none" as const,
+      timeoutMs: 30_000,
+      privacyClassification: "local" as const,
+      toolCallingCapability: "unknown" as const,
+      imageInputCapability: "unknown" as const,
+      structuredOutputCapability: "unknown" as const,
+      reasoningFieldCapability: "unknown" as const,
+      contextWindowTokens: 32_768,
+      reservedOutputTokens: 4_096,
+    };
+    const rules = [{ id: "summary", enabled: true, orderIndex: 0, taskClass: "summarization" as const, preferredProfileId: "local", fallbackProfileId: null, dataPolicy: "local-only" as const }];
+    const preview = { taskClass: "summarization" as const, dataPolicy: "local-only" as const, activeProfileId: "local", hybridEnabled: true, requiresTools: false, requiresImageInput: false, requiresStructuredOutput: false, requestsReasoningField: false };
+
+    await tauriAgentClient.saveCustomOnePieceProviderProfile(input);
+    await tauriAgentClient.getEndpointProfileMetadata("local");
+    await tauriAgentClient.discoverLocalModelEndpoints();
+    await tauriAgentClient.verifyLocalModelEndpoint("http://127.0.0.1:11434", 1_000);
+    await tauriAgentClient.listHybridRoutingRules();
+    await tauriAgentClient.replaceHybridRoutingRules(rules);
+    await tauriAgentClient.previewHybridRoute(preview);
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["save_custom_onepiece_provider_profile", { input }],
+      ["get_endpoint_profile_metadata", { profileId: "local" }],
+      ["discover_local_model_endpoints"],
+      ["verify_local_model_endpoint", { input: { baseUrl: "http://127.0.0.1:11434", timeoutMs: 1_000 } }],
+      ["list_hybrid_routing_rules"],
+      ["replace_hybrid_routing_rules", { rules }],
+      ["preview_hybrid_route", { input: preview }],
+    ]);
+  });
 });

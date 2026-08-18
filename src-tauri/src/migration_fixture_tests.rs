@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 77. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 78. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -18,9 +18,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// aggregate with its links to plans, loops, work items, and sessions, migration 72 adds scoped
 /// Skill configuration records, migration 73 adds revision-bound Skill tool trust, migration 74
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
-/// 76 adds the canonical Agent Run state, and migration 77 adds bounded evaluation persistence.
+/// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
+/// migration 78 adds Hybrid local/private Profile metadata and routing rules.
 fn expected_versions() -> Vec<i64> {
-    (1..=77).collect()
+    (1..=78).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -563,6 +564,89 @@ fn onepiece_endpoint_migration_separates_provider_and_protocol_identity() {
             "openai-chat-completions".to_string()
         )
     );
+}
+
+#[test]
+fn hybrid_profile_migration_preserves_rows_and_classifies_only_loopback_as_local() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    conn.execute_batch(
+        "PRAGMA foreign_keys = ON;
+         CREATE TABLE agents (
+            id TEXT PRIMARY KEY,
+            launch_kind TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model_id TEXT,
+            interface_format TEXT,
+            base_url TEXT
+         );
+         INSERT INTO agents (id, launch_kind, provider, model_id, interface_format, base_url)
+         VALUES ('onepiece', 'api', 'VaneHub', NULL, NULL, NULL);",
+    )
+    .expect("minimal agent schema");
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_profiles_schema(&conn)
+        .expect("profile schema");
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_catalog_schema(&conn)
+        .expect("catalog schema");
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema(&conn)
+        .expect("endpoint schema");
+    conn.execute_batch(
+        "INSERT INTO onepiece_provider_profiles
+            (id, name, source_provider_id, source_endpoint_type, provider, model_id, interface_format, base_url, active)
+         VALUES
+            ('catalog-cloud', 'Cloud', 'openrouter', 'openai-chat-completions', 'OpenRouter', 'model-a', 'openai-compatible', 'https://openrouter.ai/api/v1', 1),
+            ('manual-local', 'Local', NULL, NULL, 'Custom', 'model-a', 'openai-compatible', 'http://127.0.0.1:11434/v1', 0),
+            ('manual-private', 'Private', NULL, NULL, 'Custom', 'model-a', 'openai-compatible', 'https://inference.corp.test/v1', 0);",
+    )
+    .expect("legacy profiles");
+
+    crate::contexts::agent_runtime::infrastructure::apply_hybrid_local_model_schema(&conn)
+        .expect("hybrid schema");
+
+    let rows: Vec<(String, String, String, String)> = conn
+        .prepare(
+            "SELECT id, runtime_kind, endpoint_source, privacy_classification
+             FROM onepiece_provider_profiles ORDER BY id",
+        )
+        .expect("prepare metadata")
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query metadata")
+        .collect::<Result<_, _>>()
+        .expect("metadata rows");
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "catalog-cloud".to_string(),
+                "cloud".to_string(),
+                "catalog".to_string(),
+                "cloud".to_string()
+            ),
+            (
+                "manual-local".to_string(),
+                "local".to_string(),
+                "configured".to_string(),
+                "local".to_string()
+            ),
+            (
+                "manual-private".to_string(),
+                "private".to_string(),
+                "configured".to_string(),
+                "private".to_string()
+            ),
+        ]
+    );
+    let active: String = conn
+        .query_row(
+            "SELECT id FROM onepiece_provider_profiles WHERE active = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("active profile");
+    assert_eq!(active, "catalog-cloud");
+    assert!(table_has_column(&conn, "agents", "api_authentication_mode")
+        .expect("agent metadata column"));
 }
 
 #[test]

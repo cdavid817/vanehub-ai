@@ -712,4 +712,23 @@ mod tests {
         assert!(url.starts_with("data:image/png;base64,"), "{url}");
         assert!(url.ends_with(&prepared.base64()));
     }
+
+    #[test]
+    fn large_stream_chunk_partition_preserves_order_with_constant_per_frame_work() {
+        let mut accumulator = ToolCallAccumulator::default();
+        let mut output = String::new();
+        for index in 0..20_000 {
+            let fragment = format!("{index},");
+            let frame = json!({ "choices": [{ "delta": { "content": fragment } }] }).to_string();
+            assert!(frame.len() < 256);
+            if let Some(GenerationProcessEvent::Token(token)) =
+                translate_sse_data(&frame, &mut accumulator)
+            {
+                output.push_str(&token);
+            }
+        }
+        assert!(output.starts_with("0,1,2,3,"));
+        assert!(output.ends_with("19999,"));
+        assert_eq!(output.matches(',').count(), 20_000);
+    }
 }

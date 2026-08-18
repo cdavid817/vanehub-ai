@@ -53,6 +53,10 @@ export interface RegisterApiAgentInput {
   modelId: string;
   interfaceFormat: ApiInterfaceFormat;
   baseUrl: string | null;
+  runtimeKind?: EndpointRuntimeKind;
+  authenticationMode?: EndpointAuthenticationMode;
+  timeoutMs?: number;
+  privacyClassification?: EndpointRuntimeKind;
 }
 
 export interface OnePieceProviderConfig {
@@ -151,6 +155,89 @@ export interface SaveOnePieceProviderProfileInput {
   endpointType: ProviderEndpointType;
   modelId: string;
   apiKey?: string | null;
+}
+
+export type EndpointRuntimeKind = "cloud" | "local" | "private";
+export type EndpointAuthenticationMode = "required" | "optional" | "none";
+export type EndpointCapabilityState = "supported" | "unsupported" | "unknown";
+export type HybridTaskClass = "summarization" | "embeddings" | "classification" | "code-review" | "planning" | "unknown";
+export type HybridDataPolicy = "cloud-allowed" | "local-preferred" | "local-only";
+
+export interface SaveCustomOnePieceProviderProfileInput {
+  id?: string | null;
+  name: string;
+  baseUrl: string;
+  modelId: string;
+  runtimeKind: "local" | "private";
+  authenticationMode: EndpointAuthenticationMode;
+  apiKey?: string | null;
+  timeoutMs: number;
+  privacyClassification: "local" | "private";
+  toolCallingCapability: EndpointCapabilityState;
+  imageInputCapability: EndpointCapabilityState;
+  structuredOutputCapability: EndpointCapabilityState;
+  reasoningFieldCapability: EndpointCapabilityState;
+  contextWindowTokens: number | null;
+  reservedOutputTokens: number;
+}
+
+export interface EndpointProfileMetadata {
+  profileId: string;
+  runtimeKind: EndpointRuntimeKind;
+  endpointSource: "catalog" | "configured" | "discovered";
+  authenticationMode: EndpointAuthenticationMode;
+  timeoutMs: number;
+  privacyClassification: EndpointRuntimeKind;
+  textGenerationCapability: EndpointCapabilityState;
+  toolCallingCapability: EndpointCapabilityState;
+  imageInputCapability: EndpointCapabilityState;
+  structuredOutputCapability: EndpointCapabilityState;
+  reasoningFieldCapability: EndpointCapabilityState;
+  capabilityProvenance: "configured" | "verified";
+  contextWindowTokens: number | null;
+  reservedOutputTokens: number;
+  contextCapacityProvenance: "verified" | "configured-estimate" | "unknown";
+}
+
+export interface HybridRoutingRule {
+  id: string;
+  enabled: boolean;
+  orderIndex: number;
+  taskClass: HybridTaskClass;
+  preferredProfileId: string;
+  fallbackProfileId: string | null;
+  dataPolicy: HybridDataPolicy;
+}
+
+export interface HybridRoutePreviewInput {
+  taskClass: HybridTaskClass;
+  dataPolicy: HybridDataPolicy;
+  activeProfileId: string | null;
+  hybridEnabled: boolean;
+  requiresTools: boolean;
+  requiresImageInput: boolean;
+  requiresStructuredOutput: boolean;
+  requestsReasoningField: boolean;
+}
+
+export interface HybridRoutePreview {
+  profileId: string | null;
+  ruleId: string | null;
+  reason: string;
+  waitingForUserChoice: boolean;
+}
+
+export interface LocalModelEndpointCandidate {
+  service: string;
+  baseUrl: string;
+  models: string[];
+  metadataProvenance: "verified";
+  latencyBucket: string;
+}
+
+export interface LocalModelDiscoveryResult {
+  operationId: string;
+  candidates: LocalModelEndpointCandidate[];
 }
 
 export interface WorkflowState {

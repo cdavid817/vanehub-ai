@@ -2,7 +2,8 @@ use super::*;
 use crate::contexts::agent_runtime::application::{
     AgentAvailabilityGateway, AgentRegistryRepository, AgentRuntimeApplicationError,
     AgentWorkflowRepository, ApiAgentGateway, ApiProviderConfig, RegisterApiAgentInput,
-    StoredOnePieceProviderProfile, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderProfile,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, InteractionMode,
@@ -171,6 +172,72 @@ fn onepiece_provider_profiles_switch_runtime_projection_and_delete_without_fallb
 }
 
 #[test]
+fn profile_metadata_and_routing_rules_round_trip_atomically_and_cleanup_dangling_rules() {
+    let (_directory, _database, repository) = repository(AvailabilityAssessment::new(
+        AgentAvailability::Available,
+        None,
+    ));
+    let profile = StoredOnePieceProviderProfile {
+        id: "local-qwen".to_string(),
+        name: "Local Qwen".to_string(),
+        source_preset_id: None,
+        source_provider_id: None,
+        source_endpoint_type: None,
+        source_preset_version: None,
+        provider: "Custom local".to_string(),
+        model_id: "qwen".to_string(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        base_url: Some("http://127.0.0.1:11434/v1".to_string()),
+        active: true,
+    };
+    ApiAgentGateway::save_onepiece_provider_profile(&repository, &profile).expect("save profile");
+    let metadata = StoredEndpointProfileMetadata {
+        profile_id: profile.id.clone(),
+        runtime_kind: "local".to_string(),
+        endpoint_source: "configured".to_string(),
+        authentication_mode: "none".to_string(),
+        timeout_ms: 12_000,
+        privacy_classification: "local".to_string(),
+        text_generation_capability: "supported".to_string(),
+        tool_calling_capability: "unsupported".to_string(),
+        image_input_capability: "unknown".to_string(),
+        structured_output_capability: "unknown".to_string(),
+        reasoning_field_capability: "unknown".to_string(),
+        capability_provenance: "configured".to_string(),
+        context_window_tokens: Some(32_768),
+        reserved_output_tokens: 4_096,
+        context_capacity_provenance: "configured-estimate".to_string(),
+    };
+    ApiAgentGateway::save_endpoint_profile_metadata(&repository, &metadata).expect("save metadata");
+    assert_eq!(
+        ApiAgentGateway::endpoint_profile_metadata(&repository, &profile.id)
+            .expect("read metadata"),
+        Some(metadata)
+    );
+
+    let rules = vec![StoredHybridRoutingRule {
+        id: "summarize-local".to_string(),
+        enabled: true,
+        position: 0,
+        task_class: "summarization".to_string(),
+        preferred_profile_id: profile.id.clone(),
+        fallback_profile_id: None,
+        data_policy: "local-only".to_string(),
+    }];
+    ApiAgentGateway::replace_hybrid_routing_rules(&repository, &rules).expect("replace rules");
+    assert_eq!(
+        ApiAgentGateway::list_hybrid_routing_rules(&repository).expect("list rules"),
+        rules
+    );
+
+    ApiAgentGateway::delete_onepiece_provider_profile(&repository, &profile.id)
+        .expect("delete preferred profile");
+    assert!(ApiAgentGateway::list_hybrid_routing_rules(&repository)
+        .expect("list cleaned rules")
+        .is_empty());
+}
+
+#[test]
 fn availability_is_injected_from_runtime_facts_not_persisted_rows() {
     let (_directory, _database, repository) = repository(AvailabilityAssessment::new(
         AgentAvailability::Unavailable,
@@ -196,6 +263,10 @@ fn api_agent_registration_round_trips_and_reports_available() {
         model_id: "claude-opus-4-8".to_string(),
         interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
         base_url: None,
+        runtime_kind: "cloud".to_string(),
+        authentication_mode: "required".to_string(),
+        timeout_ms: 30_000,
+        privacy_classification: "cloud".to_string(),
     };
     let registered = ApiAgentGateway::register(&repository, "my-claude-agent", &input)
         .expect("register api agent");
@@ -267,6 +338,10 @@ fn openai_compatible_agent_registration_persists_base_url_and_reports_available(
         model_id: "deepseek-chat".to_string(),
         interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
         base_url: Some("https://api.deepseek.com/v1".to_string()),
+        runtime_kind: "cloud".to_string(),
+        authentication_mode: "required".to_string(),
+        timeout_ms: 30_000,
+        privacy_classification: "cloud".to_string(),
     };
     let registered = ApiAgentGateway::register(&repository, "my-deepseek-agent", &input)
         .expect("register api agent");
