@@ -2068,7 +2068,7 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
         budget: 13_927,
-        owner: "split-api-process-adapter",
+        owner: "extract-api-adapter-inline-tests",
     },
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
@@ -2096,7 +2096,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
         budget: 58_116,
-        owner: "split-api-process-adapter",
+        owner: "extract-api-adapter-inline-tests",
     },
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
