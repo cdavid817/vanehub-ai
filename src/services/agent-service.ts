@@ -6,13 +6,8 @@ import type {
   AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
-  CliParameterProfile,
   CreateSessionCategoryInput,
-  ManagedCliAgentId,
   ExportSessionInput,
-  SaveCliParameterProfileInput,
-  CliPackageOperationInput,
-  CliToolStatus,
   CreateSessionInput,
   InteractionMode,
   KnownRemoteWorkspace,
@@ -214,18 +209,7 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences,
 import type {
   ApplyCliConfigProfileInput,
   CliConfigApplyResult,
-  CliConfigDiscoveryResult,
-  CliConfigPreset,
-  CliConfigProfile,
-  CliConfigStatus,
-  DeleteCliConfigProfileInput,
-  ImportCliConfigProfileInput,
-  ImportDiscoveredCliConfigInput,
-  ImportDiscoveredCliConfigResult,
-  SaveCliConfigProfileInput,
-  ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
-import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import type {
   LspConfiguration,
@@ -244,12 +228,16 @@ import type {
 } from "../types/context-quality";
 import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
+import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends
   ApiAgentService,
   BuiltinToolService,
+  CliConfigService,
+  CliParameterService,
+  CliToolService,
   CodeIndexService,
   EvaluationService,
   HybridRoutingService,
@@ -300,23 +288,6 @@ export interface AgentService extends
   discoverLspServers(): Promise<LspServerDiscovery[]>;
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
-  listCliTools(): Promise<CliToolStatus[]>;
-  refreshCliDetections(agentId?: string): Promise<OperationTask>;
-  installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
-  upgradeAllCliVersions(): Promise<OperationTask>;
-  listCliParameterProfiles(): Promise<CliParameterProfile[]>;
-  saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
-  resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;
-  listCliConfigPresets(agentId: string): Promise<CliConfigPreset[]>;
-  listCliConfigProfiles(agentId: string): Promise<CliConfigProfile[]>;
-  getCliConfigStatus(agentId: string): Promise<CliConfigStatus>;
-  saveCliConfigProfile(input: SaveCliConfigProfileInput): Promise<CliConfigProfile>;
-  validateCliConfigCredential(input: ValidateCliConfigCredentialInput): Promise<ProviderCredentialValidationResult>;
-  duplicateCliConfigProfile(agentId: string, profileId: string): Promise<CliConfigProfile>;
-  deleteCliConfigProfile(input: DeleteCliConfigProfileInput): Promise<void>;
-  importCliConfigProfile(input: ImportCliConfigProfileInput): Promise<CliConfigProfile>;
-  discoverCliConfigProfiles(agentId: string): Promise<CliConfigDiscoveryResult>;
-  importDiscoveredCliConfigProfiles(input: ImportDiscoveredCliConfigInput): Promise<ImportDiscoveredCliConfigResult>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
   getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;

@@ -25,8 +25,6 @@ import type {
   AgentTerminalSession,
   UpdateSessionSeatsInput,
   AgentTerminalSize,
-  CliParameterSelections,
-  CliToolStatus,
   CreateSessionCategoryInput,
   CreateSessionInput,
   CreateScheduledTaskInput,
@@ -48,10 +46,8 @@ import type {
   SessionSearchResult,
   SessionDetails,
   WorkflowState,
-  ManagedCliAgentId,
   ImSessionConnector,
 } from "../types/agent";
-import { managedCliAgentIds } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
 import {
@@ -64,7 +60,6 @@ import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
-import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail, MissionControlRunSummary } from "../types/mission-control";
@@ -87,7 +82,15 @@ import { webHybridRoutingClient } from "./web-hybrid-routing-client";
 import { deleteWebApiAgentProviderConfig } from "./web-api-provider-state";
 import { webCodeIndexClient } from "./web-code-index-client";
 import { discoverWebSessionCodeIndex } from "./web-code-index-state";
-import { slugify } from "./web-mock-identifiers";
+import { webCliToolClient } from "./web-cli-tool-client";
+import { webCliParameterClient } from "./web-cli-parameter-client";
+import { webCliConfigClient } from "./web-cli-config-client";
+import {
+  findWebCliConfigProfile,
+  requireCliConfigAgentId,
+  setWebCliConfigStatus,
+  webCliConfigStatus,
+} from "./web-cli-config-state";
 
 // Re-exported so the existing Web/mock test seams keep importing from one place while the
 // implementation lives in the extracted module.
@@ -122,11 +125,6 @@ import type {
 import type { SkillToolOwnerInput, SkillToolRevision } from "../types/skill-tools";
 import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
 import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
-import {
-  createCliParameterProfile,
-  defaultCliParameterSelections,
-  normalizeCliParameterSelections,
-} from "./cli-parameter-catalog";
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
@@ -136,15 +134,6 @@ import {
   withEffectiveExecutionPolicy,
 } from "./chat-configuration";
 import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
-import type {
-  CliConfigAgentId,
-  CliConfigPayload,
-  CliConfigProfile,
-  CliConfigStatus,
-  SaveCliConfigProfileInput,
-} from "../types/cli-agent-config";
-import { cliConfigAgentIds } from "../types/cli-agent-config";
-import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
@@ -154,167 +143,12 @@ function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
 }
 
-function webLocalCliDetectionMessage() {
-  return tr("web.error.localCliDetection");
-}
-
-function webCliPackageOperationsMessage() {
-  return tr("web.error.cliPackageOperations");
-}
-
 const webRetainedTerminalTranscriptBytes = 1_000_000;
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
-const cliParameterStorageKey = "vanehub.cli-parameter-profiles.v1";
-let memoryCliParameterSelections: Partial<Record<ManagedCliAgentId, CliParameterSelections>> = {};
-let webCliConfigProfiles: CliConfigProfile[] = [];
-const webCliConfigStatuses = new Map<CliConfigAgentId, CliConfigStatus>();
-
-function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
-  const matched = cliConfigAgentIds.find((candidate) => candidate === agentId);
-  if (!matched) throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
-  return matched;
-}
-
-function cloneCliConfigPayload(payload: CliConfigPayload): CliConfigPayload {
-  return structuredClone(payload);
-}
-
-function cliConfigNeedsCredential(payload: CliConfigPayload): boolean {
-  if (payload.kind === "claude-code") return payload.authMode !== "none";
-  if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
-  if (payload.kind === "gemini-cli") return payload.authStrategy !== "preserve-official";
-  return payload.kind !== "antigravity";
-}
-
-function validateWebCliConfigInput(input: SaveCliConfigProfileInput) {
-  if (input.payload.kind !== input.agentId) throw new Error("Profile payload does not match the selected Agent.");
-  if (!input.name.trim() || input.name.trim().length > 80) throw new Error("Profile name is required.");
-  const baseUrl = input.payload.baseUrl;
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    throw new Error("Base URL must be an absolute HTTP(S) URL.");
-  }
-  if (!(["http:", "https:"] as const).some((protocol) => protocol === parsed.protocol) || parsed.username || parsed.password || parsed.hash) {
-    throw new Error("Base URL must be HTTP(S) without credentials or fragments.");
-  }
-  if (input.payload.kind === "claude-code" && !input.payload.model.trim()) throw new Error("Model is required.");
-  if (input.payload.kind === "codex-cli" && (!input.payload.providerId.trim() || !input.payload.model.trim())) {
-    throw new Error("Provider and model are required.");
-  }
-  if (input.payload.kind === "gemini-cli" && !input.payload.model.trim()) throw new Error("Model is required.");
-  if (input.payload.kind === "opencode") {
-    if (!input.payload.providerId.trim() || input.payload.models.length === 0) throw new Error("Provider and models are required.");
-    const defaultModel = input.payload.defaultModel;
-    if (!input.payload.models.some((model) => model.id === defaultModel)) {
-      throw new Error("Default model must exist in the model list.");
-    }
-  }
-  if (input.sourcePresetId && !input.sourcePresetId.startsWith(`${input.agentId}-`)) {
-    throw new Error("Preset is incompatible with the selected Agent.");
-  }
-}
-
-function defaultWebCliConfigStatus(agentId: CliConfigAgentId): CliConfigStatus {
-  return {
-    agentId,
-    appliedProfileId: null,
-    driftState: "detached",
-    resolvedPaths: [],
-    lastAppliedAt: null,
-    simulated: true,
-    startupSync: {
-      agentId,
-      state: "unavailable",
-      imported: 0,
-      updated: 0,
-      skipped: 0,
-      warnings: [],
-      synchronizedAt: null,
-      simulated: true,
-    },
-  };
-}
-
-function webCliConfigStatus(agentId: CliConfigAgentId): CliConfigStatus {
-  return webCliConfigStatuses.get(agentId) ?? defaultWebCliConfigStatus(agentId);
-}
-
-function nextWebCliConfigProfileId(name: string): string {
-  const base = slugify(name) || "profile";
-  if (!webCliConfigProfiles.some((profile) => profile.id === base)) return base;
-  let suffix = 2;
-  while (webCliConfigProfiles.some((profile) => profile.id === `${base}-${suffix}`)) suffix += 1;
-  return `${base}-${suffix}`;
-}
-
-function saveWebCliConfigProfile(input: SaveCliConfigProfileInput): CliConfigProfile {
-  validateWebCliConfigInput(input);
-  const existing = input.id
-    ? webCliConfigProfiles.find((profile) => profile.id === input.id && profile.agentId === input.agentId)
-    : undefined;
-  if (input.id && !existing) throw new Error("Profile not found.");
-  const credentialConfigured = input.removeCredential
-    ? false
-    : input.credential
-      ? true
-      : existing?.credentialConfigured ?? false;
-  if (!existing && cliConfigNeedsCredential(input.payload) && !credentialConfigured) {
-    throw new Error("Credential repair is required.");
-  }
-  const timestamp = nowIso();
-  let status = webCliConfigStatus(input.agentId);
-  if (
-    existing
-    && status.appliedProfileId === existing.id
-    && JSON.stringify(existing.payload) !== JSON.stringify(input.payload)
-  ) {
-    status = { ...status, driftState: "drifted" };
-    webCliConfigStatuses.set(input.agentId, status);
-  }
-  const profile: CliConfigProfile = {
-    id: existing?.id ?? nextWebCliConfigProfileId(input.name),
-    agentId: input.agentId,
-    name: input.name.trim(),
-    payloadVersion: 1,
-    payload: cloneCliConfigPayload(input.payload),
-    sourcePresetId: input.sourcePresetId ?? existing?.sourcePresetId ?? null,
-    sourcePresetVersion: input.sourcePresetVersion ?? existing?.sourcePresetVersion ?? null,
-    credentialConfigured,
-    validationState: cliConfigNeedsCredential(input.payload) && !credentialConfigured ? "needs-credential" : "valid",
-    appliedState:
-      status.appliedProfileId === existing?.id
-        ? status.driftState === "applied"
-          ? "applied"
-          : "drifted"
-        : "saved",
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-  };
-  webCliConfigProfiles = [...webCliConfigProfiles.filter((item) => item.id !== profile.id), profile];
-  return structuredClone(profile);
-}
-
-function readCliParameterSelections(): Partial<Record<ManagedCliAgentId, CliParameterSelections>> {
-  if (typeof localStorage === "undefined") return memoryCliParameterSelections;
-  const raw = localStorage.getItem(cliParameterStorageKey);
-  if (!raw) return memoryCliParameterSelections;
-  try {
-    return JSON.parse(raw) as Partial<Record<ManagedCliAgentId, CliParameterSelections>>;
-  } catch {
-    return memoryCliParameterSelections;
-  }
-}
-
-function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, CliParameterSelections>>) {
-  memoryCliParameterSelections = value;
-  if (typeof localStorage !== "undefined") localStorage.setItem(cliParameterStorageKey, JSON.stringify(value));
-}
 let nextMessageId = 1;
 let nextSeatId = 1;
 let activeSessionId: string | null = null;
@@ -799,120 +633,6 @@ function createAgentMemory(
   webAgentMemories = [memory, ...webAgentMemories.filter((existing) => existing.name !== name)];
   return memory;
 }
-
-const webCliTools: CliToolStatus[] = [
-  {
-    agentId: "claude-code",
-    displayName: "Anthropic Claude Code CLI",
-    provider: "Anthropic",
-    executableName: "claude",
-    packageName: "@anthropic-ai/claude-code",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://claude.ai/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g @anthropic-ai/claude-code@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "codex-cli",
-    displayName: "OpenAI Codex CLI",
-    provider: "OpenAI",
-    executableName: "codex",
-    packageName: "@openai/codex",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "npm install -g @openai/codex@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "gemini-cli",
-    displayName: "Google Gemini CLI",
-    provider: "Google",
-    executableName: "gemini",
-    packageName: "@google/gemini-cli",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "npm install -g @google/gemini-cli@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "opencode",
-    displayName: "OpenCode CLI",
-    provider: "OpenCode",
-    executableName: "opencode",
-    packageName: "opencode-ai",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://opencode.ai/install && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g opencode-ai@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "antigravity-cli",
-    displayName: "Google Antigravity CLI",
-    provider: "Google",
-    executableName: "agy",
-    // Distributed only by installer script, so there is no package to name.
-    packageName: null,
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://antigravity.google/cli/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status'",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-];
 
 const representativeUsageRecords: UsageRecord[] = [
   {
@@ -2238,6 +1958,9 @@ export const webAgentClient: AgentService = {
   ...webOnePieceProfileClient,
   ...webHybridRoutingClient,
   ...webCodeIndexClient,
+  ...webCliToolClient,
+  ...webCliParameterClient,
+  ...webCliConfigClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
   saveDesktopUpdatePreferences: webDesktopUpdateClient.savePreferences,
@@ -2389,203 +2112,9 @@ export const webAgentClient: AgentService = {
     webAgentMemories = [];
   },
 
-  async listCliTools() {
-    return webCliTools.map((tool) => ({
-      ...tool,
-      availableVersions: [...tool.availableVersions],
-      installations: tool.installations.map((installation) => ({ ...installation })),
-      lastError: webLocalCliDetectionMessage(),
-    }));
-  },
-
-  async refreshCliDetections(agentId?: string): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webLocalCliDetectionMessage();
-    const operationId = `web-cli-refresh-${timestamp}`;
-    return createWebMockOperation({
-      id: operationId,
-      relatedEntityId: agentId ?? null,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentIds: agentId ? [agentId] : webCliTools.map((tool) => tool.agentId) },
-    });
-  },
-
-  async installCliVersion(input): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webCliPackageOperationsMessage();
-    const operationId = `web-cli-install-${input.agentId}-${timestamp}`;
-    return createWebMockOperation({
-      id: operationId,
-      relatedEntityId: input.agentId,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentId: input.agentId, targetVersion: input.targetVersion },
-    });
-  },
-
-  async upgradeAllCliVersions(): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webCliPackageOperationsMessage();
-    return createWebMockOperation({
-      id: `web-cli-upgrade-all-${timestamp}`,
-      relatedEntityId: null,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
-    });
-  },
-
-  async listCliParameterProfiles() {
-    const stored = readCliParameterSelections();
-    return managedCliAgentIds.map((agentId) => createCliParameterProfile(agentId, stored[agentId]));
-  },
-
-  async saveCliParameterProfile(input) {
-    const selections = normalizeCliParameterSelections(input.agentId, input.selections);
-    writeCliParameterSelections({ ...readCliParameterSelections(), [input.agentId]: selections });
-    return createCliParameterProfile(input.agentId, selections);
-  },
-
-  async resetCliParameterProfile(agentId) {
-    const stored = { ...readCliParameterSelections() };
-    delete stored[agentId];
-    writeCliParameterSelections(stored);
-    return createCliParameterProfile(agentId, defaultCliParameterSelections(agentId));
-  },
-
-  async listCliConfigPresets(agentId) {
-    return getCliConfigPresets(requireCliConfigAgentId(agentId));
-  },
-
-  async listCliConfigProfiles(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    const status = webCliConfigStatus(supportedAgentId);
-    return webCliConfigProfiles
-      .filter((profile) => profile.agentId === supportedAgentId)
-      .map((profile) => ({
-        ...structuredClone(profile),
-        appliedState:
-          status.appliedProfileId === profile.id
-            ? status.driftState === "applied"
-              ? "applied" as const
-              : "drifted" as const
-            : "saved" as const,
-      }));
-  },
-
-  async getCliConfigStatus(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    return structuredClone(webCliConfigStatus(supportedAgentId));
-  },
-
-  async saveCliConfigProfile(input) {
-    return saveWebCliConfigProfile(input);
-  },
-
-  async validateCliConfigCredential(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const profile = input.profileId
-      ? webCliConfigProfiles.find((candidate) => candidate.agentId === supportedAgentId && candidate.id === input.profileId)
-      : undefined;
-    if (input.profileId && !profile) throw new Error("Profile not found.");
-    const payload = input.payload ?? profile?.payload;
-    if (!payload || payload.kind !== supportedAgentId) throw new Error("A complete provider configuration is required.");
-    if (!cliConfigNeedsCredential(payload)) {
-      return { status: "unsupported" as const, latencyMs: 0, httpStatus: null };
-    }
-    const credential = input.credential?.trim();
-    if (!credential && !profile?.credentialConfigured) throw new Error("Credential repair is required.");
-    const status = credential === "web-invalid"
-      ? "invalid-credential" as const
-      : credential === "web-rate-limited"
-        ? "rate-limited" as const
-        : credential === "web-unavailable"
-          ? "provider-unavailable" as const
-          : "valid" as const;
-    return { status, latencyMs: 12, httpStatus: status === "valid" ? 200 : status === "invalid-credential" ? 401 : status === "rate-limited" ? 429 : null };
-  },
-
-  async duplicateCliConfigProfile(agentId, profileId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    const source = webCliConfigProfiles.find(
-      (profile) => profile.agentId === supportedAgentId && profile.id === profileId,
-    );
-    if (!source) throw new Error("Profile not found.");
-    let name = `${source.name} Copy`;
-    let suffix = 2;
-    while (webCliConfigProfiles.some((profile) => profile.agentId === supportedAgentId && profile.name === name)) {
-      name = `${source.name} Copy ${suffix++}`;
-    }
-    return saveWebCliConfigProfile({
-      agentId: supportedAgentId,
-      name,
-      payload: cloneCliConfigPayload(source.payload),
-      sourcePresetId: source.sourcePresetId,
-      sourcePresetVersion: source.sourcePresetVersion,
-      credential: source.credentialConfigured ? "web-simulated-credential" : null,
-    });
-  },
-
-  async deleteCliConfigProfile(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const status = webCliConfigStatus(supportedAgentId);
-    const exists = webCliConfigProfiles.some(
-      (profile) => profile.agentId === supportedAgentId && profile.id === input.profileId,
-    );
-    if (!exists) throw new Error("Profile not found.");
-    if (status.appliedProfileId === input.profileId && !input.detachApplied) {
-      throw new Error("Applied profile must be detached before deletion.");
-    }
-    if (status.appliedProfileId === input.profileId) {
-      webCliConfigStatuses.set(supportedAgentId, defaultWebCliConfigStatus(supportedAgentId));
-    }
-    webCliConfigProfiles = webCliConfigProfiles.filter((profile) => profile.id !== input.profileId);
-  },
-
-  async importCliConfigProfile(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const preset = getCliConfigPresets(supportedAgentId)[0];
-    if (!preset) throw new Error("No simulated global configuration is available.");
-    return saveWebCliConfigProfile({
-      agentId: supportedAgentId,
-      name: input.name,
-      payload: cloneCliConfigPayload(preset.payload),
-      sourcePresetId: null,
-      sourcePresetVersion: null,
-      credential: cliConfigNeedsCredential(preset.payload) ? "web-imported-credential" : null,
-    });
-  },
-
-  async discoverCliConfigProfiles(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    return {
-      agentId: supportedAgentId,
-      state: "unavailable" as const,
-      candidates: [],
-      resolvedPaths: [],
-      warnings: [],
-      error: null,
-      simulated: true,
-    };
-  },
-
-  async importDiscoveredCliConfigProfiles(input) {
-    requireCliConfigAgentId(input.agentId);
-    if (input.candidateKeys.length > 0) {
-      throw new Error("Local configuration discovery is unavailable in Web mode.");
-    }
-    return { imported: [], skipped: [] };
-  },
-
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const profile = webCliConfigProfiles.find(
-      (candidate) => candidate.agentId === supportedAgentId && candidate.id === input.profileId,
-    );
+    const profile = findWebCliConfigProfile(supportedAgentId, input.profileId);
     if (!profile) throw new Error("Profile not found.");
     if (profile.validationState === "needs-credential") throw new Error("Credential repair is required.");
     const beforeWorkflow = JSON.stringify(workflowState);
@@ -2597,7 +2126,7 @@ export const webAgentClient: AgentService = {
       ? status.appliedProfileId
       : null;
     const timestamp = nowIso();
-    webCliConfigStatuses.set(supportedAgentId, {
+    setWebCliConfigStatus(supportedAgentId, {
       agentId: supportedAgentId,
       appliedProfileId: profile.id,
       driftState: "applied",
