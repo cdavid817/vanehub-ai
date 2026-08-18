@@ -4,9 +4,10 @@ use super::super::memory_actions::{apply_memory_actions, render_existing_manifes
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::SqliteNativeToolRepository;
 use super::compaction::turns_character_count;
+use super::execution::execute_with_code_intelligence;
 use super::invocation::{begin_api_invocation, finish_api_invocation, WireFormat};
 use super::sinks::{EvidenceCountingSink, EvidenceToolCounts};
-use super::{execute_with_code_intelligence, ExecutedToolCall, PendingApprovals};
+use super::{ExecutedToolCall, PendingApprovals};
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort,
     AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,

@@ -2067,6 +2067,16 @@ struct SubtreeBudget {
 }
 
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
+    // 978 of these lines are `execute_with_code_intelligence`, one function that
+    // `split-api-adapter-modules` moved without decomposing: finding seams in live tool-dispatch
+    // control flow is its own change with its own risk budget, not something to bury in a
+    // relocation. This entry retires when that function does.
+    PathBudget {
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
+        budget: 1_166,
+        owner: "split-api-adapter-modules",
+    },
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
         budget: 5_110,
