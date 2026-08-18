@@ -1,3 +1,8 @@
+// Predates the production panic-shortcut gate; removing this attribute is the
+// definition of done for this file, and it may be removed without ceremony.
+// TODO(retire-production-panic-shortcuts): 2 pre-existing sites.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Wakes an in-flight loopback HTTP request once a human resolves the `Ask` decision it's
 //! blocked on. Structurally analogous to `agent_runtime`'s own `pending_approvals`/
 //! `await_approval`, but not the same registry: that one is private to `RuntimeAgentApiAdapter`
