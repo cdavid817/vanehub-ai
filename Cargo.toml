@@ -1,0 +1,120 @@
+# Workspace root for the native side. `src-tauri` is the only member today: the skeleton is
+# deliberately proved on its own before any bounded context is extracted, because what a workspace
+# migration actually breaks is the packaging chain — `npm run package`, the sidecar preparation
+# script, and the Tauri bundler's expectations about target directories — not the compiler.
+#
+# Extraction order, measured rather than guessed (see
+# `openspec/changes/establish-cargo-workspace-skeleton/design.md`): `work_board` or `goals` first,
+# both zero-coupling in each direction; then `retrieval`, isolated but 11,500 lines, to prove the
+# pattern holds at scale; then `operations`, which nothing needs but 51 files need. `platform`
+# cannot go early — `platform/database/migrations/mod.rs` calls into 10 contexts, so the dependency
+# runs platform -> contexts and must be inverted first.
+[workspace]
+resolver = "2"
+members = ["src-tauri"]
+
+# Every shared version declaration lives here; members inherit with `workspace = true` and add only
+# what is member-local (`optional`, or an extra feature such as opentelemetry_sdk's `testing` in
+# dev-dependencies).
+[workspace.dependencies]
+tauri-build = { version = "2", features = [] }
+rusqlite = { version = "0.40", features = ["bundled", "trace"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.35"
+serde = { version = "1", features = ["derive"] }
+wasmtime = { version = "=47.0.3", default-features = false, features = ["cranelift", "runtime", "std"] }
+serde_json = "1"
+lsp-types = "0.97"
+tempfile = "3"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.5.1"
+axum = "0.8"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+rmcp = { version = "3.0.1", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+http = "1"
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
+tauri-plugin-dialog = "2"
+reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
+flate2 = "1.1"
+html5ever = "0.39"
+russh = { version = "=0.62.6", default-features = false, features = ["ring"] }
+async-trait = "0.1"
+base64 = "0.23"
+# Decode/validate/downscale for Agent image input (`add-agent-image-input`). Codec features are
+# enumerated rather than defaulted: PNG covers screenshots and rendered PDF pages, JPEG covers
+# photos and scans, and every other codec default-features would enable is attack surface for a
+# format nothing in this product produces.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+futures-util = "0.3"
+keyring = "4.1.5"
+prost = "0.14"
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+rand = "0.10"
+sha2 = "0.11"
+hmac = "0.13"
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+tokio-rustls = "0.26"
+url = "2"
+webpki-roots = "1"
+zeroize = "1"
+portable-pty = "0.9.0"
+process-wrap = { version = "9.1.0", features = ["std", "tokio1"] }
+toml = "1.1"
+toml_edit = "0.25.12"
+json5 = "1.3.1"
+dirs = "6"
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-wdio = { version = "=1.3.0" }
+tauri-plugin-wdio-webdriver = { version = "=1.3.0" }
+globset = "0.4"
+ignore = "0.4"
+regex = "1"
+tree-sitter = "=0.26.12"
+tree-sitter-c = "=0.24.2"
+tree-sitter-cpp = "=0.23.4"
+tree-sitter-go = "=0.25.0"
+tree-sitter-java = "=0.23.5"
+tree-sitter-javascript = "=0.25.0"
+tree-sitter-python = "=0.25.0"
+tree-sitter-rust = "=0.24.2"
+tree-sitter-typescript = "=0.23.2"
+webview2-com = "=0.38.2"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Threading"] }
+libc = "0.2"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "3", features = ["full", "visit"] }
+
+# Deliberately empty of the panic-shortcut lints. `[lints]` has no target selectivity, and CI runs
+# `cargo clippy --all-targets -- -D warnings`, so putting `unwrap_used`/`expect_used` here would
+# fail on roughly 9,560 test-code sites. They are enforced instead by `npm run native:panic:check`,
+# which scopes clippy to `--lib --bins`. `[workspace.lints]` inherits the same limitation, so this
+# section stays a placeholder rather than becoming a trap for whoever fills it in next.
+[workspace.lints]
+
+# Moved here from src-tauri/Cargo.toml by `establish-cargo-workspace-skeleton`. Cargo ignores
+# profiles declared in a non-root member and only warns, so leaving them behind would have
+# silently dropped every release optimisation while `distributable_release_profile_stays_optimized`
+# kept passing -- that test reads the manifest text, not the profile Cargo actually applies.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

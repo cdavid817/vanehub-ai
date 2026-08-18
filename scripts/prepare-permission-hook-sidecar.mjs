@@ -27,9 +27,13 @@ export function resolvePreparationOptions(args, rustcVerboseVersion) {
 
 export function sidecarPaths(root, target, profile, targetDirectory = undefined) {
   const extension = target.includes("windows") ? ".exe" : "";
+  // Cargo puts the target directory at the workspace root, so this is `<root>/target`, not
+  // `<root>/src-tauri/target`. Getting it wrong does not fail loudly — the build succeeds and the
+  // staging copy then reports a missing source, which reads like a build problem rather than a
+  // path problem.
   const cargoTarget = targetDirectory
     ? (isAbsolute(targetDirectory) ? targetDirectory : resolve(root, targetDirectory))
-    : resolve(root, "src-tauri", "target");
+    : resolve(root, "target");
   return {
     source: resolve(cargoTarget, target, profile, `${binaryName}${extension}`),
     staged: resolve(root, "src-tauri", "binaries", `${binaryName}-${target}${extension}`),

@@ -131,7 +131,10 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin/mdbook.exe
             .docs-target
-          key: documentation-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'docs/toolchain.json') }}
+          # Cargo keeps the lockfile at the workspace root, so src-tauri/Cargo.lock no longer
+          # exists. hashFiles() on a missing path yields a constant, which would have turned this
+          # into a cache that never invalidates rather than an error.
+          key: documentation-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'docs/toolchain.json') }}
           restore-keys: |
             documentation-${{ runner.os }}-
 

@@ -3,6 +3,8 @@ dist/
 .vanehub/
 .idea/
 src-tauri/target/
+# Cargo puts the target directory at the workspace root once src-tauri is a member.
+/target/
 src-tauri/binaries/
 .cargo-target-code-index/
 *.log

@@ -55,6 +55,51 @@ Hoisting all 87 version declarations is the point of the workspace for dependenc
 
 `[workspace.lints]` is added as a section but left carrying nothing new. The panic-shortcut gate introduced by `freeze-panic-shortcuts-in-production-code` is deliberately *not* a `Cargo.toml` lint — it is a target-scoped clippy invocation, because `[lints]` has no target selectivity and would fail on ~9,560 test sites. That reasoning does not change under a workspace, and `[workspace.lints]` inherits the same limitation.
 
+## What the skeleton surfaced
+
+The single-member skeleton exists to find the things a workspace breaks before anything depends on
+it. It found four, and the first two are the ones that would not have announced themselves.
+
+### `[profile.release]` is silently ignored in a non-root member
+
+Cargo only warns:
+
+```
+warning: profiles for the non root package will be ignored
+```
+
+So `opt-level = 3`, `lto = "thin"`, `codegen-units = 1` and `strip = "debuginfo"` all stop applying.
+The architecture test `distributable_release_profile_stays_optimized` would have kept passing
+throughout, because it reads the manifest text rather than the profile Cargo resolves. A green gate
+over a lost property is worse than no gate. The profile moves to the workspace root.
+
+### The sidecar script's fallback path becomes wrong
+
+`scripts/prepare-permission-hook-sidecar.mjs` fell back to `<root>/src-tauri/target`. Under a
+workspace, Cargo writes to `<root>/target`. The failure mode is indirect: the build succeeds, then
+the staging copy reports a missing source, which reads like a build problem rather than a path
+problem.
+
+### Adopting a workspace changes dependency resolution, by ten build-only packages
+
+The lockfile goes from 785 resolved packages to 795. This was isolated rather than assumed:
+
+- Not caused by hoisting — a bare workspace with **zero** hoisted dependencies also resolves 795.
+- Not the resolver — `resolver = "2"` and `"3"` both give 795.
+- Not a stale lockfile — re-resolving the pristine single-package manifest still gives 785.
+
+The additions are the `jiff` and `defmt` families plus two others, pulled in through
+`tauri-build` → `tauri-utils` → `serde_with` feature unification. `cargo tree --edges normal`
+reports "nothing to print" for `jiff`, confirming they are reachable only as build dependencies:
+they cost build time, not binary size.
+
+### The lockfile moves, and a CI cache key follows it
+
+`src-tauri/Cargo.lock` ceases to exist; the lockfile lives at the workspace root. The Documentation
+job keyed its cache on `hashFiles('src-tauri/Cargo.lock')`, and `hashFiles()` on a missing path
+returns a constant — so this would have degraded into a cache that never invalidates rather than
+failing.
+
 ## Risks / Trade-offs
 
 - **The Tauri bundler or the sidecar script depends on the current target-directory layout** → This is the specific risk the single-member skeleton exists to surface. Desktop Smoke runs on all three platforms and is the check; a local pass on one OS is not evidence for the others.
