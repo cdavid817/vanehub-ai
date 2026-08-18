@@ -19,43 +19,20 @@ import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
   AgentMemoryType,
-  AgentRegistryEntry,
-  ApiAgentProviderConfig,
   AssignSessionCategoryInput,
-  AutomaticArchivalSettings,
   AgentTerminalEvent,
   AgentTerminalSession,
-  UpdateApiAgentInput,
   UpdateSessionSeatsInput,
   AgentTerminalSize,
-  RegisterApiAgentInput,
-  SaveCustomOnePieceProviderProfileInput,
-  SaveOnePieceProviderConfigInput,
-  SaveOnePieceProviderProfileInput,
-  CliParameterSelections,
-  CliToolStatus,
   CreateSessionCategoryInput,
   CreateSessionInput,
-  CreateScheduledTaskInput,
-  EndpointProfileMetadata,
   ExportSessionInput,
-  HybridRoutePreviewInput,
-  HybridRoutingRule,
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
-  LocalModelDiscoveryResult,
-  EmbeddingModelOption,
-  OnePieceProviderConfig,
-  OnePieceProviderProfiles,
   ProjectInspection,
   RemoteWorkspace,
-  RetrievalConfiguration,
-  RetrievalIndexStatus,
   RenameSessionCategoryInput,
-  ScheduledTask,
-  ScheduledTaskRun,
-  SetScheduledTaskEnabledInput,
   Session,
   SessionSeat,
   SessionCategory,
@@ -64,28 +41,19 @@ import type {
   SessionSearchResult,
   SessionDetails,
   WorkflowState,
-  ManagedCliAgentId,
   ImSessionConnector,
 } from "../types/agent";
-import { managedCliAgentIds } from "../types/agent";
-import { getOnePieceProviderPresets, resolveOnePieceProviderPreset } from "../config/onepiece-provider-presets";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
-import {
-  getWebContextQualitySummary,
-  listWebContextQualityHistory,
-} from "./web-context-quality";
-import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
-import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail, MissionControlRunSummary } from "../types/mission-control";
-import type { EvaluationArena, EvaluationTask } from "../types/evaluation";
+import { webEvaluationClient } from "./web-evaluation-client";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -96,33 +64,37 @@ import type {
   SaveLoopDefinitionInput,
   StartLoopResult,
 } from "../types/loop";
-import type {
-  PromptAssemblyPreviewInput,
-  PromptHook,
-  PromptHookCategory,
-  PromptHookListResult,
-  PromptHookMutationInput,
-  PromptHookPreview,
-  PromptHookPreviewInput,
-  PromptHookTraceSummary,
-  PromptHookUpdateInput,
-  PromptHookDraft,
-  PromptHookVariableDefinition,
-  PromptHookVersion,
-  PromptHookVersionHistory,
-  PublishPromptHookInput,
-  RollbackPromptHookInput,
-  SavePromptHookDraftInput,
-} from "../types/prompt-hook";
+import { webPromptHookClient } from "./web-prompt-hook-client";
+import { webApiAgentClient } from "./web-api-agent-client";
+import { webOnePieceProviderClient } from "./web-onepiece-provider-client";
+import { webOnePieceProfileClient } from "./web-onepiece-profile-client";
+import { webHybridRoutingClient } from "./web-hybrid-routing-client";
+import { deleteWebApiAgentProviderConfig } from "./web-api-provider-state";
+import { webCodeIndexClient } from "./web-code-index-client";
+import { discoverWebSessionCodeIndex } from "./web-code-index-state";
+import { webCliToolClient } from "./web-cli-tool-client";
+import { webCliParameterClient } from "./web-cli-parameter-client";
+import { webCliConfigClient } from "./web-cli-config-client";
+import { webScheduledTaskClient } from "./web-scheduled-task-client";
+import { webContextQualityClient } from "./web-context-quality-client";
+import { webSkillGovernanceClient } from "./web-skill-governance-client";
+import { webSkillEvidenceClient } from "./web-skill-evidence-client";
+import { webAgentRegistryClient } from "./web-agent-registry-client";
+import { normalizeWebPath, normalizeWebSkillLocation } from "./web-skill-location";
+import { readWebMockStorage, writeWebMockStorage } from "./web-mock-storage";
+
+export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
 import {
-  deleteWebPromptHookVersionState,
-  publishWebPromptHook,
-  renderWebPromptHookTemplate,
-  rollbackWebPromptHook,
-  saveWebPromptHookDraft,
-  webPromptHookHistory,
-  webPromptHookVariables,
-} from "./web-prompt-hook-versions";
+  findWebCliConfigProfile,
+  requireCliConfigAgentId,
+  setWebCliConfigStatus,
+  webCliConfigStatus,
+} from "./web-cli-config-state";
+
+// Re-exported so the existing Web/mock test seams keep importing from one place while the
+// implementation lives in the extracted module.
+export { resetWebRetrievalForTest, searchWebCodeIndex } from "./web-code-index-state";
+import { daysAgoIso, nowIso } from "./web-mock-clock";
 import { createWebMockOperation } from "./web-operation-client";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import { builtinExpertRoles } from "../config/builtin-expert-roles";
@@ -131,7 +103,6 @@ import type {
   Skill,
   SkillAccessRefusalReason,
   SkillAgentMountPath,
-  SkillDriftReport,
   SkillImportInput,
   SkillListResult,
   SkillLoadInput,
@@ -146,17 +117,10 @@ import type {
   SkillScope,
   SkillScopeInput,
   SkillSource,
-  SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
-import type { SkillToolOwnerInput, SkillToolRevision } from "../types/skill-tools";
 import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
 import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
-import {
-  createCliParameterProfile,
-  defaultCliParameterSelections,
-  normalizeCliParameterSelections,
-} from "./cli-parameter-catalog";
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
@@ -165,27 +129,7 @@ import {
   normalizeChatConfigForSession,
   withEffectiveExecutionPolicy,
 } from "./chat-configuration";
-import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
-import type {
-  CliConfigAgentId,
-  CliConfigPayload,
-  CliConfigProfile,
-  CliConfigStatus,
-  SaveCliConfigProfileInput,
-} from "../types/cli-agent-config";
-import { cliConfigAgentIds } from "../types/cli-agent-config";
-import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
-import type {
-  CodeIndexAuditEntry,
-  CodeIndexAutomaticMode,
-  CodeIndexConfigurationInput,
-  CodeIndexPhase,
-  CodeIndexStatus,
-  CodeIndexWorkspace,
-} from "../types/code-index";
-import { codeIndexLanguages } from "../types/code-index";
-import { normalizeCodeIndexConfiguration } from "./code-index-contract";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
 import { webDesktopUpdateClient } from "./web-desktop-update";
@@ -194,174 +138,12 @@ function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
 }
 
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function webLocalCliDetectionMessage() {
-  return tr("web.error.localCliDetection");
-}
-
-function webCliPackageOperationsMessage() {
-  return tr("web.error.cliPackageOperations");
-}
-
 const webRetainedTerminalTranscriptBytes = 1_000_000;
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
-const cliParameterStorageKey = "vanehub.cli-parameter-profiles.v1";
-let memoryCliParameterSelections: Partial<Record<ManagedCliAgentId, CliParameterSelections>> = {};
-let webCliConfigProfiles: CliConfigProfile[] = [];
-const webCliConfigStatuses = new Map<CliConfigAgentId, CliConfigStatus>();
-
-function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
-  const matched = cliConfigAgentIds.find((candidate) => candidate === agentId);
-  if (!matched) throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
-  return matched;
-}
-
-function cloneCliConfigPayload(payload: CliConfigPayload): CliConfigPayload {
-  return structuredClone(payload);
-}
-
-function cliConfigNeedsCredential(payload: CliConfigPayload): boolean {
-  if (payload.kind === "claude-code") return payload.authMode !== "none";
-  if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
-  if (payload.kind === "gemini-cli") return payload.authStrategy !== "preserve-official";
-  return payload.kind !== "antigravity";
-}
-
-function validateWebCliConfigInput(input: SaveCliConfigProfileInput) {
-  if (input.payload.kind !== input.agentId) throw new Error("Profile payload does not match the selected Agent.");
-  if (!input.name.trim() || input.name.trim().length > 80) throw new Error("Profile name is required.");
-  const baseUrl = input.payload.baseUrl;
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    throw new Error("Base URL must be an absolute HTTP(S) URL.");
-  }
-  if (!(["http:", "https:"] as const).some((protocol) => protocol === parsed.protocol) || parsed.username || parsed.password || parsed.hash) {
-    throw new Error("Base URL must be HTTP(S) without credentials or fragments.");
-  }
-  if (input.payload.kind === "claude-code" && !input.payload.model.trim()) throw new Error("Model is required.");
-  if (input.payload.kind === "codex-cli" && (!input.payload.providerId.trim() || !input.payload.model.trim())) {
-    throw new Error("Provider and model are required.");
-  }
-  if (input.payload.kind === "gemini-cli" && !input.payload.model.trim()) throw new Error("Model is required.");
-  if (input.payload.kind === "opencode") {
-    if (!input.payload.providerId.trim() || input.payload.models.length === 0) throw new Error("Provider and models are required.");
-    const defaultModel = input.payload.defaultModel;
-    if (!input.payload.models.some((model) => model.id === defaultModel)) {
-      throw new Error("Default model must exist in the model list.");
-    }
-  }
-  if (input.sourcePresetId && !input.sourcePresetId.startsWith(`${input.agentId}-`)) {
-    throw new Error("Preset is incompatible with the selected Agent.");
-  }
-}
-
-function defaultWebCliConfigStatus(agentId: CliConfigAgentId): CliConfigStatus {
-  return {
-    agentId,
-    appliedProfileId: null,
-    driftState: "detached",
-    resolvedPaths: [],
-    lastAppliedAt: null,
-    simulated: true,
-    startupSync: {
-      agentId,
-      state: "unavailable",
-      imported: 0,
-      updated: 0,
-      skipped: 0,
-      warnings: [],
-      synchronizedAt: null,
-      simulated: true,
-    },
-  };
-}
-
-function webCliConfigStatus(agentId: CliConfigAgentId): CliConfigStatus {
-  return webCliConfigStatuses.get(agentId) ?? defaultWebCliConfigStatus(agentId);
-}
-
-function nextWebCliConfigProfileId(name: string): string {
-  const base = slugify(name) || "profile";
-  if (!webCliConfigProfiles.some((profile) => profile.id === base)) return base;
-  let suffix = 2;
-  while (webCliConfigProfiles.some((profile) => profile.id === `${base}-${suffix}`)) suffix += 1;
-  return `${base}-${suffix}`;
-}
-
-function saveWebCliConfigProfile(input: SaveCliConfigProfileInput): CliConfigProfile {
-  validateWebCliConfigInput(input);
-  const existing = input.id
-    ? webCliConfigProfiles.find((profile) => profile.id === input.id && profile.agentId === input.agentId)
-    : undefined;
-  if (input.id && !existing) throw new Error("Profile not found.");
-  const credentialConfigured = input.removeCredential
-    ? false
-    : input.credential
-      ? true
-      : existing?.credentialConfigured ?? false;
-  if (!existing && cliConfigNeedsCredential(input.payload) && !credentialConfigured) {
-    throw new Error("Credential repair is required.");
-  }
-  const timestamp = nowIso();
-  let status = webCliConfigStatus(input.agentId);
-  if (
-    existing
-    && status.appliedProfileId === existing.id
-    && JSON.stringify(existing.payload) !== JSON.stringify(input.payload)
-  ) {
-    status = { ...status, driftState: "drifted" };
-    webCliConfigStatuses.set(input.agentId, status);
-  }
-  const profile: CliConfigProfile = {
-    id: existing?.id ?? nextWebCliConfigProfileId(input.name),
-    agentId: input.agentId,
-    name: input.name.trim(),
-    payloadVersion: 1,
-    payload: cloneCliConfigPayload(input.payload),
-    sourcePresetId: input.sourcePresetId ?? existing?.sourcePresetId ?? null,
-    sourcePresetVersion: input.sourcePresetVersion ?? existing?.sourcePresetVersion ?? null,
-    credentialConfigured,
-    validationState: cliConfigNeedsCredential(input.payload) && !credentialConfigured ? "needs-credential" : "valid",
-    appliedState:
-      status.appliedProfileId === existing?.id
-        ? status.driftState === "applied"
-          ? "applied"
-          : "drifted"
-        : "saved",
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-  };
-  webCliConfigProfiles = [...webCliConfigProfiles.filter((item) => item.id !== profile.id), profile];
-  return structuredClone(profile);
-}
-
-function readCliParameterSelections(): Partial<Record<ManagedCliAgentId, CliParameterSelections>> {
-  if (typeof localStorage === "undefined") return memoryCliParameterSelections;
-  const raw = localStorage.getItem(cliParameterStorageKey);
-  if (!raw) return memoryCliParameterSelections;
-  try {
-    return JSON.parse(raw) as Partial<Record<ManagedCliAgentId, CliParameterSelections>>;
-  } catch {
-    return memoryCliParameterSelections;
-  }
-}
-
-function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, CliParameterSelections>>) {
-  memoryCliParameterSelections = value;
-  if (typeof localStorage !== "undefined") localStorage.setItem(cliParameterStorageKey, JSON.stringify(value));
-}
 let nextMessageId = 1;
 let nextSeatId = 1;
 let activeSessionId: string | null = null;
@@ -369,9 +151,6 @@ let sessions: Session[] = [];
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
 let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
-let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
-let scheduledTasks: ScheduledTask[] = [];
-let nextScheduledTaskId = 1;
 let loopDefinitions: LoopDefinition[] = [];
 let loopRuns: LoopRun[] = [];
 let nextLoopDefinitionId = 1;
@@ -395,20 +174,15 @@ const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
 
+// Chat configs carry model and policy selections, never a credential, so browser storage stays
+// inside the "Honest Web/mock behavior" prohibition on persisting plaintext secrets.
 function readChatConfigs(): Record<string, ChatConfig> {
-  if (typeof localStorage === "undefined") return memoryChatConfigs;
-  const raw = localStorage.getItem(chatConfigStorageKey);
-  if (!raw) return memoryChatConfigs;
-  try {
-    return JSON.parse(raw) as Record<string, ChatConfig>;
-  } catch {
-    return memoryChatConfigs;
-  }
+  return readWebMockStorage(chatConfigStorageKey, memoryChatConfigs);
 }
 
 function writeChatConfigs(configs: Record<string, ChatConfig>) {
   memoryChatConfigs = configs;
-  if (typeof localStorage !== "undefined") localStorage.setItem(chatConfigStorageKey, JSON.stringify(configs));
+  writeWebMockStorage(chatConfigStorageKey, configs);
 }
 
 function emitSessionEvent(event: SessionStateEvent) {
@@ -659,40 +433,6 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
   };
 });
 
-const webSkillToolInspection: SkillToolRevision[] = [
-  {
-    skillId: "code-review",
-    toolId: "inspect-diff",
-    canonicalId: `skill__code-review__inspect-diff__${"f".repeat(12)}`,
-    revision: "f".repeat(64),
-    sourceScope: "global",
-    implementationKind: "declarative",
-    baseRevision: "web-inspection-only",
-    manifestHash: `sha256:${"a".repeat(64)}`,
-    implementationHash: `sha256:${"b".repeat(64)}`,
-    capabilityDigest: "web-inspection-only",
-    validation: "valid",
-    trusted: false,
-    enabled: false,
-    quarantined: false,
-    consecutiveFailures: 0,
-    diagnostics: [],
-    runtimeSupport: "unsupported-web-runtime",
-    enforcementStrength: "bounded-native-io",
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-  },
-];
-
-function webSkillToolUnsupported(): never {
-  throw new Error("unsupported-web-runtime");
-}
-
-function webSkillToolByRevision(revision: string): SkillToolRevision {
-  const tool = webSkillToolInspection.find((candidate) => candidate.revision === revision);
-  if (!tool) throw new Error("skill-tool-not-found");
-  return structuredClone(tool);
-}
 
 webSkills.push({
   ...webSkills[0],
@@ -762,73 +502,6 @@ let webSkillApiAgentBindings: Array<{
 }> = [];
 
 const deletedBuiltinSkillIds = new Set<string>();
-const purgedEvidenceScopes = new Set<string>();
-
-/** Mock API agents' `modelId`/`interfaceFormat`/`baseUrl` (`add-agent-lifecycle-management`) —
- * kept out of `AgentRegistryEntry` itself, mirroring the real backend, where those fields live
- * behind a separate read path (`getApiAgentProviderConfig`) rather than on the CLI/API-agnostic
- * registry view. */
-const webApiAgentProviderConfigs = new Map<string, ApiAgentProviderConfig>();
-let webOnePieceProviderConfig: OnePieceProviderConfig = {
-  provider: "VaneHub",
-  modelId: null,
-  interfaceFormat: null,
-  baseUrl: null,
-  autoApproveTools: false,
-  credentialPresent: false,
-};
-let webOnePieceProviderProfiles: OnePieceProviderProfiles = { profiles: [], activeProfileId: null };
-let nextOnePieceProviderProfileId = 1;
-const webEndpointProfileMetadata = new Map<string, EndpointProfileMetadata>();
-let webHybridRoutingRules: HybridRoutingRule[] = [];
-
-function applyWebOnePieceActiveProfile(profileId: string | null) {
-  const active = profileId == null
-    ? null
-    : webOnePieceProviderProfiles.profiles.find((profile) => profile.id === profileId) ?? null;
-  webOnePieceProviderProfiles = {
-    activeProfileId: active?.id ?? null,
-    profiles: webOnePieceProviderProfiles.profiles.map((profile) => ({
-      ...profile,
-      active: profile.id === active?.id,
-    })),
-  };
-  webOnePieceProviderConfig = active ? {
-    provider: active.provider,
-    modelId: active.modelId,
-    interfaceFormat: active.interfaceFormat,
-    baseUrl: active.baseUrl,
-    autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
-    credentialPresent: active.credentialPresent,
-  } : {
-    provider: "VaneHub",
-    modelId: null,
-    interfaceFormat: null,
-    baseUrl: null,
-    autoApproveTools: false,
-    credentialPresent: false,
-  };
-  if (active) {
-    webApiAgentProviderConfigs.set("onepiece", {
-      modelId: active.modelId,
-      interfaceFormat: active.interfaceFormat,
-      baseUrl: active.baseUrl,
-      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
-    });
-  } else {
-    webApiAgentProviderConfigs.delete("onepiece");
-  }
-  const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
-  if (agent) {
-    agent.provider = active?.provider ?? "VaneHub";
-    agent.availabilityState = active?.credentialPresent ? "available" : active ? "needs-auth" : "unavailable";
-    agent.unavailableReason = active?.credentialPresent
-      ? undefined
-      : active
-        ? "OnePiece requires an API key."
-        : "OnePiece requires provider configuration.";
-  }
-}
 
 /** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
  * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
@@ -911,342 +584,6 @@ function createAgentMemory(
   // Saving under an existing name replaces that memory, matching the native store's update path.
   webAgentMemories = [memory, ...webAgentMemories.filter((existing) => existing.name !== name)];
   return memory;
-}
-
-/** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
- * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
- * install (design doc §7.4). */
-let webRetrievalConfiguration: RetrievalConfiguration = {
-  sourceProfileId: null,
-  embeddingModel: null,
-  automaticCodeIndexMode: "disabled",
-};
-
-/** Mock retrieval index status — a single global aggregate, mirroring the real one across every
- * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
- * so a settings UI has something realistic to render before ever calling `rebuildRetrievalIndex`.
- * `lastFailureCategory` is deliberately always `null`: the Web/mock runtime guarantees the same
- * contract shape and observable behavior as the real one, not algorithmic equivalence with the
- * Rust-side failure classification (design doc §7.5). */
-const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
-let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
-
-let nextWebCodeIndexId = 1;
-let nextWebCodeAuditId = 1;
-const webCodeIndexes = new Map<string, CodeIndexWorkspace>();
-let webCodeIndexAudit: CodeIndexAuditEntry[] = [];
-
-function emptyCodeIndexStatus(phase: CodeIndexPhase): CodeIndexStatus {
-  return {
-    phase,
-    totalFiles: 0,
-    processedFiles: 0,
-    failedFiles: 0,
-    totalChunks: 0,
-    processedChunks: 0,
-    pendingChunks: 0,
-    indexedChunks: 0,
-    failedChunks: 0,
-    redactionCount: 0,
-    estimatedEmbeddingRequests: 0,
-    lastFailureCategory: null,
-    updatedAt: nowIso(),
-  };
-}
-
-function cloneCodeIndex(workspace: CodeIndexWorkspace): CodeIndexWorkspace {
-  return structuredClone(workspace);
-}
-
-function requireWebCodeIndex(workspaceId: string): CodeIndexWorkspace {
-  const workspace = webCodeIndexes.get(workspaceId);
-  if (!workspace) throw new Error("Code index workspace was not found.");
-  return workspace;
-}
-
-function updateWebCodeIndexPhase(workspace: CodeIndexWorkspace, phase: CodeIndexPhase) {
-  const status = workspace.status;
-  if (phase === "parsing") {
-    Object.assign(status, {
-      totalFiles: 18, processedFiles: 6, failedFiles: 0,
-      totalChunks: 24, processedChunks: 0, pendingChunks: 24,
-      indexedChunks: 0, failedChunks: 0, redactionCount: 2,
-      estimatedEmbeddingRequests: 1,
-    });
-  } else if (phase === "awaiting_embedding_confirmation") {
-    Object.assign(status, {
-      totalFiles: 18, processedFiles: 18, failedFiles: 0,
-      totalChunks: 54, processedChunks: 0, pendingChunks: 54,
-      indexedChunks: 0, failedChunks: 0, redactionCount: 4,
-      estimatedEmbeddingRequests: 2,
-    });
-  } else if (phase === "ready") {
-    status.processedChunks = status.totalChunks;
-    status.pendingChunks = 0;
-    status.indexedChunks = status.totalChunks;
-    status.failedChunks = 0;
-  }
-  status.phase = phase;
-  status.updatedAt = nowIso();
-}
-
-function recordWebCodeIndexAudit(workspaceId: string, event: CodeIndexAuditEntry["event"]) {
-  webCodeIndexAudit = [{
-    auditId: nextWebCodeAuditId,
-    workspaceId,
-    relativePath: null,
-    event,
-    reason: null,
-    itemCount: 1,
-    createdAt: nowIso(),
-  }, ...webCodeIndexAudit].slice(0, 200);
-  nextWebCodeAuditId += 1;
-}
-
-function discoverWebSessionCodeIndex(session: Session) {
-  const mode = webRetrievalConfiguration.automaticCodeIndexMode;
-  const root = session.worktreePath ?? session.folder ?? session.projectPath;
-  if (session.agentId !== "onepiece" || session.remoteWorkspace || !root || mode === "disabled") {
-    return;
-  }
-  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase();
-  const existing = [...webCodeIndexes.values()].find((workspace) => (
-    workspace.canonicalRoot.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase()
-      === normalizedRoot
-  ));
-  if (existing) return;
-  const displayName = root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
-  const workspace: CodeIndexWorkspace = {
-    workspaceId: `web-code-index-${nextWebCodeIndexId}`,
-    canonicalRoot: root,
-    displayName,
-    origin: "automatic",
-    enabled: true,
-    mode,
-    selectedRoots: [""],
-    languages: [...codeIndexLanguages],
-    exclusionPatterns: [],
-    maxFileBytes: 100 * 1024,
-    indexVersion: "1",
-    generation: 1,
-    status: emptyCodeIndexStatus("scanning"),
-  };
-  nextWebCodeIndexId += 1;
-  webCodeIndexes.set(workspace.workspaceId, workspace);
-}
-
-/** Static catalog, independent of the requested profile — listing embedding models never hits
- * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
-const webEmbeddingModelOptions: EmbeddingModelOption[] = [
-  { id: "text-embedding-3-small", displayName: "text-embedding-3-small" },
-  { id: "text-embedding-3-large", displayName: "text-embedding-3-large" },
-];
-
-const promptHookStorageKey = "vanehub.prompt-hooks.v1";
-const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
-
-const defaultPromptHookBindings: ManagedCliAgentId[] = ["claude-code", "codex-cli", "gemini-cli", "opencode"];
-const promptHookCategories: PromptHookCategory[] = ["bootstrap", "callback", "dynamic", "law", "navigation", "routing", "static"];
-
-const builtinPromptHookSeeds: PromptHook[] = [
-  createBuiltinPromptHook({
-    id: "bootstrap-session-context",
-    name: "Session Context",
-    description: "Adds session and workspace context to each CLI prompt.",
-    category: "bootstrap",
-    stage: "session-init",
-    order: 100,
-    disableable: true,
-    templateBody: "Session context: {{sampleInput}}",
-  }),
-  createBuiltinPromptHook({
-    id: "law-runtime-boundary",
-    name: "Runtime Boundary",
-    description: "Keeps CLI behavior inside VaneHub runtime and permission boundaries.",
-    category: "law",
-    stage: "session-init",
-    order: 200,
-    disableable: false,
-    templateBody: "Respect the active VaneHub runtime, permissions, and project boundaries.",
-  }),
-  createBuiltinPromptHook({
-    id: "static-response-format",
-    name: "Response Format",
-    description: "Sets a concise engineering response baseline.",
-    category: "static",
-    stage: "session-init",
-    order: 300,
-    disableable: true,
-    templateBody: "Use direct, actionable engineering responses with concise verification notes.",
-  }),
-  createBuiltinPromptHook({
-    id: "dynamic-session-config",
-    name: "Session Configuration",
-    description: "Summarizes active session configuration for the selected CLI.",
-    category: "dynamic",
-    stage: "per-turn",
-    order: 400,
-    disableable: true,
-    templateBody: "Active CLI: {{agentId}}. User request follows after the hook context.",
-  }),
-  createBuiltinPromptHook({
-    id: "navigation-project-hints",
-    name: "Project Navigation",
-    description: "Encourages grounded project inspection before code changes.",
-    category: "navigation",
-    stage: "per-turn",
-    order: 500,
-    disableable: true,
-    templateBody: "Inspect relevant project files and existing patterns before making changes.",
-  }),
-  createBuiltinPromptHook({
-    id: "routing-cli-capabilities",
-    name: "CLI Capability Routing",
-    description: "Keeps behavior aligned with the selected CLI agent capabilities.",
-    category: "routing",
-    stage: "per-turn",
-    order: 600,
-    disableable: true,
-    templateBody: "Route work through capabilities available to {{agentId}}.",
-  }),
-  createBuiltinPromptHook({
-    id: "callback-future-channel",
-    name: "Callback Channel Placeholder",
-    description: "Reserved placeholder for future callback-aware workflows.",
-    category: "callback",
-    stage: "per-turn",
-    order: 700,
-    disableable: true,
-    enabled: false,
-    templateBody: "Callback channel support is not active in this runtime.",
-  }),
-];
-
-let memoryPromptHooks: Record<string, PromptHook> = {};
-let memoryPromptTraces: PromptHookTraceSummary[] = [];
-
-const webCliTools: CliToolStatus[] = [
-  {
-    agentId: "claude-code",
-    displayName: "Anthropic Claude Code CLI",
-    provider: "Anthropic",
-    executableName: "claude",
-    packageName: "@anthropic-ai/claude-code",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://claude.ai/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g @anthropic-ai/claude-code@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "codex-cli",
-    displayName: "OpenAI Codex CLI",
-    provider: "OpenAI",
-    executableName: "codex",
-    packageName: "@openai/codex",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "npm install -g @openai/codex@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "gemini-cli",
-    displayName: "Google Gemini CLI",
-    provider: "Google",
-    executableName: "gemini",
-    packageName: "@google/gemini-cli",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "npm install -g @google/gemini-cli@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "opencode",
-    displayName: "OpenCode CLI",
-    provider: "OpenCode",
-    executableName: "opencode",
-    packageName: "opencode-ai",
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://opencode.ai/install && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g opencode-ai@latest",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-  {
-    agentId: "antigravity-cli",
-    displayName: "Google Antigravity CLI",
-    provider: "Google",
-    executableName: "agy",
-    // Distributed only by installer script, so there is no package to name.
-    packageName: null,
-    installed: null,
-    currentVersion: null,
-    latestVersion: null,
-    availableVersions: [],
-    detectedPath: null,
-    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://antigravity.google/cli/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status'",
-    lastCheckedAt: null,
-    lastError: webLocalCliDetectionMessage(),
-    lastOperationId: null,
-    versionCheckStatus: "unsupported",
-    environmentType: "unknown",
-    installations: [],
-    activeInstallationPath: null,
-    conflictState: "none",
-    lifecycleEligibility: "unavailable",
-  },
-];
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function daysAgoIso(days: number) {
-  const value = new Date();
-  value.setDate(value.getDate() - days);
-  return value.toISOString();
 }
 
 const representativeUsageRecords: UsageRecord[] = [
@@ -1369,32 +706,6 @@ function upsertKnownRemoteWorkspace(remoteWorkspace: RemoteWorkspace) {
   return known;
 }
 
-function normalizeWebPath(value: string, label: string) {
-  const raw = value.trim().replaceAll("\\", "/");
-  if (!raw) throw new Error(`${label} is required`);
-  const drive = raw.match(/^[a-zA-Z]:/)?.[0];
-  const absolute = raw.startsWith("/") || Boolean(drive);
-  const remainder = drive ? raw.slice(drive.length) : raw;
-  const segments: string[] = [];
-  for (const segment of remainder.split("/")) {
-    if (!segment || segment === ".") continue;
-    if (segment === "..") {
-      if (segments.length > 0 && segments.at(-1) !== "..") segments.pop();
-      else if (!absolute) segments.push(segment);
-      continue;
-    }
-    segments.push(segment);
-  }
-  const prefix = drive ? drive.toUpperCase() : raw.startsWith("/") ? "/" : "";
-  const normalized = `${prefix}${prefix && prefix !== "/" && segments.length > 0 ? "/" : ""}${segments.join("/")}`;
-  if (!normalized) throw new Error(`${label} is required`);
-  return normalized;
-}
-
-function normalizeWebSkillLocation(input: SkillScopeInput): SkillScopeInput {
-  if (input.scope === "global") return { scope: "global", workspacePath: null };
-  return { scope: "workspace", workspacePath: normalizeWebPath(input.workspacePath ?? "", "Workspace path") };
-}
 
 function validateWebSkillMetadata(metadata: SkillMetadata) {
   if (!/^(?!-)[a-z0-9-]+(?<!-)$/.test(metadata.id)) {
@@ -1724,201 +1035,6 @@ function createMessageId() {
   return id;
 }
 
-function createBuiltinPromptHook(input: {
-  id: string;
-  name: string;
-  description: string;
-  category: PromptHookCategory;
-  stage: PromptHook["stage"];
-  order: number;
-  disableable: boolean;
-  templateBody: string;
-  enabled?: boolean;
-}): PromptHook {
-  return {
-    id: input.id,
-    name: input.name,
-    description: input.description,
-    category: input.category,
-    stage: input.stage,
-    order: input.order,
-    version: 1,
-    source: "builtin",
-    enabled: input.enabled ?? true,
-    disableable: input.disableable,
-    cliBindings: [...defaultPromptHookBindings],
-    governance: {
-      safetyTier: "readonly",
-      transparencyTier: input.disableable ? "opt-in-view" : "visible-by-default",
-      governanceTier: input.disableable ? "human-gated" : "immutable",
-    },
-    templateBody: input.templateBody,
-    createdAt: "2026-07-18T00:00:00.000Z",
-    updatedAt: "2026-07-18T00:00:00.000Z",
-  };
-}
-
-function isManagedCliAgentId(value: string): value is ManagedCliAgentId {
-  return managedCliAgentIds.includes(value as ManagedCliAgentId);
-}
-
-function validatePromptHookInput(input: PromptHookMutationInput | PromptHookUpdateInput) {
-  if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(input.id)) {
-    throw new Error("Invalid Prompt Hook id");
-  }
-  if (!input.name.trim()) throw new Error("Prompt Hook name is required");
-  if (!promptHookCategories.includes(input.category)) throw new Error("Unsupported Prompt Hook category");
-  if (input.stage !== "session-init" && input.stage !== "per-turn") throw new Error("Unsupported Prompt Hook stage");
-  if (!Number.isFinite(input.order) || input.order < 0) throw new Error("Invalid Prompt Hook order");
-  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(input.templateBody)) {
-    throw new Error("Prompt Hook content contains unsupported control characters");
-  }
-  if (!input.cliBindings.every(isManagedCliAgentId)) throw new Error("Unsupported Prompt Hook CLI binding");
-}
-
-function readStoredPromptHooks(): Record<string, PromptHook> {
-  if (typeof localStorage === "undefined") return memoryPromptHooks;
-  const raw = localStorage.getItem(promptHookStorageKey);
-  if (!raw) return memoryPromptHooks;
-  try {
-    return JSON.parse(raw) as Record<string, PromptHook>;
-  } catch {
-    return memoryPromptHooks;
-  }
-}
-
-function writeStoredPromptHooks(value: Record<string, PromptHook>) {
-  memoryPromptHooks = value;
-  if (typeof localStorage !== "undefined") localStorage.setItem(promptHookStorageKey, JSON.stringify(value));
-}
-
-function readPromptHookTraces(): PromptHookTraceSummary[] {
-  if (typeof localStorage === "undefined") return memoryPromptTraces;
-  const raw = localStorage.getItem(promptHookTraceStorageKey);
-  if (!raw) return memoryPromptTraces;
-  try {
-    return JSON.parse(raw) as PromptHookTraceSummary[];
-  } catch {
-    return memoryPromptTraces;
-  }
-}
-
-function writePromptHookTraces(value: PromptHookTraceSummary[]) {
-  memoryPromptTraces = value.slice(0, 50);
-  if (typeof localStorage !== "undefined") localStorage.setItem(promptHookTraceStorageKey, JSON.stringify(memoryPromptTraces));
-}
-
-function listEffectivePromptHooks(): PromptHook[] {
-  const stored = readStoredPromptHooks();
-  const builtins = builtinPromptHookSeeds.map((hook) => stored[hook.id] ?? hook);
-  const userHooks = Object.values(stored).filter((hook) => hook.source === "user");
-  return [...builtins, ...userHooks].sort((left, right) => {
-    if (left.stage !== right.stage) return left.stage.localeCompare(right.stage);
-    if (left.category !== right.category) return left.category.localeCompare(right.category);
-    return left.order - right.order || left.id.localeCompare(right.id);
-  });
-}
-
-function promptHookStats(hooks: PromptHook[]): PromptHookListResult["stats"] {
-  return {
-    total: hooks.length,
-    enabled: hooks.filter((hook) => hook.enabled).length,
-    builtin: hooks.filter((hook) => hook.source === "builtin").length,
-    user: hooks.filter((hook) => hook.source === "user").length,
-  };
-}
-
-function renderPromptHookTemplate(template: string, input: { agentId: ManagedCliAgentId; sampleInput: string }) {
-  const agentName = mockAgents.find((agent) => agent.id === input.agentId)?.displayName ?? input.agentId;
-  return renderWebPromptHookTemplate(template, {
-    agentId: input.agentId,
-    agentName,
-    currentTime: nowIso(),
-    sampleInput: input.sampleInput,
-    sessionId: "session-preview",
-  });
-}
-
-function promptHookHash(content: string) {
-  let hash = 5381;
-  for (let index = 0; index < content.length; index += 1) {
-    hash = (hash * 33) ^ content.charCodeAt(index);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-function traceForHook(hook: PromptHook, status: PromptHookTraceSummary["status"], content: string | null, agentId: ManagedCliAgentId, reason?: string): PromptHookTraceSummary {
-  return {
-    id: `web-prompt-trace-${Date.now()}-${hook.id}`,
-    hookId: hook.id,
-    category: hook.category,
-    stage: hook.stage,
-    status,
-    version: status === "fired" ? hook.version : undefined,
-    contentHash: content ? promptHookHash(content) : undefined,
-    tokenEstimate: content ? Math.ceil(content.length / 4) : undefined,
-    reason,
-    agentId,
-    createdAt: nowIso(),
-  };
-}
-
-function assemblePromptHooks(input: PromptAssemblyPreviewInput): PromptHookPreview {
-  const traces: PromptHookTraceSummary[] = [];
-  const rendered: string[] = [];
-  for (const hook of listEffectivePromptHooks()) {
-    if (hook.source === "user" && hook.version <= 0) {
-      traces.push(traceForHook(hook, "skipped", null, input.agentId, "unpublished"));
-      continue;
-    }
-    if (!hook.enabled) {
-      traces.push(traceForHook(hook, "disabled", null, input.agentId, "disabled"));
-      continue;
-    }
-    if (!hook.cliBindings.includes(input.agentId)) {
-      traces.push(traceForHook(hook, "skipped", null, input.agentId, "unbound-cli"));
-      continue;
-    }
-    const content = renderPromptHookTemplate(hook.templateBody ?? "", {
-      agentId: input.agentId,
-      sampleInput: input.sampleInput,
-    });
-    rendered.push(content);
-    traces.push(traceForHook(hook, "fired", content, input.agentId));
-  }
-  const renderedContent = [...rendered, input.sampleInput].filter(Boolean).join("\n\n");
-  writePromptHookTraces([...traces, ...readPromptHookTraces()]);
-  return { agentId: input.agentId, renderedContent, trace: traces };
-}
-
-function mutationToPromptHook(input: PromptHookMutationInput): PromptHook {
-  validatePromptHookInput(input);
-  const timestamp = nowIso();
-  return {
-    id: input.id,
-    name: input.name.trim(),
-    description: input.description.trim(),
-    category: input.category,
-    stage: input.stage,
-    order: input.order,
-    version: 1,
-    source: "user",
-    enabled: input.enabled,
-    disableable: true,
-    cliBindings: [...input.cliBindings],
-    governance: input.governance,
-    templateBody: input.templateBody,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-}
-
-function findPromptHook(hookId: string) {
-  const hook = listEffectivePromptHooks().find((candidate) => candidate.id === hookId);
-  if (!hook) throw new Error(`Prompt Hook not found: ${hookId}`);
-  return hook;
-}
-
 function getSessionMessages(sessionId: string) {
   return messagesBySession.get(sessionId) ?? [];
 }
@@ -2155,29 +1271,6 @@ function createWebSeatId() {
   return seatId;
 }
 
-function findScheduledTask(taskId: string) {
-  const task = scheduledTasks.find((candidate) => candidate.id === taskId);
-  if (!task) throw new Error(`Scheduled task not found: ${taskId}`);
-  return task;
-}
-
-function cloneScheduledTask(task: ScheduledTask): ScheduledTask {
-  return { ...task, frequency: { ...task.frequency } };
-}
-
-function validateScheduledTaskInput(input: CreateScheduledTaskInput) {
-  const name = input.name.trim();
-  const content = input.content.trim();
-  if (!name) throw new Error("Scheduled task name is required.");
-  if (!content) throw new Error("Scheduled task content is required.");
-  const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
-  if (!agent || (agent.id !== "onepiece" && !agent.supportedInteractionModes.includes("cli"))) {
-    throw new Error(`Unsupported Agent: ${input.agentId}`);
-  }
-  validateScheduledTaskFrequency(input.frequency);
-  return { name, content };
-}
-
 function cloneLoopValue<T>(value: T): T {
   return structuredClone(value);
 }
@@ -2277,43 +1370,6 @@ export function resetWebLoopsForTest() {
   nextLoopDefinitionId = 1;
   nextLoopRunId = 1;
   nextLoopEvidenceId = 1;
-}
-
-export function resetWebRetrievalForTest() {
-  webRetrievalConfiguration = {
-    sourceProfileId: null,
-    embeddingModel: null,
-    automaticCodeIndexMode: "disabled",
-  };
-  webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
-  nextWebCodeIndexId = 1;
-  nextWebCodeAuditId = 1;
-  webCodeIndexes.clear();
-  webCodeIndexAudit = [];
-}
-
-export function resetWebEvidenceForTest() {
-  purgedEvidenceScopes.clear();
-}
-
-export function searchWebCodeIndex(workspaceId: string, query: string) {
-  const workspace = requireWebCodeIndex(workspaceId);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const includesSourceRoot = workspace.selectedRoots.some((root) => root === "" || root === "src");
-  const sourceExcluded = workspace.exclusionPatterns.some((pattern) => pattern === "src/**" || pattern === "**/*.ts");
-  if (workspace.status.phase !== "ready" || !workspace.languages.includes("typescript")
-    || !includesSourceRoot || sourceExcluded || normalizedQuery !== "handle_login") return [];
-  if (workspace.canonicalRoot.toLocaleLowerCase().includes("second")) return [];
-  return [{
-    filePath: "src/auth.ts",
-    startLine: 12,
-    endLine: 20,
-    language: "typescript",
-    symbolName: "handle_login",
-    symbolKind: "function",
-    snippet: "export async function handle_login(request: Request) { /* redacted */ }",
-    matchedVia: workspace.mode === "local" ? "keyword" : "hybrid",
-  }];
 }
 
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
@@ -2793,49 +1849,22 @@ function webRunRunner(descriptor: AgentRunnerDescriptor): NonNullable<AgentRun["
   };
 }
 
-const webEvaluationTasks: EvaluationTask[] = [
-  { id: "fix-null-auth-token", version: 1, category: "bugfix", prompt: "Fix null authentication token handling.", timeoutSeconds: 120, verifierProfiles: ["npm-test", "static-files"] },
-  { id: "add-parser-test", version: 1, category: "tests", prompt: "Add deterministic parser tests.", timeoutSeconds: 120, verifierProfiles: ["npm-test"] },
-  { id: "refactor-search", version: 1, category: "refactor", prompt: "Refactor search without changing ordering.", timeoutSeconds: 180, verifierProfiles: ["cargo-test"] },
-];
-let webEvaluationArenas: EvaluationArena[] = [];
-
-function webEvaluationAttempt(arenaId: string, task: EvaluationTask, agentId: string, index: number) {
-  const succeeded = index === 0;
-  return {
-    id: `${arenaId}-attempt-${index + 1}`, arenaId, canonicalRunId: `${arenaId}-run-${index + 1}`,
-    taskId: task.id, taskVersion: task.version,
-    agent: { agentId, providerId: agentId === "onepiece" ? "onepiece" : "managed-cli", modelId: agentId === "onepiece" ? "mock-local" : null, interactionMode: agentId === "onepiece" ? "api" : "cli", configurationFingerprint: `mock-${agentId}-v1` },
-    outcome: succeeded ? "succeeded" as const : "task_failed" as const,
-    checks: [{ checkId: "deterministic-tests", passed: succeeded, summary: succeeded ? "42/42" : "41/42" }],
-    metrics: [
-      { name: "wall_time", value: 12 + index, unit: "seconds", quality: "reported" as const, source: "runtime" },
-      { name: "tool_calls", value: 5 + index, unit: "count", quality: "reported" as const, source: "runtime" },
-      { name: "input_tokens", value: index === 0 ? 820 : null, unit: "tokens", quality: index === 0 ? "reported" as const : "unavailable" as const, source: "provider" },
-    ],
-    contextEvidenceManifestId: index === 0 ? "mock-context-evidence-v1" : null, artifactIds: [`${arenaId}-diff-${index + 1}`],
-    timeline: [
-      { id: "prepare", kind: "lifecycle" as const, label: "Clean fixture prepared", status: "completed" },
-      { id: "tool", kind: "tool" as const, label: "Patch applied", status: "completed" },
-      { id: "verify", kind: "verification" as const, label: "Deterministic verification", status: succeeded ? "passed" : "failed" },
-    ],
-  };
-}
-
 export const webAgentClient: AgentService = {
-  async listEvaluationTasks() { return structuredClone(webEvaluationTasks); },
-  async startEvaluation(input) {
-    const task = webEvaluationTasks.find((item) => item.id === input.taskId && item.version === input.taskVersion);
-    if (!task || input.agentIds.length === 0 || input.agentIds.length > 8) throw new Error("Invalid evaluation configuration");
-    const id = `web-eval-${webEvaluationArenas.length + 1}`;
-    const arena: EvaluationArena = { id, operationId: `${id}-operation`, taskId: task.id, taskVersion: task.version, rankingVersion: "deterministic-v1", attempts: input.agentIds.map((agentId, index) => webEvaluationAttempt(id, task, agentId, index)) };
-    webEvaluationArenas = [arena, ...webEvaluationArenas]; return structuredClone(arena);
-  },
-  async listEvaluationArenas() { return structuredClone(webEvaluationArenas); },
-  async getEvaluationArena(arenaId) { const arena = webEvaluationArenas.find((item) => item.id === arenaId); if (!arena) throw new Error("Evaluation not found"); return structuredClone(arena); },
-  async cancelEvaluation(arenaId) { const arena = await this.getEvaluationArena(arenaId); const cancelled = { ...arena, attempts: arena.attempts.map((attempt) => ["queued", "running"].includes(attempt.outcome) ? { ...attempt, outcome: "cancelled" as const } : attempt) }; webEvaluationArenas = webEvaluationArenas.map((item) => item.id === arenaId ? cancelled : item); return structuredClone(cancelled); },
-  async getEvaluationAttempt(attemptId) { for (const arena of webEvaluationArenas) { const attempt = arena.attempts.find((item) => item.id === attemptId); if (attempt) return structuredClone(attempt); } throw new Error("Evaluation attempt not found"); },
-  async exportEvaluation(arenaId) { return { schemaVersion: 1, arena: await this.getEvaluationArena(arenaId) }; },
+  ...webEvaluationClient,
+  ...webPromptHookClient,
+  ...webApiAgentClient,
+  ...webOnePieceProviderClient,
+  ...webOnePieceProfileClient,
+  ...webHybridRoutingClient,
+  ...webCodeIndexClient,
+  ...webCliToolClient,
+  ...webCliParameterClient,
+  ...webCliConfigClient,
+  ...webScheduledTaskClient,
+  ...webContextQualityClient,
+  ...webSkillGovernanceClient,
+  ...webSkillEvidenceClient,
+  ...webAgentRegistryClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
   saveDesktopUpdatePreferences: webDesktopUpdateClient.savePreferences,
@@ -2904,477 +1933,6 @@ export const webAgentClient: AgentService = {
     if (input.action === "verify") return { run: webMissionSummary(current), operationId: `web-verification-${current.id}` };
     throw new Error("mission control action is unsupported");
   },
-  async openExternalUrl(url) {
-    const target = requireHttpsExternalUrl(url);
-    const opened = window.open(target, "_blank", "noopener,noreferrer");
-    if (!opened) throw new Error("The browser blocked the external link.");
-  },
-  async listAgents(capabilityTag) {
-    return capabilityTag
-      ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
-      : mockAgents;
-  },
-
-  async listContextQualityHistory(input) {
-    return listWebContextQualityHistory(input);
-  },
-
-  async getContextQualitySummary(input) {
-    return getWebContextQualitySummary(input);
-  },
-
-  async listContextEvidenceManifests(input) {
-    const manifest = {
-      sessionId: input.sessionId ?? "web-context-session",
-      turnId: "web-context-turn",
-      generationId: "web-context-generation",
-      policyVersion: "context-engine-v1",
-      evidenceBudget: 4096,
-      occupiedTokens: 768,
-      selected: [{ id: "web-definition", sourceKind: "retrieval", sourceRef: "src/example.ts", startLine: 12, endLine: 28, symbol: "example", tokenEstimate: 512, reasonCodes: ["semantic-match", "symbol-relation"] }],
-      rejected: [{ id: "web-memory", reasonCode: "budget-rejected" }],
-      sourceOutcomes: { retrieval: "ready" as const, lsp: "unavailable" as const },
-      duplicateTokensSaved: 256,
-      collectionLatencyBucket: "under-50ms",
-      rankingLatencyBucket: "under-10ms",
-      compactionTriggered: false,
-      runtime: "web-mock" as const,
-    };
-    return { items: input.cursor ? [] : [manifest], nextCursor: null };
-  },
-
-  async getContextEvidenceManifest(generationId) {
-    const page = await this.listContextEvidenceManifests({ cursor: null, limit: 1 });
-    return page.items.find((item) => item.generationId === generationId) ?? null;
-  },
-
-  async registerApiAgent(input: RegisterApiAgentInput) {
-    const displayName = input.displayName.trim();
-    const provider = input.provider.trim();
-    const apiKey = input.apiKey.trim();
-    const modelId = input.modelId.trim();
-    const runtimeKind = input.runtimeKind ?? "cloud";
-    const authenticationMode = input.authenticationMode ?? "required";
-    const privacyClassification = input.privacyClassification ?? "cloud";
-    const timeoutMs = input.timeoutMs ?? 30_000;
-    if (!displayName || !provider || !modelId
-      || (authenticationMode === "required" && !apiKey)
-      || (authenticationMode === "none" && Boolean(apiKey))) {
-      throw new Error(i18n.t("agents.registerApiAgent.errors.incomplete"));
-    }
-    const baseUrl = input.baseUrl?.trim() || null;
-    if (input.interfaceFormat === "openai-compatible" && !baseUrl) {
-      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
-    }
-    if (input.interfaceFormat !== "openai-compatible" && authenticationMode !== "required") {
-      throw new Error("Only OpenAI-compatible endpoints can use optional authentication.");
-    }
-    let loopback = false;
-    if (baseUrl) {
-      try {
-        loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(baseUrl).hostname);
-      } catch {
-        throw new Error("The API endpoint configuration is invalid or unsafe.");
-      }
-    }
-    if (runtimeKind !== privacyClassification || (runtimeKind === "local" && !loopback)
-      || (runtimeKind === "cloud" && authenticationMode !== "required")
-      || timeoutMs < 100 || timeoutMs > 120_000) {
-      throw new Error("The API endpoint configuration is invalid or unsafe.");
-    }
-    const baseId = slugify(displayName) || "api-agent";
-    let candidateId = baseId;
-    let suffix = 2;
-    while (mockAgents.some((agent) => agent.id === candidateId)) {
-      candidateId = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-    const entry: AgentRegistryEntry = {
-      id: candidateId,
-      displayName,
-      provider,
-      launch: { kind: "api" },
-      supportedInteractionModes: ["api"],
-      availabilityState: "available",
-      capabilityTags: ["api"],
-      agentOrigin: "user",
-    };
-    mockAgents.push(entry);
-    webApiAgentProviderConfigs.set(candidateId, {
-      modelId,
-      interfaceFormat: input.interfaceFormat,
-      baseUrl,
-      autoApproveTools: false,
-    });
-    return entry;
-  },
-
-  async getApiAgentProviderConfig(agentId: string) {
-    return webApiAgentProviderConfigs.get(agentId) ?? null;
-  },
-
-  async getOnePieceProviderConfig() {
-    return { ...webOnePieceProviderConfig };
-  },
-
-  async saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput) {
-    const provider = input.provider.trim();
-    const modelId = input.modelId.trim();
-    const baseUrl = input.baseUrl?.trim() || null;
-    if (!provider || !modelId) throw new Error("Provider and model are required.");
-    if (input.interfaceFormat === "openai-compatible" && !baseUrl) {
-      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
-    }
-    const hasReplacement = Boolean(input.apiKey?.trim());
-    if (input.apiKey != null && !hasReplacement) throw new Error("API key cannot be empty.");
-    if (!hasReplacement && !webOnePieceProviderConfig.credentialPresent) {
-      throw new Error("API key is required for the first OnePiece configuration.");
-    }
-    webOnePieceProviderConfig = {
-      provider,
-      modelId,
-      interfaceFormat: input.interfaceFormat,
-      baseUrl: input.interfaceFormat === "anthropic" ? null : baseUrl,
-      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
-      credentialPresent: hasReplacement || webOnePieceProviderConfig.credentialPresent,
-    };
-    webApiAgentProviderConfigs.set("onepiece", {
-      modelId,
-      interfaceFormat: input.interfaceFormat,
-      baseUrl: webOnePieceProviderConfig.baseUrl,
-      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
-    });
-    const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
-    if (agent) {
-      agent.provider = provider;
-      agent.availabilityState = "available";
-      agent.unavailableReason = undefined;
-    }
-    return { ...webOnePieceProviderConfig };
-  },
-
-  async resetOnePieceProviderConfig() {
-    webOnePieceProviderProfiles = { profiles: [], activeProfileId: null };
-    webEndpointProfileMetadata.clear();
-    webHybridRoutingRules = [];
-    webOnePieceProviderConfig = {
-      provider: "VaneHub",
-      modelId: null,
-      interfaceFormat: null,
-      baseUrl: null,
-      autoApproveTools: false,
-      credentialPresent: false,
-    };
-    webApiAgentProviderConfigs.delete("onepiece");
-    const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
-    if (agent) {
-      agent.provider = "VaneHub";
-      agent.availabilityState = "unavailable";
-      agent.unavailableReason = "OnePiece requires provider configuration.";
-    }
-    return { ...webOnePieceProviderConfig };
-  },
-
-  async listOnePieceProviderProfiles() {
-    return structuredClone(webOnePieceProviderProfiles);
-  },
-
-  async listOnePieceProviderPresets() {
-    return getOnePieceProviderPresets();
-  },
-
-  async discoverOnePieceProviderModels(input) {
-    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
-    if (!preset) throw new Error("OnePiece provider preset was not found.");
-    const profile = input.profileId
-      ? webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === input.profileId)
-      : undefined;
-    if (input.profileId && !profile) throw new Error("OnePiece provider profile was not found.");
-    if (profile && (profile.sourceProviderId !== input.providerId || profile.sourceEndpointType !== input.endpointType)) {
-      throw new Error("The OnePiece profile does not belong to the selected provider.");
-    }
-    if (!input.apiKey?.trim() && !profile?.credentialPresent) {
-      throw new Error("API key is required to fetch models for this OnePiece provider.");
-    }
-    const ids = [profile?.modelId, ...preset.fallbackModels]
-      .filter((value): value is string => Boolean(value));
-    return {
-      providerId: input.providerId,
-      endpointType: input.endpointType,
-      models: [...new Set(ids)].map((id) => ({
-        id,
-        displayName: id,
-        source: id === profile?.modelId ? "profile" as const : "catalog" as const,
-      })),
-      source: "catalog" as const,
-      warning: null,
-    };
-  },
-
-  async validateOnePieceProviderCredential(input) {
-    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
-    if (!preset) throw new Error("OnePiece provider preset was not found.");
-    const profile = input.profileId
-      ? webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === input.profileId)
-      : undefined;
-    if (input.profileId && !profile) throw new Error("OnePiece provider profile was not found.");
-    if (profile && (profile.sourceProviderId !== input.providerId || profile.sourceEndpointType !== input.endpointType)) {
-      throw new Error("The OnePiece profile does not belong to the selected provider.");
-    }
-    if (!input.modelId.trim()) throw new Error("A model is required to verify the API key.");
-    const credential = input.apiKey?.trim();
-    if (!credential && !profile?.credentialPresent) throw new Error("API key is required to verify this provider.");
-    const status = credential === "web-invalid"
-      ? "invalid-credential" as const
-      : credential === "web-rate-limited"
-        ? "rate-limited" as const
-        : credential === "web-unavailable"
-          ? "provider-unavailable" as const
-          : "valid" as const;
-    return { status, latencyMs: 12, httpStatus: status === "valid" ? 200 : status === "invalid-credential" ? 401 : status === "rate-limited" ? 429 : null };
-  },
-
-  async saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput) {
-    const name = input.name.trim();
-    const modelId = input.modelId.trim();
-    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
-    if (!preset) {
-      throw new Error("OnePiece provider preset was not found.");
-    }
-    if (!name || !modelId) {
-      throw new Error("Profile name and model are required.");
-    }
-    const existing = input.id
-      ? webOnePieceProviderProfiles.profiles.find((profile) => profile.id === input.id)
-      : undefined;
-    if (existing?.sourceProviderId && (existing.sourceProviderId !== input.providerId || existing.sourceEndpointType !== input.endpointType)) {
-      throw new Error("The provider of an existing OnePiece Profile cannot be changed.");
-    }
-    const credentialPresent = Boolean(input.apiKey?.trim()) || Boolean(existing?.credentialPresent);
-    if (!credentialPresent) {
-      throw new Error("API key is required for a new OnePiece provider Profile.");
-    }
-    const id = existing?.id ?? `onepiece-profile-${nextOnePieceProviderProfileId++}`;
-    const active = existing?.active ?? webOnePieceProviderProfiles.profiles.length === 0;
-    const profile = {
-      id,
-      name,
-      sourceProviderId: input.providerId,
-      sourceEndpointType: input.endpointType,
-      sourcePresetVersion: preset.catalogVersion,
-      provider: preset.provider,
-      modelId,
-      interfaceFormat: preset.interfaceFormat,
-      baseUrl: preset.baseUrl,
-      active,
-      credentialPresent,
-    };
-    webOnePieceProviderProfiles = {
-      activeProfileId: webOnePieceProviderProfiles.activeProfileId,
-      profiles: existing
-        ? webOnePieceProviderProfiles.profiles.map((candidate) => candidate.id === id ? profile : candidate)
-        : [...webOnePieceProviderProfiles.profiles, profile],
-    };
-    webEndpointProfileMetadata.set(id, {
-      profileId: id,
-      runtimeKind: "cloud",
-      endpointSource: "catalog",
-      authenticationMode: "required",
-      timeoutMs: 30_000,
-      privacyClassification: "cloud",
-      textGenerationCapability: "supported",
-      toolCallingCapability: "unknown",
-      imageInputCapability: "unknown",
-      structuredOutputCapability: "unknown",
-      reasoningFieldCapability: "unknown",
-      capabilityProvenance: "configured",
-      contextWindowTokens: null,
-      reservedOutputTokens: 0,
-      contextCapacityProvenance: "unknown",
-    });
-    if (active) applyWebOnePieceActiveProfile(id);
-    return structuredClone(webOnePieceProviderProfiles);
-  },
-
-  async saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput) {
-    const name = input.name.trim();
-    const modelId = input.modelId.trim();
-    const baseUrl = input.baseUrl.trim().replace(/\/$/, "");
-    let parsed: URL;
-    try {
-      parsed = new URL(baseUrl);
-    } catch {
-      throw new Error("The custom endpoint Profile is invalid or unsafe.");
-    }
-    if (!name || !modelId || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
-      throw new Error("The custom endpoint Profile is invalid or unsafe.");
-    }
-    const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(parsed.hostname);
-    if ((input.runtimeKind === "local" && !loopback) || input.privacyClassification !== input.runtimeKind) {
-      throw new Error("The custom endpoint Profile is invalid or unsafe.");
-    }
-    const credentialPresent = Boolean(input.apiKey?.trim());
-    if ((input.authenticationMode === "required" && !credentialPresent)
-      || (input.authenticationMode === "none" && credentialPresent)
-      || input.timeoutMs < 100 || input.timeoutMs > 120_000
-      || (input.contextWindowTokens == null && input.reservedOutputTokens !== 0)
-      || (input.contextWindowTokens != null && (input.contextWindowTokens < 1_024 || input.reservedOutputTokens >= input.contextWindowTokens))) {
-      throw new Error("The custom endpoint Profile is invalid or unsafe.");
-    }
-    const existing = input.id
-      ? webOnePieceProviderProfiles.profiles.find((profile) => profile.id === input.id)
-      : undefined;
-    if (existing?.sourceProviderId) throw new Error("A catalog Profile cannot be converted to a custom endpoint.");
-    const id = existing?.id ?? `onepiece-profile-${nextOnePieceProviderProfileId++}`;
-    const active = existing?.active ?? webOnePieceProviderProfiles.profiles.length === 0;
-    const profile = {
-      id,
-      name,
-      sourceProviderId: null,
-      sourceEndpointType: null,
-      sourcePresetVersion: null,
-      provider: input.runtimeKind === "local" ? "Local endpoint" : "Private endpoint",
-      modelId,
-      interfaceFormat: "openai-compatible" as const,
-      baseUrl,
-      active,
-      credentialPresent: input.authenticationMode === "none" ? false : credentialPresent || Boolean(existing?.credentialPresent),
-    };
-    webOnePieceProviderProfiles = {
-      activeProfileId: active ? id : webOnePieceProviderProfiles.activeProfileId,
-      profiles: existing
-        ? webOnePieceProviderProfiles.profiles.map((candidate) => candidate.id === id ? profile : candidate)
-        : [...webOnePieceProviderProfiles.profiles, profile],
-    };
-    webEndpointProfileMetadata.set(id, {
-      profileId: id,
-      runtimeKind: input.runtimeKind,
-      endpointSource: "configured",
-      authenticationMode: input.authenticationMode,
-      timeoutMs: input.timeoutMs,
-      privacyClassification: input.privacyClassification,
-      textGenerationCapability: "supported",
-      toolCallingCapability: input.toolCallingCapability,
-      imageInputCapability: input.imageInputCapability,
-      structuredOutputCapability: input.structuredOutputCapability,
-      reasoningFieldCapability: input.reasoningFieldCapability,
-      capabilityProvenance: "configured",
-      contextWindowTokens: input.contextWindowTokens,
-      reservedOutputTokens: input.reservedOutputTokens,
-      contextCapacityProvenance: input.contextWindowTokens == null ? "unknown" : "configured-estimate",
-    });
-    if (active) applyWebOnePieceActiveProfile(id);
-    return structuredClone(webOnePieceProviderProfiles);
-  },
-
-  async getEndpointProfileMetadata(profileId: string) {
-    return structuredClone(webEndpointProfileMetadata.get(profileId) ?? null);
-  },
-
-  async discoverLocalModelEndpoints(): Promise<LocalModelDiscoveryResult> {
-    return {
-      operationId: "web-local-discovery-simulated",
-      candidates: [{
-        service: "ollama",
-        baseUrl: "http://127.0.0.1:11434",
-        models: ["web-simulated-local-model"],
-        metadataProvenance: "verified",
-        latencyBucket: "simulated",
-      }],
-    };
-  },
-
-  async verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number) {
-    if (!baseUrl.trim() || timeoutMs < 100 || timeoutMs > 120_000) throw new Error("Invalid endpoint verification request.");
-    return {
-      operationId: "web-local-verification-simulated",
-      candidates: [{
-        service: "openai-compatible",
-        baseUrl: baseUrl.trim().replace(/\/$/, ""),
-        models: ["web-simulated-local-model"],
-        metadataProvenance: "verified" as const,
-        latencyBucket: "simulated",
-      }],
-    };
-  },
-
-  async listHybridRoutingRules() {
-    return structuredClone(webHybridRoutingRules);
-  },
-
-  async replaceHybridRoutingRules(rules: HybridRoutingRule[]) {
-    if (rules.some((rule, index) => rule.orderIndex !== index
-      || !webOnePieceProviderProfiles.profiles.some((profile) => profile.id === rule.preferredProfileId))) {
-      throw new Error("Hybrid Routing rules are invalid or reference missing Profiles.");
-    }
-    webHybridRoutingRules = structuredClone(rules);
-    return structuredClone(webHybridRoutingRules);
-  },
-
-  async previewHybridRoute(input: HybridRoutePreviewInput) {
-    const rule = input.hybridEnabled
-      ? webHybridRoutingRules.find((candidate) => candidate.enabled && candidate.taskClass === input.taskClass)
-      : undefined;
-    const ids = rule ? [rule.preferredProfileId, rule.fallbackProfileId] : [input.activeProfileId];
-    const selected = ids
-      .filter((id): id is string => Boolean(id))
-      .map((id) => ({ profile: webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === id), metadata: webEndpointProfileMetadata.get(id) }))
-      .find(({ profile, metadata }) => profile && metadata
-        && (input.dataPolicy !== "local-only" || metadata.runtimeKind === "local")
-        && (!input.requiresTools || metadata.toolCallingCapability === "supported")
-        && (!input.requiresImageInput || metadata.imageInputCapability === "supported")
-        && (!input.requiresStructuredOutput || metadata.structuredOutputCapability === "supported")
-        && (!input.requestsReasoningField || metadata.reasoningFieldCapability === "supported"));
-    if (!selected?.profile) {
-      return { profileId: null, ruleId: rule?.id ?? null, reason: input.dataPolicy === "local-only" ? "waiting-local-only" : "no-usable-profile", waitingForUserChoice: input.dataPolicy === "local-only" };
-    }
-    return { profileId: selected.profile.id, ruleId: rule?.id ?? null, reason: rule ? selected.profile.id === rule.preferredProfileId ? "rule-preferred" : "rule-fallback-unavailable" : input.hybridEnabled ? "no-matching-rule" : "hybrid-disabled", waitingForUserChoice: false };
-  },
-
-  async activateOnePieceProviderProfile(profileId: string) {
-    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
-    if (!profile) throw new Error("OnePiece provider profile was not found.");
-    const authenticationMode = webEndpointProfileMetadata.get(profileId)?.authenticationMode ?? "required";
-    if (authenticationMode === "required" && !profile.credentialPresent) {
-      throw new Error("The selected OnePiece provider Profile has no API key.");
-    }
-    applyWebOnePieceActiveProfile(profileId);
-    return structuredClone(webOnePieceProviderProfiles);
-  },
-
-  async deleteOnePieceProviderProfile(profileId: string) {
-    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
-    if (!profile) throw new Error("OnePiece provider profile was not found.");
-    webOnePieceProviderProfiles = {
-      activeProfileId: profile.active ? null : webOnePieceProviderProfiles.activeProfileId,
-      profiles: webOnePieceProviderProfiles.profiles.filter((candidate) => candidate.id !== profileId),
-    };
-    webEndpointProfileMetadata.delete(profileId);
-    webHybridRoutingRules = webHybridRoutingRules.filter((rule) =>
-      rule.preferredProfileId !== profileId && rule.fallbackProfileId !== profileId);
-    if (profile.active) applyWebOnePieceActiveProfile(null);
-    return structuredClone(webOnePieceProviderProfiles);
-  },
-
-  async updateApiAgent(agentId: string, input: UpdateApiAgentInput) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    const current = webApiAgentProviderConfigs.get(agentId);
-    if (!agent || !current) {
-      throw new Error(i18n.t("agents.updateApiAgent.errors.notFound"));
-    }
-    const displayName = input.displayName.trim();
-    const modelId = input.modelId.trim();
-    if (!displayName || !modelId) {
-      throw new Error(i18n.t("agents.registerApiAgent.errors.incomplete"));
-    }
-    const baseUrl = input.baseUrl?.trim() || null;
-    if (current.interfaceFormat === "openai-compatible" && !baseUrl) {
-      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
-    }
-    agent.displayName = displayName;
-    webApiAgentProviderConfigs.set(agentId, { ...current, modelId, baseUrl });
-    return agent;
-  },
 
   async deleteApiAgent(agentId: string) {
     if (mockAgents.find((agent) => agent.id === agentId)?.agentOrigin === "builtin") {
@@ -3394,7 +1952,7 @@ export const webAgentClient: AgentService = {
     }
     const index = mockAgents.findIndex((agent) => agent.id === agentId);
     if (index !== -1) mockAgents.splice(index, 1);
-    webApiAgentProviderConfigs.delete(agentId);
+    deleteWebApiAgentProviderConfig(agentId);
     webSkillApiAgentBindings = webSkillApiAgentBindings.filter((binding) => binding.agentId !== agentId);
     webSkills = webSkills.map((skill) => ({
       ...skill,
@@ -3415,361 +1973,9 @@ export const webAgentClient: AgentService = {
     webAgentMemories = [];
   },
 
-  async getRetrievalConfiguration() {
-    return { ...webRetrievalConfiguration };
-  },
-
-  async saveRetrievalConfiguration(profileId: string, modelId: string) {
-    webRetrievalConfiguration = {
-      ...webRetrievalConfiguration,
-      sourceProfileId: profileId,
-      embeddingModel: modelId,
-    };
-  },
-
-  async saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode) {
-    webRetrievalConfiguration = { ...webRetrievalConfiguration, automaticCodeIndexMode: mode };
-  },
-
-  async listEmbeddingModels(profileId: string, transientCredential?: string) {
-    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
-    if (!profile) throw new Error("OnePiece provider profile was not found.");
-    if (profile.interfaceFormat !== "openai-compatible") {
-      throw new Error("Only openai-compatible OnePiece profiles support embedding model discovery.");
-    }
-    if (!transientCredential?.trim() && !profile.credentialPresent) {
-      throw new Error("API key is required to list embedding models for this OnePiece provider.");
-    }
-    return webEmbeddingModelOptions.map((option) => ({ ...option }));
-  },
-
-  async getRetrievalIndexStatus() {
-    return { ...webRetrievalIndexStatus };
-  },
-
-  async rebuildRetrievalIndex() {
-    const status = webRetrievalIndexStatus;
-    status.pending += status.indexed + status.failed;
-    status.indexed = 0;
-    status.failed = 0;
-    status.lastFailureCategory = null;
-  },
-
-  async listCodeIndexWorkspaces() {
-    return [...webCodeIndexes.values()].map(cloneCodeIndex);
-  },
-
-  async getCodeIndexWorkspace(workspaceId: string) {
-    return cloneCodeIndex(requireWebCodeIndex(workspaceId));
-  },
-
-  async registerCodeIndexWorkspace(root: string, displayName: string) {
-    const canonicalRoot = root.trim();
-    const name = displayName.trim();
-    if (!canonicalRoot || !name) throw new Error("Workspace root and display name are required.");
-    const existing = [...webCodeIndexes.values()].find((workspace) => workspace.canonicalRoot === canonicalRoot);
-    if (existing) return cloneCodeIndex(existing);
-    const workspace: CodeIndexWorkspace = {
-      workspaceId: `web-code-index-${nextWebCodeIndexId}`,
-      canonicalRoot,
-      displayName: name,
-      origin: "manual",
-      enabled: false,
-      mode: "local",
-      selectedRoots: [""],
-      languages: [...codeIndexLanguages],
-      exclusionPatterns: [],
-      maxFileBytes: 100 * 1024,
-      indexVersion: "1",
-      generation: 0,
-      status: emptyCodeIndexStatus("disabled"),
-    };
-    nextWebCodeIndexId += 1;
-    webCodeIndexes.set(workspace.workspaceId, workspace);
-    return cloneCodeIndex(workspace);
-  },
-
-  async saveCodeIndexConfiguration(workspaceId: string, configuration: CodeIndexConfigurationInput) {
-    const workspace = requireWebCodeIndex(workspaceId);
-    const normalized = normalizeCodeIndexConfiguration(configuration);
-    Object.assign(workspace, normalized);
-    workspace.generation += 1;
-    workspace.status = emptyCodeIndexStatus(normalized.enabled ? "scanning" : "disabled");
-    return cloneCodeIndex(workspace);
-  },
-
-  async refreshCodeIndexWorkspace(workspaceId: string) {
-    const workspace = requireWebCodeIndex(workspaceId);
-    if (workspace.mode === "local" && workspace.status.phase === "parsing") {
-      Object.assign(workspace.status, {
-        totalFiles: 18,
-        processedFiles: 18,
-        failedFiles: 0,
-        totalChunks: 54,
-        processedChunks: 0,
-        pendingChunks: 54,
-        indexedChunks: 0,
-        failedChunks: 0,
-        redactionCount: 4,
-        estimatedEmbeddingRequests: 0,
-      });
-      updateWebCodeIndexPhase(workspace, "ready");
-      return structuredClone(workspace.status);
-    }
-    const nextPhase: Partial<Record<CodeIndexPhase, CodeIndexPhase>> = {
-      scanning: "parsing",
-      parsing: "awaiting_embedding_confirmation",
-      embedding: "ready",
-      degraded: "scanning",
-      cancelling: "disabled",
-    };
-    updateWebCodeIndexPhase(workspace, nextPhase[workspace.status.phase] ?? workspace.status.phase);
-    return structuredClone(workspace.status);
-  },
-
-  async confirmCodeIndexEmbedding(workspaceId: string, profileId: string, model: string, generation: number) {
-    const workspace = requireWebCodeIndex(workspaceId);
-    if (workspace.mode !== "semantic") {
-      throw new Error("Local code indexes do not use embedding confirmation.");
-    }
-    if (!workspace.enabled || generation !== workspace.generation
-      || webRetrievalConfiguration.sourceProfileId !== profileId
-      || webRetrievalConfiguration.embeddingModel !== model) {
-      throw new Error("Embedding confirmation is stale or does not match the active model.");
-    }
-    updateWebCodeIndexPhase(workspace, "embedding");
-    return { profileId, model, generation };
-  },
-
-  async getCodeIndexStatus(workspaceId: string) {
-    return structuredClone(requireWebCodeIndex(workspaceId).status);
-  },
-
-  async listCodeIndexAudit(workspaceId: string, limit = 50) {
-    requireWebCodeIndex(workspaceId);
-    const boundedLimit = Math.max(0, Math.min(100, Math.trunc(limit)));
-    return structuredClone(webCodeIndexAudit.filter((entry) => entry.workspaceId === workspaceId).slice(0, boundedLimit));
-  },
-
-  async rebuildCodeIndexWorkspace(workspaceId: string) {
-    const workspace = requireWebCodeIndex(workspaceId);
-    workspace.generation += 1;
-    workspace.status = emptyCodeIndexStatus(workspace.enabled ? "scanning" : "disabled");
-    recordWebCodeIndexAudit(workspaceId, "rebuilt");
-    return cloneCodeIndex(workspace);
-  },
-
-  async disableCodeIndexWorkspace(workspaceId: string) {
-    const workspace = requireWebCodeIndex(workspaceId);
-    workspace.enabled = false;
-    workspace.generation += 1;
-    workspace.status = emptyCodeIndexStatus("disabled");
-    return cloneCodeIndex(workspace);
-  },
-
-  async deleteCodeIndexWorkspace(workspaceId: string) {
-    requireWebCodeIndex(workspaceId);
-    webCodeIndexes.delete(workspaceId);
-    webCodeIndexAudit = webCodeIndexAudit.filter((entry) => entry.workspaceId !== workspaceId);
-  },
-
-  async listCliTools() {
-    return webCliTools.map((tool) => ({
-      ...tool,
-      availableVersions: [...tool.availableVersions],
-      installations: tool.installations.map((installation) => ({ ...installation })),
-      lastError: webLocalCliDetectionMessage(),
-    }));
-  },
-
-  async refreshCliDetections(agentId?: string): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webLocalCliDetectionMessage();
-    const operationId = `web-cli-refresh-${timestamp}`;
-    return createWebMockOperation({
-      id: operationId,
-      relatedEntityId: agentId ?? null,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentIds: agentId ? [agentId] : webCliTools.map((tool) => tool.agentId) },
-    });
-  },
-
-  async installCliVersion(input): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webCliPackageOperationsMessage();
-    const operationId = `web-cli-install-${input.agentId}-${timestamp}`;
-    return createWebMockOperation({
-      id: operationId,
-      relatedEntityId: input.agentId,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentId: input.agentId, targetVersion: input.targetVersion },
-    });
-  },
-
-  async upgradeAllCliVersions(): Promise<OperationTask> {
-    const timestamp = nowIso();
-    const message = webCliPackageOperationsMessage();
-    return createWebMockOperation({
-      id: `web-cli-upgrade-all-${timestamp}`,
-      relatedEntityId: null,
-      message,
-      terminalStatus: "failed",
-      error: message,
-      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
-    });
-  },
-
-  async listCliParameterProfiles() {
-    const stored = readCliParameterSelections();
-    return managedCliAgentIds.map((agentId) => createCliParameterProfile(agentId, stored[agentId]));
-  },
-
-  async saveCliParameterProfile(input) {
-    const selections = normalizeCliParameterSelections(input.agentId, input.selections);
-    writeCliParameterSelections({ ...readCliParameterSelections(), [input.agentId]: selections });
-    return createCliParameterProfile(input.agentId, selections);
-  },
-
-  async resetCliParameterProfile(agentId) {
-    const stored = { ...readCliParameterSelections() };
-    delete stored[agentId];
-    writeCliParameterSelections(stored);
-    return createCliParameterProfile(agentId, defaultCliParameterSelections(agentId));
-  },
-
-  async listCliConfigPresets(agentId) {
-    return getCliConfigPresets(requireCliConfigAgentId(agentId));
-  },
-
-  async listCliConfigProfiles(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    const status = webCliConfigStatus(supportedAgentId);
-    return webCliConfigProfiles
-      .filter((profile) => profile.agentId === supportedAgentId)
-      .map((profile) => ({
-        ...structuredClone(profile),
-        appliedState:
-          status.appliedProfileId === profile.id
-            ? status.driftState === "applied"
-              ? "applied" as const
-              : "drifted" as const
-            : "saved" as const,
-      }));
-  },
-
-  async getCliConfigStatus(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    return structuredClone(webCliConfigStatus(supportedAgentId));
-  },
-
-  async saveCliConfigProfile(input) {
-    return saveWebCliConfigProfile(input);
-  },
-
-  async validateCliConfigCredential(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const profile = input.profileId
-      ? webCliConfigProfiles.find((candidate) => candidate.agentId === supportedAgentId && candidate.id === input.profileId)
-      : undefined;
-    if (input.profileId && !profile) throw new Error("Profile not found.");
-    const payload = input.payload ?? profile?.payload;
-    if (!payload || payload.kind !== supportedAgentId) throw new Error("A complete provider configuration is required.");
-    if (!cliConfigNeedsCredential(payload)) {
-      return { status: "unsupported" as const, latencyMs: 0, httpStatus: null };
-    }
-    const credential = input.credential?.trim();
-    if (!credential && !profile?.credentialConfigured) throw new Error("Credential repair is required.");
-    const status = credential === "web-invalid"
-      ? "invalid-credential" as const
-      : credential === "web-rate-limited"
-        ? "rate-limited" as const
-        : credential === "web-unavailable"
-          ? "provider-unavailable" as const
-          : "valid" as const;
-    return { status, latencyMs: 12, httpStatus: status === "valid" ? 200 : status === "invalid-credential" ? 401 : status === "rate-limited" ? 429 : null };
-  },
-
-  async duplicateCliConfigProfile(agentId, profileId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    const source = webCliConfigProfiles.find(
-      (profile) => profile.agentId === supportedAgentId && profile.id === profileId,
-    );
-    if (!source) throw new Error("Profile not found.");
-    let name = `${source.name} Copy`;
-    let suffix = 2;
-    while (webCliConfigProfiles.some((profile) => profile.agentId === supportedAgentId && profile.name === name)) {
-      name = `${source.name} Copy ${suffix++}`;
-    }
-    return saveWebCliConfigProfile({
-      agentId: supportedAgentId,
-      name,
-      payload: cloneCliConfigPayload(source.payload),
-      sourcePresetId: source.sourcePresetId,
-      sourcePresetVersion: source.sourcePresetVersion,
-      credential: source.credentialConfigured ? "web-simulated-credential" : null,
-    });
-  },
-
-  async deleteCliConfigProfile(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const status = webCliConfigStatus(supportedAgentId);
-    const exists = webCliConfigProfiles.some(
-      (profile) => profile.agentId === supportedAgentId && profile.id === input.profileId,
-    );
-    if (!exists) throw new Error("Profile not found.");
-    if (status.appliedProfileId === input.profileId && !input.detachApplied) {
-      throw new Error("Applied profile must be detached before deletion.");
-    }
-    if (status.appliedProfileId === input.profileId) {
-      webCliConfigStatuses.set(supportedAgentId, defaultWebCliConfigStatus(supportedAgentId));
-    }
-    webCliConfigProfiles = webCliConfigProfiles.filter((profile) => profile.id !== input.profileId);
-  },
-
-  async importCliConfigProfile(input) {
-    const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const preset = getCliConfigPresets(supportedAgentId)[0];
-    if (!preset) throw new Error("No simulated global configuration is available.");
-    return saveWebCliConfigProfile({
-      agentId: supportedAgentId,
-      name: input.name,
-      payload: cloneCliConfigPayload(preset.payload),
-      sourcePresetId: null,
-      sourcePresetVersion: null,
-      credential: cliConfigNeedsCredential(preset.payload) ? "web-imported-credential" : null,
-    });
-  },
-
-  async discoverCliConfigProfiles(agentId) {
-    const supportedAgentId = requireCliConfigAgentId(agentId);
-    return {
-      agentId: supportedAgentId,
-      state: "unavailable" as const,
-      candidates: [],
-      resolvedPaths: [],
-      warnings: [],
-      error: null,
-      simulated: true,
-    };
-  },
-
-  async importDiscoveredCliConfigProfiles(input) {
-    requireCliConfigAgentId(input.agentId);
-    if (input.candidateKeys.length > 0) {
-      throw new Error("Local configuration discovery is unavailable in Web mode.");
-    }
-    return { imported: [], skipped: [] };
-  },
-
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);
-    const profile = webCliConfigProfiles.find(
-      (candidate) => candidate.agentId === supportedAgentId && candidate.id === input.profileId,
-    );
+    const profile = findWebCliConfigProfile(supportedAgentId, input.profileId);
     if (!profile) throw new Error("Profile not found.");
     if (profile.validationState === "needs-credential") throw new Error("Credential repair is required.");
     const beforeWorkflow = JSON.stringify(workflowState);
@@ -3781,7 +1987,7 @@ export const webAgentClient: AgentService = {
       ? status.appliedProfileId
       : null;
     const timestamp = nowIso();
-    webCliConfigStatuses.set(supportedAgentId, {
+    setWebCliConfigStatus(supportedAgentId, {
       agentId: supportedAgentId,
       appliedProfileId: profile.id,
       driftState: "applied",
@@ -3848,10 +2054,6 @@ export const webAgentClient: AgentService = {
     webExpertRoles = webExpertRoles.filter((candidate) => candidate.id !== roleId);
   },
 
-  async getAgentById(agentId) {
-    return mockAgents.find((agent) => agent.id === agentId) ?? null;
-  },
-
   async getWorkflowState() {
     return workflowState;
   },
@@ -3871,16 +2073,6 @@ export const webAgentClient: AgentService = {
       lifecycleState: "idle",
     };
     return workflowState;
-  },
-
-  async checkBrowserReadiness(agentId: string) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    const supportsBrowser = agent?.supportedInteractionModes.includes("browser") ?? false;
-    return {
-      ready: supportsBrowser,
-      reason: supportsBrowser ? undefined : "This agent does not support browser interaction mode.",
-      requiresAuthentication: supportsBrowser,
-    };
   },
 
   async launchActiveWorkflow() {
@@ -4016,67 +2208,6 @@ export const webAgentClient: AgentService = {
   async assignSessionCategory(input: AssignSessionCategoryInput) {
     if (input.categoryId) findCategory(input.categoryId);
     return updateSession(input.sessionId, { categoryId: input.categoryId });
-  },
-
-  async getAutomaticArchivalSettings() {
-    return { ...automaticArchivalSettings };
-  },
-
-  async saveAutomaticArchivalSettings(input: AutomaticArchivalSettings) {
-    if (input.inactiveDays < 1 || input.inactiveDays > 3650) {
-      throw new Error("Invalid automatic archival threshold.");
-    }
-    automaticArchivalSettings = { ...input };
-    return { ...automaticArchivalSettings };
-  },
-
-  async listScheduledTasks() {
-    return scheduledTasks.map(cloneScheduledTask).sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
-  },
-  async listScheduledTaskRuns(taskId: string) {
-    const task = findScheduledTask(taskId);
-    if (!task.latestRunAt) return [];
-    return [{ id: `scheduled-run:${task.id}:${task.latestRunAt}`, taskId: task.id, sessionId: task.latestRunSessionId, status: task.latestStatus, error: task.latestError, startedAt: task.latestRunAt, completedAt: task.latestRunAt }] satisfies ScheduledTaskRun[];
-  },
-
-  async createScheduledTask(input: CreateScheduledTaskInput) {
-    const { name, content } = validateScheduledTaskInput(input);
-    const timestamp = nowIso();
-    const task: ScheduledTask = {
-      id: `web-scheduled-task-${nextScheduledTaskId++}`,
-      name,
-      content,
-      agentId: input.agentId,
-      frequency: { ...input.frequency },
-      enabled: true,
-      nextRunAt: computeNextScheduledRun(input.frequency),
-      latestStatus: "never-run",
-      latestRunAt: null,
-      latestRunSessionId: null,
-      latestError: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    scheduledTasks = [task, ...scheduledTasks];
-    return cloneScheduledTask(task);
-  },
-
-  async setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput) {
-    const task = findScheduledTask(input.taskId);
-    const timestamp = nowIso();
-    const updated: ScheduledTask = {
-      ...task,
-      enabled: input.enabled,
-      nextRunAt: input.enabled ? computeNextScheduledRun(task.frequency) : task.nextRunAt,
-      updatedAt: timestamp,
-    };
-    scheduledTasks = scheduledTasks.map((candidate) => (candidate.id === input.taskId ? updated : candidate));
-    return cloneScheduledTask(updated);
-  },
-
-  async deleteScheduledTask(taskId: string) {
-    findScheduledTask(taskId);
-    scheduledTasks = scheduledTasks.filter((task) => task.id !== taskId);
   },
 
   async listLoopDefinitions() {
@@ -5143,62 +3274,6 @@ export const webAgentClient: AgentService = {
     return message.feedback;
   },
 
-  async querySkillEvolutionEvidence(input) {
-    const skillId = input.skillId ?? "review";
-    const scenario = input.workspace?.startsWith("mock://") ? input.workspace.slice(7) : "healthy";
-    const scopeKey = `${input.workspace ?? ""}|${skillId}`;
-    const empty = scenario === "empty" || scenario === "disabled" || purgedEvidenceScopes.has(scopeKey);
-    const allSignals = empty ? [] : [
-      { signalId: "mock-signal-3", sourceKind: "plan_verification", category: "verification_outcome", polarity: "positive", severity: "low", attribution: "verified", attributionRationale: "exact_native_observation", sourceFidelity: "native", sourceAgentId: "onepiece", extractorId: "verification_outcome", extractorVersion: 1, safeSummary: "test verification passed; checks=8", occurredAt: "2026-08-13T10:03:00Z", sanitizerVersion: 1, associationTruncatedCount: 0, sourceLinkTruncatedCount: 0 },
-      { signalId: "mock-signal-2", sourceKind: "managed_cli", category: "execution_failure", polarity: "negative", severity: "high", attribution: "correlated", attributionRationale: "binding_and_mount_snapshot", sourceFidelity: "proxied", sourceAgentId: "codex-cli", extractorId: "execution_failure", extractorVersion: 1, safeSummary: "process failed with sandbox classification", occurredAt: "2026-08-13T10:02:00Z", sanitizerVersion: 1, associationTruncatedCount: 1, sourceLinkTruncatedCount: 0 },
-      { signalId: "mock-signal-1", sourceKind: "native_execution", category: "execution_failure", polarity: "negative", severity: "high", attribution: "verified", attributionRationale: "exact_native_observation", sourceFidelity: "native", sourceAgentId: "onepiece", extractorId: "execution_failure", extractorVersion: 1, safeSummary: `${skillId} tool failed with sandbox classification`, occurredAt: "2026-08-13T10:01:00Z", sanitizerVersion: 1, associationTruncatedCount: 0, sourceLinkTruncatedCount: 0 },
-    ];
-    const offset = input.cursor ? Number.parseInt(input.cursor.replace("mock-", ""), 10) || 0 : 0;
-    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
-    const signals = allSignals.slice(offset, offset + limit);
-    const distributions: Record<string, Record<string, number>> = empty ? {} : {
-      category: { execution_failure: 2, verification_outcome: 1 },
-      attribution_strength: { correlated: 1, verified: 2 },
-      extractor_id: { execution_failure: 2, verification_outcome: 1 },
-      source_agent_id: { "codex-cli": 1, onepiece: 2 },
-    };
-    return {
-      signalCount: allSignals.length,
-      seedCount: empty ? 0 : 1,
-      firstOccurredAt: allSignals.at(-1)?.occurredAt,
-      lastOccurredAt: allSignals[0]?.occurredAt,
-      distributions,
-      signals,
-      seeds: empty ? [] : [{ seedId: "mock-seed-1", category: "execution_failure", readiness: "ready", readinessReason: "verified_recovery_delta", safeSummary: "execution_failure pattern; signals=3 runs=2 recovery=true", signalCount: 3, truncatedSignalCount: 0, independentRunCount: 2, hasRecovery: true, firstOccurredAt: "2026-08-13T10:01:00Z", lastOccurredAt: "2026-08-13T10:03:00Z", createdAt: "2026-08-13T10:04:00Z" }],
-      nextCursor: offset + signals.length < allSignals.length ? `mock-${offset + signals.length}` : undefined,
-      pipeline: { collectionEnabled: scenario !== "disabled", status: scenario === "disabled" ? "disabled" as const : scenario === "degraded" || scenario === "quota" ? "degraded" as const : "healthy" as const, queueDepth: scenario === "degraded" ? 12 : 0, failureCount: scenario === "degraded" ? 2 : 0 },
-      retentionDays: 90,
-      signalQuota: 10_000,
-      seedQuota: 2_000,
-      byteQuota: 64 * 1024 * 1024,
-      droppedCount: scenario === "quota" ? 7 : 0,
-      expiredCount: 0,
-    };
-  },
-
-  async getSkillEvolutionSeedLineage(seedId, input) {
-    const overview = await this.querySkillEvolutionEvidence(input);
-    const seed = overview.seeds.find((candidate) => candidate.seedId === seedId);
-    return seed ? { seed, signals: overview.signals } : null;
-  },
-
-  async purgeSkillEvolutionEvidence(input) {
-    if (!input.confirmed) throw new Error("Evidence purge requires confirmation");
-    const current = await this.querySkillEvolutionEvidence({ workspace: input.workspace, skillId: input.skillId });
-    purgedEvidenceScopes.add(`${input.workspace ?? ""}|${input.skillId}`);
-    return {
-      operationId: input.operationId,
-      deletedSignals: current.signalCount,
-      deletedSeeds: current.seedCount,
-      deletedFeedback: 0,
-    };
-  },
-
   async getUsageStatistics(input) {
     return aggregateWebUsageStatistics(input.range);
   },
@@ -5391,41 +3466,6 @@ export const webAgentClient: AgentService = {
       drift: await this.detectSkillDrift(input),
       restoreCandidates: input.scope === "global" ? [...deletedBuiltinSkillIds].sort() : [],
     };
-  },
-
-  async listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]> {
-    return webSkillToolInspection
-      .filter(
-        (tool) =>
-          tool.skillId === input.skillId &&
-          tool.sourceScope === input.scope &&
-          (tool.workspacePath ?? null) === (input.workspacePath ?? null),
-      )
-      .map((tool) => structuredClone(tool));
-  },
-
-  async validateSkillToolRevision() {
-    return webSkillToolUnsupported();
-  },
-
-  async setSkillToolTrust() {
-    return webSkillToolUnsupported();
-  },
-
-  async setSkillToolEnabled() {
-    return webSkillToolUnsupported();
-  },
-
-  async quarantineSkillTool() {
-    return webSkillToolUnsupported();
-  },
-
-  async recoverSkillTool() {
-    return webSkillToolUnsupported();
-  },
-
-  async getSkillToolDiagnostics(input) {
-    return webSkillToolByRevision(input.revision);
   },
 
   async listSkillMountPaths() {
@@ -5759,30 +3799,6 @@ export const webAgentClient: AgentService = {
     return hydrateSkillBindings(upsertWebSkill(mutationToSkill(mutation)));
   },
 
-  async detectSkillDrift(input): Promise<SkillDriftReport> {
-    const location = normalizeWebSkillLocation(input);
-    const issues: SkillDriftReport["issues"] = [];
-    return {
-      scope: location.scope,
-      workspacePath: location.workspacePath ?? null,
-      issues,
-      driftHash: `web-${issues.length}`,
-    };
-  },
-
-  async syncSkillDrift(input): Promise<SkillSyncResult> {
-    const report = await this.detectSkillDrift(input);
-    return {
-      mounted: [],
-      unmounted: [],
-      overwritten: [],
-      backedUp: [],
-      restored: [],
-      failed: [],
-      resolvedFrom: report,
-    };
-  },
-
   async getSkillOverlaySummary(input) {
     return webSkillOverlayRuntime.getSummary(input);
   },
@@ -5837,174 +3853,6 @@ export const webAgentClient: AgentService = {
 
   async reconcileSkillOverlay(input) {
     return webSkillOverlayRuntime.reconcile(input);
-  },
-
-  async listPromptHooks(): Promise<PromptHookListResult> {
-    const hooks = listEffectivePromptHooks();
-    return { hooks, stats: promptHookStats(hooks) };
-  },
-
-  async createPromptHook(input: PromptHookMutationInput): Promise<PromptHook> {
-    const stored = readStoredPromptHooks();
-    if (listEffectivePromptHooks().some((hook) => hook.id === input.id)) {
-      throw new Error(`Prompt Hook already exists: ${input.id}`);
-    }
-    const created = mutationToPromptHook(input);
-    const hook: PromptHook = {
-      ...created,
-      version: 0,
-      publishedVersion: null,
-      hasDraft: true,
-      draftRevision: 1,
-      enabled: false,
-    };
-    writeStoredPromptHooks({ ...stored, [hook.id]: hook });
-    saveWebPromptHookDraft({
-      hookId: hook.id,
-      expectedRevision: null,
-      draft: input,
-    });
-    return hook;
-  },
-
-  async updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook> {
-    const current = findPromptHook(hookId);
-    if (current.source === "builtin") {
-      throw new Error("Built-in Prompt Hook content cannot be edited");
-    }
-    if (input.id !== hookId) {
-      throw new Error("Prompt Hook id cannot be changed");
-    }
-    validatePromptHookInput(input);
-    const history = webPromptHookHistory(current);
-    const draft = saveWebPromptHookDraft({
-      hookId,
-      expectedRevision: history.draft?.revision ?? null,
-      draft: input,
-    });
-    const updated: PromptHook = {
-      ...current,
-      hasDraft: true,
-      draftRevision: draft.revision,
-    };
-    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
-    return updated;
-  },
-
-  async deletePromptHook(hookId: string): Promise<void> {
-    const current = findPromptHook(hookId);
-    if (current.source === "builtin") {
-      throw new Error("Built-in Prompt Hook cannot be deleted");
-    }
-    const stored = { ...readStoredPromptHooks() };
-    delete stored[hookId];
-    writeStoredPromptHooks(stored);
-    deleteWebPromptHookVersionState(hookId);
-  },
-
-  async setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook> {
-    const current = findPromptHook(hookId);
-    if (!enabled && !current.disableable) {
-      throw new Error("Prompt Hook cannot be disabled");
-    }
-    const updated = { ...current, enabled, updatedAt: nowIso() };
-    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
-    return updated;
-  },
-
-  async setPromptHookCliBindings(hookId: string, agentIds: string[]): Promise<PromptHook> {
-    if (!agentIds.every(isManagedCliAgentId)) throw new Error("Unsupported Prompt Hook CLI binding");
-    const current = findPromptHook(hookId);
-    const cliBindings = Array.from(new Set(agentIds));
-    const updated = { ...current, cliBindings, updatedAt: nowIso() };
-    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
-    return updated;
-  },
-
-  async previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview> {
-    const hook = findPromptHook(input.hookId);
-    const sampleInput = input.sampleInput ?? "Preview request";
-    const renderedContent = renderPromptHookTemplate(hook.templateBody ?? "", {
-      agentId: input.agentId,
-      sampleInput,
-    });
-    const trace = [traceForHook(hook, hook.enabled ? "fired" : "disabled", hook.enabled ? renderedContent : null, input.agentId, hook.enabled ? undefined : "disabled")];
-    writePromptHookTraces([...trace, ...readPromptHookTraces()]);
-    return { hookId: hook.id, agentId: input.agentId, renderedContent, trace };
-  },
-
-  async previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview> {
-    return assemblePromptHooks(input);
-  },
-
-  async listPromptHookTraces(limit = 25): Promise<PromptHookTraceSummary[]> {
-    return readPromptHookTraces().slice(0, limit);
-  },
-
-  async listPromptHookVariables(): Promise<PromptHookVariableDefinition[]> {
-    return webPromptHookVariables.map((variable) => ({ ...variable, aliases: [...variable.aliases] }));
-  },
-
-  async savePromptHookDraft(input: SavePromptHookDraftInput): Promise<PromptHookDraft> {
-    const current = findPromptHook(input.hookId);
-    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
-    return saveWebPromptHookDraft(input);
-  },
-
-  async publishPromptHook(input: PublishPromptHookInput): Promise<PromptHookVersion> {
-    const current = findPromptHook(input.hookId);
-    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
-    const result = publishWebPromptHook(input, current);
-    const updated: PromptHook = {
-      ...current,
-      ...result.published,
-      version: result.version.version,
-      publishedVersion: result.version.version,
-      hasDraft: false,
-      draftRevision: null,
-      updatedAt: result.version.publishedAt,
-    };
-    writeStoredPromptHooks({ ...readStoredPromptHooks(), [current.id]: updated });
-    return result.version;
-  },
-
-  async getPromptHookVersionHistory(hookId: string): Promise<PromptHookVersionHistory> {
-    const current = findPromptHook(hookId);
-    if (current.source === "builtin") {
-      return {
-        hookId,
-        publishedVersion: current.version,
-        draft: null,
-        versions: [{
-          hookId,
-          version: current.version,
-          contentHash: `builtin-${hookId}-${current.version}`,
-          publicationKind: "publish",
-          rollbackFromVersion: null,
-          publishedAt: current.updatedAt,
-        }],
-        evaluations: [],
-      };
-    }
-    return webPromptHookHistory(current);
-  },
-
-  async rollbackPromptHook(input: RollbackPromptHookInput): Promise<PromptHookVersion> {
-    const current = findPromptHook(input.hookId);
-    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
-    const result = rollbackWebPromptHook(input, current);
-    const history = webPromptHookHistory(current);
-    const updated: PromptHook = {
-      ...current,
-      ...result.published,
-      version: result.version.version,
-      publishedVersion: result.version.version,
-      hasDraft: history.draft !== null,
-      draftRevision: history.draft?.revision ?? null,
-      updatedAt: result.version.publishedAt,
-    };
-    writeStoredPromptHooks({ ...readStoredPromptHooks(), [current.id]: updated });
-    return result.version;
   },
 
   async selectWorkspaceDirectory() {

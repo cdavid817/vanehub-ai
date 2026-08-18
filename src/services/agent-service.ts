@@ -1,57 +1,25 @@
 import type {
   AgentMemory,
-  AgentRegistryEntry,
-  ApiAgentProviderConfig,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
   AssignSessionCategoryInput,
-  AutomaticArchivalSettings,
-  CliParameterProfile,
   CreateSessionCategoryInput,
-  ManagedCliAgentId,
   ExportSessionInput,
-  SaveCliParameterProfileInput,
-  CliPackageOperationInput,
-  CliToolStatus,
   CreateSessionInput,
-  DiscoverOnePieceProviderModelsInput,
-  EndpointProfileMetadata,
-  HybridRoutePreview,
-  HybridRoutePreviewInput,
-  HybridRoutingRule,
   InteractionMode,
   KnownRemoteWorkspace,
   RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
-  LocalModelDiscoveryResult,
-  OnePieceProviderConfig,
-  OnePieceProviderProfiles,
-  OnePieceProviderModelDiscoveryResult,
-  OnePieceProviderPreset,
   ProjectInspection,
-  ReadinessStatus,
-  RegisterApiAgentInput,
-  EmbeddingModelOption,
-  RetrievalConfiguration,
-  RetrievalIndexStatus,
-  SaveOnePieceProviderConfigInput,
-  SaveCustomOnePieceProviderProfileInput,
-  SaveOnePieceProviderProfileInput,
-  ValidateOnePieceProviderCredentialInput,
-  UpdateApiAgentInput,
   UpdateSessionSeatsInput,
-  CreateScheduledTaskInput,
-  SetScheduledTaskEnabledInput,
   Session,
   SessionCategory,
   SessionDetails,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
-  ScheduledTask,
-  ScheduledTaskRun,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -151,7 +119,13 @@ import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences }
 import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../types/agent-run";
 import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
-import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask, StartEvaluationInput } from "../types/evaluation";
+import type { EvaluationService } from "./evaluation-service";
+import type {
+  ApiAgentService,
+  HybridRoutingService,
+  OnePieceProfileService,
+  OnePieceProviderService,
+} from "./api-provider-service";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -179,7 +153,6 @@ import type {
 import type {
   Skill,
   SkillAgentMountPath,
-  SkillDriftReport,
   SkillImportInput,
   SkillListResult,
   SkillLoadInput,
@@ -191,17 +164,8 @@ import type {
   SkillResourceReadInput,
   SkillResourceReadOutcome,
   SkillScopeInput,
-  SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
-import type {
-  SkillToolEnablementInput,
-  SkillToolOwnerInput,
-  SkillToolQuarantineInput,
-  SkillToolRevision,
-  SkillToolRevisionInput,
-  SkillToolTrustInput,
-} from "../types/skill-tools";
 import type {
   SkillOverlayDetail,
   SkillOverlayFileInput,
@@ -223,48 +187,13 @@ import type {
   SkillOverlayReconciliationInput,
   SkillOverlayReconciliationPreview,
 } from "../types/skill-overlay-reconciliation";
-import type {
-  PromptAssemblyPreviewInput,
-  PromptHook,
-  PromptHookListResult,
-  PromptHookMutationInput,
-  PromptHookPreview,
-  PromptHookPreviewInput,
-  PromptHookTraceSummary,
-  PromptHookUpdateInput,
-  PromptHookDraft,
-  PromptHookVariableDefinition,
-  PromptHookVersion,
-  PromptHookVersionHistory,
-  PublishPromptHookInput,
-  RollbackPromptHookInput,
-  SavePromptHookDraftInput,
-} from "../types/prompt-hook";
+import type { PromptHookService } from "./prompt-hook-service";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
 import type {
   ApplyCliConfigProfileInput,
   CliConfigApplyResult,
-  CliConfigDiscoveryResult,
-  CliConfigPreset,
-  CliConfigProfile,
-  CliConfigStatus,
-  DeleteCliConfigProfileInput,
-  ImportCliConfigProfileInput,
-  ImportDiscoveredCliConfigInput,
-  ImportDiscoveredCliConfigResult,
-  SaveCliConfigProfileInput,
-  ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
-import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
-import type {
-  CodeEmbeddingConfirmation,
-  CodeIndexAuditEntry,
-  CodeIndexAutomaticMode,
-  CodeIndexConfigurationInput,
-  CodeIndexStatus,
-  CodeIndexWorkspace,
-} from "../types/code-index";
 import type {
   LspConfiguration,
   LspLanguageId,
@@ -274,24 +203,31 @@ import type {
   LspWorkspaceTrust,
   LspWorkspaceTrustUpdate,
 } from "../types/lsp";
-import type {
-  ContextQualityHistoryPage,
-  ContextQualityHistoryQuery,
-  ContextQualitySummary,
-  ContextQualitySummaryQuery,
-} from "../types/context-quality";
-import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
+import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
+import type { AgentRegistryService } from "./agent-registry-service";
+import type { CodeIndexService } from "./code-index-service";
+import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
+import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
-export interface AgentService extends BuiltinToolService {
-  listEvaluationTasks(): Promise<EvaluationTask[]>;
-  startEvaluation(input: StartEvaluationInput): Promise<EvaluationArena>;
-  listEvaluationArenas(): Promise<EvaluationArena[]>;
-  getEvaluationArena(arenaId: string): Promise<EvaluationArena>;
-  cancelEvaluation(arenaId: string): Promise<EvaluationArena>;
-  getEvaluationAttempt(attemptId: string): Promise<EvaluationAttempt>;
-  exportEvaluation(arenaId: string): Promise<EvaluationExport>;
+export interface AgentService extends
+  ApiAgentService,
+  BuiltinToolService,
+  CliConfigService,
+  CliParameterService,
+  CliToolService,
+  CodeIndexService,
+  EvaluationService,
+  HybridRoutingService,
+  OnePieceProfileService,
+  OnePieceProviderService,
+  PromptHookService,
+  ScheduledTaskService,
+  ContextQualityService,
+  AgentRegistryService,
+  SkillGovernanceService,
+  SkillEvidenceService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -317,65 +253,12 @@ export interface AgentService extends BuiltinToolService {
   getMissionControlRun(runId: string): Promise<MissionControlRunDetail>;
   performMissionControlAction(input: MissionControlActionInput): Promise<MissionControlActionReceipt>;
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
-  openExternalUrl(url: string): Promise<void>;
-  listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
-  registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
-  getApiAgentProviderConfig(agentId: string): Promise<ApiAgentProviderConfig | null>;
-  getOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
-  saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput): Promise<OnePieceProviderConfig>;
-  resetOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
-  listOnePieceProviderProfiles(): Promise<OnePieceProviderProfiles>;
-  listOnePieceProviderPresets(): Promise<OnePieceProviderPreset[]>;
-  discoverOnePieceProviderModels(input: DiscoverOnePieceProviderModelsInput): Promise<OnePieceProviderModelDiscoveryResult>;
-  validateOnePieceProviderCredential(input: ValidateOnePieceProviderCredentialInput): Promise<ProviderCredentialValidationResult>;
-  saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
-  saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
-  getEndpointProfileMetadata(profileId: string): Promise<EndpointProfileMetadata | null>;
-  discoverLocalModelEndpoints(): Promise<LocalModelDiscoveryResult>;
-  verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number): Promise<LocalModelDiscoveryResult>;
-  listHybridRoutingRules(): Promise<HybridRoutingRule[]>;
-  replaceHybridRoutingRules(rules: HybridRoutingRule[]): Promise<HybridRoutingRule[]>;
-  previewHybridRoute(input: HybridRoutePreviewInput): Promise<HybridRoutePreview>;
-  activateOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
-  deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
-  updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
   /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
    * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
   listAllMemories(): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   resetAllMemories(): Promise<void>;
-  listContextQualityHistory(input: ContextQualityHistoryQuery): Promise<ContextQualityHistoryPage>;
-  getContextQualitySummary(input: ContextQualitySummaryQuery): Promise<ContextQualitySummary>;
-  listContextEvidenceManifests(input: ContextEvidenceManifestQuery): Promise<ContextEvidenceManifestPage>;
-  getContextEvidenceManifest(generationId: string): Promise<ContextEvidenceManifest | null>;
-  // Configuration, index status and rebuild are all global: retrieval applies to every agent,
-  // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
-  getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
-  saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
-  saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode): Promise<void>;
-  listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
-  getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
-  rebuildRetrievalIndex(): Promise<void>;
-  listCodeIndexWorkspaces(): Promise<CodeIndexWorkspace[]>;
-  getCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  registerCodeIndexWorkspace(root: string, displayName: string): Promise<CodeIndexWorkspace>;
-  saveCodeIndexConfiguration(
-    workspaceId: string,
-    configuration: CodeIndexConfigurationInput,
-  ): Promise<CodeIndexWorkspace>;
-  refreshCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexStatus>;
-  confirmCodeIndexEmbedding(
-    workspaceId: string,
-    profileId: string,
-    model: string,
-    generation: number,
-  ): Promise<CodeEmbeddingConfirmation>;
-  getCodeIndexStatus(workspaceId: string): Promise<CodeIndexStatus>;
-  listCodeIndexAudit(workspaceId: string, limit?: number): Promise<CodeIndexAuditEntry[]>;
-  rebuildCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  disableCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  deleteCodeIndexWorkspace(workspaceId: string): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
   listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
@@ -383,28 +266,9 @@ export interface AgentService extends BuiltinToolService {
   discoverLspServers(): Promise<LspServerDiscovery[]>;
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
-  listCliTools(): Promise<CliToolStatus[]>;
-  refreshCliDetections(agentId?: string): Promise<OperationTask>;
-  installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
-  upgradeAllCliVersions(): Promise<OperationTask>;
-  listCliParameterProfiles(): Promise<CliParameterProfile[]>;
-  saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
-  resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;
-  listCliConfigPresets(agentId: string): Promise<CliConfigPreset[]>;
-  listCliConfigProfiles(agentId: string): Promise<CliConfigProfile[]>;
-  getCliConfigStatus(agentId: string): Promise<CliConfigStatus>;
-  saveCliConfigProfile(input: SaveCliConfigProfileInput): Promise<CliConfigProfile>;
-  validateCliConfigCredential(input: ValidateCliConfigCredentialInput): Promise<ProviderCredentialValidationResult>;
-  duplicateCliConfigProfile(agentId: string, profileId: string): Promise<CliConfigProfile>;
-  deleteCliConfigProfile(input: DeleteCliConfigProfileInput): Promise<void>;
-  importCliConfigProfile(input: ImportCliConfigProfileInput): Promise<CliConfigProfile>;
-  discoverCliConfigProfiles(agentId: string): Promise<CliConfigDiscoveryResult>;
-  importDiscoveredCliConfigProfiles(input: ImportDiscoveredCliConfigInput): Promise<ImportDiscoveredCliConfigResult>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;
   selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;
-  checkBrowserReadiness(agentId: string): Promise<ReadinessStatus>;
   launchActiveWorkflow(): Promise<LaunchResult>;
   getSessionDetails(): Promise<SessionDetails>;
   listSessions(): Promise<Session[]>;
@@ -423,13 +287,6 @@ export interface AgentService extends BuiltinToolService {
   renameSessionCategory(input: RenameSessionCategoryInput): Promise<SessionCategory>;
   deleteSessionCategory(categoryId: string): Promise<void>;
   assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
-  getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
-  saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
-  listScheduledTasks(): Promise<ScheduledTask[]>;
-  listScheduledTaskRuns(taskId: string): Promise<ScheduledTaskRun[]>;
-  createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
-  setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
-  deleteScheduledTask(taskId: string): Promise<void>;
   listLoopDefinitions(): Promise<LoopDefinition[]>;
   createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
   updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
@@ -464,9 +321,6 @@ export interface AgentService extends BuiltinToolService {
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  querySkillEvolutionEvidence(input: EvidenceQueryInput): Promise<EvidenceOverview>;
-  getSkillEvolutionSeedLineage(seedId: string, input: EvidenceQueryInput): Promise<EvidenceSeedLineage | null>;
-  purgeSkillEvolutionEvidence(input: PurgeEvidenceInput): Promise<PurgeEvidenceOutcome>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
@@ -523,13 +377,6 @@ export interface AgentService extends BuiltinToolService {
   deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
-  listSkillTools(input: SkillToolOwnerInput): Promise<SkillToolRevision[]>;
-  validateSkillToolRevision(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
-  setSkillToolTrust(input: SkillToolTrustInput): Promise<SkillToolRevision>;
-  setSkillToolEnabled(input: SkillToolEnablementInput): Promise<SkillToolRevision>;
-  quarantineSkillTool(input: SkillToolQuarantineInput): Promise<SkillToolRevision>;
-  recoverSkillTool(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
-  getSkillToolDiagnostics(input: SkillToolRevisionInput): Promise<SkillToolRevision>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
   createSkill(input: SkillMutationInput): Promise<Skill>;
@@ -547,8 +394,6 @@ export interface AgentService extends BuiltinToolService {
   loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome>;
   readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome>;
   importSkill(input: SkillImportInput): Promise<Skill>;
-  detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;
-  syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
   getSkillOverlaySummary(input: SkillOverlayTargetInput): Promise<SkillOverlaySummary>;
   getSkillOverlayDetail(input: SkillOverlayTargetInput): Promise<SkillOverlayDetail>;
   previewSkillOverlay(input: SkillOverlayPreviewInput): Promise<SkillOverlayPreview>;
@@ -571,20 +416,6 @@ export interface AgentService extends BuiltinToolService {
   reconcileSkillOverlay(
     input: SkillOverlayReconciliationInput,
   ): Promise<SkillOverlayMutationOutcome>;
-  listPromptHooks(): Promise<PromptHookListResult>;
-  createPromptHook(input: PromptHookMutationInput): Promise<PromptHook>;
-  updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook>;
-  deletePromptHook(hookId: string): Promise<void>;
-  setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook>;
-  setPromptHookCliBindings(hookId: string, agentIds: string[]): Promise<PromptHook>;
-  previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview>;
-  previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview>;
-  listPromptHookTraces(limit?: number): Promise<PromptHookTraceSummary[]>;
-  listPromptHookVariables(): Promise<PromptHookVariableDefinition[]>;
-  savePromptHookDraft(input: SavePromptHookDraftInput): Promise<PromptHookDraft>;
-  publishPromptHook(input: PublishPromptHookInput): Promise<PromptHookVersion>;
-  getPromptHookVersionHistory(hookId: string): Promise<PromptHookVersionHistory>;
-  rollbackPromptHook(input: RollbackPromptHookInput): Promise<PromptHookVersion>;
   selectWorkspaceDirectory(): Promise<string | null>;
 }
 
