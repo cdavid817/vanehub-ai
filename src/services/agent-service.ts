@@ -223,23 +223,7 @@ import type {
   SkillOverlayReconciliationInput,
   SkillOverlayReconciliationPreview,
 } from "../types/skill-overlay-reconciliation";
-import type {
-  PromptAssemblyPreviewInput,
-  PromptHook,
-  PromptHookListResult,
-  PromptHookMutationInput,
-  PromptHookPreview,
-  PromptHookPreviewInput,
-  PromptHookTraceSummary,
-  PromptHookUpdateInput,
-  PromptHookDraft,
-  PromptHookVariableDefinition,
-  PromptHookVersion,
-  PromptHookVersionHistory,
-  PublishPromptHookInput,
-  RollbackPromptHookInput,
-  SavePromptHookDraftInput,
-} from "../types/prompt-hook";
+import type { PromptHookService } from "./prompt-hook-service";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
 import type {
   ApplyCliConfigProfileInput,
@@ -284,7 +268,7 @@ import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvide
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
-export interface AgentService extends BuiltinToolService, EvaluationService {
+export interface AgentService extends BuiltinToolService, EvaluationService, PromptHookService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -564,20 +548,6 @@ export interface AgentService extends BuiltinToolService, EvaluationService {
   reconcileSkillOverlay(
     input: SkillOverlayReconciliationInput,
   ): Promise<SkillOverlayMutationOutcome>;
-  listPromptHooks(): Promise<PromptHookListResult>;
-  createPromptHook(input: PromptHookMutationInput): Promise<PromptHook>;
-  updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook>;
-  deletePromptHook(hookId: string): Promise<void>;
-  setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook>;
-  setPromptHookCliBindings(hookId: string, agentIds: string[]): Promise<PromptHook>;
-  previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview>;
-  previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview>;
-  listPromptHookTraces(limit?: number): Promise<PromptHookTraceSummary[]>;
-  listPromptHookVariables(): Promise<PromptHookVariableDefinition[]>;
-  savePromptHookDraft(input: SavePromptHookDraftInput): Promise<PromptHookDraft>;
-  publishPromptHook(input: PublishPromptHookInput): Promise<PromptHookVersion>;
-  getPromptHookVersionHistory(hookId: string): Promise<PromptHookVersionHistory>;
-  rollbackPromptHook(input: RollbackPromptHookInput): Promise<PromptHookVersion>;
   selectWorkspaceDirectory(): Promise<string | null>;
 }
 

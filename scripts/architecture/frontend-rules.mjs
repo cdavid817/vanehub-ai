@@ -5,8 +5,12 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 
 // 每文件预算(eslint.config.js)管不住"把一个超大文件拆成十个大文件",也管不住
 // 拆分时把代码复制而非搬移。聚合预算才能。预算只能下调;上调必须在同一个 commit 写明原因。
+// 上调理由(split-web-agent-client):把 web-agent-client.ts 的方法搬进 web-* 模块时,方法体
+// 是平移的,涨的只是每个模块的固定开销——import 行、`export const x: XService = {`、收尾的 `};`。
+// 窄接口的签名同样是从 AgentService 搬出去的,不是复制的。所以聚合只按新模块个数线性微涨;
+// 一旦涨幅超出这个量级,说明方法被重写或复制了,那时预算失败才是正确结果。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 18149, owner: "split-web-agent-client" },
+  { root: "src/services", budget: 18195, owner: "split-web-agent-client" },
 ]);
 
 const STATE_PACKAGES = new Set([
