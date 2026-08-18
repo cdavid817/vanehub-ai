@@ -1,9 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 6 pre-existing sites, in a domain
-// module — the least defensible placement for a panic shortcut, so clear these first.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use regex::{Captures, Regex};
 use std::sync::OnceLock;
 
@@ -26,6 +20,20 @@ pub(crate) fn redact_code(input: &str) -> RedactedCode {
         provider_token_expression(),
         internal_url_expression(),
     ] {
+        // Every expression below is built from a string literal, so this branch is unreachable
+        // unless one of them is edited into something that does not compile — which the tests in
+        // this module catch immediately. It degrades *closed* rather than gracefully on purpose:
+        // returning the input with one expression skipped would hand back text that looks
+        // redacted and is not, and both callers write that text straight into the retrieval
+        // index for the agent to read back later. Dropping the content is recoverable; leaking
+        // a credential into the index is not.
+        let Some(expression) = expression else {
+            debug_assert!(false, "a redaction expression literal failed to compile");
+            return RedactedCode {
+                text: REDACTED_MARKER.to_string(),
+                count: count.saturating_add(1),
+            };
+        };
         text = expression
             .replace_all(&text, |captures: &Captures<'_>| {
                 if captures
@@ -48,62 +56,71 @@ fn replacement(captures: &Captures<'_>) -> String {
     format!("{prefix}{quote}{REDACTED_MARKER}{quote}")
 }
 
-fn private_key_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(
-            r"(?s)(?P<prefix>-----BEGIN [^-\r\n]*PRIVATE KEY-----).*?-----END [^-\r\n]*PRIVATE KEY-----",
-        )
-        .expect("private-key redaction regex")
-    })
+fn private_key_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            Regex::new(
+                r"(?s)(?P<prefix>-----BEGIN [^-\r\n]*PRIVATE KEY-----).*?-----END [^-\r\n]*PRIVATE KEY-----",
+            )
+            .ok()
+        })
+        .as_ref()
 }
 
-fn quoted_assignment_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(concat!(
-            r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|",
-            r"password|passwd|token|auth(?:orization)?|credential)\b\s*[:=]\s*)",
-            r#"(?P<quote>[\"'])(?P<value>(?:\\.|[^\"'\r\n])*)(?:[\"'])"#,
-        ))
-        .expect("quoted-assignment redaction regex")
-    })
+fn quoted_assignment_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            Regex::new(concat!(
+                r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|",
+                r"password|passwd|token|auth(?:orization)?|credential)\b\s*[:=]\s*)",
+                r#"(?P<quote>[\"'])(?P<value>(?:\\.|[^\"'\r\n])*)(?:[\"'])"#,
+            ))
+            .ok()
+        })
+        .as_ref()
 }
 
-fn bare_assignment_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(concat!(
-            r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|",
-            r"password|passwd|token|auth(?:orization)?|credential)\b\s*[:=]\s*)",
-            r#"(?P<value>[^\s,;\}\]\[\"']+)"#,
-        ))
-        .expect("bare-assignment redaction regex")
-    })
+fn bare_assignment_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            Regex::new(concat!(
+                r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|",
+                r"password|passwd|token|auth(?:orization)?|credential)\b\s*[:=]\s*)",
+                r#"(?P<value>[^\s,;\}\]\[\"']+)"#,
+            ))
+            .ok()
+        })
+        .as_ref()
 }
 
-fn bearer_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(r"(?i)(?P<prefix>\bbearer\s+)[A-Za-z0-9._~+/=-]{6,}")
-            .expect("bearer redaction regex")
-    })
+fn bearer_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| Regex::new(r"(?i)(?P<prefix>\bbearer\s+)[A-Za-z0-9._~+/=-]{6,}").ok())
+        .as_ref()
 }
 
-fn provider_token_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(r"\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[A-Z0-9]{12,})\b")
-            .expect("provider-token redaction regex")
-    })
+fn provider_token_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            Regex::new(r"\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[A-Z0-9]{12,})\b")
+                .ok()
+        })
+        .as_ref()
 }
 
-fn internal_url_expression() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| {
-        Regex::new(r#"(?i)https?://(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:/[^\s"']*)?"#)
-            .expect("internal-url redaction regex")
-    })
+fn internal_url_expression() -> Option<&'static Regex> {
+    static VALUE: OnceLock<Option<Regex>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            Regex::new(r#"(?i)https?://(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:/[^\s"']*)?"#)
+                .ok()
+        })
+        .as_ref()
 }
 
 #[cfg(test)]
