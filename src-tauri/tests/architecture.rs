@@ -2085,11 +2085,6 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
         budget: 4_049,
         owner: "relocate-heavyweight-inline-tests",
     },
-    PathBudget {
-        path: "src-tauri/src/platform/database/migrations.rs",
-        budget: 2_301,
-        owner: "split-database-migrations",
-    },
 ];
 
 const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
@@ -2098,9 +2093,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         budget: 58_116,
         owner: "extract-api-adapter-inline-tests",
     },
+    // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
+    // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
+    // declarations, the `use inline_schema::{…}` re-import list, and `inline_schema.rs`'s module
+    // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
+    // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
+    // No migration body was duplicated — every one of them moved byte-identically.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_914,
+        budget: 2_965,
         owner: "split-database-migrations",
     },
 ];
