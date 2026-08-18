@@ -39,6 +39,17 @@ flowchart TD
 
 **目录降级**：未测试或测试失败的 server 不贡献工具；inactive 或超出当前会话作用域的 server 不贡献工具。MCP 目录名永不与固定的 `shell`/`file`/`remember` 工具冲突或遮蔽。当目录查询本身失败时优雅降级：生成过程只使用固定目录继续进行，而不是直接失败整个请求。
 
+## 关键常量与传输
+
+MCP 基础设施位于 `tooling/mcp/infrastructure/`,实现见各 `relay_*.rs` 模块:
+
+- **三种 transport** —— `stdio`(本地子进程,经 `bounded_stdio` 有界读写)、`streamable_http`(HTTP,经 `relay_streamable_http_protocol`)、遗留 `sse`(经 `relay_legacy_sse*` 事务性迁移到 `streamable_http`,保留此前生效的协议行为)。未知 transport 取值被拒绝,绝不静默重新解释为 `stdio`。
+- **中继标记** `RELAY_FLAG = "--vanehub-mcp-relay"` —— 仅 Claude Code 与 Codex CLI 走中继路径,VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC;Gemini CLI、OpenCode、Antigravity CLI 各自独立配置 MCP,其 MCP 调用不进入 VaneHub 执行链路。
+- **`PrivateRelayDirectory`** —— 中继文件系统隔离目录,防止跨会话或跨 Agent 串扰。
+- **JSON-RPC 帧解析** `relay_jsonrpc` —— `parse_json_rpc_frame` 解析帧、`JsonRpcFrame`/`JsonRpcId` 处理请求-响应配对。
+- **失败观察** `relay_failure` / `relay_observer` —— 中继失败按 `RelayFailure` 分类,`RelayObserver` 记录 `mcp_relay_enabled` 与 `mcp_relay_terminated` 等诊断事件(只含安全元数据)。
+- **配置模型** —— MCP server 配置有全局唯一 kebab-case 名、显式 transport 类型、transport 特定字段、active 标志、作用域与 project-path 元数据。目录构建使用每个 server 最近一次「Test Connection」结果中缓存的有效工具列表,**而非在目录构建时新建实时连接**。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

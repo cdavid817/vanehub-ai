@@ -91,6 +91,67 @@ Claude Code 的 `PreToolUse` hook 请求被转换为一个 `(Action, Resource)` 
 - **不拦截的工具** —— `WebFetch` 等未列出的工具不会被拦截,Claude Code 的 native 行为不受影响。
 - **`Ask` 解析** —— 在既有的 `ApprovalCard` UI 中创建待处理审批,并挂起 HTTP 响应,直到人工决定或超时扫描。
 
+## 关键类型与常量
+
+下表汇总权限域的核心类型、函数签名与常量,供实现时快速查阅。权威语义仍以本节前文与规范为准。
+
+### Effect 与解析
+
+`Effect` 枚举(来自 `permissions/domain/effect.rs`)定义三档决策值:
+
+- `Effect::Allow` —— 显式放行
+- `Effect::Deny` —— 显式拒绝
+- `Effect::Ask` —— 默认兜底,转人工审批
+
+解析函数 `resolve(candidates: &[Effect]) -> Effect` 按固定优先级收敛候选集,顺序不可调换:
+
+1. 候选集含 `Effect::Deny` → 返回 `Deny`
+2. 候选集不含 `Deny` 但含 `Effect::Allow` → 返回 `Allow`
+3. 候选集为空或仅含 `Effect::Ask` → 返回 `Ask`
+
+未匹配的 `(principal, action, resource)` 三元组(候选集为空)永远解析为 `Ask`,绝不静默 `Allow`。
+
+### Scope 与记忆语义
+
+`Scope` 枚举(来自 `permissions/domain/scope.rs`)定义 grant 的持久化作用域,`is_remembered()` 决定该决定是否落库:
+
+- `Scope::Once` —— `is_remembered() = false`,不持久化,下一次相同请求重新走解析
+- `Scope::Session` —— `is_remembered() = true`,当前会话内复用,会话结束失效
+- `Scope::Project` —— `is_remembered() = true`,项目作用域持久化,跨会话复用
+- `Scope::Global` —— `is_remembered() = true`,全局持久化,跨项目跨会话复用
+
+只有 `Session`/`Project`/`Global` 会持久化 grant;`Once` 永不持久化。
+
+### principal 身份
+
+principal 等于**稳定的 agent id**,在该 Agent 参与的所有会话中保持不变。会话 id 与 generation id 是每次评估的上下文,不属于 principal 身份的一部分;因此新会话沿用 Agent 既有的策略分配,而非会话作用域的分配。
+
+### ApprovalRequest
+
+`ApprovalRequest` 携带一个 correlation id,把待处理审批关联回 tool-use loop 中挂起的 pending-call 记账。该 correlation id 对权限域是 opaque 的——权限域不解析其内部结构,只用于把人工决策结果回写到发起方。
+
+### 策略模板
+
+`PolicyTemplateName`(来自 `permissions/domain/template.rs`)定义四档模板:
+
+- `Readonly` —— 只读
+- `Standard` —— 标准
+- `Trusted` —— 受信
+- `Yolo` —— 无审批
+
+`Trusted` 与 `Yolo` 在本基础版本中投影为**相同的** native 启动参数,不产生差异化投影。
+
+### hook 工具映射表
+
+Claude Code `PreToolUse` hook 仅对下列工具名拦截,其余工具(如 `WebFetch`)不拦截,Claude Code 的 native 行为不受影响:
+
+| Claude Code 工具 | 映射到 Action |
+| --- | --- |
+| `Bash` | `shell.exec` |
+| `Edit`、`Write` | `file.write` |
+| `Read`、`Glob`、`Grep` | `file.read` |
+| `mcp__*` | `mcp.tool` |
+
 ## 设计所在之处
 
 本章用于为贡献者定位。权威需求位于规范之中。

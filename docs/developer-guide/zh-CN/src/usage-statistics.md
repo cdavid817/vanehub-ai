@@ -56,6 +56,20 @@ flowchart TD
 
 使用量持久化位于 `sessions` 限界上下文，由 `model_invocations` 与 `token_usage_observations` 两张表承载。规范真源见 `openspec/specs/usage-statistics/spec.md`。
 
+## 关键类型与采集细节
+
+用量会计的领域模型在 `sessions/domain/usage_accounting.rs`,采集与持久化在 `sessions/infrastructure/usage_accounting.rs`:
+
+- **会计维度 `TokenDimensions`** —— 四维 `input`/`output`/`cached_input`/`cache_write_input`,外加独立的 `reasoning_output`(不并入 output);`provider_total` 是权威总数。
+- **质量分级 `MeasurementQuality`** —— `reported`(CLI 真实上报)、`reported-derived`(累计快照差)、`estimated`(字符估算)。
+- **计量单位 `AccountingUnit`** —— `tokens` / `characters`,由数据库 `CHECK` 约束强制 `quality IN ('reported','reported-derived') AND unit='tokens'` 的一致性。
+- **采集路径**:
+  - 原生 API(`provider-api-stream`):有 `ReportedUsageTotals` 时写 `reported`+`tokens`;否则用 `estimated_characters` 写 `estimated`+`characters`(`normalization_version="api-character-count-v1"`)。
+  - 受管 CLI(`managed-cli`):由 `providers/output.rs` 的 `output_parser_for(agent_id)` 解析各 CLI 输出(如 antigravity 的 input_tokens/cache_read_tokens/thinking 折叠)。
+  - 交互终端(`terminal-cli`):`terminal_usage_ledger.rs` 用稳定 `terminal-cursor:{session}:{agent}` source key + `usage_ingestion_cursors` 游标实现幂等;累计下降或换 provider session → 开新 epoch(`Reset`),只取正差。
+- **幂等机制** —— 稳定 `source_key` 的 `UPSERT` 语义 + 游标 epoch 去重;上报数据事后可用时**替换**估算(不叠加);失败/取消不产生字符估算;退化为零值而非报错。
+- **查询投影** —— 按时间范围(today/last7Days/last30Days/all,本地日历语义)+ per-Agent/provider/model/purpose/status 拆分;`coverage()` 返回真实数据覆盖率。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

@@ -69,6 +69,46 @@ sequenceDiagram
 | Skill 工具 | 沙箱,非宿主进程 | Skill 在固定目录之上贡献工具,在沙箱中执行而非宿主进程 |
 | MCP 工具 | MCP 客户端中继 | 走 MCP 中继调用,叠加在固定目录之上 |
 
+## 固定工具目录与边界
+
+下表汇总固定原生工具的名称映射、接口格式翻译、多轮循环终止与执行边界,供实现时快速查阅。权威语义仍以本节前文与规范为准。
+
+### 固定原生工具清单
+
+每次 native API 生成(`launch_kind = api`)都在 provider 请求中声明同一个固定工具集:
+
+| 工具 | 说明 |
+| --- | --- |
+| `shell.exec` | 命令执行 |
+| `file.read` | 读文件 |
+| `file.write` | 写文件 |
+| 内容搜索 | 在文件内容中检索 |
+| 文件名搜索 | 按文件名检索 |
+| 限定范围编辑 | 限定范围的文件编辑 |
+| `remember` | 跨会话内存 |
+
+### interface_format 翻译
+
+每个工具只定义一次,按会话 `interface_format`(两值)翻译为该 provider 要求的请求形态。`interface_format` 与 provider 绑定,运行时不按显示名推断:
+
+- `anthropic` → `{name, description, input_schema}`
+- `openai-compatible` → `{type: "function", function: {name, description, parameters}}`
+
+### 多轮 tool-use 循环与终止
+
+模型返回的响应只要包含 `tool_use`,运行时执行这些调用并把结果作为 `tool_result` 新一轮回传;没有工具调用的响应即为终态响应,等同于一次不带工具的生成。
+
+- **最大往返约束** —— 每条用户消息有固定最大往返次数,超出上限会被显式处理,不会形成无限循环。
+- **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
+
+### 工具来源与执行边界
+
+| 工具来源 | 执行位置 | 说明 |
+| --- | --- | --- |
+| 固定原生工具 | 宿主进程内 | `shell.exec`、`file.read`、`file.write`、内容搜索、文件名搜索、限定范围编辑、`remember` |
+| Skill 工具 | 沙箱,非宿主进程 | Skill 在固定目录之上贡献工具,在沙箱中执行而非宿主进程(见 `skill-tool-runtime` 安全需求) |
+| MCP 工具 | MCP 客户端中继 | 走 MCP 中继调用,叠加在固定目录之上 |
+
 ## 设计所在之处
 
 本章用于为贡献者定位。权威需求位于规范之中。

@@ -15,13 +15,28 @@ native 代码按所有权组织,而非按 UI 页面组织。
 
 每个 context 对进程内消费方发布一个 `api.rs` facade。其他 context 不得直接深入其 repository 或基础设施模块。Bootstrap 模块在应用边界处组装具体的依赖。
 
+各 context facade 暴露的能力概览:
+
+| Context | `api.rs` 发布的主要能力 | 拥有的关键 SQLite 表(由迁移分区) |
+| --- | --- | --- |
+| `agent_runtime` | Agent 查询、工作流、就绪、启动、消息、停止;Loop/Plan 运行时;席位交接;代码智能端口 | `expert_roles`、`onepiece_provider_profiles`、`hybrid_model_routing_rules` |
+| `sessions` | 创建/查询/搜索/切换/重命名/置顶/归档/删除、分类、聊天配置、消息持久化/组合、导出、用量、维护 | 会话/消息/分类/配置/用量表 |
+| `workspaces` | 项目/历史/worktree、有界查询、shell 生命周期 | 既有表投影 |
+| `tooling` | CLI 参数、MCP 管理、SDK、扩展、插件、Skill、Prompt Hook | 各子域自有表 |
+| `communications` | 连接器管理、运行时、路由、绑定、去重、微信授权 | 连接器/路由/绑定/去重/检查点表 |
+| `desktop` | 设置/环境、浮动助手、生命周期 | 设置/浮动仓储表 |
+| `operations` | 可观测任务、统一诊断/操作日志契约 | 操作/日志关联表 |
+| `retrieval` | 记忆检索、代码搜索、索引协调、嵌入确认 | 记忆文件、代码 manifest/chunk/symbol/向量 |
+
+**跨上下文调用规则**:跨 context 调用默认走同步的应用 API;只有当一个已完成的动作需要独立处理下游反应时才用显式事件。**任何 context 都不得直接伸手到另一 context 的存储或基础设施**——例如 `agent_runtime` 消费 `sessions` 时只走其 `api.rs` 发布的 facade,不读取其 repository。`retrieval` 拥有持久化的代码索引工作区标识,在组装边界处消费工作区根目录,但不会导入 `workspaces` 的 repository。
+
 Tauri command 是传输适配器,而非业务服务。跨 command 的错误值会被映射为安全的字符串或显式的传输错误 DTO。
 
 ## 检索与工作区代码
 
 `retrieval` 拥有持久化的代码索引工作区标识、配置、文件清单、chunk、symbol、向量与有边界的本地审计记录。它在组装边界处消费工作区根目录,但不会导入 `workspaces` 的 repository。`agent_runtime` 只消费带类型的代码检索端口,并提供当前会话文件夹;模型无法向 `search_code` 提供工作区 id 或文件夹。
 
-native worker 执行元数据优先的核对,只读取或解析新增或变更的文件。Tree-sitter grammar、chunk 拆分查询与脱敏策略共享一个版本标记。工作区代码 embedding 受一个显式确认的网关控制,该确认与工作区 id、generation、provider profile 和模型绑定。FTS 保持以工作区为作用域,并在确认之前就可用;来自另一个工作区或模型的向量永远不会成为候选。
+native worker 执行元数据优先的核对,只读取或解析新增或变更的文件。Tree-sitter grammar、chunk 拆分查询与脱敏策略共享一个版本标记(`CODE_INDEX_VERSION`)。工作区代码 embedding 受一个显式确认的网关控制,该确认与工作区 id、generation、provider profile 和模型绑定。FTS 保持以工作区为作用域,并在确认之前就可用;来自另一个工作区或模型的向量永远不会成为候选。
 
 native 诊断使用统一日志端口,且只包含安全的 id、阶段、计数、时长、模型 id 与原因类别。归一化的相对路径只保留在有边界的 SQLite 审计表中。原始代码、搜索查询、凭据、检测到的密钥值、绝对路径与 provider body 都被排除在代码索引诊断与遥测之外。
 

@@ -46,6 +46,22 @@ sequenceDiagram
 
 **出站策略**：首版本仅支持把 Agent 生成的文本结果直发回原会话。入站路由依赖预先保存的默认路由配置——启用 connector 前必须先配置默认路由(目标 Agent + 工作区)，否则归一化后的消息无法落地执行。
 
+## 关键常量与凭据
+
+入站投递的并发与水位控制由 `communications/domain/delivery.rs` 与 `infrastructure/runtime_manager.rs` 共同承载:
+
+- **`MAX_PENDING_PER_CHAT = 8`** —— 单个会话(chat)的最大挂起投递数。超过后返回 `Busy`,但**不阻塞**平台事件确认。
+- **总 pending work 上限 64** —— 跨所有会话的待处理工作总量上限,触顶后新路由请求等待空闲 lane。
+- **active Agent generation 上限 8** —— 同时运行的 Agent 生成数上限;空闲 lane 会被回收,以让新的路由请求重用执行槽位。
+- **去重与检查点** —— 入站消息经 `dedup` 去重、`checkpoint` 记录投递进度,保证幂等;调度去重按批次(每批至多 512 行)保留。
+- **微信安全上下文** —— 每个 chat 的微信安全上下文元数据有上限的有界保留,restart/stale-refresh/rollback 都有覆盖;`clear` 在移除每个被追踪的 per-chat 安全上下文前先停止运行时。
+
+凭据由 `communications/infrastructure/credential_adapter.rs` 经平台 keyring 边界保管:
+
+- **zeroizing reads** —— 凭据从 keyring 读出后立即复制到 zeroizing 缓冲,使用后立即清零内存副本。
+- **稳定 account references** —— 凭据以稳定 account 引用关联,不随连接器重命名而失效。
+- **微信授权迁移** —— 旧版微信凭据有迁移/删除路径,授权失败返回安全错误而非裸露凭据。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威需求位于 spec 中。

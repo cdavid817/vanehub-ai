@@ -59,6 +59,35 @@ stateDiagram-v2
 - **只有同模型才可比**:向量相似度只有在同一 embedding 模型下才有意义。一旦工作区或全局更换 embedding 模型,旧的向量会被重新入队(requeue),按新模型重新生成,而不会与旧向量混排。
 - **后台 worker 的节奏**:embedding 后台任务按 `EMBEDDING_BATCH_SIZE=32` 批量处理,单条最多重试 `MAX_EMBEDDING_ATTEMPTS=5` 次,worker 以约 300s 的间隔轮询待嵌入队列。这些参数只影响后台入库速度,不影响检索路径本身的可用性。
 
+## 关键类型与常量
+
+### SearchService::search 流程
+
+`SearchService::search` 是召回的统一入口,固定四步:`truncate_for_embedding` 把 query 截到 8000 字符上限(超出部分不进嵌入)→ 向量路 `vector_ranking` 做 cosine 相似度排序 → 关键词路 `keyword` 走 FTS5 → `fuse_with_rrf` 用 Reciprocal Rank Fusion 合并两路(`smoothing=60`)→ 回查源表补齐完整记录。
+
+### Degradation 降级
+
+降级枚举 `Degradation` 覆盖三态:`None`/`KeywordOnly`/`VectorOnly`。两路都失败时返回 `Err(Unavailable)`,工具结果不报错,而是一个内容为"检索暂时不可用"的成功结果。
+
+### 索引与去重
+
+差集协调 `reconcile` 在检索时按差集补齐缺失的一边,而非在保存阶段强求双写;`content_hash` 用于同内容条目去重;源表已不存在但仍残留在索引中的条目由 orphan 清理移除。
+
+### 常量
+
+- `EMBEDDING_BATCH_SIZE=32` —— 后台嵌入批量大小;
+- `MAX_EMBEDDING_ATTEMPTS=5` —— 单条最多重试次数;
+- `RETRY_BACKOFF_SECONDS` —— 重试退避间隔;
+- `RECONCILE_POLL_INTERVAL_SECONDS=300` —— worker 轮询待嵌入队列的间隔。
+
+### 模型一致性
+
+向量相似度只有在同一 embedding 模型下才有意义。向量存储记录其 model 身份;一旦工作区或全局更换 embedding 模型,`requeue_stale_model` 会把旧向量重新入队,按新模型重新生成,绝不与旧向量混排。
+
+### 工具分离
+
+`recall` 工具仅检索记忆池,`search_code` 工具仅检索当前工作区代码索引,两者分离。`CodeSearchService` 在 local 模式下跳过向量路,且不标记 `degraded`(本地无嵌入配置是预期状态,不是降级)。无嵌入配置时 `recall` 工具不进 tool catalog,模型根本看不到它。
+
 ## 设计所在之处
 
 本章用于为贡献者定位。权威需求位于规范之中。

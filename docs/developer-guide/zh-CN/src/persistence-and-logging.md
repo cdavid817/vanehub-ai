@@ -87,4 +87,40 @@ flowchart TD
 - **限频与轮转**：目录维护限频 1 小时一次；活跃日志超过 24 小时改名归档；归档目录中超过 30 天的文件进一步移入 `archive` 子目录做冷保留。
 - **React 不写本地日志**：需要持久化的前端错误越过服务边界上报到 native 日志 command；Web/mock 行为可暴露页面可见的模拟日志，但不能声称具备 native 持久化。
 
+## 关键常量与脱敏规则
+
+### 数据库常量
+
+- `DATABASE_FILE_NAME="vanehub.sqlite"` —— 单一数据库文件;
+- `MAX_POOL_SIZE=12` —— 连接池上限,接近 Tauri command worker 线程数;
+- `busy_timeout=5s` —— 写者阻塞时读者等待上限;
+- `CONNECTION_TIMEOUT=5s` —— 取连接的超时;
+- `journal_mode=WAL` —— 多读一写;
+- `foreign_keys=ON` —— 外键约束启用;
+- `synchronous=FULL` —— 在每个恢复关键提交点同步 WAL。
+
+### 迁移
+
+当前 79 个顺序迁移,`EXPECTED_MIGRATIONS` 是其真源;启动后密度检查与 `migration_sequence_matches_expected` 测试都会比照它。新增迁移必须追加在序列尾部,禁止插入或重排。`schema_migrations(version, name, applied_at)` 表为每条迁移记账。`seed_registry` 在迁移完成后于同一独占连接上执行一次。
+
+### 日志常量
+
+- `LOG_FILE_NAME="vanehub.log"` —— 活跃日志文件名;
+- `ARCHIVE_DIR_NAME="archive"` —— 冷保留子目录名;
+- `RETENTION_DAYS=30` —— 归档目录中超过 30 天的文件进一步移入 `archive` 子目录;
+- `ROTATION_AGE_HOURS=24` —— 活跃日志 mtime 超过 24 小时即改名归档;
+- `MAINTENANCE_INTERVAL_HOURS=1` —— 目录维护限频 1 小时一次。
+
+### 日志类型
+
+`LogLevel` 枚举四值:`error`/`warn`/`info`/`debug`。`LogEntry` 字段为 `timestamp`/`level`/`category`/`message`/`context`。`ClientLogEvent` 承载前端越过服务边界上报的事件,如 `ErrorBoundary`、`CriticalOperationFailure`。
+
+### 脱敏
+
+`redact_text`/`redact_entry` 在写盘前与 JSON 序列化前各做一次脱敏,覆盖四类:私密路径 → `[REDACTED_PATH]`(匹配 `C:\`、`/home/`、`/Users/`、`file:///` 等绝对路径前缀);Bearer → `Bearer [REDACTED]`(只保留 scheme);provider token 按 `sk-`、`ghp_`、`github_pat_`、`ssh-connection` 等前缀识别并整体抹除;敏感键匹配 `password`/`token`/`secret`/`credential`/`authorization`/`key_path`/`private_key` 等键名时清空其值。
+
+### 链路关联
+
+执行可观测性由 `operations/domain/operation.rs` 承载:每条操作带 `trace_id`,`correlate_execution(run_id, trace_id)` 把 run 与 trace 关联起来。run/trace/span id 不写入日志文件,只在执行可观测性管道内流转。
+
 统一日志规范的真源是 `openspec/specs/unified-log-management/spec.md`；执行可观测性关联规则见 `openspec/specs/agent-execution-observability/spec.md`。

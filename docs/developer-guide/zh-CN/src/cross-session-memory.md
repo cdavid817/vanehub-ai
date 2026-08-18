@@ -65,6 +65,28 @@ sequenceDiagram
 
 每条记忆记录上的 `provenance` 字段(`agent_id`、`folder`、`source`、`created_at`)只承载**来源元数据**:它们说明这条记忆由哪个 Agent、在哪个 workspace 文件夹、经由哪条路径、何时产生,但**不参与任何过滤**。注入、列出与召回都不会按 `agent_id` 或 `folder` 切分共享池——这就是"主机级共享"的含义:一个共享池服务这台主机上所有 Agent 的所有会话,来源信息只用于事后追溯。
 
+## 关键类型与常量
+
+### 存储模型
+
+记忆存储是主机级共享的 `memory/` 目录(常量 `MEMORY_DIRECTORY_NAME`),不是数据库行;文件即身份,每条记忆对应一个 `{name}.md` 文件,索引由 `MEMORY.md` 汇总。所有产生路径最终都落到 `FileAgentMemoryStore` 这一份文件存储上。
+
+### MemoryMetadata frontmatter
+
+每条记忆文件的 frontmatter 解析为 `MemoryMetadata`,字段包括 `name`(记忆身份,与文件名 `{name}.md` 对应)、`description`(概述)、`memory_type`(闭集四值 `user`/`feedback`/`project`/`reference`;缺失或未知值降级为 `untyped`,不拒绝写入也不拒绝读取),以及 `provenance` 来源元数据(`agent_id`、`folder`、`source`、`created_at`,迁移场景下另带 `migrated_from`)。frontmatter 只读前 `MAX_FRONTMATTER_LINES=30` 行的窗口,避免把整份正文当 frontmatter 解析。
+
+### 扫描与产生路径
+
+全目录扫描受 `MAX_SCANNED_FILES=200` 上限保护,超过即停止扫描,避免长尾记忆文件拖慢启动。三条产生路径:
+
+- **OnePiece remember 工具** —— 工具名常量 `REMEMBER_TOOL_NAME="remember"`,在 OnePiece 自身的 API tool-calling loop 中暴露,记忆启用开关打开时自动批准、无需用户确认。
+- **OnePiece 自动提取** —— 随对话压缩触发(`extract_memories_accounted`),单次压缩最多产生 `MAX_MEMORY_ACTIONS=10` 条记忆动作,超过即截断。
+- **CLI Agent 由 OnePiece 代做** —— `extract_and_save_memory` 复用 `ONEPIECE_AGENT_ID="onepiece"` 的凭据与抽取逻辑,不发起任何工具调用,直接从对话文本抽取,对 CLI Agent 透明。
+
+### 注入边界
+
+记忆注入按调用方分两套预算。`ONEPIECE_MEMORY_INDEX_BOUNDS` 为 `lines: 200, bytes: 12000`,OnePiece 调用方还会注入记忆 `body` 正文;`CLI_MEMORY_INDEX_BOUNDS` 为 `lines: 40, bytes: 3000`,CLI 调用方只注入索引行,不注入 `body`。注入时单次最多选取 `MAX_SELECTED_MEMORIES=5` 条记忆。所有失败只 `log`,不阻塞已交付的生成结果——记忆是增强而非必需,抽取或注入失败都不应影响主路径。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求位于 spec 中。

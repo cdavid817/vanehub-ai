@@ -207,3 +207,18 @@ LSP 是只读基础，安全性由四道闸门共同保证，而不是依赖单�
 4. **隔离测试四阶段**：服务端测试走 `Discovery → Spawn → Initialize → Cleanup` 四阶段，畸形的能力必须失败关闭，且清理仍须运行。
 
 进程、协议与权限边界的权威定义见 `openspec/specs/` 下相关 spec，归属层位于 `src-tauri/src/contexts/code_intelligence/`。
+
+## 关键类型与常量
+
+LSP 运行时的进程管理位于 `code_intelligence/infrastructure/process_registry.rs`,协议层在 `initialize_negotiation.rs` / `json_rpc_actor.rs` / `lsp_framing.rs`:
+
+- **`ProcessState`** —— `Absent`/`Starting`/`Initializing`/`Ready`/`Stopping`/`Backoff`/`Failed`;`is_warming()`(Starting|Initializing)、`is_terminal()`(Failed)。
+- **`LifecyclePolicy` 默认值** —— `restart_budget=3`、`initial_backoff=1s`、`max_backoff=30s`(指数退避翻倍)、`cooldown=300s`、`idle_timeout=600s`(10 分钟无请求且无租约的 Ready 进程被关闭)。
+- **能力协商** `initialize_negotiation.rs` —— `initialize_and_notify()` 先 `initialize` 再 `initialized`;`build_initialize_params()` 声明 position encoding(缺省 UTF-16)、workDoneProgress、configuration 与 definition/references/hover/publishDiagnostics;`negotiate_initialize_result()` 选 encoding、normalize 同步模式(None/Full/Incremental);服务器不支持某方法时**不发送**请求,返回 unavailable。
+- **位置转换** `PositionConverter.agent_to_lsp` —— Agent 坐标 1-based → LSP 0-based,按协商编码;越界 → `invalid_position` 不发请求。
+- **请求控制** `JsonRpcRequestControl::standard` —— 单次请求 10s 截止 + 250ms 清理保留;超时/取消区分,`ActorCommand::Cancel` 发 `$/cancelRequest`;乱序响应按 id 匹配。
+- **诊断缓存** `DiagnosticsCache` —— 按文档版本缓存,`get_diagnostics` 等 `diagnostics.wait_for_current(uri, version, Ready, 9s)`;区分 ready/stale/timeout/unavailable;外部 URI related location 被过滤。
+- **帧边界** `lsp_framing.rs` —— Content-Length 硬上限,超限杀进程。
+- **服务器→客户端请求** `lsp_server_requests.rs` —— 处理 `workspace/configuration`、`register/unregister_capabilities`;**`workspace/applyEdit` 被拒**(只读基础)。
+- **诊断日志** `lsp_diagnostics.rs` —— `LspDiagnosticKind`(Lifecycle/Timeout/Cancellation/Crash/Restart/DiagnosticsCount/ProtocolLimit/Shutdown),`record()` 带限频,只记安全元数据(不落 payload/源码/hover/诊断文本/stderr/环境/绝对路径)。
+- **隔离测试** `server_test.rs` —— `ServerTestPhase`(Discovery → Spawn → Initialize → Cleanup),用 `tempfile::TempDir` 跑完整 initialize/initialized/shutdown/exit,64KB stderr 上限、min 100ms 超时。

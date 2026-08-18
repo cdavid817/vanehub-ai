@@ -70,6 +70,40 @@ flowchart TD
 
 用户确认机制:`acknowledge_recovery` 在确认时要求传入的 revision 与当前会话 revision 匹配,防止在恢复扫描后又发生了新变更的情况下确认一个陈旧状态。确认动作本身**不会**清掉不确定的恢复效果——它只把 `recovery_status` 从 `action_required` 推进到 `clean`,把"是否接受这次恢复的最终效果"的判断显式交给用户。
 
+## 关键类型与常量
+
+### SessionRecoveryStatus
+
+恢复状态枚举四值:`clean`/`reconciling`/`action_required`/`quarantined`。恢复状态存放在独立列 `recovery_status` 上,不与会话生命周期状态混用。配套列包括 `recovery_revision`(恢复侧修订号,确认时用作乐观并发检查)、`state_revision`(会话状态修订号)、`history_revision`(消息历史修订号)、`active_execution_run_id`(当前认领的活跃 execution run id)。
+
+### 候选扫描
+
+`recovery_candidates_after` 选出需要恢复的会话,条件为:非 `archived`;`recovery_status NOT IN (action_required, quarantined)`;`active_run` 非空,或生命周期 ∈ `starting`/`running`。
+
+### 原子 claim
+
+`claim_recovery_candidate` 做乐观并发认领:以条件 UPDATE 抢占一个候选,条件不满足时返回 `None`,调用方视为 stale 并跳过——保证同一候选不会被两个恢复 worker 同时认领。
+
+### 终态证据
+
+`SessionTerminalEvidence` 承载终态证据,带两条上限:消息上限 256 条,操作上限 32 条。`ExecutionEvidenceFidelity` 标识证据的可见度,取值 `ManagedApi`(API 直连,可见度高)/`ManagedCliOpaque`(CLI 包装但受管)/`InteractiveOpaque`(交互式、不透明)。
+
+### decide_recovery 决策顺序
+
+`decide_recovery` 按以下顺序判定(先命中先返回):存储瞬时态不一致 → `RetryLater`;存在 live handle → `RetryLater`;消息序列非法 → `Quarantined`;无 active run → `action_required`;run 不一致 → `action_required`;无 assistant 消息 → `action_required`,多于一条 assistant 消息 → `Quarantined`;存在未完成的工具活动 → `action_required`;单一终态 → `clean` + 终态标签(`completed`/`failed`/`cancelled`);多个冲突终态 → `action_required`;无终态、无工具活动、`ManagedApi` → `InterruptedWithoutToolAmbiguity`,保留部分内容;CLI opaque(`ManagedCliOpaque`/`InteractiveOpaque`)→ `action_required`。
+
+### acknowledge_recovery
+
+确认时要求传入的 `expected_recovery_revision` 与当前 `recovery_revision` 匹配,否则返回 `RecoveryRevisionConflict`/`RecoveryActionNotAllowed`。确认动作不清不确定的恢复效果,也不重试任何工作。
+
+### canonical Run 恢复
+
+`reconcile_startup` 对 canonical Run 做启动期恢复:若存在 live lease 则跳过(仍在运行,无需恢复);否则聚合其下各子会话的决策结果。
+
+### 幂等
+
+`run_until_drained` 逐批游标推进,每批处理完即持久化游标;启动时跑两轮,第一轮处理已认领候选,第二轮确认无新增候选后才结束,保证幂等。
+
 ## 设计所在之处
 
 本章用于引导贡献者。权威需求——恢复状态、持久执行标识与归属，以及允许的恢复动作——位于 spec 中。

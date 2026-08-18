@@ -71,6 +71,38 @@ stateDiagram-v2
     unavailable --> [*]
 ```
 
+## 关键常量与准入
+
+### 切块与版本常量
+
+- `DEFAULT_MAX_FILE_BYTES=100KB` —— 单文件准入上限,超出不解析;
+- `DEFAULT_MAX_CHUNK_BYTES=6KB` —— 单 chunk 字节预算,超出即在命名子节点边界切;
+- `CODE_INDEX_VERSION="1"` —— 当前 grammar 兼容性、Tree-sitter 查询、chunk 拆分与脱敏策略的版本标记。
+
+### grammar 支持
+
+内置九种语言的 Tree-sitter grammar:JS、TS、TSX、Python、Rust、Go、Java、C、C++。不在此清单内的文件不被解析,也不产生 chunk。
+
+### 切块规则
+
+切块在命名子节点边界上切(`named_child_cut_points`/`split_range`),每块带 structural context(归属的 symbol、文件范围),因此切出的每个 chunk 仍能回溯到其源 symbol 与文件位置。
+
+### 脱敏六类
+
+统一策略在持久化、embedding、日志、审计、`search_code` 返回之前,对六类敏感模式按正则替换为 `[REDACTED]`:私钥(PEM 块等)、`api_key=` 形式的赋值、`token=` 形式的赋值、`bearer`/`Authorization: Bearer` 头、provider token 前缀(`sk-`、`ghp_`、`github_pat_`、`ssh-connection` 等)、内部 URL。命中即替换为 `[REDACTED]`,并累计 `redaction_count` 写入 chunk 元数据。原始代码内容不进入检索存储。
+
+### 强制敏感路径 denylist
+
+`is_mandatory_sensitive_path` 在准入阶段即拒绝一批强制敏感路径,用户配置不能覆盖。覆盖 `.env*`、`id_rsa` 与私钥文件、`.ssh/`、`.aws/`、`.azure/`、`.kube/`、`secrets/`、`*.key`、`*.pem` 等。
+
+### CodeIndexPhase 状态机
+
+phase 本身是状态机,可达状态:`disabled` → `scanning` → `parsing` → `awaiting_embedding_confirmation` → `embedding` → `ready`/`degraded`;取消时进入 `cancelling` 并最终落到 `unavailable`。
+
+### manifest 驱动选择性协调
+
+manifest 记录每个文件的路径、hash、语言与索引版本;未变文件直接跳过,只处理新增或变更的文件。`reconcile_paths` 支持三种变更语义:`Upsert`/`Delete`/`Rename`,据此对索引做增量更新。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威的需求位于规范中。

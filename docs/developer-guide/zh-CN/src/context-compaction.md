@@ -40,6 +40,16 @@ flowchart TD
 - 会话对话历史本身已超过阈值 → 在该生成的首请求之前压缩一次。
 - 工具调用循环(tool-use loop)中累积的回合(工具调用结果)把总数推过阈值 → 在该循环的下一个请求之前压缩，避免循环中途上下文无限膨胀。
 
+## 关键类型与常量
+
+压缩控制的实现在 `agent_runtime/domain/context_compaction_control.rs`。
+
+- **阈值常量** `AUTOMATIC_COMPACTION_COOLDOWN_CHARACTERS = 8192` —— 累计字符数超过此值即触发压缩;这是一个**字符**阈值,与 provider 上报的 token 数无关。
+- **`AutomaticCompactionMode`** —— 控制是否自动压缩。默认模式下按阈值自动触发;`Suppressed` 模式下即使超过阈值也不自动压缩,由调用方(如长时 tool-use loop 的上层)接管裁剪时机。
+- **`AutomaticCompactionState`** —— 运行时维护的压缩状态,记录累计字符数与是否已触发(`compaction_triggered`),保证同一个生成内不会重复压缩。状态按 `reserved_recent_turns` 保留最近若干回合不被纳入压缩范围。
+- **保留窗口** —— 触发压缩时,按原文保留固定数量的最近回合(`reserved_recent_turns`),更早的回合被一个携带模型生成摘要的合成回合替换。摘要调用是一次针对保留窗口之前回合的**单次 provider 调用,且不声明任何工具**——摘要本身不会触发新的工具循环。
+- **为何用字符数而非 provider token** —— provider 上报的 token 计数并非都准确或都返回;用字符数衡量使压缩触发时机在所有 provider 上一致,不依赖 provider 的 usage 上报。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威需求——字符数触发与摘要式压缩——位于 spec 中。

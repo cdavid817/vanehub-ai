@@ -86,6 +86,76 @@ flowchart TD
 - **失败只阻塞传递性后裔** —— 一个失败的必需 SubTask 会把其传递性后裔递归置为 `Blocked`,但独立分支中前驱已成功的 SubTask 照常派发,不会被连带阻塞。
 - **终止投影** —— 全部 `Succeeded` → `AwaitingAcceptance`;无可派发且无未完成项 → `Failed`;否则 `Continue`。
 
+## 关键类型与常量
+
+下表汇总 Loop/Plan 运行时的核心类型与判定函数,供实现时快速查阅。权威语义仍以本节前文与规范为准。
+
+### Loop 迭代阶段与结果
+
+`LoopRunPhase` 枚举(来自 `loop_engineering.rs`)定义一次 `LoopRun` 的阶段推进:
+
+- `LoopRunPhase::Preparing` —— 初始化
+- `LoopRunPhase::Acting` —— Worker 执行
+- `LoopRunPhase::Verifying` —— 证据采集
+- `LoopRunPhase::Finalizing` —— 终态收尾
+
+`Deciding` 不是独立 `LoopRunPhase`,而是 `Verifying` 之后的判定动作,其结果由 `LoopDecisionOutcome` 枚举表示:
+
+- `LoopDecisionOutcome::Failed` —— 终止失败
+- `LoopDecisionOutcome::Cancelled` —— 取消
+- `LoopDecisionOutcome::NextIteration` —— 进入下一轮迭代
+- `LoopDecisionOutcome::AwaitingAcceptance` —— 停在待人工验收
+
+### Verifier 推荐与迭代判定
+
+`LoopVerifierRecommendation` 枚举三值:`Pass` / `Revise` / `Blocked`。
+
+`decide_loop_iteration()` 按下列固定顺序判定,顺序不可调换:
+
+1. **硬终止理由** —— `GoalMet` → `AwaitingAcceptance`;`UserRejected`/`UserStopped` → `Cancelled`;其余硬终止理由 → `Failed`
+2. **`Blocked` 即失败** —— Verifier 推荐 `Blocked` 时直接 `Failed`,不再看检查结果
+3. **必过检查未过 → `NextIteration`** —— `required_checks_passed = false` 时强制下一轮,用户"就这样接受"的反馈不生效
+4. **Verifier `Revise` → `NextIteration`** —— 即使必过检查全过,仍走下一轮
+5. **检查全过 + Verifier `Pass` → `AwaitingAcceptance`** —— 唯一到达待人工验收的路径,Loop 永不自宣布成功
+
+### 无进展指纹
+
+`LoopObjectiveFingerprints` 在每轮迭代记录三项指纹:
+
+- **diff 哈希** —— 本轮 diff 的哈希
+- **必过检查失败集哈希** —— 本轮未过必过检查的集合哈希
+- **已通过必过检查集合** —— 累计已通过的必过检查
+
+无进展判定为 `repeated_diff && repeated_required_check_failures && !has_new_passing_required_evidence`(连续两轮三项指纹同时无变化)。
+
+### 迭代限制
+
+`LoopLimits` 定义三项硬限制:
+
+- `max_iterations` —— 迭代次数硬上限 `20`,达到即以 `MaxIterations` 终止
+- `max_consecutive_no_progress` —— 连续无进展轮数上限,达到即以 `NoProgress` 终止失败
+- 时间预算 —— 超限以 `TimeBudget` 终止
+
+### Worker/Verifier 信任契约
+
+Worker 与 Verifier 角色接受两种 Agent:CLI 启动的 Agent,以及**启用了 tool-use 信任**的 API Agent。未启用 tool-use 信任的 API Agent 在定义时即被拒绝,不会启动 Agent 或创建 worktree。
+
+### Plan 调度类型与并发控制
+
+Plan 运行时持久化以下聚合(位于 `agent_runtime` 限界上下文):
+
+- `PlanRun` —— 一次 Plan 执行快照,状态 `Queued`/`Continue`/`AwaitingAcceptance`/`Failed`
+- `SubTaskRun` —— 子任务运行记录,携带 `topological_rank` 与 `ordinal`
+- `SubTaskAttempt` —— 单次调度尝试
+
+确定性排序键固定为 `topological_rank` → `ordinal` → 稳定 SubTask ID(字典序),取最小者派发,结果可复现。
+
+认领通过事务性 compare-and-set 串行化:`claim_subtask` 执行 `UPDATE ... WHERE id = ? AND status = ?` 条件更新,只有一行受影响,即只有一次认领成功,绝不产生两次调度尝试。
+
+**并发约束** —— 每个 `PlanRun` 同时最多一个活跃 SubTask(`Dispatching`/`Running`/`Verifying`),本轮不再派发;本基础版本串行执行。
+
+**失败隔离** —— 一个失败的必需 SubTask 只把其**传递性后裔**递归置为 `Blocked`,独立分支中前驱已成功的 SubTask 照常派发,不受连带阻塞。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威的需求位于规范中。

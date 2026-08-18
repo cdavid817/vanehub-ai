@@ -74,6 +74,60 @@ flowchart TD
 - **OnePiece 是内置例外** —— OnePiece 是 builtin + NativeDesktop,使用由目录支持的专用 provider **Profile** 操作,保留稳定 id `onepiece`,其 provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析,从不被直接编辑。
 - **五个 CLI 是内置 CLI** —— `claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli` 均为 builtin + Cli,由内置 provider registry 解析运行时行为。
 
+## 关键类型与常量
+
+下表汇总 Agent 生命周期与 provider 运行时的核心类型、常量与错误码,供实现时快速查阅。权威语义仍以本节前文与规范为准。
+
+### 起源与运行时形态
+
+- `AgentOrigin` 枚举 —— `Builtin`(由内置目录支持)与 `User`(用户自定义,可在注册表中编辑)。
+- `AgentRuntimeKind` / `LaunchKind` —— `NativeDesktop`(原生桌面运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时,如五个 CLI)。
+
+### 稳定 agent id
+
+每个 Agent 以一个持久 id 标识,在该 Agent 参与的所有会话中保持不变。id 是 provider 解析、Loop 定义(Worker/Verifier id)等所有引用的键,而非显示名。
+
+### provider 解析稳定性
+
+运行时通过以 Agent registry 条目稳定 id 为键的 **provider registry** 解析受支持的内置 CLI 运行时行为。与 provider 无关的应用与 Session 模块不会按 provider 身份分支选择行为。
+
+- **无回退** —— 没有兼容 provider 注册的 Agent id 返回分类好的 `unsupported-provider` 错误,且不回退到其他 provider。
+
+### 能力声明
+
+每个注册 provider 各自声明经过校验的元数据、就绪前提与 `capability_tags`,外加受支持的运行时能力:
+
+- `interaction`、`resume`、`structured-output`、`terminal`、`usage`、`permission`、`model-selection`、`reasoning`。
+
+provider 未声明的能力不会被静默假设为存在。
+
+### 可用性状态
+
+`AgentAvailability` 由 `AvailabilityAssessment::assess()` 综合托管 SDK 依赖状态(`ManagedSdkStatus`)与可执行文件状态(`ExecutableStatus`)得出,四状态:
+
+- `Available` —— 可选,可进入会话
+- `NeedsAuthentication` —— 不可选,需补充认证
+- `Unavailable` —— 不可选,附原因
+- `Unknown` —— 未声明可执行文件,状态未知
+
+### 选择闸
+
+`ensure_selectable()` / `ensure_session_selectable()` 在选择前做两道闸:
+
+1. 先查 `AgentAvailability`,不可用直接拒绝并带原因
+2. 再查该 Agent 是否声明了目标 `InteractionMode`,不支持则拒绝
+
+### 用户自定义 API Agent 可编辑字段
+
+- **可编辑** —— 显示名、模型 id、Base URL、存储的 API key(轮换的 key 替换已存储凭据,下一次生成生效)
+- **不可变** —— `id`、`provider`、`interface_format`
+- **校验** —— 编辑与注册一样重新校验;失败时整个编辑被拒绝,不部分持久化(例如 `openai-compatible` Agent 省略必需的 Base URL 会拒绝整个编辑)
+
+### 内置例外
+
+- **OnePiece** —— `builtin` + `NativeDesktop`,稳定 id `onepiece`;使用由目录支持的专用 provider **Profile** 操作,允许配置多个独立受保护的 provider/endpoint/model 组合与一个显式活跃 Profile。provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析,**从不被直接编辑**。
+- **五个 CLI** —— `claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli` 均为 `builtin` + `Cli`,由内置 provider registry 解析运行时行为。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威的需求位于规范中。
