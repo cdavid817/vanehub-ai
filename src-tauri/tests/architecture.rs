@@ -58,6 +58,54 @@ fn release_debug_information_is_disabled(debug: Option<&toml::Value>) -> bool {
     }
 }
 
+/// Whether a native source path holds test code rather than production code.
+///
+/// A test module takes two shapes in this tree: a `tests.rs`/`*_tests.rs` file, or — once it
+/// grows enough to be split by subject — a `tests/` directory of sibling modules. Rules that
+/// matched only the file name silently stopped recognizing the second shape, so test code that
+/// had been exempt since it was written started tripping production rules the moment it moved
+/// into a directory. `relocate-heavyweight-inline-tests` hit exactly that on the provider-neutral
+/// rule. One predicate, used by every rule that needs it, is what keeps the three copies from
+/// drifting again.
+fn is_test_source(relative: &str) -> bool {
+    let normalized = relative.replace('\\', "/");
+    let file_name = normalized.rsplit('/').next().unwrap_or_default();
+    file_name == "tests.rs"
+        || file_name.ends_with("_tests.rs")
+        || normalized.starts_with("tests/")
+        || normalized.contains("/tests/")
+}
+
+#[test]
+fn test_sources_are_recognized_as_files_and_as_directories() {
+    for relative in [
+        "contexts/sessions/infrastructure/tests.rs",
+        "contexts/agent_runtime/application/loop_control_tests.rs",
+        "contexts/agent_runtime/application/tests/message_dispatch.rs",
+        "contexts/sessions/infrastructure/tests/recovery.rs",
+        "tests/architecture.rs",
+    ] {
+        assert!(
+            is_test_source(relative),
+            "{relative} should read as test code"
+        );
+    }
+    // Windows separators reach these rules from `rust_files`, so the predicate normalizes first.
+    assert!(is_test_source(
+        r"contexts\agent_runtime\application\tests\onepiece_provider.rs"
+    ));
+    for relative in [
+        "contexts/sessions/infrastructure/sqlite_repository.rs",
+        "contexts/agent_runtime/application/service.rs",
+        "contexts/agent_runtime/application/contest.rs",
+    ] {
+        assert!(
+            !is_test_source(relative),
+            "{relative} is production code and must stay covered"
+        );
+    }
+}
+
 #[test]
 fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -82,7 +130,7 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
                 .expect("relative source path")
                 .to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/");
-            if relative.ends_with("tests.rs") {
+            if is_test_source(&relative) {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("read provider-neutral source");
@@ -1076,7 +1124,7 @@ fn runner_contracts_and_adapters_use_only_published_runtime_boundaries() {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default();
-        if file_name.ends_with("_tests.rs") || file_name == "tests.rs" {
+        if is_test_source(&path.to_string_lossy()) {
             continue;
         }
         if !file_name.contains("runner") && !source.contains("impl AgentRunner") {
@@ -1704,15 +1752,7 @@ fn concrete_runtime_dependencies_are_assembled_only_in_bootstrap() {
             .expect("relative source path")
             .to_string_lossy()
             .replace('\\', "/");
-        let file_name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        if relative.starts_with("bootstrap/")
-            || relative.starts_with("tests/")
-            || file_name == "tests.rs"
-            || file_name.ends_with("_tests.rs")
-        {
+        if relative.starts_with("bootstrap/") || is_test_source(&relative) {
             continue;
         }
         let source = fs::read_to_string(&path).expect("read native Rust source");
@@ -2067,19 +2107,41 @@ struct SubtreeBudget {
 }
 
 const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
+    // 978 of these lines are `execute_with_code_intelligence`, one function that
+    // `split-api-adapter-modules` moved without decomposing: finding seams in live tool-dispatch
+    // control flow is its own change with its own risk budget, not something to bury in a
+    // relocation. This entry retires when that function does.
     PathBudget {
-        path: "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter.rs",
-        budget: 5_720,
-        owner: "extract-api-adapter-inline-tests",
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
+        budget: 1_166,
+        owner: "split-api-adapter-modules",
     },
+    // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
+    // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
+    // Every other module the split produced is small enough for the subtree budget alone.
+    PathBudget {
+        path:
+            "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
+        budget: 1_478,
+        owner: "split-api-adapter-modules",
+    },
+    // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
+    // modules out into `tests/`. What stays is the scaffolding they share — `Fixture`, the
+    // record builders, and the evidence/logging port doubles — plus the tests interleaved with
+    // it. The entry survives the split rather than being deleted: the file is still real, and
+    // nothing else bounds its regrowth (this subtree has no registered subtree budget).
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 5_110,
+        budget: 843,
         owner: "relocate-heavyweight-inline-tests",
     },
+    // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
+    // port double and its ~25 impls. That is one cohesive test double, not a bucket, so it was
+    // deliberately left whole — see the change's design.md.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 4_628,
+        budget: 1_851,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2090,10 +2152,20 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
 ];
 
 const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
+    // Raised from 58,072 by `split-api-adapter-modules`, which turned `api_process_adapter.rs`
+    // into a directory module. The +285 is entirely per-file scaffolding: +228 `use` lines (each
+    // of the eight new modules carries its own explicit import list instead of inheriting the
+    // parent's, plus `mod.rs`'s re-export blocks), +22 `#[cfg(test)]` attributes on the re-exports
+    // that exist only for `tests.rs`'s `use super::*;`, +11 blank separators, +8 module docs,
+    // +8 `mod` declarations, +4 comment lines heading the two re-export blocks, and +4 from
+    // rustfmt rewrapping two signatures that a `pub(super)` qualifier pushed past 100 columns.
+    // No item body was duplicated or edited: the top-level item multiset is identical before and
+    // after, 84 of the 138 moved items are byte-identical to their pre-split text, 52 differ only
+    // by an added `pub(super)`, and the last 2 are the rustfmt rewraps above.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 58_072,
-        owner: "extract-api-adapter-inline-tests",
+        budget: 58_357,
+        owner: "split-api-adapter-modules",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`

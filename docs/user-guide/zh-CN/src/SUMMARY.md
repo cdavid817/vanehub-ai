@@ -11,6 +11,7 @@
 
 - [多 Agent 群聊](multi-agent-workflow.md)
   - [群聊协作案例](multi-agent-testing-tutorial.md)
+- [Git Worktree](worktree.md)
 - [Loop Engineering 工程](loop-engineering.md)
 - [目标管理](goal-management.md)
 - [任务看板](todo-board.md)
@@ -23,10 +24,12 @@
 - [代码索引](code-indexing.md)
 - [LSP 代码智能](lsp-code-intelligence.md)
 - [工具与扩展](tooling.md)
+- [MCP 服务器](mcp.md)
+- [Prompt Hook](prompt-hooks.md)
 - [OnePiece（原生 Agent）](native-agent.md)
 - [可观测性](observability.md)
 - [远程与 IM](remote-and-im.md)
-- [定时与用量](automation.md)
+- [定时任务与用量统计](automation.md)
 - [版本更新](app-updates.md)
 
 # 参考
