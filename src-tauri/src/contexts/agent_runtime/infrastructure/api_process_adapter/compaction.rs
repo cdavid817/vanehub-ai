@@ -3,12 +3,12 @@
 use super::super::context_projection::ContextWireShape;
 use super::super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
 use super::super::model_context_catalog;
+use super::generation::{extract_memories_accounted, summarize_turns_accounted, GenerationOptions};
 use super::invocation::WireFormat;
 use super::prompt::resolve_personalization_settings;
 use super::{
-    extract_memories_accounted, failed_retryable, summarize_turns_accounted, GenerationOptions,
-    COMPACTION_KEEP_RECENT_TURNS, COMPACTION_TRIGGER_CHARACTERS, OPTIMIZER_TARGET_CHARACTERS,
-    SUMMARIZATION_INSTRUCTION,
+    failed_retryable, COMPACTION_KEEP_RECENT_TURNS, COMPACTION_TRIGGER_CHARACTERS,
+    OPTIMIZER_TARGET_CHARACTERS, SUMMARIZATION_INSTRUCTION,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMemoryPort,
