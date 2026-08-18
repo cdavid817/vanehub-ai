@@ -21,8 +21,6 @@ import type {
   LaunchResult,
   ProjectInspection,
   ReadinessStatus,
-  RetrievalConfiguration,
-  RetrievalIndexStatus,
   UpdateSessionSeatsInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
@@ -230,14 +228,6 @@ import type {
 import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import type {
-  CodeEmbeddingConfirmation,
-  CodeIndexAuditEntry,
-  CodeIndexAutomaticMode,
-  CodeIndexConfigurationInput,
-  CodeIndexStatus,
-  CodeIndexWorkspace,
-} from "../types/code-index";
-import type {
   LspConfiguration,
   LspLanguageId,
   LspServerDiscovery,
@@ -254,11 +244,13 @@ import type {
 } from "../types/context-quality";
 import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceManifestQuery } from "../types/context-engine";
 import type { BuiltinToolService } from "./builtin-tool-service";
+import type { CodeIndexService } from "./code-index-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
 export interface AgentService extends
   ApiAgentService,
   BuiltinToolService,
+  CodeIndexService,
   EvaluationService,
   HybridRoutingService,
   OnePieceProfileService,
@@ -301,32 +293,6 @@ export interface AgentService extends
   getContextQualitySummary(input: ContextQualitySummaryQuery): Promise<ContextQualitySummary>;
   listContextEvidenceManifests(input: ContextEvidenceManifestQuery): Promise<ContextEvidenceManifestPage>;
   getContextEvidenceManifest(generationId: string): Promise<ContextEvidenceManifest | null>;
-  // Configuration, index status and rebuild are all global: retrieval applies to every agent,
-  // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
-  getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
-  saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
-  saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode): Promise<void>;
-  getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
-  rebuildRetrievalIndex(): Promise<void>;
-  listCodeIndexWorkspaces(): Promise<CodeIndexWorkspace[]>;
-  getCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  registerCodeIndexWorkspace(root: string, displayName: string): Promise<CodeIndexWorkspace>;
-  saveCodeIndexConfiguration(
-    workspaceId: string,
-    configuration: CodeIndexConfigurationInput,
-  ): Promise<CodeIndexWorkspace>;
-  refreshCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexStatus>;
-  confirmCodeIndexEmbedding(
-    workspaceId: string,
-    profileId: string,
-    model: string,
-    generation: number,
-  ): Promise<CodeEmbeddingConfirmation>;
-  getCodeIndexStatus(workspaceId: string): Promise<CodeIndexStatus>;
-  listCodeIndexAudit(workspaceId: string, limit?: number): Promise<CodeIndexAuditEntry[]>;
-  rebuildCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  disableCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
-  deleteCodeIndexWorkspace(workspaceId: string): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
   listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
