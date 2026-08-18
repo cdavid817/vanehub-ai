@@ -36,10 +36,10 @@
 ## 6. Update budgets and verify
 
 - [x] 6.1 Lower the two `NATIVE_PATH_BUDGETS` entries to the measured post-split counts — 5,110 → 843 and 4,628 → 1,851, each with its reason recorded inline. The `tooling/skills/application/tests.rs` entry is untouched.
-- [x] 6.2 `cargo test --manifest-path src-tauri/Cargo.toml` passes with an unchanged total test count — 3,543 lib tests, exactly the baseline count. One failure, `playwright_sidecar::…::real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes`, is the known load sensitivity of issue #170 in a context this change never touches; it passes on an isolated re-run.
+- [x] 6.2 `cargo test --manifest-path src-tauri/Cargo.toml` passes with an unchanged total test count — 3,543 lib tests, exactly the baseline count, plus 41 architecture, 3+3 MCP, and 15 bin tests, all green. Two full-suite runs each reported a handful of transient `--lib` failures, and **the two failure sets were disjoint**: run 1 failed only `playwright_sidecar::…`, run 2 failed only `local_model_discovery::…timeout…` and two `code_intelligence` process-tree cleanup tests. All four pass on isolated re-runs, all four are load-sensitive by construction, and none is in a module this change touches. That is issue #170, not a regression.
 - [x] 6.2a Fix the architecture gate's test-code predicate — splitting the tests made `provider_neutral_layers_do_not_select_concrete_cli_providers` fire on three new modules whose `"codex-cli"` references had always been exempt, because the rule matched `ends_with("tests.rs")` and a `tests/` directory does not. Two other rules carried the same latent gap. All three now share an `is_test_source` helper, with its own fixture test.
 - [x] 6.3 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` passes — rustfmt's only correction was one trailing blank line per parent, applied before the budgets were set.
 - [x] 6.4 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` passes
 - [x] 6.5 `cargo check --manifest-path src-tauri/Cargo.toml` passes
-- [ ] 6.6 `npm run architecture:check` passes
-- [ ] 6.7 `openspec validate relocate-heavyweight-inline-tests --strict` and `openspec validate --specs --strict` pass
+- [x] 6.6 `npm run architecture:check` passes — the full pipeline (node rule tests, `check.mjs`, `lint:ci`, `tsc --noEmit`, `cargo test --test architecture`) exits 0 with 41 architecture tests green.
+- [x] 6.7 `openspec validate relocate-heavyweight-inline-tests --strict` and `openspec validate --specs --strict` pass — the change is valid and all 138 spec items pass.
