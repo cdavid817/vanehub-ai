@@ -109,14 +109,6 @@ import type {
   OnePieceProviderService,
 } from "./api-provider-service";
 import type {
-  ContinueLoopInput,
-  LoopDefinition,
-  LoopEvent,
-  LoopRun,
-  SaveLoopDefinitionInput,
-  StartLoopResult,
-} from "../types/loop";
-import type {
   CreateShellInput,
   DirectoryListing,
   DocumentListing,
@@ -146,6 +138,7 @@ import type {
 } from "./session-organization-service";
 import type { AgentTerminalService } from "./agent-terminal-service";
 import type { MissionControlService } from "./mission-control-service";
+import type { LoopService } from "./loop-service";
 import type { UsageStatisticsService } from "./usage-statistics-service";
 import type {
   LspConfiguration,
@@ -189,7 +182,8 @@ export interface AgentService extends
   KnownWorkspaceService,
   AgentTerminalService,
   UsageStatisticsService,
-  MissionControlService {
+  MissionControlService,
+  LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -236,20 +230,6 @@ export interface AgentService extends
     expectedRecoveryRevision: number,
   ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
-  listLoopDefinitions(): Promise<LoopDefinition[]>;
-  createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
-  updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
-  deleteLoopDefinition(definitionId: string): Promise<void>;
-  listLoopRuns(definitionId?: string): Promise<LoopRun[]>;
-  getLoopRun(runId: string): Promise<LoopRun>;
-  startLoop(definitionId: string): Promise<StartLoopResult>;
-  pauseLoop(runId: string): Promise<LoopRun>;
-  resumeLoop(runId: string): Promise<LoopRun>;
-  cancelLoop(runId: string): Promise<LoopRun>;
-  acceptLoop(runId: string): Promise<LoopRun>;
-  continueLoop(input: ContinueLoopInput): Promise<LoopRun>;
-  rejectLoop(runId: string): Promise<LoopRun>;
-  subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void): Promise<() => void>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;

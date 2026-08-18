@@ -37,16 +37,6 @@ import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { AgentRun } from "../types/agent-run";
 import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import { webEvaluationClient } from "./web-evaluation-client";
-import type {
-  ContinueLoopInput,
-  LoopDefinition,
-  LoopEvent,
-  LoopEvidence,
-  LoopIteration,
-  LoopRun,
-  SaveLoopDefinitionInput,
-  StartLoopResult,
-} from "../types/loop";
 import { webPromptHookClient } from "./web-prompt-hook-client";
 import { webApiAgentClient } from "./web-api-agent-client";
 import { webOnePieceProviderClient } from "./web-onepiece-provider-client";
@@ -98,11 +88,23 @@ import { webExpertRoleClient, listWebExpertRoles } from "./web-expert-role-clien
 import { webAgentTerminalClient } from "./web-agent-terminal-client";
 import { webUsageStatisticsClient } from "./web-usage-statistics-client";
 import { webMissionControlClient } from "./web-mission-control-client";
+import { webLoopClient } from "./web-loop-client";
+import {
+  clearWebLoopStateForTest,
+  clearWebLoopTimersAndSubscribers,
+  isWebLoopRoleSession,
+  listWebLoopDefinitions,
+  snapshotWebLoopRoleSessionIds,
+} from "./web-loop-state";
+
+export {
+  setWebLoopPhaseDelayForTest,
+  simulateWebLoopRestartForTest,
+} from "./web-loop-state";
 import {
   findWebAgentRun,
   isTerminalWebRunState,
   prependWebAgentRun,
-  projectWebOwnerRun,
   setWebAgentRunEvents,
   updateWebAgentRun,
 } from "./web-agent-run-state";
@@ -156,15 +158,6 @@ const mockCompactionTriggerCharacters = 2_000;
 
 let nextMessageId = 1;
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
-let loopDefinitions: LoopDefinition[] = [];
-let loopRuns: LoopRun[] = [];
-let nextLoopDefinitionId = 1;
-let nextLoopRunId = 1;
-let nextLoopEvidenceId = 1;
-const loopSubscribers = new Map<string, Set<(event: LoopEvent) => void>>();
-const loopTimers = new Map<string, ReturnType<typeof setTimeout>>();
-let webLoopPhaseDelayMs = 220;
-const loopRoleSessionIds = new Set<string>();
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
@@ -659,320 +652,21 @@ function cancelActiveStream(sessionId: string) {
   return true;
 }
 
-function cloneLoopValue<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function validateLoopDefinitionInput(input: SaveLoopDefinitionInput) {
-  const name = input.name.trim();
-  const projectPath = input.projectPath.trim();
-  const baseBranch = input.baseBranch.trim();
-  const goal = input.goal.trim();
-  if (!name || !projectPath || !baseBranch || !goal) throw new Error(tr("loops.editor.error.scope"));
-  if (!mockAgents.some((agent) => agent.id === input.workerAgentId)) throw new Error(tr("loops.web.error.unsupportedWorker", { agentId: input.workerAgentId }));
-  if (!mockAgents.some((agent) => agent.id === input.verifierAgentId)) throw new Error(tr("loops.web.error.unsupportedVerifier", { agentId: input.verifierAgentId }));
-  if (input.acceptanceCriteria.every((criterion) => !criterion.trim())) throw new Error(tr("loops.editor.error.acceptance"));
-  if (input.verificationCommands.length === 0) throw new Error(tr("loops.editor.error.verificationRequired"));
-  for (const command of input.verificationCommands) {
-    if (!command.id.trim() || !command.program.trim() || command.timeoutSeconds < 1) throw new Error(tr("loops.web.error.invalidCommand"));
-    const workingDirectory = command.workingDirectory?.trim() ?? null;
-    if (workingDirectory && (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(workingDirectory) || workingDirectory.split(/[\\/]+/).includes(".."))) {
-      throw new Error(tr("loops.editor.error.verificationDirectory"));
-    }
-  }
-  const { limits } = input;
-  if (
-    limits.maxIterations < 1 || limits.maxIterations > 20 ||
-    limits.stepTimeoutSeconds < 1 || limits.totalTimeoutSeconds < limits.stepTimeoutSeconds ||
-    limits.maxConsecutiveRuntimeErrors < 1 || limits.maxConsecutiveNoProgress < 1
-  ) throw new Error(tr("loops.editor.error.limits"));
-  return {
-    ...input,
-    name,
-    projectPath,
-    baseBranch,
-    goal,
-    acceptanceCriteria: input.acceptanceCriteria.map((value) => value.trim()).filter(Boolean),
-    allowedPaths: input.allowedPaths.map((value) => value.trim()).filter(Boolean),
-    protectedPaths: input.protectedPaths.map((value) => value.trim()).filter(Boolean),
-    verificationCommands: input.verificationCommands.map((command) => ({
-      ...command,
-      id: command.id.trim(),
-      program: command.program.trim(),
-      args: command.args.map((value) => value.trim()).filter(Boolean),
-      workingDirectory: command.workingDirectory?.trim() || null,
-    })),
-    limits: { ...input.limits },
-  };
-}
-
-function findLoopDefinition(definitionId: string) {
-  const definition = loopDefinitions.find((candidate) => candidate.id === definitionId);
-  if (!definition) throw new Error(tr("loops.web.error.definitionNotFound", { definitionId }));
-  return definition;
-}
-
-function findLoopRun(runId: string) {
-  const run = loopRuns.find((candidate) => candidate.id === runId);
-  if (!run) throw new Error(tr("loops.web.error.runNotFound", { runId }));
-  return run;
-}
-
-function emitLoopEvent(run: LoopRun, kind: LoopEvent["kind"] = "run-updated") {
-  run.updatedAt = nowIso();
-  const event: LoopEvent = { kind, run: cloneLoopValue(run) };
-  loopSubscribers.get(run.id)?.forEach((handler) => handler(event));
-}
-
-function addLoopEvidence(
-  run: LoopRun,
-  iteration: LoopIteration | null,
-  input: Omit<LoopEvidence, "id" | "runId" | "iterationId" | "createdAt">,
-) {
-  const evidence: LoopEvidence = {
-    ...input,
-    id: `web-loop-evidence-${nextLoopEvidenceId++}`,
-    runId: run.id,
-    iterationId: iteration?.id ?? null,
-    createdAt: nowIso(),
-  };
-  if (iteration) iteration.evidence.push(evidence);
-  emitLoopEvent(run, "evidence-added");
-}
-
 /** `add-cli-memory-support`: the shared memory pool is no longer isolated per agent id, so tests
  * that seed memories can leak into later tests within the same file unless explicitly cleared. */
 export function resetWebAgentMemoriesForTest() {
   webAgentMemories = [];
 }
 
+// Split across the two owners rather than moved whole: the loop bindings live in the loop state
+// module, but `messagesBySession` is still owned here, so the ordering is preserved by calling the
+// loop module's two clear steps around the message cleanup.
 export function resetWebLoopsForTest() {
-  loopTimers.forEach((timer) => clearTimeout(timer));
-  loopTimers.clear();
-  loopSubscribers.clear();
-  replaceWebSessions(listWebSessions().filter((session) => !loopRoleSessionIds.has(session.id)));
-  loopRoleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
-  loopRoleSessionIds.clear();
-  loopDefinitions = [];
-  loopRuns = [];
-  nextLoopDefinitionId = 1;
-  nextLoopRunId = 1;
-  nextLoopEvidenceId = 1;
-}
-
-export function simulateWebLoopRestartForTest(runId: string): LoopRun {
-  const run = findLoopRun(runId);
-  if (!["queued", "running", "awaiting-acceptance"].includes(run.status)) {
-    throw new Error(tr("loops.web.error.recoveryState"));
-  }
-  const timer = loopTimers.get(run.id);
-  if (timer) clearTimeout(timer);
-  loopTimers.delete(run.id);
-  run.status = "paused";
-  run.terminalReason = "recovery-required";
-  run.pauseRequested = false;
-  run.activeOperationId = null;
-  emitLoopEvent(run);
-  return cloneLoopValue(run);
-}
-
-function currentLoopIteration(run: LoopRun) {
-  const iteration = run.iterations.at(-1);
-  if (!iteration) throw new Error(tr("loops.web.error.iterationNotFound", { runId: run.id }));
-  return iteration;
-}
-
-function createWebLoopIteration(runId: string, sequence: number, feedback: string | null): LoopIteration {
-  return {
-    id: `web-loop-iteration-${runId}-${sequence}`,
-    runId,
-    sequence,
-    status: "running",
-    workerSessionId: `web-loop-worker-${runId}-${sequence}`,
-    verifierSessionId: null,
-    workerSummary: null,
-    verifierRecommendation: null,
-    verifierFindings: [],
-    decisionReason: null,
-    diffFingerprint: null,
-    checkFailureFingerprint: null,
-    userFeedback: feedback,
-    evidence: [],
-    startedAt: nowIso(),
-    completedAt: null,
-  };
-}
-
-function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration, role: "worker" | "verifier") {
-  const sessionId = role === "worker" ? iteration.workerSessionId : iteration.verifierSessionId;
-  if (!sessionId || loopRoleSessionIds.has(sessionId)) return;
-  const timestamp = nowIso();
-  const agentId = role === "worker"
-    ? run.definitionSnapshot.workerAgentId
-    : run.definitionSnapshot.verifierAgentId;
-  const session: Session = {
-    id: sessionId,
-    title: `${run.definitionSnapshot.name} - ${tr(`loops.inspection.role.${role}`)}`,
-    agentId,
-    interactionMode: "cli",
-    lifecycleState: "stopped",
-    recoveryStatus: "clean",
-    recoveryRevision: 0,
-    stateRevision: 0,
-    historyRevision: 0,
-    activeExecutionRunId: null,
-    folder: run.worktreePath,
-    projectPath: run.projectPath,
-    worktreePath: run.worktreePath,
-    worktreeName: run.worktreeName,
-    worktreeBranch: run.worktreeBranch,
-    remoteWorkspace: null,
-    remoteSshConnectionId: null,
-    remoteSshConnectionRevision: null,
-    runtimeSessionId: null,
-    categoryId: null,
-    source: { kind: "desktop", connector: null },
-    pinned: false,
-    archived: false,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  loopRoleSessionIds.add(sessionId);
-  prependWebSession(session);
-}
-
-function scheduleWebLoopPhase(run: LoopRun) {
-  const existing = loopTimers.get(run.id);
-  if (existing) clearTimeout(existing);
-  const timeoutId = setTimeout(() => {
-    loopTimers.delete(run.id);
-    if (run.status !== "queued" && run.status !== "running") return;
-    if (run.pauseRequested) {
-      run.pauseRequested = false;
-      run.status = "paused";
-      projectWebOwnerRun(run.id, "paused");
-      emitLoopEvent(run);
-      return;
-    }
-
-    if (run.status === "queued") {
-      run.status = "running";
-      run.startedAt = nowIso();
-      run.worktreeName = `loop-${run.definitionId}-${run.id}`;
-      run.worktreeBranch = `vanehub/${run.worktreeName}`;
-      run.worktreePath = `${run.projectPath}-${run.worktreeName}`;
-      run.phase = "acting";
-      projectWebOwnerRun(run.id, "running");
-      const iteration = createWebLoopIteration(run.id, 1, null);
-      run.iterations.push(iteration);
-      createWebLoopRoleSession(run, iteration, "worker");
-      addLoopEvidence(run, null, {
-        kind: "worktree",
-        status: "passed",
-        summary: tr("loops.web.evidence.worktreePrepared"),
-        operationId: run.activeOperationId,
-        commandId: null,
-        exitCode: 0,
-        durationMs: 180,
-        details: { simulated: true, path: run.worktreePath },
-      });
-      scheduleWebLoopPhase(run);
-      return;
-    }
-
-    const iteration = currentLoopIteration(run);
-    if (run.phase === "acting") {
-      iteration.workerSummary = tr("loops.web.evidence.workerCompleted");
-      iteration.diffFingerprint = `mock-diff-${run.id}-${iteration.sequence}`;
-      addLoopEvidence(run, iteration, {
-        kind: "worker",
-        status: "passed",
-        summary: iteration.workerSummary,
-        operationId: `web-loop-worker-operation-${run.id}-${iteration.sequence}`,
-        commandId: null,
-        exitCode: 0,
-        durationMs: 420,
-        details: { simulated: true, changedFiles: 3, additions: 48, deletions: 12 },
-      });
-      run.phase = "verifying";
-      projectWebOwnerRun(run.id, "verifying");
-      emitLoopEvent(run, "iteration-updated");
-      scheduleWebLoopPhase(run);
-      return;
-    }
-
-    if (run.phase === "verifying") {
-      run.definitionSnapshot.verificationCommands.forEach((command) => {
-        const failed = command.program.toLowerCase() === "false";
-        addLoopEvidence(run, iteration, {
-          kind: "verification",
-          status: failed ? "failed" : "passed",
-          summary: `${command.program} ${command.args.join(" ")}`.trim(),
-          operationId: `web-loop-check-${run.id}-${iteration.sequence}-${command.id}`,
-          commandId: command.id,
-          exitCode: failed ? 1 : 0,
-          durationMs: 240,
-          details: { simulated: true, required: command.required },
-        });
-      });
-      const requiredCheckFailed = iteration.evidence.some(
-        (evidence) => evidence.kind === "verification" && evidence.status === "failed" && evidence.details?.required === true,
-      );
-      iteration.verifierSessionId = `web-loop-verifier-${run.id}-${iteration.sequence}`;
-      createWebLoopRoleSession(run, iteration, "verifier");
-      iteration.verifierRecommendation = requiredCheckFailed ? "revise" : "pass";
-      iteration.verifierFindings = requiredCheckFailed
-        ? [tr("loops.web.evidence.requiredCheckFailed")]
-        : [tr("loops.web.evidence.checksPassed"), tr("loops.web.evidence.protectedPathsUnchanged")];
-      addLoopEvidence(run, iteration, {
-        kind: "verifier",
-        status: requiredCheckFailed ? "blocked" : "passed",
-        summary: requiredCheckFailed
-          ? tr("loops.web.evidence.verifierRevise")
-          : tr("loops.web.evidence.verifierAccept"),
-        operationId: `web-loop-verifier-operation-${run.id}-${iteration.sequence}`,
-        commandId: null,
-        exitCode: null,
-        durationMs: 320,
-        details: { simulated: true, recommendation: iteration.verifierRecommendation },
-      });
-      run.phase = "deciding";
-      emitLoopEvent(run, "iteration-updated");
-      scheduleWebLoopPhase(run);
-      return;
-    }
-
-    if (run.phase === "deciding") {
-      const requiredCheckFailed = iteration.evidence.some(
-        (evidence) => evidence.kind === "verification" && evidence.status === "failed" && evidence.details?.required === true,
-      );
-      iteration.status = requiredCheckFailed ? "failed" : "awaiting-acceptance";
-      iteration.decisionReason = requiredCheckFailed
-        ? tr("loops.web.evidence.decisionCheckFailed")
-        : tr("loops.web.evidence.decisionReady");
-      iteration.completedAt = nowIso();
-      run.status = requiredCheckFailed ? "failed" : "awaiting-acceptance";
-      projectWebOwnerRun(run.id, requiredCheckFailed ? "failed" : "verifying");
-      run.phase = "finalizing";
-      run.terminalReason = requiredCheckFailed ? "verification-failed" : null;
-      run.completedAt = requiredCheckFailed ? nowIso() : null;
-      addLoopEvidence(run, iteration, {
-        kind: "decision",
-        status: requiredCheckFailed ? "failed" : "passed",
-        summary: iteration.decisionReason,
-        operationId: null,
-        commandId: null,
-        exitCode: null,
-        durationMs: null,
-        details: { simulated: true, decision: run.status },
-      });
-    }
-  }, webLoopPhaseDelayMs);
-  loopTimers.set(run.id, timeoutId);
-}
-
-export function setWebLoopPhaseDelayForTest(delayMs: number): void {
-  webLoopPhaseDelayMs = Math.max(1, Math.min(delayMs, 10_000));
+  clearWebLoopTimersAndSubscribers();
+  const roleSessionIds = snapshotWebLoopRoleSessionIds();
+  replaceWebSessions(listWebSessions().filter((session) => !roleSessionIds.includes(session.id)));
+  roleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
+  clearWebLoopStateForTest();
 }
 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
@@ -1090,9 +784,9 @@ export const webAgentClient: AgentService = {
     if (sessionCount > 0) blocking.push(`${sessionCount} sessions`);
     const memoryCount = webAgentMemories.filter((memory) => memory.agentId === agentId).length;
     if (memoryCount > 0) blocking.push(`${memoryCount} memories`);
-    const workerCount = loopDefinitions.filter((definition) => definition.workerAgentId === agentId).length;
+    const workerCount = listWebLoopDefinitions().filter((definition) => definition.workerAgentId === agentId).length;
     if (workerCount > 0) blocking.push(`${workerCount} Loop definitions as worker`);
-    const verifierCount = loopDefinitions.filter((definition) => definition.verifierAgentId === agentId).length;
+    const verifierCount = listWebLoopDefinitions().filter((definition) => definition.verifierAgentId === agentId).length;
     if (verifierCount > 0) blocking.push(`${verifierCount} Loop definitions as verifier`);
     if (blocking.length > 0) {
       throw new Error(`Cannot delete this agent: it is still referenced by ${blocking.join(", ")}.`);
@@ -1212,17 +906,17 @@ export const webAgentClient: AgentService = {
   },
 
   async listSessions() {
-    return sortWebSessions(listWebSessions().filter((session) => !session.archived && !loopRoleSessionIds.has(session.id)));
+    return sortWebSessions(listWebSessions().filter((session) => !session.archived && !isWebLoopRoleSession(session.id)));
   },
 
   async listArchivedSessions() {
-    return sortWebSessions(listWebSessions().filter((session) => session.archived && !loopRoleSessionIds.has(session.id)));
+    return sortWebSessions(listWebSessions().filter((session) => session.archived && !isWebLoopRoleSession(session.id)));
   },
 
   async searchSessions(input: SessionSearchInput) {
     const query = input.query.trim();
     if (!query) return [];
-    return sortWebSessions(listWebSessions().filter((session) => !loopRoleSessionIds.has(session.id)))
+    return sortWebSessions(listWebSessions().filter((session) => !isWebLoopRoleSession(session.id)))
       .map((session) => sessionSearchMatches(session, query))
       .filter((result): result is SessionSearchResult => result !== null)
       .slice(0, input.limit ?? 50);
@@ -1284,197 +978,7 @@ export const webAgentClient: AgentService = {
     return listWebSessions().find((session) => session.id === sessionId) ?? null;
   },
   ...webSessionCategoryClient,
-
-  async listLoopDefinitions() {
-    return cloneLoopValue([...loopDefinitions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
-  },
-
-  async createLoopDefinition(input: SaveLoopDefinitionInput) {
-    const validated = validateLoopDefinitionInput(input);
-    const timestamp = nowIso();
-    const definition: LoopDefinition = {
-      ...validated,
-      id: `web-loop-${nextLoopDefinitionId++}`,
-      version: 1,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    loopDefinitions = [definition, ...loopDefinitions];
-    return cloneLoopValue(definition);
-  },
-
-  async updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput) {
-    const current = findLoopDefinition(definitionId);
-    if (input.expectedVersion != null && input.expectedVersion !== current.version) throw new Error(tr("loops.web.error.versionConflict"));
-    const validated = validateLoopDefinitionInput(input);
-    const updated: LoopDefinition = {
-      ...validated,
-      id: current.id,
-      version: current.version + 1,
-      createdAt: current.createdAt,
-      updatedAt: nowIso(),
-    };
-    loopDefinitions = loopDefinitions.map((candidate) => candidate.id === definitionId ? updated : candidate);
-    return cloneLoopValue(updated);
-  },
-
-  async deleteLoopDefinition(definitionId: string) {
-    findLoopDefinition(definitionId);
-    if (loopRuns.some((run) => run.definitionId === definitionId && ["queued", "running", "paused", "awaiting-acceptance"].includes(run.status))) {
-      throw new Error(tr("loops.web.error.activeRunDelete"));
-    }
-    loopDefinitions = loopDefinitions.filter((candidate) => candidate.id !== definitionId);
-  },
-
-  async listLoopRuns(definitionId?: string) {
-    const runs = definitionId ? loopRuns.filter((run) => run.definitionId === definitionId) : loopRuns;
-    return cloneLoopValue([...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
-  },
-
-  async getLoopRun(runId: string) {
-    return cloneLoopValue(findLoopRun(runId));
-  },
-
-  async startLoop(definitionId: string): Promise<StartLoopResult> {
-    const definition = findLoopDefinition(definitionId);
-    if (!definition.enabled) throw new Error(tr("loops.web.error.definitionDisabled"));
-    if (loopRuns.some((run) => run.definitionId === definitionId && ["queued", "running", "paused", "awaiting-acceptance"].includes(run.status))) {
-      throw new Error(tr("loops.web.error.activeRunExists"));
-    }
-    const timestamp = nowIso();
-    const runId = `web-loop-run-${nextLoopRunId++}`;
-    const operationId = `web-loop-prepare-${runId}`;
-    const run: LoopRun = {
-      id: runId,
-      definitionId,
-      definitionSnapshot: cloneLoopValue(definition),
-      status: "queued",
-      phase: "preparing",
-      terminalReason: null,
-      currentIteration: 1,
-      consecutiveRuntimeErrors: 0,
-      consecutiveNoProgress: 0,
-      pauseRequested: false,
-      projectPath: definition.projectPath,
-      worktreePath: null,
-      worktreeName: null,
-      worktreeBranch: null,
-      activeOperationId: operationId,
-      iterations: [],
-      simulated: true,
-      createdAt: timestamp,
-      startedAt: null,
-      updatedAt: timestamp,
-      completedAt: null,
-    };
-    loopRuns = [run, ...loopRuns];
-    const canonicalId = `018f0f17-4d6a-7e20-b41d-66c5271a${String(nextLoopRunId).padStart(4, "0")}`;
-    prependWebAgentRun({
-      id: canonicalId,
-      owner: { ownerType: "loop_run", ownerId: runId },
-      links: [{ linkType: "loop_definition", linkId: definitionId }],
-      parentRunId: null,
-      state: "preparing",
-      recoveryPolicy: "owner_reconciles",
-      retryCount: 0,
-      maxRetries: 3,
-      reasonCode: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      version: 2,
-      lastWitness: `web-loop-prepare:${runId}`,
-    });
-    setWebAgentRunEvents(canonicalId, []);
-    emitLoopEvent(run);
-    scheduleWebLoopPhase(run);
-    return { run: cloneLoopValue(run), operationId };
-  },
-
-  async pauseLoop(runId: string) {
-    const run = findLoopRun(runId);
-    if (run.status !== "queued" && run.status !== "running") throw new Error(tr("loops.web.error.pauseState"));
-    run.pauseRequested = true;
-    emitLoopEvent(run);
-    return cloneLoopValue(run);
-  },
-
-  async resumeLoop(runId: string) {
-    const run = findLoopRun(runId);
-    if (run.status !== "paused") throw new Error(tr("loops.web.error.resumeState"));
-    run.status = run.iterations.length === 0 ? "queued" : "running";
-    projectWebOwnerRun(run.id, "running");
-    run.terminalReason = null;
-    run.pauseRequested = false;
-    emitLoopEvent(run);
-    scheduleWebLoopPhase(run);
-    return cloneLoopValue(run);
-  },
-
-  async cancelLoop(runId: string) {
-    const run = findLoopRun(runId);
-    if (["succeeded", "failed", "cancelled"].includes(run.status)) return cloneLoopValue(run);
-    const timer = loopTimers.get(run.id);
-    if (timer) clearTimeout(timer);
-    loopTimers.delete(run.id);
-    run.status = "cancelled";
-    projectWebOwnerRun(run.id, "cancelled");
-    run.terminalReason = "user-stopped";
-    run.completedAt = nowIso();
-    run.pauseRequested = false;
-    emitLoopEvent(run);
-    return cloneLoopValue(run);
-  },
-
-  async acceptLoop(runId: string) {
-    const run = findLoopRun(runId);
-    if (run.status !== "awaiting-acceptance") throw new Error(tr("loops.web.error.acceptanceState"));
-    run.status = "succeeded";
-    projectWebOwnerRun(run.id, "completed");
-    run.terminalReason = "goal-met";
-    run.completedAt = nowIso();
-    emitLoopEvent(run);
-    return cloneLoopValue(run);
-  },
-
-  async continueLoop(input: ContinueLoopInput) {
-    const run = findLoopRun(input.runId);
-    const feedback = input.feedback.trim();
-    if (run.status !== "awaiting-acceptance") throw new Error(tr("loops.web.error.acceptanceState"));
-    if (!feedback) throw new Error(tr("loops.web.error.feedbackRequired"));
-    if (run.currentIteration >= run.definitionSnapshot.limits.maxIterations) throw new Error(tr("loops.web.error.maxIterations"));
-    run.currentIteration += 1;
-    const iteration = createWebLoopIteration(run.id, run.currentIteration, feedback);
-    run.iterations.push(iteration);
-    createWebLoopRoleSession(run, iteration, "worker");
-    run.status = "running";
-    projectWebOwnerRun(run.id, "running");
-    run.phase = "acting";
-    run.terminalReason = null;
-    emitLoopEvent(run, "iteration-updated");
-    scheduleWebLoopPhase(run);
-    return cloneLoopValue(run);
-  },
-
-  async rejectLoop(runId: string) {
-    const run = findLoopRun(runId);
-    if (run.status !== "awaiting-acceptance") throw new Error(tr("loops.web.error.acceptanceState"));
-    run.status = "cancelled";
-    projectWebOwnerRun(run.id, "cancelled");
-    run.terminalReason = "user-rejected";
-    run.completedAt = nowIso();
-    emitLoopEvent(run);
-    return cloneLoopValue(run);
-  },
-
-  async subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void) {
-    const subscribers = loopSubscribers.get(runId) ?? new Set<(event: LoopEvent) => void>();
-    subscribers.add(handler);
-    loopSubscribers.set(runId, subscribers);
-    return () => {
-      subscribers.delete(handler);
-      if (subscribers.size === 0) loopSubscribers.delete(runId);
-    };
-  },
+  ...webLoopClient,
 
   async getSessionChatConfig(sessionId) {
     const session = findWebSession(sessionId);
