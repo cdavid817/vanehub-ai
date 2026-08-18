@@ -2944,6 +2944,19 @@
                          "capabilities":  [
 
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "freeze-panic-shortcuts-in-production-code",
+                         "path":  "openspec/changes/archive/2026-08-19-freeze-panic-shortcuts-in-production-code/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "repository-governance"
+                                          ]
                      }
                  ]
 }
