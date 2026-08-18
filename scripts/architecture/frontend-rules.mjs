@@ -10,7 +10,7 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 窄接口的签名同样是从 AgentService 搬出去的,不是复制的。所以聚合只按新模块个数线性微涨;
 // 一旦涨幅超出这个量级,说明方法被重写或复制了,那时预算失败才是正确结果。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 18195, owner: "split-web-agent-client" },
+  { root: "src/services", budget: 18313, owner: "split-web-agent-client" },
 ]);
 
 const STATE_PACKAGES = new Set([

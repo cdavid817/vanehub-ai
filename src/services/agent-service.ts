@@ -1,7 +1,6 @@
 import type {
   AgentMemory,
   AgentRegistryEntry,
-  ApiAgentProviderConfig,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
@@ -15,32 +14,15 @@ import type {
   CliPackageOperationInput,
   CliToolStatus,
   CreateSessionInput,
-  DiscoverOnePieceProviderModelsInput,
-  EndpointProfileMetadata,
-  HybridRoutePreview,
-  HybridRoutePreviewInput,
-  HybridRoutingRule,
   InteractionMode,
   KnownRemoteWorkspace,
   RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
-  LocalModelDiscoveryResult,
-  OnePieceProviderConfig,
-  OnePieceProviderProfiles,
-  OnePieceProviderModelDiscoveryResult,
-  OnePieceProviderPreset,
   ProjectInspection,
   ReadinessStatus,
-  RegisterApiAgentInput,
-  EmbeddingModelOption,
   RetrievalConfiguration,
   RetrievalIndexStatus,
-  SaveOnePieceProviderConfigInput,
-  SaveCustomOnePieceProviderProfileInput,
-  SaveOnePieceProviderProfileInput,
-  ValidateOnePieceProviderCredentialInput,
-  UpdateApiAgentInput,
   UpdateSessionSeatsInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
@@ -152,6 +134,12 @@ import type { AgentRun, AgentRunEvent, AgentRunFilter, AgentRunPage } from "../t
 import type { MissionControlActionInput, MissionControlActionReceipt, MissionControlOverview, MissionControlQuery, MissionControlRunDetail } from "../types/mission-control";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationService } from "./evaluation-service";
+import type {
+  ApiAgentService,
+  HybridRoutingService,
+  OnePieceProfileService,
+  OnePieceProviderService,
+} from "./api-provider-service";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -268,7 +256,14 @@ import type { ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvide
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
-export interface AgentService extends BuiltinToolService, EvaluationService, PromptHookService {
+export interface AgentService extends
+  ApiAgentService,
+  BuiltinToolService,
+  EvaluationService,
+  HybridRoutingService,
+  OnePieceProfileService,
+  OnePieceProviderService,
+  PromptHookService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
   saveDesktopUpdatePreferences(input: UpdatePreferences): Promise<UpdatePreferences>;
@@ -296,26 +291,6 @@ export interface AgentService extends BuiltinToolService, EvaluationService, Pro
   listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
-  registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
-  getApiAgentProviderConfig(agentId: string): Promise<ApiAgentProviderConfig | null>;
-  getOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
-  saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput): Promise<OnePieceProviderConfig>;
-  resetOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
-  listOnePieceProviderProfiles(): Promise<OnePieceProviderProfiles>;
-  listOnePieceProviderPresets(): Promise<OnePieceProviderPreset[]>;
-  discoverOnePieceProviderModels(input: DiscoverOnePieceProviderModelsInput): Promise<OnePieceProviderModelDiscoveryResult>;
-  validateOnePieceProviderCredential(input: ValidateOnePieceProviderCredentialInput): Promise<ProviderCredentialValidationResult>;
-  saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
-  saveCustomOnePieceProviderProfile(input: SaveCustomOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
-  getEndpointProfileMetadata(profileId: string): Promise<EndpointProfileMetadata | null>;
-  discoverLocalModelEndpoints(): Promise<LocalModelDiscoveryResult>;
-  verifyLocalModelEndpoint(baseUrl: string, timeoutMs: number): Promise<LocalModelDiscoveryResult>;
-  listHybridRoutingRules(): Promise<HybridRoutingRule[]>;
-  replaceHybridRoutingRules(rules: HybridRoutingRule[]): Promise<HybridRoutingRule[]>;
-  previewHybridRoute(input: HybridRoutePreviewInput): Promise<HybridRoutePreview>;
-  activateOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
-  deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
-  updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
   /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
    * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
@@ -331,7 +306,6 @@ export interface AgentService extends BuiltinToolService, EvaluationService, Pro
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
   saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
   saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode): Promise<void>;
-  listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
   getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
   rebuildRetrievalIndex(): Promise<void>;
   listCodeIndexWorkspaces(): Promise<CodeIndexWorkspace[]>;
