@@ -1,15 +1,7 @@
 import type {
-  ExportSessionInput,
   CreateSessionInput,
-  InteractionMode,
-  LaunchResult,
   UpdateSessionSeatsInput,
   Session,
-  SessionDetails,
-  SessionExportResult,
-  SessionSearchInput,
-  SessionSearchResult,
-  WorkflowState,
 } from "../types/agent";
 import type { ChatMessage, SendMessageInput } from "../types/chat";
 
@@ -99,7 +91,6 @@ export interface PurgeEvidenceOutcome {
 }
 import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
-import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationService } from "./evaluation-service";
 import type {
   ApiAgentService,
@@ -154,6 +145,7 @@ import type { AgentRegistryService } from "./agent-registry-service";
 import type { AgentMemoryService } from "./agent-memory-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { SessionChatConfigService } from "./session-chat-config-service";
+import type { SessionQueryService } from "./session-query-service";
 import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
@@ -189,6 +181,7 @@ export interface AgentService extends
   AgentMemoryService,
   ChatMessagingService,
   SessionChatConfigService,
+  SessionQueryService,
   SessionRecoveryService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
@@ -207,7 +200,6 @@ export interface AgentService extends
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
-  listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   deleteApiAgent(agentId: string): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
@@ -217,15 +209,6 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  getWorkflowState(): Promise<WorkflowState>;
-  selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;
-  launchActiveWorkflow(): Promise<LaunchResult>;
-  getSessionDetails(): Promise<SessionDetails>;
-  listSessions(): Promise<Session[]>;
-  listArchivedSessions(): Promise<Session[]>;
-  searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
-  getSession(sessionId: string): Promise<Session>;
-  getActiveSession(): Promise<Session | null>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
@@ -236,7 +219,6 @@ export interface AgentService extends
   unpinSession(sessionId: string): Promise<Session>;
   archiveSession(sessionId: string): Promise<Session>;
   unarchiveSession(sessionId: string): Promise<Session>;
-  exportSession(input: ExportSessionInput): Promise<SessionExportResult>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;

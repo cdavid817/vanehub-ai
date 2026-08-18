@@ -9,14 +9,8 @@ import {
 } from "./web-permissions-mock-state";
 import type {
   UpdateSessionSeatsInput,
-  ExportSessionInput,
-  InteractionMode,
   Session,
   SessionSeat,
-  SessionExportResult,
-  SessionSearchInput,
-  SessionSearchResult,
-  SessionDetails,
   ImSessionConnector,
 } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
@@ -24,8 +18,6 @@ import { readWebAppSettings } from "./web-settings-client";
 import { defaultSessionTitleFromPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
 import type { ChatMessage } from "../types/chat";
-import type { AgentRun } from "../types/agent-run";
-import type { AgentRunnerDescriptor, AgentRunnerSelection } from "../types/agent-runner";
 import { webEvaluationClient } from "./web-evaluation-client";
 import { webPromptHookClient } from "./web-prompt-hook-client";
 import { webApiAgentClient } from "./web-api-agent-client";
@@ -74,7 +66,7 @@ import { webAgentTerminalClient } from "./web-agent-terminal-client";
 import { webUsageStatisticsClient } from "./web-usage-statistics-client";
 import { webMissionControlClient } from "./web-mission-control-client";
 import { webLoopClient } from "./web-loop-client";
-import { isWebLoopRoleSession, listWebLoopDefinitions } from "./web-loop-state";
+import { listWebLoopDefinitions } from "./web-loop-state";
 
 export {
   resetWebLoopsForTest,
@@ -146,10 +138,11 @@ import {
   replaceWebSessions,
   setWebActiveSessionId,
   setWebWorkflowState,
-  sortWebSessions,
   subscribeWebSessionStateEvents,
   updateWebSession,
 } from "./web-session-state";
+import { webSessionQueryClient } from "./web-session-query-client";
+import { selectWebRunner, webRunRunner } from "./web-agent-runner";
 import type { Skill } from "../types/skill";
 import {
   listWebSkillApiAgentBindings,
@@ -202,147 +195,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
 }
 
 
-function searchText(value: string | null | undefined, query: string) {
-  return (value ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
-}
-
-function sessionSearchMatches(session: Session, query: string): SessionSearchResult | null {
-  const matches: SessionSearchResult["matches"] = [];
-  if (searchText(session.title, query)) {
-    matches.push({ kind: "title", excerpt: session.title });
-  }
-  const remoteWorkspace = session.remoteWorkspace;
-  const projectMatch = [
-    session.folder,
-    session.projectPath,
-    session.worktreePath,
-    session.worktreeName,
-    session.worktreeBranch,
-    remoteWorkspace?.host,
-    remoteWorkspace?.user,
-    remoteWorkspace?.path,
-    remoteWorkspace?.displayName,
-    remoteWorkspace?.uri,
-  ].find((value) => searchText(value, query));
-  if (projectMatch) {
-    matches.push({ kind: "project", excerpt: projectMatch });
-  }
-  const messageMatch = getWebSessionMessages(session.id).find((message) => searchText(message.content, query));
-  if (messageMatch) {
-    matches.push({
-      kind: "message",
-      excerpt: messageMatch.content.slice(0, 160),
-      messageId: messageMatch.id,
-    });
-  }
-  return matches.length > 0 ? { session: { ...session }, matches } : null;
-}
-
-function serializeWebSessionExport(input: ExportSessionInput): SessionExportResult {
-  const session = findWebSession(input.sessionId);
-  const payload = {
-    version: 1,
-    exportedAt: nowIso(),
-    session,
-    messages: getWebSessionMessages(session.id),
-  };
-  const content =
-    input.format === "json"
-      ? JSON.stringify(payload, null, 2)
-      : [`# ${session.title}`, "", `- ID: \`${session.id}\``, `- Agent: \`${session.agentId}\``, "", "## Messages", ""]
-          .concat(
-            payload.messages.flatMap((message) => [
-              `### ${message.role.toUpperCase()} - \`${message.status}\``,
-              "",
-              message.content,
-              "",
-            ]),
-          )
-          .join("\n");
-  return {
-    status: input.destinationDirectory === null ? "cancelled" : "exported",
-    path: input.destinationDirectory ? `${input.destinationDirectory}\\${session.id}.${input.format === "json" ? "json" : "md"}` : null,
-    content,
-  };
-}
-
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
-
-function webRunnerDescriptors(sessionId: string, agentId: string): AgentRunnerDescriptor[] {
-  const session = findWebSession(sessionId);
-  if (session.agentId !== agentId) throw new Error("runner_invalid_selection");
-  const descriptors: AgentRunnerDescriptor[] = [{
-    selection: { kind: "local" },
-    label: "Local",
-    hostLabel: "This device",
-    available: true,
-    unavailableReason: null,
-    simulated: true,
-    capabilities: { interactiveInput: true, pty: false, cancellation: true, inspection: true, recovery: "none" },
-  }];
-  const connectionId = session.remoteSshConnectionId;
-  const revision = session.remoteSshConnectionRevision;
-  if (connectionId && revision && session.remoteWorkspace) {
-    const connection = findWebSshConnection(connectionId);
-    const credentialConfigured = connection?.authMode === "password" ? connection.hasPassword : Boolean(connection?.keyPath);
-    const available = Boolean(connection
-      && connection.revision === revision
-      && connection.host === session.remoteWorkspace.host
-      && connection.port === (session.remoteWorkspace.port ?? 22)
-      && connection.user === session.remoteWorkspace.user
-      && connection.hostTrust
-      && credentialConfigured);
-    descriptors.push({
-      selection: { kind: "ssh", targetId: connectionId, targetRevision: revision },
-      label: session.remoteWorkspace.displayName,
-      hostLabel: session.remoteWorkspace.host,
-      available,
-      unavailableReason: available ? null : "ssh_authority_unavailable",
-      simulated: true,
-      capabilities: { interactiveInput: true, pty: true, cancellation: true, inspection: true, recovery: "inspect_only" },
-    });
-  }
-  descriptors.push(
-    {
-      selection: { kind: "docker" }, label: "Docker / Sandbox", hostLabel: null,
-      available: false, unavailableReason: "runner_not_implemented", simulated: true,
-      capabilities: { interactiveInput: false, pty: false, cancellation: false, inspection: false, recovery: "none" },
-    },
-    {
-      selection: { kind: "cloud" }, label: "Cloud", hostLabel: null,
-      available: false, unavailableReason: "runner_not_implemented", simulated: true,
-      capabilities: { interactiveInput: false, pty: false, cancellation: false, inspection: false, recovery: "none" },
-    },
-  );
-  return descriptors;
-}
-
-function selectWebRunner(sessionId: string, agentId: string, requested?: AgentRunnerSelection): AgentRunnerDescriptor {
-  const selection = requested ?? { kind: "local" };
-  const descriptor = webRunnerDescriptors(sessionId, agentId).find((candidate) =>
-    candidate.selection.kind === selection.kind
-    && (candidate.selection.targetId ?? null) === (selection.targetId ?? null)
-    && (candidate.selection.targetRevision ?? null) === (selection.targetRevision ?? null));
-  if (!descriptor) throw new Error("runner_invalid_selection");
-  if (!descriptor.available) throw new Error("runner_unsupported_capability");
-  return descriptor;
-}
-
-function webRunRunner(descriptor: AgentRunnerDescriptor): NonNullable<AgentRun["runner"]> {
-  const targetId = descriptor.selection.targetId ?? "local";
-  const targetRevision = descriptor.selection.targetRevision ?? null;
-  return {
-    kind: descriptor.selection.kind as "local" | "ssh",
-    targetId,
-    targetRevision,
-    label: descriptor.label,
-    hostLabel: descriptor.hostLabel,
-    recovery: descriptor.capabilities.recovery,
-    capabilityWitness: `web-simulated:${descriptor.selection.kind}`,
-    authorityWitness: `web-simulated:${targetId}:${targetRevision ?? "none"}`,
-    recoveryReference: null,
-  };
-}
 
 export const webAgentClient: AgentService = {
   ...webEvaluationClient,
@@ -444,82 +297,10 @@ export const webAgentClient: AgentService = {
   },
   ...webExpertRoleClient,
 
-  async getWorkflowState() {
-    return getWebWorkflowState();
-  },
-
-  async selectAgent(agentId: string, interactionMode: InteractionMode) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    if (!agent) {
-      throw new Error(`Agent not found: ${agentId}`);
-    }
-    if (!agent.supportedInteractionModes.includes(interactionMode)) {
-      throw new Error(`${agent.displayName} does not support ${interactionMode}.`);
-    }
-    setWebWorkflowState({
-      ...getWebWorkflowState(),
-      activeAgentId: agentId,
-      activeInteractionMode: interactionMode,
-      lifecycleState: "idle",
-    });
-    return getWebWorkflowState();
-  },
-
-  async launchActiveWorkflow() {
-    setWebWorkflowState({
-      ...getWebWorkflowState(),
-      lifecycleState: getWebWorkflowState().activeAgentId ? "running" : "failed",
-    });
-    return {
-      workflow: getWebWorkflowState(),
-      message: getWebWorkflowState().activeAgentId
-        ? "Web preview session marked as running."
-        : "Select an agent before launching.",
-    };
-  },
-
-  async getSessionDetails(): Promise<SessionDetails> {
-    const adapter = getWebWorkflowState().activeInteractionMode ?? "none";
-    return {
-      agentId: getWebWorkflowState().activeAgentId,
-      interactionMode: getWebWorkflowState().activeInteractionMode,
-      lifecycleState: getWebWorkflowState().lifecycleState,
-      adapter,
-      details: {
-        runtime: "web",
-        storage: "in-memory",
-      },
-    };
-  },
-
-  async listSessions() {
-    return sortWebSessions(listWebSessions().filter((session) => !session.archived && !isWebLoopRoleSession(session.id)));
-  },
-
-  async listArchivedSessions() {
-    return sortWebSessions(listWebSessions().filter((session) => session.archived && !isWebLoopRoleSession(session.id)));
-  },
-
-  async searchSessions(input: SessionSearchInput) {
-    const query = input.query.trim();
-    if (!query) return [];
-    return sortWebSessions(listWebSessions().filter((session) => !isWebLoopRoleSession(session.id)))
-      .map((session) => sessionSearchMatches(session, query))
-      .filter((result): result is SessionSearchResult => result !== null)
-      .slice(0, input.limit ?? 50);
-  },
-
-  async getSession(sessionId: string) {
-    return findWebSession(sessionId);
-  },
+  ...webSessionQueryClient,
 
   ...webSessionRecoveryClient,
 
-  async getActiveSession() {
-    const sessionId = getWebActiveSessionId();
-    if (!sessionId) return null;
-    return listWebSessions().find((session) => session.id === sessionId) ?? null;
-  },
   ...webSessionCategoryClient,
   ...webLoopClient,
 
@@ -779,14 +560,6 @@ export const webAgentClient: AgentService = {
 
   async unarchiveSession(sessionId: string) {
     return updateWebSession(sessionId, { archived: false });
-  },
-
-  async exportSession(input: ExportSessionInput) {
-    return serializeWebSessionExport(input);
-  },
-
-  async listAgentRunners(sessionId, agentId) {
-    return structuredClone(webRunnerDescriptors(sessionId, agentId));
   },
 
   async sendMessage(input) {

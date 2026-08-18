@@ -17,7 +17,7 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 代价还是那两项——每个新模块的固定开销,加上一层按调用点裁剪的访问器。这一轮多出来的访问器都在
 // chat 一侧:原先直接 `activeStreams.has/set/delete`、`messagesBySession.delete`,现在各是一个函数。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19286, owner: "extract-web-client-chat-state" },
+  { root: "src/services", budget: 19319, owner: "extract-web-client-chat-state" },
 ]);
 
 const STATE_PACKAGES = new Set([
