@@ -81,6 +81,7 @@ import { webSkillGovernanceClient } from "./web-skill-governance-client";
 import { webSkillEvidenceClient } from "./web-skill-evidence-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
 import { normalizeWebPath, normalizeWebSkillLocation } from "./web-skill-location";
+import { readWebMockStorage, writeWebMockStorage } from "./web-mock-storage";
 
 export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
 import {
@@ -173,20 +174,15 @@ const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
 
+// Chat configs carry model and policy selections, never a credential, so browser storage stays
+// inside the "Honest Web/mock behavior" prohibition on persisting plaintext secrets.
 function readChatConfigs(): Record<string, ChatConfig> {
-  if (typeof localStorage === "undefined") return memoryChatConfigs;
-  const raw = localStorage.getItem(chatConfigStorageKey);
-  if (!raw) return memoryChatConfigs;
-  try {
-    return JSON.parse(raw) as Record<string, ChatConfig>;
-  } catch {
-    return memoryChatConfigs;
-  }
+  return readWebMockStorage(chatConfigStorageKey, memoryChatConfigs);
 }
 
 function writeChatConfigs(configs: Record<string, ChatConfig>) {
   memoryChatConfigs = configs;
-  if (typeof localStorage !== "undefined") localStorage.setItem(chatConfigStorageKey, JSON.stringify(configs));
+  writeWebMockStorage(chatConfigStorageKey, configs);
 }
 
 function emitSessionEvent(event: SessionStateEvent) {
