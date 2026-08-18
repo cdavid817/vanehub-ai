@@ -2,12 +2,11 @@
 
 use super::super::agent_image::MAX_IMAGES_PER_REQUEST;
 use super::super::memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
-use super::super::model_context_catalog;
-use super::super::skill_tool_catalog_adapter::resolve_skill_tool_catalog;
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::tools::{execute_file_image_read, ToolExecutionOutcome};
 use super::super::SqliteNativeToolRepository;
-use super::compaction::{maybe_compact_accounted, should_compact, turns_character_count};
+use super::compaction::maybe_compact_accounted;
+use super::endpoint::resolve_image_support;
 use super::generation::{
     generation_options_from_configuration, is_plan_mode, reviewed_stream_usage_strategy,
 };
@@ -16,7 +15,7 @@ use super::interactive::{
     ApprovalOutcome,
 };
 use super::invocation::{
-    begin_api_invocation, estimated_input_characters, finish_api_invocation,
+    analyze_round_context, begin_api_invocation, estimated_input_characters, finish_api_invocation,
     record_context_snapshot, wire_format_for,
 };
 use super::native_tools::{
@@ -24,25 +23,23 @@ use super::native_tools::{
     log_image_attachment, resolve_tool_image,
 };
 use super::prompt::{
+    resolve_generation_skill_tools, resolve_generation_tool_catalog,
     resolve_personalization_settings, resolve_system_prompt_with_settings,
-    resolve_tool_catalog_with_code_intelligence,
 };
 use super::{
     failed_configuration, failed_non_retryable, failed_retryable, ExecutedToolCall,
     PendingApprovals, HISTORY_LIMIT, MAX_TOOL_ROUND_TRIPS,
 };
 use crate::contexts::agent_runtime::application::{
-    delegate_utility_skill_tool_definition, AgentClockPort, AgentCodeIntelligenceContext,
-    AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort,
-    AgentPersonalizationPort, AgentProcessEventSink, AgentRetrievalPort,
-    AgentRuntimeApplicationError, AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, ContextAnalysisInput, ContextAnalysisService,
-    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, NativeToolExecutionMode,
-    NativeToolRegistry, SkillToolUseProvenance, ToolEligibilityContext, ToolLifecycleEvent,
-    ToolLifecyclePhase, ToolUseBlock, UtilityDelegationApplicationService,
-    ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, REMEMBER_TOOL_NAME,
+    AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationPort,
+    AgentProcessEventSink, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
+    ContextAnalysisService, ContextQualityRecorder, ConversationHistoryPort,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, NativeToolRegistry,
+    SkillToolUseProvenance, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    UtilityDelegationApplicationService, ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME,
+    REMEMBER_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     AutomaticCompactionState, ContextCapacity, UsageAnchor,
@@ -52,9 +49,9 @@ use crate::contexts::permissions::domain::Effect;
 use crate::contexts::sessions::api::{SessionsApi, UsagePurpose, UsageStatus};
 use crate::contexts::skill_evolution_evidence::domain::ObservedSkillRevision;
 use crate::contexts::tooling::skill_tools::application::{
-    SkillToolBinding, SkillToolCatalogContext, SkillToolCatalogMode, SkillToolCatalogPort,
-    SkillToolDispatchOutcome, SkillToolExecutionLifecyclePhase, SkillToolExecutionLifecyclePort,
-    SkillToolExecutionPort, SkillToolExecutionRequest,
+    SkillToolCatalogMode, SkillToolCatalogPort, SkillToolDispatchOutcome,
+    SkillToolExecutionLifecyclePhase, SkillToolExecutionLifecyclePort, SkillToolExecutionPort,
+    SkillToolExecutionRequest,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::Value;
@@ -229,109 +226,37 @@ pub(super) fn execute_with_code_intelligence(
         }
     };
     let plan_mode = is_plan_mode(&request.configuration);
-    // Never blocks, never errors (`AgentRetrievalPort::is_configured`'s own contract) — safe to
-    // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
-    // itself is derived just above.
-    let retrieval_available = retrieval.is_configured();
-    let code_search_available = request
-        .session
-        .folder
-        .as_deref()
-        .and_then(|folder| {
-            retrieval
-                .code_retrieval()
-                .map(|code| code.is_available(folder))
-        })
-        .unwrap_or(false);
-    let code_intelligence_context = request
-        .session
-        .folder
-        .as_deref()
-        .map(AgentCodeIntelligenceContext::from_session_workspace);
-    let code_intelligence_available = code_intelligence_context
-        .as_ref()
-        .is_some_and(|context| code_intelligence.is_available(context));
-    let mut tools = resolve_tool_catalog_with_code_intelligence(
+    let mut tools = resolve_generation_tool_catalog(
         request,
         mcp,
         logging,
         clock,
+        retrieval,
+        code_intelligence,
+        native_tools,
+        utility_delegation,
         plan_mode,
-        retrieval_available,
-        code_search_available,
-        code_intelligence_available,
     );
-    if utility_delegation.is_some() && !plan_mode {
-        tools.push(delegate_utility_skill_tool_definition());
-    }
-    tools.extend(
-        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
-            agent_id: request.agent.id.clone(),
-            session_id: request.session.id.clone(),
-            generation_id: request.operation_id.clone(),
-            canonical_workspace: request.session.folder.as_deref().map(Into::into),
-            execution_mode: if plan_mode {
-                NativeToolExecutionMode::Plan
-            } else {
-                NativeToolExecutionMode::Execute
-            },
-            readiness: native_tools.readiness_snapshot(),
-        }),
-    );
-    if request
-        .endpoint_profile
-        .as_ref()
-        .is_some_and(|profile| profile.tool_calling_capability != "supported")
-    {
-        tools.clear();
-    }
+    // Declared here, not returned as one value: `_skill_tool_catalog_lease` is an `Arc` held for
+    // the rest of the generation, and these three drop in this order at the end of it.
     let mut skill_tool_keys = HashMap::new();
     let mut _skill_tool_catalog_lease = None;
     let mut _skill_tool_catalog_generation = None;
     if let Some(catalog) = skill_tool_catalog {
-        let loaded_roles = observed_skill_revisions
-            .iter()
-            .map(|observed| SkillToolBinding {
-                skill_id: observed.skill_id.clone(),
-                revision: observed.revision.clone(),
-            })
-            .collect::<Vec<_>>();
-        let context = SkillToolCatalogContext::RoleGeneration {
-            workspace_path: request.session.folder.clone(),
-            loaded_roles,
-            mode: if plan_mode {
-                SkillToolCatalogMode::Plan
-            } else {
-                SkillToolCatalogMode::Execute
-            },
-        };
-        let existing_names = tools.iter().map(|tool| tool.name.clone());
-        match resolve_skill_tool_catalog(
+        if let Some(resolved) = resolve_generation_skill_tools(
             catalog,
-            &context,
-            existing_names,
-            &provider_config.interface_format,
+            request,
+            &provider_config,
+            observed_skill_revisions,
+            &tools,
+            logging,
+            clock,
+            plan_mode,
         ) {
-            Ok(resolved) => {
-                tools.extend(resolved.definitions);
-                skill_tool_keys = resolved.keys_by_name;
-                _skill_tool_catalog_generation = Some(resolved.generation);
-                _skill_tool_catalog_lease = Some(resolved.lease);
-            }
-            Err(error) => {
-                let _ = logging.record(AgentLog {
-                    level: AgentLogLevel::Warn,
-                    category: "session.runtime.api.skill-tools".to_string(),
-                    message: format!("Skill tool catalog rejected: {}", error.code()),
-                    agent_id: Some(request.agent.id.clone()),
-                    session_id: Some(request.session.id.clone()),
-                    operation_id: Some(request.operation_id.clone()),
-                    run_id: None,
-                    trace_id: None,
-                    span_id: None,
-                    occurred_at: clock.now(),
-                });
-            }
+            tools.extend(resolved.definitions);
+            skill_tool_keys = resolved.keys_by_name;
+            _skill_tool_catalog_generation = Some(resolved.generation);
+            _skill_tool_catalog_lease = Some(resolved.lease);
         }
     }
     let mut generation_options = generation_options_from_configuration(
@@ -381,23 +306,8 @@ pub(super) fn execute_with_code_intelligence(
     }
 
     let mut emitted_visible_content = false;
-    // Capability comes from reviewed catalog metadata, never from trying and seeing: a provider
-    // that rejects an image-bearing request fails the whole generation after the user has already
-    // waited, and the failure text varies by vendor (`add-agent-image-input` D3).
-    let images_supported = request.endpoint_profile.as_ref().map_or_else(
-        || {
-            endpoint_metadata.as_ref().map_or_else(
-                || {
-                    model_context_catalog::accepts_image_input(
-                        provider_config.source_provider_id.as_deref(),
-                        &provider_config.model_id,
-                    )
-                },
-                |metadata| metadata.image_input_capability == "supported",
-            )
-        },
-        |profile| profile.image_input_capability == "supported",
-    );
+    let images_supported =
+        resolve_image_support(request, endpoint_metadata.as_ref(), &provider_config);
     let mut images_in_request = 0_usize;
     let mut context_recovery_attempted = false;
     for round_trip in 0..MAX_TOOL_ROUND_TRIPS {
@@ -427,30 +337,15 @@ pub(super) fn execute_with_code_intelligence(
             system.as_deref(),
             &generation_options,
         );
-        let projection = (wire_format.project_request_context)(&body);
-        let mut context_snapshot = ContextAnalysisService::analyze(
-            ContextAnalysisInput {
-                provider_id: provider_config.source_provider_id.clone(),
-                model_id: provider_config.model_id.clone(),
-                request_fingerprint: projection.request_fingerprint,
-                characters: projection.characters,
-                components: projection.components,
-                rounds: projection.rounds,
-                token_estimate_complete: projection.token_estimate_complete,
-                capacity: endpoint_capacity.clone().or_else(|| {
-                    (endpoint_metadata.is_none() && request.endpoint_profile.is_none()).then(
-                        || {
-                            model_context_catalog::resolve_capacity(
-                                provider_config.source_provider_id.as_deref(),
-                                &provider_config.model_id,
-                            )
-                        },
-                    )?
-                }),
-                active_character_compaction: should_compact(turns_character_count(&turns)),
-                invocation_sequence: sequence,
-                overflow_count: projection.overflow_count,
-            },
+        let mut context_snapshot = analyze_round_context(
+            &body,
+            &wire_format,
+            &provider_config,
+            endpoint_capacity.as_ref(),
+            endpoint_metadata.as_ref(),
+            request,
+            &turns,
+            sequence,
             context_usage_anchor.as_ref(),
         );
         record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
