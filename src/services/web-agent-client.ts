@@ -4,9 +4,8 @@ import type {
   SessionRecoveryAcknowledgement,
   SessionRecoveryReport,
   SessionRecoverySummary,
-  SessionStateEvent,
 } from "./agent-service";
-import { mockAgents, mockWorkflowState } from "./mock-agent-data";
+import { mockAgents } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import {
   createWebPendingApproval,
@@ -40,7 +39,6 @@ import type {
   SessionSearchInput,
   SessionSearchResult,
   SessionDetails,
-  WorkflowState,
   ImSessionConnector,
 } from "../types/agent";
 import { findWebSshConnection } from "./web-ssh-connection-client";
@@ -101,8 +99,6 @@ import { builtinExpertRoles } from "../config/builtin-expert-roles";
 import { validateExpertRoleInput } from "./expert-role-runtime";
 import type {
   Skill,
-  SkillAccessRefusalReason,
-  SkillAgentMountPath,
   SkillImportInput,
   SkillListResult,
   SkillLoadInput,
@@ -114,8 +110,6 @@ import type {
   SkillPreview,
   SkillResourceReadInput,
   SkillResourceReadOutcome,
-  SkillScope,
-  SkillScopeInput,
   SkillSource,
   SkillUpdateInput,
 } from "../types/skill";
@@ -133,6 +127,50 @@ import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
 import { webDesktopUpdateClient } from "./web-desktop-update";
+import {
+  createWebSeatId,
+  emitWebSessionEvent,
+  findWebSession,
+  getWebActiveSessionId,
+  getWebWorkflowState,
+  listWebSessions,
+  nextWebSessionSequence,
+  prependWebSession,
+  replaceWebSessions,
+  setWebActiveSessionId,
+  setWebWorkflowState,
+  sortWebSessions,
+  subscribeWebSessionStateEvents,
+  updateWebSession,
+} from "./web-session-state";
+import { webBuiltinSkillSeeds } from "./web-skill-seeds";
+import {
+  buildSkillContent,
+  clearWebBuiltinSkillDeleted,
+  deleteWebSkillDocument,
+  findProgressiveWebSkill,
+  findWebSkill,
+  hydrateSkillBindings,
+  isWebBuiltinSkillDeleted,
+  listDeletedWebBuiltinSkillIds,
+  listWebSkillApiAgentBindings,
+  listWebSkillMountPaths,
+  listWebSkills,
+  markWebBuiltinSkillDeleted,
+  mountPathForAgent,
+  mutationToSkill,
+  nextWebSkillHash,
+  readWebSkillDocument,
+  readWebSkillResourceDocument,
+  replaceWebSkillApiAgentBindings,
+  replaceWebSkillMountPaths,
+  replaceWebSkills,
+  skillDocumentKey,
+  skillScopeMatches,
+  upsertWebSkill,
+  webSkillResources,
+  writeWebSkillDocument,
+} from "./web-skill-state";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -142,12 +180,7 @@ const webRetainedTerminalTranscriptBytes = 1_000_000;
 /** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
 const mockCompactionTriggerCharacters = 2_000;
 
-let workflowState: WorkflowState = { ...mockWorkflowState };
-let nextSessionId = 1;
 let nextMessageId = 1;
-let nextSeatId = 1;
-let activeSessionId: string | null = null;
-let sessions: Session[] = [];
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
 let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
@@ -170,7 +203,6 @@ const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<Ret
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
 const terminalTranscriptsBySession = new Map<string, string>();
-const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
 
@@ -183,10 +215,6 @@ function readChatConfigs(): Record<string, ChatConfig> {
 function writeChatConfigs(configs: Record<string, ChatConfig>) {
   memoryChatConfigs = configs;
   writeWebMockStorage(chatConfigStorageKey, configs);
-}
-
-function emitSessionEvent(event: SessionStateEvent) {
-  sessionEventSubscribers.forEach((handler) => handler(event));
 }
 
 function mockRecoveryReport(
@@ -216,7 +244,7 @@ function mockRecoveryReport(
 }
 
 function webRecoverySummary(sessionId: string): SessionRecoverySummary {
-  const session = findSession(sessionId);
+  const session = findWebSession(sessionId);
   return {
     session,
     latestReport: recoveryReportsBySession.get(sessionId)?.[0] ?? null,
@@ -228,7 +256,7 @@ export function seedWebRecoverySessionForTest(
 ): Session {
   const timestamp = nowIso();
   const session: Session = {
-    id: `web-recovery-session-${nextSessionId++}`,
+    id: `web-recovery-session-${nextWebSessionSequence()}`,
     title: "Recovered Web session",
     agentId: "onepiece",
     interactionMode: "api",
@@ -253,10 +281,10 @@ export function seedWebRecoverySessionForTest(
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  sessions = [session, ...sessions];
-  activeSessionId = session.id;
+  prependWebSession(session);
+  setWebActiveSessionId(session.id);
   const recoveryRevision = 1;
-  const recovered = updateSession(session.id, {
+  const recovered = updateWebSession(session.id, {
     lifecycleState: "failed",
     recoveryStatus: status,
     recoveryRevision,
@@ -270,7 +298,7 @@ export function seedWebRecoverySessionForTest(
       status === "quarantined" ? "quarantined" : "action_required",
     ),
   ]);
-  emitSessionEvent({
+  emitWebSessionEvent({
     kind: status === "quarantined" ? "recovery-quarantined" : "recovery-action-required",
     sessionId: recovered.id,
     recoveryRevision,
@@ -280,19 +308,20 @@ export function seedWebRecoverySessionForTest(
 
 export function resetWebRecoverySessionsForTest() {
   const recoverySessionIds = new Set(recoveryReportsBySession.keys());
-  sessions = sessions.filter((session) => !recoverySessionIds.has(session.id));
+  replaceWebSessions(listWebSessions().filter((session) => !recoverySessionIds.has(session.id)));
   recoverySessionIds.forEach((sessionId) => {
     messagesBySession.delete(sessionId);
     activeStreams.delete(sessionId);
   });
   recoveryReportsBySession.clear();
-  if (activeSessionId && recoverySessionIds.has(activeSessionId)) activeSessionId = null;
+  const activeId = getWebActiveSessionId();
+  if (activeId && recoverySessionIds.has(activeId)) setWebActiveSessionId(null);
 }
 
 export function seedWebImSessionForTest(connector: ImSessionConnector): Session {
   const timestamp = nowIso();
   const session: Session = {
-    id: `web-im-session-${nextSessionId++}`,
+    id: `web-im-session-${nextWebSessionSequence()}`,
     title: `IM ${connector}`,
     agentId: "codex-cli",
     interactionMode: "cli",
@@ -318,190 +347,11 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  sessions = [session, ...sessions];
-  activeSessionId = session.id;
+  prependWebSession(session);
+  setWebActiveSessionId(session.id);
   return session;
 }
 
-const builtinSkillSeeds = [
-  {
-    id: "tdd-discipline",
-    name: "TDD 开发纪律助手",
-    description: "引导开发过程遵循测试先行、红绿重构和回归验证纪律。",
-    category: "development",
-    triggers: ["TDD", "测试先行", "红绿重构"],
-  },
-  {
-    id: "code-review",
-    name: "代码审查助手",
-    description: "从缺陷、回归风险、可维护性和测试缺口角度审查代码变更。",
-    category: "review",
-    triggers: ["代码审查", "review"],
-  },
-  {
-    id: "code-security-scan",
-    name: "代码安全扫描",
-    description: "检查常见安全风险、敏感信息泄漏、命令注入和不安全文件操作。",
-    category: "security",
-    triggers: ["安全扫描", "security"],
-  },
-  {
-    id: "api-doc-generation",
-    name: "API 文档自动生成",
-    description: "根据接口、类型和示例生成结构化 API 文档。",
-    category: "documentation",
-    triggers: ["API 文档", "api docs"],
-  },
-  {
-    id: "unit-test-generation",
-    name: "单元测试自动生成",
-    description: "为核心函数、边界条件和回归场景生成单元测试。",
-    category: "testing",
-    triggers: ["单元测试", "unit test"],
-  },
-  {
-    id: "readme-generation",
-    name: "README 文档生成",
-    description: "生成或改进项目 README，包括安装、使用、开发和验证说明。",
-    category: "documentation",
-    triggers: ["README", "项目说明"],
-  },
-];
-
-let webSkillMountPaths: SkillAgentMountPath[] = mockAgents.map((agent) => ({
-  agentId: agent.id,
-  mountPath:
-    agent.id === "claude-code"
-      ? ".claude/skills"
-      : agent.id === "codex-cli"
-        ? ".codex/skills"
-        : agent.id === "gemini-cli"
-          ? ".gemini/skills"
-          : agent.id === "opencode"
-            ? ".opencode/skills"
-            : ".skills",
-  isDefault: true,
-}));
-
-let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
-  const timestamp = nowIso();
-  const isUserOverride = seed.id === "readme-generation";
-  const isUtility = seed.id === "code-security-scan";
-  return {
-    id: seed.id,
-    scope: "global",
-    workspacePath: null,
-    source: "builtin",
-    enabled: true,
-    skillDir: `~/.vanehub/skills/${seed.id}`,
-    skillMdPath: `~/.vanehub/skills/${seed.id}/SKILL.md`,
-    contentHash: `web-${seed.id}`,
-    metadata: {
-      id: seed.id,
-      name: seed.name,
-      description: seed.description,
-      category: seed.category,
-      version: "1.0.0",
-      triggers: seed.triggers,
-      aliases: seed.id === "readme-generation" ? ["docs"] : [],
-      type: isUtility ? "utility" : "role",
-      delivery: seed.id === "tdd-discipline" ? "on-demand" : "eager",
-      compatibilityDefaults: { skillType: false, delivery: false },
-    },
-    boundAgentIds: ["claude-code", "codex-cli"],
-    bindings: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    layer: isUserOverride ? "user" : "system",
-    origin: isUserOverride ? "migrated" : "shipped",
-    trust: "trusted",
-    availability: isUtility ? "unsupported" : "available",
-    delegationCapability: isUtility
-      ? { supported: false, reason: "native-runtime-unavailable" }
-      : { supported: false, reason: "not-utility" },
-    immutable: !isUserOverride,
-    shadowedDefinitions: isUserOverride
-      ? [{ layer: "system", origin: "shipped", version: "1.0.0", availability: "available" }]
-      : [],
-    usage: {
-      viewCount: seed.id === "tdd-discipline" ? 3 : 0,
-      useCount: seed.id === "tdd-discipline" ? 1 : 0,
-      lastViewedAt: seed.id === "tdd-discipline" ? timestamp : null,
-      lastUsedAt: seed.id === "tdd-discipline" ? timestamp : null,
-      revisionWitness: "web-usage-1",
-    },
-  };
-});
-
-
-webSkills.push({
-  ...webSkills[0],
-  id: "project-conventions",
-  scope: "workspace",
-  workspacePath: "D:/example/project",
-  source: "user",
-  skillDir: "D:/example/project/.vanehub/skills/project-conventions",
-  skillMdPath: "D:/example/project/.vanehub/skills/project-conventions/SKILL.md",
-  contentHash: "web-project-conventions",
-  metadata: {
-    id: "project-conventions",
-    name: "Project Conventions",
-    description: "Project-specific conventions.",
-    category: "development",
-    version: "1.0.0",
-    triggers: ["project"],
-    aliases: [],
-    type: "role",
-    delivery: "on-demand",
-    compatibilityDefaults: { skillType: false, delivery: false },
-  },
-  boundAgentIds: [],
-  layer: "project",
-  origin: "created",
-  immutable: false,
-  shadowedDefinitions: [],
-  usage: {
-    viewCount: 0,
-    useCount: 0,
-    lastViewedAt: null,
-    lastUsedAt: null,
-    revisionWitness: "web-project-usage-1",
-  },
-});
-
-const webSkillDocuments = new Map<string, string>(
-  webSkills.map((skill) => [
-    `${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`,
-    `Built-in instructions for ${skill.metadata.name}.`,
-  ]),
-);
-webSkillDocuments.set(
-  "global::tdd-discipline",
-  `Use {skill_base_dir} for supporting material.\n${"TDD guidance. ".repeat(1_100)}`,
-);
-
-const webSkillResourceDocuments = new Map<string, string>([
-  ["skill://tdd-discipline/references/testing-cycle.md", "Red, green, refactor, then run regression tests."],
-  ["skill://tdd-discipline/templates/test-plan.md", "# Test plan\n\n- Expected failure\n- Minimal fix\n- Regression"],
-  ["skill://project-conventions/references/conventions.md", "Use the project formatting and validation commands."],
-]);
-let nextWebSkillRevision = 1;
-
-function nextWebSkillHash(skillId: string) {
-  const revision = nextWebSkillRevision;
-  nextWebSkillRevision += 1;
-  return `web-${skillId}-${revision}`;
-}
-
-/** Mock non-mount Skill-to-API-agent bindings (`add-agent-skill-support`), separate from `webSkills`' CLI mount-path `boundAgentIds`. */
-let webSkillApiAgentBindings: Array<{
-  skillId: string;
-  scope: SkillScope;
-  workspacePath: string | null;
-  agentId: string;
-}> = [];
-
-const deletedBuiltinSkillIds = new Set<string>();
 
 /** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
  * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
@@ -732,22 +582,6 @@ function webPathsOverlap(left: string, right: string) {
   return leftPath === rightPath || leftPath.startsWith(`${rightPath}/`) || rightPath.startsWith(`${leftPath}/`);
 }
 
-function skillScopeMatches(skill: Skill, input: SkillScopeInput) {
-  const location = normalizeWebSkillLocation(input);
-  return (
-    skill.scope === location.scope &&
-    (location.scope === "global" || skill.workspacePath === location.workspacePath)
-  );
-}
-
-function mountPathForAgent(agentId: string) {
-  return webSkillMountPaths.find((path) => path.agentId === agentId)?.mountPath ?? ".skills";
-}
-
-function skillDocumentKey(skill: Pick<Skill, "id" | "scope" | "workspacePath">) {
-  return `${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`;
-}
-
 function requireAgentKind(agentId: string, kind: "cli" | "api") {
   const agent = mockAgents.find((candidate) => candidate.id === agentId);
   if (!agent || agent.launch.kind !== kind) {
@@ -770,171 +604,12 @@ function validateMountPath(mountPath: string) {
   return normalized;
 }
 
-function hydrateSkillBindings(skill: Skill): Skill {
-  const bindings = skill.boundAgentIds.map((agentId) => {
-    const mountPath = mountPathForAgent(agentId);
-    const root = skill.scope === "global" ? "~" : (skill.workspacePath ?? ".");
-    return {
-      agentId,
-      mountPath,
-      mountedPath: `${root}/${mountPath}/${skill.id}`,
-      mounted: skill.enabled,
-    };
-  });
-  return { ...skill, bindings };
-}
-
-function buildSkillContent(skill: Skill) {
-  const triggers = skill.metadata.triggers.map((trigger) => `  - ${trigger}`).join("\n");
-  const body = webSkillDocuments.get(skillDocumentKey(skill)) ?? "";
-  return `---\nid: ${skill.metadata.id}\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\ncategory: ${skill.metadata.category}\nversion: ${skill.metadata.version}\ntriggers:\n${triggers}\n---\n\n# ${skill.metadata.name}\n\n${body.trim()}\n`;
-}
-
-function webSkillResources(skillId: string) {
-  const entries = [...webSkillResourceDocuments.entries()]
-    .filter(([uri]) => uri.startsWith(`skill://${skillId}/`))
-    .map(([uri, content]) => ({
-      uri,
-      relativePath: uri.slice(`skill://${skillId}/`.length),
-      sizeBytes: new TextEncoder().encode(content).byteLength,
-    }));
-  const inDirectory = (directory: string) => entries.filter((entry) => entry.relativePath.startsWith(`${directory}/`));
-  return {
-    scripts: inDirectory("scripts"),
-    references: inDirectory("references"),
-    templates: inDirectory("templates"),
-    assets: inDirectory("assets"),
-    truncated: false,
-  };
-}
-
-type WebSkillRefusalOutcome = Extract<SkillLoadOutcome, { status: "refused" }>;
-
-function webSkillRefusal(
-  requested: string,
-  reason: SkillAccessRefusalReason,
-  canonicalId: string | null = null,
-): WebSkillRefusalOutcome {
-  return { status: "refused", refusal: { requested, canonicalId, reason, conflictingIds: [] } };
-}
-
-function findProgressiveWebSkill(input: SkillLoadInput): WebSkillRefusalOutcome | Skill {
-  const workspacePath = input.workspacePath ? normalizeWebPath(input.workspacePath, "Workspace path") : null;
-  const candidates = webSkills.filter((skill) =>
-    skill.scope === "global" || (workspacePath != null && skill.workspacePath === workspacePath),
-  );
-  const exact = candidates.find((skill) => skill.id === input.idOrAlias);
-  const aliases = exact == null
-    ? candidates.filter((skill) => skill.metadata.aliases?.includes(input.idOrAlias))
-    : [];
-  if (aliases.length > 1) {
-    return {
-      status: "refused",
-      refusal: {
-        requested: input.idOrAlias,
-        canonicalId: null,
-        reason: "ambiguous-alias",
-        conflictingIds: aliases.map((skill) => skill.id).sort(),
-      },
-    };
-  }
-  const skill = exact ?? aliases[0];
-  if (!skill) return webSkillRefusal(input.idOrAlias, "not-found");
-  if (!skill.enabled) return webSkillRefusal(input.idOrAlias, "disabled", skill.id);
-  if (skill.metadata.type === "utility") {
-    return webSkillRefusal(input.idOrAlias, "utility-not-loadable", skill.id);
-  }
-  if (skill.availability !== "available") {
-    return webSkillRefusal(input.idOrAlias, skill.availability, skill.id);
-  }
-  return skill;
-}
-
 function skillStats(skills: Skill[]) {
   return {
     total: skills.length,
     enabled: skills.filter((skill) => skill.enabled).length,
     mounted: skills.filter((skill) => skill.enabled && skill.boundAgentIds.length > 0).length,
   };
-}
-
-function findWebSkill(skillId: string, input: SkillScopeInput) {
-  const skill = webSkills.find((candidate) => candidate.id === skillId && skillScopeMatches(candidate, input));
-  if (!skill) {
-    throw new Error(`Skill not found: ${skillId}`);
-  }
-  return skill;
-}
-
-function upsertWebSkill(skill: Skill) {
-  const index = webSkills.findIndex(
-    (candidate) =>
-      candidate.id === skill.id &&
-      candidate.scope === skill.scope &&
-      candidate.workspacePath === skill.workspacePath,
-  );
-  if (index === -1) {
-    webSkills = [...webSkills, skill];
-    return skill;
-  }
-  webSkills = webSkills.map((candidate, candidateIndex) => (candidateIndex === index ? skill : candidate));
-  return skill;
-}
-
-function mutationToSkill(input: SkillMutationInput): Skill {
-  const location = normalizeWebSkillLocation(input);
-  const timestamp = nowIso();
-  const root = location.scope === "global" ? "~/.vanehub/skills" : `${location.workspacePath}/.vanehub/skills`;
-  const skill: Skill = {
-    id: input.id,
-    scope: location.scope,
-    workspacePath: location.workspacePath ?? null,
-    source: input.source ?? "user",
-    enabled: input.enabled,
-    skillDir: `${root}/${input.id}`,
-    skillMdPath: `${root}/${input.id}/SKILL.md`,
-    contentHash: nextWebSkillHash(input.id),
-    metadata: {
-      ...input.metadata,
-      aliases: input.metadata.aliases ?? [],
-      type: input.metadata.type ?? "role",
-      delivery: input.metadata.delivery ?? "eager",
-      compatibilityDefaults: input.metadata.compatibilityDefaults ?? {
-        skillType: input.metadata.type == null,
-        delivery: input.metadata.delivery == null,
-      },
-    },
-    boundAgentIds: [...input.boundAgentIds],
-    bindings: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    layer: location.scope === "workspace" ? "project" : "user",
-    origin: input.source === "imported" ? "imported" : "created",
-    trust: input.source === "imported" ? "untrusted" : "trusted",
-    availability: input.metadata.type === "utility" ? "unsupported" : "available",
-    delegationCapability: input.metadata.type === "utility"
-      ? { supported: false, reason: "native-runtime-unavailable" }
-      : { supported: false, reason: "not-utility" },
-    immutable: false,
-    shadowedDefinitions: [],
-    usage: {
-      viewCount: 0,
-      useCount: 0,
-      lastViewedAt: null,
-      lastUsedAt: null,
-      revisionWitness: "web-usage-1",
-    },
-  };
-  webSkillDocuments.set(skillDocumentKey(skill), input.body);
-  return skill;
-}
-
-function sortSessions(items: Session[]) {
-  return [...items].sort((left, right) => {
-    if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
-    if (left.archived !== right.archived) return left.archived ? 1 : -1;
-    return right.updatedAt.localeCompare(left.updatedAt);
-  });
 }
 
 function searchText(value: string | null | undefined, query: string) {
@@ -990,7 +665,7 @@ function validateCategoryName(name: string, exceptId?: string) {
 }
 
 function serializeWebSessionExport(input: ExportSessionInput): SessionExportResult {
-  const session = findSession(input.sessionId);
+  const session = findWebSession(input.sessionId);
   const payload = {
     version: 1,
     exportedAt: nowIso(),
@@ -1019,14 +694,6 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
 
 function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
   return aggregateUsageRecords(representativeUsageRecords, range);
-}
-
-function findSession(sessionId: string) {
-  const session = sessions.find((candidate) => candidate.id === sessionId);
-  if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
-  }
-  return session;
 }
 
 function createMessageId() {
@@ -1061,7 +728,7 @@ function emitChatEvent(event: ChatStreamEvent) {
 }
 
 function finishWebGeneration(sessionId: string, lifecycleState: Session["lifecycleState"]) {
-  const session = findSession(sessionId);
+  const session = findWebSession(sessionId);
   const runId = session.activeExecutionRunId;
   if (runId) {
     const run = webAgentRuns.find((candidate) => candidate.id === runId);
@@ -1073,7 +740,7 @@ function finishWebGeneration(sessionId: string, lifecycleState: Session["lifecyc
       );
     }
   }
-  updateSession(sessionId, {
+  updateWebSession(sessionId, {
     lifecycleState,
     activeExecutionRunId: null,
     stateRevision: session.stateRevision + 1,
@@ -1132,7 +799,7 @@ function publishChatEvent(event: ChatStreamEvent) {
  * `resolvePendingApproval` is the new frontend entry point; this is its Web/mock backing).
  */
 export function resolveWebMockToolApproval(sessionId: string, callId: string, approved: boolean): boolean {
-  findSession(sessionId);
+  findWebSession(sessionId);
   const pending = webPendingApprovals.get(callId);
   if (!pending || pending.sessionId !== sessionId) return false;
   webPendingApprovals.delete(callId);
@@ -1171,7 +838,7 @@ export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
 export const WEB_MOCK_PLAN_EXIT_TRIGGER = "[plan-done]";
 
 function resolveSimulatedQuestion(sessionId: string, callId: string, answer: string): boolean {
-  findSession(sessionId);
+  findWebSession(sessionId);
   const message = getSessionMessages(sessionId).find((entry) =>
     entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
   );
@@ -1192,7 +859,7 @@ function resolveSimulatedQuestion(sessionId: string, callId: string, answer: str
  * differs by decision so the mock cannot make a decline look like an approval.
  */
 function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: boolean): boolean {
-  findSession(sessionId);
+  findWebSession(sessionId);
   const message = getSessionMessages(sessionId).find((entry) =>
     entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
   );
@@ -1244,31 +911,6 @@ function cancelActiveStream(sessionId: string) {
   activeStreams.delete(sessionId);
   publishChatEvent({ type: "cancelled", sessionId, messageId: activeStream.messageId });
   return true;
-}
-
-function updateSession(sessionId: string, updates: Partial<Session>) {
-  const timestamp = nowIso();
-  const sessionIndex = sessions.findIndex((session) => session.id === sessionId);
-  if (sessionIndex === -1) {
-    throw new Error(`Session not found: ${sessionId}`);
-  }
-  const updatedSession: Session = { ...sessions[sessionIndex], ...updates, updatedAt: timestamp };
-  sessions = sessions.map((session, index) => (index === sessionIndex ? updatedSession : session));
-  if (activeSessionId === sessionId) {
-    workflowState = {
-      ...workflowState,
-      activeAgentId: updatedSession.agentId,
-      activeInteractionMode: updatedSession.interactionMode,
-      lifecycleState: updatedSession.lifecycleState,
-    };
-  }
-  return updatedSession;
-}
-
-function createWebSeatId() {
-  const seatId = `web-seat-${nextSeatId}`;
-  nextSeatId += 1;
-  return seatId;
 }
 
 function cloneLoopValue<T>(value: T): T {
@@ -1362,7 +1004,7 @@ export function resetWebLoopsForTest() {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
   loopSubscribers.clear();
-  sessions = sessions.filter((session) => !loopRoleSessionIds.has(session.id));
+  replaceWebSessions(listWebSessions().filter((session) => !loopRoleSessionIds.has(session.id)));
   loopRoleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
   loopRoleSessionIds.clear();
   loopDefinitions = [];
@@ -1450,7 +1092,7 @@ function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration, role: 
     updatedAt: timestamp,
   };
   loopRoleSessionIds.add(sessionId);
-  sessions = [session, ...sessions];
+  prependWebSession(session);
 }
 
 function scheduleWebLoopPhase(run: LoopRun) {
@@ -1592,7 +1234,7 @@ const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
   const workspacePath = target.scope === "project" && target.workspacePath
     ? normalizeWebPath(target.workspacePath, "Workspace path")
     : null;
-  const candidates = webSkills.filter((skill) =>
+  const candidates = listWebSkills().filter((skill) =>
     skill.id === target.skillId
       && (skill.scope === "global" || (workspacePath != null && skill.workspacePath === workspacePath)),
   );
@@ -1774,7 +1416,7 @@ function webMissionOverview(query: MissionControlQuery): MissionControlOverview 
 }
 
 function webRunnerDescriptors(sessionId: string, agentId: string): AgentRunnerDescriptor[] {
-  const session = findSession(sessionId);
+  const session = findWebSession(sessionId);
   if (session.agentId !== agentId) throw new Error("runner_invalid_selection");
   const descriptors: AgentRunnerDescriptor[] = [{
     selection: { kind: "local" },
@@ -1939,7 +1581,7 @@ export const webAgentClient: AgentService = {
       throw new Error("Built-in agents cannot be deleted; reset their provider configuration instead.");
     }
     const blocking: string[] = [];
-    const sessionCount = sessions.filter((session) => session.agentId === agentId).length;
+    const sessionCount = listWebSessions().filter((session) => session.agentId === agentId).length;
     if (sessionCount > 0) blocking.push(`${sessionCount} sessions`);
     const memoryCount = webAgentMemories.filter((memory) => memory.agentId === agentId).length;
     if (memoryCount > 0) blocking.push(`${memoryCount} memories`);
@@ -1953,12 +1595,12 @@ export const webAgentClient: AgentService = {
     const index = mockAgents.findIndex((agent) => agent.id === agentId);
     if (index !== -1) mockAgents.splice(index, 1);
     deleteWebApiAgentProviderConfig(agentId);
-    webSkillApiAgentBindings = webSkillApiAgentBindings.filter((binding) => binding.agentId !== agentId);
-    webSkills = webSkills.map((skill) => ({
+    replaceWebSkillApiAgentBindings(listWebSkillApiAgentBindings().filter((binding) => binding.agentId !== agentId));
+    replaceWebSkills(listWebSkills().map((skill) => ({
       ...skill,
       boundAgentIds: skill.boundAgentIds.filter((boundAgentId) => boundAgentId !== agentId),
-    }));
-    webSkillMountPaths = webSkillMountPaths.filter((path) => path.agentId !== agentId);
+    })));
+    replaceWebSkillMountPaths(listWebSkillMountPaths().filter((path) => path.agentId !== agentId));
   },
 
   async listAllMemories() {
@@ -1978,8 +1620,8 @@ export const webAgentClient: AgentService = {
     const profile = findWebCliConfigProfile(supportedAgentId, input.profileId);
     if (!profile) throw new Error("Profile not found.");
     if (profile.validationState === "needs-credential") throw new Error("Credential repair is required.");
-    const beforeWorkflow = JSON.stringify(workflowState);
-    const beforeActiveSession = activeSessionId;
+    const beforeWorkflow = JSON.stringify(getWebWorkflowState());
+    const beforeActiveSession = getWebActiveSessionId();
     const status = webCliConfigStatus(supportedAgentId);
     const backfilledProfileId = supportedAgentId !== "opencode"
       && status.appliedProfileId !== null
@@ -1996,7 +1638,7 @@ export const webAgentClient: AgentService = {
       simulated: true,
       startupSync: status.startupSync,
     });
-    if (JSON.stringify(workflowState) !== beforeWorkflow || activeSessionId !== beforeActiveSession) {
+    if (JSON.stringify(getWebWorkflowState()) !== beforeWorkflow || getWebActiveSessionId() !== beforeActiveSession) {
       throw new Error("Global configuration simulation changed runtime workflow state.");
     }
     return {
@@ -2055,7 +1697,7 @@ export const webAgentClient: AgentService = {
   },
 
   async getWorkflowState() {
-    return workflowState;
+    return getWebWorkflowState();
   },
 
   async selectAgent(agentId: string, interactionMode: InteractionMode) {
@@ -2066,34 +1708,34 @@ export const webAgentClient: AgentService = {
     if (!agent.supportedInteractionModes.includes(interactionMode)) {
       throw new Error(`${agent.displayName} does not support ${interactionMode}.`);
     }
-    workflowState = {
-      ...workflowState,
+    setWebWorkflowState({
+      ...getWebWorkflowState(),
       activeAgentId: agentId,
       activeInteractionMode: interactionMode,
       lifecycleState: "idle",
-    };
-    return workflowState;
+    });
+    return getWebWorkflowState();
   },
 
   async launchActiveWorkflow() {
-    workflowState = {
-      ...workflowState,
-      lifecycleState: workflowState.activeAgentId ? "running" : "failed",
-    };
+    setWebWorkflowState({
+      ...getWebWorkflowState(),
+      lifecycleState: getWebWorkflowState().activeAgentId ? "running" : "failed",
+    });
     return {
-      workflow: workflowState,
-      message: workflowState.activeAgentId
+      workflow: getWebWorkflowState(),
+      message: getWebWorkflowState().activeAgentId
         ? "Web preview session marked as running."
         : "Select an agent before launching.",
     };
   },
 
   async getSessionDetails(): Promise<SessionDetails> {
-    const adapter = workflowState.activeInteractionMode ?? "none";
+    const adapter = getWebWorkflowState().activeInteractionMode ?? "none";
     return {
-      agentId: workflowState.activeAgentId,
-      interactionMode: workflowState.activeInteractionMode,
-      lifecycleState: workflowState.lifecycleState,
+      agentId: getWebWorkflowState().activeAgentId,
+      interactionMode: getWebWorkflowState().activeInteractionMode,
+      lifecycleState: getWebWorkflowState().lifecycleState,
       adapter,
       details: {
         runtime: "web",
@@ -2103,24 +1745,24 @@ export const webAgentClient: AgentService = {
   },
 
   async listSessions() {
-    return sortSessions(sessions.filter((session) => !session.archived && !loopRoleSessionIds.has(session.id)));
+    return sortWebSessions(listWebSessions().filter((session) => !session.archived && !loopRoleSessionIds.has(session.id)));
   },
 
   async listArchivedSessions() {
-    return sortSessions(sessions.filter((session) => session.archived && !loopRoleSessionIds.has(session.id)));
+    return sortWebSessions(listWebSessions().filter((session) => session.archived && !loopRoleSessionIds.has(session.id)));
   },
 
   async searchSessions(input: SessionSearchInput) {
     const query = input.query.trim();
     if (!query) return [];
-    return sortSessions(sessions.filter((session) => !loopRoleSessionIds.has(session.id)))
+    return sortWebSessions(listWebSessions().filter((session) => !loopRoleSessionIds.has(session.id)))
       .map((session) => sessionSearchMatches(session, query))
       .filter((result): result is SessionSearchResult => result !== null)
       .slice(0, input.limit ?? 50);
   },
 
   async getSession(sessionId: string) {
-    return findSession(sessionId);
+    return findWebSession(sessionId);
   },
 
   async getSessionRecoverySummary(sessionId: string) {
@@ -2128,7 +1770,7 @@ export const webAgentClient: AgentService = {
   },
 
   async listSessionRecoveryReports(sessionId: string, limit = 20) {
-    findSession(sessionId);
+    findWebSession(sessionId);
     const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
     return structuredClone((recoveryReportsBySession.get(sessionId) ?? []).slice(0, boundedLimit));
   },
@@ -2137,7 +1779,7 @@ export const webAgentClient: AgentService = {
     sessionId: string,
     expectedRecoveryRevision: number,
   ): Promise<SessionRecoveryAcknowledgement> {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     if (session.recoveryStatus === "quarantined") {
       throw new Error(`Recovery acknowledgement is not allowed for quarantined session ${sessionId}.`);
     }
@@ -2150,7 +1792,7 @@ export const webAgentClient: AgentService = {
       );
     }
     const recoveryRevision = session.recoveryRevision + 1;
-    const updated = updateSession(sessionId, {
+    const updated = updateWebSession(sessionId, {
       recoveryStatus: "clean",
       recoveryRevision,
       stateRevision: session.stateRevision + 1,
@@ -2161,7 +1803,7 @@ export const webAgentClient: AgentService = {
       report,
       ...(recoveryReportsBySession.get(sessionId) ?? []),
     ]);
-    emitSessionEvent({
+    emitWebSessionEvent({
       kind: "recovery-acknowledged",
       sessionId,
       recoveryRevision,
@@ -2170,8 +1812,9 @@ export const webAgentClient: AgentService = {
   },
 
   async getActiveSession() {
-    if (!activeSessionId) return null;
-    return sessions.find((session) => session.id === activeSessionId) ?? null;
+    const sessionId = getWebActiveSessionId();
+    if (!sessionId) return null;
+    return listWebSessions().find((session) => session.id === sessionId) ?? null;
   },
 
   async listSessionCategories() {
@@ -2202,12 +1845,12 @@ export const webAgentClient: AgentService = {
   async deleteSessionCategory(categoryId: string) {
     findCategory(categoryId);
     sessionCategories = sessionCategories.filter((category) => category.id !== categoryId);
-    sessions = sessions.map((session) => (session.categoryId === categoryId ? { ...session, categoryId: null, updatedAt: nowIso() } : session));
+    replaceWebSessions(listWebSessions().map((session) => (session.categoryId === categoryId ? { ...session, categoryId: null, updatedAt: nowIso() } : session)));
   },
 
   async assignSessionCategory(input: AssignSessionCategoryInput) {
     if (input.categoryId) findCategory(input.categoryId);
-    return updateSession(input.sessionId, { categoryId: input.categoryId });
+    return updateWebSession(input.sessionId, { categoryId: input.categoryId });
   },
 
   async listLoopDefinitions() {
@@ -2402,7 +2045,7 @@ export const webAgentClient: AgentService = {
   },
 
   async getSessionChatConfig(sessionId) {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     const stored = readChatConfigs()[sessionId];
     const normalized = stored
       ? normalizeChatConfigForSession(session, stored)
@@ -2412,10 +2055,10 @@ export const webAgentClient: AgentService = {
   },
 
   async saveSessionChatConfig(sessionId, config) {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     const normalized = normalizeChatConfigForSession(session, config);
     writeChatConfigs({ ...readChatConfigs(), [sessionId]: normalized });
-    emitSessionEvent({ kind: "configuration-changed", sessionId });
+    emitWebSessionEvent({ kind: "configuration-changed", sessionId });
     const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
     return withEffectiveExecutionPolicy(normalized, policy);
   },
@@ -2506,7 +2149,7 @@ export const webAgentClient: AgentService = {
       }),
     );
     const session: Session = {
-      id: `web-session-${nextSessionId}`,
+      id: `web-session-${nextWebSessionSequence()}`,
       title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
       agentId: normalizedSeats[0]?.agentId ?? input.agentId,
       // Mirrors the native normalization: no seats means one seat built from the Agent.
@@ -2533,17 +2176,16 @@ export const webAgentClient: AgentService = {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    nextSessionId += 1;
-    sessions = [session, ...sessions];
-    activeSessionId = session.id;
+    prependWebSession(session);
+    setWebActiveSessionId(session.id);
     discoverWebSessionCodeIndex(session);
-    emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
-    workflowState = {
-      ...workflowState,
+    emitWebSessionEvent({ kind: "active-session-changed", sessionId: session.id });
+    setWebWorkflowState({
+      ...getWebWorkflowState(),
       activeAgentId: session.agentId,
       activeInteractionMode: session.interactionMode,
       lifecycleState: session.lifecycleState,
-    };
+    });
     return createWebMockOperation({
       id: `web-session-create-${session.id}-${Date.now()}`,
       kind: "workspace",
@@ -2556,7 +2198,7 @@ export const webAgentClient: AgentService = {
   },
 
   async deleteSession(sessionId: string) {
-    findSession(sessionId);
+    findWebSession(sessionId);
     cancelActiveStream(sessionId);
     messagesBySession.delete(sessionId);
     recoveryReportsBySession.delete(sessionId);
@@ -2564,26 +2206,26 @@ export const webAgentClient: AgentService = {
     const configs = { ...readChatConfigs() };
     delete configs[sessionId];
     writeChatConfigs(configs);
-    sessions = sessions.filter((session) => session.id !== sessionId);
-    if (activeSessionId === sessionId) {
-      activeSessionId = null;
-      emitSessionEvent({ kind: "active-session-changed", sessionId: null });
+    replaceWebSessions(listWebSessions().filter((session) => session.id !== sessionId));
+    if (getWebActiveSessionId() === sessionId) {
+      setWebActiveSessionId(null);
+      emitWebSessionEvent({ kind: "active-session-changed", sessionId: null });
     }
   },
 
   async switchSession(sessionId: string) {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     if (session.archived) {
       throw new Error(`Cannot switch to archived session: ${sessionId}`);
     }
-    activeSessionId = session.id;
-    emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
-    workflowState = {
-      ...workflowState,
+    setWebActiveSessionId(session.id);
+    emitWebSessionEvent({ kind: "active-session-changed", sessionId: session.id });
+    setWebWorkflowState({
+      ...getWebWorkflowState(),
       activeAgentId: session.agentId,
       activeInteractionMode: session.interactionMode,
       lifecycleState: session.lifecycleState,
-    };
+    });
     return session;
   },
 
@@ -2592,11 +2234,11 @@ export const webAgentClient: AgentService = {
     if (!trimmedTitle) {
       throw new Error(tr("web.error.sessionTitleRequired"));
     }
-    return updateSession(sessionId, { title: trimmedTitle });
+    return updateWebSession(sessionId, { title: trimmedTitle });
   },
 
   async updateSessionSeats(input: UpdateSessionSeatsInput) {
-    const session = findSession(input.sessionId);
+    const session = findWebSession(input.sessionId);
     if (session.updatedAt !== input.expectedUpdatedAt) {
       throw new Error("validation error: Session participants changed since they were loaded.");
     }
@@ -2643,14 +2285,14 @@ export const webAgentClient: AgentService = {
     if (!firstActive) {
       throw new Error("validation error: A session must keep at least one active participant.");
     }
-    return updateSession(input.sessionId, { seats, agentId: firstActive.agentId });
+    return updateWebSession(input.sessionId, { seats, agentId: firstActive.agentId });
   },
 
   async rebindRemoteSessionSshConnection(
     sessionId: string,
     connectionId: string,
   ) {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     if (!session.remoteWorkspace) {
       throw new Error(
         "Only remote workspace sessions can bind an SSH connection.",
@@ -2669,32 +2311,32 @@ export const webAgentClient: AgentService = {
         "SSH connection endpoint does not match the remote workspace snapshot.",
       );
     }
-    return updateSession(sessionId, {
+    return updateWebSession(sessionId, {
       remoteSshConnectionId: connection.id,
       remoteSshConnectionRevision: connection.revision,
     });
   },
 
   async pinSession(sessionId: string) {
-    return updateSession(sessionId, { pinned: true });
+    return updateWebSession(sessionId, { pinned: true });
   },
 
   async unpinSession(sessionId: string) {
-    return updateSession(sessionId, { pinned: false });
+    return updateWebSession(sessionId, { pinned: false });
   },
 
   async archiveSession(sessionId: string) {
     const cancelled = cancelActiveStream(sessionId);
-    const session = updateSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
-    if (activeSessionId === sessionId) {
-      activeSessionId = null;
-      emitSessionEvent({ kind: "active-session-changed", sessionId: null });
+    const session = updateWebSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
+    if (getWebActiveSessionId() === sessionId) {
+      setWebActiveSessionId(null);
+      emitWebSessionEvent({ kind: "active-session-changed", sessionId: null });
     }
     return session;
   },
 
   async unarchiveSession(sessionId: string) {
-    return updateSession(sessionId, { archived: false });
+    return updateWebSession(sessionId, { archived: false });
   },
 
   async exportSession(input: ExportSessionInput) {
@@ -2706,7 +2348,7 @@ export const webAgentClient: AgentService = {
   },
 
   async sendMessage(input) {
-    const session = findSession(input.sessionId);
+    const session = findWebSession(input.sessionId);
     if (session.archived) throw new Error("Archived sessions cannot accept messages.");
     if (session.recoveryStatus !== "clean") {
       throw new Error(`Session recovery state ${session.recoveryStatus} blocks new messages.`);
@@ -2775,7 +2417,7 @@ export const webAgentClient: AgentService = {
       executionRunId,
     };
     setSessionMessages(input.sessionId, [...existingMessages, userMessage, assistantMessage]);
-    updateSession(input.sessionId, {
+    updateWebSession(input.sessionId, {
       lifecycleState: "running",
       activeExecutionRunId: executionRunId,
       stateRevision: session.stateRevision + 1,
@@ -2936,10 +2578,10 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(memoryInjectionTimeoutId);
     }
     const sessionWorkspace = session.folder ? normalizeWebPath(session.folder, "Workspace path") : null;
-    const boundSkillNames = webSkillApiAgentBindings
+    const boundSkillNames = listWebSkillApiAgentBindings()
       .filter((binding) => binding.agentId === session.agentId)
       .map((binding) =>
-        webSkills.find(
+        listWebSkills().find(
           (skill) =>
             skill.id === binding.skillId &&
             skill.scope === binding.scope &&
@@ -3236,7 +2878,7 @@ export const webAgentClient: AgentService = {
   },
 
   async listMessages(input) {
-    findSession(input.sessionId);
+    findWebSession(input.sessionId);
     const limit = input.limit ?? 50;
     const messages = getSessionMessages(input.sessionId);
     const endIndex = input.beforeId
@@ -3279,14 +2921,14 @@ export const webAgentClient: AgentService = {
   },
 
   async getSessionUsageSummary(sessionId: string) {
-    findSession(sessionId);
+    findWebSession(sessionId);
     const generated = aggregateSessionUsageRecords(representativeUsageRecords, sessionId);
     return generated;
   },
 
   async getTokenUsageSummary(input) {
     if (!input.sessionId) return queryWebTokenUsageSummary(input);
-    const session = findSession(input.sessionId);
+    const session = findWebSession(input.sessionId);
     return queryWebTokenUsageSummary({
       ...input,
       sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
@@ -3295,7 +2937,7 @@ export const webAgentClient: AgentService = {
 
   async getTokenUsageDetails(input) {
     if (!input.sessionId) return queryWebTokenUsageDetails(input);
-    const session = findSession(input.sessionId);
+    const session = findWebSession(input.sessionId);
     return queryWebTokenUsageDetails({
       ...input,
       sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
@@ -3316,13 +2958,13 @@ export const webAgentClient: AgentService = {
   },
 
   async stopGeneration(sessionId: string) {
-    findSession(sessionId);
+    findWebSession(sessionId);
     if (!cancelActiveStream(sessionId)) return;
-    updateSession(sessionId, { lifecycleState: "stopped" });
+    updateWebSession(sessionId, { lifecycleState: "stopped" });
   },
 
   async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
-    const session = findSession(sessionId);
+    const session = findWebSession(sessionId);
     const existing = terminalsBySession.get(sessionId);
     if (existing?.state === "running") {
       const transcript = terminalTranscriptsBySession.get(sessionId) ?? "";
@@ -3353,7 +2995,7 @@ export const webAgentClient: AgentService = {
       retained: true,
     };
     upsertTerminalSession(terminal);
-    updateSession(sessionId, { lifecycleState: "running", runtimeSessionId });
+    updateWebSession(sessionId, { lifecycleState: "running", runtimeSessionId });
     setTimeout(() => {
       emitTerminalEvent({
         type: "runtime_session_id",
@@ -3391,7 +3033,7 @@ export const webAgentClient: AgentService = {
     if (!terminal) return false;
     terminalsBySession.delete(terminal.sessionId);
     terminalTranscriptsBySession.delete(terminal.sessionId);
-    updateSession(terminal.sessionId, { lifecycleState: "stopped" });
+    updateWebSession(terminal.sessionId, { lifecycleState: "stopped" });
     emitTerminalEvent({
       type: "state",
       terminalId,
@@ -3429,12 +3071,11 @@ export const webAgentClient: AgentService = {
   },
 
   async subscribeSessionEvents(handler) {
-    sessionEventSubscribers.add(handler);
-    return () => sessionEventSubscribers.delete(handler);
+    return subscribeWebSessionStateEvents(handler);
   },
 
   async listSkills(input): Promise<SkillListResult> {
-    const skills = webSkills.filter((skill) => skillScopeMatches(skill, input)).map(hydrateSkillBindings);
+    const skills = listWebSkills().filter((skill) => skillScopeMatches(skill, input)).map(hydrateSkillBindings);
     return { skills, stats: skillStats(skills) };
   },
 
@@ -3443,7 +3084,7 @@ export const webAgentClient: AgentService = {
     const apiAgentBindings = Object.fromEntries(
       skills.map((skill) => [
         skill.id,
-        webSkillApiAgentBindings
+        listWebSkillApiAgentBindings()
           .filter(
             (binding) =>
               binding.skillId === skill.id &&
@@ -3456,7 +3097,7 @@ export const webAgentClient: AgentService = {
     return {
       skills,
       stats,
-      mountPaths: webSkillMountPaths.map((path) => ({ ...path })),
+      mountPaths: listWebSkillMountPaths().map((path) => ({ ...path })),
       agents: mockAgents.map((agent) => ({
         id: agent.id,
         displayName: agent.displayName,
@@ -3464,26 +3105,26 @@ export const webAgentClient: AgentService = {
       })),
       apiAgentBindings,
       drift: await this.detectSkillDrift(input),
-      restoreCandidates: input.scope === "global" ? [...deletedBuiltinSkillIds].sort() : [],
+      restoreCandidates: input.scope === "global" ? listDeletedWebBuiltinSkillIds().sort() : [],
     };
   },
 
   async listSkillMountPaths() {
-    return webSkillMountPaths.map((path) => ({ ...path }));
+    return listWebSkillMountPaths().map((path) => ({ ...path }));
   },
 
   async updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport> {
     requireAgentKind(agentId, "cli");
     mountPath = validateMountPath(mountPath);
-    const existing = webSkillMountPaths.find((path) => path.agentId === agentId);
+    const existing = listWebSkillMountPaths().find((path) => path.agentId === agentId);
     const oldMountPath = existing?.mountPath ?? mountPathForAgent(agentId);
-    webSkillMountPaths = webSkillMountPaths.map((path) =>
+    replaceWebSkillMountPaths(listWebSkillMountPaths().map((path) =>
       path.agentId === agentId ? { agentId, mountPath, isDefault: false } : path,
-    );
+    ));
     if (!existing) {
-      webSkillMountPaths = [...webSkillMountPaths, { agentId, mountPath, isDefault: false }];
+      replaceWebSkillMountPaths([...listWebSkillMountPaths(), { agentId, mountPath, isDefault: false }]);
     }
-    const migrated = webSkills
+    const migrated = listWebSkills()
       .filter((skill) => skill.boundAgentIds.includes(agentId) && skill.enabled)
       .map((skill) => skill.id);
     return {
@@ -3500,7 +3141,7 @@ export const webAgentClient: AgentService = {
 
   async createSkill(input) {
     const normalized = validateWebSkillMutation(input, "user");
-    if (webSkills.some((skill) => skill.id === normalized.id && skillScopeMatches(skill, normalized))) {
+    if (listWebSkills().some((skill) => skill.id === normalized.id && skillScopeMatches(skill, normalized))) {
       throw new Error(`Skill already exists: ${normalized.id}`);
     }
     for (const agentId of normalized.boundAgentIds) requireAgentKind(agentId, "cli");
@@ -3517,7 +3158,7 @@ export const webAgentClient: AgentService = {
     if (current.contentHash !== input.expectedContentHash) {
       throw new Error(`Skill changed since it was loaded: ${skillId}`);
     }
-    webSkillDocuments.set(skillDocumentKey(current), input.body);
+    writeWebSkillDocument(skillDocumentKey(current), input.body);
     const updated: Skill = {
       ...current,
       metadata: {
@@ -3543,32 +3184,32 @@ export const webAgentClient: AgentService = {
   async deleteSkill(skillId, input) {
     const current = findWebSkill(skillId, input);
     if (current.source === "builtin") {
-      deletedBuiltinSkillIds.add(skillId);
+      markWebBuiltinSkillDeleted(skillId);
     }
-    webSkills = webSkills.filter((skill) => !(skill.id === skillId && skillScopeMatches(skill, input)));
-    webSkillDocuments.delete(skillDocumentKey(current));
-    webSkillApiAgentBindings = webSkillApiAgentBindings.filter(
+    replaceWebSkills(listWebSkills().filter((skill) => !(skill.id === skillId && skillScopeMatches(skill, input))));
+    deleteWebSkillDocument(skillDocumentKey(current));
+    replaceWebSkillApiAgentBindings(listWebSkillApiAgentBindings().filter(
       (binding) =>
         !(
           binding.skillId === current.id &&
           binding.scope === current.scope &&
           binding.workspacePath === current.workspacePath
         ),
-    );
+    ));
   },
 
   async restoreBuiltinSkill(skillId) {
-    const seed = builtinSkillSeeds.find((candidate) => candidate.id === skillId);
+    const seed = webBuiltinSkillSeeds.find((candidate) => candidate.id === skillId);
     if (!seed) {
       throw new Error(`Unknown built-in Skill: ${skillId}`);
     }
-    if (!deletedBuiltinSkillIds.has(skillId)) {
+    if (!isWebBuiltinSkillDeleted(skillId)) {
       throw new Error(`Built-in Skill is not eligible for restore: ${skillId}`);
     }
-    if (webSkills.some((skill) => skill.id === skillId && skill.scope === "global")) {
+    if (listWebSkills().some((skill) => skill.id === skillId && skill.scope === "global")) {
       throw new Error(`Skill already exists: ${skillId}`);
     }
-    deletedBuiltinSkillIds.delete(skillId);
+    clearWebBuiltinSkillDeleted(skillId);
     const restored = {
       ...mutationToSkill({
       id: seed.id,
@@ -3636,7 +3277,7 @@ export const webAgentClient: AgentService = {
   async bindSkillToApiAgent(skillId, input, agentId) {
     requireAgentKind(agentId, "api");
     const skill = findWebSkill(skillId, input);
-    const alreadyBound = webSkillApiAgentBindings.some(
+    const alreadyBound = listWebSkillApiAgentBindings().some(
       (binding) =>
         binding.skillId === skill.id &&
         binding.scope === skill.scope &&
@@ -3644,17 +3285,17 @@ export const webAgentClient: AgentService = {
         binding.agentId === agentId,
     );
     if (!alreadyBound) {
-      webSkillApiAgentBindings = [
-        ...webSkillApiAgentBindings,
+      replaceWebSkillApiAgentBindings([
+        ...listWebSkillApiAgentBindings(),
         { skillId: skill.id, scope: skill.scope, workspacePath: skill.workspacePath, agentId },
-      ];
+      ]);
     }
   },
 
   async unbindSkillFromApiAgent(skillId, input, agentId) {
     requireAgentKind(agentId, "api");
     const skill = findWebSkill(skillId, input);
-    webSkillApiAgentBindings = webSkillApiAgentBindings.filter(
+    replaceWebSkillApiAgentBindings(listWebSkillApiAgentBindings().filter(
       (binding) =>
         !(
           binding.skillId === skill.id &&
@@ -3662,12 +3303,12 @@ export const webAgentClient: AgentService = {
           binding.workspacePath === skill.workspacePath &&
           binding.agentId === agentId
         ),
-    );
+    ));
   },
 
   async listSkillApiAgentBindings(skillId, input) {
     const skill = findWebSkill(skillId, input);
-    return webSkillApiAgentBindings
+    return listWebSkillApiAgentBindings()
       .filter(
         (binding) =>
           binding.skillId === skill.id &&
@@ -3696,7 +3337,7 @@ export const webAgentClient: AgentService = {
   async loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome> {
     const resolved = findProgressiveWebSkill(input);
     if ("status" in resolved) return resolved;
-    const body = webSkillDocuments.get(skillDocumentKey(resolved)) ?? "";
+    const body = readWebSkillDocument(skillDocumentKey(resolved)) ?? "";
     const baseUri = `skill://${resolved.id}/`;
     const expanded = body.replaceAll("{skill_base_dir}", baseUri);
     const characters = [...expanded];
@@ -3741,7 +3382,7 @@ export const webAgentClient: AgentService = {
         refusal: { requested: input.uri, canonicalId: skillId, reason: "stale-revision", conflictingIds: [] },
       };
     }
-    const content = webSkillResourceDocuments.get(input.uri);
+    const content = readWebSkillResourceDocument(input.uri);
     if (content == null || !webSkillResources(skillId).references.concat(
       webSkillResources(skillId).templates,
       webSkillResources(skillId).scripts,
@@ -3792,7 +3433,7 @@ export const webAgentClient: AgentService = {
       boundAgentIds: input.boundAgentIds,
       source: "imported",
     }, "imported");
-    if (webSkills.some((skill) => skill.id === id && skillScopeMatches(skill, mutation))) {
+    if (listWebSkills().some((skill) => skill.id === id && skillScopeMatches(skill, mutation))) {
       throw new Error(`Skill already exists: ${id}`);
     }
     for (const agentId of mutation.boundAgentIds) requireAgentKind(agentId, "cli");
