@@ -56,13 +56,18 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> "待处理" : Ask 解析创建审批
-    "待处理" --> "批准" : 人工批准
-    "待处理" --> "拒绝" : 人工拒绝
-    "待处理" --> "超时" : 超时扫描
-    "批准" --> [*] : 按 Scope 记忆 grant
-    "拒绝" --> [*] : 不记忆
-    "超时" --> [*] : 不记忆
+    [*] --> Pending : Ask 解析创建审批
+    Pending --> Approved : 人工批准
+    Pending --> Rejected : 人工拒绝
+    Pending --> Expired : 超时扫描
+    Approved --> [*] : 按 Scope 记忆 grant
+    Rejected --> [*] : 不记忆
+    Expired --> [*] : 不记忆
+
+    state "待处理" as Pending
+    state "批准" as Approved
+    state "拒绝" as Rejected
+    state "超时" as Expired
 ```
 
 `Scope` 的记忆语义来自 `permissions/domain/scope.rs` 的 `is_remembered()`。

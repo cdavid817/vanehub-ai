@@ -28,8 +28,7 @@ flowchart TD
     C1 --> D[Test Connection]
     D -->|缓存有效工具列表| E[native 工具目录]
     D -->|未测试或失败| X[不贡献工具]
-    E --> F{"仅对当前会话 workspace
-可见且 active 的 server"}
+    E --> F{"仅对当前会话 workspace<br/>可见且 active 的 server"}
     F -->|是| G[贡献工具条目]
     F -->|否| X
     G --> H["固定 shell/file/remember 工具<br/>永不冲突"]
