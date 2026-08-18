@@ -1,8 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use crate::contexts::tooling::skills::application::{
     SkillApplicationError, SkillFilesystemTransaction,
 };
@@ -19,16 +14,19 @@ pub(super) struct FileTransactions {
 }
 
 impl FileTransactions {
-    pub(super) fn begin(&self) -> SkillFilesystemTransaction {
+    // Fallible for the same reason every other method on this type is: the journal lock is
+    // shared, and `checkpoint`/`stage_*`/`commit` all already report a poisoned lock through
+    // `lock_error` rather than aborting. `begin` was the one method that did not.
+    pub(super) fn begin(&self) -> Result<SkillFilesystemTransaction, SkillApplicationError> {
         let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let transaction = SkillFilesystemTransaction {
             id: format!("skill-fs-{}-{sequence}", std::process::id()),
         };
         self.journals
             .lock()
-            .expect("Skill filesystem transaction journals")
+            .map_err(lock_error)?
             .insert(transaction.id.clone(), Vec::new());
-        transaction
+        Ok(transaction)
     }
 
     pub(super) fn checkpoint(

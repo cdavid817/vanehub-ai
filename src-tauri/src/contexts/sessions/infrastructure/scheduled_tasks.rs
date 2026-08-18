@@ -1,8 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use crate::commands::error::CommandError;
 use crate::commands::sessions::dto;
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
@@ -432,12 +427,22 @@ fn next_monthly(from: DateTime<Local>, day: u32, time: NaiveTime) -> DateTime<Lo
 }
 
 fn days_in_month(year: i32, month: u32) -> u32 {
-    let next_month = if month == 12 {
-        chrono::NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    // `month` always comes from a `DateTime`, so it is in 1..=12 and only chrono's maximum
+    // representable year could reject the first-of-next-month date. 28 is the fallback rather
+    // than a larger guess because it is a valid day in every month: `next_monthly` loops until
+    // `candidate.day()` reaches this value, so a month length that some month cannot reach
+    // would spin forever.
+    let Some(next_month) = (if month == 12 {
+        chrono::NaiveDate::from_ymd_opt(year.saturating_add(1), 1, 1)
     } else {
         chrono::NaiveDate::from_ymd_opt(year, month + 1, 1)
-    }
-    .expect("valid month");
+    }) else {
+        debug_assert!(
+            false,
+            "month {month} of year {year} has no first-of-next-month"
+        );
+        return 28;
+    };
     (next_month - Duration::days(1)).day()
 }
 
