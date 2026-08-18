@@ -25,11 +25,11 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
-              // 这条规则匹配的是 package-lock.json 钉住的嵌套安装路径,而不是任何
-              // package.json 约束能保证的位置——rehype-katex 要 ^0.16.0、mermaid 要
-              // ^0.16.45,两者解析到同一个 0.16.47,是锁文件把副本留在了各自目录下。
-              // 重新解析锁文件、或换成 pnpm 那种布局,这个路径就会移位、规则静默失配
-              // (pnpm 已经这么坑过一次)。构建末尾的 lazy chunk 计数是兜底检测。
+              // katex 看起来没有被任何 JS import,但它是真依赖:src/styles.css:3 有
+              // `@import 'katex/dist/katex.min.css'`。depcheck 只看 JS import,会把它
+              // 报成未使用——删掉后本机构建仍然通过,Linux CI 却直接失败在 CSS 解析。
+              // 这条规则匹配的是 package-lock.json 钉住的嵌套路径,不是 package.json
+              // 约束能保证的位置;换 pnpm 那种布局会静默失配(已经坑过一次)。
               name: "rich-markdown-katex",
               test: /node_modules[\\/]rehype-katex[\\/]node_modules[\\/]katex[\\/]/,
             },

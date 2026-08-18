@@ -2,13 +2,13 @@
 
 See proposal.md — Why for the tool output, the per-entry verdicts, and the `katex` measurement.
 
-The shape of the problem: of 18 reported entries, 11 are false positives caused by configuration-driven use, and 7 are real. Any process that trusts the tools deletes eleven working things; any process that ignores them keeps seven dead ones. Neither the tool nor a reading of the dependency tree is sufficient on its own — the `katex` entry looked load-bearing under a plausible theory and turned out not to be, and only a build settled it.
+The shape of the problem: of 18 reported entries, 12 are false positives caused by use that import analysis cannot see, and 6 are real. Any process that trusts the tools deletes eleven working things; any process that ignores them keeps seven dead ones. Neither the tool nor a reading of the dependency tree is sufficient on its own — the `katex` entry looked load-bearing under a plausible theory and turned out not to be, and only a build settled it.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Remove the seven dependencies that are genuinely unused.
+- Remove the six dependencies that are genuinely unused.
 - Leave the `vite.config.ts` chunk rule's real precondition written down, since it is a lockfile-pinned path rather than anything visible in source.
 - Make the frontend's reliance on `playwright`'s install path explicit rather than accidental.
 

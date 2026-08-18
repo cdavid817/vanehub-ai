@@ -14,8 +14,9 @@
 ## 3. Remove the unused frontend dependencies
 
 - [x] 3.1 Remove `react-hook-form`, after confirming no `useForm`, `zodResolver`, or `@hookform` reference exists anywhere in `src/`
-- [x] 3.2 Remove `katex`, then run a clean `npm ci` and confirm `node_modules/rehype-katex/node_modules/katex` still exists — the chunk rule's precondition must survive the removal
+- [x] 3.2 **Retain `katex`.** It was removed and reverted: `src/styles.css:3` has `@import 'katex/dist/katex.min.css'`, which no JavaScript import grep and no `depcheck` run can see. The removal built cleanly on Windows and failed the Linux CI runner with `Can't resolve 'katex/dist/katex.min.css'`
 - [x] 3.3 `npm run build` emits both KaTeX chunks with the **same content hashes** as the 1.2 baseline and the same verified lazy-chunk count
+- [x] 3.5 Check `src/styles.css` for every flagged dependency, not only the ones a JavaScript grep explains — it is a second import graph, and `tailwindcss-animate` was already cleared from line 2 of that same file
 - [x] 3.4 `npx tsc --noEmit`, `npm run lint:ci`, and `npm run test` pass
 
 ## 4. Make the implicit preconditions explicit
