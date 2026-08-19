@@ -17,6 +17,17 @@ npm run test:desktop
 | CLI Agent 会话与终端 | `claude`、`codex`、`gemini`、`opencode`、`agy` 在 PATH 上且各自已登录（读各自的 `~/.claude`、`~/.codex` 等，不受测试隔离目录影响） | 相关用例跳过 |
 | 需要出网代理的 CLI | `HTTPS_PROXY` / `HTTP_PROXY` | claude-code 报 `403 Request not allowed` |
 | OnePiece 实网会话 | `VANEHUB_ONEPIECE_API_KEY`，或 `VANEHUB_ONEPIECE_PROFILE_ID`（指向本机已安装应用中的 profile，密钥由 WDIO 进程直接从 Windows 凭据管理器读取） | 实网用例跳过 |
+
+OnePiece 需要一个 LLM provider 才能跑实网会话。本仓库验证时使用的形状（**密钥不写进仓库**，只放环境变量或 OS 凭据管理器）：
+
+| 字段 | 值 |
+| --- | --- |
+| provider id | `deepseek` |
+| endpoint type | `openai-chat-completions` |
+| base URL | `https://api.deepseek.com/v1` |
+| 可用模型 | `deepseek-v4-pro`、`deepseek-v4-flash` |
+
+远程 provider 必须走预设目录（`save_onepiece_provider_profile`），不能用 `save_custom_onepiece_provider_profile`——后者刻意只接受 local/private 运行时。
 | SSH 连接 | `VANEHUB_SSH_HOST`、`VANEHUB_SSH_USER`、`VANEHUB_SSH_PASSWORD` | SSH 用例跳过 |
 | 扩展安装 | 可用的 `python` + `pip`，且 pip 索引可达 | 安装用例跳过 |
 

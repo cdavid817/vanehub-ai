@@ -172,15 +172,21 @@ globalThis.describe("VaneHub AI desktop screen sweep", () => {
       return sessions.find((item) => item.title === "Screen sweep session") ?? false;
     }, { timeout: 30_000, timeoutMsg: "The sweep session was not created." });
 
-    await navigate(`/workspace/sessions/${encodeURIComponent(session.id)}`);
-    // Assert the route committed before waiting on anything inside it. The tab bar is not lazy --
-    // `mountedTabs` starts as `{"chat"}` and `SessionTabBar` renders unconditionally -- so if the
-    // button is missing, the navigation never landed. Waiting longer diagnoses that as "the tab
-    // bar is slow", which is how a stalled route once read as a rendering problem.
+    // Reload before navigating. The session was created over IPC, after this page had already
+    // loaded its session list, so the UI does not know it exists -- routing straight to its id
+    // lands on "session unavailable" and bounces back to the list. The route commits either way,
+    // which is why asserting the URL is not enough on its own: the tab bar is simply never
+    // rendered, and waiting longer reads that as a slow mount.
+    await globalThis.browser.refresh();
+    const root = await globalThis.$("#root");
     await globalThis.browser.waitUntil(
-      async () => (await globalThis.browser.getUrl()).includes(encodeURIComponent(session.id)),
-      { timeout: 20_000, timeoutMsg: "The WebView never routed to the session workspace." },
+      async () => (await root.getAttribute("data-vanehub-bootstrap")) === "ready",
+      { timeout: 120_000, timeoutMsg: "React bootstrap did not become ready after the reload." },
     );
+
+    await navigate(`/workspace/sessions/${encodeURIComponent(session.id)}`);
+    // The tab bar is not lazy -- `mountedTabs` starts as `{"chat"}` and `SessionTabBar` renders
+    // unconditionally -- so if the button is missing, the workspace did not open for this session.
     const firstTab = await globalThis.$('[aria-controls="session-tab-panel-chat"]');
     await firstTab.waitForExist({ timeout: 30_000 });
 

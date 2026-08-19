@@ -172,15 +172,12 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
       });
       const reply = await sendAndAwaitReply(session, agent.id, agent.mode);
       if (!reply) {
-        // Two different causes hide behind "no reply", and the lifecycle tells them apart.
-        // `failed` is the argv-delivery defect: `RunnerLaunchSpec` rejects any argument holding a
-        // control character, a composed prompt is multi-line, so the launch never happens.
-        // `running` is a turn that started and hung -- a different problem with a different fix,
-        // and recording it as the same thing would bury one of them.
+        // Report what was observed, not a cause. Naming one here was wrong twice: the same
+        // `failed` lifecycle covered a launch the runner refused, a spawn Windows rejected, and a
+        // provider turning the account away -- three different problems, and a hardcoded reason
+        // labelled all of them as the first. The unified log carries the actual cause.
         const lifecycle = await lifecycleOf(session.id);
-        blocked.push(lifecycle === "failed"
-          ? `${agent.id}: launch rejected before the turn ran (runner_invalid_launch)`
-          : `${agent.id}: turn started but never answered (lifecycle=${lifecycle})`);
+        blocked.push(`${agent.id}: no reply, session lifecycle=${lifecycle} (see the run's vanehub.log)`);
         // Becomes a real assertion again the moment a turn does answer, so a fix cannot land
         // unnoticed behind a permanently skipped case.
         this.skip();
