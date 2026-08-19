@@ -15,8 +15,11 @@
 - [OnePiece 内置工具](onepiece-builtin-tools.md)
 - [终端与 PTY 运行时](terminal-runtime.md)
 - [Tool registry 与执行](tool-registry.md)
+- [扩展工具上下文](extended-tool-contexts.md)
+- [CLI 委派与 ChangeSet 管线](cli-delegation.md)
 - [多 Agent 群聊](multi-agent-group-chat.md)
 - [Loop 与 Plan 运行时](loop-and-plan-runtime.md)
+- [目标与任务看板](goals-and-work-board.md)
 - [会话恢复](session-recovery.md)
 
 # 上下文与检索
@@ -38,6 +41,7 @@
 # 策略与可观测
 
 - [权限模型](permission-model.md)
+- [执行可观测性与 Agent 评测](execution-observability.md)
 - [持久化与统一日志](persistence-and-logging.md)
 - [使用统计](usage-statistics.md)
 

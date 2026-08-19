@@ -71,54 +71,54 @@ flowchart TB
 
 ### Agent 执行
 
-| Context | 拥有 |
-| --- | --- |
-| `agent_runtime` | Agent 注册表、交互模式、provider 调用、工作流状态与生成生命周期 |
-| `cli_delegation` | Claude Code 与 Codex 的委派式 CLI 调用：协议处理、就绪、调度、熔断、重启恢复，以及 changeset 的捕获/评审/封存/应用管线 |
-| `code_execution` | 沙箱化代码运行时、运行时目录、执行工作区与就绪状态 |
-| `task_orchestration` | Plan 草稿、Plan 运行、尝试的执行与验证、Plan worktree 与恢复证据 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `agent_runtime` | Agent 注册表、交互模式、provider 调用、工作流状态与生成生命周期 | [Agent 生命周期](agent-lifecycle.md) |
+| `cli_delegation` | Claude Code 与 Codex 的委派式 CLI 调用：协议处理、就绪、调度、熔断、重启恢复，以及 changeset 的捕获/评审/封存/应用管线 | [CLI 委派](cli-delegation.md) |
+| `code_execution` | 沙箱化代码运行时、运行时目录、执行工作区与就绪状态 | [扩展工具上下文](extended-tool-contexts.md) |
+| `task_orchestration` | Plan 草稿、Plan 运行、尝试的执行与验证、Plan worktree 与恢复证据 | [Loop 与 Plan 运行时](loop-and-plan-runtime.md) |
 
 ### 会话与工作区
 
-| Context | 拥有 |
-| --- | --- |
-| `sessions` | 会话、消息、分类、聊天配置、导出、维护、定时任务，以及用量记录与读模型 |
-| `workspaces` | 本地/远程项目、worktree、有边界的文件与 Git 查询、会话 shell 生命周期 |
-| `ssh_connections` | SSH 连接档案、主机密钥信任、凭据加载与池化的远程运行时 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `sessions` | 会话、消息、分类、聊天配置、导出、维护、定时任务，以及用量记录与读模型 | [会话恢复](session-recovery.md) |
+| `workspaces` | 本地/远程项目、worktree、有边界的文件与 Git 查询、会话 shell 生命周期 | [终端与 PTY 运行时](terminal-runtime.md) |
+| `ssh_connections` | SSH 连接档案、主机密钥信任、凭据加载与池化的远程运行时 | —— |
 
 ### 工具与知识
 
-| Context | 拥有 |
-| --- | --- |
-| `tooling` | CLI 生命周期，以及 MCP、SDK、扩展、插件集成、Skill、Skill 工具与 Prompt Hook 各子域 |
-| `code_intelligence` | LSP 服务器配置、发现、工作区信任、协商后的能力，以及归一化的诊断/悬停/位置信息 |
-| `retrieval` | 检索配置、embedding 模型、代码与文档索引、索引状态与搜索 |
-| `web_research` | 受控的 URL 准入、公网 URL 解析、抓取、抽取、二进制产物处理与搜索 |
-| `browser_automation` | 浏览器 sidecar 协议、会话与动作策略、操作生命周期与产物移交 |
-| `artifacts` | 内容寻址的产物 blob：媒体类型与体积校验、去重、存储容量策略 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `tooling` | CLI 生命周期，以及 MCP、SDK、扩展、插件集成、Skill、Skill 工具与 Prompt Hook 各子域 | [Skill 管理](skill-management.md)、[MCP 工具](mcp-tools.md) |
+| `code_intelligence` | LSP 服务器配置、发现、工作区信任、协商后的能力，以及归一化的诊断/悬停/位置信息 | [LSP 代码智能](lsp-code-intelligence.md) |
+| `retrieval` | 检索配置、embedding 模型、代码与文档索引、索引状态与搜索 | [检索与向量搜索](retrieval.md) |
+| `web_research` | 受控的 URL 准入、公网 URL 解析、抓取、抽取、二进制产物处理与搜索 | [扩展工具上下文](extended-tool-contexts.md) |
+| `browser_automation` | 浏览器 sidecar 协议、会话与动作策略、操作生命周期与产物移交 | [扩展工具上下文](extended-tool-contexts.md) |
+| `artifacts` | 内容寻址的产物 blob：媒体类型与体积校验、去重、存储容量策略 | [扩展工具上下文](extended-tool-contexts.md) |
 
 ### 策略、可观测与证据
 
-| Context | 拥有 |
-| --- | --- |
-| `permissions` | 权限策略评估、审批代理、风险分级，以及 Claude Code 钩子等待注册表 |
-| `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 |
-| `execution_observability` | 执行 run、span、时间线、采集策略与 OTLP 导出设置 |
-| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `permissions` | 权限策略评估、审批代理、风险分级，以及 Claude Code 钩子等待注册表 | [权限模型](permission-model.md) |
+| `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 | [持久化与统一日志](persistence-and-logging.md) |
+| `execution_observability` | 执行 run、span、时间线、采集策略与 OTLP 导出设置 | [执行可观测性与 Agent 评测](execution-observability.md) |
+| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 | —— |
 
 ### 规划与追踪
 
-| Context | 拥有 |
-| --- | --- |
-| `goals` | 目标聚合、它到 Plan/Loop/工作项/会话的关联、派生的验收就绪度与人工验收状态迁移 |
-| `work_board` | 工作项及其阶段与优先级，以及把会话、Plan、定时任务幂等地对账成卡片 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `goals` | 目标聚合、它到 Plan/Loop/工作项/会话的关联、派生的验收就绪度与人工验收状态迁移 | [目标与任务看板](goals-and-work-board.md) |
+| `work_board` | 工作项及其阶段与优先级，以及把会话、Plan、定时任务幂等地对账成卡片 | [目标与任务看板](goals-and-work-board.md) |
 
 ### 桌面与接入
 
-| Context | 拥有 |
-| --- | --- |
-| `desktop` | 应用设置、启动、数据/日志目录操作、浮动助手，以及窗口与托盘生命周期 |
-| `communications` | IM 连接器配置、凭据、协议适配器、路由与投递生命周期 |
+| Context | 拥有 | 专章 |
+| --- | --- | --- |
+| `desktop` | 应用设置、启动、数据/日志目录操作、浮动助手，以及窗口与托盘生命周期 | [运行时与服务边界](runtime-boundaries.md) |
+| `communications` | IM 连接器配置、凭据、协议适配器、路由与投递生命周期 | [IM connector](im-connectors.md) |
 
 ## 上下文之间怎么说话
 

@@ -28,8 +28,11 @@
 | [OnePiece 内置工具](onepiece-builtin-tools.md) | 扩展原生工具集的发布门控、依赖与回退触发条件 |
 | [终端与 PTY 运行时](terminal-runtime.md) | 会话级 Agent Terminal、自动启动与附着、远程终端 |
 | [Tool registry 与执行](tool-registry.md) | 固定原生工具目录、按 interface_format 翻译、多轮工具循环 |
+| [扩展工具上下文](extended-tool-contexts.md) | 沙箱执行、浏览器、联网研究与产物存储，以及各自的门控与隔离约束 |
+| [CLI 委派与 ChangeSet 管线](cli-delegation.md) | 隔离执行、ChangeSet 捕获与封存、一次性精确应用与回滚胶囊 |
 | [多 Agent 群聊](multi-agent-group-chat.md) | 席位模型、中途增减、轮次路由与持久化 presence |
 | [Loop 与 Plan 运行时](loop-and-plan-runtime.md) | 持久化 Loop 定义、拓扑感知的串行子任务调度、Worker/Verifier 信任 |
+| [目标与任务看板](goals-and-work-board.md) | 目标状态机与派生验收、看板的幂等对账 |
 | [会话恢复](session-recovery.md) | 恢复状态与生命周期正交、持久化执行身份与所有权 |
 
 ## 上下文与检索
@@ -57,6 +60,7 @@
 | 章节 | 覆盖内容 |
 | --- | --- |
 | [权限模型](permission-model.md) | 统一决策点、显式 Deny 优先、审批代理、CLI flag 投影、Claude Code 钩子桥 |
+| [执行可观测性与 Agent 评测](execution-observability.md) | run/span/时间线、四档保真度与脱敏上限，以及评测竞技场的判定规则 |
 | [持久化与统一日志](persistence-and-logging.md) | SQLite、迁移以及脱敏规则 |
 | [使用统计](usage-statistics.md) | 上报 token 与估算字符分离、时间范围、per-Agent 拆分 |
 
