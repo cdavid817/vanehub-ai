@@ -1,6 +1,6 @@
 # Code indexing
 
-Workspace code indexing lets OnePiece locate definitions and relevant code without repeatedly scanning every file. Open **Settings > Agent configurations > OnePiece**, configure an OpenAI-compatible embedding source, then use **Workspace code indexes**.
+Workspace code indexing lets OnePiece locate definitions and relevant code without repeatedly scanning every file. Open **Settings → Agent configurations → OnePiece**, configure an OpenAI-compatible embedding source, then use **Workspace code indexes**.
 
 ## Configure an index
 
@@ -30,3 +30,10 @@ Closing a workspace does not delete its index. If its root is moved or unavailab
 The persistent Tree-sitter index powers the `search_code` tool for structural, keyword, and optional semantic retrieval. It does not provide compiler-aware types, references, or current diagnostics. Live LSP code intelligence is an independent desktop capability that starts a trusted language server and exposes position-based semantic tools. You may enable either capability without enabling the other.
 
 See [Use live LSP code intelligence](lsp-code-intelligence.md) for supported servers, setup, trust, and troubleshooting.
+
+## Related
+
+- How the live semantic capability and this page's persistent index divide the work → [LSP code intelligence](lsp-code-intelligence.md)
+- Cross-session memory and retrieval methodology → [Memory and context](memory-and-context.md)
+- The parsing technology itself: GLR incremental parsing, the query system, structured code chunking, and repo maps → [Tree-sitter technical architecture](../../../agent-infrastructure/tree-sitter-architecture.md) (Simplified Chinese)
+- Retrieval pipelines and hybrid-retrieval trade-offs → [RAG technical architecture](../../../agent-infrastructure/rag-architecture.md) (Simplified Chinese)

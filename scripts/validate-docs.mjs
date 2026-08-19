@@ -362,7 +362,10 @@ function validateBoundedContexts(errors) {
  * Only the chapters listed here are enforced. A translation joins the list once it carries the
  * full map, so an untranslated guide fails review rather than CI.
  */
-const enforcedContextMapChapters = ["docs/developer-guide/zh-CN/src/native-contexts.md"];
+const enforcedContextMapChapters = [
+  "docs/developer-guide/zh-CN/src/native-contexts.md",
+  "docs/developer-guide/src/native-contexts.md",
+];
 
 function validateContextMapChapters(errors, actual) {
   for (const relative of enforcedContextMapChapters) {

@@ -93,3 +93,4 @@ This is deliberate: the output of an automatic run should not be cleaned up befo
 - The automatic cycle that depends on worktrees → [Loop Engineering](loop-engineering.md)
 - A full walkthrough of parallel work in one repository → [Use cases](use-cases.md)
 - Where Git failure detail goes → [Observability](observability.md)
+- Where execution isolation sits in multi-Agent orchestration → [Multi-Agent systems technical architecture](../../../agent-infrastructure/multi-agent-architecture.md) (Simplified Chinese)

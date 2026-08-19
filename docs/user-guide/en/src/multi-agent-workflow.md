@@ -2,29 +2,54 @@
 
 **Status: Implemented — desktop runtime; seat assignment is visible in the normal create-session dialog.**
 
-## Overview
+## What is Multi-Agent
+
+A **single-Agent session** has one execution actor: you ask, it does. A **Multi-Agent session** (group chat) puts several execution actors in one session, sharing the same conversation thread and handing the turn to each other as needed.
 
 One session can hold several Agent **seats**. Each seat is one Agent plus one expert role, and every seat reads the same shared conversation thread. An Agent names the next speaker with `@` in its reply, handing the turn over — or hands it back to you.
 
-This solves the problem of having to carry context by hand between Agents that are collaborating.
+**It solves the problem** of having to carry context by hand between Agents that are collaborating.
+
+**What it's good for**:
+
+- **Role division** — different Agents each own their part (the architect settles the plan, the implementer writes the code, the reviewer signs off) without you shuttling context by hand
+- **Cross-model-family collaboration** — Agents from Anthropic, OpenAI, Google, and others relay on one task, covering each other's blind spots
+- **Multi-perspective review** — one Agent produces, another from a different model family reviews, avoiding a single model's blind spots
+- **Handing back to a human** — an Agent hands you the decision at a key point with `@用户`
+
+**How it differs from single-Agent**: single-Agent is one actor working start to finish; Multi-Agent is several actors relaying within the same context. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session (see [Group chat versus a single-Agent session](#group-chat-versus-a-single-agent-session) below).
+
+> **Multi-Agent runtime capabilities are desktop only.** Display-layer things like seat assignment and speaker attribution exist in both runtimes, but handle derivation, `@` handoff, code-block exemption, seat briefing, runaway-chain protection, and model-family identification all depend on the desktop runtime. What you see in Web/mock reflects no fact about this machine.
+
+> **On the A2A protocol**: the industry has Google's A2A (Agent-to-Agent) cross-network standard protocol (JSON-RPC, AgentCard). VaneHub AI **does not implement A2A** — "Agent handoff" here is peer-to-peer, in-process, based on an `@` mention in reply text (OpenAI Swarm style), not a cross-Agent network protocol. Both happen to be called "handoff," but the mechanisms are entirely different.
+
+## Getting started
+
+### 1. Assign seats
+
+1. Open VaneHub AI and select **New**.
+2. Set **Session Type** to **Multi Agent** and add one seat for each Agent that should take part.
+3. Give each seat an **expert role**. The role name derives the **handle** other seats use to `@` it.
+4. Choose the project directory, fill in the session title, and create the session.
+
+![English create-session dialog with Multi Agent selected, showing the seat assignment area](assets/screenshots/create-session-multi-agent-en.png)
+
+Three built-in expert roles are ready to use, and you can create your own under **Settings → Expert roles** — see [Expert roles](expert-roles.md).
+
+### 2. Hand off during the conversation
+
+Typing `@` triggers seat completion; pick the target seat's handle. Who currently holds the turn is shown in the **turn status bar**.
+
+**Two things to remember up front**, and the rest of the mechanics can be picked up as you go:
+
+- **`@` has to be at the start of a line** — a mid-sentence mention does not route.
+- **Pasting code is safe** — an `@` inside a fenced code block is skipped.
+
+### 3. View and switch seats
+
+The **Session members** area of the info panel on the right lists the current line-up and anyone who has left; the session workspace provides a seat switcher; and every message is labeled "role name · Agent name".
 
 To walk a reproducible acceptance flow directly, use [Group chat collaboration case](multi-agent-testing-tutorial.md).
-
-## Capabilities and runtime boundaries
-
-| Capability | Notes | Runtime |
-|---|---|---|
-| Seat assignment | Bind several "Agent + role" seats when creating a session | Desktop / Web (simulated) |
-| Automatic handle derivation | Generates a unique `@` handle from the role name, adding a suffix on collision | **Desktop only** |
-| `@` handoff | Naming a seat in a reply hands the turn to it | **Desktop only** |
-| Code-block exemption | An `@` inside a fenced code block does not trigger a handoff | **Desktop only** |
-| Hand back to a human | `@用户` carries three intents: handoff / FYI / done | **Desktop only** |
-| Seat briefing | Every seat knows who else is present and what each is responsible for | **Desktop only** |
-| Context delivery | Per seat, either resume its own session or inject the history | **Desktop only** |
-| Runaway chain protection | Terminates with a stated reason when there are too many mentions or the depth limit is hit | **Desktop only** |
-| Model-family identification | Determines the model family by stable id, supporting cross-family review | **Desktop only** |
-| Seat switching view | Switch between seats in the interface | Desktop / Web (simulated) |
-| Speaker attribution | Messages are attributed to the seat that produced them | Desktop / Web (simulated) |
 
 ## Seats and handles
 
@@ -105,7 +130,7 @@ The difference between handoff and done is whether the round ends: the first pas
 
 **This briefing is the only channel through which an Agent learns the collaboration rules**, so it is worded as behavior rather than documentation: an Agent that does not know the line-start rule will write a handle mid-sentence, and **a mid-sentence mention does not route**.
 
-Within it, **responsibility is required** — it is what other Agents use to judge who to hand the turn to. See [expert roles under Personalization](personalization.md).
+Within it, **responsibility is required** — it is what other Agents use to judge who to hand the turn to. See [Expert roles](expert-roles.md).
 
 ## Model families and cross-family review
 
@@ -119,7 +144,7 @@ Within it, **responsibility is required** — it is what other Agents use to jud
 
 The determination uses the **stable agent id rather than the display name**, so renaming something does not change the result.
 
-**OpenCode is explicitly "Unknown" rather than a guess**: it drives whatever model you configured, so it has no fixed model family. **Claiming it belongs to one would build the cross-family review check on a false premise.** This bears directly on an expert role's "prefer a different model family for review" policy — see [review policy under Personalization](personalization.md).
+**OpenCode is explicitly "Unknown" rather than a guess**: it drives whatever model you configured, so it has no fixed model family. **Claiming it belongs to one would build the cross-family review check on a false premise.** This bears directly on an expert role's "prefer a different model family for review" policy — see [Expert roles → Review policy](expert-roles.md#review-policy).
 
 ## How a seat receives the preceding context
 
@@ -158,26 +183,26 @@ sequenceDiagram
   end
 ```
 
-## How to use it
+## Case: an architect → implementer → reviewer relay
 
-### Assign seats
+A typical cross-model-family collaboration flow, walking through one handoff round.
 
-1. Open VaneHub AI and select **New**.
-2. Set **Session Type** to **Multi Agent** and add one seat for each Agent that should take part.
-3. Give each seat an **expert role**. The role name derives the **handle** other seats use to `@` it.
-4. Choose the project directory, fill in the session title, and create the session.
+**Goal**: add unit tests for a module and get them passing.
 
-![English create-session dialog with Multi Agent selected, showing the seat assignment area](assets/screenshots/create-session-multi-agent-en.png)
+1. **Create a Multi-Agent session** and assign three seats:
+   - **Architect** (Claude Code) — settles the test strategy and coverage scope
+   - **Implementer** (Codex CLI) — writes the tests per the strategy
+   - **Reviewer** (Gemini CLI, a different model family from the implementer) — reviews and runs the tests
+2. You start the task: "Add unit tests for `src/auth`, covering the login-failure branch."
+3. The **architect** produces a test strategy and hands off with a line-initial `@Implementer`.
+4. The **implementer** writes the tests per the strategy and hands off with `@Reviewer` for a review.
+5. The **reviewer** reviews and raises changes; if it doesn't pass, it `@`-s the implementer to fix and hand back.
+6. Once the tests are all green, the **reviewer** ends the round with a line-initial `@用户 done`, handing back to you.
+7. You accept the result.
 
-Three built-in expert roles are ready to use, and you can create your own under **Settings → Expert Roles**.
+**What happened in this chain**: three Agents from different model families relayed within one shared context, and nobody had to copy-paste the previous conversation for you — the shared thread plus the seat briefing let every participant know what came before. The chain-depth counter `handoff 1/15` updates live, and hitting the limit terminates explicitly rather than running away.
 
-### Hand off during the conversation
-
-Typing `@` triggers seat completion; pick the target seat's handle. Who currently holds the turn is shown in the **turn status bar**. **Pasting code is safe** — an `@` inside a fenced code block is skipped.
-
-### View and switch seats
-
-The **Session members** area of the info panel on the right lists the current line-up and anyone who has left; the session workspace provides a seat switcher; and every message is labeled "role name · Agent name".
+> To walk a reproducible flow with acceptance checks, see [Group chat collaboration case](multi-agent-testing-tutorial.md).
 
 ## Group chat versus Loop Engineering
 
@@ -217,11 +242,7 @@ It borrows from two rows at once, but **without the scheduler**:
 
 So strictly it is not a textbook Group Chat: AutoGen's GroupChat has a manager that selects the next speaker, and there is none here. **What is shared is the context, not the right to schedule.**
 
-### Loop is a runtime-driven pipeline
-
-[Loop](loop-engineering.md) sits in a different row: its phase order is fixed (Preparing → Acting → Verifying → Deciding → Finalizing), its role split is fixed (Worker → Verifier), and it is **advanced statically by the runtime**. It is not free collaboration among Agents; it is two roles running one pipeline.
-
-**That is the underlying reason the product's two multi-Agent mechanisms share no orchestration logic** — on this classification axis they are not even in the same row.
+Loop sits in the Pipeline row instead: its phase order is fixed (Preparing → Acting → Verifying → Deciding → Finalizing), its role split is fixed (Worker → Verifier), and it is **advanced statically by the runtime**. It is not free collaboration among Agents; it is two roles running one pipeline. **That is the underlying reason the product's two multi-Agent mechanisms share no orchestration logic** — on this classification axis they are not even in the same row.
 
 ### Why not Supervisor
 
@@ -235,10 +256,11 @@ Peer-to-peer handoff lets every Agent read the same context and decide for itsel
 
 ## Boundaries and limits
 
-- **Multi-Agent execution requires the desktop runtime.** Seat controls render in the browser preview, but no CLI process is started.
+- **Multi-Agent execution requires the desktop runtime.**
 - **A shared thread is not a shared session.** Each Agent still keeps its own history in its own session, and VaneHub AI does not merge their native session files.
 - **OpenCode has no fixed model family.** Policies like "the reviewer must come from a different model family" do not apply to it.
 - **Handles come from role names.** A seat with no role assigned has no stable handle to be `@`-ed by.
+- **`@` has to be at the start of a line**; a mid-sentence mention does not route.
 - **`@用户` is not localized with the interface.** Switching to the English or Japanese interface still requires writing `@用户`.
 - **Group chat and Loop are two mechanisms** and share no orchestration logic.
 
@@ -246,4 +268,4 @@ Peer-to-peer handoff lets every Agent read the same context and decide for itsel
 
 - Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
 - Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
-- Expert roles and review policy → [Personalization](personalization.md)
+- Expert roles and review policy → [Expert roles](expert-roles.md)

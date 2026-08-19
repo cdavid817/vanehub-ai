@@ -26,16 +26,19 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | [Loop Engineering](loop-engineering.md) | Set a goal and must-pass checks, and let it iterate until it gets there |
 | [Goal management](goal-management.md) | Tracking plans, Loops, and work items under one objective |
 | [Todo Board](todo-board.md) | Manual to-dos and Agent activity on one board |
+| [Agent evaluation](evaluation.md) | Run several Agents head-to-head on the same task; compare pass rate, tokens, and time |
 | [Slash commands](slash-commands.md) | Switching tabs, flipping switches, and checking usage from the input box |
 | [Code review](code-review.md) | Reading the diff line by line, commenting, and sending feedback to the Agent |
 | [Memory and context](memory-and-context.md) | What carries between sessions, and what happens when context fills up |
 | [Permission approvals](permissions.md) | The four templates, the approval surface, and remembered scopes |
-| [Personalization](personalization.md) | About you, response style, cross-session memory, expert roles |
+| [Personalization](personalization.md) | About you, response style, cross-session memory |
+| [Expert roles](expert-roles.md) | Role fields, responsibilities, and review policy |
 | [Manage Skills](skill-management.md) | Installing Skills, binding them to an Agent, drift notices, evolution evidence |
 | [Index workspace code](code-indexing.md) | Vector indexing of workspace code |
 | [Use live LSP code intelligence](lsp-code-intelligence.md) | In-session symbol navigation and diagnostics |
-| [Tools and extensions](tooling.md) | MCP servers, prompt hooks, local OCR and speech extensions |
+| [Tools and extensions](tooling.md) | MCP servers, prompt hooks, local OCR and speech extensions, Agent configurations |
 | [MCP servers](mcp.md) | Connect external tools to an Agent, and approve each tool call |
+| [Plugin integration](plugin-integration.md) | Built-in product integrations and readiness checks |
 | [Prompt Hooks](prompt-hooks.md) | Insert content into the prompt assembly pipeline; draft, publish, roll back |
 | [OnePiece (native Agent)](native-agent.md) | Usable with no CLI installed; providers, recall, and notebook editing |
 | [Observability](observability.md) | Execution traces, fidelity, the log directory, and redaction |
@@ -51,6 +54,7 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | [FAQ](faq.md) | Direct answers to frequent questions |
 | [Runtime and feature labels](runtime-labels.md) | How to read the "desktop only" and "Web/mock only" labels |
 | [Troubleshooting](troubleshooting.md) | Start here when something breaks |
+| [Reporting issues](reporting-issues.md) | Which entry point to use, what the forms need, and how to redact before submitting |
 
 ## Status labels
 
@@ -74,6 +78,8 @@ The division of labour:
 | What to do when something breaks | This guide's [Troubleshooting](troubleshooting.md) |
 | Why this feature is designed this way | The [Developer Guide](../../../developer-guide/src/index.md) |
 | Which file the code is in | The [Developer Guide](../../../developer-guide/src/index.md) |
+| What a protocol like MCP, LSP, or RAG actually is | [Agent infrastructure technical documentation](../../../agent-infrastructure/README.md) (Simplified Chinese) |
+| I found a problem, how do I report it | This guide's [Reporting issues](reporting-issues.md) |
 
 ## Simplified Chinese
 

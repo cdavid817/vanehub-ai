@@ -24,7 +24,32 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Plan execution / Goal Center / Todo Board / Evaluations / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Plan execution / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
+
+## Agent types
+
+VaneHub AI ships six built-in Agents, in two categories.
+
+### External CLI Agents
+
+The first five are **external CLIs** — VaneHub AI starts their process and manages everything around it (launch parameters, permission interception, output capture), while the actual code generation is done by the CLI itself. **Each vendor's own subscription login is self-managed by that CLI**, and VaneHub AI never stores credentials it produces; but to switch one to a third-party compatible endpoint, you can configure that under [Settings → Agent configurations](tooling.md#agent-configurations).
+
+| Agent | Provider | Command | Notes |
+| --- | --- | --- | --- |
+| Claude Code | Anthropic | `claude` | Anthropic's official CLI, needs an Anthropic subscription or API credentials |
+| Codex CLI | OpenAI | `codex` | OpenAI's official CLI, needs an OpenAI account |
+| Gemini CLI | Google | `gemini` | Google's official CLI, authenticates with a Google account |
+| Antigravity CLI | Google | `agy` | Google's official CLI, goes through Google sign-in and stores credentials in the system keychain |
+| OpenCode | OpenCode | `opencode` | An open-source CLI supporting many providers |
+
+Installation, authentication, and availability detection are covered in [Install and authenticate a CLI](getting-started.md).
+
+### The VaneHub native Agent: OnePiece
+
+**OnePiece** is different: it calls a model provider directly over HTTP, runs entirely inside the application, and **depends on no external CLI at all**. Its API key is stored by VaneHub AI, and it supports 25 providers (Anthropic, OpenAI, and other official catalog entries, plus common compatible endpoints), or a custom compatible endpoint.
+
+- Usable without installing any CLI — see [Native API Agent](native-agent.md)
+- Even if you mainly use an external CLI, memory extraction is still done by OnePiece, so it's usually worth configuring OnePiece too
 
 ## Conversation
 
@@ -51,6 +76,8 @@ A **turn status bar** sits at the top of the conversation area: who currently ho
 
 ## Workspace tabs
 
+![The session workspace: session list on the left, workspace in the middle, info panel on the right, nine tabs across the top](assets/screenshots/session-workspace-en.png)
+
 Once a session is open, nine tabs sit across the top of the workspace:
 
 | Tab | What it does |
@@ -67,6 +94,14 @@ Once a session is open, nine tabs sit across the top of the workspace:
 
 **The Terminal tab and the Shell tab are not the same thing**: the first records what the Agent did, the second is a terminal for you to type in. The Agent also has a **dedicated terminal** separate from your Shell. The numeric badge on a tab is the record count; when there is a lot of data, loading is bounded and only part of the results may be shown, which the interface tells you.
 
+The **Logs** tab is searchable and seekable by time:
+
+![The Logs tab of the session workspace](assets/screenshots/session-logs-en.png)
+
+The **Traces** tab shows this execution's span tree, answering "what exactly did this step call, and how long did it take":
+
+![The Traces tab of the session workspace, showing the execution span tree](assets/screenshots/session-traces-en.png)
+
 ## See what the Agent changed
 
 The **Changes** tab shows the Agent's file edits:
@@ -78,12 +113,23 @@ The **Changes** tab shows the Agent's file edits:
 
 ## Session information and run state
 
-The info panel on the right shows session information, CLI tool, run state, the model used for this session, and token usage (input/output/cache read/cache write/total). There are five run states: **Idle / Starting / Running / Failed / Stopped**. With no model configured it shows "No model configured".
+The info panel on the right of the workspace is the session's "dashboard" — a glance tells you what state the session is in, who's driving it, and what it has cost. Field by field:
+
+| Field | Meaning |
+| --- | --- |
+| **Session info** | Session title, type (Single Agent / Multi Agent), category, pinned and archived state |
+| **CLI tool** | Which CLI (or OnePiece) the session's bound Agent uses, and its availability status |
+| **Run state** | Five states: **Idle / Starting / Running / Failed / Stopped**; the interface disables repeat submission during `Starting`/`Running` so a double-click can't open two tasks |
+| **Model for this run** | The model actually used in this round of conversation; shows "No model configured" when none is set |
+| **Token usage** | Input / output / cache read / cache write / total; the two cache figures are recorded separately, and the panel's total is their sum |
+| **Workspace path** | The current workspace directory (a local path, a worktree, or a remote SSH path) |
 
 The info panel also carries two in-place tabs, so you do not have to jump to the settings center:
 
 - **Skill** — view and manage the Skills bound to this session, in the session
 - **Code Index** — view the workspace code index status, in the session
+
+> Token usage is reported by each CLI itself; VaneHub AI does not meter it independently. Read the [Usage statistics](automation.md) page's methodology note before using these numbers for cost accounting.
 
 ## Show and hide panels
 
@@ -99,24 +145,43 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 
 | Settings page | What it holds |
 | --- | --- |
-| **Basic Configuration** | Interface language, theme, font size, default policy template; launch at login, floating assistant switch; node information, network proxy including authentication, data directory, log directory, folder openers |
+| **Basic Configuration** | See [the next section](#basic-configuration) |
 | **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
-| **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md) |
-| **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md) |
-| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md) |
-| **Plugin Integrations** | Integration configuration for third-party plugins |
-| **MCP Servers** | MCP server configuration and per-Agent binding — see [Tools and extensions](tooling.md) |
-| **Agent Configurations** | Model, policy template, and runtime parameters per Agent; you can navigate to a specific Agent, including OnePiece |
+| **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
+| **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md#sdk-dependencies) |
+| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
+| **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
+| **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
+| **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
-| **Expert Roles** | Roles and review policy — see [Personalization](personalization.md) |
+| **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
 | **Personalization** | Custom instructions and cross-session memory — see [Personalization](personalization.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |
-| **Prompt Hooks** | Hook management — see [Tools and extensions](tooling.md) |
-| **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md) |
-| **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md) |
+| **Prompt Hooks** | Hook management — see [Prompt Hooks](prompt-hooks.md) |
+| **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md#im-connectors) |
+| **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md#ssh-remote-workspace) |
 | **Execution Observability** | Execution tracing and log collection policy — see [Observability](observability.md) |
 | **Usage Statistics** | Token usage statistics — see [Scheduled and usage](automation.md) |
 | **About** | Version, update check, changelog, and repository links — see [Application updates](app-updates.md) |
+
+### Basic configuration
+
+**Settings → Basic Configuration** is the default landing page of the settings center, governing the application's own behavior — nothing here is specific to a given Agent.
+
+![The Basic Configuration settings page](assets/screenshots/settings-basic-en.png)
+
+| Group | Item | Notes |
+| --- | --- | --- |
+| **Appearance** | Interface language | The client defaults to following the host system's locale |
+| | Theme, font size | Affects global rendering |
+| **Security** | Default policy template | The default template for new sessions; see [Permission approvals](permissions.md) for the semantics |
+| **Startup** | Launch at login | Tied to the [system tray](#system-tray) |
+| | Floating assistant switch | The [floating assistant](#floating-assistant) window only exists once this is on |
+| **Network** | Node info, network proxy | The proxy supports authentication |
+| **Storage** | Data directory, log directory | Changing either requires a restart and rebuilds under the new directory; see [Troubleshooting](troubleshooting.md) for log-path details |
+| | Folder opener | Decides what "Open in file manager" actually invokes |
+
+> **Be careful changing the data directory.** When multiple worktrees share the same database, migration version numbers can collide across branches — see [Troubleshooting](troubleshooting.md).
 
 ## Floating assistant
 
@@ -126,9 +191,48 @@ Once the floating assistant is enabled in settings, a separate floating window s
 
 **Loops** in the activity bar manages Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
 
+![The Loop center](assets/screenshots/loop-center-en.png)
+
 ## Plan center
 
-**Plan execution** in the activity bar opens the plan center: generate a plan draft from a goal, review/approve/run a plan, and open the plan run view.
+**Plan execution** in the activity bar opens the plan center, whose job is "**use OnePiece to break down, approve, execute, and verify tasks**."
+
+![The Plan center, generating a task graph from a goal](assets/screenshots/plan-center-en.png)
+
+**How it divides work with Loop**: Loop has a single Agent iterate against verification commands until they pass; Plan first breaks a goal into a bounded task graph, and execution only starts **after you approve it item by item**.
+
+The flow has three steps:
+
+### 1. Describe the goal
+
+Fill in three fields: **goal**, **project path**, and **base reference**. The goal should spell out the desired outcome, constraints, and any important acceptance requirements — OnePiece generates the task graph from this.
+
+### 2. Approve the task graph
+
+**You can edit anything before execution starts**: task titles and descriptions, acceptance criteria, resource limits, ordering, and dependencies.
+
+At this step, the interface blocks several kinds of invalid plan:
+
+| Constraint | Rule |
+| --- | --- |
+| Task count | 1 to 10 |
+| Acceptance criteria per task | 1 to 3, and each one must be bound to evidence (automated or manual) |
+| Verification commands per task | At least one required command |
+| Final verification | At least one required final verification command |
+| Max attempts | 1 to 5 |
+| Dependencies | Must connect two distinct, existing tasks, and **must not form a cycle** |
+
+**The execution and verification policy is frozen at approval time**, including the project-discovery toggle, the max-attempts-per-task setting, and the auto-repair classification. The approve button is labeled **Approve and Start**, and clicking it switches from plan mode to Agent mode.
+
+> **Execution uses a retained worktree, and VaneHub never automatically commits, merges, pushes, or deletes it.** You need to review and handle the result yourself.
+
+### 3. Run and accept
+
+The run view shows progress per task (`m / n tasks verified`), the token count and tool-call count for each attempt, how many files changed, error classification, and **integration final verification** with its repair history.
+
+Run controls: **Pause / Resume / Cancel / Recover / Retry / Retry final verification / Return to planning / Accept result.**
+
+The slash command `/plans` opens the plan center directly — see [Slash commands](slash-commands.md). Goal-level tracking is covered in [Goal management](goal-management.md).
 
 ## Notifications
 
@@ -136,7 +240,7 @@ The bell icon in the top bar opens the **notification center**: unread badge, ma
 
 ## System tray
 
-On desktop there is a system tray icon: show/hide the main window, with the launch-at-login switch under **Settings → Basic settings**, and tray notifications tied to system notifications.
+On desktop there is a system tray icon: show/hide the main window, with the launch-at-login switch under **Settings → Basic Configuration**, and tray notifications tied to system notifications.
 
 ## Related
 

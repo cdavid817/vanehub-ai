@@ -83,36 +83,45 @@ The current build is an unsigned preview. Windows and macOS warn before running 
 
 | Topic | Entry |
 | --- | --- |
-| Quick start | [From installing a CLI to working in a workspace](docs/user-guide/en/src/getting-started.md) |
+| Quick start | [Five steps from installing a CLI to working in a workspace](docs/user-guide/en/src/quick-start.md) |
+| Basic configuration | [Interface language, theme, font size, default policy template, launch at login, network proxy, data directory, log directory](docs/user-guide/en/src/user-interface.md#basic-configuration) |
 | User interface overview | [Main layout, navigation, panel toggles, session/conversation/workspace tabs/info panel](docs/user-guide/en/src/user-interface.md) |
-| Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md) |
-| Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md) |
+| Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md#session-list) |
+| Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md#floating-assistant) |
 | Loop center | [Loop run controls, verification command, timeline](docs/user-guide/en/src/loop-engineering.md) |
-| Plan center | [Plan draft, review/approve/run](docs/user-guide/en/src/user-interface.md) |
-| Notification center | [Bell, unread count, mark all read, clear](docs/user-guide/en/src/user-interface.md) |
-| System tray | [Show/hide main window, startup, notification integration](docs/user-guide/en/src/user-interface.md) |
-| CLI install & auth | [Install a CLI, authenticate, and get it detected](docs/user-guide/en/src/getting-started.md) |
+| Plan center | [Task-graph generation, approval constraints, run and acceptance](docs/user-guide/en/src/user-interface.md#plan-center) |
+| Goal Center | [Track scattered execution items in one place](docs/user-guide/en/src/goal-management.md) |
+| Todo Board | [Board view and stage transitions for work items](docs/user-guide/en/src/todo-board.md) |
+| Agent evaluation | [Run several Agents head-to-head on the same task; compare pass rate, tokens, and time](docs/user-guide/en/src/evaluation.md) |
+| Notification center | [Bell, unread count, mark all read, clear](docs/user-guide/en/src/user-interface.md#notifications) |
+| System tray | [Show/hide main window, startup, notification integration](docs/user-guide/en/src/user-interface.md#system-tray) |
+| CLI management, install & auth | [Two install methods, authentication, install detection, conflict diagnostics, upgrades](docs/user-guide/en/src/getting-started.md) |
 | Multi-Agent group chat | [Seats, `@` handoff, turn bounds](docs/user-guide/en/src/multi-agent-workflow.md) |
+| Git worktrees | [Parallel changes to one repository without stepping on each other](docs/user-guide/en/src/worktree.md) |
+| Code review | [The review center and review flow](docs/user-guide/en/src/code-review.md) |
+| Slash commands | [In-session command entry points](docs/user-guide/en/src/slash-commands.md) |
+| Memory and context | [Cross-session memory and context compaction](docs/user-guide/en/src/memory-and-context.md) |
+| Code indexing | [Workspace code indexing and its privacy boundary](docs/user-guide/en/src/code-indexing.md) |
+| LSP code intelligence | [The live language server and its trust model](docs/user-guide/en/src/lsp-code-intelligence.md) |
+| OnePiece native Agent | [The built-in API Agent usable without installing a CLI](docs/user-guide/en/src/native-agent.md) |
 | Scheduled tasks | [Scheduled tasks and usage statistics](docs/user-guide/en/src/automation.md) |
-| Remote workspaces | [SSH workspaces and IM connectors](docs/user-guide/en/src/remote-and-im.md) |
-| Troubleshooting | [Check here first when something fails](docs/user-guide/en/src/troubleshooting.md) |
-| Basic configuration | [Language, theme, font size, default permission template, startup, network proxy, data dir, log dir](docs/user-guide/en/src/user-interface.md) |
-| CLI management | [Model provider API keys, endpoints, model lists](docs/user-guide/en/src/user-interface.md) |
-| CLI parameters | [Per-CLI-Agent launch parameters and global configuration](docs/user-guide/en/src/user-interface.md) |
-| Extensions | [Local extension install/enable/disable](docs/user-guide/en/src/user-interface.md) |
-| Plugins | [Plugin integration management](docs/user-guide/en/src/user-interface.md) |
-| MCP servers | [MCP server configuration and per-Agent binding](docs/user-guide/en/src/tooling.md) |
-| Agent configuration | [Per-Agent model, permission template, runtime parameters](docs/user-guide/en/src/user-interface.md) |
-| Expert roles | [Roles and review policies](docs/user-guide/en/src/personalization.md) |
-| Agent policies | [Agent permission policies and approval template configuration](docs/user-guide/en/src/user-interface.md) |
+| Remote workspaces & SSH connections | [SSH workspaces, saved connections, and IM access](docs/user-guide/en/src/remote-and-im.md) |
+| CLI parameters | [Per-CLI-Agent launch parameters, with a per-CLI parameter quick reference](docs/user-guide/en/src/tooling.md#cli-parameters) |
+| Extension capabilities | [Local extension install/enable/disable](docs/user-guide/en/src/tooling.md#extension-capabilities) |
+| Plugin integration | [Built-in product integrations and readiness checks](docs/user-guide/en/src/plugin-integration.md) |
+| MCP servers | [MCP server configuration and per-Agent binding](docs/user-guide/en/src/mcp.md) |
+| Agent configurations | [Provider, endpoint, and model per Agent](docs/user-guide/en/src/tooling.md#agent-configurations) |
+| Expert roles | [Role fields, responsibilities, and review policy](docs/user-guide/en/src/expert-roles.md) |
+| Agent policies | [Agent permission policies and approval template configuration](docs/user-guide/en/src/permissions.md) |
 | Personalization | [Custom instructions and cross-session memory](docs/user-guide/en/src/personalization.md) |
-| Skills | [Skill installation and binding](docs/user-guide/en/src/skill-management.md) |
-| Prompt Hooks | [Hook management](docs/user-guide/en/src/tooling.md) |
-| IM | [IM connector configuration](docs/user-guide/en/src/remote-and-im.md) |
-| SSH connections | [Saved SSH connections](docs/user-guide/en/src/remote-and-im.md) |
-| Observability | [Execution tracing and log collection policy](docs/user-guide/en/src/observability.md) |
+| Skill management | [Skill installation and binding](docs/user-guide/en/src/skill-management.md) |
+| Prompt Hooks | [Hook management](docs/user-guide/en/src/prompt-hooks.md) |
+| IM connectors | [IM connector configuration](docs/user-guide/en/src/remote-and-im.md#im-connectors) |
+| Execution observability | [Execution tracing and log collection policy](docs/user-guide/en/src/observability.md) |
 | Usage statistics | [Token usage statistics](docs/user-guide/en/src/automation.md) |
-| About | [Version, update check, changelog, repository links](docs/user-guide/en/src/user-interface.md) |
+| About | [Version, update check, changelog, and repository links](docs/user-guide/en/src/app-updates.md) |
+| Troubleshooting | [Check here first when something fails](docs/user-guide/en/src/troubleshooting.md) |
+| Reporting issues | [Which entry point to use, what the forms need, and how to redact before submitting](docs/user-guide/en/src/reporting-issues.md) |
 
 ### Developer guide
 
@@ -120,12 +129,12 @@ The current build is an unsigned preview. Windows and macOS warn before running 
 | --- | --- |
 | Repository layout | [Repository layout and module ownership](docs/developer-guide/src/repository-orientation.md) |
 | Runtime boundaries | [Frontend service boundaries, Web/mock and Tauri adapters](docs/developer-guide/src/runtime-boundaries.md) |
-| Bounded contexts | [The eleven native bounded contexts](docs/developer-guide/src/native-contexts.md) |
+| Bounded contexts | [What each of the 21 native bounded contexts owns](docs/developer-guide/src/native-contexts.md) |
 | Agent lifecycle & provider runtime | [Registered Agent edits, stable provider resolution, capability declarations](docs/developer-guide/src/agent-lifecycle.md) |
 | Terminal & PTY runtime | [Session-scoped Agent Terminal, auto-start/attach, remote terminals](docs/developer-guide/src/terminal-runtime.md) |
 | Tool registry & execution | [Fixed native tool catalog, per-interface_format translation, multi-turn tool loop](docs/developer-guide/src/tool-registry.md) |
 | Permission model | [Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge](docs/developer-guide/src/permission-model.md) |
-| Context compaction | [Character-count trigger, summarization compaction, recent turns kept](docs/developer-guide/src/context-compaction.md) |
+| Context compaction | [Token-aware trigger and character fallback, summarization compaction, recent turns kept](docs/developer-guide/src/context-compaction.md) |
 | Retrieval & vector search | [Host-level shared memory pool, workspace code index, graceful degradation](docs/developer-guide/src/retrieval.md) |
 | Tree-sitter code indexing | [Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction](docs/developer-guide/src/tree-sitter-code-indexing.md) |
 | Cross-session memory | [Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction](docs/developer-guide/src/cross-session-memory.md) |
@@ -142,7 +151,7 @@ The current build is an unsigned preview. Windows and macOS warn before running 
 | Testing & release | [Testing, packaging, and release flow](docs/developer-guide/src/testing-and-release.md) |
 | OpenSpec workflow | [Proposal→design→delta spec→tasks→validation→archive change flow](docs/developer-guide/src/openspec-workflow.md) |
 | Native API reference | [Rustdoc-generated internal contract and ownership documentation](docs/developer-guide/src/native-api-reference.md) |
-| Architecture decisions | [ADR source of truth (ARCHITECTURE.md)](src-tauri/ARCHITECTURE.md) |
+| Architecture decisions | [Repository layout and module orientation, bounded contexts and call relationships](docs/developer-guide/src/repository-orientation.md) |
 
 User guides are available in English and Simplified Chinese. Japanese, Traditional Chinese, and Korean are delivered as application UI resource locales only; no user guide is provided for those locales.
 

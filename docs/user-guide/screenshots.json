@@ -359,6 +359,46 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "zh-CN/src/assets/screenshots/plan-center-zh-CN.png"
+    },
+    {
+      "id": "settings-basic-en",
+      "scenario": "settings-basic",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-basic-en.png"
+    },
+    {
+      "id": "settings-plugins-en",
+      "scenario": "settings-plugins",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-plugins-en.png"
+    },
+    {
+      "id": "settings-agent-configurations-en",
+      "scenario": "settings-agent-configurations",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-agent-configurations-en.png"
+    },
+    {
+      "id": "settings-cli-parameters-en",
+      "scenario": "settings-cli-parameters",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-cli-parameters-en.png"
+    },
+    {
+      "id": "plan-center-en",
+      "scenario": "plan-center",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/plan-center-en.png"
     }
   ]
 }
