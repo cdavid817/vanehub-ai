@@ -133,6 +133,51 @@ fn the_worktree_is_reaped_when_dropped() {
     );
 }
 
+/// `the_worktree_is_reaped_when_dropped` covers the files; this covers git's own administrative
+/// record, on the path where the directory is already gone when the reap runs -- a partially
+/// completed external cleanup, or the locked-file/long-path removals that fail on Windows. A
+/// registration that outlived its directory would accumulate as a prunable entry per cancelled
+/// child, which is residue even though nothing on disk is left.
+#[test]
+fn a_reap_that_falls_back_to_the_filesystem_leaves_no_administrative_record() {
+    let repository = repository("subagent-worktree-residue");
+    let operations = crate::test_support::TempDirectory::new("subagent-worktree-ops-10");
+
+    let path = {
+        let worktree =
+            ChildWorktree::provision(repository.path(), operations.path()).expect("provision");
+        let path = worktree.path().to_path_buf();
+        // Force `worktree remove` to fail, so the reap has to fall back.
+        std::fs::remove_dir_all(&path).expect("external cleanup");
+        path
+    };
+
+    let listed = GitAdapter::default()
+        .execute(
+            repository.path(),
+            &[
+                "worktree".to_owned(),
+                "list".to_owned(),
+                "--porcelain".to_owned(),
+            ],
+            GIT_TIMEOUT,
+        )
+        .expect("worktree list");
+    let listed = String::from_utf8_lossy(&listed.stdout);
+    // `--porcelain` marks a worktree whose directory has gone missing as `prunable`, and reports
+    // one `worktree ` record per registration — the main one is all that may remain.
+    assert!(
+        !listed.contains("prunable"),
+        "a failed reap must not leave a registered worktree behind: {listed}"
+    );
+    assert_eq!(
+        listed.matches("worktree ").count(),
+        1,
+        "only the main worktree may remain: {listed}"
+    );
+    assert!(!path.exists());
+}
+
 #[test]
 fn a_change_set_larger_than_the_bound_is_refused() {
     let repository = repository("subagent-worktree-too-many");
