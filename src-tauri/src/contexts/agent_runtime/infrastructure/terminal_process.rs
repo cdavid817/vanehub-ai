@@ -597,25 +597,21 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => {
-                        pending.extend_from_slice(&buffer[..count]);
-                        let content = take_decodable_utf8(&mut pending);
-                        if content.is_empty() {
-                            continue;
-                        }
-                        let _ = events.publish_terminal(AgentTerminalEvent::Output {
-                            terminal_id: terminal_id.clone(),
-                            session_id: session_id.clone(),
-                            content: content.clone(),
-                        });
-                        if let Ok(mut terminals) = terminals.lock() {
-                            if let Some(terminal) = terminals.get_mut(&session_id) {
-                                terminal.last_active_at = now_timestamp(clock.as_ref());
-                                terminal.transcript.append(&content);
+                        let (content, framed_lines) =
+                            split_terminal_read(&buffer[..count], &mut pending, &mut output_framer);
+                        if !content.is_empty() {
+                            let _ = events.publish_terminal(AgentTerminalEvent::Output {
+                                terminal_id: terminal_id.clone(),
+                                session_id: session_id.clone(),
+                                content: content.clone(),
+                            });
+                            if let Ok(mut terminals) = terminals.lock() {
+                                if let Some(terminal) = terminals.get_mut(&session_id) {
+                                    terminal.last_active_at = now_timestamp(clock.as_ref());
+                                    terminal.transcript.append(&content);
+                                }
                             }
                         }
-                        let framed_lines = output_framer
-                            .push(ProviderOutputStream::Stdout, &buffer[..count])
-                            .unwrap_or_default();
                         for line in framed_lines {
                             if let ProviderOutputEvent::SessionId(runtime_session_id) =
                                 parser.parse_line(&line)
@@ -1165,6 +1161,28 @@ fn drain_complete_lines(line_buffer: &mut String, mut on_line: impl FnMut(&str))
     }
 }
 
+/// Splits one PTY read into the text the terminal view shows and the `\n`-terminated records
+/// the provider parser consumes.
+///
+/// The two consumers need different framing but must both see every byte: `pending` carries an
+/// incomplete UTF-8 tail forward so a character split across reads is never rendered as U+FFFD,
+/// while the framer works on raw bytes and assembles them into lines. A read that decodes to
+/// nothing displayable — the leading bytes of a multi-byte character arriving on their own — is
+/// exactly the case where those two diverge, and it is still part of whatever line the parser is
+/// assembling.
+fn split_terminal_read(
+    chunk: &[u8],
+    pending: &mut Vec<u8>,
+    framer: &mut ProviderOutputFramer,
+) -> (String, Vec<String>) {
+    pending.extend_from_slice(chunk);
+    let content = take_decodable_utf8(pending);
+    let lines = framer
+        .push(ProviderOutputStream::Stdout, chunk)
+        .unwrap_or_default();
+    (content, lines)
+}
+
 fn terminal_size(size: &AgentTerminalSize) -> PtySize {
     PtySize {
         rows: size.rows.clamp(1, 200),
@@ -1486,6 +1504,58 @@ mod tests {
         });
         assert_eq!(session_ids, vec!["codex-session".to_string()]);
         assert!(line_buffer.is_empty());
+    }
+
+    /// Unlike `session_marker_split_across_reads_is_parsed_once_the_newline_arrives`, which
+    /// drives the test-only `drain_complete_lines` helper, this exercises the framing the reader
+    /// thread actually runs: `split_terminal_read` feeding `ProviderOutputFramer`.
+    #[test]
+    fn a_read_that_decodes_to_no_text_still_reaches_the_provider_framer() {
+        let parser = output_parser_for("claude-code");
+        let mut framer = ProviderOutputFramer::new(4096);
+        let mut pending: Vec<u8> = Vec::new();
+        // A real `claude-code` init line carries the working directory, so a project path with
+        // non-ASCII characters puts a multi-byte sequence inside the marker line itself.
+        let marker =
+            "{\"type\":\"system\",\"session_id\":\"claude-session\",\"cwd\":\"D:/项目\"}\n";
+        let bytes = marker.as_bytes();
+        let multibyte_at = marker
+            .find('项')
+            .expect("marker contains a multi-byte character");
+
+        // Three reads, the middle one being just the first byte of '项' — a PTY hands back
+        // whatever is available, so a single leading byte is a read the reader thread must
+        // survive without losing it.
+        let reads: [&[u8]; 3] = [
+            &bytes[..multibyte_at],
+            &bytes[multibyte_at..multibyte_at + 1],
+            &bytes[multibyte_at + 1..],
+        ];
+        let mut session_ids: Vec<String> = Vec::new();
+        let mut rendered = String::new();
+        for read in reads {
+            let (content, lines) = split_terminal_read(read, &mut pending, &mut framer);
+            rendered.push_str(&content);
+            for line in lines {
+                if let ProviderOutputEvent::SessionId(id) = parser.parse_line(&line) {
+                    session_ids.push(id);
+                }
+            }
+        }
+
+        assert_eq!(
+            session_ids,
+            vec!["claude-session".to_string()],
+            "the session marker must survive a read that decodes to no displayable text"
+        );
+        assert_eq!(
+            rendered, marker,
+            "no byte may be dropped from the rendered text"
+        );
+        assert!(
+            pending.is_empty(),
+            "nothing is left buffered once the line completes"
+        );
     }
 
     #[test]

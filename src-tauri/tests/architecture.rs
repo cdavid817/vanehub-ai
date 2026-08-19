@@ -2203,9 +2203,30 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and import block; 7 net new `use` lines in the three existing modules that gained a
     // helper; and 94 of caller-side `match`/destructure scaffolding at eight call sites, already
     // net of the 40 lines saved by de-duplicating the five copies of the tool-outcome tail.
+    //
+    // Raised from 59,010 by the PTY-lifecycle fixes from the 2026-08-19 end-to-end pass. +223, of
+    // which 163 are regression tests and 60 are production:
+    //
+    // +118 in `terminal_process.rs`'s test module: 54 for
+    // `a_blocked_terminal_writer_does_not_hold_the_registry_lock`, 52 for
+    // `a_read_that_decodes_to_no_text_still_reaches_the_provider_framer`, and 12 for splitting the
+    // `managed_terminal` fixture into a `managed_terminal_named` that can build a second terminal
+    // (the lock test needs two) plus its `TerminalIo` construction.
+    //
+    // +45 in `subagent_worktree_tests.rs` for
+    // `a_reap_that_falls_back_to_the_filesystem_leaves_no_administrative_record`, which covers
+    // git's administrative record on the reap path where the directory is already gone —
+    // `the_worktree_is_reaped_when_dropped` only ever covered the files.
+    //
+    // +60 production, none of it a duplicated body: 22 for `split_terminal_read` and its doc,
+    // which is the extracted per-read step whose old inline form dropped a read's bytes from the
+    // provider framer whenever that read decoded to no displayable text; 15 for
+    // `checkout_terminal_io` and its doc; 13 for the `TerminalIo` struct and its doc; 8 for the
+    // `checkout_io` method; and 2 net across the construction site, the reader loop and the
+    // `input`/`resize` rewrites that stopped holding the registry lock across blocking PTY calls.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_010,
+        budget: 59_233,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
