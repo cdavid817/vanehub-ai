@@ -44,11 +44,11 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 | Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ エンドポイントは変更可だが、カタログには公式プリセットのみ |
 | Antigravity CLI | Google | `agy` | Google | ❌ npm パッケージなし。公式インストーラースクリプトを使用 | ❌ Google サインインのみ |
 
-- **アプリ内インストール**とは、**設定 → CLI 管理**から VaneHub AI がインストールとアップグレードを代行できるかどうかです。npm のみを経由するため、Homebrew・winget・scoop で入れたものは元のソースで更新してください。
-- **サードパーティモデルエンドポイント**とは、**設定 → Agent 設定**から DeepSeek や OpenRouter などの互換エンドポイントに向けられるかどうかです。**各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います**——VaneHub AI は仲介しません。
-- **OpenCode のモデルファミリが「不明」なのは記載漏れではありません**：設定した任意のモデルを駆動するため固定の所属がなく、「レビュアーは別のモデルファミリから」といった方針は適用されません。
-- **Gemini CLI は Antigravity CLI に置き換えられつつあります。** Google は 2026-06-18 より個人・無料アカウント向けに段階的な提供終了を開始しました。
-- CLI を一切入れたくない場合、組み込みのネイティブ API Agent **OnePiece** がアプリ内で HTTP 経由でモデルを呼び出します。以下のユーザーガイドを参照してください。
+- アプリ内インストールとは、設定 → CLI 管理から VaneHub AI がインストールとアップグレードを代行できるかどうかです。npm のみを経由するため、Homebrew・winget・scoop で入れたものは元のソースで更新してください。
+- サードパーティモデルエンドポイントとは、設定 → Agent 設定から DeepSeek や OpenRouter などの互換エンドポイントに向けられるかどうかです。各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います——VaneHub AI は仲介しません。
+- OpenCode のモデルファミリが「不明」なのは記載漏れではありません：設定した任意のモデルを駆動するため固定の所属がなく、「レビュアーは別のモデルファミリから」といった方針は適用されません。
+- Gemini CLI は Antigravity CLI に置き換えられつつあります。Google は 2026-06-18 より個人・無料アカウント向けに段階的な提供終了を開始しました。
+- CLI を一切入れたくない場合、組み込みのネイティブ API Agent OnePiece がアプリ内で HTTP 経由でモデルを呼び出します。以下のユーザーガイドを参照してください。
 
 <!-- docs-section:download -->
 
