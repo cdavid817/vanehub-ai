@@ -26,7 +26,9 @@
 | [Agent 生命周期与 provider 运行时](agent-lifecycle.md) | 注册 Agent 编辑、稳定 provider 解析、能力声明 |
 | [OnePiece native Agent](onepiece-native-agent.md) | 内置 API Agent 身份、Profile 生命周期与 provider 目录 |
 | [OnePiece 内置工具](onepiece-builtin-tools.md) | 扩展原生工具集的发布门控、依赖与回退触发条件 |
+| [CLI 生命周期与全局配置](cli-lifecycle.md) | CLI 检测、冲突判定、升级资格，以及改写各 CLI 配置文件的约束 |
 | [终端与 PTY 运行时](terminal-runtime.md) | 会话级 Agent Terminal、自动启动与附着、远程终端 |
+| [SSH 连接与远程运行时](ssh-connections.md) | 主机密钥信任、有界字段校验、远程通道事件与连接池限额 |
 | [Tool registry 与执行](tool-registry.md) | 固定原生工具目录、按 interface_format 翻译、多轮工具循环 |
 | [扩展工具上下文](extended-tool-contexts.md) | 沙箱执行、浏览器、联网研究与产物存储，以及各自的门控与隔离约束 |
 | [CLI 委派与 ChangeSet 管线](cli-delegation.md) | 隔离执行、ChangeSet 捕获与封存、一次性精确应用与回滚胶囊 |
@@ -52,6 +54,7 @@
 | [Skill 管理](skill-management.md) | 双 scope、SKILL.md 契约、漂移与内建播种/对账 |
 | [有效 Skill 运行时](effective-skill-runtime.md) | 运行时如何把多个来源解析成一份生效的 Skill 集 |
 | [Skill 覆盖层治理](skill-overlay-governance.md) | 覆盖层的优先级、冲突处理与治理规则 |
+| [Skill 演进证据](skill-evolution-evidence.md) | 归因依据与可用范围分级、信号分类、脱敏与加密存储 |
 | [MCP 工具与客户端](mcp-tools.md) | 传输与配置模型、原生工具目录中的 MCP 工具 |
 | [IM connector](im-connectors.md) | 内建连接器、直发消息范围与入站路由 |
 

@@ -84,13 +84,13 @@ flowchart TB
 | --- | --- | --- |
 | `sessions` | 会话、消息、分类、聊天配置、导出、维护、定时任务，以及用量记录与读模型 | [会话恢复](session-recovery.md) |
 | `workspaces` | 本地/远程项目、worktree、有边界的文件与 Git 查询、会话 shell 生命周期 | [终端与 PTY 运行时](terminal-runtime.md) |
-| `ssh_connections` | SSH 连接档案、主机密钥信任、凭据加载与池化的远程运行时 | —— |
+| `ssh_connections` | SSH 连接档案、主机密钥信任、凭据加载与池化的远程运行时 | [SSH 连接与远程运行时](ssh-connections.md) |
 
 ### 工具与知识
 
 | Context | 拥有 | 专章 |
 | --- | --- | --- |
-| `tooling` | CLI 生命周期，以及 MCP、SDK、扩展、插件集成、Skill、Skill 工具与 Prompt Hook 各子域 | [Skill 管理](skill-management.md)、[MCP 工具](mcp-tools.md) |
+| `tooling` | CLI 生命周期，以及 MCP、SDK、扩展、插件集成、Skill、Skill 工具与 Prompt Hook 各子域 | [CLI 生命周期](cli-lifecycle.md)、[Skill 管理](skill-management.md)、[MCP 工具](mcp-tools.md) |
 | `code_intelligence` | LSP 服务器配置、发现、工作区信任、协商后的能力，以及归一化的诊断/悬停/位置信息 | [LSP 代码智能](lsp-code-intelligence.md) |
 | `retrieval` | 检索配置、embedding 模型、代码与文档索引、索引状态与搜索 | [检索与向量搜索](retrieval.md) |
 | `web_research` | 受控的 URL 准入、公网 URL 解析、抓取、抽取、二进制产物处理与搜索 | [扩展工具上下文](extended-tool-contexts.md) |
@@ -104,7 +104,7 @@ flowchart TB
 | `permissions` | 权限策略评估、审批代理、风险分级，以及 Claude Code 钩子等待注册表 | [权限模型](permission-model.md) |
 | `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 | [持久化与统一日志](persistence-and-logging.md) |
 | `execution_observability` | 执行 run、span、时间线、采集策略与 OTLP 导出设置 | [执行可观测性与 Agent 评测](execution-observability.md) |
-| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 | —— |
+| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 | [Skill 演进证据](skill-evolution-evidence.md) |
 
 ### 规划与追踪
 

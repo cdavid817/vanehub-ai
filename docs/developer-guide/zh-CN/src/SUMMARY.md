@@ -13,7 +13,9 @@
 - [Agent 生命周期与 provider 运行时](agent-lifecycle.md)
 - [OnePiece native Agent](onepiece-native-agent.md)
 - [OnePiece 内置工具](onepiece-builtin-tools.md)
+- [CLI 生命周期与全局配置](cli-lifecycle.md)
 - [终端与 PTY 运行时](terminal-runtime.md)
+- [SSH 连接与远程运行时](ssh-connections.md)
 - [Tool registry 与执行](tool-registry.md)
 - [扩展工具上下文](extended-tool-contexts.md)
 - [CLI 委派与 ChangeSet 管线](cli-delegation.md)
@@ -35,6 +37,7 @@
 - [Skill 管理](skill-management.md)
 - [有效 Skill 运行时](effective-skill-runtime.md)
 - [Skill 覆盖层治理](skill-overlay-governance.md)
+- [Skill 演进证据](skill-evolution-evidence.md)
 - [MCP 工具与客户端](mcp-tools.md)
 - [IM connector](im-connectors.md)
 
