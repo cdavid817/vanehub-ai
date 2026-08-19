@@ -10,6 +10,7 @@ Web mock adapter 从内存作答，这一轮发现的缺陷没有一条在它上
 - 确认并修复 **12 个产品缺陷**，每个都附带先红后绿的回归测试。
 - 三条曾被当作缺陷的现象**证伪**：worktree 残留、antigravity 失败、gemini 拒绝——分别是断言写错、账号区域限制、账号档位限制。
 - 桌面套件从 10 个 spec 扩到 13 个，新增的三个**只通过 UI 控件**驱动，不走 `core.invoke`。
+- 最终一轮：`npm run test:desktop` **13/13 spec 文件通过，62 条用例，无失败、无跳过，`Desktop smoke: PASSED`**。
 
 ## 2. 缺陷清单
 
@@ -60,7 +61,7 @@ Web mock adapter 从内存作答，这一轮发现的缺陷没有一条在它上
 | `draining_survives_without_an_ambient_runtime` | D-07。普通 `#[test]`，无 runtime，这正是缺陷成立的条件 |
 | `validate_token` 控制字符用例 | D-10。从只测 NUL 扩到 CR、LF、ESC |
 
-## 4. Harness 自身的缺陷（六个，全部会把产品诬告成坏的）
+## 4. Harness 自身的缺陷（八个，全部会把产品诬告成坏的）
 
 这一节单独列，因为它们的失败模式最危险：**报告说产品坏了，而失败截图上产品好好的**。
 
@@ -71,7 +72,13 @@ Web mock adapter 从内存作答，这一轮发现的缺陷没有一条在它上
 | 「对话框没有打开」（截图里开着） | Settings 外壳用 `hidden` 停放非当前页而非卸载，前一个失败用例留下的对话框仍在文档里，使后续计数读到 2 |
 | 「对话框没有提供任何已安装 Agent」（截图里五个都在） | id 的各个 span 之间没有行盒，`getText()` 把卡片折叠成 `Claude CodeClaude Codeclaude-code`，按行精确匹配一无所获 |
 | `selectOption` 抛 `object is not iterable` | `$$` 解析出的是 chainable array-like，其 `map` 不是数组方法 |
-| 「对话框始终不认这是 Git 项目」 | 路径在 blur 时才被检查，而 `Tab` 没能移走焦点——失败截图上字段仍带聚焦环，下方既无 "Git 项目" 也无报错，说明 `inspectPath` 压根没执行 |
+| 「对话框始终不认这是 Git 项目」 | 路径在 blur 时才被检查，而 `Tab` 与点击对话框标题都没能移走焦点——两轮失败截图上字段都仍带聚焦环，下方既无 "Git 项目" 也无报错，说明 `inspectPath` 压根没执行 |
+| 「阶段选择器始终没有落到 planned」（截图里卡片就在「已计划」列） | 该选择器的**成功本身**会卸载它：卡片移到另一列后在那里重新渲染。而这个驱动对已脱离文档的节点仍会应答 `getProperty` 而不是抛 stale-element，所以 try/catch 一次也没捕到，旧值被永远轮询下去 |
+| 「桌面运行时没有记录一次干净的关闭」（13/13 全绿） | 一轮内所有 spec 共享一个进程 marker，该判据只反映最后一个应用实例。`smoke.e2e.mjs` 曾排在字母序最后，这条判据一直是**碰巧**成立的；`ui-*` 三个 spec 把一个刻意不自行退出的文件顶到了最后 |
+
+原生 `<select>` 在这个运行时里**无法经驱动操作**，两种真实输入方式都试过并失败（点击 option、聚焦后方向键）。最终改为在页面内经原型 setter 赋值并派发冒泡 `change`。这一点在 helper 注释里写明了买到什么、没买到什么：它从 change 处理器往后完整走通了应用链路（处理器 → 命令 → 落盘 → 重渲染），这正是这批 spec 要证明的接线；它**不覆盖**浏览器自身的 select 控件，只坏在控件 OS 层交互的回归不会被这里发现。
+
+干净关闭的修法是把退出移进 wdio 配置的 `after`，使每个 session 都被要求优雅退出：判据从此取决于运行时而非文件名排序，且每个 spec 都成了「应用能按请求退出」的证据，而不只是其中一个。
 
 ## 5. 未完成与后续
 
@@ -89,4 +96,11 @@ Web mock adapter 从内存作答，这一轮发现的缺陷没有一条在它上
 
 - **代理**：claude-code 与 codex-cli 需要出网代理。harness 只在 `HTTPS_PROXY`/`https_proxy` 以 `http` 开头时转发——Node 的 undici 不支持 `socks5://`。本机 `all_proxy=socks5://127.0.0.1:9999`，同一端口也接受 HTTP 代理请求，因此需以 `HTTPS_PROXY=http://127.0.0.1:9999` 形式运行。缺代理时 claude-code 报 `403 Request not allowed`、gemini-cli 弹认证提示，二者都是环境问题而非回归。
 - **凭据**：OnePiece 的 live 用例需要 `VANEHUB_ONEPIECE_API_KEY` 或 `VANEHUB_ONEPIECE_PROFILE_ID`。两者皆无时报 BLOCKED 而非失败。本轮所用的 provider key 与 SSH 口令均只经环境变量与 OS 凭据库传入，未进入仓库；因已出现在会话记录中，建议轮换。
-- **spec 间共享状态**：同一轮内所有 spec 共享一个 `VANEHUB_APP_DATA_DIR`，存在顺序耦合。`exit_application` 会让 harness 重启客户端，不调用它的 spec 则继承上一份数据目录。
+- **本地回环必须绕过代理**：把 `HTTPS_PROXY`/`HTTP_PROXY` 设给整个 npm 进程后，WDIO 自己连 tauri-driver（127.0.0.1:4445）的请求也会被代理，13 个 spec 会一起报 `Failed to create a session`。必须同时设 `NO_PROXY=127.0.0.1,localhost,::1`。harness 内部为被测应用做了同样的排除，但那不覆盖 WDIO 进程自身。
+- **spec 间共享状态**：同一轮内所有 spec 共享一个 `VANEHUB_APP_DATA_DIR`，存在顺序耦合。
+
+完整复现命令：
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:9999 HTTP_PROXY=http://127.0.0.1:9999 NO_PROXY=127.0.0.1,localhost,::1 no_proxy=127.0.0.1,localhost,::1 VANEHUB_ONEPIECE_API_KEY=<key> env -u all_proxy -u ALL_PROXY npm run test:desktop
+```
