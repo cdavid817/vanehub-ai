@@ -207,18 +207,12 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
 
     await fill("The project folder field", projectInput, repository);
     // create-session-workspace-sections.tsx:88 -- the path is inspected on blur, so the field has
-    // to actually lose focus. A bare `Tab` did not move it here: the run that found this shows the
-    // field still ringed in the failure screenshot, with neither the "Git project" line nor an
-    // error under it, i.e. `inspectPath` had not run at all. Clicking the dialog's heading moves
-    // focus to something inert, which is what a user does when they click away from a field.
-    await (await dialog.$("h3")).click();
-    // create-session-workspace-sections.tsx:131-137 -- the inspection result renders as a line
-    // under the field. Waiting on it first separates "the app has not looked yet" from "the app
-    // looked and says this is not a Git project", which the checkbox alone cannot distinguish.
-    await globalThis.browser.waitUntil(
-      async () => (await dialog.$$("p")).length > 0 && (await projectInput.getProperty("value")) === repository,
-      { timeout: 30_000, timeoutMsg: "The dialog never inspected the project path it was given." },
-    );
+    // to lose focus for anything to happen. Neither `Tab` nor a click on the dialog heading moved
+    // it here: both runs left the field still ringed in the failure screenshot, with neither the
+    // "Git project" line nor an error under it, so `inspectPath` had not run at all. Blurring the
+    // element directly is what actually reaches the app's own handler. It does not prove the
+    // dialog is keyboard-traversable; nothing in this suite does.
+    await globalThis.browser.execute((input) => input.blur(), projectInput);
     // create-session-workspace-sections.tsx:147 -- the worktree checkbox stays disabled until an
     // inspection comes back reporting a Git project, so it becoming enabled is the dialog telling
     // us it read the path rather than just storing the characters.

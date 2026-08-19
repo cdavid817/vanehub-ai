@@ -90,6 +90,26 @@ export const config = {
       );
     }
   },
+  // Every session is asked to shut down gracefully, not just whichever spec happens to sort last.
+  //
+  // The harness's clean-shutdown verdict reads a marker the runtime writes on exit, and all specs
+  // in a run share one marker file, so the verdict reflects only the final app instance. While
+  // `smoke.e2e.mjs` sorted last that worked by accident; adding the `ui-*` specs moved a file that
+  // deliberately does not exit itself into last place, and a run with all 13 specs green reported
+  // "The desktop runtime did not record a clean shutdown." Doing it here makes the verdict a
+  // property of the runtime rather than of filename ordering, and turns every spec into evidence
+  // that the app can exit on request instead of only one.
+  //
+  // Best effort: a spec that already exited, or one whose window is gone, must not turn a passing
+  // file red on the way out.
+  after: async () => {
+    try {
+      await globalThis.browser.tauri.execute(({ core }) => core.invoke("exit_application"));
+    } catch {
+      // Already gone, or refusing to answer -- either way the marker keeps whatever it holds and
+      // the verdict below reports it.
+    }
+  },
   onPrepare: async () => {
     await mkdir(path.join(resultDir, "screenshots"), { recursive: true });
   },

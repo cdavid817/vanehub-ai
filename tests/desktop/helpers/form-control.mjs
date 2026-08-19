@@ -32,19 +32,22 @@ export async function fill(description, element, value) {
 
 
 /**
- * Moves a native `<select>` to `value` with the keyboard and waits for the app to hold it.
+ * Moves a native `<select>` to `value` and waits for the app to hold it.
  *
- * Not `selectByAttribute`. That command finds the matching `<option>` and clicks it, and in the
- * WebView2 runtime the options of a *closed* select are drawn by the OS rather than painted into
- * the page, so the synthesized click lands on nothing. It is the worst kind of failure to read: the
- * driver reports the click succeeded, the value never moves, and the test times out pointing at the
- * widget as though the product were broken. The run that found this shows `elementClick` returning
- * null at 19:18:01.937 and the select still reading `14px` for the full 30s poll that followed.
+ * A native select cannot be driven through the driver in this runtime, and two ways of trying were
+ * spent finding that out. `selectByAttribute` finds the matching `<option>` and clicks it, but
+ * WebView2 draws a closed select's options through the OS rather than painting them into the page,
+ * so the click reports success and the value never moves -- `elementClick` returning null with the
+ * select still reading `14px` for the whole 30s poll after it. Focusing the select and sending
+ * ArrowUp/ArrowDown did not move it either, though the same `browser.keys` drives the chat
+ * composer in the spec next door.
  *
- * Arrow keys on a focused select are handled inside the engine and commit immediately, which is
- * both reliable here and what a keyboard user actually does. Each step is committed on its own
- * because a page that saves on change disables its controls while the save is in flight, and a key
- * that arrives during one is dropped.
+ * So the change is dispatched in the page instead: assign through the prototype's value setter,
+ * which is what bypasses React's controlled-input tracker, then fire a bubbling `change`. Be clear
+ * about what that buys. It exercises the app end to end from the change handler on -- the handler,
+ * the command, the persisted value, the re-render -- which is the wiring these specs exist to
+ * prove. It does not exercise the browser's own select widget. A regression that broke only the
+ * widget's OS-level interaction would pass here, and nothing in this suite would catch it.
  */
 export async function selectOption(description, element, value) {
   // Read the option values in the page rather than as WDIO element handles: `$$` resolves to a
@@ -55,21 +58,43 @@ export async function selectOption(description, element, value) {
     (select) => Array.from(select.options).map((option) => option.value),
     element,
   );
-  const target = values.indexOf(value);
-  assert.ok(target >= 0, `${description} has no ${value} option; it offers ${values.join(", ")}`);
-
-  // Bounded by the option count: one step per option is enough to cross the list from either end,
-  // and a select that stops responding then fails on the assertion below rather than spinning.
-  for (let step = 0; step < values.length; step += 1) {
-    const current = values.indexOf(String(await element.getProperty("value")));
-    if (current === target) break;
-    await element.waitForEnabled({ timeout: 30_000 });
-    await globalThis.browser.execute((select) => select.focus(), element);
-    await globalThis.browser.keys([current < target ? "ArrowDown" : "ArrowUp"]);
-  }
-
-  await globalThis.browser.waitUntil(
-    async () => (await element.getProperty("value")) === value,
-    { timeout: 30_000, timeoutMsg: `${description} never settled on ${value}.` },
+  assert.ok(
+    values.includes(value),
+    `${description} has no ${value} option; it offers ${values.join(", ")}`,
   );
+
+  // A page that saves on change disables its controls while the save is in flight, and a change
+  // dispatched then is dropped by the handler it reaches.
+  await element.waitForEnabled({ timeout: 30_000 });
+  await globalThis.browser.execute((select, next) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      globalThis.HTMLSelectElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(select, next);
+    select.dispatchEvent(new globalThis.Event("change", { bubbles: true }));
+  }, element, value);
+
+  // Settles either by holding the new value or by going away. A control whose change relocates its
+  // own container -- the work board picker moves its card to another column -- is unmounted and a
+  // fresh one renders elsewhere, so this handle is left pointing at a detached element that reads
+  // the old value forever. Waiting only for the value would report "the picker never settled",
+  // about a picker that did exactly what it was supposed to. Every caller asserts the outcome it
+  // actually cares about right after this returns; this wait only rules out a no-op.
+  // `isConnected` rather than a stale-element error, because this driver answers `getProperty` on a
+  // detached node instead of raising, so a caught exception never arrives and the old value polls
+  // forever. The work board's picker moves its own card to another column and is unmounted by its
+  // own success; waiting only for the value reported "the picker never settled" over a screenshot
+  // of the card sitting in the column it was asked to move to.
+  await globalThis.browser.waitUntil(async () => {
+    try {
+      return await globalThis.browser.execute(
+        (select, want) => !select.isConnected || select.value === want,
+        element,
+        value,
+      );
+    } catch {
+      return true;
+    }
+  }, { timeout: 30_000, timeoutMsg: `${description} never settled on ${value}.` });
 }
