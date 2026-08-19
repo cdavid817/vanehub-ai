@@ -4,7 +4,7 @@
 
 ## Overview
 
-MCP servers, prompt hooks, local extensions, plugin integrations, SDK dependencies, and CLI parameters are all configured centrally in the settings center and then handed to each Agent, rather than being configured separately inside every CLI.
+MCP servers, prompt hooks, local extensions, plugin integrations, SDK dependencies, CLI management and parameters, and Agent configurations are all configured centrally in the settings center and then handed to each Agent, rather than being configured separately inside every CLI.
 
 Skill management has its own chapter: [Manage Skills](skill-management.md).
 
@@ -16,7 +16,7 @@ An MCP server connects external tools to an Agent, registered centrally under **
 
 A Prompt Hook inserts content into the prompt assembly pipeline, configured under **Settings → Prompt Hooks**. The seven categories, the two execution stages, the template variable allowlist, draft/publish/rollback, and evaluation are all in [Prompt Hooks](prompt-hooks.md).
 
-> **Prompt Hooks can only be bound to the four external CLI Agents and do not apply to OnePiece** — the native Agent has its own core-instruction mechanism.
+> **Prompt Hooks can only be bound to the five external CLI Agents and do not apply to OnePiece** — the native Agent has its own core-instruction mechanism.
 
 ## Extension capabilities
 
@@ -34,9 +34,9 @@ The top of the page has three counters, **Installed / Running / Errors**; when s
 
 ![The Extension Capabilities settings page with the PaddleOCR and faster-whisper framework cards](assets/screenshots/extensions-en.png)
 
-## Plugin integrations
+## Plugin integration
 
-**Settings → Plugin Integrations** is for integration configuration of third-party plugins.
+**Settings → Plugin Integration** manages built-in product integrations and their readiness checks — note that it **does not install third-party plugin packages**. The first release ships one built-in integration, GitHub, which checks the local `gh` CLI's authentication status. The five statuses, how to enable it, and the Web-mode limitation are all in [Plugin integration](plugin-integration.md).
 
 ## SDK dependencies
 
@@ -48,7 +48,9 @@ Gemini CLI, OpenCode, and Antigravity CLI have no corresponding managed SDK.
 
 ### CLI management
 
-**Settings → CLI Management** collects the installation status of the CLIs in one place, with **Installed / Not Installed** counters at the top and three actions: **Diagnose Conflicts**, refresh detection, and **Upgrade All**.
+**Settings → CLI Management** collects the installation status of five CLIs in one place, with **Installed / Not Installed** counters at the top and three actions: **Diagnose Conflicts**, refresh detection, and **Upgrade All**.
+
+![The CLI Management settings page with five CLI cards and the local environment check](assets/screenshots/cli-en.png)
 
 **The same CLI may come from several sources** (npm, winget, Homebrew, Volta, Bun, and others), which is exactly where conflicts come from. There are four:
 
@@ -63,19 +65,100 @@ The third is the most insidious — you believe you are using A while B is what 
 
 **Whether VaneHub AI can upgrade for you depends on the install source**: with a manual installation or an unrecognized source, all it can do is tell you to handle it yourself.
 
-![The CLI Management settings page with CLI cards and the local environment check](assets/screenshots/cli-en.png)
-
 ### CLI parameters
 
-**Settings → CLI Parameters** configures launch flags per CLI. Parameters carry two annotations:
+**Settings → CLI Parameters** configures launch flags per CLI.
+
+![The CLI Parameters settings page](assets/screenshots/settings-cli-parameters-en.png)
+
+Parameters carry two annotations:
 
 - **Risk annotation** — dangerous flags are marked prominently
 - **Launch scenario** — distinguishing "interactive terminal" from "conversation", because the same CLI needs different parameters in the two cases
 
 > **A policy template overrides the choices you save here.** For example, while the Read-only template is active, a permissive option ticked in the parameters still yields to the template. Security policy takes precedence over convenience configuration.
 
+#### Common parameter reference across CLIs
+
+Each of the five external CLIs has its own command-line parameters, listed here for reference when debugging launch parameters in VaneHub AI or scripting a call. CLIs update quickly and `--help` often lags what's actually supported; treat the corresponding official CLI reference as authoritative for a complete list.
+
+| Capability | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
+| --- | --- | --- | --- | --- | --- |
+| Non-interactive / one-shot | `-p, --print` | `run "<prompt>"` | `exec "<prompt>"` | `-p, --prompt` | No separate subcommand, interactive-first |
+| Specify a model | `--model` | `-m, --model provider/model` | `-m, --model`/`--profile` | `-m, --model` | Not needed, auto-routed |
+| Continue the latest session | `-c, --continue` | `-c, --continue` | `resume --last` | `-r "latest"` | `-c` |
+| Resume a session by ID | `-r, --resume` | `-s, --session <id>` | `resume <id>` | `-r "<id>"` | `--conversation <id>` |
+| Skip permission confirmation (high risk) | `--dangerously-skip-permissions` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo`/`--approval-mode yolo` | `--dangerously-skip-permissions` |
+| Sandbox / permission mode | `--permission-mode` | the agent's `permissions` config | `--sandbox`, `--ask-for-approval` | `--sandbox`, `--approval-mode` | Built-in approval mode |
+| Output format (for scripting) | `--output-format json/stream-json` | `--format json` | `--json`, `--output-schema` | `-o, --output-format json` | — |
+| Additional working directory | `--add-dir` | `--dir` | `--cd` | `--include-directories` | — |
+| Version / help | `-v/--version`, `--help` | `-v/--version`, `-h/--help` | `codex --version` | `-v/--version`, `-h/--help` | `agy --version` |
+
+High-frequency parameters for each CLI:
+
+- **Claude Code** — `--model <alias|id>` (aliases like sonnet/opus/haiku), `--permission-mode <default|acceptEdits|plan|bypassPermissions>`, `--allowedTools`/`--disallowedTools`, `--add-dir`, `--max-turns`/`--max-budget-usd` (`-p` only), `--mcp-config`/`--strict-mcp-config`, `--worktree`/`--session-id`, `--verbose`.
+- **OpenCode** — `-m, --model <provider/model>` (a fixed format like `anthropic/claude-sonnet-4-6`), `--fork` (fork from a session), `--format json`, `--attach <server-url>` (connect to a running `opencode serve`), `--agent <name>`, `serve --port --hostname` (a headless HTTP backend).
+- **Codex CLI** — `--profile <name>` (a predefined profile in config.toml), `--sandbox <read-only|workspace-write|danger-full-access>`, `--ask-for-approval`, `--json`/`--output-schema`, `--ephemeral` (no rollout persisted to disk), `--skip-git-repo-check`, `--image` (multimodal).
+- **Gemini CLI** — `-m, --model` (aliases auto/pro/flash/flash-lite), `--sandbox`/`-s`, `--approval-mode <default|auto_edit|yolo|plan>`, `--checkpointing` (snapshot before edits, revertible with `/restore`), `--include-directories`, `--extensions`, `--worktree`.
+- **Antigravity CLI** — `agy -c` (continue the last one), `agy --conversation <id>` (resume a specific conversation), `agy --dangerously-skip-permissions` ("Turbo mode"). No `--model` needed (auto-routed by default). MCP/permission configuration lives at `~/.gemini/antigravity-cli/settings.json`.
+
+> **Permission parameters are the ones that matter most.** All five CLIs have a "skip confirmation / auto-approve" class of parameter. VaneHub's permission templates (Read-only/Standard/Trusted/Yolo) decide whether these high-risk parameters get attached — **security policy takes precedence over convenience configuration** — see [Permission approvals](permissions.md) for the details.
+
+The table above only lists the high-frequency items. For the **complete reference per parameter family** — invocation shapes, session management, model selection, permissions and sandboxing, output formats, configuration injection, and the matrix projecting a host task model onto each CLI's parameters — see the [AI coding CLI parameter reference](../../../agent-infrastructure/builtin-cli-reference.md) (Simplified Chinese).
+
+#### OnePiece's equivalent configuration
+
+OnePiece doesn't go through an external CLI and has none of the command-line parameters above. Its equivalent is a **provider configuration** (managed under **Settings → Agent configurations**): pick an entry from the provider catalog, fill in an API key (validated before saving), discover and select a model, or configure a custom compatible endpoint as needed. See the next section and [Native API Agent](native-agent.md).
+
+## Agent configurations
+
+**Settings → Agent configurations** does something different from every section above: it **decides which vendor and which model each Agent calls**. It's the only feature on this page that actively rewrites any CLI's own configuration file.
+
+![The Agent configurations settings page, with six Agent tabs and the global configuration status](assets/screenshots/settings-agent-configurations-en.png)
+
+The tabs across the top of the page split by Agent: **Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / OnePiece**. The same page also carries the language-server toggles from [LSP code intelligence](lsp-code-intelligence.md) further down.
+
+### What it solves
+
+VaneHub AI cannot manage an external CLI's official subscription login (OAuth) — that has to happen in the terminal. But **switching to a third-party compatible endpoint** — DeepSeek, OpenRouter, Zhipu GLM, and the like — used to mean hand-editing `~/.claude/settings.json` or `~/.codex/config.toml`; now it's configured and applied right on this page.
+
+The built-in catalog holds **25 providers** (official Anthropic and OpenAI, plus OpenRouter, DeepSeek, Zhipu GLM, Kimi, Moonshot, SiliconFlow, Alibaba Bailian, Volcengine Ark, Groq, xAI, Mistral, Together, Fireworks, NVIDIA NIM, Cerebras, MiniMax, StepFun, Baichuan, PPIO, Qiniu, ModelScope, Xiaomi MiMo, Z.AI, and more), and you can also fill in a custom compatible endpoint.
+
+### How far each CLI can be configured
+
+| Agent | Third-party endpoint | Managed configuration file | Configurable fields |
+| --- | --- | --- | --- |
+| **Claude Code** | Supported | `~/.claude/settings.json` | Endpoint, authentication mode, primary model, and the haiku/sonnet/opus tier mapping |
+| **Codex CLI** | Supported | `~/.codex/config.toml` (`auth.json` needs a separate confirmation) | provider id, endpoint, model, protocol (Responses/Chat), reasoning effort |
+| **OpenCode** | Supported | `~/.config/opencode/opencode.json` | provider definition, endpoint, npm adapter package, model list and default model |
+| **Gemini CLI** | The endpoint can be changed, but the catalog only ships Google's official preset | `~/.gemini/.env` | Endpoint, model, authentication mode |
+| **Antigravity CLI** | **Not supported** | `~/.gemini/antigravity-cli/settings.json` | Model, tool approval mode, verbosity, terminal sandbox |
+
+> **Antigravity CLI does not accept a custom endpoint.** It only goes through Google sign-in, with credentials stored in the system keychain — the configuration panel has no endpoint or key field at all. What you can adjust is the model and approval behavior.
+
+Claude Code and Codex are **exclusive mode**: many configurations can be saved, but only one is "applied" at any given moment. OpenCode is **additive mode**: provider definitions are kept stacked, and switching only changes the global default `provider/model`.
+
+### What applying actually changes
+
+- **Only the fields VaneHub owns are replaced.** Hooks, permissions, and plugins in `~/.claude/settings.json` are preserved as-is; projects, MCP servers, comments, and unrelated providers in `config.toml` are untouched too.
+- **The full result is validated and built in memory first, then swapped in atomically.** When Codex touches multiple files, any single step failing rolls back every file already changed.
+- **Configurations are read back before switching.** When you leave a configuration, VaneHub reads the managed fields out of the currently applied file and writes them back into that configuration, so your manual tweaks to the live file aren't silently discarded.
+- **Running CLI processes are never restarted automatically after applying.** VaneHub doesn't claim hot reload — you'll need to reopen the session or terminal yourself.
+
+### Credentials and drift
+
+**The API key is stored in the operating system's credential service**, scoped per Agent/configuration, never in SQLite; the UI only ever echoes back "configured." Plaintext is only written into a file the CLI requires plaintext for when you explicitly click "Apply."
+
+After a successful apply, VaneHub keeps a fingerprint for the managed fragment. **If the file is changed externally, drift is only reported, never silently overwritten**; if concurrent modification is detected mid-apply, the write is aborted rather than forced through. OpenCode's external edits are only picked up on the next startup or a manual import.
+
+A sync runs on startup: when Claude Code or Codex has no configuration at all, a `default` is imported from the resolvable existing file (without writing back to it); once any configuration exists, subsequent startups skip this.
+
+### OnePiece
+
+The native Agent OnePiece is configured on the same page, but its key is held directly by VaneHub AI, and **it's actually called once to validate before saving — a failed validation is not saved** — with the available model list fetched only after validation passes. See [Native API Agent](native-agent.md).
+
 ## Notes and limits
 
-- **All of this is desktop only**; the browser preview shows mock data.
+- **All of this is desktop only.**
 - **Drift is reported but not auto-repaired** — when configuration is detected as changed externally, you decide how to handle it.
-- **It does not rewrite any CLI's own configuration files**; tool binding is achieved through launch flags and the relay.
+- **MCP, Prompt Hooks, Extension capabilities, and CLI parameters never rewrite any CLI's own configuration file**; binding is achieved through launch flags and the relay. **Agent configurations is the one exception** — it explicitly rewrites managed fields under the semantics described above.

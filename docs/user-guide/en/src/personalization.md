@@ -60,46 +60,13 @@ Writing a memory is itself governed by the permission system (it is the "write m
 
 ## Expert roles
 
-Managed under **Settings → Expert Roles**. Three built-in roles form one typical collaboration chain:
+Custom Instructions and memory are **cross-session and about you personally**; an expert role instead describes **a job**, bound to an Agent by a seat within a single session. The two can be combined.
 
-| Role | Responsibility |
-| --- | --- |
-| **Architect** | System design, technology choices, and breaking work down; does not write code directly |
-| **Implementer** | Writing and changing code according to the agreed approach |
-| **Code review** | Reviewing correctness, security, and test coverage of the changes, and saying plainly what is wrong |
-
-> **Built-in roles are read-only.** To adjust one, use the copy button on the right of the card to get an editable version.
-
-Each role holds:
-
-| Field | Notes |
-| --- | --- |
-| Name, avatar, colour | Interface identity |
-| **Responsibility** | **Required** — it is published to the other seats present as the basis for deciding who to hand the turn to |
-| Role instruction | Behavioral instruction for the role |
-| Bound Skills | Capability packages available to the role |
-| Review policy | See below |
-| Preferred provider | Optional |
-
-**Responsibility being required is not a formality**: with it empty, other Agents can only guess when handing off.
-
-![The Expert Roles settings page showing the three built-in roles](assets/screenshots/expert-roles-en.png)
-
-### Review policy
-
-Two switches:
-
-- **Can be recommended as a reviewer**
-- **Prefer a different model family for review**
-
-The intent of the second: two instances of the same model family tend to share the same blind spots, so drawing the reviewer from a different family raises the chance of catching something. As the interface puts it, same-family models make correlated errors and tend to agree with each other.
-
-> **OpenCode has no fixed model family** — it drives whatever model you configured, so this policy does not apply to it.
+Managed under **Settings → Expert roles**, with three built-in roles: architect, implementer, and code review. Field meanings, review policy, and how to use them are covered in [Expert roles](expert-roles.md).
 
 ## Notes and limits
 
 - **Desktop only**; both memory and settings depend on local storage.
 - **Injection does not rewrite any CLI's own configuration files** — it does not touch `CLAUDE.md`, `AGENTS.md`, or the like.
 - **OnePiece's own core instructions cannot be edited**; express customization through Custom Instructions or an expert role instead.
-- **Built-in roles are read-only** and cannot be edited or deleted directly; copy one first when you need to adjust it.
 - If reading settings fails, behavior falls back to "inject no custom instructions, keep memory enabled" — a transient error does not silently disable something that was working.

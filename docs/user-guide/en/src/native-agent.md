@@ -98,3 +98,9 @@ A running worktree is retained for inspection. The system does not automatically
 - **Only the beginning of a very long memory takes part in vector retrieval**; the tail can still be hit by keywords.
 - **The model catalog is static**, so a provider's new models may need a catalog update, or dynamic fetching through model discovery.
 - **A OnePiece session cannot be migrated to a CLI Agent**, or the reverse.
+
+## Related
+
+- Provider configuration and credential storage → [Tools and extensions](tooling.md#agent-configurations)
+- Memory extraction and context compaction → [Memory and context](memory-and-context.md)
+- Tool calling technology itself: the call loop, constrained decoding, parallel calls, and cross-provider adaptation → [Function Calling technical architecture](../../../agent-infrastructure/function-calling-architecture.md) (Simplified Chinese)

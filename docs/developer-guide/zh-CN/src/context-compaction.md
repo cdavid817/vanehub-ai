@@ -2,6 +2,30 @@
 
 上下文压缩由一个**版本化的 Token-aware 决策**驱动:当有可验证的模型容量与 Token 计量证据时,以 Token 占用达阈值为权威触发;当该证据不可用或分析失败时,回退到固定的字符计数触发。运行时在发送下一个请求之前进行压缩,且不会臆造容量或 Token 值。
 
+```mermaid
+flowchart TB
+  REQ["准备发出下一个请求"] --> SEL["select_authoritative_compaction"]
+  SEL --> EV{"Token 计量证据充分?"}
+  EV -->|"是"| TA["TokenAware 判定<br/>context_window − reserve − buffer"]
+  EV -->|"否 (should_compact = None)"| CF["CharacterFallback 判定<br/>固定字符阈值"]
+  TA --> NEED{"需要压缩?"}
+  CF --> NEED
+  NEED -->|"否"| SEND["请求原样发出"]
+  NEED -->|"是"| GATE{"是否命中旁路?"}
+  GATE -->|"RequestSuppressed"| SEND
+  GATE -->|"UserPreferenceSuppressed"| SEND
+  GATE -->|"CircuitOpen<br/>连续失败 ≥ 2"| SEND
+  GATE -->|"Cooldown<br/>growth_since_success &lt; 8192"| SEND
+  GATE -->|"未旁路"| SUM["保留最近若干回合原文<br/>更早回合 → 单次 provider 调用<br/>（不声明任何工具）"]
+  SUM --> OK{"摘要成功?"}
+  OK -->|"是"| UPD["合成回合替换旧回合<br/>更新 last_success_characters"]
+  OK -->|"否"| FAIL["consecutive_failures + 1<br/>达上限则熔断"]
+  UPD --> SEND
+  FAIL --> SEND
+```
+
+**这张图里有两处容易读反**：`8192` 是**冷却**阈值不是触发阈值——它管的是「距上次成功压缩涨了多少才允许再压」；而摘要调用**不声明工具**，所以它自己不会再引发一轮工具循环。
+
 ## 触发优先级:Token-aware 主,字符回退
 
 `select_authoritative_compaction`(`agent_runtime/domain/context_compaction_control.rs`)按以下优先级决定是否压缩:
@@ -36,7 +60,7 @@
 注意字段归属,不要混淆:
 
 - `compaction_triggered: bool` 属于 `ContextEvidenceManifest`(`context_engine.rs`),记录某次生成是否触发过压缩。
-- `reserved_recent_turns: u64` 属于 `ContextBudget`(`context_engine.rs`),OnePiece 路径取值 `12_288`;它是上下文预算里"保留最近若干回合不被压缩"的配置,不在 `AutomaticCompactionState` 上。
+- `reserved_recent_turns: u64` 属于 `ContextBudget`(`context_engine.rs`),OnePiece 路径取值 `12_288`;它是一个**预留容量额度**,不是回合计数:`evidence_budget()` 通过 `saturating_sub` 把它(连同 `reserved_system`、`reserved_task`、`reserve`)从 `total` 中扣除,得到证据可用的剩余预算。它不在 `AutomaticCompactionState` 上。
 
 ## 设计所在
 

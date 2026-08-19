@@ -79,3 +79,9 @@ Five: Simplified Chinese, English, Traditional Chinese, Japanese, and Korean. Sw
 ## Where do I look to understand the internals?
 
 This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../../developer-guide/src/index.md) — written for developers and contributors, with architecture notes and code references.
+
+One layer deeper still is **the protocols and technologies themselves**: MCP, LSP, Function Calling, Agent Skills, RAG, Tree-sitter, multi-Agent orchestration, A2A, and more — see [Agent infrastructure technical documentation](../../../agent-infrastructure/README.md) (Simplified Chinese).
+
+## What if my question isn't here?
+
+Questions about feature behavior belong here; something broken belongs in [Troubleshooting](troubleshooting.md). If neither has an answer, [file an issue](reporting-issues.md) — that chapter covers what to fill in, where to find logs, and how to redact before submitting.

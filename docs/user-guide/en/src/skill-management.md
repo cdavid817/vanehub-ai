@@ -152,3 +152,9 @@ If several Agents need the same Skill, open each Agent page and assign it separa
 
 - **Desktop:** Assigning a Skill to a CLI Agent may perform filesystem work in its Skill mount directory; assigning to an API Agent stores a prompt binding. If an operation fails, the error stays on the affected Skill row and the assignment does not move optimistically.
 - **Web/mock:** You can verify filtering, assignment, removal, and responsive UI behavior, but every result is an in-memory simulation and is not evidence of changed local files or native configuration.
+
+## Related
+
+- The in-session Skill view → [User interface](user-interface.md)
+- How a role references a Skill → [Expert roles](expert-roles.md)
+- The Skill specification itself: the `SKILL.md` file format, progressive-disclosure loading, and how it compares to MCP/prompts → [Agent Skills technical architecture](../../../agent-infrastructure/agent-skills-architecture.md) (Simplified Chinese)
