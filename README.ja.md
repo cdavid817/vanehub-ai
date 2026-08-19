@@ -83,53 +83,60 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 
 | トピック | 入口 |
 | --- | --- |
-| クイックスタート | [CLI インストールからワークスペース作業まで](docs/user-guide/en/src/getting-started.md) |
-| UI 概览 | [メインレイアウト、ナビゲーション、パネル切替、セッション/会話/ワークスペースタブ/情報パネル](docs/user-guide/en/src/user-interface.md) |
-| セッションリスト | [グループ/検索/フィルタ/バッチ/ドラッグ、コンテキストメニュー、フォーカスモード](docs/user-guide/en/src/user-interface.md) |
-| フローティングアシスタント | [独立フローティングウィンドウ、ステータスバッジ、メインアクションメニュー](docs/user-guide/en/src/user-interface.md) |
+| クイックスタート | [CLI のインストールからワークスペース作業までの 5 ステップ](docs/user-guide/en/src/quick-start.md) |
+| 基本設定 | [インターフェース言語、テーマ、フォントサイズ、デフォルト権限テンプレート、スタートアップ、ネットワークプロキシ、データディレクトリ、ログディレクトリ](docs/user-guide/en/src/user-interface.md#basic-configuration) |
+| UI 概要 | [メインレイアウト、ナビゲーション、パネル切替、セッション/会話/ワークスペースタブ・情報パネル](docs/user-guide/en/src/user-interface.md) |
+| セッションリスト | [グループ化/検索/フィルタ/一括操作/ドラッグ、コンテキストメニュー、フォーカスモード](docs/user-guide/en/src/user-interface.md#session-list) |
+| フローティングアシスタント | [独立したフローティングウィンドウセッション、ステータスバッジ、メインアクションメニュー](docs/user-guide/en/src/user-interface.md#floating-assistant) |
 | ループセンター | [Loop 実行コントロール、検証コマンド、タイムライン](docs/user-guide/en/src/loop-engineering.md) |
-| プランセンター | [プランドラフト、レビュー/承認/実行](docs/user-guide/en/src/user-interface.md) |
-| 通知センター | [ベル、未読数、すべて既読、クリア](docs/user-guide/en/src/user-interface.md) |
-| システムトレイ | [メインウィンドウ表示/非表示、スタートアップ、通知連動](docs/user-guide/en/src/user-interface.md) |
-| CLI インストールと認証 | [CLI のインストール、認証、検出](docs/user-guide/en/src/getting-started.md) |
+| プランセンター | [タスクグラフ生成、承認制約、実行と受け入れ](docs/user-guide/en/src/user-interface.md#plan-center) |
+| ゴールセンター | [散らばった実行項目を一箇所で追跡](docs/user-guide/en/src/goal-management.md) |
+| タスクボード | [作業項目のボードビューとステージ遷移](docs/user-guide/en/src/todo-board.md) |
+| Agent 評価 | [同一タスクで複数の Agent を対戦させ、合格率・トークン・時間を比較](docs/user-guide/en/src/evaluation.md) |
+| 通知センター | [ベル、未読数、すべて既読、クリア](docs/user-guide/en/src/user-interface.md#notifications) |
+| システムトレイ | [メインウィンドウ表示/非表示、スタートアップ、通知連動](docs/user-guide/en/src/user-interface.md#system-tray) |
+| CLI 管理・インストールと認証 | [2 種類のインストール方法、認証、インストール検出、競合診断、アップグレード](docs/user-guide/en/src/getting-started.md) |
 | マルチ Agent グループチャット | [seat、`@` 引き渡し、ターン境界](docs/user-guide/en/src/multi-agent-workflow.md) |
+| Git worktree | [1 つのリポジトリで並行変更を衝突なく進める](docs/user-guide/en/src/worktree.md) |
+| コードレビュー | [レビューセンターとレビューフロー](docs/user-guide/en/src/code-review.md) |
+| スラッシュコマンド | [セッション内コマンドエントリポイント](docs/user-guide/en/src/slash-commands.md) |
+| メモリとコンテキスト | [セッション横断メモリとコンテキスト圧縮](docs/user-guide/en/src/memory-and-context.md) |
+| コード索引 | [ワークスペースコード索引とそのプライバシー境界](docs/user-guide/en/src/code-indexing.md) |
+| LSP コードインテリジェンス | [ライブ言語サーバーとその信頼モデル](docs/user-guide/en/src/lsp-code-intelligence.md) |
+| OnePiece ネイティブ Agent | [CLI をインストールせずに使える組み込み API Agent](docs/user-guide/en/src/native-agent.md) |
 | スケジュールタスク | [スケジュールタスクと使用量統計](docs/user-guide/en/src/automation.md) |
-| リモートワークスペース | [SSH ワークスペースと IM コネクタ](docs/user-guide/en/src/remote-and-im.md) |
-| トラブルシューティング | [失敗時にまず確認](docs/user-guide/en/src/troubleshooting.md) |
-| 基本設定 | [言語、テーマ、フォントサイズ、デフォルト権限テンプレート、スタートアップ、ネットワークプロキシ、データディレクトリ、ログディレクトリ](docs/user-guide/en/src/user-interface.md) |
-| CLI 管理 | [モデル Provider の API キー、エンドポイント、モデルリスト](docs/user-guide/en/src/user-interface.md) |
-| CLI パラメータ | [CLI Agent 単位の起動パラメータとグローバル設定](docs/user-guide/en/src/user-interface.md) |
-| 拡張能力 | [ローカル拡張のインストール/有効化/無効化](docs/user-guide/en/src/user-interface.md) |
-| プラグイン統合 | [プラグイン統合管理](docs/user-guide/en/src/user-interface.md) |
-| MCP サーバー | [MCP サーバー設定と Agent 単位のバインド](docs/user-guide/en/src/tooling.md) |
-| Agent 設定 | [Agent 単位のモデル、権限テンプレート、ランタイムパラメータ](docs/user-guide/en/src/user-interface.md) |
-| エキスパートロール | [ロールとレビュー方針](docs/user-guide/en/src/personalization.md) |
-| Agent 権限ポリシー | [Agent 権限ポリシーと承認テンプレート設定](docs/user-guide/en/src/user-interface.md) |
-| パーソナライズ | [Custom Instructions とクロスセッションメモリ](docs/user-guide/en/src/personalization.md) |
+| リモートワークスペースと SSH 接続 | [SSH ワークスペース、保存済み接続、IM アクセス](docs/user-guide/en/src/remote-and-im.md) |
+| CLI パラメータ | [CLI Agent 単位の起動パラメータと、CLI ごとのパラメータ早見表](docs/user-guide/en/src/tooling.md#cli-parameters) |
+| 拡張機能 | [ローカル拡張のインストール/有効化/無効化](docs/user-guide/en/src/tooling.md#extension-capabilities) |
+| プラグイン統合 | [組み込みプロダクト統合と readiness チェック](docs/user-guide/en/src/plugin-integration.md) |
+| MCP サーバー | [MCP サーバー設定と Agent 単位のバインド](docs/user-guide/en/src/mcp.md) |
+| Agent 設定 | [Agent ごとの provider、エンドポイント、モデル](docs/user-guide/en/src/tooling.md#agent-configurations) |
+| エキスパートロール | [ロールフィールド、責務、レビュー方針](docs/user-guide/en/src/expert-roles.md) |
+| Agent 権限ポリシー | [Agent 権限ポリシーと承認テンプレート設定](docs/user-guide/en/src/permissions.md) |
+| パーソナライズ | [カスタム指示とセッション横断メモリ](docs/user-guide/en/src/personalization.md) |
 | Skill 管理 | [Skill のインストールとバインド](docs/user-guide/en/src/skill-management.md) |
-| Prompt Hook | [フック管理](docs/user-guide/en/src/tooling.md) |
-| IM 能力 | [IM コネクタ設定](docs/user-guide/en/src/remote-and-im.md) |
-| SSH 接続 | [保存した SSH 接続](docs/user-guide/en/src/remote-and-im.md) |
+| Prompt Hook | [フック管理](docs/user-guide/en/src/prompt-hooks.md) |
+| IM コネクタ | [IM コネクタ設定](docs/user-guide/en/src/remote-and-im.md#im-connectors) |
 | 実行可観測性 | [実行トレースとログ収集方針](docs/user-guide/en/src/observability.md) |
 | 使用統計 | [トークン使用量統計](docs/user-guide/en/src/automation.md) |
-| バージョン情報 | [バージョン、更新チェック、changelog、リポジトリリンク](docs/user-guide/en/src/user-interface.md) |
+| バージョン情報 | [バージョン、更新チェック、changelog、リポジトリリンク](docs/user-guide/en/src/app-updates.md) |
+| トラブルシューティング | [失敗時にまず確認](docs/user-guide/en/src/troubleshooting.md) |
+| 問題の報告 | [どのエントリポイントを使うか、フォームに何が必要か、提出前の redaction 方法](docs/user-guide/en/src/reporting-issues.md) |
 
 ### 開発者ガイド
 
 | トピック | 入口 |
 | --- | --- |
-| トピック | 入口 |
-| --- | --- |
 | リポジトリ構成 | [リポジトリレイアウトとモジュール帰属](docs/developer-guide/src/repository-orientation.md) |
 | ランタイム境界 | [フロントエンドサービス境界、Web/mock と Tauri アダプタ](docs/developer-guide/src/runtime-boundaries.md) |
-| ボウンデッドコンテキスト | [11 の native bounded contexts](docs/developer-guide/src/native-contexts.md) |
+| ボウンデッドコンテキスト | [21 の native bounded context が何を所有するか](docs/developer-guide/src/native-contexts.md) |
 | Agent ライフサイクルと provider ランタイム | [登録 Agent 編集、安定 provider 解決、能力宣言](docs/developer-guide/src/agent-lifecycle.md) |
 | ターミナルと PTY ランタイム | [セッション単位 Agent Terminal、自動起動/アタッチ、リモートターミナル](docs/developer-guide/src/terminal-runtime.md) |
-| ツールレジストリと実行 | [固定ネイティブツールカタログ、interface_format 翻訳、マルチターンツールループ](docs/developer-guide/src/tool-registry.md) |
+| ツールレジストリと実行 | [固定ネイティブツールカタログ、interface_format 変換、マルチターンツールループ](docs/developer-guide/src/tool-registry.md) |
 | 権限モデル | [統一決定点、明示 Deny 優先、承認ブローカ、CLI flag 投影、Claude Code フックブリッジ](docs/developer-guide/src/permission-model.md) |
-| コンテキスト圧縮 | [文字数カウントトリガ、要約圧縮、直近ターン保持](docs/developer-guide/src/context-compaction.md) |
-| 検索とベクトル検索 | [ホストレベル共有メモリプール、workspace コード索引、優雅な縮退](docs/developer-guide/src/retrieval.md) |
-| Tree-sitter コード索引 | [構文解析、bounded chunk、シンボルメタデータ、grammar バージョンと秘匿](docs/developer-guide/src/tree-sitter-code-indexing.md) |
+| コンテキスト圧縮 | [token-aware トリガと文字数フォールバック、要約圧縮、直近ターン保持](docs/developer-guide/src/context-compaction.md) |
+| 検索とベクトル検索 | [ホストレベル共有メモリプール、workspace コード索引、グレースフルデグレード](docs/developer-guide/src/retrieval.md) |
+| Tree-sitter コード索引 | [文法解析、bounded chunk、シンボルメタデータ、grammar バージョン、redaction](docs/developer-guide/src/tree-sitter-code-indexing.md) |
 | クロスセッションメモリ | [ホストレベル共有プール、provenance メタデータ、OnePiece ツールと CLI 自動抽出](docs/developer-guide/src/cross-session-memory.md) |
 | セッション復旧 | [復旧ステータスはライフサイクルと直交、永続実行 ID と所有権](docs/developer-guide/src/session-recovery.md) |
 | OnePiece ネイティブ Agent | [組み込み API Agent ID、Profile ライフサイクル、provider ディレクトリ](docs/developer-guide/src/onepiece-native-agent.md) |
@@ -138,13 +145,13 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 | MCP ツールとクライアント | [トランスポートと設定モデル、ネイティブカタログの MCP ツール](docs/developer-guide/src/mcp-tools.md) |
 | IM コネクタ | [5 つの組み込みコネクタ、初版ダイレクトメッセージ範囲、インバウンドルーティング](docs/developer-guide/src/im-connectors.md) |
 | Loop と Plan ランタイム | [永続 Loop 定義、トポロジ認識直列サブタスクスケジューリング、Worker/Verifier 信頼](docs/developer-guide/src/loop-and-plan-runtime.md) |
-| トークン使用量統計 | [報告トークンと推定文字の分離、時間範囲、per-Agent 内訳](docs/developer-guide/src/usage-statistics.md) |
+| トークン使用量統計 | [報告トークンと推定文字の分離、時間範囲、Agent 単位の内訳](docs/developer-guide/src/usage-statistics.md) |
 | LSP コードインテリジェンス | [セッション内 LSP 統合実装](docs/developer-guide/src/lsp-code-intelligence.md) |
 | 永続化とログ | [SQLite 所有権と統一秘匿ログ](docs/developer-guide/src/persistence-and-logging.md) |
 | テストとリリース | [テスト、パッケージング、リリースフロー](docs/developer-guide/src/testing-and-release.md) |
 | OpenSpec ワークフロー | [提案→設計→delta spec→タスク→検証→アーカイブの変更フロー](docs/developer-guide/src/openspec-workflow.md) |
 | Native API リファレンス | [Rustdoc 生成の内部契約と所有権ドキュメント](docs/developer-guide/src/native-api-reference.md) |
-| アーキテクチャ決定 | [ADR 真源（ARCHITECTURE.md）](src-tauri/ARCHITECTURE.md) |
+| アーキテクチャ決定 | [リポジトリレイアウトとモジュール指向、bounded context と呼び出し関係](docs/developer-guide/src/repository-orientation.md) |
 
 ユーザーガイドは英語と簡体字中国語のみ提供されます。日本語、繁体字中国語、韓国語はアプリケーション UI のリソース言語としてのみ提供され、対応するユーザーガイドはありません。日本語のガイドは今後の変更で追加されるわけではなく、UI ロケールとガイドロケールの境界は仕様で固定されています。
 
