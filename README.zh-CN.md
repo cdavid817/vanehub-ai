@@ -73,52 +73,6 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 
 当前构建是未签名的预览版。Windows 与 macOS 在运行前会给出警告，各平台的处理步骤记录在 release notes 中。安装前请用发布的 `SHA256SUMS` 校验下载文件。
 
-<!-- docs-section:architecture -->
-
-## 架构
-
-```mermaid
-flowchart LR
-  UI[React UI] --> Service[Frontend service interfaces]
-  Service --> Web[Web/mock adapters]
-  Service --> Tauri[Tauri adapters]
-  Tauri --> Commands[Rust commands]
-  Commands --> Contexts[Native bounded contexts]
-  Contexts --> SQLite[(SQLite)]
-  Contexts --> CLI[Agent CLIs]
-```
-
-React 组件调用 `src/services/` 中的服务。Tauri 专属 `invoke()` 调用仅位于 frontend Tauri adapter；SQLite、CLI 进程、文件系统访问与桌面生命周期行为位于 Rust。
-
-<!-- docs-section:quick-start -->
-
-## 快速开始
-
-<!-- docs-fact:node-minimum value:22+ -->
-
-前置要求：Node.js 22+、npm、stable Rust，以及当前平台的 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。
-
-平台 linker 要求、release profile 行为、worktree 缓存建议及构建测量结果参见[原生构建性能指南](docs/build-performance.md)。
-
-```powershell
-npm ci
-```
-
-运行 Web/mock 预览：
-
-```powershell
-npm run dev -- --host 127.0.0.1
-```
-
-运行桌面应用：
-
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
-```
-
-Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执行、SQLite 持久化、文件修改或操作系统 side effect。
-
 <!-- docs-section:documentation -->
 
 ## 文档
@@ -203,6 +157,60 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 
 <!-- /docs-locale-guides -->
 
+<!-- docs-section:architecture -->
+
+## 架构
+
+```mermaid
+flowchart LR
+  UI[React UI] --> Service[Frontend service interfaces]
+  Service --> Web[Web/mock adapters]
+  Service --> Tauri[Tauri adapters]
+  Tauri --> Commands[Rust commands]
+  Commands --> Contexts[Native bounded contexts]
+  Contexts --> SQLite[(SQLite)]
+  Contexts --> CLI[Agent CLIs]
+```
+
+React 组件调用 `src/services/` 中的服务。Tauri 专属 `invoke()` 调用仅位于 frontend Tauri adapter；SQLite、CLI 进程、文件系统访问与桌面生命周期行为位于 Rust。
+
+<!-- docs-section:quick-start -->
+
+## 从源码运行
+
+<!-- docs-fact:node-minimum value:22+ -->
+
+前置要求：Node.js 22+、npm、stable Rust，以及当前平台的 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。
+
+平台 linker 要求、release profile 行为、worktree 缓存建议及构建测量结果参见[原生构建性能指南](docs/build-performance.md)。
+
+```powershell
+npm ci
+```
+
+运行 Web/mock 预览：
+
+```powershell
+npm run dev -- --host 127.0.0.1
+```
+
+运行桌面应用：
+
+```powershell
+$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+npm run tauri -- dev
+```
+
+Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执行、SQLite 持久化、文件修改或操作系统 side effect。
+
+<!-- docs-section:development -->
+
+## 开发
+
+提交变更前，请逐字运行 AGENTS.md「校验命令」一节中的全部命令；该清单是与 CI 对齐的唯一真源。
+
+新功能和架构调整必须在实现前创建 OpenSpec proposal。项目规则见 [AGENTS.md](AGENTS.md) 与 [openspec/project.md](openspec/project.md)。
+
 ### Agent 基础设施技术文档
 
 | 主题 | 入口 |
@@ -229,14 +237,6 @@ npm run docs:build
 ```
 
 文档构建需要 `docs/toolchain.json` 中固定的 mdBook 版本。
-
-<!-- docs-section:development -->
-
-## 开发
-
-提交变更前，请逐字运行 AGENTS.md「校验命令」一节中的全部命令；该清单是与 CI 对齐的唯一真源。
-
-新功能和架构调整必须在实现前创建 OpenSpec proposal。项目规则见 [AGENTS.md](AGENTS.md) 与 [openspec/project.md](openspec/project.md)。
 
 <!-- docs-section:roadmap -->
 

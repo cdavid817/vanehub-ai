@@ -73,52 +73,6 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 
 現在のビルドは署名なしのプレビューです。Windows と macOS は実行前に警告を表示します。プラットフォームごとの手順は release notes に記載しています。インストール前に、公開されている `SHA256SUMS` でダウンロードを検証してください。
 
-<!-- docs-section:architecture -->
-
-## アーキテクチャ
-
-```mermaid
-flowchart LR
-  UI[React UI] --> Service[Frontend service interfaces]
-  Service --> Web[Web/mock adapters]
-  Service --> Tauri[Tauri adapters]
-  Tauri --> Commands[Rust commands]
-  Commands --> Contexts[Native bounded contexts]
-  Contexts --> SQLite[(SQLite)]
-  Contexts --> CLI[Agent CLIs]
-```
-
-React コンポーネントは `src/services/` のサービスを呼び出します。Tauri 固有の `invoke()` は frontend Tauri adapter に限定し、SQLite、CLI process、filesystem access、desktop lifecycle は Rust に置きます。
-
-<!-- docs-section:quick-start -->
-
-## クイックスタート
-
-<!-- docs-fact:node-minimum value:22+ -->
-
-前提条件は Node.js 22+、npm、stable Rust、および各プラットフォームの [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) です。
-
-プラットフォーム別 linker 要件、release profile の動作、worktree キャッシュの指針、ビルド計測結果については、[ネイティブビルド性能ガイド](docs/build-performance.md)を参照してください。
-
-```powershell
-npm ci
-```
-
-Web/mock preview を起動します。
-
-```powershell
-npm run dev -- --host 127.0.0.1
-```
-
-デスクトップアプリを起動します。
-
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
-```
-
-Web/mock は決定的なブラウザシミュレーションです。ローカル CLI 実行、SQLite 永続化、ファイル変更、OS side effect が発生したことを意味しません。
-
 <!-- docs-section:documentation -->
 
 ## ドキュメント
@@ -196,6 +150,60 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 <!-- /docs-locale-guides -->
 
+<!-- docs-section:architecture -->
+
+## アーキテクチャ
+
+```mermaid
+flowchart LR
+  UI[React UI] --> Service[Frontend service interfaces]
+  Service --> Web[Web/mock adapters]
+  Service --> Tauri[Tauri adapters]
+  Tauri --> Commands[Rust commands]
+  Commands --> Contexts[Native bounded contexts]
+  Contexts --> SQLite[(SQLite)]
+  Contexts --> CLI[Agent CLIs]
+```
+
+React コンポーネントは `src/services/` のサービスを呼び出します。Tauri 固有の `invoke()` は frontend Tauri adapter に限定し、SQLite、CLI process、filesystem access、desktop lifecycle は Rust に置きます。
+
+<!-- docs-section:quick-start -->
+
+## ソースから実行
+
+<!-- docs-fact:node-minimum value:22+ -->
+
+前提条件は Node.js 22+、npm、stable Rust、および各プラットフォームの [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) です。
+
+プラットフォーム別 linker 要件、release profile の動作、worktree キャッシュの指針、ビルド計測結果については、[ネイティブビルド性能ガイド](docs/build-performance.md)を参照してください。
+
+```powershell
+npm ci
+```
+
+Web/mock preview を起動します。
+
+```powershell
+npm run dev -- --host 127.0.0.1
+```
+
+デスクトップアプリを起動します。
+
+```powershell
+$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+npm run tauri -- dev
+```
+
+Web/mock は決定的なブラウザシミュレーションです。ローカル CLI 実行、SQLite 永続化、ファイル変更、OS side effect が発生したことを意味しません。
+
+<!-- docs-section:development -->
+
+## 開発
+
+変更を提出する前に、AGENTS.md の「校验命令」セクションにあるすべてのコマンドをそのまま実行してください。このリストが CI と整合する唯一の情報源です。
+
+新機能とアーキテクチャ変更では、実装前に OpenSpec proposal が必要です。プロジェクトルールは [AGENTS.md](AGENTS.md) と [openspec/project.md](openspec/project.md) を参照してください。
+
 ### Agent 基盤技術ドキュメント
 
 | トピック | エントリ |
@@ -222,14 +230,6 @@ npm run docs:build
 ```
 
 ドキュメントビルドには `docs/toolchain.json` で固定された mdBook version が必要です。
-
-<!-- docs-section:development -->
-
-## 開発
-
-変更を提出する前に、AGENTS.md の「校验命令」セクションにあるすべてのコマンドをそのまま実行してください。このリストが CI と整合する唯一の情報源です。
-
-新機能とアーキテクチャ変更では、実装前に OpenSpec proposal が必要です。プロジェクトルールは [AGENTS.md](AGENTS.md) と [openspec/project.md](openspec/project.md) を参照してください。
 
 <!-- docs-section:roadmap -->
 

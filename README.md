@@ -73,52 +73,6 @@ Prebuilt desktop packages are published on the [Releases page](https://github.co
 
 The current build is an unsigned preview. Windows and macOS warn before running it, and the release notes carry the steps for each platform. Verify your download against the published `SHA256SUMS` before installing.
 
-<!-- docs-section:architecture -->
-
-## Architecture
-
-```mermaid
-flowchart LR
-  UI[React UI] --> Service[Frontend service interfaces]
-  Service --> Web[Web/mock adapters]
-  Service --> Tauri[Tauri adapters]
-  Tauri --> Commands[Rust commands]
-  Commands --> Contexts[Native bounded contexts]
-  Contexts --> SQLite[(SQLite)]
-  Contexts --> CLI[Agent CLIs]
-```
-
-React components call services in `src/services/`. Tauri-specific `invoke()` calls stay in frontend Tauri adapters, while SQLite, CLI processes, filesystem access, and desktop lifecycle behavior stay in Rust.
-
-<!-- docs-section:quick-start -->
-
-## Quick start
-
-<!-- docs-fact:node-minimum value:22+ -->
-
-Prerequisites: Node.js 22+, npm, stable Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
-
-For platform linker requirements, release-profile behavior, worktree cache guidance, and measured build evidence, see the [native build performance guide](docs/build-performance.md).
-
-```powershell
-npm ci
-```
-
-Run Web/mock preview:
-
-```powershell
-npm run dev -- --host 127.0.0.1
-```
-
-Run the desktop application:
-
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
-```
-
-Web/mock is a deterministic browser simulation. It does not claim local CLI execution, SQLite persistence, filesystem changes, or operating-system side effects.
-
 <!-- docs-section:documentation -->
 
 ## Documentation
@@ -194,6 +148,60 @@ User guides are available in English and Simplified Chinese. Japanese, Tradition
 
 <!-- /docs-locale-guides -->
 
+<!-- docs-section:architecture -->
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI[React UI] --> Service[Frontend service interfaces]
+  Service --> Web[Web/mock adapters]
+  Service --> Tauri[Tauri adapters]
+  Tauri --> Commands[Rust commands]
+  Commands --> Contexts[Native bounded contexts]
+  Contexts --> SQLite[(SQLite)]
+  Contexts --> CLI[Agent CLIs]
+```
+
+React components call services in `src/services/`. Tauri-specific `invoke()` calls stay in frontend Tauri adapters, while SQLite, CLI processes, filesystem access, and desktop lifecycle behavior stay in Rust.
+
+<!-- docs-section:quick-start -->
+
+## Run from source
+
+<!-- docs-fact:node-minimum value:22+ -->
+
+Prerequisites: Node.js 22+, npm, stable Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+
+For platform linker requirements, release-profile behavior, worktree cache guidance, and measured build evidence, see the [native build performance guide](docs/build-performance.md).
+
+```powershell
+npm ci
+```
+
+Run Web/mock preview:
+
+```powershell
+npm run dev -- --host 127.0.0.1
+```
+
+Run the desktop application:
+
+```powershell
+$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+npm run tauri -- dev
+```
+
+Web/mock is a deterministic browser simulation. It does not claim local CLI execution, SQLite persistence, filesystem changes, or operating-system side effects.
+
+<!-- docs-section:development -->
+
+## Development
+
+Run every command in the「校验命令」(validation commands) section of AGENTS.md verbatim before submitting changes; that list is the single source of truth aligned with CI.
+
+New features and architecture changes require an OpenSpec proposal before implementation. See [AGENTS.md](AGENTS.md) and [openspec/project.md](openspec/project.md) for project rules.
+
 ### Agent infrastructure technical documentation
 
 | Topic | Entry |
@@ -220,14 +228,6 @@ npm run docs:build
 ```
 
 The documentation build requires the mdBook version pinned in `docs/toolchain.json`.
-
-<!-- docs-section:development -->
-
-## Development
-
-Run every command in the「校验命令」(validation commands) section of AGENTS.md verbatim before submitting changes; that list is the single source of truth aligned with CI.
-
-New features and architecture changes require an OpenSpec proposal before implementation. See [AGENTS.md](AGENTS.md) and [openspec/project.md](openspec/project.md) for project rules.
 
 <!-- docs-section:roadmap -->
 
