@@ -433,10 +433,23 @@ fn validate_value(value: &str, limit: usize) -> Result<(), RunnerError> {
 /// — rejecting every control character made a chat turn impossible for those Agents, failing as
 /// `runner_invalid_launch` before anything was spawned.
 ///
-/// Tab, CR and LF are the only ones let through. They are not an injection vector: arguments are
-/// handed to the OS as an array and never pass through a shell. The rest of the control range
-/// still is one — NUL terminates a C string and would silently truncate the argument the caller
-/// believes it passed, and an escape sequence in an argument is not prompt text.
+/// Tab, CR and LF are the only ones let through. The rest of the control range stays rejected —
+/// NUL terminates a C string and would silently truncate the argument the caller believes it
+/// passed, and an escape sequence in an argument is not prompt text.
+///
+/// What keeps the three that are admitted from being an injection vector differs per path, and
+/// none of it is "arguments are always an array":
+/// - POSIX spawn is a genuine `execvp` array, so a newline is data.
+/// - Windows `CreateProcessW` takes one command line, but `CommandLineToArgvW` splits only on
+///   space and tab, so a newline round-trips into the child's argv as data.
+/// - Windows `.bat`/`.cmd` shims are the exception: `std::process::Command` composes
+///   `cmd.exe /d /c "…"`, which *is* line-oriented. The only thing stopping a newline there is
+///   that std refuses the spawn outright (the CVE-2024-24576 hardening), which surfaces as
+///   `RunnerErrorKind::Spawn`. That path is live — `antigravity-cli` and `opencode`'s shim
+///   fallback both put the prompt in argv — so relaxing this validator further, or resolving a
+///   shim to its interpreter, removes a guarantee this function does not itself provide.
+/// - SSH re-serialises the spec into an `sh` program and rejects the whole control range again
+///   before leasing a channel (`remote_command::validate_field`), single-quoting what it keeps.
 fn validate_text_value(value: &str, limit: usize) -> Result<(), RunnerError> {
     let disallowed =
         |character: char| character.is_control() && !matches!(character, '\t' | '\n' | '\r');

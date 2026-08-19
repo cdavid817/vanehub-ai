@@ -2243,9 +2243,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `record_runner_lifecycle` past clippy's argument threshold, and the suppression carries a
     // reason rather than standing bare, since the wrapper one function above suppresses the same
     // lint for the same list and a reader deserves to know why both are acceptable.
+    //
+    // Raised again from 59,307 by +11 in `terminal_wrapper.rs`: its token validator rejected only
+    // NUL, while every token it admits is written into a script file that an interpreter reads
+    // back, and a batch file has no escape for a raw newline. Six lines record why this validator
+    // is stricter than the argv one, and five extend the test to the rest of the control range.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_307,
+        budget: 59_318,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
