@@ -1,17 +1,21 @@
 //! Accounting lifecycle for one API invocation, and the per-provider wire format it drives.
 
 use super::super::context_projection::PreparedContextProjection;
+use super::super::model_context_catalog;
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::{anthropic_provider, openai_compatible_provider};
-use super::compaction::value_character_count;
+use super::compaction::{should_compact, turns_character_count, value_character_count};
 use super::generation::GenerationOptions;
 use super::ExecutedToolCall;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage, ApiProviderConfig,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
-    ReportedUsageTotals, ToolDefinition, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    ContextAnalysisInput, ContextAnalysisService, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, ReportedUsageTotals, StoredEndpointProfileMetadata, ToolDefinition,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
-use crate::contexts::agent_runtime::domain::{ContextSnapshot, SemanticClass};
+use crate::contexts::agent_runtime::domain::{
+    ContextCapacity, ContextSnapshot, SemanticClass, UsageAnchor,
+};
 use crate::contexts::sessions::api::{
     AccountingUnit, MeasurementKind, MeasurementQuality, NewModelInvocation, NewUsageObservation,
     SessionsApi, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose, UsageStatus,
@@ -293,6 +297,48 @@ fn bounded_hash(value: &str) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// One round trip's measurement of its own request, analyzed before the send and handed to
+/// `record_context_snapshot` below. The model catalog supplies the capacity only when neither a
+/// frozen endpoint Profile nor stored Profile metadata did — an endpoint whose metadata says
+/// nothing about its window is left without one rather than given the catalog's guess.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn analyze_round_context(
+    body: &Value,
+    wire_format: &WireFormat,
+    provider_config: &ApiProviderConfig,
+    endpoint_capacity: Option<&ContextCapacity>,
+    endpoint_metadata: Option<&StoredEndpointProfileMetadata>,
+    request: &GenerationProcessRequest,
+    turns: &[Value],
+    request_sequence: u32,
+    usage_anchor: Option<&UsageAnchor>,
+) -> ContextSnapshot {
+    let projection = (wire_format.project_request_context)(body);
+    ContextAnalysisService::analyze(
+        ContextAnalysisInput {
+            provider_id: provider_config.source_provider_id.clone(),
+            model_id: provider_config.model_id.clone(),
+            request_fingerprint: projection.request_fingerprint,
+            characters: projection.characters,
+            components: projection.components,
+            rounds: projection.rounds,
+            token_estimate_complete: projection.token_estimate_complete,
+            capacity: endpoint_capacity.cloned().or_else(|| {
+                (endpoint_metadata.is_none() && request.endpoint_profile.is_none()).then(|| {
+                    model_context_catalog::resolve_capacity(
+                        provider_config.source_provider_id.as_deref(),
+                        &provider_config.model_id,
+                    )
+                })?
+            }),
+            active_character_compaction: should_compact(turns_character_count(turns)),
+            invocation_sequence: request_sequence,
+            overflow_count: projection.overflow_count,
+        },
+        usage_anchor,
+    )
 }
 
 pub(super) fn record_context_snapshot(

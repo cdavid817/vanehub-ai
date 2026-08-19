@@ -78,11 +78,14 @@ pub(crate) fn validate_plan_graph(
                 successor_id.clone(),
             ));
         }
+        // `outgoing` and `indegree` were both seeded from every key in `ordinals`, and both
+        // endpoints were just checked against `ordinals` above, so these entries always exist.
+        // The entry API states that without asserting it: there is no absent case to panic on.
         outgoing
-            .get_mut(predecessor_id)
-            .expect("validated predecessor")
+            .entry(predecessor_id.clone())
+            .or_default()
             .push(successor_id.clone());
-        *indegree.get_mut(successor_id).expect("validated successor") += 1;
+        *indegree.entry(successor_id.clone()).or_insert(0) += 1;
     }
 
     let sort_key = |id: &String| (ordinals[id], id.clone());
@@ -102,8 +105,15 @@ pub(crate) fn validate_plan_graph(
         for successor in &outgoing[&id] {
             let successor_rank = ranks.entry(successor.clone()).or_insert(0);
             *successor_rank = (*successor_rank).max(rank + 1);
-            let degree = indegree.get_mut(successor).expect("known successor");
-            *degree -= 1;
+            // `successor` came out of `outgoing`, which carries the same key set as `indegree`.
+            // If that ever stopped holding, skipping the decrement leaves the node permanently
+            // un-ready, and the length check below reports it as a `Cycle` — an error this
+            // function's caller already handles, which is a better outcome than aborting.
+            let Some(degree) = indegree.get_mut(successor) else {
+                debug_assert!(false, "indegree is missing a successor listed in outgoing");
+                continue;
+            };
+            *degree = degree.saturating_sub(1);
             if *degree == 0 {
                 ready.insert((ordinals[successor], successor.clone()));
             }

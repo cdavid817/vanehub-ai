@@ -8161,3 +8161,385 @@ fn skill_tool_lifecycle_uses_existing_phases_and_redacted_terminal_summaries() {
         .and_then(|provenance| provenance.redacted_result_summary.as_deref());
     assert_eq!(summary, Some("completed"));
 }
+
+/// `CapturingSink` accepts every event, so the eight
+/// `failed_retryable("Agent generation event handling failed.")` exits inside
+/// `execute_with_code_intelligence` are unreachable from the rest of this file. This sink refuses
+/// exactly the events a test names and accepts the rest, which is what makes each of those exits
+/// individually addressable.
+struct RejectingSink {
+    reject: Box<dyn Fn(&GenerationProcessEvent) -> bool + Send + Sync>,
+}
+
+impl RejectingSink {
+    fn new(reject: impl Fn(&GenerationProcessEvent) -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            reject: Box::new(reject),
+        }
+    }
+}
+
+impl AgentProcessEventSink for RejectingSink {
+    fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError> {
+        if (self.reject)(&event) {
+            return Err(AgentRuntimeApplicationError::Skill(
+                "sink rejected the event".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Pins the streaming loop's sink-failure exit. It is the one exit in that loop that deliberately
+/// does *not* finish the accounting invocation first, so it must stay distinguishable from the
+/// read-error and translate-failure exits beside it.
+#[test]
+fn a_rejected_token_event_fails_the_generation_retryably() {
+    let (address, _server) = http_fixture(
+        "200 OK",
+        sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]),
+    );
+
+    let event = execute(
+        &sample_request("api"),
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &RejectingSink::new(|event| matches!(event, GenerationProcessEvent::Token(_))),
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    let GenerationProcessEvent::Failed(failure) = event else {
+        panic!("a rejected token must fail the generation");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::Retryable);
+    assert_eq!(
+        failure.diagnostic,
+        "Agent generation event handling failed."
+    );
+}
+
+/// Pins the sink-failure exit of the status/output/emit/push tail that every tool-dispatch branch
+/// ends with. Rejecting only the terminal `completed`/`failed` event lets the `running` event
+/// emitted before dispatch through, so the failure can only have come from the tail.
+#[test]
+fn a_rejected_completed_tool_use_event_fails_the_generation_retryably() {
+    let directory = crate::test_support::TempDirectory::new("execute-rejected-tool-outcome");
+    let (address, _server) = http_fixture(
+        "200 OK",
+        sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"shell","arguments":"{\"command\": \"echo hi\"}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]),
+    );
+    let mut request = sample_request("api");
+    request.session.folder = Some(directory.path().to_string_lossy().to_string());
+
+    let event = execute(
+        &request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &RejectingSink::new(|event| {
+            matches!(
+                event,
+                GenerationProcessEvent::ToolUse(tool_use)
+                    if tool_use.status == "completed" || tool_use.status == "failed"
+            )
+        }),
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::with_override(Action::shell_exec(), Effect::Allow),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    let GenerationProcessEvent::Failed(failure) = event else {
+        panic!("a rejected tool outcome must fail the generation");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::Retryable);
+    assert_eq!(
+        failure.diagnostic,
+        "Agent generation event handling failed."
+    );
+}
+
+/// Pins the sink-failure exit inside the permission gate's `Ask` arm, which fires before
+/// `create_pending_approval` — so a rejected prompt must fail the generation rather than leave a
+/// pending approval nobody will ever answer.
+#[test]
+fn a_rejected_awaiting_approval_event_fails_the_generation_retryably() {
+    let (address, _server) = http_fixture(
+        "200 OK",
+        sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]),
+    );
+    let mut request = sample_request("api");
+    request.session.folder = Some("fixture-project".to_string());
+    let pending_approvals = no_pending_approvals();
+
+    let event = execute(
+        &request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &RejectingSink::new(|event| {
+            matches!(
+                event,
+                GenerationProcessEvent::ToolUse(tool_use)
+                    if tool_use.status == "awaiting_approval"
+            )
+        }),
+        &pending_approvals,
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    let GenerationProcessEvent::Failed(failure) = event else {
+        panic!("a rejected approval prompt must fail the generation");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::Retryable);
+    assert_eq!(
+        failure.diagnostic,
+        "Agent generation event handling failed."
+    );
+    assert!(
+        pending_approvals.lock().expect("pending").is_empty(),
+        "a rejected prompt must not leave a pending approval behind"
+    );
+}
+
+/// `Effect::Deny` is the only permission outcome with no test: `default_classification` returns
+/// `Allow` or `Ask`, and every existing denial test drives `Ask` and answers it `Denied`. A policy
+/// denial takes a different arm, produces different text ("Denied by policy." rather than "Denied
+/// by user."), and must never show an approval prompt.
+#[test]
+fn a_policy_denied_tool_call_returns_denial_data_without_executing() {
+    let (address, server) = http_fixture_sequence(
+        "200 OK",
+        vec![
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"shell","arguments":"{\"command\": \"echo hi\"}"}}]},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+            sse_body(&["[DONE]"]),
+        ],
+    );
+    let sink = CapturingSink::default();
+
+    let event = execute(
+        &sample_request("api"),
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &sink,
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::with_override(Action::shell_exec(), Effect::Deny),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+    let requests = server.join().expect("fixture server");
+    assert!(String::from_utf8_lossy(&requests[1]).contains("Denied by policy."));
+    let events = sink.events.lock().expect("events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        GenerationProcessEvent::ToolUse(tool_use)
+            if tool_use.status == "failed"
+                && tool_use.output == Some(Value::String("Denied by policy.".to_string()))
+    )));
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "awaiting_approval"
+        )),
+        "a policy denial must never reach the approval prompt"
+    );
+}
+
+/// An answer delivered to a call that asked for *permission* means the two resolutions for the
+/// shared blocked-call channel were crossed. The gate fails closed and reports "Denied by user."
+/// rather than treating the answer as consent — untested until now, and the kind of thing a
+/// refactor of the approval arms could quietly turn into an approval.
+#[test]
+fn an_answer_delivered_to_an_approval_wait_is_treated_as_a_denial() {
+    let (address, server) = http_fixture_sequence(
+        "200 OK",
+        vec![
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+            sse_body(&["[DONE]"]),
+        ],
+    );
+    let mut request = sample_request("api");
+    request.session.folder = Some("fixture-project".to_string());
+    let sink = CapturingSink::default();
+    let pending_approvals = no_pending_approvals();
+    let cancellation = not_cancelled();
+    let resolver = resolve_tool_call_once(
+        &pending_approvals,
+        "call_1",
+        ToolApprovalDecision::Answered("go ahead".to_string()),
+        cancellation.clone(),
+    );
+    let mcp = FakeMcp::new(
+        Ok(Vec::new()),
+        crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            output: "must not be called".to_string(),
+            is_error: false,
+        },
+    );
+
+    let event = execute(
+        &request,
+        cancellation,
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &sink,
+        &pending_approvals,
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &mcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    resolver
+        .join()
+        .expect("approval resolver")
+        .expect("resolve tool call with an answer");
+    assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+    assert!(
+        mcp.calls.lock().expect("calls").is_empty(),
+        "an answer must not be read as consent to run the call"
+    );
+    let requests = server.join().expect("fixture server");
+    assert!(String::from_utf8_lossy(&requests[1]).contains("Denied by user."));
+    let events = sink.events.lock().expect("events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        GenerationProcessEvent::ToolUse(tool_use)
+            if tool_use.status == "failed"
+                && tool_use.output == Some(Value::String("Denied by user.".to_string()))
+    )));
+}
+
+/// The suite's first `endpoint_profile: Some(..)` case. Everywhere else `sample_request` leaves it
+/// `None` and `FakeConfig` inherits `active_endpoint_profile_metadata`'s default `Ok(None)`, so
+/// the resolved context capacity is `None` in every other test and the request-context overflow
+/// guard is unreachable. Freezing a one-token window makes the guard the only possible outcome,
+/// and it is reachable only if the profile's window survives into the analyzed snapshot. The guard
+/// returns before any HTTP send, so no fixture server is needed; `FakeConfig::default()` carries
+/// no provider config, which also pins that the profile — not the stored config — supplied the
+/// model and base URL.
+#[test]
+fn an_endpoint_profile_context_window_smaller_than_the_request_fails_the_generation() {
+    let mut request = sample_request("api");
+    request.endpoint_profile = Some(
+        crate::contexts::agent_runtime::application::FrozenEndpointProfile {
+            profile_id: "profile-1".to_string(),
+            source_provider_id: None,
+            model_id: "test-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("http://127.0.0.1:1".to_string()),
+            authentication_mode: "required".to_string(),
+            timeout_ms: 1_000,
+            image_input_capability: "supported".to_string(),
+            tool_calling_capability: "supported".to_string(),
+            structured_output_capability: "supported".to_string(),
+            reasoning_field_capability: "supported".to_string(),
+            context_window_tokens: Some(1),
+            reserved_output_tokens: 0,
+            context_capacity_provenance: "test-fixture".to_string(),
+            routing_rule_id: None,
+            routing_reason: "test".to_string(),
+        },
+    );
+
+    let event = execute(
+        &request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &FakeConfig::default(),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &CapturingSink::default(),
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &NoopPersonalization,
+    );
+
+    let GenerationProcessEvent::Failed(failure) = event else {
+        panic!("a one-token context window must fail the generation");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
+    assert!(
+        failure
+            .diagnostic
+            .contains("exceeds the selected endpoint Profile context budget"),
+        "unexpected diagnostic: {}",
+        failure.diagnostic
+    );
+}

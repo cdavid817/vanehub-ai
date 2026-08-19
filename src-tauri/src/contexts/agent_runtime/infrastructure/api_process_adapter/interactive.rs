@@ -4,16 +4,17 @@ use super::super::memory_directory::is_within_memory_directory;
 use super::super::tools::ToolExecutionOutcome;
 use super::{failed_non_retryable, failed_retryable, PendingApprovals, APPROVAL_POLL_INTERVAL};
 use crate::contexts::agent_runtime::application::{
-    AgentProcessEventSink, GenerationProcessEvent, ToolApprovalDecision, ToolUseBlock,
-    ASK_USER_QUESTION_TOOL_NAME, EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
-    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    AgentPermissionPort, AgentProcessEventSink, GenerationProcessEvent, GenerationProcessRequest,
+    ToolApprovalDecision, ToolUseBlock, ASK_USER_QUESTION_TOOL_NAME, EDIT_TOOL_NAME,
+    EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
+    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
+    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS,
+    MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
+    NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
 };
-use crate::contexts::permissions::domain::{Action, Resource};
+use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -308,6 +309,127 @@ pub(super) enum ApprovalOutcome {
     /// an answer was delivered to a call that asked for permission, so that path treats it as a
     /// denial rather than silently proceeding (`add-agent-user-question` D1).
     Answered(String),
+}
+
+/// The three things the permission gate can conclude about one tool call.
+// `large_enum_variant`: `Failed` carries the terminal `GenerationProcessEvent` unboxed, on purpose.
+// Boxing it would be the only heap allocation this decomposition introduced, on the one path that
+// exists to hand the event back to the caller unchanged.
+#[allow(clippy::large_enum_variant)]
+pub(super) enum ToolAuthorization {
+    Allowed,
+    /// The call was refused with this text as its output. The caller records it as a failed call
+    /// and moves to the next one — a refusal is data the model sees, not an error.
+    Denied(String),
+    /// The whole generation ends with this event.
+    Failed(GenerationProcessEvent),
+}
+
+/// Evaluates one tool call against policy and, when policy asks, blocks until the user decides.
+///
+/// The `tool_use` block is mutated in place on the paths that emit it — `awaiting_approval` while
+/// the prompt is open, then `failed` with the denial text — so the caller's copy carries the same
+/// state it did when this ran inline.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn authorize_tool_call(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    agent_id: &str,
+    request: &GenerationProcessRequest,
+    permissions: &dyn AgentPermissionPort,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+    cancelled: &AtomicBool,
+) -> ToolAuthorization {
+    let (permission_action, permission_resource) =
+        permission_action_and_resource(&tool_use.name, input);
+    let project_key = request.session.folder.as_deref().unwrap_or("");
+    let effect = permissions.evaluate(
+        agent_id,
+        permission_action.clone(),
+        permission_resource.clone(),
+        &request.session.id,
+        &request.operation_id,
+        project_key,
+    );
+    match effect {
+        Effect::Allow => {}
+        Effect::Deny => {
+            let denial = "Denied by policy.".to_string();
+            tool_use.status = "failed".to_string();
+            tool_use.output = Some(Value::String(denial.clone()));
+            if sink
+                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                .is_err()
+            {
+                return ToolAuthorization::Failed(failed_retryable(
+                    "Agent generation event handling failed.",
+                ));
+            }
+            return ToolAuthorization::Denied(denial);
+        }
+        Effect::Ask => {
+            tool_use.status = "awaiting_approval".to_string();
+            if sink
+                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                .is_err()
+            {
+                return ToolAuthorization::Failed(failed_retryable(
+                    "Agent generation event handling failed.",
+                ));
+            }
+            if let Err(error) = permissions.create_pending_approval(
+                agent_id,
+                permission_action,
+                permission_resource,
+                &request.session.id,
+                &request.operation_id,
+                &tool_use.id,
+                project_key,
+            ) {
+                return ToolAuthorization::Failed(failed_non_retryable(&error.to_string()));
+            }
+            match await_approval(&tool_use.id, cancelled, pending_approvals) {
+                ApprovalOutcome::Approved => {}
+                ApprovalOutcome::Denied => {
+                    let denial = "Denied by user.".to_string();
+                    tool_use.status = "failed".to_string();
+                    tool_use.output = Some(Value::String(denial.clone()));
+                    if sink
+                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                        .is_err()
+                    {
+                        return ToolAuthorization::Failed(failed_retryable(
+                            "Agent generation event handling failed.",
+                        ));
+                    }
+                    return ToolAuthorization::Denied(denial);
+                }
+                ApprovalOutcome::Cancelled => {
+                    return ToolAuthorization::Failed(failed_non_retryable(
+                        "Generation was cancelled while a tool call was awaiting approval.",
+                    ));
+                }
+                // An answer delivered to a call that asked for permission means the two
+                // resolutions were crossed; fail closed rather than treat it as consent.
+                ApprovalOutcome::Answered(_) => {
+                    let denial = "Denied by user.".to_string();
+                    tool_use.status = "failed".to_string();
+                    tool_use.output = Some(Value::String(denial.clone()));
+                    if sink
+                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                        .is_err()
+                    {
+                        return ToolAuthorization::Failed(failed_retryable(
+                            "Agent generation event handling failed.",
+                        ));
+                    }
+                    return ToolAuthorization::Denied(denial);
+                }
+            }
+        }
+    }
+    ToolAuthorization::Allowed
 }
 
 pub(super) fn await_approval(

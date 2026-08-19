@@ -7,7 +7,7 @@
 
 use crate::contexts::permissions::domain::Effect;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tokio::sync::oneshot;
 
 #[derive(Default)]
@@ -20,16 +20,25 @@ impl HookWaitRegistry {
         Self::default()
     }
 
+    /// Recovers the guard rather than aborting on a poisoned lock. A poisoned lock here means
+    /// another thread panicked while holding it; aborting this one as well would strand every
+    /// hook-bridge request currently blocked on an `Ask` decision, which is the opposite of
+    /// what this registry exists to guarantee. The guarded map only ever sees `insert`/`remove`,
+    /// so the recovered value is structurally sound.
+    fn lock_pending(&self) -> MutexGuard<'_, HashMap<String, oneshot::Sender<Effect>>> {
+        self.pending.lock().unwrap_or_else(|poisoned| {
+            debug_assert!(false, "hook wait registry mutex poisoned");
+            poisoned.into_inner()
+        })
+    }
+
     /// Registers a wait for `request_id`, returning the receiver half to `.await`. Overwrites
     /// (and silently drops) any prior, unresolved registration under the same id — `request_id`
     /// is broker-generated fresh per call, so a collision would only happen if a caller reused
     /// one, which nothing in this codebase does.
     pub(crate) fn register(&self, request_id: &str) -> oneshot::Receiver<Effect> {
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .expect("hook wait registry mutex poisoned")
-            .insert(request_id.to_string(), tx);
+        self.lock_pending().insert(request_id.to_string(), tx);
         rx
     }
 
@@ -38,11 +47,7 @@ impl HookWaitRegistry {
     /// request already resolved some other way, or never went through this registry at all (for
     /// example, it was a native-agent request, not a hook-bridge one).
     pub(crate) fn resolve(&self, request_id: &str, effect: Effect) -> bool {
-        let sender = self
-            .pending
-            .lock()
-            .expect("hook wait registry mutex poisoned")
-            .remove(request_id);
+        let sender = self.lock_pending().remove(request_id);
         match sender {
             Some(sender) => sender.send(effect).is_ok(),
             None => false,

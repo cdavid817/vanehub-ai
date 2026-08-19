@@ -9,8 +9,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 是平移的,涨的只是每个模块的固定开销——import 行、`export const x: XService = {`、收尾的 `};`。
 // 窄接口的签名同样是从 AgentService 搬出去的,不是复制的。所以聚合只按新模块个数线性微涨;
 // 一旦涨幅超出这个量级,说明方法被重写或复制了,那时预算失败才是正确结果。
+// 上调理由(extract-web-client-state-modules):把 web-agent-client.ts 里被多个上下文共用的可变
+// 绑定搬进 state 模块时,除了上面那份固定开销,还多出一层访问器——原先一句直接读写(`sessions`、
+// `activeSessionId`、`webSkills`)现在是一对 `list*`/`replace*` 函数。这层是"禁止导出可变绑定"
+// 这条规则的代价,不是重复代码:访问器集合按调用点裁剪,每个都有本模块之外的调用者。
+// 上调理由(extract-web-client-chat-state):同上一条,把最后 8 个共享可变绑定搬进 state 模块的
+// 代价还是那两项——每个新模块的固定开销,加上一层按调用点裁剪的访问器。这一轮多出来的访问器都在
+// chat 一侧:原先直接 `activeStreams.has/set/delete`、`messagesBySession.delete`,现在各是一个函数。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 18513, owner: "split-web-agent-client" },
+  { root: "src/services", budget: 19347, owner: "extract-web-client-chat-state" },
 ]);
 
 const STATE_PACKAGES = new Set([
