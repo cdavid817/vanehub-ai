@@ -7,17 +7,33 @@ use syn::{Attribute, Expr, ExprLit, ImplItem, Item, ItemFn, ItemUse, Lit, UseTre
 
 #[test]
 fn distributable_release_profile_stays_optimized() {
-    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-    let manifest = fs::read_to_string(manifest_path).expect("read native manifest");
+    // Reads the workspace root, not `src-tauri/Cargo.toml`, because that is where Cargo takes the
+    // profile from. A profile declared in a non-root member is ignored with only a warning, so this
+    // test passed for as long as the settings were in the member and doing nothing — asserting on
+    // manifest text is only meaningful when the text is the one Cargo actually resolves.
+    let manifest_path = project_root().join("Cargo.toml");
+    let manifest = fs::read_to_string(manifest_path).expect("read workspace manifest");
     let document = manifest
         .parse::<toml::Table>()
-        .expect("parse native manifest");
+        .expect("parse workspace manifest");
     let release = document
         .get("profile")
         .and_then(toml::Value::as_table)
         .and_then(|profiles| profiles.get("release"))
         .and_then(toml::Value::as_table)
-        .expect("release profile");
+        .expect("release profile at the workspace root");
+
+    // The member must not carry one: Cargo would ignore it, so a future edit there would look
+    // effective and be silently discarded.
+    let member = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
+        .expect("read native manifest");
+    assert!(
+        !member
+            .parse::<toml::Table>()
+            .expect("parse native manifest")
+            .contains_key("profile"),
+        "src-tauri/Cargo.toml declares a profile, which Cargo ignores in a non-root workspace member"
+    );
 
     assert_eq!(
         release.get("opt-level").and_then(toml::Value::as_integer),

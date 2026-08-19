@@ -8,8 +8,11 @@ const result = spawnSync(
   process.platform === "win32" ? "cargo.exe" : "cargo",
   [
     "llvm-cov",
-    "--manifest-path",
-    "src-tauri/Cargo.toml",
+    // --workspace, not --manifest-path src-tauri/Cargo.toml: establish-cargo-workspace-skeleton
+    // added a second member (vanehub-permission-hook), and --manifest-path alone selects only the
+    // package it points at, which would silently drop that crate's real test coverage from the
+    // report instead of reporting it as zero.
+    "--workspace",
     "--all-targets",
     "--json",
     "--output-path",
