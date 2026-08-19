@@ -85,7 +85,18 @@ export const config = {
   onPrepare: async () => {
     await mkdir(path.join(resultDir, "screenshots"), { recursive: true });
   },
-  onComplete: async (exitCode) => {
-    await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify({ exitCode }, null, 2)}\n`);
+  // The skipped count is recorded, not just the exit code. A host without a proxy, provider key,
+  // SSH target or installed CLI silently skips whole capabilities and the run still exits 0 --
+  // reporting only PASSED there presents reduced coverage as a clean bill of health.
+  onComplete: async (exitCode, _config, _capabilities, results) => {
+    await writeFile(
+      path.join(resultDir, "wdio-result.json"),
+      `${JSON.stringify({
+        exitCode,
+        passed: results?.passed ?? null,
+        failed: results?.failed ?? null,
+        skipped: results?.skipped ?? null,
+      }, null, 2)}\n`,
+    );
   },
 };
