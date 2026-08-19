@@ -1,6 +1,6 @@
 # 代码索引
 
-工作区代码索引让 OnePiece 无需反复扫描所有文件即可定位定义和相关代码。打开**设置 > Agent 配置 > OnePiece**，先配置 OpenAI-compatible embedding 来源，再使用**工作区代码索引**。
+工作区代码索引让 OnePiece 无需反复扫描所有文件即可定位定义和相关代码。打开**设置 → Agent 配置 → OnePiece**，先配置 OpenAI-compatible embedding 来源，再使用**工作区代码索引**。
 
 ## 配置索引
 
@@ -30,3 +30,10 @@ VaneHub 在解析前应用嵌套 `.gitignore` 和用户排除规则。.env、凭
 持久化 Tree-sitter 索引为 `search_code` 工具提供结构化、关键词和可选语义检索，但不提供编译器级类型、引用关系或当前诊断。实时 LSP 代码智能是独立的桌面端能力，它会启动已信任的语言服务器，并提供基于代码位置的语义工具。两项能力可以独立启用，互不作为前置条件。
 
 支持的服务器、配置、信任和排障步骤见[使用实时 LSP 代码智能](lsp-code-intelligence.md)。
+
+## 相关
+
+- 实时语义能力与本页的持久化索引如何分工 → [LSP 代码智能](lsp-code-intelligence.md)
+- 跨会话记忆与检索口径 → [记忆与上下文](memory-and-context.md)
+- 解析技术本身：GLR 增量解析、查询系统、结构化代码切分与 Repo Map → [Tree-sitter 技术架构](../../../agent-infrastructure/tree-sitter-architecture.md)
+- 检索管线与混合检索取舍 → [RAG 技术架构](../../../agent-infrastructure/rag-architecture.md)

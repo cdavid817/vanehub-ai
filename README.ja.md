@@ -165,6 +165,19 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 <!-- /docs-locale-guides -->
 
+### Agent 基盤技術ドキュメント
+
+上記 2 つのガイドは VaneHub AI 自体を説明します。こちらは VaneHub AI が依拠する**プロトコルと技術そのもの**を説明します——技術選定や統合レイヤーの実装時に参照してください。索引は [Agent 基盤技術ドキュメント](docs/agent-infrastructure/README.md)。
+
+| 領域 | ドキュメント |
+| --- | --- |
+| プロトコルとインターフェース | [MCP](docs/agent-infrastructure/mcp-architecture.md) · [Function Calling](docs/agent-infrastructure/function-calling-architecture.md) · [LSP](docs/agent-infrastructure/lsp-architecture.md) · [A2A](docs/agent-infrastructure/a2a-architecture.md) |
+| Agent 能力とオーケストレーション | [マルチ Agent システム](docs/agent-infrastructure/multi-agent-architecture.md) · [Agent Skills](docs/agent-infrastructure/agent-skills-architecture.md) · [組み込み CLI パラメータ完全リファレンス](docs/agent-infrastructure/builtin-cli-reference.md) |
+| 検索とコード理解 | [RAG](docs/agent-infrastructure/rag-architecture.md) · [Tree-sitter](docs/agent-infrastructure/tree-sitter-architecture.md) |
+| エンジニアリング手法 | [OpenSpec](docs/agent-infrastructure/openspec-architecture.md) |
+
+**これらは外部仕様の説明であり、VaneHub AI の実装保証ではありません**——記載されたプロトコル能力が実装済みであることを意味しません。実装範囲は上記 2 つのガイドが定義します。簡体字中国語のみ提供されます。
+
 リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 
 mdBook ガイドと Rustdoc reference をビルドします。

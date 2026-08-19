@@ -96,3 +96,9 @@ OnePiece 的输入区会始终显示带图标和文字的模式标签：
 - **很长的记忆只有前面一段参与向量检索**，尾部仍可被关键词命中。
 - **模型目录是静态的**，provider 新增模型可能需要目录更新，或靠模型发现动态拉取。
 - **OnePiece 的会话不能迁移到 CLI Agent**，反之亦然。
+
+## 相关
+
+- provider 配置与凭据保管 → [工具与扩展](tooling.md#agent-配置)
+- 记忆提取与上下文压缩 → [记忆与上下文](memory-and-context.md)
+- 工具调用技术本身：调用循环、约束解码、并行调用与跨 Provider 适配 → [Function Calling 技术架构](../../../agent-infrastructure/function-calling-architecture.md)

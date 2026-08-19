@@ -163,6 +163,19 @@ User guides are available in English and Simplified Chinese. Japanese, Tradition
 
 <!-- /docs-locale-guides -->
 
+### Agent infrastructure technical documentation
+
+The two guides above describe VaneHub AI itself. This set describes the **protocols and technologies it builds on** — read it when making a technology choice or implementing an integration layer. Index: [Agent infrastructure technical documentation](docs/agent-infrastructure/README.md).
+
+| Area | Documents |
+| --- | --- |
+| Protocols and interfaces | [MCP](docs/agent-infrastructure/mcp-architecture.md) · [Function Calling](docs/agent-infrastructure/function-calling-architecture.md) · [LSP](docs/agent-infrastructure/lsp-architecture.md) · [A2A](docs/agent-infrastructure/a2a-architecture.md) |
+| Agent capability and orchestration | [multi-Agent systems](docs/agent-infrastructure/multi-agent-architecture.md) · [Agent Skills](docs/agent-infrastructure/agent-skills-architecture.md) · [built-in CLI parameter reference](docs/agent-infrastructure/builtin-cli-reference.md) |
+| Retrieval and code understanding | [RAG](docs/agent-infrastructure/rag-architecture.md) · [Tree-sitter](docs/agent-infrastructure/tree-sitter-architecture.md) |
+| Engineering method | [OpenSpec](docs/agent-infrastructure/openspec-architecture.md) |
+
+**These documents describe external specifications, not VaneHub AI commitments** — a protocol capability appearing there does not mean it is implemented. The two guides above define what is. Simplified Chinese only.
+
 Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 
 Build the mdBook guides and Rustdoc reference:

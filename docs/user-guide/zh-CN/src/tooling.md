@@ -102,6 +102,8 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 > **权限参数是重点**：五款 CLI 都有"跳过确认/自动批准"类参数。VaneHub 的权限模板（只读/标准/信任/Yolo）决定是否附加这些高风险参数，**安全策略优先于便利性配置**——详见[权限审批](permissions.md)。
 
+上表只列高频项。**逐个参数族的完全参考**——调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入，以及宿主按统一任务模型向各 CLI 投影参数的映射矩阵——见[内置 CLI 参数完全参考](../../../agent-infrastructure/builtin-cli-reference.md)。
+
 #### OnePiece 的等价配置
 
 OnePiece 不走外部 CLI，没有上述命令行参数。它的等价配置是 **provider 配置**（在**设置 → Agent 配置**里管理）：选 provider 目录条目、填 API Key（保存前校验）、发现并选定模型、按需配自定义兼容端点。见下一节与[原生 API Agent](native-agent.md)。

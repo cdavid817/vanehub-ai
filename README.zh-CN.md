@@ -105,10 +105,19 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | 浮动助手 | [独立浮窗会话、状态徽章、主操作菜单](docs/user-guide/zh-CN/src/user-interface.md#浮动助手) |
 | 循环中心 | [Loop 运行控件、验证命令、时间线](docs/user-guide/zh-CN/src/loop-engineering.md) |
 | 计划中心 | [任务图生成、审批约束、运行与验收](docs/user-guide/zh-CN/src/user-interface.md#计划中心) |
+| 目标中心 | [把分散的执行体归到一处追踪](docs/user-guide/zh-CN/src/goal-management.md) |
+| 任务看板 | [任务的看板视图与状态流转](docs/user-guide/zh-CN/src/todo-board.md) |
 | 通知中心 | [铃铛、未读数、全部已读、清除](docs/user-guide/zh-CN/src/user-interface.md#通知) |
 | 系统托盘 | [显示/隐藏主窗口、开机自启、通知联动](docs/user-guide/zh-CN/src/user-interface.md#系统托盘) |
 | CLI 管理、安装与认证 | [两种安装方式、认证、安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
 | 多 Agent 群聊 | [席位、`@` 交接、轮次边界](docs/user-guide/zh-CN/src/multi-agent-workflow.md) |
+| Git Worktree | [并行改同一仓库而不互相踩踏](docs/user-guide/zh-CN/src/worktree.md) |
+| 代码评审 | [评审中心与评审流程](docs/user-guide/zh-CN/src/code-review.md) |
+| 斜杠命令 | [会话内的命令入口](docs/user-guide/zh-CN/src/slash-commands.md) |
+| 记忆与上下文 | [跨会话记忆与上下文压缩](docs/user-guide/zh-CN/src/memory-and-context.md) |
+| 代码索引 | [工作区代码索引与隐私边界](docs/user-guide/zh-CN/src/code-indexing.md) |
+| LSP 代码智能 | [实时语言服务器与信任模型](docs/user-guide/zh-CN/src/lsp-code-intelligence.md) |
+| OnePiece 原生 Agent | [不装 CLI 直接用的内置 API Agent](docs/user-guide/zh-CN/src/native-agent.md) |
 | 定时任务 | [定时任务与用量统计](docs/user-guide/zh-CN/src/automation.md) |
 | 远程工作区与 SSH 连接 | [SSH 工作区、保存的连接与 IM 接入](docs/user-guide/zh-CN/src/remote-and-im.md) |
 | CLI 参数 | [按 CLI Agent 配置启动参数，含各 CLI 参数速查](docs/user-guide/zh-CN/src/tooling.md#cli-参数) |
@@ -161,6 +170,19 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 用户指南提供英文与简体中文两种语言。日文、繁体中文、韩文仅作为应用界面资源语言交付，不提供对应的用户指南。
 
 <!-- /docs-locale-guides -->
+
+### Agent 基础设施技术文档
+
+上面两套指南讲的是 VaneHub AI 本身；这一组讲的是它依赖的**协议与技术本身**——需要做技术选型、或者实现某个集成层时读它。索引见 [Agent 基础设施技术文档](docs/agent-infrastructure/README.md)。
+
+| 领域 | 文档 |
+| --- | --- |
+| 协议与接口 | [MCP](docs/agent-infrastructure/mcp-architecture.md) · [Function Calling](docs/agent-infrastructure/function-calling-architecture.md) · [LSP](docs/agent-infrastructure/lsp-architecture.md) · [A2A](docs/agent-infrastructure/a2a-architecture.md) |
+| Agent 能力与编排 | [多 Agent 系统](docs/agent-infrastructure/multi-agent-architecture.md) · [Agent Skills](docs/agent-infrastructure/agent-skills-architecture.md) · [内置 CLI 参数完全参考](docs/agent-infrastructure/builtin-cli-reference.md) |
+| 检索与代码理解 | [RAG](docs/agent-infrastructure/rag-architecture.md) · [Tree-sitter](docs/agent-infrastructure/tree-sitter-architecture.md) |
+| 工程方法 | [OpenSpec](docs/agent-infrastructure/openspec-architecture.md) |
+
+**这些文档描述的是外部规范，不是 VaneHub AI 的承诺**——文中出现的协议能力不代表已经实现，实现范围以上面两套指南为准。仅提供简体中文。
 
 参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
 
