@@ -50,10 +50,21 @@ flowchart TB
 
 `derive_lifecycle_eligibility` 的判定：
 
-- **未安装** → 有平台安装脚本就是 `Wget`，否则有 npm 包就是 `Npm`，都没有就是 `Manual`。
-- **已安装** → 只有当**当前生效那份**同时满足「可运行」「来源是 `InstallSource::Npm`」「目录里有 npm 包名」时，才是 `Npm`（可代为升级）；否则落到 `Manual` 或 `Unavailable`。
+**未安装时**看目录能提供什么：有平台安装脚本 → `Wget`，否则有 npm 包 → `Npm`，都没有 → `Manual`。
 
-**「当前生效那份」是关键限定**。装了三份、其中一份来自 npm，不代表能用 npm 升级——因为 `PATH` 命中的可能是 Homebrew 那份。用 npm 再装一份只会让冲突更严重，而命令行里跑的还是旧的，表现为「升级没生效」。
+**已安装时**看**当前生效那份**的来源，三条匹配路径都要求 `runnable` 为真：
+
+| 当前生效那份的来源 | 且目录提供 | 资格 |
+| --- | --- | --- |
+| `InstallSource::Npm` | npm 包名 | `Npm` |
+| `InstallSource::Vendor` | 平台安装脚本 | `Wget` |
+| `InstallSource::Winget` | winget 包 id（目录里的，或从路径推出的） | `Winget` |
+| 其余任何情况 | —— | `Manual` |
+| 没有生效安装 | —— | `Unavailable` |
+
+**「当前生效那份」是关键限定**。装了三份、其中一份来自 npm，不代表能用 npm 升级——因为 `PATH` 命中的可能是 Homebrew 那份，而 Homebrew 不在上面三条路径里，资格就落到 `Manual`。用 npm 再装一份只会让冲突更严重，命令行里跑的还是旧的，表现为「升级没生效」。
+
+**升级方式必须跟着来源走**，所以 `classify_install_source` 按路径特征识别来源：`/microsoft/winget/packages/` 与 `/links/` → Winget，`/programs/openai/codex/` → Desktop，`/appdata/roaming/npm/`、`/.npm/`、`/node_modules/` 或存在 npm 同级文件 → Npm，`/homebrew/`、`/cellar/` → Homebrew，依此类推。
 
 界面上那句提示就是这条逻辑的投影：
 

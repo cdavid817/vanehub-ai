@@ -33,22 +33,31 @@
 | `HumanReviewOnly` | 只能给人看，不进自动流程 |
 | `Ineligible` | 不能用于定位任何 Skill |
 
-**这条分级是本上下文的核心**。「挂载着」不等于「用了它」，「配置绑了」更不等于。把 `ConfiguredBindingOnly` 的证据喂进自动化改进流程，等于让一个从未被调用的 Skill 为别人的失败背锅——所以它最多只能到 `HumanReviewOnly`。
+**只有直接观察到参与的证据才进自动化流程**。四档强度到可用范围的映射是一一对应的：
+
+| 强度 | 依据 | 可用范围 |
+| --- | --- | --- |
+| `Verified` | `ExactNativeObservation` | `AutomatedConsideration` |
+| `Correlated` | `ActiveCliMountSnapshot` | `HumanReviewOnly` |
+| `Weak` | `ConfiguredBindingOnly` | `Ineligible` |
+| `Unattributed` | `NoObservedSkillParticipation` | `Ineligible` |
 
 ```mermaid
 flowchart TB
   EV["一条证据信封"] --> KIND{"信封类型"}
-  KIND -->|"SkillLoading<br/>直接观察到加载"| VER["verified<br/>ExactNativeObservation"]
+  KIND -->|"SkillLoading<br/>直接观察到加载"| VER["Verified<br/>ExactNativeObservation"]
   KIND -->|"ManagedCli / InteractiveCli"| SNAP{"有挂载快照?"}
-  SNAP -->|"有"| COR["correlated<br/>ActiveCliMountSnapshot"]
-  SNAP -->|"无，但有配置绑定"| WEAK["weak<br/>ConfiguredBindingOnly"]
-  SNAP -->|"无，也无绑定"| NONE["未归因<br/>NoObservedSkillParticipation"]
+  SNAP -->|"有"| COR["Correlated<br/>ActiveCliMountSnapshot"]
+  SNAP -->|"无，但有配置绑定"| WEAK["Weak<br/>ConfiguredBindingOnly"]
+  SNAP -->|"无，也无绑定"| NONE["Unattributed<br/>NoObservedSkillParticipation"]
 
   VER --> AUTO["AutomatedConsideration"]
-  COR --> AUTO
-  WEAK --> HUM["HumanReviewOnly"]
-  NONE --> INE["Ineligible"]
+  COR --> HUM["HumanReviewOnly"]
+  WEAK --> INE["Ineligible"]
+  NONE --> INE
 ```
+
+**分界线画得比直觉更靠前**。「挂载着」不等于「用了它」——所以 `Correlated` 只能给人看，进不了自动化。而「配置上绑了它」连挂载快照都没有，**直接判 `Ineligible`**，与「压根没观察到任何 Skill 参与」同级：让一个从未被调用的 Skill 为别人的失败背锅，哪怕只是列进人工复核清单，也是在浪费复核者的注意力。
 
 ## 信号分类
 
@@ -76,7 +85,9 @@ flowchart TB
 - **输入上限 `MAX_SANITIZER_INPUT_CHARS = 1000`**。超长输入直接拒绝而不是截断后再脱敏——**截断可能正好把一个密钥切成两半，让后半段逃过规则**。
 - **脱敏器带版本号**。规则会演进，落盘的证据记录自己是被哪一版处理过的，所以将来收紧规则时能知道哪些旧记录需要重新处理。
 
-存储本身是**加密的**，见上下文的 `storage_values` 与 `purge` 模块。
+证据的清除路径由 `purge` 模块拥有——**保留期到了要能真的删掉**，而不只是标记为不可见。
+
+> `openspec/project.md` 把这个上下文的所有权描述为「encrypted evidence storage」，但当前实现里没有对应的加密层（`storage_values.rs` 只做枚举与字符串的互转，schema 与仓储也没有加密调用）。改动这一块之前，先确认规范与实现哪一侧才是当前意图。
 
 ## 与 Skill 体系的关系
 
