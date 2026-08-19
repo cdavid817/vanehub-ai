@@ -26,13 +26,13 @@ Implementation landed during the 2026-08-19/20 desktop verification pass, ahead 
 - [x] 4.2 `npm run lint:ci`, `tsc --noEmit`, `npm run build`, `npm run contracts:check`, `npm run docs:check`
 - [x] 4.3 Raise the `agent_runtime/infrastructure` line budget with per-item accounting for the added regression tests and comments (`86e8b86c`, `d8fb8787`)
 - [x] 4.4 Confirm on a real desktop client that codex-cli and opencode complete a turn, and that gemini-cli reaches its provider instead of failing at process creation (`test:desktop`, 10/10 spec files)
-- [ ] 4.5 `openspec validate correct-cli-launch-and-availability-contracts --strict`
+- [x] 4.5 `openspec validate correct-cli-launch-and-availability-contracts --strict` (valid; `openspec validate --specs --strict` passes 138/138)
 
 ## 5. Remaining behaviour to settle
 
-- [ ] 5.1 Decide whether claude-code should stream from `content_block_delta` rather than landing the reply in one piece, and whether that risks double-counting against the final `assistant` event
-- [ ] 5.2 Confirm no consumer of `RunnerLaunchSpec` re-serialises arguments into a single string, so admitting line breaks cannot reach a shell through a path this change did not inspect
-- [ ] 5.3 Decide whether an Agent reported available but refused by its provider for account reasons should surface that distinction in the registry, rather than only at the first turn
+- [x] 5.1 **Decided: not in this change.** The double-counting is not a risk to weigh, it is what a recorded turn does. `--include-partial-messages` is in VaneHub's argv, and the CLI wraps each delta as `{"type":"stream_event","event":{"type":"content_block_delta",...}}` -- the top-level type, which is what the parser dispatches on, so the existing `content_block_delta` arm never fires for it. Unwrapping the envelope would emit the partial `PO` and then the complete `PONG` from the terminal `assistant` event, both recorded verbatim in `providers/tests.rs:1185`. Streaming therefore requires suppressing the terminal event's text as well, which changes what "the reply" is for the transcript and for usage accounting. That is its own change
+- [x] 5.2 Swept every consumer of `RunnerLaunchSpec.arguments`; findings recorded in the verification report
+- [x] 5.3 **Decided: not in the registry.** Availability is a filesystem probe that answers "is the binary here", and it enumerates every Agent on every listing. Making it answer "will the provider accept this account" would put a network round trip per Agent in that path, and the answer would still be stale by the time a turn starts -- an account can be refused between the listing and the send. The refusal already surfaces where it is current, at the first turn. What would help without either cost is remembering the last observed refusal and showing it as an advisory on the Agent card, which is a session-state feature rather than a registry one, and needs its own proposal
 
 ## 6. Archive
 

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
+import { selectOption } from "../helpers/native-select.mjs";
+
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 
@@ -190,12 +192,19 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     const agentIds = agents.map((agent) => agent.id);
     const cards = [];
     for (const button of await dialog.$$("button[aria-pressed]")) {
-      // The Agent cards render `agent.id` verbatim on its own line
+      // The Agent cards render `agent.id` verbatim in a span of its own
       // (create-session-agent-section.tsx:62), which is the one label in this dialog that is an
       // identifier rather than a translation. The single/multi mode buttons also carry
-      // aria-pressed, and an exact line match is what tells them apart.
-      const lines = (await button.getText()).split("\n").map((line) => line.trim());
-      const agentId = agentIds.find((id) => lines.includes(id));
+      // aria-pressed, and requiring a span whose whole text *is* the id is what tells them apart.
+      //
+      // Read from the DOM rather than from `getText()`: these spans are laid out with no line box
+      // between them, so getText collapses the card to "Claude CodeClaude Codeclaude-code" and a
+      // line-wise match finds nothing. That reported "the dialog offered no installed Agent" over
+      // a screenshot showing all five of them.
+      const agentId = await globalThis.browser.execute((card, ids) => {
+        const spans = Array.from(card.querySelectorAll("span"));
+        return ids.find((id) => spans.some((span) => (span.textContent ?? "").trim() === id)) ?? null;
+      }, button, agentIds);
       if (agentId) cards.push({ agentId, button, pressed: (await button.getAttribute("aria-pressed")) === "true" });
     }
     const offered = cards.filter((card) => usableIds.has(card.agentId));
@@ -542,7 +551,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     // work-board-card.tsx:33 -- the stage picker's option values are the raw stage ids, so driving
     // the real control needs no translated option text.
     const picker = await globalThis.$(`[data-testid="work-item-${workItemId}"] select`);
-    await picker.selectByAttribute("value", "planned");
+    await selectOption("The work item's stage picker", picker, "planned");
     await globalThis.browser.waitUntil(
       async () => (await stageOf()) === workItemStages.indexOf("planned"),
       { timeout: 30_000, timeoutMsg: "Choosing a stage did not move the card into that column." },

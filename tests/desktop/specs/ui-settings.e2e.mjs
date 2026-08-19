@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { Key } from "webdriverio";
+
+import { selectOption } from "../helpers/native-select.mjs";
 
 /**
  * Interactive coverage of the Settings surface: real clicks on real widgets.
@@ -127,8 +130,13 @@ async function fill(description, element, value) {
   await element.click();
   const current = String((await element.getProperty("value")) ?? "");
   if (current.length > 0) {
-    await globalThis.browser.keys(["End"]);
-    await globalThis.browser.keys(new Array(current.length).fill("Backspace"));
+    // Select-all rather than one Backspace per character. A counted run is off by one whenever a
+    // keystroke lands before the caret settles from the click, and the residue then rides along
+    // into the typed value: a 12-character field cleared with 12 Backspaces produced
+    // "Ivanehub-ui-settings-e2e", which reads as the app mangling input rather than as the test
+    // miscounting. Ctrl+A does not depend on the caret position or on how many keys arrive.
+    await globalThis.browser.keys([Key.Ctrl, "a"]);
+    await globalThis.browser.keys(["Backspace"]);
   }
   if (value.length > 0) await element.addValue(value);
   await globalThis.browser.waitUntil(
@@ -137,7 +145,14 @@ async function fill(description, element, value) {
   );
 }
 
-const openDialogCount = async () => (await globalThis.$$(DIALOG)).length;
+// Only dialogs that are on screen count. The Settings shell parks the pages you are not on with
+// the `hidden` attribute rather than unmounting them, so a dialog left open by a failing case
+// stays in the document and makes the next case's count read 2 -- reporting "the dialog did not
+// open" about a dialog that is plainly open in the failure screenshot.
+const openDialogCount = async () => globalThis.browser.execute((selector) => (
+  Array.from(globalThis.document.querySelectorAll(selector))
+    .filter((dialog) => dialog.checkVisibility()).length
+), DIALOG);
 
 async function waitForDialog(description, expected) {
   await globalThis.browser.waitUntil(async () => (await openDialogCount()) === expected, {
@@ -289,11 +304,11 @@ globalThis.describe("VaneHub AI desktop Settings interactions", () => {
     });
     // Re-queried rather than reusing the handle above: the panel re-renders while settings load,
     // and a detached handle fails as "element not interactable" rather than as a product problem.
-    await (await fontSizeSelect()).selectByAttribute("value", target);
-    await globalThis.browser.waitUntil(async () => {
-      const select = await fontSizeSelect();
-      return (await select.getProperty("value")) === target && (await select.isEnabled());
-    }, { timeout: 30_000, timeoutMsg: `The font-size select never settled on ${target}.` });
+    await selectOption("The font-size select", await fontSizeSelect(), target);
+    await globalThis.browser.waitUntil(async () => (await fontSizeSelect()).isEnabled(), {
+      timeout: 30_000,
+      timeoutMsg: "The Basic settings form never re-enabled after the save.",
+    });
 
     // Proves the widget reached the command rather than only re-rendering its own local state.
     const saved = await invoke(({ core }) => core.invoke("get_settings"));
@@ -313,7 +328,7 @@ globalThis.describe("VaneHub AI desktop Settings interactions", () => {
       timeout: 30_000,
       timeoutMsg: "The Basic settings form never became interactive again.",
     });
-    await (await fontSizeSelect()).selectByAttribute("value", original);
+    await selectOption("The font-size select", await fontSizeSelect(), original);
     await globalThis.browser.waitUntil(
       async () => (await (await fontSizeSelect()).getProperty("value")) === original,
       { timeout: 30_000, timeoutMsg: `The font-size select never returned to ${original}.` },
@@ -368,8 +383,10 @@ globalThis.describe("VaneHub AI desktop Settings interactions", () => {
     );
 
     // First invalid entry: a name that breaks the kebab-case rule (mcp-server-validation.ts:28).
-    // Nothing else is asserted about the other fields here -- the schema's `superRefine` only runs
-    // once the base object parses (mcp-server-validation.ts:39), so a bad name is reported alone.
+    // Only the name field is asserted. The run shows the form raising the missing-command error in
+    // the same pass, so the two are not mutually exclusive the way reading `superRefine` alone
+    // suggests -- which is exactly why the second pass below is what proves the errors are
+    // per-field rather than one banner repeated.
     await fill("the MCP server name", await nameInput(), "Invalid Name");
     await (await submit()).click();
     await globalThis.browser.waitUntil(async () => {
