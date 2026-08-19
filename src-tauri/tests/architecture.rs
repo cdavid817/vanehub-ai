@@ -2389,3 +2389,95 @@ fn physical_line_counter_matches_newline_terminated_counting() {
     assert_eq!(physical_lines("a\nb\nc"), 3);
     assert_eq!(physical_lines(""), 0);
 }
+
+/// `registry.rs` routes an invoke by *name*: `supplemental_registry::is_command` decides whether a
+/// command reaches the supplemental handler at all, and anything it does not name falls through to
+/// the core handler, which does not have it. A command registered in `generate_handler!` but
+/// missing from that name list is therefore dead at runtime -- `Command <name> not found` -- and
+/// nothing in the type system notices, because the two lists never reference each other.
+///
+/// Found this way: the Goals screen rendered its error banner on a real desktop run while every
+/// goals command sat correctly in the handler macro.
+#[test]
+fn supplemental_registry_routes_every_command_it_registers() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/supplemental_registry.rs"),
+    )
+    .expect("read supplemental registry");
+
+    let registered = registered_supplemental_commands(&source);
+    assert!(
+        registered.len() > 20,
+        "the registry parser found only {} commands, so it has stopped matching the source",
+        registered.len()
+    );
+    let routed = routed_supplemental_commands(&source);
+
+    let unroutable = registered
+        .iter()
+        .filter(|command| !routed.contains(*command))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        unroutable.is_empty(),
+        "[ARCH-NATIVE-008] registered but never routed, so every call answers \
+         `Command <name> not found`:\n{}",
+        unroutable.join("\n")
+    );
+
+    let unregistered = routed
+        .iter()
+        .filter(|command| !registered.contains(*command))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        unregistered.is_empty(),
+        "[ARCH-NATIVE-008] routed to the supplemental handler but not registered in it, so the \
+         call reaches a handler that cannot answer it:\n{}",
+        unregistered.join("\n")
+    );
+}
+
+/// Final path segment of every entry inside `generate_handler![ ... ]`.
+fn registered_supplemental_commands(source: &str) -> Vec<String> {
+    let start = source
+        .find("generate_handler![")
+        .map(|index| index + "generate_handler![".len())
+        .expect("supplemental registry declares a handler");
+    let mut depth = 1usize;
+    let mut end = start;
+    for (offset, character) in source[start..].char_indices() {
+        match character {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = start + offset;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    source[start..end]
+        .lines()
+        .filter_map(|line| {
+            let entry = line.trim().trim_end_matches(',');
+            (!entry.is_empty() && !entry.starts_with("//"))
+                .then(|| entry.rsplit("::").next().unwrap_or(entry).to_string())
+        })
+        .collect()
+}
+
+/// Every string literal in the `is_command` name list.
+fn routed_supplemental_commands(source: &str) -> Vec<String> {
+    let start = source
+        .find("fn is_command")
+        .expect("supplemental registry declares a name-based router");
+    source[start..]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
