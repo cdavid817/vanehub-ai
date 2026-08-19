@@ -59,6 +59,13 @@ export default defineConfig({
         // is exactly the failure mode that already made nested worktrees stall Vite past the e2e
         // timeout — same cause, new location.
         "**/target/**",
+        // Nested git worktrees live here, each with its own `node_modules` and `target`. The
+        // test runner already skips them (`test.exclude` below); the dev server did not, so a
+        // machine carrying a handful of them watched hundreds of thousands of files and took
+        // longer to bootstrap the app than the e2e navigation timeout allows — the run fails on
+        // a static shell, which reads as a deterministic UI regression rather than a watcher
+        // problem.
+        "**/.claude/**",
         "**/.docs-build/**",
         "**/.docs-screenshots/**",
         "**/.docs-target/**",
