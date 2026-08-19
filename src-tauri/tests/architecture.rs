@@ -2224,9 +2224,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `checkout_terminal_io` and its doc; 13 for the `TerminalIo` struct and its doc; 8 for the
     // `checkout_io` method; and 2 net across the construction site, the reader loop and the
     // `input`/`resize` rewrites that stopped holding the registry lock across blocking PTY calls.
+    //
+    // Raised again from 59,233 by +46, all of it one regression test:
+    // `claude_code_unrecognised_structured_events_are_not_emitted_as_text` in
+    // `providers/tests.rs`. It pins the case where a claude-code turn's eight `stream_event`
+    // wrappers and its `rate_limit_event` were emitted as the Agent's own words, because the
+    // parser's fallback treated any unrecognised line as literal output. The production side of
+    // that fix replaced one match arm and added no net lines.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_233,
+        budget: 59_279,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

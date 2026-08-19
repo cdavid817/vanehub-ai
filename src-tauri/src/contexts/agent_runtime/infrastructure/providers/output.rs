@@ -330,6 +330,9 @@ impl ProviderOutputParser {
     }
 }
 
+/// Test-only since the claude parser stopped falling back to it for unrecognised structured
+/// events; `ParserKind::GenericLine`, its one remaining caller, is itself `#[cfg(test)]`.
+#[cfg(test)]
 fn parse_generic_line(line: &str) -> ProviderOutputEvent {
     if line.trim().is_empty() {
         ProviderOutputEvent::Empty
