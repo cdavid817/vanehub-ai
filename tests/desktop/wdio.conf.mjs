@@ -70,16 +70,24 @@ export const config = {
   // trip through an egress proxy; when mocha's ceiling was the lower of the two it killed the test
   // first, which reads as "the Agent never answered" rather than "the harness stopped waiting".
   mochaOpts: { ui: "bdd", timeout: 300_000 },
-  afterTest: async (_test, _context, result) => {
-    if (!result.passed) {
-      try {
-        await globalThis.browser.saveScreenshot(path.join(resultDir, "screenshots", "desktop-smoke-failure.png"));
-      } catch (error) {
-        await writeFile(
-          path.join(resultDir, "screenshots", "unavailable.txt"),
-          `Failure screenshot unavailable: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      }
+  // Named per test. A single fixed filename meant the last failure in a run overwrote every
+  // earlier one, so the run with the most to diagnose kept the least evidence -- one screen-sweep
+  // failure was already lost this way, to screenshots taken by a later spec.
+  afterTest: async (test, _context, result) => {
+    if (result.passed) {
+      return;
+    }
+    const slug = `${test.parent ?? "spec"}-${test.title ?? "test"}`
+      .replaceAll(/[^\p{L}\p{N}]+/gu, "-")
+      .replaceAll(/^-|-$/g, "")
+      .slice(0, 120);
+    try {
+      await globalThis.browser.saveScreenshot(path.join(resultDir, "screenshots", `${slug}.png`));
+    } catch (error) {
+      await writeFile(
+        path.join(resultDir, "screenshots", `${slug}-unavailable.txt`),
+        `Failure screenshot unavailable: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
     }
   },
   onPrepare: async () => {

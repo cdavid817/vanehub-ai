@@ -57,6 +57,13 @@ async function assertScreenRendered(name) {
   );
   const notFound = text.match(/Command \w+ not found/);
   assert.equal(notFound, null, `${name} called an unregistered command: ${notFound?.[0]}`);
+  // A `LazyFeature` fallback is a screen that has not arrived yet. Counting it as rendered made
+  // the sweep race the chunk load: the same screen was captured as full content in one run and as
+  // a bare spinner in the next, and both were reported as covered.
+  assert.ok(
+    !/^(正在加载功能|Loading feature)/.test(text),
+    `${name} was captured as its loading placeholder rather than the screen`,
+  );
 }
 
 async function navigate(path) {
@@ -69,6 +76,14 @@ async function navigate(path) {
 globalThis.describe("VaneHub AI desktop screen sweep", () => {
   globalThis.before(async () => {
     await mkdir(shots, { recursive: true });
+    // Reload rather than accept whatever the previous spec left behind. WDIO's `deleteSession`
+    // does not terminate the Tauri app in this harness, so spec files can inherit a page that has
+    // already driven an npm install, a pip install and an MCP lifecycle. On such a page the
+    // `pushState` route change never commits -- react-router wraps every history-driven location
+    // change in `startTransition`, which keeps the old DOM on screen with no error and no log, so
+    // the sweep sat on Settings until it timed out. Every run that passed had a freshly launched
+    // app; both that failed had inherited one.
+    await globalThis.browser.refresh();
     const root = await globalThis.$("#root");
     await root.waitForExist({ timeout: 120_000 });
     await globalThis.browser.waitUntil(
@@ -158,11 +173,16 @@ globalThis.describe("VaneHub AI desktop screen sweep", () => {
     }, { timeout: 30_000, timeoutMsg: "The sweep session was not created." });
 
     await navigate(`/workspace/sessions/${encodeURIComponent(session.id)}`);
+    // Assert the route committed before waiting on anything inside it. The tab bar is not lazy --
+    // `mountedTabs` starts as `{"chat"}` and `SessionTabBar` renders unconditionally -- so if the
+    // button is missing, the navigation never landed. Waiting longer diagnoses that as "the tab
+    // bar is slow", which is how a stalled route once read as a rendering problem.
+    await globalThis.browser.waitUntil(
+      async () => (await globalThis.browser.getUrl()).includes(encodeURIComponent(session.id)),
+      { timeout: 20_000, timeoutMsg: "The WebView never routed to the session workspace." },
+    );
     const firstTab = await globalThis.$('[aria-controls="session-tab-panel-chat"]');
-    // The session workspace mounts nine lazily-loaded tab panels, which on a loaded machine takes
-    // longer than the default. A short wait here fails as "the tab bar is missing" when the truth
-    // is that it had not finished mounting.
-    await firstTab.waitForExist({ timeout: 90_000 });
+    await firstTab.waitForExist({ timeout: 30_000 });
 
     for (const tab of SESSION_TABS) {
       const button = await globalThis.$(`[aria-controls="session-tab-panel-${tab}"]`);
