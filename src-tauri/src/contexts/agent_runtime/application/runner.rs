@@ -208,7 +208,7 @@ impl RunnerLaunchSpec {
             || self
                 .arguments
                 .iter()
-                .any(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
+                .any(|value| validate_text_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
             || self
                 .cwd
                 .as_deref()
@@ -379,6 +379,27 @@ fn validate_token(value: &str, _field: &'static str) -> Result<(), RunnerError> 
 
 fn validate_value(value: &str, limit: usize) -> Result<(), RunnerError> {
     if value.is_empty() || value.len() > limit || value.chars().any(char::is_control) {
+        Err(RunnerError::new(RunnerErrorKind::InvalidLaunch))
+    } else {
+        Ok(())
+    }
+}
+
+/// Same bounds as `validate_value`, but tolerant of the whitespace that ordinary text contains.
+///
+/// Arguments are not identifiers. Some managed CLIs take the prompt as an argv entry rather than
+/// on stdin, and VaneHub composes that prompt from several sections, so it always holds newlines
+/// — rejecting every control character made a chat turn impossible for those Agents, failing as
+/// `runner_invalid_launch` before anything was spawned.
+///
+/// Tab, CR and LF are the only ones let through. They are not an injection vector: arguments are
+/// handed to the OS as an array and never pass through a shell. The rest of the control range
+/// still is one — NUL terminates a C string and would silently truncate the argument the caller
+/// believes it passed, and an escape sequence in an argument is not prompt text.
+fn validate_text_value(value: &str, limit: usize) -> Result<(), RunnerError> {
+    let disallowed =
+        |character: char| character.is_control() && !matches!(character, '\t' | '\n' | '\r');
+    if value.is_empty() || value.len() > limit || value.chars().any(disallowed) {
         Err(RunnerError::new(RunnerErrorKind::InvalidLaunch))
     } else {
         Ok(())

@@ -242,3 +242,54 @@ fn reference() -> RunnerReference {
         authority_witness: "local-policy-v1".into(),
     }
 }
+
+/// gemini-cli, opencode and antigravity-cli receive the prompt as an argv entry rather than on
+/// stdin, and VaneHub composes that prompt from several sections, so it always contains newlines.
+/// Rejecting every control character therefore made a chat turn impossible for three of the five
+/// managed CLI Agents -- `runner_invalid_launch` before the process was ever spawned.
+///
+/// Newlines are not an injection vector here: arguments are handed to the OS as an array, never
+/// through a shell. NUL is different -- it terminates a C string and would silently truncate the
+/// argument the caller believes it passed -- so it stays rejected.
+#[test]
+fn a_multi_line_prompt_argument_is_accepted_but_a_nul_is_not() {
+    let mut multi_line = launch_spec();
+    multi_line.arguments = vec![
+        "run".into(),
+        "System context\n\nUser: reply with PONG\n".into(),
+    ];
+    multi_line
+        .validate()
+        .expect("a composed prompt delivered through argv must launch");
+
+    let mut tabbed = launch_spec();
+    tabbed.arguments = vec!["--format".into(), "a\tb\r\nc".into()];
+    tabbed
+        .validate()
+        .expect("tabs and carriage returns are ordinary prompt text");
+
+    let mut nul = launch_spec();
+    nul.arguments = vec!["run".into(), "before\u{0}after".into()];
+    assert_eq!(
+        nul.validate().expect_err("NUL truncates the argument").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+
+    let mut escape = launch_spec();
+    escape.arguments = vec!["run".into(), "\u{1b}[31mred\u{1b}[0m".into()];
+    assert_eq!(
+        escape
+            .validate()
+            .expect_err("terminal escape sequences are not prompt text")
+            .kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+
+    // The executable itself is an identifier, not free text, and stays strict.
+    let mut executable = launch_spec();
+    executable.executable = "fixture\ncli".into();
+    assert_eq!(
+        executable.validate().expect_err("executable name").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+}
