@@ -129,7 +129,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 | --- | --- |
 | 仓库结构 | [仓库布局与模块归属、各限界上下文职责](docs/developer-guide/zh-CN/src/repository-orientation.md) |
 | 运行时边界 | [前端服务边界、Web/mock 与 Tauri 适配器](docs/developer-guide/zh-CN/src/runtime-boundaries.md) |
-| 限界上下文 | [十一个 native bounded contexts](docs/developer-guide/zh-CN/src/native-contexts.md) |
+| 限界上下文 | [21 个 native bounded context 各自拥有什么](docs/developer-guide/zh-CN/src/native-contexts.md) |
 | Agent 生命周期与 provider 运行时 | [注册 Agent 编辑、稳定 provider 解析、能力声明](docs/developer-guide/zh-CN/src/agent-lifecycle.md) |
 | 终端与 PTY 运行时 | [会话级 Agent Terminal、自动启动/附着、远程终端](docs/developer-guide/zh-CN/src/terminal-runtime.md) |
 | 工具注册表与执行 | [固定原生工具目录、按 interface_format 翻译、多轮工具循环](docs/developer-guide/zh-CN/src/tool-registry.md) |

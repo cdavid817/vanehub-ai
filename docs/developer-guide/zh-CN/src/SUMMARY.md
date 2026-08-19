@@ -1,29 +1,51 @@
 # 目录
 
 - [开发者指南](index.md)
+
+# 先读这三章
+
 - [仓库结构与模块导览](repository-orientation.md)
 - [运行时与服务边界](runtime-boundaries.md)
-- [有效 Skill 运行时](effective-skill-runtime.md)
-- [Skill 覆盖层治理](skill-overlay-governance.md)
 - [Native 限界上下文](native-contexts.md)
+
+# Agent 执行
+
 - [Agent 生命周期与 provider 运行时](agent-lifecycle.md)
+- [OnePiece native Agent](onepiece-native-agent.md)
+- [OnePiece 内置工具](onepiece-builtin-tools.md)
 - [终端与 PTY 运行时](terminal-runtime.md)
 - [Tool registry 与执行](tool-registry.md)
-- [权限模型](permission-model.md)
+- [多 Agent 群聊](multi-agent-group-chat.md)
+- [Loop 与 Plan 运行时](loop-and-plan-runtime.md)
+- [会话恢复](session-recovery.md)
+
+# 上下文与检索
+
 - [上下文压缩](context-compaction.md)
+- [跨会话记忆](cross-session-memory.md)
 - [检索与向量搜索](retrieval.md)
 - [Tree-sitter 代码索引](tree-sitter-code-indexing.md)
-- [跨会话记忆](cross-session-memory.md)
-- [会话恢复](session-recovery.md)
-- [OnePiece native Agent](onepiece-native-agent.md)
-- [多 Agent 群聊](multi-agent-group-chat.md)
+- [LSP 代码智能](lsp-code-intelligence.md)
+
+# 工具与扩展
+
 - [Skill 管理](skill-management.md)
+- [有效 Skill 运行时](effective-skill-runtime.md)
+- [Skill 覆盖层治理](skill-overlay-governance.md)
 - [MCP 工具与客户端](mcp-tools.md)
 - [IM connector](im-connectors.md)
-- [Loop 与 Plan 运行时](loop-and-plan-runtime.md)
-- [使用统计](usage-statistics.md)
-- [LSP 代码智能](lsp-code-intelligence.md)
+
+# 策略与可观测
+
+- [权限模型](permission-model.md)
 - [持久化与统一日志](persistence-and-logging.md)
-- [测试、打包与发布](testing-and-release.md)
+- [使用统计](usage-statistics.md)
+
+# 工程流程
+
 - [OpenSpec 工作流](openspec-workflow.md)
+- [测试、打包与发布](testing-and-release.md)
+
+# 参考
+
 - [Native API 参考](native-api-reference.md)

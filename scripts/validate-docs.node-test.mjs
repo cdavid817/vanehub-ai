@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   boundedContextDrift,
+  chapterBoundedContexts,
   headingIds,
   documentedBoundedContexts,
   hasDocumentedSymbol,
@@ -120,6 +121,40 @@ test("accepts a table that matches the directories exactly", () => {
     boundedContextDrift(["agent_runtime", "work_board"], ["agent_runtime", "work_board"]),
     { stale: [], undocumented: [] },
   );
+});
+
+const contextMapChapter = [
+  "# Native bounded contexts",
+  "",
+  "### Agent execution",
+  "",
+  "| Context | Owns |",
+  "| --- | --- |",
+  "| `agent_runtime` | Provider invocation |",
+  "",
+  "### Desktop",
+  "",
+  "| Context | Owns |",
+  "| --- | --- |",
+  "| `work_board` | Work items |",
+  "",
+  "## Facades",
+  "",
+  "| `agent_runtime` | Repeated in the second table |",
+  "",
+  "Prose naming `browser_automation` does not document it.",
+].join("\n");
+
+test("collects context rows across every table in the chapter and dedupes repeats", () => {
+  assert.deepEqual(chapterBoundedContexts(contextMapChapter), ["agent_runtime", "work_board"]);
+});
+
+test("does not count a context that the chapter only names in prose", () => {
+  assert.ok(!chapterBoundedContexts(contextMapChapter).includes("browser_automation"));
+});
+
+test("reports no rows rather than passing when the chapter has no tables", () => {
+  assert.deepEqual(chapterBoundedContexts("# Map\n\nNothing tabulated here.\n"), []);
 });
 
 test("keeps a hyphen inside a word and drops punctuation around it", () => {
