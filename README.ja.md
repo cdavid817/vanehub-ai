@@ -45,10 +45,25 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 | Antigravity CLI | Google | `agy` | Google | ❌ npm パッケージなし。公式インストーラースクリプトを使用 | ❌ Google サインインのみ |
 
 - アプリ内インストールとは、設定 → CLI 管理から VaneHub AI がインストールとアップグレードを代行できるかどうかです。npm のみを経由するため、Homebrew・winget・scoop で入れたものは元のソースで更新してください。
-- サードパーティモデルエンドポイントとは、設定 → Agent 設定から DeepSeek や OpenRouter などの互換エンドポイントに向けられるかどうかです。各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います——VaneHub AI は仲介しません。
+- サードパーティモデルエンドポイントとは、設定 → Agent 設定から DeepSeek や OpenRouter などの互換エンドポイントに向けられるかどうかです。**各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います**——VaneHub AI は仲介しません。
 - OpenCode のモデルファミリが「不明」なのは記載漏れではありません：設定した任意のモデルを駆動するため固定の所属がなく、「レビュアーは別のモデルファミリから」といった方針は適用されません。
 - Gemini CLI は Antigravity CLI に置き換えられつつあります。Google は 2026-06-18 より個人・無料アカウント向けに段階的な提供終了を開始しました。
 - CLI を一切入れたくない場合、組み込みのネイティブ API Agent OnePiece がアプリ内で HTTP 経由でモデルを呼び出します。以下のユーザーガイドを参照してください。
+
+### サポートするモデルプロバイダ
+
+25 社の設定テンプレートを内蔵し、OnePiece と 3 つの CLI Agent が共有します。カタログにないものはカスタム互換エンドポイントとして追加できます。
+
+| カテゴリ | プロバイダ |
+| --- | --- |
+| 公式 | Anthropic、OpenAI |
+| アグリゲータ・クラウド基盤 | OpenRouter、SiliconFlow、Alibaba Bailian、Volcengine Ark、Together AI、Fireworks AI、NVIDIA NIM、ModelScope、PPIO、Qiniu AI |
+| モデルベンダー | DeepSeek、Zhipu GLM、Kimi / Moonshot、xAI、Mistral AI、MiniMax、MiniMax Global、StepFun、Baichuan AI、Xiaomi MiMo、Z.AI |
+| 推論アクセラレータ | Groq、Cerebras |
+
+**どのプロバイダがどの Agent に使えるかは、提供するエンドポイントプロトコルで決まります**：Anthropic Messages に対応する 16 社は Claude Code に、OpenAI Chat Completions に対応する 24 社は Codex CLI と OpenCode に設定できます。
+
+完全なカタログ（各社アイコン、エンドポイントプロトコル、デフォルトモデル、API キー取得先）は[組み込みモデルプロバイダカタログ](docs/model-providers.md)（簡体字中国語）にあります。
 
 <!-- docs-section:download -->
 
