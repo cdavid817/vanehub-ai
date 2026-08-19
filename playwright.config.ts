@@ -5,6 +5,7 @@ const developmentUrl = `http://127.0.0.1:${developmentPort}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   timeout: 60_000,
   workers: 2,
   retries: process.env.CI ? 1 : 0,
