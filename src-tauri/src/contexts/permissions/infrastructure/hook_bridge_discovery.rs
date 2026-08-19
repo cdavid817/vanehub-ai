@@ -1,8 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 //! Per-launch port/token generation and the local discovery file the hook wrapper reads
 //! (design.md D3, D6). Both are regenerated every application start — nothing here is meant to
 //! survive a restart.
@@ -53,11 +48,15 @@ pub(crate) fn write_discovery_file(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    // `DiscoveryFile` is a `u16` and a `String`, so serialization has no failing case today.
+    // This function already reports failure to its caller, though, so routing the error there
+    // costs nothing and keeps the guarantee from resting on the shape of a struct someone may
+    // later extend.
     let contents = serde_json::to_string(&DiscoveryFile {
         port,
         token: token.to_string(),
     })
-    .expect("discovery file payload is always serializable");
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     fs::write(path, contents)
 }
 

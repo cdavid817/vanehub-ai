@@ -1,8 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 1 pre-existing site.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use crate::contexts::agent_runtime::application::{
     AgentRunner, PreparedRunnerLaunch, RunnerCapabilities, RunnerError, RunnerErrorKind,
     RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec, RunnerReference,
@@ -121,10 +116,15 @@ impl AgentRunner for RunnerRegistry {
     }
 
     fn capabilities(&self) -> RunnerCapabilities {
-        self.runners
-            .get(&RunnerKind::Local)
-            .expect("RunnerRegistry validates Local at construction")
-            .capabilities()
+        // `RunnerRegistry::new` rejects a runner set without `Local`, so this is unreachable.
+        // The trait returns a plain value, so there is no error channel to use; reporting no
+        // capabilities is the conservative direction, since under-reporting only degrades
+        // features while over-reporting would invite callers into paths nothing supports.
+        let Some(local) = self.runners.get(&RunnerKind::Local) else {
+            debug_assert!(false, "RunnerRegistry validates Local at construction");
+            return RunnerCapabilities::none();
+        };
+        local.capabilities()
     }
 
     fn prepare(
