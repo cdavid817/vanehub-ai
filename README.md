@@ -94,8 +94,6 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 ### User guide
 
-The Simplified Chinese guide is the authoritative complete set; the English guide mirrors its chapter topology, with not-yet-translated chapters marked as known gaps that link to their Chinese counterpart.
-
 | Topic | Entry |
 | --- | --- |
 | Quick start | [From installing a CLI to working in a workspace](docs/user-guide/en/src/getting-started.md) |
@@ -165,16 +163,18 @@ User guides are available in English and Simplified Chinese. Japanese, Tradition
 
 ### Agent infrastructure technical documentation
 
-The two guides above describe VaneHub AI itself. This set describes the **protocols and technologies it builds on** — read it when making a technology choice or implementing an integration layer. Index: [Agent infrastructure technical documentation](docs/agent-infrastructure/README.md).
-
-| Area | Documents |
+| Topic | Entry |
 | --- | --- |
-| Protocols and interfaces | [MCP](docs/agent-infrastructure/mcp-architecture.md) · [Function Calling](docs/agent-infrastructure/function-calling-architecture.md) · [LSP](docs/agent-infrastructure/lsp-architecture.md) · [A2A](docs/agent-infrastructure/a2a-architecture.md) |
-| Agent capability and orchestration | [multi-Agent systems](docs/agent-infrastructure/multi-agent-architecture.md) · [Agent Skills](docs/agent-infrastructure/agent-skills-architecture.md) · [built-in CLI parameter reference](docs/agent-infrastructure/builtin-cli-reference.md) |
-| Retrieval and code understanding | [RAG](docs/agent-infrastructure/rag-architecture.md) · [Tree-sitter](docs/agent-infrastructure/tree-sitter-architecture.md) |
-| Engineering method | [OpenSpec](docs/agent-infrastructure/openspec-architecture.md) |
-
-**These documents describe external specifications, not VaneHub AI commitments** — a protocol capability appearing there does not mean it is implemented. The two guides above define what is. Simplified Chinese only.
+| MCP | [protocol model and three-role architecture, transports, core primitives, lifecycle, authorization and security](docs/agent-infrastructure/mcp-architecture.md) |
+| Function Calling | [the call loop and constrained decoding, Anthropic versus OpenAI API differences, parallel calls and streaming assembly, structured output](docs/agent-infrastructure/function-calling-architecture.md) |
+| LSP | [protocol layering and lifecycle, capability negotiation, text synchronization, language and workspace features](docs/agent-infrastructure/lsp-architecture.md) |
+| A2A | [AgentCard/Task/Message/Artifact data model, task state machine, discovery, asynchronous update channels](docs/agent-infrastructure/a2a-architecture.md) |
+| Multi-Agent systems | [orchestration topologies and role frameworks, communication, context management, execution isolation, failure modes](docs/agent-infrastructure/multi-agent-architecture.md) |
+| Agent Skills | [the open specification and file format, progressive-disclosure loading, triggering and execution, comparison with MCP and prompts](docs/agent-infrastructure/agent-skills-architecture.md) |
+| Built-in CLI parameter reference | [every parameter family across the five CLIs, and the matrix projecting host task models onto each](docs/agent-infrastructure/builtin-cli-reference.md) |
+| RAG | [indexing and retrieval pipelines, semantic versus keyword retrieval, hybrid retrieval and reranking, evaluation](docs/agent-infrastructure/rag-architecture.md) |
+| Tree-sitter | [GLR incremental parsing, grammar toolchain and ABI, the query system, structured code chunking and repo maps](docs/agent-infrastructure/tree-sitter-architecture.md) |
+| OpenSpec | [the knowledge model behind spec-driven development, change-package artifact chains, the opsx command family, delta spec merging](docs/agent-infrastructure/openspec-architecture.md) |
 
 Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 

@@ -167,16 +167,18 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 ### Agent 基盤技術ドキュメント
 
-上記 2 つのガイドは VaneHub AI 自体を説明します。こちらは VaneHub AI が依拠する**プロトコルと技術そのもの**を説明します——技術選定や統合レイヤーの実装時に参照してください。索引は [Agent 基盤技術ドキュメント](docs/agent-infrastructure/README.md)。
-
-| 領域 | ドキュメント |
+| トピック | エントリ |
 | --- | --- |
-| プロトコルとインターフェース | [MCP](docs/agent-infrastructure/mcp-architecture.md) · [Function Calling](docs/agent-infrastructure/function-calling-architecture.md) · [LSP](docs/agent-infrastructure/lsp-architecture.md) · [A2A](docs/agent-infrastructure/a2a-architecture.md) |
-| Agent 能力とオーケストレーション | [マルチ Agent システム](docs/agent-infrastructure/multi-agent-architecture.md) · [Agent Skills](docs/agent-infrastructure/agent-skills-architecture.md) · [組み込み CLI パラメータ完全リファレンス](docs/agent-infrastructure/builtin-cli-reference.md) |
-| 検索とコード理解 | [RAG](docs/agent-infrastructure/rag-architecture.md) · [Tree-sitter](docs/agent-infrastructure/tree-sitter-architecture.md) |
-| エンジニアリング手法 | [OpenSpec](docs/agent-infrastructure/openspec-architecture.md) |
-
-**これらは外部仕様の説明であり、VaneHub AI の実装保証ではありません**——記載されたプロトコル能力が実装済みであることを意味しません。実装範囲は上記 2 つのガイドが定義します。簡体字中国語のみ提供されます。
+| MCP | [プロトコルモデルと三役アーキテクチャ、トランスポート、コアプリミティブ、ライフサイクル、認可とセキュリティ](docs/agent-infrastructure/mcp-architecture.md) |
+| Function Calling | [呼び出しループと制約デコード、Anthropic と OpenAI の API 差異、並列呼び出しとストリーム組み立て、構造化出力](docs/agent-infrastructure/function-calling-architecture.md) |
+| LSP | [プロトコル階層とライフサイクル、能力ネゴシエーション、テキスト同期モデル、言語およびワークスペース機能](docs/agent-infrastructure/lsp-architecture.md) |
+| A2A | [AgentCard/Task/Message/Artifact データモデル、タスク状態機械、発見機構、非同期更新チャネル](docs/agent-infrastructure/a2a-architecture.md) |
+| マルチ Agent システム | [オーケストレーション位相と役割フレームワーク、通信と協調、コンテキスト管理、実行分離、失敗モード](docs/agent-infrastructure/multi-agent-architecture.md) |
+| Agent Skills | [オープン仕様とファイル形式、漸進的開示ローディング、トリガーと実行、MCP/Prompt との位置づけ比較](docs/agent-infrastructure/agent-skills-architecture.md) |
+| 組み込み CLI パラメータ完全リファレンス | [5 種類の CLI のパラメータ族を網羅し、ホストが各 CLI へ投影するマッピング行列](docs/agent-infrastructure/builtin-cli-reference.md) |
+| RAG | [インデックスと検索パイプライン、セマンティック検索とキーワード検索の取捨、ハイブリッド検索と再ランキング、評価手法](docs/agent-infrastructure/rag-architecture.md) |
+| Tree-sitter | [GLR 増分解析、文法ツールチェーンと ABI、クエリシステム、構造化コード分割と Repo Map](docs/agent-infrastructure/tree-sitter-architecture.md) |
+| OpenSpec | [仕様駆動開発の知識モデル、変更パッケージの成果物チェーン、opsx コマンド族、Delta 仕様のマージ](docs/agent-infrastructure/openspec-architecture.md) |
 
 リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 
