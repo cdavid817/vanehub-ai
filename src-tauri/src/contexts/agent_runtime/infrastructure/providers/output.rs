@@ -509,7 +509,14 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
         "error" | "failed" => {
             ProviderOutputEvent::Failed(provider_failure(&value, "Agent output reported an error."))
         }
-        _ => parse_generic_line(line),
+        // A line that parsed as JSON is a structured event whether or not this parser has an arm
+        // for it, so falling back to `parse_generic_line` here published the envelope itself as
+        // the Agent's words. That is not hypothetical: `--include-partial-messages` is in
+        // VaneHub's own argv, and one turn emits eight `stream_event` wrappers plus a
+        // `rate_limit_event` around the single `assistant` event that carries the reply. The
+        // raw-text fallback above still covers output that is not JSON at all, which is the case
+        // it was written for.
+        _ => ProviderOutputEvent::Empty,
     }
 }
 
