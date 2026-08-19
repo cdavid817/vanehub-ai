@@ -15,6 +15,7 @@
 - [Loop Engineering 工程](loop-engineering.md)
 - [目标管理](goal-management.md)
 - [任务看板](todo-board.md)
+- [Agent 评测](evaluation.md)
 - [斜杠命令](slash-commands.md)
 - [代码评审](code-review.md)
 - [记忆与上下文](memory-and-context.md)

@@ -1,8 +1,6 @@
 # A2A（Agent2Agent Protocol）技术架构
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文是多 Agent 篇 §5 的展开专篇，介绍 A2A 协议的完整技术体系：数据模型（AgentCard / Task / Message / Artifact）、任务状态机、发现机制、三种异步更新通道、协议绑定、安全模型，以及宿主作为 A2A Server/Client 双端集成的设计。适用于对外暴露 Agent 能力、委派外部 Agent 任务的互操作层实现参考。
+> 本文是[多 Agent 系统技术架构](multi-agent-architecture.md) §5 的展开专篇，介绍 A2A 协议的完整技术体系：数据模型（AgentCard / Task / Message / Artifact）、任务状态机、发现机制、三种异步更新通道、协议绑定、安全模型，以及同时作为 A2A Server 与 Client 的双端集成设计。适用于对外暴露 Agent 能力、委派外部 Agent 任务时参考。
 >
 > 规范基准：**A2A v1.0**（2026 年发布的当前稳定版；协议由 Google 于 2025 年 4 月发布，2025 年 6 月起交 Linux Foundation 中立治理；核心数据模型与协议绑定已宣布稳定）。
 

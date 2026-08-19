@@ -1,8 +1,6 @@
-# VaneHub AI 内置 CLI 参数完全参考
+# AI 编码 CLI 参数完全参考
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文是 VaneHub AI 编排的五种 AI 编码 CLI 的参数完全参考：Claude Code、OpenCode、Codex CLI、Antigravity CLI，以及已停服的 Gemini CLI（迁移附录）。逐一覆盖调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入等参数族，并给出宿主（PTY 适配层）按统一任务模型向各 CLI 投影参数的映射矩阵。
+> 本文是五种 AI 编码 CLI 的参数完全参考：Claude Code、OpenCode、Codex CLI、Antigravity CLI，以及已停服的 Gemini CLI（迁移附录）。逐一覆盖调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入等参数族，并给出宿主（PTY 适配层）按统一任务模型向各 CLI 投影参数的映射矩阵。
 >
 > 版本基准（2026-08 核对）：Claude Code **v2.1.2xx**、OpenCode **1.14.x**、Codex CLI（当前发布线）、Antigravity CLI **v1.1.x**（`agy`，Gemini CLI 于 2026-06-18 停服后的官方接替者）。
 >

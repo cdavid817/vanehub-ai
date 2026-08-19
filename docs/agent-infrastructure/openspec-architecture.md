@@ -1,8 +1,6 @@
 # OpenSpec（规范驱动开发）技术架构
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文介绍 OpenSpec 的完整技术体系：规范驱动开发（SDD）的动机与知识模型、变更包工件链、opsx 命令族与生命周期、Delta 规格合并机制、多工具集成原理，以及 OpenSpec 在 Agent 工程中的上下文工程定位。适用于以 OpenSpec 治理项目变更流、跨 CLI 统一开发工作流的实践参考。
+> 本文介绍 OpenSpec 的完整技术体系：规范驱动开发（SDD）的动机与知识模型、变更包工件链、opsx 命令族与生命周期、Delta 规格合并机制、多工具集成原理，以及 OpenSpec 在 Agent 工程中的上下文工程定位。适用于以 OpenSpec 治理项目变更流、统一跨 CLI 开发工作流时参考。
 >
 > 版本基准：**OpenSpec v1.4.x**（Fission-AI 维护的开源 TypeScript CLI，MIT 协议，npm 包 `@fission-ai/openspec`，要求 Node.js ≥ 20.19；当前主推重构后的 **artifact-guided 工作流（opsx 命令族）**，支持 25+ 种 AI 编码工具）。
 

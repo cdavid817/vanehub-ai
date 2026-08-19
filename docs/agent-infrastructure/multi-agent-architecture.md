@@ -1,8 +1,6 @@
 # 多 Agent 系统（Multi-Agent Orchestration）技术架构
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文介绍多 Agent 系统的完整技术体系：编排拓扑与角色框架、通信与协调机制、上下文管理策略、执行隔离（Worktree/沙箱）、跨组织互操作协议（A2A v1.0）、失败模式分类与评估方法。适用于 DELEGATOR/WORKER/GUARD 编排框架、并行任务执行与 Worktree 隔离机制的实现参考。
+> 本文介绍多 Agent 系统的完整技术体系：编排拓扑与角色框架、通信与协调机制、上下文管理策略、执行隔离（Worktree/沙箱）、跨组织互操作协议（A2A v1.0）、失败模式分类与评估方法。适用于设计 DELEGATOR/WORKER/GUARD 一类编排框架、实现并行任务执行与 Worktree 隔离机制时参考。
 >
 > 生态基准：A2A 协议 **v1.0**（2026 年发布稳定版，Linux Foundation 治理）；架构经验主要参考 Anthropic 多 Agent 研究系统、主流编排框架（LangGraph、OpenAI Agents SDK、Claude Code Subagents）的公开工程实践。
 

@@ -1,8 +1,6 @@
 # Agent Skills（SKILL.md）技术架构
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文介绍 Agent Skills 的完整技术体系：开放规范与文件格式、渐进式披露加载模型、触发与执行机制、与 MCP/Prompt/Subagent 的定位对比、编写与评估方法论、安全模型。适用于 `.claude/skills/` 目录治理、跨 CLI 技能分发、以及 Native API Agent 的技能加载器实现参考。
+> 本文介绍 Agent Skills 的完整技术体系：开放规范与文件格式、渐进式披露加载模型、触发与执行机制、与 MCP/Prompt/Subagent 的定位对比、编写与评估方法论、安全模型。适用于技能目录治理、跨 CLI 技能分发、以及实现技能加载器时参考。
 >
 > 规范基准：**agentskills.io 开放规范**（Anthropic 于 2025 年 10 月推出 Agent Skills，2025 年 12 月 18 日开放为公共标准；截至 2026 年中，OpenAI Codex、GitHub Copilot、Cursor、Gemini CLI、VS Code 等约 40 个产品已兼容）。
 

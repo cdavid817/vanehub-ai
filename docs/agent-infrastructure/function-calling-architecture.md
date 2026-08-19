@@ -1,8 +1,6 @@
 # Function Calling（工具调用）技术架构
 
-> VaneHub AI 技术文档 · Agent 基础设施系列
->
-> 本文介绍 Function Calling 的完整技术体系：通用调用循环与约束解码原理、Anthropic Tool Use 与 OpenAI Function Calling 的 API 细节对比、并行调用与流式组装、结构化输出、以及多 Provider 适配层的设计。适用于 Native API Agent 的工具执行引擎、跨 Provider 消息格式转换层的实现参考。
+> 本文介绍 Function Calling 的完整技术体系：通用调用循环与约束解码原理、Anthropic Tool Use 与 OpenAI Function Calling 的 API 细节对比、并行调用与流式组装、结构化输出、以及多 Provider 适配层的设计。适用于实现工具执行引擎、跨 Provider 消息格式转换层时参考。
 >
 > API 基准：Anthropic Messages API（tool use，含 2025-11 后的 advanced tool use 能力族）与 OpenAI Responses API / Chat Completions API（2026 年现状：新项目官方推荐 Responses API，Assistants API 已废弃并定于 2026-08-26 关停）。
 
