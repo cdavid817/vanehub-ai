@@ -23,3 +23,16 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
         with:
           fail-on-severity: moderate
+          # GHSA-wrw7-89jp-8q8g (glib@0.18.5, moderate, Iterator/DoubleEndedIterator unsoundness
+          # in VariantStrIter) predates establish-cargo-workspace-skeleton and is not introduced by
+          # it: `git show <main>:src-tauri/Cargo.lock | grep -A2 'name = "glib"'` shows 0.18.5
+          # already resolved on main. It surfaces here only because that change moves the lockfile
+          # from src-tauri/Cargo.lock to the workspace-root Cargo.lock Cargo requires, and this
+          # action diffs dependency manifests by path — with no matching path on the base side, it
+          # reads the entire relocated lockfile as newly added, glib included. The package itself is
+          # five levels deep via tauri -> tray-icon -> gtk -> atk -> glib, gating the Linux tray-icon
+          # backend; nothing in this repository's own Cargo.toml can bump it without an upstream
+          # gtk-rs/Tauri version bump, which is out of scope for a workspace-layout change. Scoped to
+          # this one advisory only — remove once upstream ships a patched glib and this repo's
+          # gtk-rs-family dependencies pick it up.
+          allow-ghsas: GHSA-wrw7-89jp-8q8g

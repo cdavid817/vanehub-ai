@@ -1,18 +1,5 @@
-import type {
-  AgentMemory,
-  ExportSessionInput,
-  CreateSessionInput,
-  InteractionMode,
-  LaunchResult,
-  UpdateSessionSeatsInput,
-  Session,
-  SessionDetails,
-  SessionExportResult,
-  SessionSearchInput,
-  SessionSearchResult,
-  WorkflowState,
-} from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput } from "../types/chat";
+import type { Session } from "../types/agent";
+import type { ChatMessage, SendMessageInput } from "../types/chat";
 
 export interface EvidenceQueryInput {
   workspace?: string;
@@ -98,9 +85,7 @@ export interface PurgeEvidenceOutcome {
   deletedSeeds: number;
   deletedFeedback: number;
 }
-import type { OperationTask } from "../types/operation";
 import type { DesktopUpdateSnapshot, UpdateOperationReceipt, UpdatePreferences } from "../types/desktop-update";
-import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { EvaluationService } from "./evaluation-service";
 import type {
   ApiAgentService,
@@ -152,6 +137,12 @@ import type {
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
+import type { AgentMemoryService } from "./agent-memory-service";
+import type { ChatMessagingService } from "./chat-messaging-service";
+import type { SessionChatConfigService } from "./session-chat-config-service";
+import type { SessionLifecycleService, SessionSeatService } from "./session-lifecycle-service";
+import type { SessionQueryService } from "./session-query-service";
+import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
@@ -183,6 +174,13 @@ export interface AgentService extends
   AgentTerminalService,
   UsageStatisticsService,
   MissionControlService,
+  AgentMemoryService,
+  ChatMessagingService,
+  SessionChatConfigService,
+  SessionLifecycleService,
+  SessionQueryService,
+  SessionRecoveryService,
+  SessionSeatService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -200,13 +198,7 @@ export interface AgentService extends
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
-  listAgentRunners(sessionId: string, agentId: string): Promise<AgentRunnerDescriptor[]>;
   deleteApiAgent(agentId: string): Promise<void>;
-  /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
-   * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
-  listAllMemories(): Promise<AgentMemory[]>;
-  deleteAgentMemory(memoryId: string): Promise<void>;
-  resetAllMemories(): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
   listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
@@ -215,55 +207,7 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  getWorkflowState(): Promise<WorkflowState>;
-  selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;
-  launchActiveWorkflow(): Promise<LaunchResult>;
-  getSessionDetails(): Promise<SessionDetails>;
-  listSessions(): Promise<Session[]>;
-  listArchivedSessions(): Promise<Session[]>;
-  searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
-  getSession(sessionId: string): Promise<Session>;
-  getSessionRecoverySummary(sessionId: string): Promise<SessionRecoverySummary>;
-  listSessionRecoveryReports(sessionId: string, limit?: number): Promise<SessionRecoveryReport[]>;
-  acknowledgeSessionRecovery(
-    sessionId: string,
-    expectedRecoveryRevision: number,
-  ): Promise<SessionRecoveryAcknowledgement>;
-  getActiveSession(): Promise<Session | null>;
-  getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
-  saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
-  createSession(input: CreateSessionInput): Promise<OperationTask>;
-  deleteSession(sessionId: string): Promise<void>;
-  switchSession(sessionId: string): Promise<Session>;
-  renameSession(sessionId: string, title: string): Promise<Session>;
-  updateSessionSeats(input: UpdateSessionSeatsInput): Promise<Session>;
-  rebindRemoteSessionSshConnection(sessionId: string, connectionId: string): Promise<Session>;
-  pinSession(sessionId: string): Promise<Session>;
-  unpinSession(sessionId: string): Promise<Session>;
-  archiveSession(sessionId: string): Promise<Session>;
-  unarchiveSession(sessionId: string): Promise<Session>;
-  exportSession(input: ExportSessionInput): Promise<SessionExportResult>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
-  listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
-  saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
-  /**
-   * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
-   * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a
-   * question that already resolved or whose generation is gone.
-   */
-  resolveAgentQuestion(sessionId: string, callId: string, answer: string): Promise<boolean>;
-  /**
-   * Delivers the user's decision on an `exit_plan_mode` call waiting in `awaiting_input`. Resolves
-   * to whether a live waiter received it — the caller must only change the session's execution
-   * mode when it did, so an approval aimed at a dead generation cannot leave a session
-   * write-capable on the strength of a decision the model never saw.
-   */
-  resolvePlanExit(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
-  stopGeneration(sessionId: string): Promise<void>;
-  subscribeMessageEvents(
-    sessionId: string,
-    handler: (event: ChatStreamEvent) => void,
-  ): Promise<() => void>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

@@ -7,6 +7,8 @@ import type {
   LoopRun,
 } from "../types/loop";
 import { nowIso } from "./web-mock-clock";
+import { deleteWebSessionMessages } from "./web-chat-state";
+import { listWebSessions, replaceWebSessions } from "./web-session-state";
 
 // Owned here and never exported. The scheduler, the client and the composition root all reach this
 // state through the accessors below, so no importer can end up with a stale copy of it.
@@ -81,7 +83,7 @@ export function addWebLoopRoleSession(sessionId: string): void {
 }
 
 /** A snapshot, not the live Set: the composition root only reads it to filter sessions. */
-export function snapshotWebLoopRoleSessionIds(): string[] {
+function snapshotWebLoopRoleSessionIds(): string[] {
   return [...loopRoleSessionIds];
 }
 
@@ -156,15 +158,13 @@ export function createWebLoopIteration(runId: string, sequence: number, feedback
   };
 }
 
-/** Split from `resetWebLoopsForTest` so the composition root keeps the original ordering while the
- * chat message map it also clears stays where it is. */
-export function clearWebLoopTimersAndSubscribers(): void {
+export function resetWebLoopsForTest(): void {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
   loopSubscribers.clear();
-}
-
-export function clearWebLoopStateForTest(): void {
+  const roleSessionIds = snapshotWebLoopRoleSessionIds();
+  replaceWebSessions(listWebSessions().filter((session) => !roleSessionIds.includes(session.id)));
+  roleSessionIds.forEach((sessionId) => deleteWebSessionMessages(sessionId));
   loopRoleSessionIds.clear();
   loopDefinitions = [];
   loopRuns = [];

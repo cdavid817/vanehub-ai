@@ -131,7 +131,10 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin/mdbook.exe
             .docs-target
-          key: documentation-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'docs/toolchain.json') }}
+          # Cargo keeps the lockfile at the workspace root, so src-tauri/Cargo.lock no longer
+          # exists. hashFiles() on a missing path yields a constant, which would have turned this
+          # into a cache that never invalidates rather than an error.
+          key: documentation-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'docs/toolchain.json') }}
           restore-keys: |
             documentation-${{ runner.os }}-
 
@@ -237,10 +240,10 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Rust check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --workspace
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # Scoped to non-test targets on purpose. unwrap/expect are permitted in tests, and
       # `[lints.clippy]` in Cargo.toml has no target selectivity — setting these lints there
@@ -250,7 +253,7 @@ jobs:
         run: npm run native:panic:check
 
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --workspace
 
   native-coverage:
     name: Native Coverage

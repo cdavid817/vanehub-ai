@@ -18,6 +18,11 @@ export default tseslint.config(
       "node_modules",
       "playwright-report",
       "src-tauri",
+      // Cargo's target directory moved to the workspace root under establish-cargo-workspace-
+      // skeleton; it used to be covered implicitly by the "src-tauri" entry above. Build scripts
+      // (tauri-build here) generate JS artifacts under target/**/build/**/out/, which ESLint would
+      // otherwise lint as source.
+      "target",
       "test-results",
     ],
   },
@@ -66,10 +71,10 @@ export default tseslint.config(
   // 禁止新增条目;文件降到 300 行以下后删除该条目,由全局 max-lines 接管。
   // 子树聚合预算在 scripts/architecture/ 里,防止"拆分"退化成复制粘贴。
   ...[
-    ["src/services/web-agent-client.ts", 1877],
+    ["src/services/web-agent-client.ts", 822],
     ["src/services/tauri-agent-client.ts", 1213],
     ["src/types/agent.ts", 702],
-    ["src/services/agent-service.ts", 364],
+    ["src/services/agent-service.ts", 308],
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],

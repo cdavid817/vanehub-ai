@@ -53,6 +53,12 @@ export default defineConfig({
     watch: {
       ignored: [
         "**/src-tauri/**",
+        // Cargo's target directory moved to the workspace root under
+        // establish-cargo-workspace-skeleton; it used to be covered implicitly by the
+        // "**/src-tauri/**" entry above. Watching hundreds of thousands of build artifacts here
+        // is exactly the failure mode that already made nested worktrees stall Vite past the e2e
+        // timeout — same cause, new location.
+        "**/target/**",
         "**/.docs-build/**",
         "**/.docs-screenshots/**",
         "**/.docs-target/**",
@@ -65,6 +71,7 @@ export default defineConfig({
       "node_modules/**",
       "dist/**",
       "src-tauri/**",
+      "target/**",
       "tests/docs/**",
       "tests/e2e/**",
       // Nested git worktrees under .claude ship their own node_modules and e2e
