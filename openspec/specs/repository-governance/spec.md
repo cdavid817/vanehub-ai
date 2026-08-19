@@ -68,7 +68,7 @@ Every architecture detector introduced by the repository SHALL have deterministi
 - **THEN** compliant fixtures SHALL pass and one fixture for every prohibited construct SHALL fail with the expected rule id and location
 
 ### Requirement: Existing source constraints remain enforced
-The architecture gate SHALL preserve the repository's existing TypeScript, React, Rust, and file-size constraints and MUST NOT introduce a new blanket or permanent exemption. An existing oversized source path SHALL be governed by a recorded line budget rather than by disabling the file-size rule for that path. The prohibition on Rust panic shortcuts SHALL be enforced mechanically against non-test targets, and SHALL NOT be enforced against test targets, where the shortcuts are permitted.
+The architecture gate SHALL preserve the repository's existing TypeScript, React, Rust, and file-size constraints and MUST NOT introduce a new blanket or permanent exemption. An existing oversized source path SHALL be governed by a recorded line budget rather than by disabling the file-size rule for that path. The prohibition on Rust panic shortcuts SHALL be enforced mechanically against non-test targets, and SHALL NOT be enforced against test targets, where the shortcuts are permitted. A file-level panic-shortcut exemption SHALL record either the work expected to retire it or the reason panicking is correct at that site, and SHALL NOT be retained without one of the two.
 
 #### Scenario: Production source violates an existing constraint
 - **WHEN** production TypeScript uses explicit `any` or `@ts-ignore`, a new production TypeScript file exceeds 300 physical lines, or production Rust uses a prohibited panic shortcut
@@ -85,6 +85,14 @@ The architecture gate SHALL preserve the repository's existing TypeScript, React
 #### Scenario: A production panic shortcut predates the check
 - **WHEN** a production Rust file carried a panic shortcut before the check existed
 - **THEN** its exemption SHALL be recorded at that file with the reason and the work expected to retire it, rather than by weakening the check for all files
+
+#### Scenario: A production panic shortcut is reviewed and deliberately retained
+- **WHEN** a whitelisted production panic shortcut is reviewed and panicking is judged correct, because the site is an invariant with no safe fallback and no caller that could act on a typed error
+- **THEN** its file-level exemption SHALL be retained with a comment stating why panicking is correct, and SHALL NOT be recorded as work deferred to a later change
+
+#### Scenario: Every panic shortcut in a whitelisted file is eliminated
+- **WHEN** the last production panic shortcut in a whitelisted file is converted or removed
+- **THEN** that file's exemption SHALL be deleted in the same change, and the panic-shortcut check SHALL reject any later shortcut reintroduced into that file
 
 ### Requirement: Recorded line budgets for oversized source paths
 Every production source path that is exempt from the repository's default file-size limit SHALL carry a recorded numeric line budget instead of a disabled check. A budget SHALL be expressed as a pair: a **path budget** bounding the physical lines of one file or glob, and a **subtree budget** bounding the aggregate physical lines of the directory that contains it. The repository checks SHALL fail when either bound is exceeded.

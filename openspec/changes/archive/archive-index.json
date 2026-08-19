@@ -2947,6 +2947,32 @@
                      },
                      {
                          "archivedOn":  "2026-08-19",
+                         "changeName":  "decompose-api-tool-use-loop",
+                         "path":  "openspec/changes/archive/2026-08-19-decompose-api-tool-use-loop/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "extract-web-client-chat-state",
+                         "path":  "openspec/changes/archive/2026-08-19-extract-web-client-chat-state/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
                          "changeName":  "freeze-panic-shortcuts-in-production-code",
                          "path":  "openspec/changes/archive/2026-08-19-freeze-panic-shortcuts-in-production-code/",
                          "artifacts":  [
@@ -2956,6 +2982,58 @@
                                        ],
                          "capabilities":  [
                                               "repository-governance"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "prune-unused-dependencies",
+                         "path":  "openspec/changes/archive/2026-08-19-prune-unused-dependencies/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "relocate-heavyweight-inline-tests",
+                         "path":  "openspec/changes/archive/2026-08-19-relocate-heavyweight-inline-tests/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "retire-panic-shortcut-whitelist",
+                         "path":  "openspec/changes/archive/2026-08-19-retire-panic-shortcut-whitelist/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "repository-governance"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-19",
+                         "changeName":  "split-api-adapter-modules",
+                         "path":  "openspec/changes/archive/2026-08-19-split-api-adapter-modules/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
                                           ]
                      }
                  ]
