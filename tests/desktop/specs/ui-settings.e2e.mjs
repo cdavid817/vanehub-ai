@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { Key } from "webdriverio";
-
-import { selectOption } from "../helpers/native-select.mjs";
+import { fill, selectOption } from "../helpers/form-control.mjs";
 
 /**
  * Interactive coverage of the Settings surface: real clicks on real widgets.
@@ -116,34 +114,6 @@ async function pick(description, selector, script, ...args) {
  */
 const iconButtonLocator = (selector, icon) => Array.from(globalThis.document.querySelectorAll(selector))
   .flatMap((button, index) => (button.querySelector(icon) ? [index] : []));
-
-/**
- * Types `value` into a controlled input, clearing it with the keyboard first.
- *
- * Not `setValue`: that issues WebDriver's Element Clear, which assigns `value` directly. React's
- * controlled-input value tracker can swallow the event that follows, leaving component state on
- * the old text while the box on screen looks empty -- the submit then sends the stale value and
- * the test "passes" against a field it never actually changed.
- */
-async function fill(description, element, value) {
-  await element.waitForClickable({ timeout: 15_000 });
-  await element.click();
-  const current = String((await element.getProperty("value")) ?? "");
-  if (current.length > 0) {
-    // Select-all rather than one Backspace per character. A counted run is off by one whenever a
-    // keystroke lands before the caret settles from the click, and the residue then rides along
-    // into the typed value: a 12-character field cleared with 12 Backspaces produced
-    // "Ivanehub-ui-settings-e2e", which reads as the app mangling input rather than as the test
-    // miscounting. Ctrl+A does not depend on the caret position or on how many keys arrive.
-    await globalThis.browser.keys([Key.Ctrl, "a"]);
-    await globalThis.browser.keys(["Backspace"]);
-  }
-  if (value.length > 0) await element.addValue(value);
-  await globalThis.browser.waitUntil(
-    async () => (await element.getProperty("value")) === value,
-    { timeout: 15_000, timeoutMsg: `${description} did not accept the typed value.` },
-  );
-}
 
 // Only dialogs that are on screen count. The Settings shell parks the pages you are not on with
 // the `hidden` attribute rather than unmounting them, so a dialog left open by a failing case

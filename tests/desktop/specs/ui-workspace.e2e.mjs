@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
-import { selectOption } from "../helpers/native-select.mjs";
+import { fill, selectOption } from "../helpers/form-control.mjs";
 
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
@@ -87,30 +87,6 @@ async function waitForUrl(fragment, timeoutMsg, timeout = 30_000) {
   await globalThis.browser.waitUntil(
     async () => (await globalThis.browser.getUrl()).includes(fragment),
     { timeout, timeoutMsg },
-  );
-}
-
-/**
- * Types `value` into a controlled input, clearing it from the keyboard first.
- *
- * Not `setValue`: that issues WebDriver's Element Clear, which assigns `value` directly, and
- * React's controlled-input value tracker can swallow the event that follows. The box looks empty
- * while component state still holds the old text, so the typed characters land appended to a value
- * nothing on screen shows. The session-name field starts pre-filled with a derived title
- * (create-session-dialog.tsx:165), which is exactly the case that goes wrong.
- */
-async function fill(description, element, value) {
-  await element.waitForClickable({ timeout: 15_000 });
-  await element.click();
-  const current = String((await element.getProperty("value")) ?? "");
-  if (current.length > 0) {
-    await globalThis.browser.keys(["End"]);
-    await globalThis.browser.keys(new Array(current.length).fill("Backspace"));
-  }
-  if (value.length > 0) await element.addValue(value);
-  await globalThis.browser.waitUntil(
-    async () => (await element.getProperty("value")) === value,
-    { timeout: 15_000, timeoutMsg: `${description} did not accept the typed value.` },
   );
 }
 
@@ -230,7 +206,19 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     );
 
     await fill("The project folder field", projectInput, repository);
-    await globalThis.browser.keys(["Tab"]);
+    // create-session-workspace-sections.tsx:88 -- the path is inspected on blur, so the field has
+    // to actually lose focus. A bare `Tab` did not move it here: the run that found this shows the
+    // field still ringed in the failure screenshot, with neither the "Git project" line nor an
+    // error under it, i.e. `inspectPath` had not run at all. Clicking the dialog's heading moves
+    // focus to something inert, which is what a user does when they click away from a field.
+    await (await dialog.$("h3")).click();
+    // create-session-workspace-sections.tsx:131-137 -- the inspection result renders as a line
+    // under the field. Waiting on it first separates "the app has not looked yet" from "the app
+    // looked and says this is not a Git project", which the checkbox alone cannot distinguish.
+    await globalThis.browser.waitUntil(
+      async () => (await dialog.$$("p")).length > 0 && (await projectInput.getProperty("value")) === repository,
+      { timeout: 30_000, timeoutMsg: "The dialog never inspected the project path it was given." },
+    );
     // create-session-workspace-sections.tsx:147 -- the worktree checkbox stays disabled until an
     // inspection comes back reporting a Git project, so it becoming enabled is the dialog telling
     // us it read the path rather than just storing the characters.
