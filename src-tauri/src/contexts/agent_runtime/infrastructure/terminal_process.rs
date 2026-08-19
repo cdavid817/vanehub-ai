@@ -56,6 +56,19 @@ const PROVIDER_SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250)
 /// the Token Usage panel close to live without adding meaningful file/DB IO.
 const TERMINAL_USAGE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// The blocking halves of an Agent terminal, shared out of the registry so PTY writes and
+/// resizes never run while the registry lock is held.
+///
+/// `write_all` on a PTY master blocks once the slave's input buffer fills, which is what a CLI
+/// that stopped draining its stdin does. Performing that write under the registry lock would
+/// stall input, resize, attach and idle cleanup for *every* other Agent terminal — and `stop()`
+/// takes the same lock, so the wedged terminal could not even be cancelled. The workspace shell
+/// runtime hit this first and solved it the same way (`workspaces::infrastructure::portable_pty`).
+struct TerminalIo {
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+}
+
 struct ManagedAgentTerminal {
     terminal_id: String,
     session_id: String,
@@ -63,8 +76,7 @@ struct ManagedAgentTerminal {
     runtime_session_id: Option<String>,
     last_active_at: i64,
     size: AgentTerminalSize,
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    io: Arc<TerminalIo>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     transcript: BoundedTextBuffer,
 }
@@ -176,6 +188,14 @@ impl PortablePtyAgentTerminalRuntime {
         self.terminals
             .lock()
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))
+    }
+
+    fn checkout_io(
+        &self,
+        terminal_id: &str,
+    ) -> Result<Arc<TerminalIo>, AgentRuntimeApplicationError> {
+        let now = now_timestamp(self.clock.as_ref());
+        checkout_terminal_io(self.terminals.as_ref(), terminal_id, now)
     }
 
     fn record_log(
@@ -488,8 +508,10 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             runtime_session_id: runtime_session_id.clone(),
             last_active_at: now_timestamp(self.clock.as_ref()),
             size: request.size.clone(),
-            master: pair.master,
-            writer,
+            io: Arc::new(TerminalIo {
+                master: Mutex::new(pair.master),
+                writer: Mutex::new(writer),
+            }),
             child: child.clone(),
             transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         };
@@ -814,29 +836,34 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         &self,
         request: AgentTerminalInputRequest,
     ) -> Result<(), AgentRuntimeApplicationError> {
-        let mut terminals = self.lock_terminals()?;
-        let terminal = terminal_by_id_mut(&mut terminals, &request.terminal_id)?;
-        terminal
+        let io = self.checkout_io(&request.terminal_id)?;
+        let mut writer = io
             .writer
-            .write_all(request.content.as_bytes())
-            .and_then(|_| terminal.writer.flush())
+            .lock()
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        terminal.last_active_at = now_timestamp(self.clock.as_ref());
-        Ok(())
+        writer
+            .write_all(request.content.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))
     }
 
     fn resize(
         &self,
         request: ResizeAgentTerminalRequest,
     ) -> Result<(), AgentRuntimeApplicationError> {
-        let mut terminals = self.lock_terminals()?;
-        let terminal = terminal_by_id_mut(&mut terminals, &request.terminal_id)?;
-        terminal
-            .master
+        let io = self.checkout_io(&request.terminal_id)?;
+        io.master
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
             .resize(terminal_size(&request.size))
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        terminal.size = request.size;
-        terminal.last_active_at = now_timestamp(self.clock.as_ref());
+        // Recorded only once the PTY accepted it, so a rejected resize does not leave the
+        // registry reporting a size the terminal never took.
+        if let Ok(mut terminals) = self.lock_terminals() {
+            if let Ok(terminal) = terminal_by_id_mut(&mut terminals, &request.terminal_id) {
+                terminal.size = request.size;
+            }
+        }
         Ok(())
     }
 
@@ -1054,6 +1081,21 @@ fn record_runtime_session_id(
         session_id: session_id.to_string(),
         runtime_session_id,
     }
+}
+
+/// Resolves a terminal to its shared PTY handles and marks it active, releasing the registry
+/// lock before the caller performs any blocking PTY operation. See `TerminalIo`.
+fn checkout_terminal_io(
+    terminals: &Mutex<HashMap<String, ManagedAgentTerminal>>,
+    terminal_id: &str,
+    now: i64,
+) -> Result<Arc<TerminalIo>, AgentRuntimeApplicationError> {
+    let mut terminals = terminals
+        .lock()
+        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+    let terminal = terminal_by_id_mut(&mut terminals, terminal_id)?;
+    terminal.last_active_at = now;
+    Ok(terminal.io.clone())
 }
 
 fn terminal_by_id_mut<'a>(
@@ -1307,21 +1349,87 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn managed_terminal(runtime_session_id: Option<&str>) -> ManagedAgentTerminal {
+        managed_terminal_named("terminal-1", "session-1", runtime_session_id)
+    }
+
+    fn managed_terminal_named(
+        terminal_id: &str,
+        session_id: &str,
+        runtime_session_id: Option<&str>,
+    ) -> ManagedAgentTerminal {
         ManagedAgentTerminal {
-            terminal_id: "terminal-1".to_string(),
-            session_id: "session-1".to_string(),
+            terminal_id: terminal_id.to_string(),
+            session_id: session_id.to_string(),
             agent_id: "codex-cli".to_string(),
             runtime_session_id: runtime_session_id.map(str::to_string),
             last_active_at: 1,
             size: AgentTerminalSize { rows: 24, cols: 80 },
-            master: native_pty_system()
-                .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
-                .expect("pty")
-                .master,
-            writer: Box::new(Vec::<u8>::new()),
+            io: Arc::new(TerminalIo {
+                master: Mutex::new(
+                    native_pty_system()
+                        .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
+                        .expect("pty")
+                        .master,
+                ),
+                writer: Mutex::new(Box::new(Vec::<u8>::new())),
+            }),
             child: Arc::new(Mutex::new(dummy_child())),
             transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         }
+    }
+
+    /// The Agent-terminal counterpart of the workspace shell runtime's
+    /// `a_blocked_shell_writer_does_not_stall_other_shells`. A CLI that stopped draining its
+    /// stdin blocks `write_all` indefinitely; if that write ran under the registry lock it would
+    /// freeze every other terminal's input, resize and attach — and `stop()`, which takes the
+    /// same lock, could not cancel the wedged one.
+    #[test]
+    fn a_blocked_terminal_writer_does_not_hold_the_registry_lock() {
+        let mut registry = HashMap::new();
+        registry.insert(
+            "session-1".to_string(),
+            managed_terminal_named("terminal-1", "session-1", None),
+        );
+        registry.insert(
+            "session-2".to_string(),
+            managed_terminal_named("terminal-2", "session-2", None),
+        );
+        let terminals = Arc::new(Mutex::new(registry));
+
+        let blocked = checkout_terminal_io(terminals.as_ref(), "terminal-1", 10)
+            .expect("first terminal checks out");
+        // Stands in for a child that stopped reading: the writer stays held for the whole test.
+        let _held = blocked.writer.lock().expect("hold the first writer");
+
+        let other = checkout_terminal_io(terminals.as_ref(), "terminal-2", 20)
+            .expect("second terminal checks out while the first writer is blocked");
+        other
+            .writer
+            .lock()
+            .expect("second writer is independent")
+            .write_all(b"echo test\n")
+            .expect("second terminal accepts input");
+        other
+            .master
+            .lock()
+            .expect("second master is independent")
+            .resize(terminal_size(&AgentTerminalSize {
+                rows: 30,
+                cols: 100,
+            }))
+            .expect("second terminal resizes");
+
+        // What `stop()` needs: the registry itself is never held across a blocking PTY write.
+        let mut guard = terminals.lock().expect("registry is still lockable");
+        assert!(
+            guard.remove("session-1").is_some(),
+            "the wedged terminal can still be cancelled"
+        );
+        assert_eq!(
+            guard.get("session-2").expect("survivor").last_active_at,
+            20,
+            "checkout marks the terminal active"
+        );
     }
 
     #[test]
