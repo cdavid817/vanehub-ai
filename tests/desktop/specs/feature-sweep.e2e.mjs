@@ -189,11 +189,20 @@ globalThis.describe("VaneHub AI desktop feature sweep", () => {
       assert.match(reply.content, /PONG/i, `unexpected live reply: ${reply.content}`);
     } finally {
       // Spec files in one desktop run share a single isolated data directory, so an active
-      // provider profile left here would decide which profile the next spec finds active.
+      // provider profile left here decides which profile the next spec finds active. Retried
+      // because a live generation is still flushing messages and usage when this runs, and a
+      // `database is locked` here would silently hand the next spec the wrong active profile.
       if (created?.id) {
-        await invoke(({ core }, profileId) => core.invoke("delete_onepiece_provider_profile", {
-          profileId,
-        }), created.id);
+        await globalThis.browser.waitUntil(async () => {
+          try {
+            await invoke(({ core }, profileId) => core.invoke("delete_onepiece_provider_profile", {
+              profileId,
+            }), created.id);
+            return true;
+          } catch {
+            return false;
+          }
+        }, { timeout: 30_000, interval: 1_000, timeoutMsg: "The sweep's provider profile could not be deleted." });
       }
       await rm(repository, { recursive: true, force: true });
     }
