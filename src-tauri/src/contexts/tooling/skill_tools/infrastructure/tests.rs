@@ -483,3 +483,59 @@ fn a_persisted_quarantine_reason_never_carries_a_sensitive_detail_back_out() {
         .expect("row");
     assert_eq!(stored.diagnostics.entries()[0].detail, "[redacted]");
 }
+
+/// `trust_binds_to_content_and_a_changed_revision_is_not_authorized_by_it` calls `apply_trust`
+/// itself, so it proves the helper is correct and never that the repository uses it. Production
+/// never called it: `revision_state` returned the row's default `trusted: false` no matter what
+/// the trust table held, so a trusted tool could never be enabled -- enablement gates on that flag.
+#[test]
+fn a_persisted_trust_decision_is_visible_in_the_revision_state_it_authorizes() {
+    let (_directory, repository, _database) = repository("skill-tool-trust-wiring");
+    let discovered = state('a', "digest-1");
+    repository.record_discovered(&discovered).expect("insert");
+    assert!(
+        !repository
+            .revision_state(&discovered.key.revision)
+            .expect("read")
+            .expect("row")
+            .lifecycle
+            .trusted,
+        "a freshly discovered revision is not trusted"
+    );
+
+    repository
+        .save_trust(
+            &SkillToolTrustRecord {
+                revision: discovered.key.revision.clone(),
+                integrity: discovered.integrity.clone(),
+                decision: SkillToolTrustDecision::Trusted,
+                actor: "operator".to_string(),
+                decided_at: "2026-08-20T03:00:00Z".to_string(),
+            },
+            SkillToolTrustDecision::Trusted,
+        )
+        .expect("trust");
+
+    // Read back through the repository alone, exactly as the application layer does.
+    assert!(
+        repository
+            .revision_state(&discovered.key.revision)
+            .expect("read")
+            .expect("row")
+            .lifecycle
+            .trusted,
+        "the persisted trust decision never reached the revision state"
+    );
+    let listed = repository
+        .revision_states(&package("unused-for-this-read"))
+        .expect("list");
+    assert!(
+        listed
+            .iter()
+            .find(|entry| entry.key.revision == discovered.key.revision)
+            .expect("listed")
+            .lifecycle
+            .trusted,
+        "the listing path disagrees with the single-revision read",
+    );
+}

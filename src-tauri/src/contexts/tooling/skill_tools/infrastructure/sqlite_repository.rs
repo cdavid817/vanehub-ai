@@ -59,7 +59,16 @@ impl SkillToolStateRepository for SqliteSkillToolRepository {
             .map_err(storage)?;
         // A row whose enums no longer parse is skipped rather than failing the whole read: a
         // single corrupt record must not make a Skill's tool inventory unreadable.
-        Ok(rows.into_iter().flatten().collect())
+        let mut states: Vec<SkillToolRevisionState> = rows.into_iter().flatten().collect();
+        // Trust lives in its own table and has to be resolved against the content it was granted
+        // for, so the revision row cannot carry the flag. Reading the row alone left `trusted`
+        // at its default, which no operator decision could ever move -- and enablement gates on
+        // it, so no tool could be turned on.
+        for state in &mut states {
+            let record = self.trust_record(&state.key.revision)?;
+            apply_trust(state, record.as_ref());
+        }
+        Ok(states)
     }
 
     fn revision_state(
@@ -77,7 +86,12 @@ impl SkillToolStateRepository for SqliteSkillToolRepository {
             )
             .optional()
             .map_err(storage)?;
-        Ok(state.flatten())
+        let Some(mut state) = state.flatten() else {
+            return Ok(None);
+        };
+        let record = self.trust_record(&state.key.revision)?;
+        apply_trust(&mut state, record.as_ref());
+        Ok(Some(state))
     }
 
     fn record_discovered(
