@@ -64,6 +64,21 @@ pub(crate) struct SkillApplicationService {
     mutation_coordinator: Arc<Mutex<()>>,
 }
 
+/// The five `SkillApplicationService` dependencies that system-Skill reconciliation needs,
+/// borrowed together once they are known to be present.
+///
+/// `SkillApplicationService` is constructed in two shapes — a minimal one for callers that only
+/// read Skills, and a full one wired for reconciliation — which is why these five are `Option`.
+/// Resolving them as a group is what lets the reconciliation call chain take references instead
+/// of re-checking each `Option` at every use.
+struct SystemReconciliation<'a> {
+    effective_catalog: &'a Arc<dyn EffectiveSkillCatalogPort>,
+    system_materializer: &'a Arc<dyn SkillPackageMaterializer>,
+    system_package_reader: &'a Arc<dyn SkillPackageReader>,
+    reconciliation_repository: &'a Arc<dyn SkillReconciliationRepository>,
+    legacy_source: &'a Arc<dyn SkillLegacySourcePort>,
+}
+
 impl SkillApplicationService {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -1239,8 +1254,8 @@ impl SkillApplicationService {
     }
 
     fn ensure_builtins(&self) -> Result<(), SkillApplicationError> {
-        if self.system_reconciliation_ready() {
-            return self.reconcile_system_builtins();
+        if let Some(reconciliation) = self.system_reconciliation() {
+            return self.reconcile_system_builtins(&reconciliation);
         }
         let location = SkillLocation::new(SkillScope::Global, None)?;
         let existing = self
@@ -1292,12 +1307,21 @@ impl SkillApplicationService {
         Ok(())
     }
 
-    fn system_reconciliation_ready(&self) -> bool {
-        self.effective_catalog.is_some()
-            && self.system_materializer.is_some()
-            && self.system_package_reader.is_some()
-            && self.reconciliation_repository.is_some()
-            && self.legacy_source.is_some()
+    /// Resolves the five dependencies system reconciliation needs, or `None` if any is absent.
+    ///
+    /// Replaces a `-> bool` predicate that every caller had to re-earn by reaching back into
+    /// each `Option` and asserting the check had happened. Returning the borrows instead makes
+    /// the invariant structural: downstream code holds references it cannot fail to use, and a
+    /// sixth dependency added to `SkillService` becomes a compile error here rather than a
+    /// panic somewhere a thousand lines away.
+    fn system_reconciliation(&self) -> Option<SystemReconciliation<'_>> {
+        Some(SystemReconciliation {
+            effective_catalog: self.effective_catalog.as_ref()?,
+            system_materializer: self.system_materializer.as_ref()?,
+            system_package_reader: self.system_package_reader.as_ref()?,
+            reconciliation_repository: self.reconciliation_repository.as_ref()?,
+            legacy_source: self.legacy_source.as_ref()?,
+        })
     }
 
     fn system_package(
@@ -1366,8 +1390,10 @@ impl SkillApplicationService {
             .into_iter()
             .partition(|identity| identity.layer == SkillLayer::Project);
         let mut summaries = BTreeMap::new();
-        let global_location = SkillLocation::new(SkillScope::Global, None)
-            .expect("global Skill location is always valid");
+        // This function reports usage and returns `()`, so there is no error channel here.
+        // `SkillLocation::global` removes the need for one: the global scope has no workspace
+        // path to validate, so the construction cannot fail in the first place.
+        let global_location = SkillLocation::global();
         for (usage_location, requested) in [
             (location, project.as_slice()),
             (&global_location, non_project.as_slice()),
@@ -1683,12 +1709,11 @@ impl SkillApplicationService {
         })
     }
 
-    fn reconcile_system_builtins(&self) -> Result<(), SkillApplicationError> {
-        let catalog = self
-            .effective_catalog
-            .as_ref()
-            .expect("checked by system_reconciliation_ready")
-            .effective_catalog(None)?;
+    fn reconcile_system_builtins(
+        &self,
+        reconciliation: &SystemReconciliation<'_>,
+    ) -> Result<(), SkillApplicationError> {
+        let catalog = reconciliation.effective_catalog.effective_catalog(None)?;
         let mut packages = catalog
             .into_iter()
             .flat_map(|skill| std::iter::once(skill.effective).chain(skill.shadowed))
@@ -1705,7 +1730,11 @@ impl SkillApplicationService {
         let mut completed = 0_usize;
         let mut failed = Vec::new();
         for package in &packages {
-            match self.reconcile_system_builtin(package, deleted.contains(&package.metadata.id)) {
+            match self.reconcile_system_builtin(
+                reconciliation,
+                package,
+                deleted.contains(&package.metadata.id),
+            ) {
                 Ok(()) => completed += 1,
                 Err(error) => {
                     let id = package.metadata.id.as_str().to_string();
@@ -1744,13 +1773,11 @@ impl SkillApplicationService {
 
     fn reconcile_system_builtin(
         &self,
+        reconciliation: &SystemReconciliation<'_>,
         package: &super::SkillPackageDescriptor,
         deletion_intent: bool,
     ) -> Result<(), SkillApplicationError> {
-        let repository = self
-            .reconciliation_repository
-            .as_ref()
-            .expect("checked by system_reconciliation_ready");
+        let repository = reconciliation.reconciliation_repository;
         let location = SkillLocation::new(SkillScope::Global, None)?;
         let id = &package.metadata.id;
         let now = self.clock.now();
@@ -1781,7 +1808,7 @@ impl SkillApplicationService {
             if state.outcome == BuiltinReconciliationOutcome::System
                 && state.cleanup_status == BuiltinCleanupStatus::Pending
             {
-                return self.complete_legacy_cleanup(&location, id);
+                return self.complete_legacy_cleanup(reconciliation, &location, id);
             }
             if state.outcome == BuiltinReconciliationOutcome::Deleted
                 || (state.outcome != BuiltinReconciliationOutcome::Invalid && existing.is_some())
@@ -1809,18 +1836,11 @@ impl SkillApplicationService {
             return Err(SkillApplicationError::Filesystem(reason.clone()));
         }
 
-        let preview = preview_package(
-            package,
-            self.system_package_reader
-                .as_ref()
-                .expect("checked by system_reconciliation_ready")
-                .as_ref(),
-        )?;
+        let preview = preview_package(package, reconciliation.system_package_reader.as_ref())?;
         let legacy_document = match &probe {
             SkillSourceProbe::Present(_) => Some(
-                self.legacy_source
-                    .as_ref()
-                    .expect("checked by system_reconciliation_ready")
+                reconciliation
+                    .legacy_source
                     .read_legacy_document(&location, id)?,
             ),
             SkillSourceProbe::Absent => None,
@@ -1831,11 +1851,7 @@ impl SkillApplicationService {
             .is_none_or(|legacy| documents_semantically_equal(legacy, &preview.document));
 
         if equivalent {
-            let managed_source = self
-                .system_materializer
-                .as_ref()
-                .expect("checked by system_reconciliation_ready")
-                .materialize(package)?;
+            let managed_source = reconciliation.system_materializer.materialize(package)?;
             let enabled = existing.as_ref().is_none_or(|record| record.enabled);
             let record = reconciled_record(
                 existing.as_ref(),
@@ -1869,7 +1885,7 @@ impl SkillApplicationService {
             );
             repository.save_builtin_reconciliation(&state, Some(&record), false)?;
             if cleanup_status == BuiltinCleanupStatus::Pending {
-                self.complete_legacy_cleanup(&location, id)?;
+                self.complete_legacy_cleanup(reconciliation, &location, id)?;
             }
             return Ok(());
         }
@@ -1907,17 +1923,17 @@ impl SkillApplicationService {
 
     fn complete_legacy_cleanup(
         &self,
+        reconciliation: &SystemReconciliation<'_>,
         location: &SkillLocation,
         id: &SkillId,
     ) -> Result<(), SkillApplicationError> {
-        let backup_path = self
-            .legacy_source
-            .as_ref()
-            .expect("checked by system_reconciliation_ready")
-            .archive_legacy_source(location, id, BUILTIN_RECONCILIATION_VERSION)?;
-        self.reconciliation_repository
-            .as_ref()
-            .expect("checked by system_reconciliation_ready")
+        let backup_path = reconciliation.legacy_source.archive_legacy_source(
+            location,
+            id,
+            BUILTIN_RECONCILIATION_VERSION,
+        )?;
+        reconciliation
+            .reconciliation_repository
             .complete_builtin_cleanup(id, backup_path.as_deref(), &self.clock.now())
     }
 
@@ -2258,8 +2274,8 @@ impl SkillApplicationService {
                 id.as_str()
             )));
         }
-        if self.system_reconciliation_ready() {
-            return self.restore_system_builtin(id, &plan.location);
+        if let Some(reconciliation) = self.system_reconciliation() {
+            return self.restore_system_builtin(&reconciliation, id, &plan.location);
         }
         self.transact(|transaction| {
             let managed_source = self.filesystem.create_source(
@@ -2291,15 +2307,12 @@ impl SkillApplicationService {
 
     fn restore_system_builtin(
         &self,
+        reconciliation: &SystemReconciliation<'_>,
         id: &SkillId,
         location: &SkillLocation,
     ) -> Result<SkillRecord, SkillApplicationError> {
         let package = self.system_package(id)?;
-        let managed_source = self
-            .system_materializer
-            .as_ref()
-            .expect("checked by system_reconciliation_ready")
-            .materialize(&package)?;
+        let managed_source = reconciliation.system_materializer.materialize(&package)?;
         let probe = self.filesystem.probe_source(location, id)?;
         let cleanup_status = if matches!(probe, SkillSourceProbe::Absent) {
             BuiltinCleanupStatus::NotRequired
@@ -2332,12 +2345,11 @@ impl SkillApplicationService {
             SkillAvailability::Available,
             now,
         );
-        self.reconciliation_repository
-            .as_ref()
-            .expect("checked by system_reconciliation_ready")
+        reconciliation
+            .reconciliation_repository
             .save_builtin_reconciliation(&state, Some(&record), true)?;
         if cleanup_status == BuiltinCleanupStatus::Pending {
-            self.complete_legacy_cleanup(location, id)?;
+            self.complete_legacy_cleanup(reconciliation, location, id)?;
         }
         self.invalidate_effective_catalog();
         self.load(&record.key)
@@ -2587,15 +2599,13 @@ impl SkillApplicationService {
                                 .ok_or_else(|| {
                                     SkillApplicationError::NotFound(issue.skill_id.clone())
                                 })?;
-                            if record.source == SkillSource::Builtin
-                                && self.system_reconciliation_ready()
-                            {
+                            let reconciliation = (record.source == SkillSource::Builtin)
+                                .then(|| self.system_reconciliation())
+                                .flatten();
+                            if let Some(reconciliation) = reconciliation {
                                 let package = self.system_package(&record.key.id)?;
-                                record.managed_source = self
-                                    .system_materializer
-                                    .as_ref()
-                                    .expect("checked by system_reconciliation_ready")
-                                    .materialize(&package)?;
+                                record.managed_source =
+                                    reconciliation.system_materializer.materialize(&package)?;
                                 record.metadata = package.metadata;
                             } else {
                                 let refreshed = self.filesystem.refresh_source(&record, issue)?;
@@ -2672,17 +2682,15 @@ impl SkillApplicationService {
                                 .ok_or_else(|| {
                                     SkillApplicationError::NotFound(issue.skill_id.clone())
                                 })?;
-                            if record.source != SkillSource::Builtin
-                                || !self.system_reconciliation_ready()
-                            {
+                            if record.source != SkillSource::Builtin {
                                 return Ok(None);
                             }
+                            let Some(reconciliation) = self.system_reconciliation() else {
+                                return Ok(None);
+                            };
                             let package = self.system_package(&record.key.id)?;
-                            record.managed_source = self
-                                .system_materializer
-                                .as_ref()
-                                .expect("checked by system_reconciliation_ready")
-                                .materialize(&package)?;
+                            record.managed_source =
+                                reconciliation.system_materializer.materialize(&package)?;
                             record.metadata = package.metadata;
                             record.updated_at = self.clock.now();
                             Ok::<_, SkillApplicationError>(Some((key, record)))

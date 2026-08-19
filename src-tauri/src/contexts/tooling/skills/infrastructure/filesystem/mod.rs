@@ -431,7 +431,7 @@ impl SkillLegacySourcePort for ManagedSkillFilesystem {
             return Ok(path_exists(&backup).then(|| normalize_path(&backup)));
         }
 
-        let transaction = self.transactions.begin();
+        let transaction = self.transactions.begin()?;
         let staged = if path_exists(&backup) {
             self.transactions
                 .stage_remove(&transaction, &source)
@@ -455,7 +455,7 @@ impl SkillLegacySourcePort for ManagedSkillFilesystem {
 
 impl SkillFilesystemPort for ManagedSkillFilesystem {
     fn begin_mutation(&self) -> Result<SkillFilesystemTransaction, SkillApplicationError> {
-        Ok(self.transactions.begin())
+        self.transactions.begin()
     }
 
     fn commit_mutation(&self, transaction: SkillFilesystemTransaction) {

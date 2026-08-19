@@ -48,11 +48,15 @@ pub(crate) fn write_discovery_file(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    // `DiscoveryFile` is a `u16` and a `String`, so serialization has no failing case today.
+    // This function already reports failure to its caller, though, so routing the error there
+    // costs nothing and keeps the guarantee from resting on the shape of a struct someone may
+    // later extend.
     let contents = serde_json::to_string(&DiscoveryFile {
         port,
         token: token.to_string(),
     })
-    .expect("discovery file payload is always serializable");
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     fs::write(path, contents)
 }
 

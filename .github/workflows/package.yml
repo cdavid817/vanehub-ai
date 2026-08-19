@@ -187,11 +187,14 @@ jobs:
       - name: Build package
         run: npm run ${{ matrix.npm_script }}
 
+      # `target/` here, not `src-tauri/target/`: establish-cargo-workspace-skeleton made src-tauri a
+      # workspace member, and Cargo places the target directory at the workspace root regardless of
+      # which member's manifest drives the build.
       - name: Sign Windows installer
         if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
         shell: pwsh
         run: |
-          $packages = Get-ChildItem "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
+          $packages = Get-ChildItem "target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
           if ($packages.Count -eq 0) { throw "No Windows installer found" }
           foreach ($package in $packages) {
             & signtool sign /fd SHA256 /td SHA256 /tr https://timestamp.digicert.com /n $env:WINDOWS_SIGNER_SUBJECT $package.FullName
@@ -202,7 +205,7 @@ jobs:
         if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
         shell: pwsh
         run: |
-          $packages = Get-ChildItem "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
+          $packages = Get-ChildItem "target/${{ matrix.rust_target }}/release/bundle" -Recurse -Filter *.exe
           if ($packages.Count -eq 0) { throw "No Windows installer found" }
           foreach ($package in $packages) {
             $signature = Get-AuthenticodeSignature $package.FullName
@@ -216,8 +219,8 @@ jobs:
         if: matrix.platform == 'macos' && env.APPLE_CERTIFICATE != ''
         shell: bash
         run: |
-          app_bundle="$(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
-          dmg_bundle="$(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          app_bundle="$(find "target/${{ matrix.rust_target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          dmg_bundle="$(find "target/${{ matrix.rust_target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "${app_bundle}" && test -n "${dmg_bundle}"
           codesign --verify --deep --strict --verbose=2 "${app_bundle}"
           xcrun stapler validate "${app_bundle}"
@@ -247,11 +250,11 @@ jobs:
           # matches the AppImage's unpacked `.AppDir` and the deb build directory (268 extra
           # files in one Linux run), and every one of them would be attached to the release.
           path: |
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.exe
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.dmg
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.deb
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.AppImage
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.sig
+            target/${{ matrix.rust_target }}/release/bundle/*/*.exe
+            target/${{ matrix.rust_target }}/release/bundle/*/*.dmg
+            target/${{ matrix.rust_target }}/release/bundle/*/*.deb
+            target/${{ matrix.rust_target }}/release/bundle/*/*.AppImage
+            target/${{ matrix.rust_target }}/release/bundle/*/*.sig
           if-no-files-found: error
           retention-days: 7
 

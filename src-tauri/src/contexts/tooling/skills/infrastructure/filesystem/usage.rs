@@ -247,7 +247,15 @@ impl FilesystemSkillUsageRepository {
                 "injected usage write failure".to_string(),
             ));
         }
-        let transaction = self.transactions.begin();
+        // The temporary file is already on disk by this point, so a failure to open a
+        // transaction has to clean it up the same way every other failure below does.
+        let transaction = match self.transactions.begin() {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                let _ = std::fs::remove_file(&temporary);
+                return Err(error);
+            }
+        };
         if let Err(error) = self
             .transactions
             .stage_replace_or_create(&transaction, path)

@@ -1,60 +1,53 @@
 //! The tool-use loop and the skill-tool dispatch it drives.
 
-use super::super::agent_image::MAX_IMAGES_PER_REQUEST;
+use super::super::agent_image::{AgentImage, MAX_IMAGES_PER_REQUEST};
 use super::super::memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
-use super::super::model_context_catalog;
-use super::super::skill_tool_catalog_adapter::resolve_skill_tool_catalog;
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::tools::{execute_file_image_read, ToolExecutionOutcome};
 use super::super::SqliteNativeToolRepository;
-use super::compaction::{maybe_compact_accounted, should_compact, turns_character_count};
+use super::compaction::maybe_compact_accounted;
+use super::endpoint::{resolve_endpoint, resolve_image_support, ResolvedEndpoint};
 use super::generation::{
     generation_options_from_configuration, is_plan_mode, reviewed_stream_usage_strategy,
 };
 use super::interactive::{
-    ask_user_question, await_approval, permission_action_and_resource, request_plan_exit,
-    ApprovalOutcome,
+    ask_user_question, authorize_tool_call, request_plan_exit, ToolAuthorization,
 };
 use super::invocation::{
-    begin_api_invocation, estimated_input_characters, finish_api_invocation,
-    record_context_snapshot, wire_format_for,
+    analyze_round_context, begin_api_invocation, estimated_input_characters, finish_api_invocation,
+    record_context_snapshot, WireFormat,
 };
 use super::native_tools::{
     execute_registered_native_tool, execute_tool_call_with_runtime_ports, is_image_read_request,
     log_image_attachment, resolve_tool_image,
 };
 use super::prompt::{
+    resolve_generation_skill_tools, resolve_generation_tool_catalog,
     resolve_personalization_settings, resolve_system_prompt_with_settings,
-    resolve_tool_catalog_with_code_intelligence,
 };
 use super::{
-    failed_configuration, failed_non_retryable, failed_retryable, ExecutedToolCall,
-    PendingApprovals, HISTORY_LIMIT, MAX_TOOL_ROUND_TRIPS,
+    failed_non_retryable, failed_retryable, ExecutedToolCall, PendingApprovals, HISTORY_LIMIT,
+    MAX_TOOL_ROUND_TRIPS,
 };
 use crate::contexts::agent_runtime::application::{
-    delegate_utility_skill_tool_definition, AgentClockPort, AgentCodeIntelligenceContext,
-    AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort,
-    AgentPersonalizationPort, AgentProcessEventSink, AgentRetrievalPort,
-    AgentRuntimeApplicationError, AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, ContextAnalysisInput, ContextAnalysisService,
+    AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationPort,
+    AgentProcessEventSink, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ContextAnalysisService,
     ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, NativeToolExecutionMode,
-    NativeToolRegistry, SkillToolUseProvenance, ToolEligibilityContext, ToolLifecycleEvent,
-    ToolLifecyclePhase, ToolUseBlock, UtilityDelegationApplicationService,
-    ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, REMEMBER_TOOL_NAME,
+    GenerationProcessFailure, GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals,
+    SkillToolUseProvenance, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    UtilityDelegationApplicationService, ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME,
+    REMEMBER_TOOL_NAME,
 };
-use crate::contexts::agent_runtime::domain::{
-    AutomaticCompactionState, ContextCapacity, UsageAnchor,
-};
+use crate::contexts::agent_runtime::domain::{AutomaticCompactionState, UsageAnchor};
 use crate::contexts::artifacts::application::ArtifactService;
-use crate::contexts::permissions::domain::Effect;
-use crate::contexts::sessions::api::{SessionsApi, UsagePurpose, UsageStatus};
+use crate::contexts::sessions::api::{NewModelInvocation, SessionsApi, UsagePurpose, UsageStatus};
 use crate::contexts::skill_evolution_evidence::domain::ObservedSkillRevision;
 use crate::contexts::tooling::skill_tools::application::{
-    SkillToolBinding, SkillToolCatalogContext, SkillToolCatalogMode, SkillToolCatalogPort,
-    SkillToolDispatchOutcome, SkillToolExecutionLifecyclePhase, SkillToolExecutionLifecyclePort,
-    SkillToolExecutionPort, SkillToolExecutionRequest,
+    SkillToolCatalogMode, SkillToolCatalogPort, SkillToolDispatchOutcome,
+    SkillToolExecutionLifecyclePhase, SkillToolExecutionLifecyclePort, SkillToolExecutionPort,
+    SkillToolExecutionRequest,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::Value;
@@ -96,88 +89,15 @@ pub(super) fn execute_with_code_intelligence(
     native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
-    let provider_config = if let Some(profile) = request.endpoint_profile.as_ref() {
-        ApiProviderConfig {
-            source_provider_id: profile.source_provider_id.clone(),
-            model_id: profile.model_id.clone(),
-            interface_format: profile.interface_format.clone(),
-            base_url: profile.base_url.clone(),
-            auto_approve_tools: false,
-        }
-    } else {
-        match config.provider_config(agent_id) {
-            Ok(Some(config)) => config,
-            Ok(None) => {
-                return failed_configuration(agent_id, "No model is configured for this agent.");
-            }
-            Err(error) => return failed_non_retryable(&error.to_string()),
-        }
-    };
-    let endpoint_metadata = if request.endpoint_profile.is_some() {
-        None
-    } else {
-        match config.active_endpoint_profile_metadata(agent_id) {
-            Ok(metadata) => metadata,
-            Err(error) => return failed_non_retryable(&error.to_string()),
-        }
-    };
-    let endpoint_capacity = request
-        .endpoint_profile
-        .as_ref()
-        .and_then(|profile| {
-            let window = profile.context_window_tokens?;
-            (profile.context_capacity_provenance != "unknown").then(|| ContextCapacity {
-                context_window_tokens: window,
-                maximum_output_tokens: Some(profile.reserved_output_tokens),
-                metadata_revision: profile.context_capacity_provenance.clone(),
-                source_identity: format!("endpoint-profile:{}", profile.profile_id),
-            })
-        })
-        .or_else(|| {
-            endpoint_metadata.as_ref().and_then(|metadata| {
-                let window = metadata
-                    .context_window_tokens
-                    .and_then(|value| u64::try_from(value).ok())?;
-                (metadata.context_capacity_provenance != "unknown").then(|| ContextCapacity {
-                    context_window_tokens: window,
-                    maximum_output_tokens: u64::try_from(metadata.reserved_output_tokens).ok(),
-                    metadata_revision: metadata.context_capacity_provenance.clone(),
-                    source_identity: format!("endpoint-profile:{}", metadata.profile_id),
-                })
-            })
-        });
-    let authentication_mode = if let Some(profile) = request.endpoint_profile.as_ref() {
-        profile.authentication_mode.clone()
-    } else {
-        match config.api_endpoint_authentication_mode(agent_id) {
-            Ok(mode) => mode,
-            Err(error) => return failed_non_retryable(&error.to_string()),
-        }
-    };
-    let credential_id = request.endpoint_profile.as_ref().map_or_else(
-        || agent_id.to_string(),
-        |profile| format!("onepiece-profile:{}", profile.profile_id),
-    );
-    let fetched_credential = if authentication_mode == "required" {
-        match credentials.fetch(&credential_id) {
-            Ok(Some(key)) => Ok(Some(key)),
-            Ok(None) if request.endpoint_profile.is_some() => credentials.fetch(agent_id),
-            other => other,
-        }
-    } else {
-        Ok(None)
-    };
-    let api_key = match fetched_credential {
-        Ok(Some(key)) => key,
-        Ok(None) if authentication_mode != "required" => String::new(),
-        Ok(None) => {
-            return failed_configuration(agent_id, "No API key is stored for this agent.");
-        }
-        Err(error) => return failed_non_retryable(&error.to_string()),
-    };
-    let wire_format = match wire_format_for(&provider_config) {
-        Ok(wire_format) => wire_format,
-        Err(message) => return failed_configuration(agent_id, message),
+    let ResolvedEndpoint {
+        provider_config,
+        endpoint_metadata,
+        endpoint_capacity,
+        api_key,
+        wire_format,
+    } = match resolve_endpoint(request, agent_id, config, credentials) {
+        Ok(endpoint) => endpoint,
+        Err(failure) => return failure,
     };
     let generation_personalization =
         resolve_personalization_settings(personalization, logging, clock, request);
@@ -229,109 +149,37 @@ pub(super) fn execute_with_code_intelligence(
         }
     };
     let plan_mode = is_plan_mode(&request.configuration);
-    // Never blocks, never errors (`AgentRetrievalPort::is_configured`'s own contract) — safe to
-    // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
-    // itself is derived just above.
-    let retrieval_available = retrieval.is_configured();
-    let code_search_available = request
-        .session
-        .folder
-        .as_deref()
-        .and_then(|folder| {
-            retrieval
-                .code_retrieval()
-                .map(|code| code.is_available(folder))
-        })
-        .unwrap_or(false);
-    let code_intelligence_context = request
-        .session
-        .folder
-        .as_deref()
-        .map(AgentCodeIntelligenceContext::from_session_workspace);
-    let code_intelligence_available = code_intelligence_context
-        .as_ref()
-        .is_some_and(|context| code_intelligence.is_available(context));
-    let mut tools = resolve_tool_catalog_with_code_intelligence(
+    let mut tools = resolve_generation_tool_catalog(
         request,
         mcp,
         logging,
         clock,
+        retrieval,
+        code_intelligence,
+        native_tools,
+        utility_delegation,
         plan_mode,
-        retrieval_available,
-        code_search_available,
-        code_intelligence_available,
     );
-    if utility_delegation.is_some() && !plan_mode {
-        tools.push(delegate_utility_skill_tool_definition());
-    }
-    tools.extend(
-        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
-            agent_id: request.agent.id.clone(),
-            session_id: request.session.id.clone(),
-            generation_id: request.operation_id.clone(),
-            canonical_workspace: request.session.folder.as_deref().map(Into::into),
-            execution_mode: if plan_mode {
-                NativeToolExecutionMode::Plan
-            } else {
-                NativeToolExecutionMode::Execute
-            },
-            readiness: native_tools.readiness_snapshot(),
-        }),
-    );
-    if request
-        .endpoint_profile
-        .as_ref()
-        .is_some_and(|profile| profile.tool_calling_capability != "supported")
-    {
-        tools.clear();
-    }
+    // Declared here, not returned as one value: `_skill_tool_catalog_lease` is an `Arc` held for
+    // the rest of the generation, and these three drop in this order at the end of it.
     let mut skill_tool_keys = HashMap::new();
     let mut _skill_tool_catalog_lease = None;
     let mut _skill_tool_catalog_generation = None;
     if let Some(catalog) = skill_tool_catalog {
-        let loaded_roles = observed_skill_revisions
-            .iter()
-            .map(|observed| SkillToolBinding {
-                skill_id: observed.skill_id.clone(),
-                revision: observed.revision.clone(),
-            })
-            .collect::<Vec<_>>();
-        let context = SkillToolCatalogContext::RoleGeneration {
-            workspace_path: request.session.folder.clone(),
-            loaded_roles,
-            mode: if plan_mode {
-                SkillToolCatalogMode::Plan
-            } else {
-                SkillToolCatalogMode::Execute
-            },
-        };
-        let existing_names = tools.iter().map(|tool| tool.name.clone());
-        match resolve_skill_tool_catalog(
+        if let Some(resolved) = resolve_generation_skill_tools(
             catalog,
-            &context,
-            existing_names,
-            &provider_config.interface_format,
+            request,
+            &provider_config,
+            observed_skill_revisions,
+            &tools,
+            logging,
+            clock,
+            plan_mode,
         ) {
-            Ok(resolved) => {
-                tools.extend(resolved.definitions);
-                skill_tool_keys = resolved.keys_by_name;
-                _skill_tool_catalog_generation = Some(resolved.generation);
-                _skill_tool_catalog_lease = Some(resolved.lease);
-            }
-            Err(error) => {
-                let _ = logging.record(AgentLog {
-                    level: AgentLogLevel::Warn,
-                    category: "session.runtime.api.skill-tools".to_string(),
-                    message: format!("Skill tool catalog rejected: {}", error.code()),
-                    agent_id: Some(request.agent.id.clone()),
-                    session_id: Some(request.session.id.clone()),
-                    operation_id: Some(request.operation_id.clone()),
-                    run_id: None,
-                    trace_id: None,
-                    span_id: None,
-                    occurred_at: clock.now(),
-                });
-            }
+            tools.extend(resolved.definitions);
+            skill_tool_keys = resolved.keys_by_name;
+            _skill_tool_catalog_generation = Some(resolved.generation);
+            _skill_tool_catalog_lease = Some(resolved.lease);
         }
     }
     let mut generation_options = generation_options_from_configuration(
@@ -381,23 +229,8 @@ pub(super) fn execute_with_code_intelligence(
     }
 
     let mut emitted_visible_content = false;
-    // Capability comes from reviewed catalog metadata, never from trying and seeing: a provider
-    // that rejects an image-bearing request fails the whole generation after the user has already
-    // waited, and the failure text varies by vendor (`add-agent-image-input` D3).
-    let images_supported = request.endpoint_profile.as_ref().map_or_else(
-        || {
-            endpoint_metadata.as_ref().map_or_else(
-                || {
-                    model_context_catalog::accepts_image_input(
-                        provider_config.source_provider_id.as_deref(),
-                        &provider_config.model_id,
-                    )
-                },
-                |metadata| metadata.image_input_capability == "supported",
-            )
-        },
-        |profile| profile.image_input_capability == "supported",
-    );
+    let images_supported =
+        resolve_image_support(request, endpoint_metadata.as_ref(), &provider_config);
     let mut images_in_request = 0_usize;
     let mut context_recovery_attempted = false;
     for round_trip in 0..MAX_TOOL_ROUND_TRIPS {
@@ -427,30 +260,15 @@ pub(super) fn execute_with_code_intelligence(
             system.as_deref(),
             &generation_options,
         );
-        let projection = (wire_format.project_request_context)(&body);
-        let mut context_snapshot = ContextAnalysisService::analyze(
-            ContextAnalysisInput {
-                provider_id: provider_config.source_provider_id.clone(),
-                model_id: provider_config.model_id.clone(),
-                request_fingerprint: projection.request_fingerprint,
-                characters: projection.characters,
-                components: projection.components,
-                rounds: projection.rounds,
-                token_estimate_complete: projection.token_estimate_complete,
-                capacity: endpoint_capacity.clone().or_else(|| {
-                    (endpoint_metadata.is_none() && request.endpoint_profile.is_none()).then(
-                        || {
-                            model_context_catalog::resolve_capacity(
-                                provider_config.source_provider_id.as_deref(),
-                                &provider_config.model_id,
-                            )
-                        },
-                    )?
-                }),
-                active_character_compaction: should_compact(turns_character_count(&turns)),
-                invocation_sequence: sequence,
-                overflow_count: projection.overflow_count,
-            },
+        let mut context_snapshot = analyze_round_context(
+            &body,
+            &wire_format,
+            &provider_config,
+            endpoint_capacity.as_ref(),
+            endpoint_metadata.as_ref(),
+            request,
+            &turns,
+            sequence,
             context_usage_anchor.as_ref(),
         );
         record_context_snapshot(logging, clock, request, sequence, &context_snapshot);
@@ -522,95 +340,24 @@ pub(super) fn execute_with_code_intelligence(
             ));
         }
 
-        let mut reader = std::io::BufReader::new(response);
-        let mut current_data: Option<String> = None;
-        let mut accumulator = ToolCallAccumulator::default();
-        let mut assistant_text = String::new();
-        let mut round_usage = None;
-        loop {
-            if cancelled.load(Ordering::SeqCst) {
-                finish_api_invocation(
-                    accounting,
-                    invocation.as_ref(),
-                    round_usage.as_ref(),
-                    None,
-                    UsageStatus::Cancelled,
-                    clock,
-                    logging,
-                );
-                return failed_non_retryable("Generation was cancelled.");
-            }
-            let mut line = String::new();
-            let read = match reader.read_line(&mut line) {
-                Ok(read) => read,
-                Err(error) => {
-                    finish_api_invocation(
-                        accounting,
-                        invocation.as_ref(),
-                        round_usage.as_ref(),
-                        None,
-                        UsageStatus::Failed,
-                        clock,
-                        logging,
-                    );
-                    return GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(
-                        format!("Failed to read the provider API response: {error}"),
-                    ));
-                }
-            };
-            if read == 0 {
-                break;
-            }
-            let line = line.trim_end_matches(['\r', '\n']);
-            if let Some(data) = line.strip_prefix("data:") {
-                current_data = Some(data.trim().to_string());
-                continue;
-            }
-            if line.is_empty() {
-                if let Some(data) = current_data.take() {
-                    match (wire_format.translate_sse_data)(&data, &mut accumulator) {
-                        Some(GenerationProcessEvent::Completed(usage)) => {
-                            round_usage = usage;
-                            break;
-                        }
-                        Some(GenerationProcessEvent::Failed(failure)) => {
-                            finish_api_invocation(
-                                accounting,
-                                invocation.as_ref(),
-                                round_usage.as_ref(),
-                                None,
-                                UsageStatus::Failed,
-                                clock,
-                                logging,
-                            );
-                            return GenerationProcessEvent::Failed(failure);
-                        }
-                        Some(GenerationProcessEvent::Token(text)) => {
-                            let starts_new_round = assistant_text.is_empty();
-                            assistant_text.push_str(&text);
-                            let content_delta = if emitted_visible_content && starts_new_round {
-                                format!("\n{text}")
-                            } else {
-                                text
-                            };
-                            emitted_visible_content = true;
-                            if sink
-                                .handle(GenerationProcessEvent::Token(content_delta))
-                                .is_err()
-                            {
-                                return failed_retryable("Agent generation event handling failed.");
-                            }
-                        }
-                        Some(event) => {
-                            if sink.handle(event).is_err() {
-                                return failed_retryable("Agent generation event handling failed.");
-                            }
-                        }
-                        None => {}
-                    }
-                }
-            }
-        }
+        let StreamedRound {
+            mut accumulator,
+            assistant_text,
+            round_usage,
+        } = match stream_round(
+            response,
+            &wire_format,
+            sink,
+            &cancelled,
+            &mut emitted_visible_content,
+            accounting,
+            invocation.as_ref(),
+            clock,
+            logging,
+        ) {
+            Ok(round) => round,
+            Err(failure) => return failure,
+        };
 
         finish_api_invocation(
             accounting,
@@ -680,19 +427,10 @@ pub(super) fn execute_with_code_intelligence(
                     log_image_attachment(logging, clock, request, &tool_use.id, image);
                     images_in_request += 1;
                 }
-                tool_use.status = if outcome.is_error {
-                    "failed".to_owned()
-                } else {
-                    "completed".to_owned()
-                };
-                tool_use.output = Some(Value::String(outcome.output.clone()));
-                if sink
-                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                    .is_err()
-                {
-                    return failed_retryable("Agent generation event handling failed.");
+                match record_tool_outcome(sink, tool_use, outcome, image) {
+                    Ok(entry) => executed.push(entry),
+                    Err(failure) => return failure,
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error, image));
                 continue;
             }
             // Intercepted here for the same reason `ask_user_question` is: the image has to reach
@@ -736,19 +474,10 @@ pub(super) fn execute_with_code_intelligence(
                     log_image_attachment(logging, clock, request, &tool_use.id, image);
                     images_in_request += 1;
                 }
-                tool_use.status = if outcome.is_error {
-                    "failed".to_owned()
-                } else {
-                    "completed".to_owned()
-                };
-                tool_use.output = Some(Value::String(outcome.output.clone()));
-                if sink
-                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                    .is_err()
-                {
-                    return failed_retryable("Agent generation event handling failed.");
+                match record_tool_outcome(sink, tool_use, outcome, image) {
+                    Ok(entry) => executed.push(entry),
+                    Err(failure) => return failure,
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error, image));
                 continue;
             }
             // Handled here rather than in `execute_tool_call_impl` because asking needs the event
@@ -766,19 +495,10 @@ pub(super) fn execute_with_code_intelligence(
                     Ok(outcome) => outcome,
                     Err(failure) => return failure,
                 };
-                tool_use.status = if outcome.is_error {
-                    "failed".to_owned()
-                } else {
-                    "completed".to_owned()
-                };
-                tool_use.output = Some(Value::String(outcome.output.clone()));
-                if sink
-                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                    .is_err()
-                {
-                    return failed_retryable("Agent generation event handling failed.");
+                match record_tool_outcome(sink, tool_use, outcome, None) {
+                    Ok(entry) => executed.push(entry),
+                    Err(failure) => return failure,
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error, None));
                 continue;
             }
             // Same placement and reason as the question above: the sink and blocked-call channel
@@ -796,19 +516,10 @@ pub(super) fn execute_with_code_intelligence(
                     Ok(outcome) => outcome,
                     Err(failure) => return failure,
                 };
-                tool_use.status = if outcome.is_error {
-                    "failed".to_owned()
-                } else {
-                    "completed".to_owned()
-                };
-                tool_use.output = Some(Value::String(outcome.output.clone()));
-                if sink
-                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                    .is_err()
-                {
-                    return failed_retryable("Agent generation event handling failed.");
+                match record_tool_outcome(sink, tool_use, outcome, None) {
+                    Ok(entry) => executed.push(entry),
+                    Err(failure) => return failure,
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error, None));
                 continue;
             }
             if tool_use.name.starts_with("skill__") {
@@ -868,88 +579,22 @@ pub(super) fn execute_with_code_intelligence(
                 executed.push((tool_use, outcome.output, outcome.is_error, None));
                 continue;
             }
-            let (permission_action, permission_resource) =
-                permission_action_and_resource(&tool_use.name, &input);
-            let project_key = request.session.folder.as_deref().unwrap_or("");
-            let effect = permissions.evaluate(
+            match authorize_tool_call(
+                &mut tool_use,
+                &input,
                 agent_id,
-                permission_action.clone(),
-                permission_resource.clone(),
-                &request.session.id,
-                &request.operation_id,
-                project_key,
-            );
-            match effect {
-                Effect::Allow => {}
-                Effect::Deny => {
-                    let denial = "Denied by policy.".to_string();
-                    tool_use.status = "failed".to_string();
-                    tool_use.output = Some(Value::String(denial.clone()));
-                    if sink
-                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                        .is_err()
-                    {
-                        return failed_retryable("Agent generation event handling failed.");
-                    }
+                request,
+                permissions,
+                pending_approvals,
+                sink,
+                &cancelled,
+            ) {
+                ToolAuthorization::Allowed => {}
+                ToolAuthorization::Denied(denial) => {
                     executed.push((tool_use, denial, true, None));
                     continue;
                 }
-                Effect::Ask => {
-                    tool_use.status = "awaiting_approval".to_string();
-                    if sink
-                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                        .is_err()
-                    {
-                        return failed_retryable("Agent generation event handling failed.");
-                    }
-                    if let Err(error) = permissions.create_pending_approval(
-                        agent_id,
-                        permission_action,
-                        permission_resource,
-                        &request.session.id,
-                        &request.operation_id,
-                        &tool_use.id,
-                        project_key,
-                    ) {
-                        return failed_non_retryable(&error.to_string());
-                    }
-                    match await_approval(&tool_use.id, &cancelled, pending_approvals) {
-                        ApprovalOutcome::Approved => {}
-                        ApprovalOutcome::Denied => {
-                            let denial = "Denied by user.".to_string();
-                            tool_use.status = "failed".to_string();
-                            tool_use.output = Some(Value::String(denial.clone()));
-                            if sink
-                                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                                .is_err()
-                            {
-                                return failed_retryable("Agent generation event handling failed.");
-                            }
-                            executed.push((tool_use, denial, true, None));
-                            continue;
-                        }
-                        ApprovalOutcome::Cancelled => {
-                            return failed_non_retryable(
-                                "Generation was cancelled while a tool call was awaiting approval.",
-                            );
-                        }
-                        // An answer delivered to a call that asked for permission means the two
-                        // resolutions were crossed; fail closed rather than treat it as consent.
-                        ApprovalOutcome::Answered(_) => {
-                            let denial = "Denied by user.".to_string();
-                            tool_use.status = "failed".to_string();
-                            tool_use.output = Some(Value::String(denial.clone()));
-                            if sink
-                                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                                .is_err()
-                            {
-                                return failed_retryable("Agent generation event handling failed.");
-                            }
-                            executed.push((tool_use, denial, true, None));
-                            continue;
-                        }
-                    }
-                }
+                ToolAuthorization::Failed(failure) => return failure,
             }
             tool_use.status = "running".to_string();
             if sink
@@ -990,19 +635,10 @@ pub(super) fn execute_with_code_intelligence(
             if cancelled.load(Ordering::SeqCst) {
                 return failed_non_retryable("Generation was cancelled.");
             }
-            tool_use.status = if outcome.is_error {
-                "failed".to_string()
-            } else {
-                "completed".to_string()
-            };
-            tool_use.output = Some(Value::String(outcome.output.clone()));
-            if sink
-                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                .is_err()
-            {
-                return failed_retryable("Agent generation event handling failed.");
+            match record_tool_outcome(sink, tool_use, outcome, None) {
+                Ok(entry) => executed.push(entry),
+                Err(failure) => return failure,
             }
-            executed.push((tool_use, outcome.output, outcome.is_error, None));
         }
 
         turns.extend((wire_format.build_reply_turns)(&assistant_text, &executed));
@@ -1042,6 +678,159 @@ pub(super) fn execute_with_code_intelligence(
     }
 
     failed_non_retryable("Tool-use loop exceeded the maximum number of round trips.")
+}
+
+/// What one round trip's SSE stream produced.
+struct StreamedRound {
+    accumulator: ToolCallAccumulator,
+    assistant_text: String,
+    round_usage: Option<ReportedUsageTotals>,
+}
+
+/// Reads one round trip's `text/event-stream` response to completion.
+///
+/// Each `Err` is the `GenerationProcessEvent` the caller returns unchanged. Note the asymmetry the
+/// exits carry with them, unchanged from when this loop was inline: cancellation, a read error and
+/// a translated failure each finish the accounting invocation before returning, while a rejected
+/// event does **not** — a sink that cannot accept events cannot be trusted to have observed the
+/// round at all, so the invocation is left open rather than recorded as a completed failure.
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
+fn stream_round(
+    response: reqwest::blocking::Response,
+    wire_format: &WireFormat,
+    sink: &dyn AgentProcessEventSink,
+    cancelled: &AtomicBool,
+    emitted_visible_content: &mut bool,
+    accounting: Option<&SessionsApi>,
+    invocation: Option<&NewModelInvocation>,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) -> Result<StreamedRound, GenerationProcessEvent> {
+    let mut reader = std::io::BufReader::new(response);
+    let mut current_data: Option<String> = None;
+    let mut accumulator = ToolCallAccumulator::default();
+    let mut assistant_text = String::new();
+    let mut round_usage = None;
+    loop {
+        if cancelled.load(Ordering::SeqCst) {
+            finish_api_invocation(
+                accounting,
+                invocation,
+                round_usage.as_ref(),
+                None,
+                UsageStatus::Cancelled,
+                clock,
+                logging,
+            );
+            return Err(failed_non_retryable("Generation was cancelled."));
+        }
+        let mut line = String::new();
+        let read = match reader.read_line(&mut line) {
+            Ok(read) => read,
+            Err(error) => {
+                finish_api_invocation(
+                    accounting,
+                    invocation,
+                    round_usage.as_ref(),
+                    None,
+                    UsageStatus::Failed,
+                    clock,
+                    logging,
+                );
+                return Err(GenerationProcessEvent::Failed(
+                    GenerationProcessFailure::retryable(format!(
+                        "Failed to read the provider API response: {error}"
+                    )),
+                ));
+            }
+        };
+        if read == 0 {
+            break;
+        }
+        let line = line.trim_end_matches(['\r', '\n']);
+        if let Some(data) = line.strip_prefix("data:") {
+            current_data = Some(data.trim().to_string());
+            continue;
+        }
+        if line.is_empty() {
+            if let Some(data) = current_data.take() {
+                match (wire_format.translate_sse_data)(&data, &mut accumulator) {
+                    Some(GenerationProcessEvent::Completed(usage)) => {
+                        round_usage = usage;
+                        break;
+                    }
+                    Some(GenerationProcessEvent::Failed(failure)) => {
+                        finish_api_invocation(
+                            accounting,
+                            invocation,
+                            round_usage.as_ref(),
+                            None,
+                            UsageStatus::Failed,
+                            clock,
+                            logging,
+                        );
+                        return Err(GenerationProcessEvent::Failed(failure));
+                    }
+                    Some(GenerationProcessEvent::Token(text)) => {
+                        let starts_new_round = assistant_text.is_empty();
+                        assistant_text.push_str(&text);
+                        let content_delta = if *emitted_visible_content && starts_new_round {
+                            format!("\n{text}")
+                        } else {
+                            text
+                        };
+                        *emitted_visible_content = true;
+                        if sink
+                            .handle(GenerationProcessEvent::Token(content_delta))
+                            .is_err()
+                        {
+                            return Err(failed_retryable(
+                                "Agent generation event handling failed.",
+                            ));
+                        }
+                    }
+                    Some(event) => {
+                        if sink.handle(event).is_err() {
+                            return Err(failed_retryable(
+                                "Agent generation event handling failed.",
+                            ));
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    Ok(StreamedRound {
+        accumulator,
+        assistant_text,
+        round_usage,
+    })
+}
+
+/// The status/output/emit/push tail every tool-dispatch branch ends with, which each of the five
+/// branches carried its own copy of. `Err` is the sink-rejection event the caller returns
+/// unchanged; `Ok` is the entry the caller pushes to `executed` before continuing.
+#[allow(clippy::result_large_err)]
+fn record_tool_outcome(
+    sink: &dyn AgentProcessEventSink,
+    mut tool_use: ToolUseBlock,
+    outcome: ToolExecutionOutcome,
+    image: Option<AgentImage>,
+) -> Result<ExecutedToolCall, GenerationProcessEvent> {
+    tool_use.status = if outcome.is_error {
+        "failed".to_owned()
+    } else {
+        "completed".to_owned()
+    };
+    tool_use.output = Some(Value::String(outcome.output.clone()));
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    Ok((tool_use, outcome.output, outcome.is_error, image))
 }
 
 fn skill_tool_outcome(outcome: SkillToolDispatchOutcome) -> ToolExecutionOutcome {

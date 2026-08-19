@@ -76,16 +76,28 @@ impl IndexingService {
         source: Arc<dyn IndexSourcePort>,
         embeddings: Arc<dyn EmbeddingPort>,
     ) -> Self {
-        Self::new_scoped(
+        // This constructor fixes the scope/kind pair rather than accepting one, and
+        // `validate_for` accepts exactly this combination, so there is no input to reject and
+        // no error a caller could act on. `new_scoped` stays the checked entry point for
+        // callers that choose the pair themselves.
+        debug_assert!(RetrievalScope::GlobalMemory
+            .validate_for(SourceKind::AgentMemory)
+            .is_ok());
+        Self {
             repository,
             source,
             embeddings,
-            SourceKind::AgentMemory,
-            RetrievalScope::GlobalMemory,
-        )
-        .expect("agent memory always uses the global memory scope")
+            source_kind: SourceKind::AgentMemory,
+            scope: RetrievalScope::GlobalMemory,
+            generation_guard: Arc::new(AlwaysCurrentGeneration),
+        }
     }
 
+    /// The checked constructor for a caller-chosen scope/kind pair with the default generation
+    /// guard. Production reaches for `new_scoped_with_guard` directly; this wrapper was
+    /// previously kept alive only by `new` delegating to it, which is also where the panic
+    /// shortcut lived.
+    #[allow(dead_code)]
     pub(crate) fn new_scoped(
         repository: Arc<dyn RetrievalDocumentRepository>,
         source: Arc<dyn IndexSourcePort>,
