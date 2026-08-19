@@ -2238,9 +2238,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // (+3 in `local_runner.rs`), and `process_adapter.rs` renders that detail into the lifecycle
     // log (+12, a small helper and its doc). The reasons are worth the lines: each one is a defect
     // that cost a full investigation to find because the code said what it did and not why.
+    //
+    // Raised again from 59,303 by +4: adding the `detail` parameter above took
+    // `record_runner_lifecycle` past clippy's argument threshold, and the suppression carries a
+    // reason rather than standing bare, since the wrapper one function above suppresses the same
+    // lint for the same list and a reader deserves to know why both are acceptable.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_303,
+        budget: 59_307,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

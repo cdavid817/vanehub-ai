@@ -484,6 +484,10 @@ fn runner_failure_category(
     }
 }
 
+// Correlation identity (agent, session, operation, run) is what a lifecycle line is for, so the
+// parameter list is long by construction; the wrapper above suppresses the same lint for the same
+// list. Every caller is in this file, which is what keeps positional passing checkable.
+#[allow(clippy::too_many_arguments)]
 fn record_runner_lifecycle(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
