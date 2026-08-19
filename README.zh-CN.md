@@ -99,35 +99,34 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | 主题 | 入口 |
 | --- | --- |
 | 快速开始 | [五步走完，从装 CLI 到在工作区里干活](docs/user-guide/zh-CN/src/quick-start.md) |
-| 基础配置 | [界面语言、主题、字号、默认权限模板、开机自启、网络代理、数据目录、日志目录](docs/user-guide/zh-CN/src/user-interface.md#设置中心) |
+| 基础配置 | [界面语言、主题、字号、默认权限模板、开机自启、网络代理、数据目录、日志目录](docs/user-guide/zh-CN/src/user-interface.md#基础配置) |
 | 用户界面总览 | [主布局、导航、面板切换、会话/对话/工作区标签页/信息面板](docs/user-guide/zh-CN/src/user-interface.md) |
 | 会话列表 | [分组/搜索/筛选/批量/拖拽、右键菜单、专注模式](docs/user-guide/zh-CN/src/user-interface.md#会话列表) |
 | 浮动助手 | [独立浮窗会话、状态徽章、主操作菜单](docs/user-guide/zh-CN/src/user-interface.md#浮动助手) |
 | 循环中心 | [Loop 运行控件、验证命令、时间线](docs/user-guide/zh-CN/src/loop-engineering.md) |
-| 计划中心 | [计划草稿、评审/批准/运行](docs/user-guide/zh-CN/src/user-interface.md#计划中心) |
+| 计划中心 | [任务图生成、审批约束、运行与验收](docs/user-guide/zh-CN/src/user-interface.md#计划中心) |
 | 通知中心 | [铃铛、未读数、全部已读、清除](docs/user-guide/zh-CN/src/user-interface.md#通知) |
 | 系统托盘 | [显示/隐藏主窗口、开机自启、通知联动](docs/user-guide/zh-CN/src/user-interface.md#系统托盘) |
-| CLI 安装与认证 | [装一个 CLI 并完成认证、被检测到](docs/user-guide/zh-CN/src/getting-started.md) |
+| CLI 管理、安装与认证 | [两种安装方式、认证、安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
 | 多 Agent 群聊 | [席位、`@` 交接、轮次边界](docs/user-guide/zh-CN/src/multi-agent-workflow.md) |
 | 定时任务 | [定时任务与用量统计](docs/user-guide/zh-CN/src/automation.md) |
-| 远程工作区 | [SSH 工作区与 IM 接入](docs/user-guide/zh-CN/src/remote-and-im.md) |
-| CLI 管理 | [各 CLI 的安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
-| CLI 参数 | [按 CLI Agent 配置启动参数与全局配置](docs/user-guide/zh-CN/src/tooling.md#cli-参数) |
+| 远程工作区与 SSH 连接 | [SSH 工作区、保存的连接与 IM 接入](docs/user-guide/zh-CN/src/remote-and-im.md) |
+| CLI 参数 | [按 CLI Agent 配置启动参数，含各 CLI 参数速查](docs/user-guide/zh-CN/src/tooling.md#cli-参数) |
 | 扩展能力 | [本地扩展安装/启用/禁用](docs/user-guide/zh-CN/src/tooling.md#扩展能力) |
-| 插件集成 | [第三方插件的集成配置](docs/user-guide/zh-CN/src/tooling.md#插件集成) |
+| 插件集成 | [内置产品集成与就绪检测](docs/user-guide/zh-CN/src/plugin-integration.md) |
 | MCP 服务器 | [MCP server 配置与按 Agent 绑定](docs/user-guide/zh-CN/src/mcp.md) |
-| Agent 配置 | [按 Agent 配置模型、权限模板、运行参数](docs/user-guide/zh-CN/src/user-interface.md#设置中心) |
-| 专家角色 | [角色与评审策略](docs/user-guide/zh-CN/src/personalization.md) |
+| Agent 配置 | [按 Agent 配置 provider、端点与模型](docs/user-guide/zh-CN/src/tooling.md#agent-配置) |
+| 专家角色 | [角色字段、职责与评审策略](docs/user-guide/zh-CN/src/expert-roles.md) |
 | Agent 权限策略 | [Agent 权限策略与审批模板配置](docs/user-guide/zh-CN/src/permissions.md) |
 | 个性化 | [Custom Instructions 与跨会话记忆](docs/user-guide/zh-CN/src/personalization.md) |
 | Skill 管理 | [Skill 安装与绑定](docs/user-guide/zh-CN/src/skill-management.md) |
 | Prompt Hook | [钩子管理](docs/user-guide/zh-CN/src/prompt-hooks.md) |
-| IM 能力 | [IM 连接器配置](docs/user-guide/zh-CN/src/remote-and-im.md) |
-| SSH 连接 | [保存的 SSH 连接](docs/user-guide/zh-CN/src/remote-and-im.md) |
+| IM 能力 | [IM 连接器配置](docs/user-guide/zh-CN/src/remote-and-im.md#im-连接器) |
 | 执行可观测性 | [执行追踪与日志采集策略](docs/user-guide/zh-CN/src/observability.md) |
 | 使用统计 | [Token 用量统计](docs/user-guide/zh-CN/src/automation.md) |
 | 关于 | [版本、更新检查、changelog、仓库链接](docs/user-guide/zh-CN/src/app-updates.md) |
 | 故障排查 | [出错了先看这里、日志在哪](docs/user-guide/zh-CN/src/troubleshooting.md) |
+| 反馈问题 | [选对入口、要填什么、提交前怎么脱敏](docs/user-guide/zh-CN/src/reporting-issues.md) |
 
 ### 开发者指南
 

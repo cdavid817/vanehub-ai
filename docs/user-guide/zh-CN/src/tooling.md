@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-MCP 服务器、Prompt Hook、本地扩展、插件集成、SDK 依赖、CLI 参数都在设置中心集中配置，再按 Agent 下发，不必在每个 CLI 里各配一遍。
+MCP 服务器、Prompt Hook、本地扩展、插件集成、SDK 依赖、CLI 管理与参数、Agent 配置都在设置中心集中配置，再按 Agent 下发，不必在每个 CLI 里各配一遍。
 
 Skill 的管理见[管理 Skill](skill-management.md)。
 
@@ -34,7 +34,7 @@ Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hoo
 
 ## 插件集成
 
-**设置 → 插件集成**用于第三方插件的集成配置。
+**设置 → 插件集成**管理内置产品集成与就绪检测——注意它**不安装第三方插件包**。首版内置 GitHub 一个集成，检测本机 `gh` 的认证状态。五种状态的含义、启用步骤与 Web 模式限制，见[插件集成](plugin-integration.md)。
 
 ## SDK 依赖
 
@@ -65,15 +65,96 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 ### CLI 参数
 
-**设置 → CLI 参数**配置各 CLI 的启动开关。参数带两项标注：
+**设置 → CLI 参数**配置各 CLI 的启动开关。
+
+![设置中的 CLI 参数管理页面](assets/screenshots/settings-cli-parameters-zh-CN.png)
+
+参数带两项标注：
 
 - **风险标注**——危险开关会被显著标记
 - **启动场景**——区分「交互式终端」与「对话」，同一个 CLI 在两种场景下需要的参数不同
 
 > **权限模板会压过你在这里保存的选择**。例如当前是「只读」模板时，即使参数里勾了某个宽松选项，也以模板为准。安全策略优先于便利性配置。
 
+#### 各 CLI 常见参数参考
+
+五个外部 CLI 各自有命令行参数，供在 VaneHub AI 中排查启动参数、脚本化调用时参考。各 CLI 更新较快，`--help` 常滞后于实际支持，完整清单以对应官方 CLI Reference 为准。
+
+| 功能 | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
+| --- | --- | --- | --- | --- | --- |
+| 非交互/单次执行 | `-p, --print` | `run "<prompt>"` | `exec "<prompt>"` | `-p, --prompt` | 无独立子命令，交互式为主 |
+| 指定模型 | `--model` | `-m, --model provider/model` | `-m, --model`/`--profile` | `-m, --model` | 无需指定，自动路由 |
+| 继续最近会话 | `-c, --continue` | `-c, --continue` | `resume --last` | `-r "latest"` | `-c` |
+| 按 ID 恢复会话 | `-r, --resume` | `-s, --session <id>` | `resume <id>` | `-r "<id>"` | `--conversation <id>` |
+| 跳过权限确认（高风险） | `--dangerously-skip-permissions` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo`/`--approval-mode yolo` | `--dangerously-skip-permissions` |
+| 沙箱/权限模式 | `--permission-mode` | agent 的 `permissions` 配置 | `--sandbox`, `--ask-for-approval` | `--sandbox`, `--approval-mode` | 内置审批模式 |
+| 输出格式（脚本用） | `--output-format json/stream-json` | `--format json` | `--json`, `--output-schema` | `-o, --output-format json` | —— |
+| 附加工作目录 | `--add-dir` | `--dir` | `--cd` | `--include-directories` | —— |
+| 版本/帮助 | `-v/--version`, `--help` | `-v/--version`, `-h/--help` | `codex --version` | `-v/--version`, `-h/--help` | `agy --version` |
+
+各 CLI 高频参数：
+
+- **Claude Code** —— `--model <alias|id>`（别名如 sonnet/opus/haiku）、`--permission-mode <default|acceptEdits|plan|bypassPermissions>`、`--allowedTools`/`--disallowedTools`、`--add-dir`、`--max-turns`/`--max-budget-usd`（仅 `-p`）、`--mcp-config`/`--strict-mcp-config`、`--worktree`/`--session-id`、`--verbose`。
+- **OpenCode** —— `-m, --model <provider/model>`（固定格式如 `anthropic/claude-sonnet-4-6`）、`--fork`（从某会话分叉）、`--format json`、`--attach <server-url>`（连到已运行 `opencode serve`）、`--agent <name>`、`serve --port --hostname`（无 UI HTTP 后端）。
+- **Codex CLI** —— `--profile <name>`（config.toml 预定义档）、`--sandbox <read-only|workspace-write|danger-full-access>`、`--ask-for-approval`、`--json`/`--output-schema`、`--ephemeral`（不落盘 rollout）、`--skip-git-repo-check`、`--image`（多模态）。
+- **Gemini CLI** —— `-m, --model`（别名 auto/pro/flash/flash-lite）、`--sandbox`/`-s`、`--approval-mode <default|auto_edit|yolo|plan>`、`--checkpointing`（改文件前快照，可 `/restore` 回滚）、`--include-directories`、`--extensions`、`--worktree`。
+- **Antigravity CLI** —— `agy -c`（继续上次）、`agy --conversation <id>`（恢复指定对话）、`agy --dangerously-skip-permissions`（"Turbo 模式"）。无需 `--model`（默认自动路由）。MCP/权限配置在 `~/.gemini/antigravity-cli/settings.json`。
+
+> **权限参数是重点**：五款 CLI 都有"跳过确认/自动批准"类参数。VaneHub 的权限模板（只读/标准/信任/Yolo）决定是否附加这些高风险参数，**安全策略优先于便利性配置**——详见[权限审批](permissions.md)。
+
+#### OnePiece 的等价配置
+
+OnePiece 不走外部 CLI，没有上述命令行参数。它的等价配置是 **provider 配置**（在**设置 → Agent 配置**里管理）：选 provider 目录条目、填 API Key（保存前校验）、发现并选定模型、按需配自定义兼容端点。见下一节与[原生 API Agent](native-agent.md)。
+
+## Agent 配置
+
+**设置 → Agent 配置**做的是一件和上面几节都不同的事：**决定各个 Agent 去调哪个厂商、哪个模型**。它是本页唯一会主动改写各 CLI 自己配置文件的功能。
+
+![设置中的 Agent 配置页面，六个 Agent 标签与全局配置状态](assets/screenshots/settings-agent-configurations-zh-CN.png)
+
+页面顶部按 Agent 分标签：**Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / OnePiece**。同一页面下方还有[LSP 代码智能](lsp-code-intelligence.md)的语言服务器开关。
+
+### 它解决什么
+
+外部 CLI 的官方订阅登录（OAuth）VaneHub AI 管不了，那必须在终端里完成。但**换成第三方兼容端点**——DeepSeek、OpenRouter、智谱 GLM 之类——原本要你手改 `~/.claude/settings.json` 或 `~/.codex/config.toml`，现在在这个页面配好、应用即可。
+
+内置目录含 **25 家 provider**（Anthropic、OpenAI 官方，以及 OpenRouter、DeepSeek、智谱 GLM、Kimi、Moonshot、SiliconFlow、阿里百炼、火山方舟、Groq、xAI、Mistral、Together、Fireworks、NVIDIA NIM、Cerebras、MiniMax、StepFun、百川、PPIO、七牛、ModelScope、小米 MiMo、Z.AI 等），也可以填自定义兼容端点。
+
+### 各 CLI 能配到什么程度
+
+| Agent | 第三方端点 | 纳管的配置文件 | 可配字段 |
+| --- | --- | --- | --- |
+| **Claude Code** | 支持 | `~/.claude/settings.json` | 端点、认证方式、主模型与 haiku/sonnet/opus 三档映射 |
+| **Codex CLI** | 支持 | `~/.codex/config.toml`（`auth.json` 另需确认） | provider id、端点、模型、协议（Responses/Chat）、推理强度 |
+| **OpenCode** | 支持 | `~/.config/opencode/opencode.json` | provider 定义、端点、npm 适配包、模型列表与默认模型 |
+| **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` | 端点、模型、认证方式 |
+| **Antigravity CLI** | **不支持** | `~/.gemini/antigravity-cli/settings.json` | 模型、工具审批模式、输出详细度、终端沙箱 |
+
+> **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
+
+Claude Code 与 Codex 是**互斥模式**：可以存很多份配置，但同一时刻只有一份处于「已应用」。OpenCode 是**累加模式**：provider 定义叠加保留，切换的只是全局默认的 `provider/model`。
+
+### 应用时到底改了什么
+
+- **只替换 VaneHub 拥有的那几个字段**。`~/.claude/settings.json` 里的 hooks、permissions、plugins 原样保留；`config.toml` 里的 projects、MCP server、注释和无关 provider 也不动。
+- **先在内存里校验并构建完整结果，再原子替换**。Codex 涉及多文件时，任一步失败会把已改的文件全部还原。
+- **切换配置前先回填**。离开某份配置时，VaneHub 会把当前生效文件里的纳管字段读回来写进那份配置，避免你在文件里的手工微调被静默丢弃。
+- **应用后运行中的 CLI 进程不会自动重启**。VaneHub 不声称热重载，需要你自己重开会话或终端。
+
+### 凭据与漂移
+
+**API Key 存在操作系统的凭据服务里**，按 Agent/配置分账保存，不落 SQLite，界面上只回显「已配置」。只有在你显式点「应用」时，才会把明文写进那个 CLI 要求明文的配置文件。
+
+应用成功后 VaneHub 会给纳管片段留指纹。**文件被外部改动时只报告漂移，不自动覆盖**；应用过程中若检测到文件正被并发改写，会中止写入而不是硬写。OpenCode 的外部编辑要等下次启动或手动导入才会并入。
+
+启动时会做一次同步：Claude Code 与 Codex 在完全没有配置时，从可解析的现有文件导入一份 `default`（不回写文件）；一旦已有配置，后续启动就跳过。
+
+### OnePiece
+
+原生 Agent OnePiece 在同一个页面配置，但它的 Key 由 VaneHub AI 直接保管，且**保存前会实际调用一次校验，不通过不保存**，校验通过后再拉取可用模型列表。见[原生 API Agent](native-agent.md)。
+
 ## 注意事项与限制
 
 - **全部仅桌面端可用**。
 - **漂移只报告不自动修复**——检测到配置被外部改动时需要你确认处理方式。
-- **不会改写各 CLI 自己的配置文件**，工具绑定通过启动参数与中继实现。
+- **MCP、Prompt Hook、扩展能力、CLI 参数都不改写各 CLI 自己的配置文件**，绑定通过启动参数与中继实现。**只有 Agent 配置例外**，它按上面的语义显式改写纳管字段。

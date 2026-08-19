@@ -203,6 +203,18 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   "settings-agent-policies": (page, locale) =>
     openSettings(page, "agent-policies", text(locale, "Agent 权限策略", "Agent policies")),
 
+  "settings-basic": (page, locale) =>
+    openSettings(page, "basic", text(locale, "基础配置", "Basic Configuration")),
+
+  "settings-plugins": (page, locale) =>
+    openSettings(page, "plugins", text(locale, "插件集成", "Plugin Integrations")),
+
+  "settings-agent-configurations": (page, locale) =>
+    openSettings(page, "agent-configurations", text(locale, "Agent 配置", "Agent Configurations")),
+
+  "settings-cli-parameters": (page, locale) =>
+    openSettings(page, "cli-parameters", text(locale, "CLI 参数管理", "CLI Parameter Management")),
+
   "settings-personalization": (page, locale) =>
     openSettings(page, "personalization", text(locale, "个性化", "Personalization")),
 
@@ -302,6 +314,21 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
       dialog.getByRole("heading", { name: text(locale, "定时任务", "Scheduled tasks") }),
     ).toBeVisible();
     return dialog;
+  },
+
+  "plan-center": async (page, locale) => {
+    await visit(page, "/");
+    await page
+      .getByRole("button", { name: text(locale, "Plan 执行", "Plan execution"), exact: true })
+      .click();
+    const shell = page.locator("main").first();
+    await expect(shell).toBeVisible();
+    // The Plan Center's own h1, distinct from the top bar's product name.
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 1, name: text(locale, "Plan 执行", "Plan execution") }),
+    );
+    return shell;
   },
 
   "loop-center": async (page, locale) => {

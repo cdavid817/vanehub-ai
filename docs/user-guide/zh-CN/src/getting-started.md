@@ -1,13 +1,40 @@
 # 安装并认证 CLI
 
-VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Provider 凭据。认证始终由各 CLI 自己完成，VaneHub AI 不会要求你输入 Provider 密码。
+VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）始终由 CLI 自己完成**，VaneHub AI 不代劳、也不会要求你输入订阅账号密码。
 
-唯一的例外是 OnePiece——它是内置的原生 API Agent，不需要任何 CLI，API Key 由 VaneHub AI 保存。想跳过 CLI 直接开始，见[原生 API Agent](native-agent.md)。
+但**「配第三方大模型」是另一回事**——想让某个 CLI 去调 DeepSeek、OpenRouter 这类兼容端点时，可以在**设置 → Agent 配置**里配好并应用，不必手改配置文件。两者的分工见[快速开始 → 认证 / 配置模型](quick-start.md#15-认证--配置模型)。
+
+不想装 CLI 也能开始：OnePiece 是内置的原生 API Agent，不需要任何 CLI，见[原生 API Agent](native-agent.md)。
 
 ## 前置条件
 
 - Node.js 22+ 与 npm
 - 至少一个受支持的 CLI，以及对应的订阅或 API 凭据
+
+## 两种安装方式
+
+装 CLI 有两条路，**结果等价，差别在谁来跑这条命令**。
+
+### 方式 A：在 VaneHub AI 里装
+
+打开**设置 → CLI 管理**，每个 CLI 卡片会按当前检测状态给出可用操作：**安装**、**升级**、**降级**、**已是当前版本**、**不可用**或**手动处理**。点**安装**，VaneHub AI 用 npm 替你装好，装完自动刷新检测。
+
+适合：本机已有 Node.js 22+，且你不介意这份 CLI 来自 npm。
+
+**两个前提要清楚**：
+
+- **只走 npm**。VaneHub AI 不会调用各家的官方安装脚本，也不会用 Homebrew、winget、scoop 装。
+- **Antigravity CLI 没有 npm 包**，界面对它不提供安装/升级/降级操作，只能走方式 B。
+
+### 方式 B：在终端里用命令装
+
+按各 CLI 官方说明执行安装命令，具体命令见下一节。装完回到**设置 → CLI 管理**点**刷新检测**。
+
+适合：想用官方推荐的原生二进制（不依赖 Node.js）、需要 Homebrew/scoop 等特定来源、或者该 CLI 压根没有 npm 包。
+
+> **别把两条路混着走**。同一个 CLI 既用 npm 装一份、又用安装脚本装一份，就会触发[安装冲突](#安装冲突)——届时 `PATH` 顺序决定实际跑起来的是哪一份，而升级往往作用在另一份上。
+
+无论走哪条路，**认证都得在终端里完成**，见[先在终端里跑通](#先在终端里跑通)。
 
 ## 五个 CLI
 
@@ -97,7 +124,7 @@ curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.
 
 二进制默认放在 `~/.local/bin`(macOS/Linux)或 `%LOCALAPPDATA%\Antigravity\`(Windows)。因此 CLI 管理页对它不提供 npm 安装/升级/降级操作。它走 **Google 登录**并把凭据存进**系统钥匙串**,配置档里根本没有密钥字段。若本机曾装过 Gemini CLI(存在 `~/.gemini` 目录),`agy` 首次运行会提示是否导入旧设置(MCP 配置、命令白名单、快捷键、主题);与 Gemini CLI 的 npm 安装互不冲突,可同时保留。
 
-> **凭据一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完登录，也不保存任何外部 CLI 的 Provider 凭据。安装后建议跑一遍 `claude --version` / `codex --version` / `gemini --version` / `opencode --version` / `agy --version`,确认版本号正常输出后再在 VaneHub AI 中添加会话。
+> **订阅登录一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完 OAuth 登录，也不保存由此产生的会话凭据。（你在**设置 → Agent 配置**里主动填写的第三方 API Key 是另一回事，那份由 VaneHub AI 存进系统凭据服务。）安装后建议跑一遍 `claude --version` / `codex --version` / `gemini --version` / `opencode --version` / `agy --version`,确认版本号正常输出后再在 VaneHub AI 中添加会话。
 
 ## 先在终端里跑通
 
@@ -156,39 +183,15 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 ## 认证
 
-**认证不在 VaneHub AI 里做**。五个 CLI 各自管理自己的 Provider 凭据，存在它们各自的位置。
+**官方订阅登录不在 VaneHub AI 里做**。五个 CLI 各自管理自己的订阅凭据，存在它们各自的位置。
 
 如果 Agent 在会话中提示要登录，去对应的 CLI 里完成认证，然后回到 VaneHub AI 刷新检测。
 
-## 各 CLI 常见参数参考
+**要换成第三方大模型则相反**——去**设置 → Agent 配置**建一份配置并应用即可，不必手改 CLI 的配置文件。见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
 
-五个外部 CLI 各自有命令行参数,供在 VaneHub AI 中排查启动参数、脚本化调用时参考。各 CLI 更新较快,`--help` 常滞后于实际支持,完整清单以对应官方 CLI Reference 为准。
+## CLI 启动参数
 
-| 功能 | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
-| --- | --- | --- | --- | --- | --- |
-| 非交互/单次执行 | `-p, --print` | `run "<prompt>"` | `exec "<prompt>"` | `-p, --prompt` | 无独立子命令,交互式为主 |
-| 指定模型 | `--model` | `-m, --model provider/model` | `-m, --model`/`--profile` | `-m, --model` | 无需指定,自动路由 |
-| 继续最近会话 | `-c, --continue` | `-c, --continue` | `resume --last` | `-r "latest"` | `-c` |
-| 按 ID 恢复会话 | `-r, --resume` | `-s, --session <id>` | `resume <id>` | `-r "<id>"` | `--conversation <id>` |
-| 跳过权限确认(高风险) | `--dangerously-skip-permissions` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo`/`--approval-mode yolo` | `--dangerously-skip-permissions` |
-| 沙箱/权限模式 | `--permission-mode` | agent 的 `permissions` 配置 | `--sandbox`, `--ask-for-approval` | `--sandbox`, `--approval-mode` | 内置审批模式 |
-| 输出格式(脚本用) | `--output-format json/stream-json` | `--format json` | `--json`, `--output-schema` | `-o, --output-format json` | —— |
-| 附加工作目录 | `--add-dir` | `--dir` | `--cd` | `--include-directories` | —— |
-| 版本/帮助 | `-v/--version`, `--help` | `-v/--version`, `-h/--help` | `codex --version` | `-v/--version`, `-h/--help` | `agy --version` |
-
-各 CLI 高频参数:
-
-- **Claude Code** —— `--model <alias|id>`(别名如 sonnet/opus/haiku)、`--permission-mode <default|acceptEdits|plan|bypassPermissions>`、`--allowedTools`/`--disallowedTools`、`--add-dir`、`--max-turns`/`--max-budget-usd`(仅 `-p`)、`--mcp-config`/`--strict-mcp-config`、`--worktree`/`--session-id`、`--verbose`。
-- **OpenCode** —— `-m, --model <provider/model>`(固定格式如 `anthropic/claude-sonnet-4-6`)、`--fork`(从某会话分叉)、`--format json`、`--attach <server-url>`(连到已运行 `opencode serve`)、`--agent <name>`、`serve --port --hostname`(无 UI HTTP 后端)。
-- **Codex CLI** —— `--profile <name>`(config.toml 预定义档)、`--sandbox <read-only|workspace-write|danger-full-access>`、`--ask-for-approval`、`--json`/`--output-schema`、`--ephemeral`(不落盘 rollout)、`--skip-git-repo-check`、`--image`(多模态)。
-- **Gemini CLI** —— `-m, --model`(别名 auto/pro/flash/flash-lite)、`--sandbox`/`-s`、`--approval-mode <default|auto_edit|yolo|plan>`、`--checkpointing`(改文件前快照,可 `/restore` 回滚)、`--include-directories`、`--extensions`、`--worktree`。
-- **Antigravity CLI** —— `agy -c`(继续上次)、`agy --conversation <id>`(恢复指定对话)、`agy --dangerously-skip-permissions`("Turbo 模式")。无需 `--model`(默认自动路由)。MCP/权限配置在 `~/.gemini/antigravity-cli/settings.json`。
-
-> **权限参数是重点**:五款 CLI 都有"跳过确认/自动批准"类参数。VaneHub 的权限模板(只读/标准/信任/Yolo)决定是否附加这些高风险参数,**安全策略优先于便利性配置**——详见[权限审批](permissions.md)。
-
-## 原生 Agent OnePiece 的"参数"
-
-OnePiece 不走外部 CLI,没有上述命令行参数。它的等价配置是 **provider Profile**(在**设置 → Agent 配置**里管理):选 provider 目录条目、填 API Key(保存前校验)、发现并选定模型、按需配自定义兼容端点。Profile 的生命周期与凭据回滚详见[开发者指南:OnePiece native Agent](../../../developer-guide/zh-CN/src/onepiece-native-agent.md)。
+五个 CLI 各自的命令行参数、VaneHub AI 里的启动参数配置，以及 OnePiece 的等价配置，统一收在[工具与扩展 → CLI 参数](tooling.md#cli-参数)。
 
 ## 下一步
 
