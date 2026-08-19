@@ -1,8 +1,3 @@
-// Predates the production panic-shortcut gate; removing this attribute is the
-// definition of done for this file, and it may be removed without ceremony.
-// TODO(retire-production-panic-shortcuts): 6 pre-existing sites.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 //! Owns the pending-approval queue as the Rust-side single source of truth (design.md D7).
 //! Deliberately in-memory, not SQLite-backed: a pending approval only means anything while its
 //! originating generation's process is alive, so there is nothing meaningful to recover across an
@@ -19,7 +14,7 @@ use crate::contexts::permissions::domain::{
     Principal, Resource, Scope, SkillApprovalInvalidation, SkillApprovalProvenance,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Clone)]
 pub(crate) struct ApprovalBroker {
@@ -64,6 +59,20 @@ impl ApprovalBroker {
             pending: Arc::new(Mutex::new(HashMap::new())),
             timeout_seconds,
         }
+    }
+
+    /// Takes the pending-approval lock, recovering the guard rather than aborting if it is
+    /// poisoned. Poisoning means some *other* thread already panicked while holding this lock;
+    /// killing this one too turns one failure into two, and it would take the approval queue —
+    /// which the whole permissions flow blocks on — down with it. The guarded map is only ever
+    /// touched by `insert`/`remove`/`get`, none of which can leave it half-updated, so the
+    /// recovered map is structurally sound. Same recovery this repository already uses in
+    /// `retrieval/api.rs`, `skill_tools/application/registry.rs` and `platform/network/proxy.rs`.
+    fn lock_pending(&self) -> MutexGuard<'_, HashMap<String, ApprovalRequest>> {
+        self.pending.lock().unwrap_or_else(|poisoned| {
+            debug_assert!(false, "pending approvals mutex poisoned");
+            poisoned.into_inner()
+        })
     }
 
     /// Registers a new pending approval — called by a PEP integration (Group 6: the native
@@ -144,9 +153,7 @@ impl ApprovalBroker {
             skill,
             created_at: self.clock.now(),
         };
-        self.pending
-            .lock()
-            .expect("pending approvals mutex poisoned")
+        self.lock_pending()
             .insert(request.id.clone(), request.clone());
         // Best-effort (see `PendingApprovalEventPort`'s own doc comment): a publish failure must
         // not fail approval creation itself, since the frontend's pull-on-mount already covers
@@ -158,20 +165,11 @@ impl ApprovalBroker {
     /// The full pending list — `permissions-approval`'s "Pending approval state is Rust-side
     /// authoritative" and its pull-reconciliation-on-mount requirement both read this.
     pub(crate) fn list_pending(&self) -> Vec<ApprovalRequest> {
-        self.pending
-            .lock()
-            .expect("pending approvals mutex poisoned")
-            .values()
-            .cloned()
-            .collect()
+        self.lock_pending().values().cloned().collect()
     }
 
     pub(crate) fn get_pending(&self, request_id: &str) -> Option<ApprovalRequest> {
-        self.pending
-            .lock()
-            .expect("pending approvals mutex poisoned")
-            .get(request_id)
-            .cloned()
+        self.lock_pending().get(request_id).cloned()
     }
 
     pub(crate) fn invalidate_skill_pending(
@@ -180,10 +178,7 @@ impl ApprovalBroker {
         current_witness: &str,
         reason: SkillApprovalInvalidation,
     ) -> Option<ApprovalRequest> {
-        let mut pending = self
-            .pending
-            .lock()
-            .expect("pending approvals mutex poisoned");
+        let mut pending = self.lock_pending();
         let request = pending.get(request_id)?;
         let skill = request.skill.as_ref()?;
         let witness_matches = skill.immutable_witness == current_witness;
@@ -212,10 +207,7 @@ impl ApprovalBroker {
         delivered: bool,
     ) -> Result<Option<ResolvedApproval>, PermissionsApplicationError> {
         let request = {
-            let mut pending = self
-                .pending
-                .lock()
-                .expect("pending approvals mutex poisoned");
+            let mut pending = self.lock_pending();
             match pending.remove(request_id) {
                 Some(request) => request,
                 None => return Ok(None),
@@ -268,10 +260,7 @@ impl ApprovalBroker {
     pub(crate) fn sweep_timed_out(&self) -> Vec<ApprovalRequest> {
         let now: i64 = self.clock.now().parse().unwrap_or(0);
         let expired: Vec<ApprovalRequest> = {
-            let mut pending = self
-                .pending
-                .lock()
-                .expect("pending approvals mutex poisoned");
+            let mut pending = self.lock_pending();
             let expired_ids: Vec<String> = pending
                 .values()
                 .filter(|request| {

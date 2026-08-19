@@ -68,6 +68,16 @@ impl SkillLocation {
         })
     }
 
+    /// The global location. Infallible by construction: `new` can only reject a `Workspace`
+    /// scope missing its path, so the global case has nothing to validate and callers that fix
+    /// the scope at the call site do not have to handle an error that cannot occur.
+    pub(crate) fn global() -> Self {
+        Self {
+            scope: SkillScope::Global,
+            workspace_path: None,
+        }
+    }
+
     pub(crate) fn storage_workspace_key(&self) -> &str {
         self.workspace_path.as_deref().unwrap_or("")
     }
