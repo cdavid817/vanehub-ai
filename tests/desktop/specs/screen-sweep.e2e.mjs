@@ -159,7 +159,10 @@ globalThis.describe("VaneHub AI desktop screen sweep", () => {
 
     await navigate(`/workspace/sessions/${encodeURIComponent(session.id)}`);
     const firstTab = await globalThis.$('[aria-controls="session-tab-panel-chat"]');
-    await firstTab.waitForExist({ timeout: 30_000 });
+    // The session workspace mounts nine lazily-loaded tab panels, which on a loaded machine takes
+    // longer than the default. A short wait here fails as "the tab bar is missing" when the truth
+    // is that it had not finished mounting.
+    await firstTab.waitForExist({ timeout: 90_000 });
 
     for (const tab of SESSION_TABS) {
       const button = await globalThis.$(`[aria-controls="session-tab-panel-${tab}"]`);

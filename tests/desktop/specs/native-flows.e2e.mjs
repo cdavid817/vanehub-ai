@@ -17,7 +17,8 @@ async function settle(operationId, message) {
       operationId,
     );
     return ["succeeded", "failed", "cancelled"].includes(status.status) ? status : false;
-  }, { timeout: 180_000, interval: 1_000, timeoutMsg: message });
+    // Under the mocha ceiling, above a pip download through an egress proxy.
+  }, { timeout: 240_000, interval: 1_000, timeoutMsg: message });
 }
 
 globalThis.describe("VaneHub AI desktop native flows", () => {
@@ -140,10 +141,108 @@ globalThis.describe("VaneHub AI desktop native flows", () => {
     assert.equal(after.currentVersion, target);
   });
 
+  globalThis.it("installs and removes a real extension framework through pip", async function pipExtension() {
+    const overview = await invoke(({ core }) => core.invoke("get_extension_overview"));
+    assert.ok(overview.definitions.length >= 3, "the extension catalogue is missing frameworks");
+    // sherpa-onnx of the three: paddleocr pulls paddlepaddle and faster-whisper pulls
+    // ctranslate2, and this drives the same install pipeline for a fraction of the download.
+    const frameworkId = "sherpa-onnx";
+
+    const preview = await invoke(({ core }, id) => core.invoke("get_extension_install_preview", {
+      request: { frameworkId: id },
+    }), frameworkId);
+    assert.ok(preview, "no install preview was produced");
+
+    const install = await invoke(({ core }, id) => core.invoke("install_extension", {
+      request: { frameworkId: id },
+    }), frameworkId);
+    const installed = await settle(install.id, "The extension install never settled.");
+    if (installed.status !== "succeeded") {
+      blocked.push(`extension install: ${installed.error ?? "pip install failed on this host"}`);
+      this.skip();
+    }
+
+    const afterInstall = await invoke(({ core }) => core.invoke("get_extension_overview"));
+    const status = afterInstall.statuses.find((entry) => entry.frameworkId === frameworkId);
+    assert.ok(status, "the installed framework reported no status");
+
+    // Put the host back: this test installs into the developer's real Python environment.
+    const uninstall = await invoke(({ core }, id) => core.invoke("uninstall_extension", {
+      request: { frameworkId: id },
+    }), frameworkId);
+    const removed = await settle(uninstall.id, "The extension uninstall never settled.");
+    assert.equal(removed.status, "succeeded", removed.error ?? "uninstall failed, leaving the host changed");
+  });
+
+  globalThis.it("connects to a real SSH host and removes the connection", async function sshConnection() {
+    // Credentials come from the environment only -- never a committed fixture.
+    const host = process.env.VANEHUB_SSH_HOST;
+    const user = process.env.VANEHUB_SSH_USER;
+    const password = process.env.VANEHUB_SSH_PASSWORD;
+    if (!host || !user || !password) {
+      blocked.push("SSH: set VANEHUB_SSH_HOST, VANEHUB_SSH_USER and VANEHUB_SSH_PASSWORD");
+      this.skip();
+    }
+
+    const connection = await invoke(({ core }, input) => core.invoke("create_ssh_connection", { input }), {
+      name: "desktop-sweep-ssh",
+      host,
+      port: 22,
+      user,
+      defaultPath: "/root",
+      authMode: "password",
+      keyPath: null,
+      password,
+    });
+    assert.ok(connection.id, "the SSH connection was not persisted");
+
+    try {
+      let result = await invoke(({ core }, id) => core.invoke("test_ssh_connection", {
+        connectionId: id,
+      }), connection.id);
+
+      // First contact with an unknown host parks the key for confirmation rather than trusting
+      // it, so accepting it is part of the flow rather than a workaround.
+      if (result.status !== "succeeded") {
+        const challenge = await invoke(({ core }, id) => core.invoke("get_pending_ssh_host_key", {
+          connectionId: id,
+        }), connection.id).catch(() => null);
+        if (challenge?.fingerprint) {
+          await invoke(({ core }, input) => core.invoke("confirm_ssh_host_key", { input }), {
+            connectionId: challenge.connectionId,
+            revision: challenge.revision,
+            fingerprint: challenge.fingerprint,
+          });
+          result = await invoke(({ core }, id) => core.invoke("test_ssh_connection", {
+            connectionId: id,
+          }), connection.id);
+        }
+      }
+
+      assert.equal(result.status, "succeeded", result.message ?? "the SSH connection test failed");
+      const listed = await invoke(({ core }) => core.invoke("list_ssh_connections"));
+      const stored = listed.find((entry) => entry.id === connection.id);
+      assert.ok(stored, "the tested connection is missing from the list");
+      assert.equal(stored.host, host);
+      // The secret must not come back out of the store through a read path.
+      assert.equal(
+        JSON.stringify(stored).includes(password),
+        false,
+        "the connection record echoed its password back",
+      );
+    } finally {
+      await invoke(({ core }, id) => core.invoke("delete_ssh_connection", {
+        connectionId: id,
+      }), connection.id).catch(() => {});
+    }
+  });
+
   globalThis.after(async () => {
     if (blocked.length > 0) {
       globalThis.console.warn(`BLOCKED on this host:\n  ${blocked.join("\n  ")}`);
     }
-    await invoke(({ core }) => core.invoke("exit_application"));
+    // Teardown is left to WDIO. Exiting the app from here raced its `deleteSession`, and the
+    // resulting worker-level failure discarded every per-test result for this file -- the run
+    // reported one opaque FAILED for a spec whose tests had all completed.
   });
 });

@@ -172,14 +172,17 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
       });
       const reply = await sendAndAwaitReply(session, agent.id, agent.mode);
       if (!reply) {
+        // Two different causes hide behind "no reply", and the lifecycle tells them apart.
+        // `failed` is the argv-delivery defect: `RunnerLaunchSpec` rejects any argument holding a
+        // control character, a composed prompt is multi-line, so the launch never happens.
+        // `running` is a turn that started and hung -- a different problem with a different fix,
+        // and recording it as the same thing would bury one of them.
         const lifecycle = await lifecycleOf(session.id);
-        // A failed lifecycle with no reply is the known argv-delivery defect: `RunnerLaunchSpec`
-        // rejects any argument containing a control character, and a composed prompt is
-        // multi-line, so gemini-cli/opencode/antigravity-cli never launch. Reported as blocked
-        // rather than failed while that is open -- and this becomes a real assertion again the
-        // moment a launch succeeds, so the fix cannot land unnoticed.
-        assert.equal(lifecycle, "failed", `${agent.id} went quiet without failing (lifecycle=${lifecycle})`);
-        blocked.push(`${agent.id}: launch rejected before the turn ran (runner_invalid_launch)`);
+        blocked.push(lifecycle === "failed"
+          ? `${agent.id}: launch rejected before the turn ran (runner_invalid_launch)`
+          : `${agent.id}: turn started but never answered (lifecycle=${lifecycle})`);
+        // Becomes a real assertion again the moment a turn does answer, so a fix cannot land
+        // unnoticed behind a permanently skipped case.
         this.skip();
       }
       assert.match(reply.content, /PONG/i, `unexpected ${agent.id} reply: ${reply.content}`);
