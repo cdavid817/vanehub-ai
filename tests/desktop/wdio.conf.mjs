@@ -11,6 +11,21 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 const logDir = path.join(resultDir, "logs");
 await mkdir(logDir, { recursive: true });
 
+function proxyEnvironment() {
+  const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy;
+  if (!proxy?.startsWith("http")) {
+    return {};
+  }
+  const bypass = process.env.NO_PROXY ?? process.env.no_proxy;
+  return {
+    HTTPS_PROXY: proxy,
+    HTTP_PROXY: process.env.HTTP_PROXY ?? process.env.http_proxy ?? proxy,
+    // Loopback must never go through the proxy: local model discovery probes 127.0.0.1, and a
+    // proxy that answers for it turns a real endpoint check into a bogus result.
+    NO_PROXY: bypass ? `127.0.0.1,localhost,${bypass}` : "127.0.0.1,localhost",
+  };
+}
+
 export const config = {
   runner: "local",
   specs: [path.join(configDir, "specs", "**", "*.e2e.mjs")],
@@ -31,6 +46,12 @@ export const config = {
       VANEHUB_APP_DATA_DIR: process.env.VANEHUB_APP_DATA_DIR,
       VANEHUB_TEST_RUN_ID: process.env.VANEHUB_TEST_RUN_ID,
       VANEHUB_DESKTOP_RESULT_DIR: resultDir,
+      // CLI Agents launched by the app inherit this environment, and on a network that requires
+      // an egress proxy they cannot reach their provider without it. Forwarded only when the host
+      // set it. `socks5://` is deliberately not accepted here: Node's undici -- which
+      // `claude` uses -- ignores it and retries until the turn times out, which reads as an
+      // authentication failure rather than a proxy misconfiguration.
+      ...proxyEnvironment(),
     },
   }]],
   capabilities: [{
@@ -45,7 +66,10 @@ export const config = {
   connectionRetryCount: 1,
   framework: "mocha",
   reporters: ["spec"],
-  mochaOpts: { ui: "bdd", timeout: 120_000 },
+  // Above the longest in-spec wait. A session case waits on a cold CLI start plus a provider round
+  // trip through an egress proxy; when mocha's ceiling was the lower of the two it killed the test
+  // first, which reads as "the Agent never answered" rather than "the harness stopped waiting".
+  mochaOpts: { ui: "bdd", timeout: 300_000 },
   afterTest: async (_test, _context, result) => {
     if (!result.passed) {
       try {
