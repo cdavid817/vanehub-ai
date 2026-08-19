@@ -114,16 +114,22 @@ pub(crate) fn build_invocation(
             args.extend(["--json".to_string(), "-".to_string()]);
             ProviderPromptDelivery::Stdin
         }
+        // Stdin, not `-p`, and this one is forced by the platform rather than chosen. On Windows
+        // `gemini` is an npm batch shim with no `.exe` beside it, and since the BatBadBut
+        // hardening Rust's `std::process::Command` refuses outright to pass a `.cmd` any argument
+        // containing CR or LF — "batch file arguments are invalid", before `CreateProcess` is even
+        // reached. A composed prompt always spans lines, so argv delivery could never spawn.
+        // `cmd.exe`'s 8,191-character command line is the second wall behind it: past that the
+        // spawn succeeds and the child receives empty argv, losing the prompt silently.
+        //
+        // The CLI documents `-p` as "Appended to input on stdin (if any)", and with no `-p` it
+        // reads stdin as the prompt, so this is the same request through the channel that has
+        // neither limit.
         "gemini-cli" => {
             args.extend_from_slice(managed_args);
             push_resume_args(&mut args, runtime_session_id, "--resume");
-            args.extend([
-                "-p".to_string(),
-                prompt.to_string(),
-                "-o".to_string(),
-                "stream-json".to_string(),
-            ]);
-            ProviderPromptDelivery::Argument
+            args.extend(["-o".to_string(), "stream-json".to_string()]);
+            ProviderPromptDelivery::Stdin
         }
         "opencode" => {
             args.push("run".to_string());
