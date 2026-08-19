@@ -32,6 +32,24 @@
 
 VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity CLI 汇集到统一桌面工作台中。它管理 CLI 可用性、会话、终端执行、项目与 worktree、设置、工具、可观测性和桌面集成，同时避免 React 组件直接依赖 native API。
 
+### 支持的 CLI
+
+装一个就能开始，不必五个都装。
+
+| Agent | 提供方 | 命令 | 模型族 | 应用内安装 | 第三方模型端点 |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Anthropic | `claude` | Anthropic | ✅ `@anthropic-ai/claude-code` | ✅ |
+| Codex CLI | OpenAI | `codex` | OpenAI | ✅ `@openai/codex` | ✅ |
+| OpenCode | OpenCode（开源） | `opencode` | 未知 | ✅ `opencode-ai` | ✅ |
+| Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ 端点可改，但目录中只有官方预设 |
+| Antigravity CLI | Google | `agy` | Google | ❌ 无 npm 包，走官方安装脚本 | ❌ 只接受 Google 登录 |
+
+- **应用内安装**指能否在**设置 → CLI 管理**里由 VaneHub AI 代为安装与升级——它只走 npm，Homebrew、winget、scoop 装的那份需要你用原来的来源升级。
+- **第三方模型端点**指能否在**设置 → Agent 配置**里把该 CLI 指向 DeepSeek、OpenRouter 一类兼容端点。**各家的官方订阅登录（OAuth）一律在终端里完成**，VaneHub AI 不代管。
+- **OpenCode 的模型族是「未知」而非漏填**：它驱动的是你自己配置的任意模型，没有固定归属，「要求评审来自不同模型族」这类策略对它不生效。
+- **Gemini CLI 正在被 Antigravity CLI 取代**，Google 自 2026-06-18 起对个人/免费账号逐步停用它。
+- 不想装任何 CLI，可以直接用内置的原生 API Agent **OnePiece**——它通过 HTTP 调模型，完全在应用内运行，详见下面的使用者指南。
+
 <!-- docs-section:download -->
 
 ## 下载

@@ -100,7 +100,7 @@ Hook 的执行会以摘要形式进入执行链路，见[可观测性](observabi
 
 ## 注意事项与限制
 
-- **仅作用于四个外部 CLI Agent**，OnePiece 不受 Prompt Hook 影响。
+- **仅作用于五个外部 CLI Agent**，OnePiece 不受 Prompt Hook 影响。
 - **内置 Hook 的内容不可编辑**；需要调整就自建一个。
 - **部分内置 Hook 不可停用**，这是有意的硬约束。
 - **未发布的草稿不参与线上组装**——改完记得发布。

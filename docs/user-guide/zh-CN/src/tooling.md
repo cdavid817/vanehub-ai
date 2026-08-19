@@ -14,7 +14,7 @@ MCP 服务器把外部工具接给 Agent，在**设置 → MCP 服务器**中集
 
 Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hook** 中配置。七种分类、两个执行阶段、模板变量允许清单、草稿/发布/回滚与效果评估，见[Prompt Hook](prompt-hooks.md)。
 
-> **Prompt Hook 只能绑定到四个外部 CLI Agent，不作用于 OnePiece**——原生 Agent 有自己的核心指令机制。
+> **Prompt Hook 只能绑定到五个外部 CLI Agent，不作用于 OnePiece**——原生 Agent 有自己的核心指令机制。
 
 ## 扩展能力
 
@@ -46,9 +46,9 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 ### CLI 管理
 
-**设置 → CLI 管理**集中查看四个 CLI 的安装状态，顶部有**已安装 / 未安装**计数与**诊断安装冲突**、**刷新检测**、**全部升级**三个操作。
+**设置 → CLI 管理**集中查看五个 CLI 的安装状态，顶部有**已安装 / 未安装**计数与**诊断安装冲突**、**刷新检测**、**全部升级**三个操作。
 
-![设置中的 CLI 管理页面，四个 CLI 卡片与本地环境检查](assets/screenshots/cli-zh-CN.png)
+![设置中的 CLI 管理页面，五个 CLI 卡片与本地环境检查](assets/screenshots/cli-zh-CN.png)
 
 **同一个 CLI 可能同时来自多个来源**（npm、winget、Homebrew、Volta、Bun 等），这正是冲突的根源。冲突分四种：
 

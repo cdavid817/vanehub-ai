@@ -32,6 +32,24 @@
 
 VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI を共有デスクトップワークスペースに統合します。React コンポーネントを native API に直接依存させず、CLI の可用性、セッション、ターミナル実行、プロジェクトと worktree、設定、ツール、可観測性、デスクトップ統合を管理します。
 
+### サポートする CLI
+
+1 つ入れれば始められます。5 つすべてを揃える必要はありません。
+
+| Agent | 提供元 | コマンド | モデルファミリ | アプリ内インストール | サードパーティモデルエンドポイント |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Anthropic | `claude` | Anthropic | ✅ `@anthropic-ai/claude-code` | ✅ |
+| Codex CLI | OpenAI | `codex` | OpenAI | ✅ `@openai/codex` | ✅ |
+| OpenCode | OpenCode（オープンソース） | `opencode` | 不明 | ✅ `opencode-ai` | ✅ |
+| Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ エンドポイントは変更可だが、カタログには公式プリセットのみ |
+| Antigravity CLI | Google | `agy` | Google | ❌ npm パッケージなし。公式インストーラースクリプトを使用 | ❌ Google サインインのみ |
+
+- **アプリ内インストール**とは、**設定 → CLI 管理**から VaneHub AI がインストールとアップグレードを代行できるかどうかです。npm のみを経由するため、Homebrew・winget・scoop で入れたものは元のソースで更新してください。
+- **サードパーティモデルエンドポイント**とは、**設定 → Agent 設定**から DeepSeek や OpenRouter などの互換エンドポイントに向けられるかどうかです。**各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います**——VaneHub AI は仲介しません。
+- **OpenCode のモデルファミリが「不明」なのは記載漏れではありません**：設定した任意のモデルを駆動するため固定の所属がなく、「レビュアーは別のモデルファミリから」といった方針は適用されません。
+- **Gemini CLI は Antigravity CLI に置き換えられつつあります。** Google は 2026-06-18 より個人・無料アカウント向けに段階的な提供終了を開始しました。
+- CLI を一切入れたくない場合、組み込みのネイティブ API Agent **OnePiece** がアプリ内で HTTP 経由でモデルを呼び出します。以下のユーザーガイドを参照してください。
+
 <!-- docs-section:download -->
 
 ## ダウンロード

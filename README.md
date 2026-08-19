@@ -32,6 +32,24 @@ Desktop-first workspace for managing AI coding agents through one React interfac
 
 VaneHub AI brings Claude Code, OpenCode, Codex CLI, Gemini CLI, and Antigravity CLI into a shared desktop workspace. It manages CLI availability, sessions, terminal execution, projects and worktrees, settings, tools, observability, and desktop integrations without letting React components depend directly on native APIs.
 
+### Supported CLIs
+
+One is enough to start. You do not need all five.
+
+| Agent | Provider | Command | Model family | In-app install | Third-party model endpoint |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Anthropic | `claude` | Anthropic | ✅ `@anthropic-ai/claude-code` | ✅ |
+| Codex CLI | OpenAI | `codex` | OpenAI | ✅ `@openai/codex` | ✅ |
+| OpenCode | OpenCode (open source) | `opencode` | Unknown | ✅ `opencode-ai` | ✅ |
+| Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ Custom endpoint allowed, but the catalog ships only the official preset |
+| Antigravity CLI | Google | `agy` | Google | ❌ No npm package; use the official installer script | ❌ Google sign-in only |
+
+- **In-app install** means VaneHub AI can install and upgrade the CLI for you from **Settings → CLI management**. It goes through npm only, so a copy installed via Homebrew, winget, or scoop must be upgraded through that same source.
+- **Third-party model endpoint** means the CLI can be pointed at a compatible endpoint such as DeepSeek or OpenRouter from **Settings → Agent configurations**. **Vendor subscription login (OAuth) always happens in your terminal**; VaneHub AI does not broker it.
+- **OpenCode's model family is "Unknown" by decision, not omission**: it drives whichever model you configured, so it has no fixed family, and policies such as "require a reviewer from a different model family" do not apply to it.
+- **Gemini CLI is being replaced by Antigravity CLI.** Google began phasing it out for personal and free accounts on 2026-06-18.
+- If you would rather install no CLI at all, the built-in native API Agent **OnePiece** calls model providers over HTTP entirely inside the application. See the user guide below.
+
 <!-- docs-section:download -->
 
 ## Download
