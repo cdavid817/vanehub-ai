@@ -14,8 +14,8 @@ flowchart TB
   NEED -->|"Yes"| GATE{"Hits a bypass?"}
   GATE -->|"RequestSuppressed"| SEND
   GATE -->|"UserPreferenceSuppressed"| SEND
-  GATE -->|"Cooldown<br/>growth_since_success &lt; 8192"| SEND
   GATE -->|"CircuitOpen<br/>consecutive failures ≥ 2"| SEND
+  GATE -->|"Cooldown<br/>growth_since_success &lt; 8192"| SEND
   GATE -->|"Not bypassed"| SUM["Keep the most recent turns verbatim<br/>older turns → one provider call<br/>(declares no tools)"]
   SUM --> OK{"Summarization succeeded?"}
   OK -->|"Yes"| UPD["Synthetic turn replaces the old turns<br/>update last_success_characters"]
@@ -60,7 +60,7 @@ Automatic compaction is governed by `AutomaticCompactionState` and `AutomaticCom
 Watch the field ownership; don't conflate these:
 
 - `compaction_triggered: bool` belongs to `ContextEvidenceManifest` (`context_engine.rs`), recording whether a given generation triggered compaction.
-- `reserved_recent_turns: u64` belongs to `ContextBudget` (`context_engine.rs`); the OnePiece path sets it to `12_288`. It's the "how many recent turns stay exempt from compaction" setting inside the context budget, not something on `AutomaticCompactionState`.
+- `reserved_recent_turns: u64` belongs to `ContextBudget` (`context_engine.rs`); the OnePiece path sets it to `12_288`. It is a **reserved capacity allowance**, not a turn count: `evidence_budget()` subtracts it (along with `reserved_system`, `reserved_task`, and `reserve`) from `total` via `saturating_sub` to derive how much budget is left for evidence. It is not something on `AutomaticCompactionState`.
 
 ## Where the design lives
 

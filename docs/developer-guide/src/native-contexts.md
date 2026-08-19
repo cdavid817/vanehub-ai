@@ -73,7 +73,7 @@ The diagram only draws **call direction** between contexts, not specific command
 
 | Context | Owns | Chapter |
 | --- | --- | --- |
-| `agent_runtime` | Agent catalog, interaction modes, provider invocation, workflow state, and generation lifecycle | [Agent lifecycle](agent-lifecycle.md) |
+| `agent_runtime` | Agent registry, interaction modes, provider invocation, workflow state, and generation lifecycle | [Agent lifecycle](agent-lifecycle.md) |
 | `cli_delegation` | Delegated CLI invocation for Claude Code and Codex: protocol handling, readiness, scheduling, circuit breaking, restart recovery, and the changeset capture/review/seal/apply pipeline | [CLI delegation](cli-delegation.md) |
 | `code_execution` | Sandboxed code runtimes, the runtime catalog, execution workspaces, and readiness | [Extended tool contexts](extended-tool-contexts.md) |
 | `task_orchestration` | Plan drafts, plan runs, attempt execution and verification, plan worktrees, and recovery evidence | [Loop and Plan runtimes](loop-and-plan-runtime.md) |

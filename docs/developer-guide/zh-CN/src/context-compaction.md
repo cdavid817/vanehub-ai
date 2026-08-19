@@ -14,8 +14,8 @@ flowchart TB
   NEED -->|"是"| GATE{"是否命中旁路?"}
   GATE -->|"RequestSuppressed"| SEND
   GATE -->|"UserPreferenceSuppressed"| SEND
-  GATE -->|"Cooldown<br/>growth_since_success &lt; 8192"| SEND
   GATE -->|"CircuitOpen<br/>连续失败 ≥ 2"| SEND
+  GATE -->|"Cooldown<br/>growth_since_success &lt; 8192"| SEND
   GATE -->|"未旁路"| SUM["保留最近若干回合原文<br/>更早回合 → 单次 provider 调用<br/>（不声明任何工具）"]
   SUM --> OK{"摘要成功?"}
   OK -->|"是"| UPD["合成回合替换旧回合<br/>更新 last_success_characters"]
@@ -60,7 +60,7 @@ flowchart TB
 注意字段归属,不要混淆:
 
 - `compaction_triggered: bool` 属于 `ContextEvidenceManifest`(`context_engine.rs`),记录某次生成是否触发过压缩。
-- `reserved_recent_turns: u64` 属于 `ContextBudget`(`context_engine.rs`),OnePiece 路径取值 `12_288`;它是上下文预算里"保留最近若干回合不被压缩"的配置,不在 `AutomaticCompactionState` 上。
+- `reserved_recent_turns: u64` 属于 `ContextBudget`(`context_engine.rs`),OnePiece 路径取值 `12_288`;它是一个**预留容量额度**,不是回合计数:`evidence_budget()` 通过 `saturating_sub` 把它(连同 `reserved_system`、`reserved_task`、`reserve`)从 `total` 中扣除,得到证据可用的剩余预算。它不在 `AutomaticCompactionState` 上。
 
 ## 设计所在
 

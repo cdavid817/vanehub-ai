@@ -17,7 +17,7 @@ One session can hold several Agent **seats**. Each seat is one Agent plus one ex
 - **Multi-perspective review** — one Agent produces, another from a different model family reviews, avoiding a single model's blind spots
 - **Handing back to a human** — an Agent hands you the decision at a key point with `@用户`
 
-**How it differs from single-Agent**: single-Agent is one actor working start to finish; Multi-Agent is several actors relaying within the same context. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session (see [Group chat versus a single-Agent session](#group-chat-versus-a-single-agent-session) below).
+**How it differs from single-Agent**: single-Agent is one actor working start to finish; Multi-Agent is several actors relaying within the same context. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session.
 
 > **Multi-Agent runtime capabilities are desktop only.** Display-layer things like seat assignment and speaker attribution exist in both runtimes, but handle derivation, `@` handoff, code-block exemption, seat briefing, runaway-chain protection, and model-family identification all depend on the desktop runtime. What you see in Web/mock reflects no fact about this machine.
 
@@ -215,10 +215,6 @@ VaneHub AI has two forms of multi-Agent collaboration, and **they do not share o
 | Termination | Mentions exhausted / depth limit / `@用户 done` | Phase completion / no-progress detection |
 | Suits | Exploratory, role-divided collaboration | Tasks with a clear goal that can iterate automatically |
 
-## Group chat versus a single-Agent session
-
-A single-Agent session's seat has no role assigned, derives no handle, and takes no part in handoffs. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session.
-
 ## Multi-Agent topologies: where VaneHub sits
 
 Multi-Agent systems are classified by **who decides what happens next**. The seven mainstream topologies:
@@ -269,3 +265,5 @@ Peer-to-peer handoff lets every Agent read the same context and decide for itsel
 - Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
 - Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
 - Expert roles and review policy → [Expert roles](expert-roles.md)
+- Technical overview of orchestration topologies, context management, and failure modes → [Multi-Agent systems technical architecture](../../../agent-infrastructure/multi-agent-architecture.md) (Simplified Chinese)
+- What the A2A protocol mentioned above actually is → [A2A technical architecture](../../../agent-infrastructure/a2a-architecture.md) (Simplified Chinese)
