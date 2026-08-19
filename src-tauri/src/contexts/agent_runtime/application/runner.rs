@@ -200,25 +200,47 @@ impl RunnerLaunchSpec {
             .as_deref()
             .is_some_and(|value| validate_token(value, "session_id").is_err())
         {
-            return Err(RunnerError::new(RunnerErrorKind::InvalidLaunch));
+            return Err(invalid_launch("session id"));
         }
-        validate_value(&self.executable, MAX_RUNNER_ID_CHARS)?;
-        if self.arguments.len() > MAX_RUNNER_ARGUMENTS
-            || self.environment.len() > MAX_RUNNER_ENVIRONMENT_KEYS
-            || self
-                .arguments
-                .iter()
-                .any(|value| validate_text_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
-            || self
-                .cwd
-                .as_deref()
-                .is_some_and(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
-            || self.environment.iter().any(|(key, value)| {
-                !valid_environment_key(key)
-                    || validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err()
-            })
+        // A path budget, not the identifier one. The executable is resolved to an absolute path
+        // before it reaches here, and a vendored npm binary routinely exceeds 128 characters --
+        // codex-cli lands at 141 on a default Windows install, so every one of its turns was
+        // rejected before anything spawned. `cwd` is the same kind of value and already uses this.
+        validate_value(&self.executable, MAX_RUNNER_ARGUMENT_CHARS)
+            .map_err(|_| invalid_launch("executable"))?;
+        if self.arguments.len() > MAX_RUNNER_ARGUMENTS {
+            return Err(invalid_launch("argument count"));
+        }
+        if self.environment.len() > MAX_RUNNER_ENVIRONMENT_KEYS {
+            return Err(invalid_launch("environment size"));
+        }
+        if self
+            .arguments
+            .iter()
+            .any(|value| validate_text_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
         {
-            return Err(RunnerError::new(RunnerErrorKind::InvalidLaunch));
+            return Err(invalid_launch("argument text"));
+        }
+        if self
+            .cwd
+            .as_deref()
+            .is_some_and(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
+        {
+            return Err(invalid_launch("working directory"));
+        }
+        if self
+            .environment
+            .keys()
+            .any(|key| !valid_environment_key(key))
+        {
+            return Err(invalid_launch("environment key"));
+        }
+        if self
+            .environment
+            .values()
+            .any(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
+        {
+            return Err(invalid_launch("environment value"));
         }
         Ok(())
     }
@@ -332,15 +354,30 @@ impl RunnerErrorKind {
 #[error("{kind:?}")]
 pub(crate) struct RunnerError {
     pub(crate) kind: RunnerErrorKind,
+    /// Which constraint rejected the launch. `code()` alone says only that something was
+    /// invalid, which left `runner_invalid_launch` in the log with nothing to act on -- an Agent
+    /// that could not start a single turn, and no way to tell why without a debugger.
+    pub(crate) detail: Option<&'static str>,
 }
 
 impl RunnerError {
     pub(crate) const fn new(kind: RunnerErrorKind) -> Self {
-        Self { kind }
+        Self { kind, detail: None }
+    }
+
+    pub(crate) const fn with_detail(kind: RunnerErrorKind, detail: &'static str) -> Self {
+        Self {
+            kind,
+            detail: Some(detail),
+        }
     }
 
     pub(crate) const fn code(&self) -> &'static str {
         self.kind.code()
+    }
+
+    pub(crate) const fn detail(&self) -> Option<&'static str> {
+        self.detail
     }
 }
 
@@ -375,6 +412,10 @@ fn validate_token(value: &str, _field: &'static str) -> Result<(), RunnerError> 
         return Err(RunnerError::new(RunnerErrorKind::InvalidSelection));
     }
     Ok(())
+}
+
+const fn invalid_launch(field: &'static str) -> RunnerError {
+    RunnerError::with_detail(RunnerErrorKind::InvalidLaunch, field)
 }
 
 fn validate_value(value: &str, limit: usize) -> Result<(), RunnerError> {

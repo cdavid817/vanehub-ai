@@ -2231,9 +2231,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // wrappers and its `rate_limit_event` were emitted as the Agent's own words, because the
     // parser's fallback treated any unrecognised line as literal output. The production side of
     // that fix replaced one match arm and added no net lines.
+    //
+    // Raised again from 59,279 by +24, all of it explanation rather than logic. gemini-cli moved
+    // from argv to stdin prompt delivery (+6 net in `providers/invocation.rs`, a shorter arm under
+    // a longer comment), the spawn path now carries the OS failure through `RunnerError::detail`
+    // (+3 in `local_runner.rs`), and `process_adapter.rs` renders that detail into the lifecycle
+    // log (+12, a small helper and its doc). The reasons are worth the lines: each one is a defect
+    // that cost a full investigation to find because the code said what it did and not why.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_279,
+        budget: 59_303,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

@@ -3,6 +3,9 @@ use super::{
     RunnerErrorKind, RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec,
     RunnerRecoveryMode, RunnerReference, RunnerSelection,
 };
+use crate::contexts::agent_runtime::application::runner::{
+    MAX_RUNNER_ARGUMENT_CHARS, MAX_RUNNER_ID_CHARS,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
@@ -290,6 +293,44 @@ fn a_multi_line_prompt_argument_is_accepted_but_a_nul_is_not() {
     executable.executable = "fixture\ncli".into();
     assert_eq!(
         executable.validate().expect_err("executable name").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+}
+
+/// The executable is a filesystem path, not an identifier, and `MAX_RUNNER_ID_CHARS` (128) is not
+/// a path budget. codex-cli resolves through its npm shim to a vendored binary at
+/// `…/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe`
+/// — 141 characters on a default Windows install — so every codex turn was rejected as
+/// `runner_invalid_launch` before anything spawned. `cwd` is the same kind of value and already
+/// used the larger budget.
+#[test]
+fn a_vendored_executable_path_is_not_measured_against_the_identifier_budget() {
+    let mut vendored = launch_spec();
+    vendored.executable = [
+        r"C:\Users\someone\AppData\Roaming\npm\node_modules\@openai\codex",
+        r"node_modules\@openai\codex-win32-x64\vendor",
+        r"x86_64-pc-windows-msvc\bin\codex.exe",
+    ]
+    .join("\\");
+    assert!(
+        vendored.executable.len() > MAX_RUNNER_ID_CHARS,
+        "fixture must exceed the identifier budget to be meaningful"
+    );
+    vendored
+        .validate()
+        .expect("a real vendored CLI path must launch");
+
+    // It is still bounded, and still an executable rather than free text.
+    let mut absurd = launch_spec();
+    absurd.executable = "x".repeat(MAX_RUNNER_ARGUMENT_CHARS + 1);
+    assert_eq!(
+        absurd.validate().expect_err("beyond any path length").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+    let mut newline = launch_spec();
+    newline.executable = "fixture\ncli".into();
+    assert_eq!(
+        newline.validate().expect_err("executable name").kind,
         RunnerErrorKind::InvalidLaunch
     );
 }

@@ -348,17 +348,20 @@ impl LocalProcessFactory for SystemLocalProcessFactory {
             &spec.environment,
             cwd.as_deref(),
         )
-        .map_err(|_| RunnerError::new(RunnerErrorKind::Spawn))?;
+        // The OS message is the whole diagnosis here. Discarding it left
+        // `runner_spawn_failed` with nothing to act on, and it took a controlled experiment to
+        // recover what the error had already said: "batch file arguments are invalid".
+        .map_err(|_| RunnerError::with_detail(RunnerErrorKind::Spawn, "process could not start"))?;
         let native_id = child.id().unwrap_or_default();
         let stdin = child
             .take_stdin()
-            .map_err(|_| RunnerError::new(RunnerErrorKind::Spawn))?;
+            .map_err(|_| RunnerError::with_detail(RunnerErrorKind::Spawn, "stdin pipe"))?;
         let stdout = child
             .take_stdout()
-            .map_err(|_| RunnerError::new(RunnerErrorKind::Spawn))?;
+            .map_err(|_| RunnerError::with_detail(RunnerErrorKind::Spawn, "stdout pipe"))?;
         let stderr = child
             .take_stderr()
-            .map_err(|_| RunnerError::new(RunnerErrorKind::Spawn))?;
+            .map_err(|_| RunnerError::with_detail(RunnerErrorKind::Spawn, "stderr pipe"))?;
         Ok(SpawnedLocalProcess {
             native_id,
             child: Box::new(child),
