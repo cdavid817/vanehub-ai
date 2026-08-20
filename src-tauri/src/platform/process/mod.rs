@@ -140,9 +140,6 @@ impl ProcessRequest {
         self
     }
 
-    // Unused builder surface: every current caller inherits the parent environment. Kept
-    // as the counterpart to `environment`, which `command()` still applies.
-    #[allow(dead_code)]
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.environment.insert(key.into(), value.into());
         self
