@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-multi-agent-group-chat-session. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Seat assignment
 A multi-Agent session SHALL be composed of seats, each pairing one expert role with one Agent, so a role is reusable across sessions and an Agent may play different roles in different sessions.
 
@@ -76,12 +78,17 @@ Every message in a multi-Agent session SHALL identify its speaker with a stable 
 - **THEN** the message SHALL be attributed to the user rather than to any seat
 
 ### Requirement: Agent-to-Agent handoff
-After a seat's Agent completes a reply, the system SHALL route the turn to any seat named by a line-leading mention in that reply.
+After a seat's Agent completes a reply, the system SHALL route the turn to any seat named by a line-leading mention in that reply. A routed seat SHALL take its turn on its own Agent's provider thread, so a handoff between seats on different Agents produces a reply rather than a failed turn.
 
 #### Scenario: Reply hands off to another seat
 - **WHEN** a completed Agent reply contains a mention of another seat at the start of a line
 - **THEN** the system SHALL route the turn to that seat and record the handoff
 - **AND** the receiving Agent SHALL be given the preceding turns of the thread within its context budget
+
+#### Scenario: Handoff crosses to a different Agent
+- **WHEN** the routed seat's Agent differs from the Agent that has already spoken in the session
+- **THEN** the routed seat SHALL take its turn without resuming a provider thread belonging to another seat's Agent
+- **AND** the turn SHALL produce a reply attributed to the routed seat
 
 #### Scenario: Mention is not at the start of a line
 - **WHEN** a mention appears anywhere other than the start of a line
@@ -98,7 +105,6 @@ After a seat's Agent completes a reply, the system SHALL route the turn to any s
 #### Scenario: Handoffs resolve serially
 - **WHEN** more than one seat is routed within a round
 - **THEN** the seats SHALL respond one at a time, each seeing the preceding replies
-- **AND** the system SHALL NOT run seats concurrently within a round
 
 ### Requirement: Handoff to the human
 An Agent SHALL be able to hand the turn to the human with an explicit intent, and the intent SHALL determine whether work pauses.
@@ -171,4 +177,3 @@ Multi-Agent delegated execution SHALL use parent/child canonical Run links while
 #### Scenario: Delegated turn is cancelled by parent
 - **WHEN** the parent generation is cancelled during a delegated turn
 - **THEN** the child Run is cancelled without changing persisted Seat or speaker semantics
-
