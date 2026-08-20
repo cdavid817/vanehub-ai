@@ -16,17 +16,17 @@ test("stable and preview tags select their reviewed release notes", () => {
   assert.ok(workflow.includes('if [[ "${GITHUB_REF_NAME}" == *-* ]]'));
 });
 
-test("stable publication fails closed without updater and platform signing credentials", () => {
+test("stable updater-only phase fails closed without the updater signing key", () => {
   assert.ok(workflow.includes('if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]'));
   assert.ok(workflow.includes('if [[ "${GITHUB_REF_NAME}" != *-* ]]'));
   assert.ok(
     workflow.includes(
-      'if [[ "${RUNNER_OS}" == "Windows" && -z "${WINDOWS_CERTIFICATE}" ]]',
+      "publishing an explicitly unsigned Windows package for updater-only phase 1",
     ),
   );
   assert.ok(
     workflow.includes(
-      'if [[ "${RUNNER_OS}" == "macOS" && ( -z "${APPLE_CERTIFICATE}" || -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" ) ]]',
+      "publishing an explicitly unsigned and un-notarized macOS package for updater-only phase 1",
     ),
   );
 });
@@ -68,7 +68,7 @@ test("stable notes distinguish platform signing from Linux integrity evidence", 
   for (const heading of ["## Downloads", "## Verify your download", "## Updates", "## Known limitations", "## Reporting problems"]) {
     assert.ok(stableNotes.includes(heading), `Missing stable release section: ${heading}`);
   }
-  assert.match(stableNotes, /Windows publisher and trusted timestamp/);
-  assert.match(stableNotes, /macOS Developer ID signing, notarization, and stapled tickets/);
+  assert.match(stableNotes, /Windows packages are not Authenticode signed/);
+  assert.match(stableNotes, /macOS packages are not Developer ID signed or notarized/);
   assert.match(stableNotes, /Linux packages do not use operating-system code signing/);
 });

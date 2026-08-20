@@ -14,9 +14,9 @@ VaneHub AI 1.0.0 is the first stable desktop release of the unified workspace fo
 
 | Platform | Architecture | Assets |
 | --- | --- | --- |
-| Windows | x64 | Signed per-user `.exe` installer (NSIS) |
-| macOS | Apple Silicon | Signed and notarized `aarch64` `.dmg` |
-| macOS | Intel | Signed and notarized `x64` `.dmg` |
+| Windows | x64 | x64 `.exe` installer (NSIS), updater-signed; Authenticode deferred |
+| macOS | Apple Silicon | `aarch64` `.dmg`, updater-signed; code signing/notarization deferred |
+| macOS | Intel | `x64` `.dmg`, updater-signed; code signing/notarization deferred |
 | Linux | x64 | `.deb` and AppImage |
 | Linux | ARM64 | `.deb` and AppImage |
 
@@ -24,7 +24,7 @@ No Windows ARM64, `.msi`, or `.rpm` package is included in this release. Linux A
 
 ## Verify your download
 
-Stable publication is blocked unless the workflow verifies the Windows publisher and trusted timestamp and verifies macOS Developer ID signing, notarization, and stapled tickets. Linux packages do not use operating-system code signing; their evidence is integrity and provenance only.
+This phase verifies the Tauri updater signature, package checksums, SBOM, and GitHub provenance. Windows packages are not Authenticode signed, and macOS packages are not Developer ID signed or notarized yet. Linux packages do not use operating-system code signing; their evidence is integrity and provenance only.
 
 Every downloadable package is covered by `SHA256SUMS`, an SPDX SBOM, and GitHub build-provenance and SBOM attestations. Download `SHA256SUMS` beside the package and run:
 
@@ -45,6 +45,7 @@ Stable installations use signed updater artifacts and the stable update channel.
 ## Known limitations
 
 - Native CLI detection, process launch, local storage, desktop integration, and installation require the Tauri desktop application; browser mode uses deterministic Web/mock behavior.
+- Windows SmartScreen and macOS Gatekeeper may warn because operating-system signing and notarization are deferred to a later release phase.
 - Agent vendor authentication still occurs through each vendor's CLI or account flow; VaneHub AI does not broker subscription sign-in.
 - Package availability is limited to the platform and architecture matrix above.
 

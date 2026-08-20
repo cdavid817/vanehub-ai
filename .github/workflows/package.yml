@@ -165,12 +165,10 @@ jobs:
           fi
           if [[ "${GITHUB_REF_NAME}" != *-* ]]; then
             if [[ "${RUNNER_OS}" == "Windows" && -z "${WINDOWS_CERTIFICATE}" ]]; then
-              echo "::error::stable Windows releases require signing credentials" >&2
-              exit 1
+              echo "Windows Authenticode credentials are not configured; publishing an explicitly unsigned Windows package for updater-only phase 1."
             fi
             if [[ "${RUNNER_OS}" == "macOS" && ( -z "${APPLE_CERTIFICATE}" || -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" ) ]]; then
-              echo "::error::stable macOS releases require signing and notarization credentials" >&2
-              exit 1
+              echo "Apple signing/notarization credentials are not configured; publishing an explicitly unsigned and un-notarized macOS package for updater-only phase 1."
             fi
           fi
 
@@ -412,8 +410,9 @@ jobs:
               --latest=false
           fi
 
-          # This mutable channel release is updated only after every package, signature,
-          # notarization, checksum, SBOM, attestation, and versioned-release step succeeds.
+          # This mutable channel release is updated only after every package, updater signature,
+          # checksum, SBOM, attestation, and versioned-release step succeeds. Operating-system
+          # signing is optional during updater-only phase 1 and is disclosed in the release notes.
           cp "${manifest}" "${RUNNER_TEMP}/latest.json"
           gh release upload "${channel_tag}" "${RUNNER_TEMP}/latest.json" \
             --repo "${GITHUB_REPOSITORY}" \
