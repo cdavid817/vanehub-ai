@@ -17,6 +17,21 @@ pub(crate) struct GitAdapter {
     process: ProcessAdapter,
 }
 
+/// Callers classify git failures by matching its stderr -- "not a git repository" is the
+/// difference between "this folder is not a project" and "git is broken", and the first is a
+/// normal answer the create-session dialog renders as `Folder`. Those messages are translated, so
+/// on a machine whose git speaks anything but English every one of those matches silently misses
+/// and a normal answer is reported as a launch failure.
+///
+/// `LC_ALL=C` pins git's messages to English for the parsing to work against. gettext ignores
+/// `LANGUAGE` once the locale is `C`, but it is cleared as well because `LANGUAGE` takes
+/// precedence over `LC_ALL` for any git build that resolves messages before that rule applies.
+/// Paths are unaffected: callers that care already pass `core.quotepath=false`, and git writes
+/// path bytes through regardless of locale.
+fn with_stable_message_locale(request: ProcessRequest) -> ProcessRequest {
+    request.env("LC_ALL", "C").env("LANGUAGE", "")
+}
+
 impl GitAdapter {
     pub(crate) fn execute(
         &self,
@@ -24,10 +39,12 @@ impl GitAdapter {
         args: &[String],
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let request = ProcessRequest::new("git")
-            .args(args.iter().cloned())
-            .current_dir(root)
-            .timeout(timeout);
+        let request = with_stable_message_locale(
+            ProcessRequest::new("git")
+                .args(args.iter().cloned())
+                .current_dir(root)
+                .timeout(timeout),
+        );
         let output = self.process.execute(&request)?;
         Ok(GitOutput {
             status: output.status,
@@ -44,10 +61,14 @@ impl GitAdapter {
         environment: &BTreeMap<String, String>,
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let mut request = ProcessRequest::new("git")
-            .args(args.iter().cloned())
-            .current_dir(root)
-            .timeout(timeout);
+        // The locale is applied first so an explicit caller environment still wins, which keeps
+        // this from overriding a caller that deliberately sets its own.
+        let mut request = with_stable_message_locale(
+            ProcessRequest::new("git")
+                .args(args.iter().cloned())
+                .current_dir(root)
+                .timeout(timeout),
+        );
         for (key, value) in environment {
             request = request.env(key, value);
         }
@@ -78,6 +99,30 @@ impl GitAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pins the locale pinning itself. Every other test of this behaviour only fails on a machine
+    /// whose git is translated -- `git_fixtures_cover_non_git_and_common_worktree_states` sat green
+    /// on an English CI runner while reporting `LaunchFailed` for a plain folder on a Chinese one --
+    /// so the guarantee is asserted here against the request, where it holds on any host.
+    #[test]
+    fn git_runs_under_a_pinned_message_locale_so_stderr_matching_survives_translation() {
+        let request = with_stable_message_locale(ProcessRequest::new("git"));
+
+        assert_eq!(
+            request
+                .environment_value("LC_ALL")
+                .map(|value| value.to_string_lossy().into_owned()),
+            Some("C".to_string()),
+            "git was not pinned to the C message locale",
+        );
+        assert_eq!(
+            request
+                .environment_value("LANGUAGE")
+                .map(|value| value.to_string_lossy().into_owned()),
+            Some(String::new()),
+            "LANGUAGE was not cleared, and it outranks LC_ALL for gettext",
+        );
+    }
 
     #[test]
     fn diagnostics_hide_workspace_paths_and_credentials() {

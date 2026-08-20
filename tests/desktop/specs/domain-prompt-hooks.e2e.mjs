@@ -569,15 +569,18 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       [7, 30, 90].includes(before.contextQualityRetentionDays),
       `unexpected retention window: ${before.contextQualityRetentionDays}`,
     );
-    // `AppSettings` (desktop/dto.rs:23-40) carries only two of the seven fields
-    // `AgentPersonalizationPort` reads (agent_runtime/infrastructure/personalization_gateway.rs:
-    // 28-36). The custom-instructions and memory toggles are write-only across this boundary, so
-    // the assertions below prove they are accepted and validated, never that they were stored.
-    blocked.push(
-      "personalization read-back: get_settings omits customInstructionsAboutUser, "
-      + "customInstructionsStyleRules, customInstructionsEnabled, memoryEnabled and "
-      + "memoryToolAssistedChatsEnabled, so their stored values cannot be verified over IPC",
-    );
+    // These five were write-only when this spec was written: they parsed as mutations and
+    // persisted, but `AppSettings` had no field for them, so the response omitted them and the
+    // frontend normalizer replaced them with its own defaults -- the Personalization page showed
+    // an empty box over a stored instruction. That is D-09, fixed in 39bcf278 by carrying them
+    // through the DTO and mapper, which landed after this case was first written and left its
+    // BLOCKED note behind. They are asserted as a real round trip now, which is the assertion that
+    // would have caught the defect and is what stops it coming back.
+    assert.equal(typeof before.customInstructionsAboutUser, "string");
+    assert.equal(typeof before.customInstructionsStyleRules, "string");
+    for (const key of ["customInstructionsEnabled", "memoryEnabled", "memoryToolAssistedChatsEnabled"]) {
+      assert.equal(typeof before[key], "boolean", `get_settings omitted ${key}`);
+    }
 
     try {
       await saveSetting("automaticContextCompactionEnabled", !before.automaticContextCompactionEnabled);
@@ -604,22 +607,39 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       await rejects(() => saveSetting("notASetting", "value"), "an unknown setting key");
 
       // Custom instructions are capped at 3000 characters
-      // (desktop/domain/settings.rs:4, :426-428). The accepted value is written and reverted in
-      // the same breath so a later spec's generation never inherits it.
-      await saveSetting("customInstructionsAboutUser", "Desktop sweep personalization sentinel.");
+      // (desktop/domain/settings.rs:4, :426-428). Each accepted value is read back before it is
+      // reverted -- reverting without reading is what let a write-only setting look healthy -- and
+      // reverted in the same breath so a later spec's generation never inherits it.
+      const sentinel = "Desktop sweep personalization sentinel.";
+      await saveSetting("customInstructionsAboutUser", sentinel);
+      assert.equal(
+        (await readSettings()).customInstructionsAboutUser,
+        sentinel,
+        "a saved custom instruction did not survive a read",
+      );
       await saveSetting("customInstructionsAboutUser", "");
-      await saveSetting("customInstructionsStyleRules", "x".repeat(3_000));
+      assert.equal((await readSettings()).customInstructionsAboutUser, "");
+
+      const longRule = "x".repeat(3_000);
+      await saveSetting("customInstructionsStyleRules", longRule);
+      assert.equal(
+        (await readSettings()).customInstructionsStyleRules,
+        longRule,
+        "a style rule at the 3000-character limit did not survive a read",
+      );
       await saveSetting("customInstructionsStyleRules", "");
       await rejects(
         () => saveSetting("customInstructionsAboutUser", "x".repeat(3_001)),
         "an over-limit custom instruction",
       );
 
-      // Same flip-and-revert for the three booleans, whose defaults are all `true`
+      // Same flip-and-read-back-and-revert for the three booleans, whose defaults are all `true`
       // (desktop/domain/settings.rs:467-472).
       for (const key of ["customInstructionsEnabled", "memoryEnabled", "memoryToolAssistedChatsEnabled"]) {
         await saveSetting(key, false);
+        assert.equal((await readSettings())[key], false, `${key} did not survive a read after being turned off`);
         await saveSetting(key, true);
+        assert.equal((await readSettings())[key], true, `${key} did not survive a read after being turned back on`);
       }
 
       const memories = await listMemories();

@@ -153,6 +153,13 @@ impl ProcessRequest {
         self
     }
 
+    /// Reads back a value set by `env`, so a caller that pins part of the child environment can
+    /// assert it did. Test-only: nothing in production needs to inspect a request it just built.
+    #[cfg(test)]
+    pub(crate) fn environment_value(&self, key: &str) -> Option<&OsString> {
+        self.environment.get(&OsString::from(key))
+    }
+
     pub(crate) fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
