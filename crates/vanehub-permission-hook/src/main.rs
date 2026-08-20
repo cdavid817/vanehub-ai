@@ -7,8 +7,12 @@
 //! `contexts/permissions/infrastructure/hook_bridge_discovery.rs` by hand and must be kept in
 //! sync there.
 //!
-//! Always exits 0 with a `hookSpecificOutput` JSON body on stdout — Claude Code's documented
-//! contract encodes the actual allow/deny decision in that JSON, not in the process exit code.
+//! In hook mode (no arguments) it always exits 0 with a `hookSpecificOutput` JSON body on
+//! stdout — Claude Code's documented contract encodes the actual allow/deny decision in that
+//! JSON, not in the process exit code. The human-invoked `--uninstall` mode (`uninstall.rs`)
+//! uses conventional exit codes instead.
+
+mod uninstall;
 
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
@@ -22,8 +26,23 @@ use std::time::Duration;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(320);
 
 fn main() {
-    let decision = run(DEFAULT_TIMEOUT);
-    print_hook_output(&decision);
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    match arguments.as_slice() {
+        [] => print_hook_output(&run(DEFAULT_TIMEOUT)),
+        [flag] if flag == "--uninstall" => match uninstall::run() {
+            Ok(message) => println!("{message}"),
+            Err(message) => {
+                eprintln!("vanehub-permission-hook --uninstall failed: {message}");
+                std::process::exit(1);
+            }
+        },
+        // Never fall back to hook mode on unrecognized arguments: hook mode blocks on stdin,
+        // which for a human typo means a silently hung terminal instead of an error.
+        _ => {
+            eprintln!("usage: vanehub-permission-hook [--uninstall]");
+            std::process::exit(2);
+        }
+    }
 }
 
 enum Decision {
@@ -68,7 +87,18 @@ fn run(timeout: Duration) -> Decision {
         return Decision::Deny("could not parse the tool-use request");
     };
 
-    let response = read_discovery().and_then(|discovery| {
+    let discovery = read_discovery();
+    // Which offline story applies if the request below yields nothing: discovery data that led
+    // nowhere means a VaneHub instance registered and then went away; no discovery data means
+    // none ever registered here. The deny messages differ so the reader of the denial knows
+    // which situation they are recovering from (`add-permission-hook-recovery`'s "Offline
+    // denial names its recovery paths").
+    let offline = if discovery.is_some() {
+        OfflineKind::Unreachable
+    } else {
+        OfflineKind::NoDiscovery
+    };
+    let response = discovery.and_then(|discovery| {
         let body = serde_json::to_string(&WrapperRequest {
             tool_name: &request.tool_name,
             tool_input: &request.tool_input,
@@ -79,7 +109,14 @@ fn run(timeout: Duration) -> Decision {
         send_request(discovery.port, &discovery.token, &body, timeout)
     });
 
-    decide(response, &request.tool_name)
+    decide(response, offline, &request.tool_name)
+}
+
+/// How the wrapper ended up without a server response — see the comment in `run`.
+#[derive(Clone, Copy)]
+enum OfflineKind {
+    NoDiscovery,
+    Unreachable,
 }
 
 fn parse_hook_request(stdin: &str) -> Option<HookRequest> {
@@ -144,12 +181,23 @@ fn parse_http_response(raw: &[u8]) -> Option<HttpResponse> {
 /// deny, no allowlist exception: a reachable-but-corrupt response is a more concerning failure
 /// mode than plain absence (design.md D5's clarification; `claude-code-permission-hook`'s
 /// "Malformed hook payloads fail closed").
-fn decide(response: Option<HttpResponse>, tool_name: &str) -> Decision {
+fn decide(response: Option<HttpResponse>, offline: OfflineKind, tool_name: &str) -> Decision {
     match response {
         None if is_offline_allowlisted(tool_name) => Decision::Allow,
-        None => {
-            Decision::Deny("VaneHub is unreachable and this tool is not in the offline allowlist")
-        }
+        None => Decision::Deny(match offline {
+            OfflineKind::Unreachable => {
+                "VaneHub is unreachable and this tool is not in the offline allowlist. The \
+                 VaneHub instance that installed this hook is not running; start VaneHub to \
+                 resume approvals, or run `vanehub-permission-hook --uninstall` to remove the \
+                 hook from Claude Code's global settings"
+            }
+            OfflineKind::NoDiscovery => {
+                "no VaneHub instance has registered on this machine and this tool is not in the \
+                 offline allowlist; start VaneHub to enable approvals, or run \
+                 `vanehub-permission-hook --uninstall` to remove the hook from Claude Code's \
+                 global settings"
+            }
+        }),
         Some(response) if response.status == 200 => {
             match serde_json::from_str::<serde_json::Value>(&response.body) {
                 Ok(value) if value.get("decision").and_then(|d| d.as_str()) == Some("allow") => {
@@ -219,14 +267,47 @@ mod tests {
 
     #[test]
     fn unreachable_server_fails_open_for_allowlisted_tools() {
-        assert!(matches!(decide(None, "Read"), Decision::Allow));
-        assert!(matches!(decide(None, "Glob"), Decision::Allow));
+        assert!(matches!(
+            decide(None, OfflineKind::Unreachable, "Read"),
+            Decision::Allow
+        ));
+        assert!(matches!(
+            decide(None, OfflineKind::NoDiscovery, "Glob"),
+            Decision::Allow
+        ));
     }
 
     #[test]
     fn unreachable_server_fails_closed_for_everything_else() {
-        assert!(matches!(decide(None, "Bash"), Decision::Deny(_)));
-        assert!(matches!(decide(None, "SomeFutureTool"), Decision::Deny(_)));
+        assert!(matches!(
+            decide(None, OfflineKind::Unreachable, "Bash"),
+            Decision::Deny(_)
+        ));
+        assert!(matches!(
+            decide(None, OfflineKind::NoDiscovery, "SomeFutureTool"),
+            Decision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn offline_deny_reasons_differ_by_state_and_both_name_the_recovery_actions() {
+        let Decision::Deny(unreachable) = decide(None, OfflineKind::Unreachable, "Bash") else {
+            panic!("unreachable must deny");
+        };
+        let Decision::Deny(no_discovery) = decide(None, OfflineKind::NoDiscovery, "Bash") else {
+            panic!("no-discovery must deny");
+        };
+        assert_ne!(unreachable, no_discovery);
+        for reason in [unreachable, no_discovery] {
+            assert!(
+                reason.contains("--uninstall"),
+                "missing escape hatch: {reason}"
+            );
+            assert!(
+                reason.contains("start VaneHub"),
+                "missing restart path: {reason}"
+            );
+        }
     }
 
     #[test]
@@ -235,7 +316,10 @@ mod tests {
             status: 200,
             body: "not json".to_string(),
         };
-        assert!(matches!(decide(Some(garbage), "Read"), Decision::Deny(_)));
+        assert!(matches!(
+            decide(Some(garbage), OfflineKind::Unreachable, "Read"),
+            Decision::Deny(_)
+        ));
     }
 
     #[test]
@@ -244,7 +328,10 @@ mod tests {
             status: 500,
             body: r#"{"decision":"allow"}"#.to_string(),
         };
-        assert!(matches!(decide(Some(response), "Read"), Decision::Deny(_)));
+        assert!(matches!(
+            decide(Some(response), OfflineKind::Unreachable, "Read"),
+            Decision::Deny(_)
+        ));
     }
 
     #[test]
@@ -253,7 +340,10 @@ mod tests {
             status: 200,
             body: r#"{"decision":"allow"}"#.to_string(),
         };
-        assert!(matches!(decide(Some(response), "Bash"), Decision::Allow));
+        assert!(matches!(
+            decide(Some(response), OfflineKind::Unreachable, "Bash"),
+            Decision::Allow
+        ));
     }
 
     #[test]
@@ -262,7 +352,10 @@ mod tests {
             status: 200,
             body: r#"{"decision":"deny"}"#.to_string(),
         };
-        assert!(matches!(decide(Some(response), "Bash"), Decision::Deny(_)));
+        assert!(matches!(
+            decide(Some(response), OfflineKind::Unreachable, "Bash"),
+            Decision::Deny(_)
+        ));
     }
 
     #[test]
