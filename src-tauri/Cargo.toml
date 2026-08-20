@@ -1,6 +1,6 @@
 [package]
 name = "vanehub-ai"
-version = "0.1.0-preview.1"
+version = "1.0.0"
 description = "Unified AI coding agent management"
 authors = ["vanehub-ai"]
 edition = "2021"

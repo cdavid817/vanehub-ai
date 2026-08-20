@@ -31,6 +31,9 @@ jobs:
       - name: Validate synchronized project versions
         run: npm run version:check
 
+      - name: Validate release policy
+        run: npm run release:unit:test
+
       - name: Validate permission hook sidecar configuration
         run: npm run sidecar:unit:test
 
@@ -65,6 +68,11 @@ jobs:
             runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             npm_script: package:linux:x64
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            npm_script: package:linux:arm64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +92,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             mold \
             patchelf \
-            wget
+            wget \
+            xdg-utils
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -171,6 +180,7 @@ jobs:
         run: |
           key_path="${RUNNER_TEMP}/vanehub-rehearsal.key"
           npx tauri signer generate --ci --force --write-keys "${key_path}" --password "rehearsal-only"
+          echo "TAURI_SIGNING_PRIVATE_KEY=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=rehearsal-only" >> "${GITHUB_ENV}"
           echo "Ephemeral updater key generated for this non-publishing job only."
@@ -375,6 +385,7 @@ jobs:
             args+=(--prerelease --latest=false --notes-file .github/PREVIEW_RELEASE_NOTES.md)
           else
             echo "Publishing ${GITHUB_REF_NAME} as a stable release."
+            args+=(--notes-file .github/STABLE_RELEASE_NOTES.md)
           fi
 
           gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${args[@]}"

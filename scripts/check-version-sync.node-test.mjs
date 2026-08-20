@@ -77,6 +77,6 @@ test("declarations that disagree on the pre-release identifier are rejected", ()
 });
 
 test("a stable version still validates against its tag", () => {
-  const root = fixture({ packageVersion: "0.1.0" });
-  assert.equal(checkVersionSync(root, "v0.1.0"), "0.1.0");
+  const root = fixture({ packageVersion: "1.0.0" });
+  assert.equal(checkVersionSync(root, "v1.0.0"), "1.0.0");
 });

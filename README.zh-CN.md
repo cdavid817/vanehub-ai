@@ -16,11 +16,11 @@
 
 通过统一 React 界面和明确的 Web/mock、Tauri runtime 边界管理 AI Coding Agent 的桌面优先工作台。
 
-<!-- docs-fact:project-version value:0.1.0-preview.1 -->
+<!-- docs-fact:project-version value:1.0.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-0.1.0--preview.1-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
@@ -69,9 +69,9 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 
 ## 下载
 
-预构建的桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：Windows `.exe` 安装器、macOS `.dmg`，以及 Linux 的 `.deb` 与 AppImage。不发布 `.msi` 和 `.rpm`。
+预构建的桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：已签名的 Windows x64 `.exe` 安装器、已签名并公证的 macOS x64 与 Apple Silicon `.dmg`，以及 Linux x64 与 ARM64 `.deb` 和 AppImage。不发布 `.msi` 和 `.rpm`。
 
-当前构建是未签名的预览版。Windows 与 macOS 在运行前会给出警告，各平台的处理步骤记录在 release notes 中。安装前请用发布的 `SHA256SUMS` 校验下载文件。
+请使用已发布的 `SHA256SUMS`、SPDX SBOM 与 GitHub attestations 校验下载文件。Linux 安装包提供完整性与来源证明，但不使用操作系统代码签名。
 
 <!-- docs-section:documentation -->
 
