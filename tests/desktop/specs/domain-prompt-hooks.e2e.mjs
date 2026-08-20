@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import process from "node:process";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
+
+// Run-scoped so a second run against the same data directory does not collide with its own
+// leftovers: the memory pool is keyed by file name.
+const RUN = process.env.VANEHUB_TEST_RUN_ID ?? String(Date.now());
 
 // A Prompt Hook id is 3..=64 characters of [a-z0-9-] starting on a letter or digit
 // (src-tauri/src/contexts/tooling/prompt_hooks/domain/identity.rs:9-16).
@@ -674,16 +681,51 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
     }
   });
 
-  globalThis.it("deletes one entry from the shared agent memory pool", async function deleteOneMemory() {
-    const memories = await listMemories();
-    if (memories.length === 0) {
-      // Reported as skipped rather than passed: memories are only written by a live provider
-      // generation, which this spec does not run, and the run's data directory starts empty.
-      blocked.push("agent memory delete: the shared pool is empty, and only a live generation writes to it");
+  globalThis.it("reads and deletes an entry in the shared agent memory pool", async function deleteOneMemory() {
+    const dataDir = process.env.VANEHUB_APP_DATA_DIR;
+    if (!dataDir) {
+      blocked.push("agent memory delete: VANEHUB_APP_DATA_DIR is unset, so the pool cannot be seeded");
       this.skip();
     }
 
-    const target = memories[0];
+    // Seeded as a file rather than produced by a generation. Nothing writes a memory except
+    // extraction, and extraction only runs inside compaction, so producing one for real would mean
+    // pushing a conversation past the compaction threshold and then depending on the model
+    // choosing to emit a well-formed create action -- which makes the provider's behaviour the
+    // precondition of the test. The pool is a directory of markdown files whose id is the relative
+    // path (infrastructure/memory_directory.rs:53-54, :412-418), so a file is a first-class way in,
+    // the same way domain-skills seeds a Skill package. Under test here is the read and delete
+    // surface over real on-disk state, not extraction.
+    const name = `desktop-sweep-memory-${RUN}`;
+    const memoryRoot = join(dataDir, "memory");
+    await mkdir(memoryRoot, { recursive: true });
+    // Frontmatter shape taken from `compose_memory_document`
+    // (domain/memory_document.rs:131-153), which is what writes these files in production.
+    await writeFile(
+      join(memoryRoot, `${name}.md`),
+      [
+        "---",
+        `name: ${name}`,
+        "description: Seeded by the desktop prompt-hook sweep.",
+        "type: project",
+        "source: automatic",
+        "---",
+        "",
+        "The desktop sweep seeded this memory to exercise the pool's read and delete surface.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const memories = await listMemories();
+    const target = memories.find((memory) => memory.name === name);
+    assert.ok(
+      target,
+      `the seeded memory was not listed; the pool held ${JSON.stringify(memories.map((entry) => entry.name))}`,
+    );
+    assert.equal(target.description, "Seeded by the desktop prompt-hook sweep.");
+    assert.match(target.content, /read and delete surface/);
+
     await deleteMemory(target.id);
     const remaining = await listMemories();
     assert.equal(
@@ -691,7 +733,11 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       undefined,
       "the deleted memory is still in the pool",
     );
-    assert.equal(remaining.length, memories.length - 1);
+    assert.equal(
+      remaining.length,
+      memories.length - 1,
+      "deleting one memory changed the pool by more than one entry",
+    );
   });
 
   globalThis.after(async () => {
