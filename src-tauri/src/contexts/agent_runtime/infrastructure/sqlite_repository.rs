@@ -927,6 +927,7 @@ impl AgentRow {
             }
         } else {
             availability.assess(
+                &self.id,
                 self.managed_sdk_dependency_id.as_deref(),
                 self.executable_name.as_deref(),
             )?
@@ -1056,6 +1057,7 @@ mod tests {
     impl AgentAvailabilityGateway for FakeAvailability {
         fn assess(
             &self,
+            _agent_id: &str,
             _managed_sdk_dependency_id: Option<&str>,
             _executable_name: Option<&str>,
         ) -> Result<AvailabilityAssessment, AgentRuntimeApplicationError> {

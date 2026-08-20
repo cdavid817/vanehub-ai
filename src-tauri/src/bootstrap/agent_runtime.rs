@@ -167,6 +167,7 @@ pub(crate) fn assemble_agent_runners(
 pub(crate) fn assemble_shared_agent_registry(
     database: NativeDatabase,
     sdk: SdkApi,
+    cli: CliApi,
     fallback_log_directory: PathBuf,
 ) -> SharedAgentRegistry {
     let unified_logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
@@ -174,7 +175,7 @@ pub(crate) fn assemble_shared_agent_registry(
     let operation_logs: Arc<dyn OperationLogPort> = unified_logging.clone();
     let logging = Arc::new(AgentRuntimeLoggingAdapter::new(diagnostics, operation_logs));
     let clock = Arc::new(SystemAgentRuntimeClock);
-    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(sdk));
+    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(sdk, cli));
     let repository = Arc::new(SqliteAgentRuntimeRepository::new(database, availability));
     let api_credentials = Arc::new(OsApiCredentialAdapter::new());
     let registry = Arc::new(CredentialAwareAgentRegistry::new(

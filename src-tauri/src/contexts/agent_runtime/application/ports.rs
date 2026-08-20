@@ -291,8 +291,13 @@ pub(crate) trait AgentRegistryRepository: Send + Sync {
 }
 
 pub(crate) trait AgentAvailabilityGateway: Send + Sync {
+    /// `agent_id` is what lets the executable be resolved the way the launch path resolves it,
+    /// rather than by asking `which` for the bare name. The two answers differ for any Agent
+    /// installed outside the desktop process's `PATH` -- which includes ones VaneHub installed
+    /// itself, since the vendor installers write to their own directories.
     fn assess(
         &self,
+        agent_id: &str,
         managed_sdk_dependency_id: Option<&str>,
         executable_name: Option<&str>,
     ) -> Result<AvailabilityAssessment, AgentRuntimeApplicationError>;
