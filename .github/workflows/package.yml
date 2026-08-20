@@ -31,6 +31,9 @@ jobs:
       - name: Validate synchronized project versions
         run: npm run version:check
 
+      - name: Validate release policy
+        run: npm run release:unit:test
+
       - name: Validate permission hook sidecar configuration
         run: npm run sidecar:unit:test
 
@@ -65,6 +68,11 @@ jobs:
             runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             npm_script: package:linux:x64
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            npm_script: package:linux:arm64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +92,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             mold \
             patchelf \
-            wget
+            wget \
+            xdg-utils
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -156,12 +165,10 @@ jobs:
           fi
           if [[ "${GITHUB_REF_NAME}" != *-* ]]; then
             if [[ "${RUNNER_OS}" == "Windows" && -z "${WINDOWS_CERTIFICATE}" ]]; then
-              echo "::error::stable Windows releases require signing credentials" >&2
-              exit 1
+              echo "Windows Authenticode credentials are not configured; publishing an explicitly unsigned Windows package for updater-only phase 1."
             fi
             if [[ "${RUNNER_OS}" == "macOS" && ( -z "${APPLE_CERTIFICATE}" || -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" ) ]]; then
-              echo "::error::stable macOS releases require signing and notarization credentials" >&2
-              exit 1
+              echo "Apple signing/notarization credentials are not configured; publishing an explicitly unsigned and un-notarized macOS package for updater-only phase 1."
             fi
           fi
 
@@ -171,6 +178,7 @@ jobs:
         run: |
           key_path="${RUNNER_TEMP}/vanehub-rehearsal.key"
           npx tauri signer generate --ci --force --write-keys "${key_path}" --password "rehearsal-only"
+          echo "TAURI_SIGNING_PRIVATE_KEY=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=rehearsal-only" >> "${GITHUB_ENV}"
           echo "Ephemeral updater key generated for this non-publishing job only."
@@ -324,7 +332,10 @@ jobs:
             digest="$(sha256sum "${file}" | cut -d' ' -f1)"
             asset="$(basename "${file}" | tr ' ' '.')"
             printf '%s  %s\n' "${digest}" "${asset}" >> release-assets/SHA256SUMS
-          done < <(find release-assets -type f ! -name SHA256SUMS -print0 | sort -z)
+          done < <(find release-assets/packages -type f -print0 | sort -z)
+
+          digest="$(sha256sum release-assets/vanehub-ai-sbom.spdx.json | cut -d' ' -f1)"
+          printf '%s  %s\n' "${digest}" "vanehub-ai-sbom.spdx.json" >> release-assets/SHA256SUMS
 
           echo "Published checksum manifest:"
           cat release-assets/SHA256SUMS
@@ -358,7 +369,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          mapfile -d '' assets < <(find release-assets -type f -print0)
+          assets=()
+          while IFS= read -r -d '' file; do
+            assets+=("${file}")
+          done < <(find release-assets/packages -type f -print0)
+          channel_manifest="latest.json"
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then channel_manifest="preview.json"; fi
+          assets+=(
+            "release-assets/SHA256SUMS"
+            "release-assets/vanehub-ai-sbom.spdx.json"
+            "release-assets/${channel_manifest}"
+          )
 
           args=(
             --repo "${GITHUB_REPOSITORY}"
@@ -375,6 +396,7 @@ jobs:
             args+=(--prerelease --latest=false --notes-file .github/PREVIEW_RELEASE_NOTES.md)
           else
             echo "Publishing ${GITHUB_REF_NAME} as a stable release."
+            args+=(--notes-file .github/STABLE_RELEASE_NOTES.md)
           fi
 
           gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${args[@]}"
@@ -401,8 +423,9 @@ jobs:
               --latest=false
           fi
 
-          # This mutable channel release is updated only after every package, signature,
-          # notarization, checksum, SBOM, attestation, and versioned-release step succeeds.
+          # This mutable channel release is updated only after every package, updater signature,
+          # checksum, SBOM, attestation, and versioned-release step succeeds. Operating-system
+          # signing is optional during updater-only phase 1 and is disclosed in the release notes.
           cp "${manifest}" "${RUNNER_TEMP}/latest.json"
           gh release upload "${channel_tag}" "${RUNNER_TEMP}/latest.json" \
             --repo "${GITHUB_REPOSITORY}" \

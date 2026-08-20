@@ -208,7 +208,9 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-19 | relocate-heavyweight-inline-tests | - | `openspec/changes/archive/2026-08-19-relocate-heavyweight-inline-tests/` |
 | 2026-08-19 | retire-panic-shortcut-whitelist | repository-governance | `openspec/changes/archive/2026-08-19-retire-panic-shortcut-whitelist/` |
 | 2026-08-19 | split-api-adapter-modules | - | `openspec/changes/archive/2026-08-19-split-api-adapter-modules/` |
+| 2026-08-20 | add-permission-hook-recovery | claude-code-permission-hook | `openspec/changes/archive/2026-08-20-add-permission-hook-recovery/` |
 | 2026-08-20 | correct-cli-launch-and-availability-contracts | agent-provider-runtime, agent-runner-runtime, agent-tool-registry | `openspec/changes/archive/2026-08-20-correct-cli-launch-and-availability-contracts/` |
+| 2026-08-20 | pin-git-message-locale | session-project-inspection | `openspec/changes/archive/2026-08-20-pin-git-message-locale/` |
 | 2026-08-20 | scope-provider-resume-metadata-to-a-seat | multi-agent-group-chat, session-runtime-management | `openspec/changes/archive/2026-08-20-scope-provider-resume-metadata-to-a-seat/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

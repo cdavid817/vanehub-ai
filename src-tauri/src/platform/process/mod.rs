@@ -140,9 +140,6 @@ impl ProcessRequest {
         self
     }
 
-    // Unused builder surface: every current caller inherits the parent environment. Kept
-    // as the counterpart to `environment`, which `command()` still applies.
-    #[allow(dead_code)]
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.environment.insert(key.into(), value.into());
         self
@@ -151,13 +148,6 @@ impl ProcessRequest {
     pub(crate) fn env_clear(mut self) -> Self {
         self.clear_environment = true;
         self
-    }
-
-    /// Reads back a value set by `env`, so a caller that pins part of the child environment can
-    /// assert it did. Test-only: nothing in production needs to inspect a request it just built.
-    #[cfg(test)]
-    pub(crate) fn environment_value(&self, key: &str) -> Option<&OsString> {
-        self.environment.get(&OsString::from(key))
     }
 
     pub(crate) fn timeout(mut self, timeout: Duration) -> Self {

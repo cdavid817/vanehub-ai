@@ -7326,7 +7326,7 @@ dependencies = [
 
 [[package]]
 name = "vanehub-ai"
-version = "0.1.0-preview.1"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -7403,7 +7403,7 @@ dependencies = [
 
 [[package]]
 name = "vanehub-permission-hook"
-version = "0.1.0-preview.1"
+version = "1.0.0"
 dependencies = [
  "dirs 6.0.0",
  "serde",
