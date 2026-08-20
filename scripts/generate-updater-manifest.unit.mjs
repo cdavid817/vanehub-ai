@@ -10,6 +10,7 @@ await writeFile(join(directory, "VaneHub.AI_1.2.0_x64-setup.exe.sig"), "signed-f
 await writeFile(join(directory, "VaneHub.AI-macos-arm64.app.tar.gz.sig"), "arm-signature-".repeat(5));
 await writeFile(join(directory, "VaneHub.AI-macos-x64.app.tar.gz.sig"), "mac-signature-".repeat(5));
 await writeFile(join(directory, "VaneHub.AI-linux-x64.AppImage.sig"), "linux-signature-".repeat(5));
+await writeFile(join(directory, "VaneHub.AI_aarch64-linux-arm64.AppImage.sig"), "linux-arm-signature-".repeat(5));
 const output = join(directory, "latest.json");
 const generator = fileURLToPath(new URL("./generate-updater-manifest.mjs", import.meta.url));
 const result = spawnSync(process.execPath, [generator, directory, "v1.2.0", "owner/repo", output]);
@@ -18,6 +19,7 @@ const manifest = JSON.parse(await readFile(output, "utf8"));
 assert.equal(manifest.version, "1.2.0");
 assert.match(manifest.platforms["windows-x86_64"].url, /^https:\/\//);
 assert.match(manifest.platforms["darwin-aarch64"].url, /macos-arm64/);
+assert.match(manifest.platforms["linux-aarch64"].url, /linux-arm64/);
 await writeFile(join(directory, "bad.exe.sig"), "tampered");
 const invalid = spawnSync(process.execPath, [generator, directory, "invalid", "owner/repo", output]);
 assert.notEqual(invalid.status, 0);
