@@ -8,6 +8,7 @@ VaneHub AI has published one preview build but still declares a prerelease versi
 - Add tracked stable-release notes that describe the first stable release, supported packages, verification evidence, update behavior, support routes, and known limitations.
 - Make stable GitHub Releases prepend the reviewed stable notes while retaining generated change notes.
 - Add an explicit release-readiness procedure covering the full repository validation suite, an untagged cross-platform rehearsal, protected credential readiness, tag creation, and post-publication verification.
+- Add native Linux ARM64 `.deb` and AppImage packages to the first stable release matrix.
 - Keep publication fail-closed: no stable GitHub Release or stable updater metadata may be published without updater signing, Windows Authenticode evidence, and macOS signing/notarization evidence.
 
 ## Capabilities

@@ -31,7 +31,7 @@ test("stable publication fails closed without updater and platform signing crede
   );
 });
 
-test("the first stable release keeps the rehearsed four-target matrix", () => {
+test("the first stable release keeps the rehearsed five-target matrix", () => {
   const matrix = workflow.match(/ {6}matrix:\n {8}include:\n([\s\S]*?) {4}steps:/)?.[1];
   assert.ok(matrix, "Package matrix was not found.");
   const expected = [
@@ -39,6 +39,7 @@ test("the first stable release keeps the rehearsed four-target matrix", () => {
     ["macos", "arm64", "macos-14", "aarch64-apple-darwin"],
     ["macos", "x64", "macos-15-intel", "x86_64-apple-darwin"],
     ["linux", "x64", "ubuntu-latest", "x86_64-unknown-linux-gnu"],
+    ["linux", "arm64", "ubuntu-24.04-arm", "aarch64-unknown-linux-gnu"],
   ];
 
   assert.equal([...matrix.matchAll(/ {10}- platform:/g)].length, expected.length);

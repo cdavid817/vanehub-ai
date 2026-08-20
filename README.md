@@ -69,7 +69,7 @@ The full catalog — vendor icons, endpoint protocols, default models, and API k
 
 ## Download
 
-Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a signed Windows x64 `.exe` installer, signed and notarized macOS x64 and Apple Silicon `.dmg` files, and Linux x64 `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
+Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a signed Windows x64 `.exe` installer, signed and notarized macOS x64 and Apple Silicon `.dmg` files, and Linux x64 and ARM64 `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
 
 Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attestations. Linux packages carry integrity and provenance evidence but do not use operating-system code signing.
 

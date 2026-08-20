@@ -69,7 +69,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 
 ## 下载
 
-预构建的桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：已签名的 Windows x64 `.exe` 安装器、已签名并公证的 macOS x64 与 Apple Silicon `.dmg`，以及 Linux x64 `.deb` 与 AppImage。不发布 `.msi` 和 `.rpm`。
+预构建的桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：已签名的 Windows x64 `.exe` 安装器、已签名并公证的 macOS x64 与 Apple Silicon `.dmg`，以及 Linux x64 与 ARM64 `.deb` 和 AppImage。不发布 `.msi` 和 `.rpm`。
 
 请使用已发布的 `SHA256SUMS`、SPDX SBOM 与 GitHub attestations 校验下载文件。Linux 安装包提供完整性与来源证明，但不使用操作系统代码签名。
 

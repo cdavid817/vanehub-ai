@@ -1,6 +1,6 @@
 ## Context
 
-See `proposal.md` for motivation. The repository currently declares `0.1.0-preview.1` in npm, Cargo, and Tauri metadata. A tag-triggered GitHub workflow packages Windows x64, macOS x64/arm64, and Linux x64, then generates checksums, an SPDX SBOM, attestations, updater metadata, and a GitHub Release. Preview notes are tracked, while stable releases currently rely only on generated notes. The protected `release` environment exists and accepts `v*` tags, but it currently exposes none of the credential names required by the fail-closed stable gate.
+See `proposal.md` for motivation. The repository currently declares `0.1.0-preview.1` in npm, Cargo, and Tauri metadata. A tag-triggered GitHub workflow packages Windows x64, macOS x64/arm64, and Linux x64, then generates checksums, an SPDX SBOM, attestations, updater metadata, and a GitHub Release. A Linux ARM64 package script already exists but is not in that workflow matrix. Preview notes are tracked, while stable releases currently rely only on generated notes. The protected `release` environment exists and accepts `v*` tags, but it currently exposes none of the credential names required by the fail-closed stable gate.
 
 ## Goals / Non-Goals
 
@@ -15,7 +15,7 @@ See `proposal.md` for motivation. The repository currently declares `0.1.0-previ
 
 - Store, generate, rotate, or transmit production private keys and certificates in Git.
 - Create or push `v1.0.0`, publish a GitHub Release, or mutate stable channel metadata before review and successful rehearsal.
-- Add Windows ARM64, Linux ARM64, MSI, or RPM to the supported release matrix.
+- Add Windows ARM64, MSI, or RPM to the supported release matrix.
 - Change application runtime behavior, frontend service contracts, Tauri commands, or Web/mock adapters.
 
 ## Decisions
@@ -24,9 +24,9 @@ See `proposal.md` for motivation. The repository currently declares `0.1.0-previ
 
 The three authoritative manifest versions and their lockfile projections will move directly from `0.1.0-preview.1` to `1.0.0`. This aligns the annotated tag with the existing exact-match validator and causes the release workflow to select the stable channel. Using `0.1.0` was rejected because the requested milestone is the first formal, compatibility-signaling release; creating another release candidate was rejected because it would remain a preview rather than satisfy the requested outcome.
 
-### Keep the proven package matrix for the first stable publication
+### Extend the package matrix with native Linux ARM64
 
-The first stable release will retain NSIS for Windows x64, DMG/app for macOS x64 and ARM64, and deb/AppImage for Linux x64. This limits the release decision to formats already exercised by the preview pipeline. Adding MSI/RPM or new architectures is deferred because it broadens packaging, signing, installation, and updater-manifest verification at the release boundary.
+The first stable release will use NSIS for Windows x64, DMG/app for macOS x64 and ARM64, and deb/AppImage for Linux x64 and ARM64. Linux ARM64 uses the existing `package:linux:arm64` command on GitHub's native `ubuntu-24.04-arm` hosted runner so the package is not represented as verified by an x64 cross-build. The runner label is in public preview, so every branch rehearsal and the tag build must prove its current availability. MSI/RPM and Windows ARM64 remain deferred because they add new formats or signing paths.
 
 ### Track stable notes separately from preview notes
 
@@ -45,7 +45,7 @@ The implementation stops at a reviewed, validated branch plus a successful manua
 - [Production signing credentials are currently absent] → Report readiness as `BLOCKED`, document exact names and provisioning commands, and do not create the tag.
 - [A branch rehearsal uses ephemeral updater signing and cannot prove production signing] → Treat it as package/matrix evidence only; require the protected credential inventory before tagging and verify signatures in the tag run.
 - [Generated notes can be noisy or incomplete for a first release] → Prepend a reviewed stable narrative and retain generated notes as the detailed change inventory.
-- [Promoting directly from preview to `1.0.0` raises compatibility expectations] → Keep scope to the already-tested package matrix and require the repository's full validation suite plus native platform evidence.
+- [Promoting directly from preview to `1.0.0` raises compatibility expectations] → Require the repository's full validation suite plus native evidence for all five package targets, including Linux ARM64.
 - [A stable version permits MSI/RPM but the release omits them] → State supported formats explicitly; consider additional formats in a later independent change with their own install/signing tests.
 
 ## Migration Plan

@@ -18,8 +18,9 @@ VaneHub AI 1.0.0 is the first stable desktop release of the unified workspace fo
 | macOS | Apple Silicon | Signed and notarized `aarch64` `.dmg` |
 | macOS | Intel | Signed and notarized `x64` `.dmg` |
 | Linux | x64 | `.deb` and AppImage |
+| Linux | ARM64 | `.deb` and AppImage |
 
-No Windows ARM64, Linux ARM64, `.msi`, or `.rpm` package is included in this release.
+No Windows ARM64, `.msi`, or `.rpm` package is included in this release. Linux ARM64 packages are built on GitHub's `ubuntu-24.04-arm` hosted runner, whose label is currently in public preview.
 
 ## Verify your download
 

@@ -16,7 +16,7 @@ Target version: `1.0.0`
 | Frontend coverage | PASSED | 287 files and 1309 tests passed with the configured coverage policy. |
 | Frontend build | PASSED | TypeScript, Vite, and the lazy-chunk budget check passed. |
 | Contract checks | PASSED | Three contract-conformance tests passed. |
-| Release policy tests | PASSED | Stable/preview notes, fail-closed signing gates, and four-target matrix checks passed. |
+| Release policy tests | PASSED | Stable/preview notes, fail-closed signing gates, and five-target matrix checks passed. |
 | Rust formatting | PASSED | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` |
 | Rust clippy | PASSED | All targets passed with warnings denied. |
 | Rust tests | PASSED | 3547 library tests passed, 15 fixture tests were ignored, and architecture/MCP integration tests passed. |
@@ -31,6 +31,7 @@ Target version: `1.0.0`
 | macOS x64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending. |
 | macOS ARM64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending. |
 | Linux x64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending. |
+| Linux ARM64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending on `ubuntu-24.04-arm`. |
 
 ## GitHub release readiness
 

@@ -18,7 +18,7 @@
 
 ## 4. GitHub Release Readiness
 
-- [ ] 4.1 Push the reviewed branch and complete a manual non-publishing `Package Desktop Apps` rehearsal for Windows x64, macOS x64/ARM64, and Linux x64.
+- [ ] 4.1 Push the reviewed branch and complete a manual non-publishing `Package Desktop Apps` rehearsal for Windows x64, macOS x64/ARM64, and Linux x64/ARM64.
 - [ ] 4.2 Confirm all required updater, Windows, and Apple secret names exist in the protected `release` environment without exposing their values.
 - [ ] 4.3 Record per-platform rehearsal status and verify the source commit is ready to merge before creating any stable tag.
 - [ ] 4.4 After merge, create and push the annotated `v1.0.0` tag only with explicit maintainer approval, then verify the GitHub Release, signatures, notarization, checksums, SBOM, attestations, and stable updater metadata.
