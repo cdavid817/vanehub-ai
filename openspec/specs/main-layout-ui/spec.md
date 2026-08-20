@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the workspace shell layout, sidebar session organization, main content sizing, collapsible information panel behavior, keep-alive panel tabs, and internal scrolling rules shared by the Tauri desktop frontend and browser Web runtime.
-
 ## Requirements
-
 ### Requirement: Workspace activity bar
 The workspace shell SHALL render a persistent icon-only activity bar at the far left of the workspace body in both the Tauri desktop frontend and browser Web runtime.
 
@@ -921,3 +919,15 @@ The workspace activity bar SHALL expose a localized icon-only Mission Control de
 #### Scenario: Identify Mission Control entry
 - **WHEN** the Mission Control icon-only entry is available
 - **THEN** it provides localized accessible name, tooltip, focus, hover, and active states without shifting adjacent entries
+
+### Requirement: Continuous transcript and composer surface
+The workspace chat SHALL present the transcript, status area, runner controls, and message composer as one continuous panel, and SHALL NOT decorate the attached composer as a second nested conversation card.
+
+#### Scenario: Render an attached composer
+- **WHEN** a Session chat with a message composer is displayed
+- **THEN** the transcript and composer SHALL share one outer surface and one theme-aware separator
+- **AND** the composer SHALL NOT add a competing outer shadow, detached gap, or mixed square-and-rounded conversation frame
+
+#### Scenario: Focus the message input
+- **WHEN** keyboard focus enters the message input
+- **THEN** the input controls SHALL expose a visible semantic focus state without changing the outer workspace geometry
