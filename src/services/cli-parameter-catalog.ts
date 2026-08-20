@@ -98,17 +98,30 @@ export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefiniti
     customTextDefinition("claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
     enumDefinition("claude-code", "effort", "--effort", ["default", "low", "medium", "high", "xhigh", "max"]),
     booleanDefinition("claude-code", "chrome", "--chrome", ["interactive"]),
+    customTextDefinition("claude-code", "agent", "--agent", ["default"]),
+    customTextDefinition("claude-code", "advisor", "--advisor", ["default"]),
+    booleanDefinition("claude-code", "disableSlashCommands", "--disable-slash-commands", ["interactive"]),
+    booleanDefinition("claude-code", "screenReader", "--ax-screen-reader", ["interactive"]),
+    booleanDefinition("claude-code", "bare", "--bare", ["interactive"]),
+    booleanDefinition("claude-code", "safeMode", "--safe-mode", ["interactive", "chat"]),
   ],
   "codex-cli": [
     customTextDefinition("codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
     enumDefinition("codex-cli", "reasoningEffort", "--config", ["default", "low", "medium", "high", "xhigh", "max"]),
     booleanDefinition("codex-cli", "ephemeral", "--ephemeral", ["chat"]),
     booleanDefinition("codex-cli", "strictConfig", "--strict-config", ["interactive", "chat"]),
+    customTextDefinition("codex-cli", "profile", "--profile", ["default"]),
+    booleanDefinition("codex-cli", "search", "--search", ["interactive", "chat"]),
+    booleanDefinition("codex-cli", "oss", "--oss", ["interactive", "chat"]),
+    booleanDefinition("codex-cli", "noAltScreen", "--no-alt-screen", ["interactive"]),
   ],
   opencode: [
     customTextDefinition("opencode", "model", "--model", ["default"]),
     customTextDefinition("opencode", "variant", "--variant", ["default", "low", "medium", "high", "max"], ["chat"]),
     booleanDefinition("opencode", "thinking", "--thinking", ["chat"]),
+    booleanDefinition("opencode", "pure", "--pure", ["interactive"]),
+    booleanDefinition("opencode", "printLogs", "--print-logs", ["interactive", "chat"]),
+    enumDefinition("opencode", "logLevel", "--log-level", ["default", "DEBUG", "INFO", "WARN", "ERROR"]),
   ],
   // No bypass-flag entry: Antigravity's graduated approval modes live in its settings document,
   // so a permissive posture is reached through the CLI configuration profile instead.
@@ -119,6 +132,8 @@ export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefiniti
   ],
   "gemini-cli": [
     customTextDefinition("gemini-cli", "model", "--model", ["default", "auto", "pro", "flash", "flash-lite"]),
+    booleanDefinition("gemini-cli", "debug", "--debug", ["interactive", "chat"]),
+    booleanDefinition("gemini-cli", "screenReader", "--screen-reader", ["interactive"]),
   ],
 };
 

@@ -4,6 +4,7 @@ import type { CliParameterDefinition } from "../types/agent";
 import en from "../i18n/locales/en.json";
 import zhCN from "../i18n/locales/zh-CN.json";
 import editableCatalogContract from "../contracts/fixtures/cli-parameter-editable-catalog.json";
+import sourceAudit from "../contracts/fixtures/cli-parameter-source-audit.json";
 import {
   buildCliParameterPreview,
   buildCliParameterPreviewFromDefinitions,
@@ -14,14 +15,21 @@ import {
 
 const reservedFlags = new Set(["--output-format", "--resume", "--session", "--json", "--format", "--prompt"]);
 const expectedParameterIds = {
-  "claude-code": ["model", "effort", "chrome"],
-  "codex-cli": ["model", "reasoningEffort", "ephemeral", "strictConfig"],
-  "gemini-cli": ["model"],
-  opencode: ["model", "variant", "thinking"],
+  "claude-code": ["model", "effort", "chrome", "agent", "advisor", "disableSlashCommands", "screenReader", "bare", "safeMode"],
+  "codex-cli": ["model", "reasoningEffort", "ephemeral", "strictConfig", "profile", "search", "oss", "noAltScreen"],
+  "gemini-cli": ["model", "debug", "screenReader"],
+  opencode: ["model", "variant", "thinking", "pure", "printLogs", "logLevel"],
   "antigravity-cli": ["model", "effort", "agent"],
 } as const;
 
 describe("CLI parameter catalog", () => {
+  it("records a current official source for every managed CLI", () => {
+    expect(sourceAudit.reviewedAt).toBe("2026-08-20");
+    expect(Object.keys(sourceAudit.sources).sort()).toEqual([...managedCliAgentIds].sort());
+    expect(Object.values(sourceAudit.sources).every((url) => url.startsWith("https://"))).toBe(true);
+    expect(sourceAudit.excludedCategories).toContain("approval-and-permission-policy");
+  });
+
   it("matches the shared frontend/native editable catalog contract", () => {
     const actual = Object.fromEntries(managedCliAgentIds.map((agentId) => [
       agentId,
@@ -92,6 +100,15 @@ describe("CLI parameter catalog", () => {
       "high",
       "--thinking",
     ]);
+  });
+
+  it("applies expanded flags only to their declared launch scopes", () => {
+    expect(buildCliParameterPreview("codex-cli", { noAltScreen: true }, "interactive"))
+      .toContain("--no-alt-screen");
+    expect(buildCliParameterPreview("codex-cli", { noAltScreen: true }, "chat"))
+      .not.toContain("--no-alt-screen");
+    expect(buildCliParameterPreview("gemini-cli", { debug: true, screenReader: true }, "chat"))
+      .toEqual(["--debug"]);
   });
 
   it("names every managed CLI in each Agent-keyed copy namespace", () => {

@@ -41,6 +41,7 @@ export function CliConfigProfileDialog({
   const [name, setName] = useState(draft.profile?.name ?? draft.preset?.displayName ?? "");
   const [payload, setPayload] = useState<CliConfigPayload>(() => structuredClone(draft.payload));
   const [selectedPreset, setSelectedPreset] = useState<CliConfigPreset | null>(draft.preset);
+  const [customSelected, setCustomSelected] = useState(Boolean(draft.profile && !draft.profile.sourcePresetId));
   const [credential, setCredential] = useState("");
   const [removeCredential, setRemoveCredential] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export function CliConfigProfileDialog({
   });
 
   function selectPreset(preset: CliConfigPreset) {
+    setCustomSelected(false);
     setSelectedPreset(preset);
     setName(preset.displayName);
     setPayload(structuredClone(preset.payload));
@@ -70,6 +72,7 @@ export function CliConfigProfileDialog({
   }
 
   function selectCustom() {
+    setCustomSelected(true);
     setSelectedPreset(null);
     setName("");
     setPayload(createCustomCliConfigPayload(draft.agentId));
@@ -89,8 +92,8 @@ export function CliConfigProfileDialog({
 
   return (
     <ApplicationDialog closeDisabled={saveMutation.isPending} description={t("agents.globalConfig.draftHint")} maxWidth="max-w-4xl" onClose={onClose} title={draft.profile ? t("agents.globalConfig.editProfile") : t("agents.globalConfig.createProfile")}>
-        <div className="grid gap-4">
-          {!draft.profile ? <CliConfigProviderCatalog onCreateCustom={selectCustom} onOpenUrl={(url) => { void service.openExternalUrl(url).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); }} onSelectPreset={selectPreset} presets={presets} selectedPresetId={selectedPreset?.id ?? null} /> : null}
+        <div className="grid gap-3">
+          {!draft.profile ? <CliConfigProviderCatalog customSelected={customSelected} onCreateCustom={selectCustom} onOpenUrl={(url) => { void service.openExternalUrl(url).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); }} onSelectPreset={selectPreset} presets={presets} selectedPresetId={selectedPreset?.id ?? null} /> : null}
           <ProviderConfigurationSection description={t("agentConfigurations.providers.detailsDescription")} title={t("agentConfigurations.providers.detailsTitle")}><label className="flex flex-col gap-1 text-sm">
             {t("agents.globalConfig.profileName")}
             <input data-dialog-autofocus className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setName(event.target.value)} value={name} />

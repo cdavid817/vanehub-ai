@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("CLI local environment management", () => {
-  test("renders honest Web diagnostics in the futuristic Chinese settings surface", async ({ page }) => {
+  test("renders honest Web diagnostics in the default minimal Chinese settings surface", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
@@ -21,7 +21,7 @@ test.describe("CLI local environment management", () => {
     ]);
     await expect(page.locator('[data-cli-agent="claude-code"]')).toContainText("Anthropic Claude Code CLI");
     await expect(page.getByText("不支持").first()).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "futuristic");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
   });
 
   test("keeps English minimal CLI and About summaries readable at narrow width", async ({ page }) => {

@@ -2536,6 +2536,7 @@ impl SkillApplicationService {
             .collect::<BTreeSet<_>>();
         self.transact(|transaction| {
             let mut changed = BTreeMap::new();
+            let mut resolved_issue_indexes = BTreeSet::new();
             let cleared_tombstones = Vec::new();
             let mut result = SkillSyncResult {
                 mounted: Vec::new(),
@@ -2547,7 +2548,7 @@ impl SkillApplicationService {
                 resolved_from: report.clone(),
             };
 
-            for issue in &report.issues {
+            for (issue_index, issue) in report.issues.iter().enumerate() {
                 match issue.issue_type {
                     SkillDriftIssueType::MissingMount | SkillDriftIssueType::Conflict => {
                         let repair = (|| {
@@ -2577,6 +2578,7 @@ impl SkillApplicationService {
                         })();
                         match repair {
                             Ok((key, record, repair)) => {
+                                resolved_issue_indexes.insert(issue_index);
                                 result.mounted.push(issue.skill_id.clone());
                                 result.overwritten.extend(repair.overwritten);
                                 result.backed_up.extend(repair.backed_up);
@@ -2618,6 +2620,7 @@ impl SkillApplicationService {
                         })();
                         match refresh {
                             Ok((key, record)) => {
+                                resolved_issue_indexes.insert(issue_index);
                                 result.restored.push(issue.skill_id.clone());
                                 changed.insert(key, record);
                             }
@@ -2660,6 +2663,7 @@ impl SkillApplicationService {
                         })();
                         match adoption {
                             Ok(Some((key, record))) => {
+                                resolved_issue_indexes.insert(issue_index);
                                 result.restored.push(issue.skill_id.clone());
                                 changed.insert(key, record);
                             }
@@ -2697,6 +2701,7 @@ impl SkillApplicationService {
                         })();
                         match repair {
                             Ok(Some((key, record))) => {
+                                resolved_issue_indexes.insert(issue_index);
                                 result.restored.push(issue.skill_id.clone());
                                 changed.insert(key, record);
                             }
@@ -2710,10 +2715,23 @@ impl SkillApplicationService {
                 }
             }
 
+            let changed_records = changed.into_values().collect::<Vec<_>>();
+            let remaining_issues = report
+                .issues
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !resolved_issue_indexes.contains(index))
+                .map(|(_, issue)| issue.clone())
+                .collect::<Vec<_>>();
+            let reconciled_report = SkillDriftReport {
+                location: location.clone(),
+                drift_hash: drift_hash(&remaining_issues),
+                issues: remaining_issues,
+            };
             self.repository.save_synchronization(
-                &changed.into_values().collect::<Vec<_>>(),
+                &changed_records,
                 &cleared_tombstones,
-                &report,
+                &reconciled_report,
             )?;
             Ok(result)
         })

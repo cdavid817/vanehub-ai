@@ -2152,12 +2152,10 @@ fn drift_sync_merges_multiple_repairs_and_commits_successful_changes_once() {
         unregistered_sources: Vec::new(),
         deleted_builtin_ids: vec![id("code-review")],
     });
-
     let result = fixture
         .service
         .sync_skill_drift(SkillScopeQuery { location: global() })
         .expect("drift sync");
-
     assert_eq!(result.mounted, vec!["drifted-skill"]);
     assert!(result.restored.contains(&"drifted-skill".to_string()));
     assert!(!result.restored.contains(&"code-review".to_string()));
@@ -2176,6 +2174,7 @@ fn drift_sync_merges_multiple_repairs_and_commits_successful_changes_once() {
     let state = fixture.repository.state.lock().expect("repository state");
     assert!(state.deleted_builtin_ids.contains(&id("code-review")));
     assert_eq!(state.synchronization_count, 1);
+    assert_eq!(state.drift_snapshots.last().unwrap().issues.len(), 1);
     drop(state);
     assert!(fixture
         .filesystem

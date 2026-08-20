@@ -14,7 +14,7 @@ export interface ProviderCatalogItem {
   detail?: ReactNode;
 }
 
-export function ProviderCatalog({ items, selectedId, onSelect, title, description, searchLabel, emptyLabel }: {
+export function ProviderCatalog({ items, selectedId, onSelect, title, description, searchLabel, emptyLabel, compact = false }: {
   items: ProviderCatalogItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -22,6 +22,7 @@ export function ProviderCatalog({ items, selectedId, onSelect, title, descriptio
   description: string;
   searchLabel: string;
   emptyLabel: string;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -33,8 +34,8 @@ export function ProviderCatalog({ items, selectedId, onSelect, title, descriptio
   }, [category, items, search]);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-background">
-      <div className="border-b border-border bg-muted/15 p-3 sm:p-4">
+    <section className="overflow-hidden rounded-lg border border-border bg-background">
+      <div className="border-b border-border bg-muted/15 p-3">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.65fr)] lg:items-end">
           <div><h3 className="font-semibold">{title}</h3><p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p></div>
           <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><input aria-label={searchLabel} className="ucd-input h-10 w-full rounded-lg pl-9 pr-3 text-sm" onChange={(event) => setSearch(event.target.value)} placeholder={searchLabel} value={search} /></div>
@@ -43,18 +44,18 @@ export function ProviderCatalog({ items, selectedId, onSelect, title, descriptio
           {(["all", "official", "common"] as const).map((value) => <Button className="h-7 shrink-0 rounded-md px-3 text-xs shadow-none" key={value} onClick={() => setCategory(value)} size="sm" variant={category === value ? "default" : "ghost"}>{t(`agentConfigurations.providers.category.${value}`)}</Button>)}
         </div>
       </div>
-      <div className="p-3 sm:p-4">
-        <div className="max-h-[22rem] overflow-y-auto overscroll-contain pr-1">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="p-3">
+        <div className={`${compact ? "max-h-56" : "max-h-[22rem]"} overflow-y-auto overscroll-contain pr-1`}>
+          <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${compact ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
           {filtered.map((item) => {
             const selected = selectedId === item.id;
-            return <button aria-label={item.displayName} aria-pressed={selected} className={`group relative min-h-20 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? "border-primary bg-primary/[0.06] shadow-sm ring-1 ring-primary/20" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30 hover:shadow-sm"}`} key={item.id} onClick={() => onSelect(item.id)} type="button">
+            return <button aria-label={item.displayName} aria-pressed={selected} className={`group relative rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? "border-primary bg-primary/[0.06] ring-1 ring-primary/20" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"}`} key={item.id} onClick={() => onSelect(item.id)} type="button">
               {selected ? <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-3 w-3" /></span> : null}
               <span className="flex items-center gap-3 pr-6">
                 <ProviderBrandIcon iconKey={item.iconKey} label={item.displayName} size="sm" />
                 <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold group-hover:text-primary">{item.displayName}</span><span className="mt-0.5 block text-[11px] text-muted-foreground">{t(`agents.globalConfig.presetCategory.${item.category}`)}</span></span>
               </span>
-              {item.detail ? <span className="mt-2 block border-t border-border/60 pt-2 text-xs leading-5 text-muted-foreground">{item.detail}</span> : null}
+              {item.detail ? <span className={`${compact ? "mt-1.5 line-clamp-2" : "mt-2 border-t border-border/60 pt-2"} block text-xs leading-5 text-muted-foreground`}>{item.detail}</span> : null}
             </button>;
           })}
           </div>
