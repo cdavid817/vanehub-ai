@@ -59,6 +59,11 @@ test("Linux runners install every native AppImage prerequisite", () => {
   assert.match(workflow, /wget \\\n {12}xdg-utils/);
 });
 
+test("rehearsal signing exports the private key variable used by the bundler", () => {
+  assert.ok(workflow.includes('echo "TAURI_SIGNING_PRIVATE_KEY=${key_path}" >> "${GITHUB_ENV}"'));
+  assert.ok(workflow.includes('echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"'));
+});
+
 test("stable notes distinguish platform signing from Linux integrity evidence", () => {
   for (const heading of ["## Downloads", "## Verify your download", "## Updates", "## Known limitations", "## Reporting problems"]) {
     assert.ok(stableNotes.includes(heading), `Missing stable release section: ${heading}`);

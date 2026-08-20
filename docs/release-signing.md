@@ -29,6 +29,8 @@ npm run version:check -- v<version>
 
 Use a rehearsal to confirm that installers actually install before spending a tag on it. A failed publish leaves a pushed tag with no release; do not move that tag to different source. Correct the problem and publish a higher version when source or artifacts must change.
 
+The rehearsal exports its ephemeral key path through both `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PATH`. Current Tauri bundling reads the former, while signer tooling documents the latter; both point to the same runner-temporary file and the key is never persisted as an artifact.
+
 ## Stable releases
 
 A stable version has no semantic-version prerelease identifier. `.github/STABLE_RELEASE_NOTES.md` is prepended to generated change notes and is reviewed before the tag is created. It describes the supported package matrix, verification evidence, update channel, support routes, and known limitations without reusing unsigned-preview bypass instructions.

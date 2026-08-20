@@ -39,7 +39,7 @@ Target version: `1.0.0`
 | --- | --- | --- |
 | Protected `release` environment | PASSED | Environment exists and accepts only the `v*` tag policy. |
 | Required environment secret names | BLOCKED | GitHub API reports 0 of 11 required names. No secret values were requested or exposed. |
-| Non-publishing package rehearsal | FAILED | Run `32328440115` proved native ARM64 compilation and `.deb` bundling but exposed a missing `xdg-utils` AppImage prerequisite; corrective rerun pending. |
+| Non-publishing package rehearsal | FAILED | Run `32328440115` exposed missing `xdg-utils`; run `32329743078` then produced Linux x64/ARM64 `.deb` and AppImage bundles but exposed that current Tauri bundling ignores a path-only signing variable. Corrective rerun pending. |
 | Annotated `v1.0.0` tag | NOT RUN | Prohibited until rehearsal, credentials, merge, and explicit maintainer approval are complete. |
 
 The current source state is not eligible for a stable tag while any row above is `BLOCKED`, `FAILED`, or `NOT RUN`.

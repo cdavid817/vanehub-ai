@@ -180,6 +180,7 @@ jobs:
         run: |
           key_path="${RUNNER_TEMP}/vanehub-rehearsal.key"
           npx tauri signer generate --ci --force --write-keys "${key_path}" --password "rehearsal-only"
+          echo "TAURI_SIGNING_PRIVATE_KEY=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${key_path}" >> "${GITHUB_ENV}"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=rehearsal-only" >> "${GITHUB_ENV}"
           echo "Ephemeral updater key generated for this non-publishing job only."

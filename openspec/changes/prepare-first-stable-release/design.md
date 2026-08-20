@@ -43,7 +43,7 @@ The implementation stops at a reviewed, validated branch plus a successful manua
 ## Risks / Trade-offs
 
 - [Production signing credentials are currently absent] → Report readiness as `BLOCKED`, document exact names and provisioning commands, and do not create the tag.
-- [A branch rehearsal uses ephemeral updater signing and cannot prove production signing] → Treat it as package/matrix evidence only; require the protected credential inventory before tagging and verify signatures in the tag run.
+- [A branch rehearsal uses ephemeral updater signing and cannot prove production signing] → Bind both Tauri private-key environment variable names to one runner-temporary key, treat the result as package/matrix evidence only, require the protected credential inventory before tagging, and verify signatures in the tag run.
 - [Generated notes can be noisy or incomplete for a first release] → Prepend a reviewed stable narrative and retain generated notes as the detailed change inventory.
 - [Promoting directly from preview to `1.0.0` raises compatibility expectations] → Require the repository's full validation suite plus native evidence for all five package targets, including Linux ARM64.
 - [A stable version permits MSI/RPM but the release omits them] → State supported formats explicitly; consider additional formats in a later independent change with their own install/signing tests.
