@@ -369,7 +369,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          mapfile -d '' assets < <(find release-assets -type f -print0)
+          assets=()
+          while IFS= read -r -d '' file; do
+            assets+=("${file}")
+          done < <(find release-assets/packages -type f -print0)
+          channel_manifest="latest.json"
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then channel_manifest="preview.json"; fi
+          assets+=(
+            "release-assets/SHA256SUMS"
+            "release-assets/vanehub-ai-sbom.spdx.json"
+            "release-assets/${channel_manifest}"
+          )
 
           args=(
             --repo "${GITHUB_REPOSITORY}"
