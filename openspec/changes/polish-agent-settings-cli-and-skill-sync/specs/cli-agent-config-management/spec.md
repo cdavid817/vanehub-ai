@@ -1,13 +1,20 @@
 ## ADDED Requirements
 
 ### Requirement: Focused provider-profile creation flow
-The Agent Configuration add-profile dialog SHALL separate provider discovery from Agent-specific profile fields with a compact visual hierarchy, SHALL keep the selected provider and current step apparent, and SHALL avoid nested card decoration that competes with the form.
+The Agent Configuration add-profile dialog SHALL separate provider discovery from Agent-specific profile fields into explicit stages, SHALL keep the selected provider and current step apparent, and SHALL avoid nested card decoration that competes with the form.
 
 #### Scenario: Open the add-profile dialog
 - **WHEN** the user starts adding an Agent provider profile
-- **THEN** the dialog SHALL present a searchable provider choice followed by grouped connection, model, and credential fields
+- **THEN** the dialog SHALL first present a searchable provider choice and continue to a separate configuration stage
+- **AND** the configuration stage SHALL keep required identity, connection, primary-model, and credential fields visible
+- **AND** optional provider-specific fields SHALL be placed in a labeled, collapsed advanced section
 - **AND** only fields relevant to the selected Agent and provider SHALL be displayed
 - **AND** cancel and save actions SHALL remain visible while the form content scrolls
+
+#### Scenario: Edit an existing profile
+- **WHEN** the user edits a saved provider profile
+- **THEN** the dialog SHALL open directly on the configuration stage without repeating provider selection
+- **AND** the saved provider identity SHALL remain visible and unchanged unless the user creates a separate profile
 
 #### Scenario: Use a narrow viewport or keyboard navigation
 - **WHEN** the dialog is used at a supported narrow width or entirely from the keyboard
@@ -38,3 +45,31 @@ The add-profile provider catalog SHALL include a stable custom endpoint entry fo
 - **WHEN** a valid custom endpoint profile is saved in Web/mock mode
 - **THEN** the adapter SHALL preserve the same profile shape and validation behavior
 - **AND** it SHALL NOT claim to write native CLI configuration or a native credential store
+
+### Requirement: Scalable Agent configuration information architecture
+The Agent Configuration page SHALL focus on provider/profile management, SHALL use a scalable grouped Agent selector, and SHALL NOT embed workspace-wide code-intelligence administration beneath each selected Agent.
+
+#### Scenario: Select a managed Agent
+- **WHEN** the Agent Configuration page is opened or an Agent navigation target is supplied
+- **THEN** the page SHALL select the requested Agent in a grouped selector and show only that Agent's provider/profile management content
+- **AND** changing the selection SHALL preserve the existing service isolation between Agents
+- **AND** LSP configuration, trust, testing, and runtime status SHALL be available from a dedicated Code Intelligence settings page instead of the active Agent panel
+
+#### Scenario: Use the Agent selector responsively
+- **WHEN** the number of supported Agents grows or the page is shown at a narrow width
+- **THEN** the selector SHALL remain reachable without wrapping into an ambiguous tab grid or causing horizontal page overflow
+- **AND** its groups, selected state, keyboard order, and accessible names SHALL remain apparent
+
+#### Scenario: Configure OnePiece capabilities
+- **WHEN** OnePiece is selected
+- **THEN** provider profiles SHALL be the default secondary view
+- **AND** local runtime and tool-readiness controls SHALL be available as explicit secondary views rather than appearing simultaneously in the profile list
+
+### Requirement: Compact profile-management hierarchy
+Saved profile presentation SHALL prioritize identity, provider/model, validation, and applied state while placing infrequent details and destructive or duplicative actions behind accessible disclosure controls.
+
+#### Scenario: Browse saved profiles
+- **WHEN** the user reviews an Agent's saved profiles
+- **THEN** each profile SHALL expose its name, provider, primary model, validation state, and applied state without expanding details
+- **AND** endpoint, credential, version, and managed-path details SHALL be available on demand
+- **AND** Apply SHALL remain a visible primary action while edit, duplicate, and delete remain keyboard-accessible secondary actions

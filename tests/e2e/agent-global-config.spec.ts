@@ -5,17 +5,18 @@ async function openAgentConfigurations(page: Page) {
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await expect(page.getByRole("heading", { name: /^(Agent 配置|Agent Configurations)$/, level: 2 })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Claude Code" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Claude Code" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText(/Web 模式不会同步本地 CLI 配置|Web mode does not synchronize local CLI configuration/)).toBeVisible();
 }
 
 async function createAndApplyProfile(page: Page, agentName: string, presetName: string, profileName: string, credential?: string) {
-  await page.getByRole("tab", { name: agentName, exact: true }).click();
+  await page.getByRole("button", { name: agentName, exact: true }).click();
   await expect(page.getByText(/Web 模拟|Web simulation/)).toBeVisible();
   await page.getByRole("button", { name: /新增配置|Add configuration/ }).click();
 
   const editor = page.getByRole("dialog");
   await editor.getByRole("button", { name: new RegExp(`^${presetName}`) }).click();
+  await editor.getByRole("button", { name: /继续|Continue/ }).click();
   await editor.getByRole("textbox", { name: /配置名称|Profile name/ }).fill(profileName);
   if (credential) {
     await editor.getByLabel(/API Key 或 Token|API key or token/).fill(credential);
@@ -59,6 +60,7 @@ test.describe("Agent global CLI configuration", () => {
     await expect(dialog.getByText("DeepSeek · Claude Code")).toBeVisible();
     await expect(dialog.getByText("Anthropic · Claude Code")).toHaveCount(0);
     await dialog.getByRole("button", { name: /^DeepSeek/ }).click();
+    await dialog.getByRole("button", { name: /继续|Continue/ }).click();
     await expect(dialog.getByRole("button", { name: /保存修改|Save changes/ })).toBeVisible();
     const bodyOverflows = await page.evaluate(() => document.body.scrollWidth > window.innerWidth);
     expect(bodyOverflows).toBe(false);
@@ -66,10 +68,11 @@ test.describe("Agent global CLI configuration", () => {
 
   test("creates and applies a Gemini CLI API-key profile", async ({ page }) => {
     await openAgentConfigurations(page);
-    await page.getByRole("tab", { name: "Gemini CLI", exact: true }).click();
+    await page.getByRole("button", { name: "Gemini CLI", exact: true }).click();
     await page.getByRole("button", { name: /新增配置|Add configuration/ }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: /^Google Gemini/ }).click();
+    await dialog.getByRole("button", { name: /继续|Continue/ }).click();
     await dialog.getByLabel(/鉴权方式|Authentication/).selectOption("api-key");
     await dialog.getByLabel(/API Key 或 Token|API key or token/).fill("gemini-e2e-secret");
     await dialog.getByRole("textbox", { name: /配置名称|Profile name/ }).fill("Gemini Official");

@@ -11,9 +11,9 @@ async function createOnePieceChat(page: Page, title: string) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
-  await page.getByRole("tab", { name: /OnePiece/ }).click();
+  await page.getByRole("button", { name: /OnePiece/ }).click();
 
-  const panel = page.getByRole("tabpanel", { name: "OnePiece" });
+  const panel = page.getByRole("region", { name: "OnePiece" });
   await panel.getByRole("button", { name: "新增配置" }).first().click();
   const dialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
   await dialog.getByRole("button", { name: /Anthropic/ }).click();

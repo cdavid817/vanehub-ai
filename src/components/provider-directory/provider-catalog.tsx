@@ -49,7 +49,7 @@ export function ProviderCatalog({ items, selectedId, onSelect, title, descriptio
           <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${compact ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
           {filtered.map((item) => {
             const selected = selectedId === item.id;
-            return <button aria-label={item.displayName} aria-pressed={selected} className={`group relative rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? "border-primary bg-primary/[0.06] ring-1 ring-primary/20" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"}`} key={item.id} onClick={() => onSelect(item.id)} type="button">
+            return <button aria-label={item.displayName} aria-pressed={selected} className={`group relative rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? "border-primary bg-primary/[0.06] ring-1 ring-primary/20" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"}`} data-provider-id={item.id} key={item.id} onClick={() => onSelect(item.id)} type="button">
               {selected ? <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-3 w-3" /></span> : null}
               <span className="flex items-center gap-3 pr-6">
                 <ProviderBrandIcon iconKey={item.iconKey} label={item.displayName} size="sm" />

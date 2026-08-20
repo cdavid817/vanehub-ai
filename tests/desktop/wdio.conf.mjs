@@ -27,7 +27,7 @@ function proxyEnvironment() {
 }
 
 // CI runs `smoke.e2e.mjs` only, which is the coverage it had before these specs existed. The other
-// twelve stay in the repository and run locally; they are not ready to gate a pull request.
+// thirteen stay in the repository and run locally; they are not ready to gate a pull request.
 //
 // Three things have to be true before one joins the gate, and none is yet:
 //
@@ -55,7 +55,7 @@ if (!runFullSuite) {
   // Said out loud rather than left to whoever compares spec counts between runs: a run that
   // covers one spec instead of thirteen still prints PASSED.
   process.stdout.write(
-    "Desktop specs: gate run (smoke only). Set VANEHUB_DESKTOP_FULL_SUITE=1 for all 13.\n",
+    "Desktop specs: gate run (smoke only). Set VANEHUB_DESKTOP_FULL_SUITE=1 for all 14.\n",
   );
 }
 
@@ -128,7 +128,7 @@ export const config = {
   // The harness's clean-shutdown verdict reads a marker the runtime writes on exit, and all specs
   // in a run share one marker file, so the verdict reflects only the final app instance. While
   // `smoke.e2e.mjs` sorted last that worked by accident; adding the `ui-*` specs moved a file that
-  // deliberately does not exit itself into last place, and a run with all 13 specs green reported
+  // deliberately does not exit itself into last place, and a run with all 14 specs green reported
   // "The desktop runtime did not record a clean shutdown." Doing it here makes the verdict a
   // property of the runtime rather than of filename ordering, and turns every spec into evidence
   // that the app can exit on request instead of only one.

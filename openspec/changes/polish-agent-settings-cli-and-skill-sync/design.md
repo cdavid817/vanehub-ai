@@ -11,6 +11,7 @@ The native Skill path supports both historical mutable sources and newer immutab
 **Goals:**
 
 - Preserve one visual owner for workspace chat framing and establish a compact minimal-first hierarchy for Agent profile creation.
+- Separate Agent provider/profile management from code-intelligence administration, and keep the Agent surface scalable as more managed Agents are added.
 - Reuse the provider preset/profile contracts for custom endpoints and deterministic icon fallback.
 - Make CLI catalog breadth evidence-based, typed, localized, and identical in desktop and Web/mock modes.
 - Make built-in Skill repair idempotent and prove convergence against realistic legacy state.
@@ -58,6 +59,24 @@ After filesystem repairs are staged and records are derived, the application com
 
 Alternative considered: clear the banner only in React. That would conceal persistent backend drift and reappear after refresh or restart.
 
+### 6. Agent settings are separated by user task
+
+The Agent Configuration page owns provider/profile management only. It uses a grouped Agent selector with managed CLI Agents and the native OnePiece Agent as separate groups, placing the selector beside the active Agent content at desktop widths and making it horizontally scrollable at narrow widths. Selecting an Agent changes only the profile-management content and preserves the existing navigation-target contract.
+
+LSP configuration, workspace trust, server testing, and runtime status move together to a dedicated Code Intelligence settings page. These controls describe workspace-wide language tooling rather than any selected Agent, so keeping them below every Agent tab creates a false ownership relationship and a needlessly long page.
+
+OnePiece keeps its provider profiles on the Agent Configuration page, but its provider profiles, local runtime, and tool readiness become explicit secondary views. Provider profiles are the default because they are the prerequisite for a usable Agent.
+
+Alternative considered: create one settings sidebar page per Agent. That scales sidebar complexity linearly with the catalog and makes cross-Agent comparison harder. A grouped selector keeps one stable destination while avoiding a six-item tab strip.
+
+### 7. Profile creation and management use progressive disclosure
+
+Creating a profile becomes a two-stage dialog: provider selection first, then configuration. The configuration stage keeps profile name, endpoint, primary model, and credential visible; provider-specific optional fields live in a collapsed advanced section. Editing an existing profile opens the configuration stage directly and does not repeat provider discovery.
+
+Saved profile cards prioritize identity, provider/model, validation, and applied state. Apply remains the visible primary action; edit, duplicate, and delete are secondary actions in a compact accessible menu, while endpoint, credential, version, and managed-path details are available on demand. This reduces repeated chrome without hiding state required to choose a profile.
+
+Alternative considered: split credentials and connection testing into separate dialogs. Those values are validated and saved as one profile transaction, so separating them would increase context switching and partial-form ambiguity.
+
 ## Risks / Trade-offs
 
 - [Official CLI references change after review] -> Record source and review date, keep contract fixtures, and require a deliberate catalog update rather than runtime scraping.
@@ -65,6 +84,8 @@ Alternative considered: clear the banner only in React. That would conceal persi
 - [Legacy Skill sources may contain intentional user edits] -> Restore only immutable built-in sources; mutable user/imported records are adopted or reported, never silently overwritten as system content.
 - [Post-repair inspection can fail after filesystem work] -> Keep repair and registry persistence transactional where supported, report partial failures explicitly, and cover rollback/failure injection.
 - [Provider icon assets vary between themes] -> Use a centralized alias map plus deterministic accessible fallback and asset-resolution tests.
+- [Moving LSP changes settings navigation and deep links] -> Add a stable page id, retain existing service/query keys, and cover sidebar order plus navigation-target behavior.
+- [Progressive disclosure can hide important fields] -> Keep required connection/model fields visible, label advanced settings explicitly, and surface validation errors at the owning stage.
 
 ## Migration Plan
 

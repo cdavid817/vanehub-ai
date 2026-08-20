@@ -16,9 +16,16 @@ const PARAMETER_LAUNCH_SCOPES = ["interactive", "chat"];
 // opencode's editable catalogue. `agent` and `autoApprove` are policy-governed
 // (src-tauri/src/contexts/tooling/cli_parameters.rs:403-419), so they are filtered out of both the
 // definitions and the selections a profile exposes; they belong to the policy template layer.
-const OPENCODE_PARAMETER_IDS = ["model", "variant", "thinking"];
-const OPENCODE_PARAMETER_FLAGS = ["--model", "--variant", "--thinking"];
-const OPENCODE_DEFAULT_SELECTIONS = { model: "default", variant: "default", thinking: false };
+const OPENCODE_PARAMETER_IDS = ["model", "variant", "thinking", "pure", "printLogs", "logLevel"];
+const OPENCODE_PARAMETER_FLAGS = ["--model", "--variant", "--thinking", "--pure", "--print-logs", "--log-level"];
+const OPENCODE_DEFAULT_SELECTIONS = {
+  model: "default",
+  variant: "default",
+  thinking: false,
+  pure: false,
+  printLogs: false,
+  logLevel: "default",
+};
 
 // src-tauri/src/contexts/tooling/cli_config/domain/mod.rs:8 (SUPPORTED_AGENT_IDS) -- deliberately a
 // different order from the CLI parameter constant above.
@@ -169,7 +176,11 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
       assert.equal(saved.agentId, "opencode");
       // `model` is absent from the request and is backfilled from its default
       // (cli_parameters.rs:504-521), so a stored selection is always complete.
-      assert.deepEqual(saved.selections, { model: "default", variant: "high", thinking: true });
+      assert.deepEqual(saved.selections, {
+        ...OPENCODE_DEFAULT_SELECTIONS,
+        variant: "high",
+        thinking: true,
+      });
       // Rendered for the chat launch scope in definition order (cli_parameters.rs:689-693):
       // `model` stays at "default" and contributes nothing, `variant` renders flag plus value, and
       // the boolean renders its flag alone.
