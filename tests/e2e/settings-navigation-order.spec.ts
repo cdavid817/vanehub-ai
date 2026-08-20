@@ -9,6 +9,7 @@ test("orders Settings destinations around common setup and customization workflo
     "Agent 配置",
     "Agent 权限策略",
     "CLI 参数",
+    "代码智能",
     "MCP 服务器",
     "Skill 管理",
     "个性化",

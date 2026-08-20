@@ -4,7 +4,7 @@ async function openAgentConfigurations(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
-  await page.getByRole("tab", { name: /OnePiece/ }).click();
+  await page.getByRole("button", { name: /OnePiece/ }).click();
 }
 
 async function openOnePieceParameters(page: Page) {
@@ -15,7 +15,7 @@ async function openOnePieceParameters(page: Page) {
 
 async function createEmbeddingProvider(page: Page, name: string) {
   await openAgentConfigurations(page);
-  const panel = page.getByRole("tabpanel", { name: "OnePiece" });
+  const panel = page.getByRole("region", { name: "OnePiece" });
   await panel.getByRole("button", { name: "新增配置" }).first().click();
   const dialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
   await dialog.getByRole("button", { name: /OpenRouter/ }).click();
@@ -33,7 +33,7 @@ function agentButton(dialog: Locator, name: string) {
 test.describe("OnePiece retrieval configuration", () => {
   test("manages retrieval and Embedding parameters from CLI Parameter Management", async ({ page }) => {
     await createEmbeddingProvider(page, "检索 Embedding 源");
-    const providerPanel = page.getByRole("tabpanel", { name: "OnePiece" });
+    const providerPanel = page.getByRole("region", { name: "OnePiece" });
     await expect(providerPanel.getByRole("region", { name: "检索索引配置" })).toHaveCount(0);
 
     await openOnePieceParameters(page);

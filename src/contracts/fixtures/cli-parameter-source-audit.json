@@ -1,0 +1,17 @@
+{
+  "reviewedAt": "2026-08-20",
+  "sources": {
+    "claude-code": "https://code.claude.com/docs/en/cli-reference",
+    "codex-cli": "https://developers.openai.com/codex/cli/reference",
+    "gemini-cli": "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md",
+    "opencode": "https://dev.opencode.ai/docs/cli/",
+    "antigravity-cli": "https://antigravity.google/docs/cli/using"
+  },
+  "excludedCategories": [
+    "approval-and-permission-policy",
+    "sandbox-and-bypass-policy",
+    "prompt-and-secret-content",
+    "session-resume-and-output-protocol",
+    "runtime-owned-workspace-and-server-state"
+  ]
+}

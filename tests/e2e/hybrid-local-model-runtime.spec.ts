@@ -8,7 +8,8 @@ async function openHybridRuntime(page: Page, theme: "futuristic" | "minimal", wi
   await page.goto("/");
   await page.getByRole("button", { name: /Settings/ }).click();
   await page.getByRole("button", { name: "Agent Configurations" }).click();
-  await page.getByRole("tab", { name: "OnePiece" }).click();
+  await page.getByRole("button", { name: "OnePiece" }).click();
+  await page.getByRole("tab", { name: "Local runtime" }).click();
   const section = page.getByRole("region", { name: "Hybrid local model runtime" });
   await expect(section).toBeVisible();
   return section;

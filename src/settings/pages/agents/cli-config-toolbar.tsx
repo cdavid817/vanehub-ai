@@ -32,7 +32,7 @@ export function CliConfigToolbar({
         />
       </div>
       <div className="grid grid-cols-3 gap-2 sm:flex">
-        <Button disabled={busy} onClick={onAdd}><Plus className="h-4 w-4" />{t("agentConfigurations.toolbar.add")}</Button>
+        <Button data-testid="cli-config-add-profile" disabled={busy} onClick={onAdd}><Plus className="h-4 w-4" />{t("agentConfigurations.toolbar.add")}</Button>
         <Button disabled={busy} onClick={onImport} variant="outline"><Download className="h-4 w-4" />{t("agents.globalConfig.import")}</Button>
         <Button aria-label={t("agentConfigurations.refresh")} disabled={busy} onClick={onRefresh} variant="outline"><RefreshCw className="h-4 w-4" /><span className="sm:hidden lg:inline">{t("agentConfigurations.refresh")}</span></Button>
       </div>

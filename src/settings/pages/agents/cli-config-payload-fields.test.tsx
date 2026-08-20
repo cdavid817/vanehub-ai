@@ -51,8 +51,13 @@ describe("CliConfigPayloadFields", () => {
     expect(screen.queryByLabelText(/API 密钥|API key/i)).toBeNull();
     expect(screen.queryByLabelText(/鉴权|Auth token|Authentication/i)).toBeNull();
 
-    // The settings it does manage must still be editable.
+    // The required model stays visible while optional runtime policy moves to Advanced.
     expect(screen.getByLabelText(/模型|Model/)).toBeTruthy();
+    expect(screen.queryByLabelText(/工具审批|Tool approval/)).toBeNull();
+  });
+
+  it("moves optional Antigravity runtime controls to the advanced section", () => {
+    renderWithAppProviders(<CliConfigPayloadFields onChange={vi.fn()} payload={antigravity} section="advanced" />);
     expect(screen.getByLabelText(/工具审批|Tool approval/)).toBeTruthy();
   });
 

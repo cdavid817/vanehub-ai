@@ -106,6 +106,11 @@ async function lifecycleOf(sessionId) {
   return sessions.find((item) => item.id === sessionId)?.lifecycleState ?? "unknown";
 }
 
+function explicitAuthenticationFailure(content) {
+  return /failed to authenticate|authentication required|not logged in|api error:\s*(401|403)|request not allowed|open (your )?browser.*(auth|sign in)|opening authentication page in your browser/i
+    .test(content);
+}
+
 globalThis.describe("VaneHub AI desktop session behaviour", () => {
   globalThis.before(async () => {
     const root = await globalThis.$("#root");
@@ -180,6 +185,11 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
         blocked.push(`${agent.id}: no reply, session lifecycle=${lifecycle} (see the run's vanehub.log)`);
         // Becomes a real assertion again the moment a turn does answer, so a fix cannot land
         // unnoticed behind a permanently skipped case.
+        this.skip();
+      }
+      if (explicitAuthenticationFailure(reply.content)) {
+        const summary = reply.content.replaceAll(/\s+/g, " ").trim().slice(0, 240);
+        blocked.push(`${agent.id}: provider authentication refused the live turn (${summary})`);
         this.skip();
       }
       assert.match(reply.content, /PONG/i, `unexpected ${agent.id} reply: ${reply.content}`);

@@ -52,13 +52,20 @@ export function SkillDriftBanner({
       ) : null}
       {syncResult ? (
         <div className="mt-2 text-xs">
-          {t("skills.drift.syncSummary", {
-            backedUp: syncResult.backedUp.length,
-            mounted: syncResult.mounted.length,
-            restored: syncResult.restored.length,
-            overwritten: syncResult.overwritten.length,
-            failed: syncResult.failed.length,
-          })}
+          <p>{t("skills.drift.syncSummary", {
+              backedUp: syncResult.backedUp.length,
+              mounted: syncResult.mounted.length,
+              restored: syncResult.restored.length,
+              overwritten: syncResult.overwritten.length,
+              failed: syncResult.failed.length,
+            })}</p>
+          {syncResult.failed.length > 0 ? (
+            <ul className="mt-1 space-y-1 text-destructive" role="alert">
+              {syncResult.failed.slice(0, 4).map((failure, index) => (
+                <li key={`${failure.skillId}:${index}`}>{failure.skillId}: {failure.reason}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
     </div>
