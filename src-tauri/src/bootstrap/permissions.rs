@@ -66,6 +66,13 @@ pub(crate) fn assemble_permissions_api(
     // rest of permissions bootstrap.
     let _ = start_hook_bridge_server(permissions.clone(), hook_waits);
 
+    // Same best-effort stance: when hook management was previously enabled, refresh the global
+    // settings entry so it names this build's wrapper path instead of a pre-update location
+    // (`add-permission-hook-recovery`'s startup reconvergence). A failure (for example a dev
+    // build without the wrapper binary on disk) leaves CLI sessions in the same risk-tiered
+    // offline fallback they were already in, and must not fail permissions bootstrap.
+    let _ = permissions.reconverge_claude_code_hook();
+
     permissions
 }
 
