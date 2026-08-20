@@ -66,6 +66,15 @@ export default defineConfig({
         // a static shell, which reads as a deterministic UI regression rather than a watcher
         // problem.
         "**/.claude/**",
+        // Nothing under `openspec/` is imported by the app — it is proposals and specs — but
+        // watching it breaks `openspec archive`, which works by renaming the change directory.
+        // On Windows the watcher holds a directory handle on every directory it registers, and a
+        // held directory cannot be renamed: archive fails with EPERM, every time, for as long as
+        // any dev server is up. Confirmed by control: a directory of the same shape created under
+        // an already-ignored path renames after the same wait, while one created here does not.
+        // The failure reads as an OS or permissions problem rather than as a watcher one, which
+        // is how it survived being diagnosed twice.
+        "**/openspec/**",
         "**/.docs-build/**",
         "**/.docs-screenshots/**",
         "**/.docs-target/**",
