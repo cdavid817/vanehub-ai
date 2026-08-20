@@ -182,3 +182,5 @@ When several worktrees share one database, migration version numbers can collide
 ## Still stuck
 
 The [FAQ](faq.md) covers another set of frequent questions, angled at "is this how the feature is meant to work" rather than "something went wrong".
+
+If neither has the answer, it's time to report it — see [Reporting issues](reporting-issues.md) for what to fill in, where to find logs, and how to redact before submitting.

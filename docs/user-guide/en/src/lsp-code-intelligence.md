@@ -131,3 +131,9 @@ Confirm that you are using the desktop runtime, the master and matching language
 ### The server repeatedly enters backoff or failed
 
 Review the safe reason shown in **Runtime status**, fix the executable, project, or initialization options, then use the isolated test again. Revoking and re-granting trust stops old processes; it does not repair an invalid server installation.
+
+## Related
+
+- How the persistent index and live LSP divide the work → [Code indexing](code-indexing.md)
+- The settings page holding the language-server toggles → [Tools and extensions](tooling.md#agent-configurations)
+- The LSP protocol itself: layering and lifecycle, capability negotiation, the text synchronization model → [LSP technical architecture](../../../agent-infrastructure/lsp-architecture.md) (Simplified Chinese)

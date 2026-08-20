@@ -147,3 +147,9 @@ Skill 详情中的“演进证据”把 Agent 的结构化运行结果转成可�
 如果多个 Agent 都需要使用同一个 Skill，请逐个进入对应 Agent 页面完成分配。关闭“全部 Skill”中的“已启用”会暂停所有这些 Agent；它不是单个 Agent 的开关。
 
 为 CLI Agent 分配 Skill 可能会在其 Skill 挂载目录执行文件系统操作；API Agent 分配会保存提示词绑定。操作失败时，错误会留在对应 Skill 行，分配状态不会提前变化。
+
+## 相关
+
+- 会话内的就地 Skill 视图 → [用户界面](user-interface.md)
+- 角色对 Skill 的引用关系 → [专家角色](expert-roles.md)
+- Skill 规范本身：`SKILL.md` 文件格式、渐进式披露加载、与 MCP/Prompt 的定位对比 → [Agent Skills 技术架构](../../../agent-infrastructure/agent-skills-architecture.md)

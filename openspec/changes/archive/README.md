@@ -201,6 +201,13 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-18 | freeze-large-file-line-budgets | repository-governance | `openspec/changes/archive/2026-08-18-freeze-large-file-line-budgets/` |
 | 2026-08-18 | split-database-migrations | - | `openspec/changes/archive/2026-08-18-split-database-migrations/` |
 | 2026-08-18 | split-web-agent-client | - | `openspec/changes/archive/2026-08-18-split-web-agent-client/` |
+| 2026-08-19 | decompose-api-tool-use-loop | - | `openspec/changes/archive/2026-08-19-decompose-api-tool-use-loop/` |
+| 2026-08-19 | extract-web-client-chat-state | - | `openspec/changes/archive/2026-08-19-extract-web-client-chat-state/` |
+| 2026-08-19 | freeze-panic-shortcuts-in-production-code | repository-governance | `openspec/changes/archive/2026-08-19-freeze-panic-shortcuts-in-production-code/` |
+| 2026-08-19 | prune-unused-dependencies | - | `openspec/changes/archive/2026-08-19-prune-unused-dependencies/` |
+| 2026-08-19 | relocate-heavyweight-inline-tests | - | `openspec/changes/archive/2026-08-19-relocate-heavyweight-inline-tests/` |
+| 2026-08-19 | retire-panic-shortcut-whitelist | repository-governance | `openspec/changes/archive/2026-08-19-retire-panic-shortcut-whitelist/` |
+| 2026-08-19 | split-api-adapter-modules | - | `openspec/changes/archive/2026-08-19-split-api-adapter-modules/` |
 | 2026-08-20 | correct-cli-launch-and-availability-contracts | agent-provider-runtime, agent-runner-runtime, agent-tool-registry | `openspec/changes/archive/2026-08-20-correct-cli-launch-and-availability-contracts/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

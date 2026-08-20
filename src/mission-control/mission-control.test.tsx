@@ -25,11 +25,15 @@ describe("MissionControl", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']")).toHaveLength(60));
     expect(detail).not.toHaveBeenCalled();
     fireEvent.click(document.querySelector("[data-testid^='mission-run-'] button")!);
-    await waitFor(() => expect(detail).toHaveBeenCalledOnce());
-    // The spy records at click time, synchronously, while the tablist only exists after the
-    // awaited detail resolves and React commits. Asserting it synchronously here races that
-    // commit and fails under full-suite load; await the element itself, as the sibling test does.
-    await waitFor(() => expect(document.querySelector("[role='tablist']")).toBeTruthy());
+    // The tablist is what proves detail actually rendered, so it belongs inside the waitFor.
+    // Asserting it synchronously after only awaiting the spy call raced: the spy fires when the
+    // request is *issued*, leaving promise resolution and React's commit still pending — which a
+    // loaded CI runner does not finish within the same tick. Verified by injecting a 50ms delay
+    // into the detail call: this shape passes, the synchronous one fails on exactly this line.
+    await waitFor(() => {
+      expect(detail).toHaveBeenCalledOnce();
+      expect(document.querySelector("[role='tablist']")).toBeTruthy();
+    });
   });
 
   it("prioritizes attention, freezes terminal elapsed time, filters, inspects, and navigates", async () => {

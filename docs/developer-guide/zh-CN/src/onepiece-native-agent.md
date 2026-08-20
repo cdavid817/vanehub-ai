@@ -41,7 +41,33 @@ OnePiece 是唯一不经外部 CLI、直接在应用内通过 HTTP 调用 provid
 
 ### 上下文组装与系统提示词
 
-系统提示词按**稳定在前、易变在后**的顺序拼装,以利用 provider 的 prefix cache——后置的易变段不会让稳定前缀失效。`resolve_system_prompt_with_settings` 依次组装:
+系统提示词按**稳定在前、易变在后**的顺序拼装,以利用 provider 的 prefix cache——后置的易变段不会让稳定前缀失效。
+
+```mermaid
+flowchart TB
+  subgraph SP["系统提示词（稳定 → 易变）"]
+    direction TB
+    C1["1 · core instructions<br/>最稳定"]
+    C2["2 · custom instructions"]
+    C3["3 · skills<br/>已启用/可用/已绑定的 eager Role Skill"]
+    C4["4 · memory index<br/>仅索引行，不含正文"]
+    C5["5 · memory bodies<br/>生成开始时选定一次"]
+    C6["6 · task list<br/>每次 todo_write 都变，最易变"]
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6
+  end
+
+  CACHE["provider prefix cache"] -. "命中范围随易变段位置右移而扩大" .- SP
+
+  TURNS["turns 列表<br/>（会被上下文压缩触碰）"]
+  C5 -. "记忆正文绝不进入" .-x TURNS
+
+  SP --> CALL["调用 provider"]
+  TURNS --> CALL
+```
+
+**两条设计约束都藏在顺序里**：任务列表放最后，是因为它每次 `todo_write` 都变，放前面会让整个前缀失效；记忆正文只在生成开始时选一次而非每轮工具往返都重选，同样是为了不让 system prompt 每轮变化。而记忆正文**只进系统提示词、绝不进 turns**，则是为了让上下文压缩碰不到它。
+
+`resolve_system_prompt_with_settings` 依次组装:
 
 1. **core instructions** —— 核心指令(最稳定)。
 2. **custom instructions** —— 用户个性化指令。
@@ -77,6 +103,33 @@ OnePiece 按 active Profile 解析的 `interface_format` 调用 provider:
 
 - **`anthropic`** —— 走 Anthropic Messages API,认证用 `x-api-key` + `anthropic-version`。
 - **`openai-compatible`** —— 走 OpenAI Chat Completions 或 Responses API,认证用 `Bearer`。
+
+```mermaid
+sequenceDiagram
+  participant RT as api_process_adapter
+  participant CAT as 工具目录
+  participant PV as provider
+  participant TL as 工具实现
+
+  RT->>RT: 组装系统提示词与上下文
+  RT->>CAT: 固定工具 + Skill 工具 + MCP 工具
+  Note over CAT: MCP 只取「已测试通过且 active」的缓存工具<br/>目录查询失败 → 降级为仅固定工具
+  RT->>PV: 调用（anthropic 用 x-api-key ／ openai-compatible 用 Bearer）
+
+  loop 工具循环
+    PV-->>RT: tool_use
+    RT->>CAT: 解析工具名
+    CAT-->>RT: 命中实现
+    RT->>TL: 执行
+    TL-->>RT: 结果
+    RT->>PV: 回填 tool_result
+    Note over RT,PV: 下一轮请求前重新判定是否需要上下文压缩
+  end
+
+  PV-->>RT: 终态响应（不带工具调用）
+  RT->>RT: finish_api_invocation 上报用量
+  Note over RT: 有 ReportedUsageTotals → reported + tokens<br/>否则 → estimated + characters<br/>两者绝不混加
+```
 
 工具循环是多轮的:模型返回 `tool_use` → 运行时解析工具名、查目录(固定工具 / Skill 工具 / MCP 工具)→ 执行 → 回填 `tool_result` → 模型继续,直到模型返回不带工具调用的终态响应。`finish_api_invocation` 在完成时上报用量(有 `ReportedUsageTotals` 写 `reported`+`tokens`,否则写 `estimated`+`characters`,两者绝不混加)。OnePiece 的工具调用是原生保真度,可在执行链路中逐层展开——这是它相对外部 CLI(黑盒)的可观测性优势。
 

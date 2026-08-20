@@ -150,3 +150,4 @@
 - `/longcontext` 切换长上下文 → [斜杠命令](slash-commands.md)
 - 「记忆提取」「上下文压缩」在用量里的口径 → [定时与用量](automation.md)
 - OnePiece 本身的执行模式与开关 → [OnePiece（原生 Agent）](native-agent.md)
+- 检索技术本身：索引管线、语义与关键字检索取舍、混合检索与重排序 → [RAG 技术架构](../../../agent-infrastructure/rag-architecture.md)

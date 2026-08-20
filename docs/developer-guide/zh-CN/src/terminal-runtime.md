@@ -26,6 +26,34 @@ Agent Terminal 面向未归档的单 Agent CLI 会话。对已归档会话发起
 
 ### 自动启动与附着
 
+```mermaid
+sequenceDiagram
+  participant UI as React（tab 挂载）
+  participant SVC as terminal_service
+  participant REG as 注册表<br/>session_id → ManagedAgentTerminal
+  participant PTY as portable-pty
+  participant CLI as CLI 进程
+
+  UI->>SVC: openAgentTerminal({rows, cols})
+  SVC->>SVC: 入口校验
+  Note over SVC: 已归档 → Validation<br/>只读会话 → PolicyDenied<br/>非 Cli 模式 → UnsupportedInteractionMode
+  SVC->>REG: 按 session_id 查找
+  alt 命中 retained 终端
+    REG-->>SVC: ManagedAgentTerminal
+    SVC->>SVC: 刷新 last_active_at
+    SVC-->>UI: State{Running}
+    SVC-->>UI: 把存量转录作为 Output 事件重放
+    Note over CLI: CLI 不重启，也不再开一个
+  else 未命中
+    SVC->>SVC: 校验 provider 的 Terminal / Resume 能力
+    SVC->>SVC: 生成 invocation 与 wrapper 脚本
+    SVC->>PTY: openpty(rows 1..=200, cols 1..=500)
+    PTY->>CLI: spawn
+    SVC->>REG: 注册 ManagedAgentTerminal
+    CLI-->>UI: Output 事件（64KB 读缓冲聚拢）
+  end
+```
+
 `open_or_attach` 先查注册表,按 session_id 命中即视为 retained 终端——刷新 `last_active_at`、发 `State{Running}` 事件、把**存量转录作为 Output 事件重放**(不必重启 CLI)。否则走新开流程:校验 provider `Terminal`/`Resume` 能力、生成 invocation 与 wrapper、`openpty`、spawn、注册。
 
 前端在 tab 挂载时即 `openAgentTerminal({rows, cols})`;`sessionActivationKey` 变化且无 terminalId 且状态为 stopped/failed 时自动重连。

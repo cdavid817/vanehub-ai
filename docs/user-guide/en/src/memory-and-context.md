@@ -153,3 +153,4 @@ The retention policy is equally explicit: **only approved counters, enums, versi
 - Toggling long context with `/longcontext` → [Slash commands](slash-commands.md)
 - How "memory extraction" and "context compaction" are counted in usage → [Scheduled and usage](automation.md)
 - OnePiece's own execution modes and switches → [Native API Agent](native-agent.md)
+- The retrieval technology itself: indexing pipelines, semantic-versus-keyword retrieval trade-offs, hybrid retrieval and reranking → [RAG technical architecture](../../../agent-infrastructure/rag-architecture.md) (Simplified Chinese)
