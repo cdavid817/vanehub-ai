@@ -31,6 +31,9 @@ jobs:
       - name: Validate synchronized project versions
         run: npm run version:check
 
+      - name: Validate release policy
+        run: npm run release:unit:test
+
       - name: Validate permission hook sidecar configuration
         run: npm run sidecar:unit:test
 
@@ -375,6 +378,7 @@ jobs:
             args+=(--prerelease --latest=false --notes-file .github/PREVIEW_RELEASE_NOTES.md)
           else
             echo "Publishing ${GITHUB_REF_NAME} as a stable release."
+            args+=(--notes-file .github/STABLE_RELEASE_NOTES.md)
           fi
 
           gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${args[@]}"

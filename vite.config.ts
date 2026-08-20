@@ -7,8 +7,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 // The displayed version used to be hand-copied into src/services/about-service.ts, which
-// check-version-sync.mjs does not cover — so it silently drifted to 0.1.0 while the project
-// moved to 0.1.0-preview.1. Reading package.json here makes drift impossible.
+// check-version-sync.mjs does not cover, so it once drifted from the release manifests.
+// Reading package.json here makes future version transitions automatic.
 const packageVersion = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
 ).version;
