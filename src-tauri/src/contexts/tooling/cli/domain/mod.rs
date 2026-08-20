@@ -255,6 +255,13 @@ pub(crate) fn classify_install_source(path: &str, has_npm_sibling: bool) -> Inst
         InstallSource::Desktop
     } else if value.contains("/appdata/roaming/npm/")
         || value.contains("/.npm/")
+        // `npm config set prefix ~/.npm-global` is what the install guide recommends instead of
+        // `sudo npm install -g`, and `~/.npm-global/bin` is already a search location here. Without
+        // this arm the source came back Unknown, which makes the lifecycle Manual, so a CLI this
+        // application installed there through npm was then refused an upgrade with "must be
+        // updated by its source-native installer" -- npm being exactly the source-native
+        // installer. `/.npm/` does not cover it: the next character is a dash, not a slash.
+        || value.contains("/.npm-global/")
         || value.contains("/node_modules/")
         || has_npm_sibling
     {
@@ -557,6 +564,20 @@ mod tests {
         assert_eq!(
             classify_install_source("/opt/homebrew/bin/claude", false),
             InstallSource::Homebrew
+        );
+        // A custom npm prefix, which is what the install guide recommends over `sudo npm
+        // install -g` and what this crate already searches. Classified Unknown before, which made
+        // the lifecycle Manual and had the app refuse to upgrade a CLI it had itself installed
+        // there through npm. `has_npm_sibling` is false on purpose: npm lives at its own prefix,
+        // not beside the packages it installs.
+        assert_eq!(
+            classify_install_source("/home/someone/.npm-global/bin/gemini", false),
+            InstallSource::Npm
+        );
+        // Still distinct from npm's cache directory, which the neighbouring `/.npm/` arm covers.
+        assert_eq!(
+            classify_install_source("/home/someone/.npm/_cacache/bin/gemini", false),
+            InstallSource::Npm
         );
         assert_eq!(
             winget_package_id(
