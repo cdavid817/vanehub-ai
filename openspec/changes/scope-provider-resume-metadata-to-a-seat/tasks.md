@@ -20,6 +20,13 @@
 
 ## 4. A rejected resume does not fail the turn
 
+**Open, and needs a design pass before code.** Two findings from attempting it:
+
+- There is no retry machinery to hook. `GenerationProcessFailureKind::Retryable` is produced by the providers but nothing in the application layer acts on it, and the failure path (`GenerationEventHandler::failed`) is an event sink that finalizes the message — it does not own the process lifecycle, so it cannot re-run the turn. A same-turn retry means building that capability, which is a change in its own right rather than part of this fix.
+- Classifying the rejection is not obvious. Matching provider text (`no rollout found for thread id`) is per-CLI and brittle. The behavioural alternative — discard the seat's thread whenever a turn that passed a resume id fails with no output — is robust but over-eager: a transient outage would silently drop a conversation's continuity, which the user would see and not understand.
+
+The trade-off in the second point is user-visible (losing thread continuity against staying stuck), so it wants an explicit decision rather than a default. Note this is now a recovery path rather than a live defect: it was reachable only because of the bug groups 1-3 fixed, and remains reachable if a CLI's own thread storage is cleared or expires.
+
 - [ ] 4.1 Add a failing test that a provider rejecting a resume for an unknown thread leads to a new thread and a completed turn.
 - [ ] 4.2 Classify the provider's unknown-thread rejection, discard the stored id for that seat, and retry once on a new thread.
 - [ ] 4.3 Record the rejection through the unified log rather than surfacing it as an Agent failure, and keep the retry bounded to one attempt so a genuinely broken provider still terminates.
