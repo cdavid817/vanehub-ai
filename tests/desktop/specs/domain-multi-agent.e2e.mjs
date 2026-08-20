@@ -39,6 +39,15 @@ const stamp = Date.now().toString(36);
  * never dispatched -- silently, for the default configuration. Fixed by
  * `BuiltinAwareExpertRoleRepository`, which merges the built-ins at the port so its one caller's
  * assumption that the port means "every role there is" actually holds.
+ *
+ * With that fixed, the relay dispatches: the second seat gets its own turn and its own attributed
+ * row. It then fails on a *second*, unrelated defect, which is why the live case here still
+ * reports BLOCKED against two different CLIs. `runtime_session_id` is one column on `sessions`,
+ * but a provider thread belongs to a single Agent. The first seat to run writes its thread id
+ * there, and every later seat resumes that id against its own CLI, which has never heard of it --
+ * `thread/resume failed: no rollout found for thread id … (code -32600)`, and the turn ends
+ * `failed` with empty content. Two seats on the *same* Agent relay end to end, which is what
+ * isolates the fault to thread identity rather than to routing.
  */
 const BUILTIN_ROLES = ["builtin-architect", "builtin-implementer", "builtin-reviewer"];
 
@@ -253,31 +262,52 @@ globalThis.describe("VaneHub AI desktop multi-Agent group chat", () => {
     // messages predating stable participant ids. Reading a non-existent `agentId` made every
     // message look unattributed, which reported "the handoff did not dispatch" for a session whose
     // second seat may well have spoken.
-    const speakersOf = (messages) => new Set(
-      messages
-        .filter((message) => message.role === "assistant" && (message.content ?? "").trim())
-        .map((message) => message.speakerSeatId ?? (
-          typeof message.seatIndex === "number" ? `index:${message.seatIndex}` : null
-        ))
-        .filter(Boolean),
-    );
+    //
+    // Dispatch and delivery are reported separately, because they fail for unrelated reasons and
+    // an earlier version of this file conflated them. It required a non-empty reply from the
+    // second seat to call the handoff dispatched, so a seat that was dispatched and whose turn
+    // then failed -- leaving its row `status: "failed"` with empty content -- was reported as
+    // "the mention did not dispatch". That accused the `@` routing of a fault that belonged to the
+    // turn, and sent an investigation to the wrong end of the chain.
+    const targetSeatId = target.seatId ?? target.id;
+    const assistantsOf = (messages) => messages.filter((message) => message.role === "assistant");
+    const seatRowOf = (messages) => assistantsOf(messages)
+      .find((message) => message.speakerSeatId === targetSeatId) ?? null;
 
-    const relayed = await globalThis.browser.waitUntil(async () => {
-      const speakers = speakersOf(await listMessages(session.id));
-      return speakers.size >= 2 ? [...speakers] : false;
-    }, { timeout: 240_000, interval: 3_000, timeoutMsg: "the handoff never reached the second seat" })
-      .catch(() => null);
+    // Dispatch is the seat having a turn at all: the coordinator writes the row before the
+    // provider is invoked, so the row's existence is the routing verdict on its own.
+    const dispatched = await globalThis.browser.waitUntil(
+      async () => seatRowOf(await listMessages(session.id)),
+      { timeout: 240_000, interval: 3_000, timeoutMsg: "the second seat was never given a turn" },
+    ).catch(() => null);
 
-    if (!relayed) {
+    if (!dispatched) {
       const messages = await listMessages(session.id);
       blocked.push(
-        `handoff: ${JSON.stringify([...speakersOf(messages)])} spoke across `
-        + `${messages.filter((message) => message.role === "assistant").length} assistant `
-        + `messages; the @${targetHandle} mention did not dispatch the second seat on this host`,
+        `handoff: no turn was ever created for the ${targetHandle} seat (${targetSeatId}); `
+        + `assistant rows were ${JSON.stringify(assistantsOf(messages)
+          .map((message) => message.speakerSeatId ?? "unattributed"))}`,
       );
       this.skip();
     }
-    assert.ok(relayed.length >= 2, `expected two speakers, saw ${JSON.stringify(relayed)}`);
+
+    const spoke = await globalThis.browser.waitUntil(async () => {
+      const row = seatRowOf(await listMessages(session.id));
+      return (row?.content ?? "").trim() ? row : false;
+    }, { timeout: 240_000, interval: 3_000, timeoutMsg: "the second seat never produced words" })
+      .catch(() => null);
+
+    if (!spoke) {
+      const row = seatRowOf(await listMessages(session.id));
+      blocked.push(
+        `handoff: the ${targetHandle} seat was dispatched and its turn produced nothing `
+        + `(status ${JSON.stringify(row?.status ?? null)}). The @ routing worked; what failed is `
+        + "that seat's turn -- on this host, because a non-first seat resumes the session's single "
+        + "`runtime_session_id`, which belongs to whichever Agent ran first",
+      );
+      this.skip();
+    }
+    assert.ok(spoke.content.trim(), `the ${targetHandle} seat took a turn but said nothing`);
   });
 
   globalThis.after(async () => {
