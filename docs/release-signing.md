@@ -12,7 +12,7 @@ The `Package Desktop Apps` workflow uses an unprivileged `build-preview` environ
 6. Merge the reviewed version change to `main`.
 7. Create and push an annotated `v<version>` tag from that exact `main` commit.
 8. Approve the `release` environment deployment if environment reviewers are configured.
-9. Verify packages, signatures, notarization, `SHA256SUMS`, the SPDX SBOM, GitHub artifact attestations, release notes, and channel metadata.
+9. Verify packages, updater signatures, `SHA256SUMS`, the SPDX SBOM, GitHub artifact attestations, release notes, and channel metadata. Operating-system signing is a later phase until its credentials are provisioned.
 
 The publish job cannot run until all Windows, macOS, and Linux jobs finish successfully. It uses short-lived GitHub OIDC identity for attestations and does not require a stored GitHub token.
 
@@ -109,7 +109,7 @@ The expected inventory is the eleven names in the table above. A missing name ma
 
 Windows evidence follows `artifact -> Get-AuthenticodeSignature -> expected publisher subject -> timestamp certificate`. A `Valid` status alone is insufficient: the workflow rejects an unexpected publisher or missing timestamp.
 
-macOS evidence follows `build -> codesign --verify --deep --strict -> notarize -> staple -> stapler validate -> spctl --assess -> publish` for both x64 and arm64 matrix entries. A notarization or staple failure prevents stable publication.
+When Apple credentials are provisioned, macOS evidence follows `build -> codesign --verify --deep --strict -> notarize -> staple -> stapler validate -> spctl --assess -> publish` for both x64 and arm64 matrix entries. During updater-only phase 1, macOS packages are explicitly unsigned and un-notarized.
 
 Linux packages retain SHA-256, SPDX SBOM, and GitHub provenance/SBOM attestations. These prove integrity and provenance; they are not operating-system code signing.
 
@@ -123,6 +123,6 @@ After publication, inspect the `Package Desktop Apps` run and the versioned GitH
 
 The environment should allow deployment only from protected `v*` tags. Add a human reviewer when a second trusted maintainer is available. A required self-review is intentionally not configured because it would make a single-maintainer repository impossible to release.
 
-Until valid platform credentials are configured, manual rehearsal and preview packages may be unsigned. Stable publication fails closed. Release notes must say so clearly; the checksums, SBOM, and GitHub attestations establish integrity but do not replace operating-system code signing or Apple notarization.
+During updater-only phase 1, stable publication requires the updater signing key but permits explicitly disclosed unsigned Windows and un-notarized macOS packages. The checksums, SBOM, and GitHub attestations establish integrity but do not replace operating-system code signing or Apple notarization. A later phase will restore platform-signing gates after the corresponding credentials and provider are configured.
 
 A bare disclosure is not enough for a public download. An unsigned build must also publish the steps a downloader needs to get past the protection each platform raises: macOS reports an un-notarized application as damaged until its quarantine attribute is cleared, and Windows SmartScreen blocks an unsigned installer behind a secondary confirmation. `.github/PREVIEW_RELEASE_NOTES.md` carries both, and must be updated whenever the signing situation changes.
