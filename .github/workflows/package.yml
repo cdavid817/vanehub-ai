@@ -332,7 +332,10 @@ jobs:
             digest="$(sha256sum "${file}" | cut -d' ' -f1)"
             asset="$(basename "${file}" | tr ' ' '.')"
             printf '%s  %s\n' "${digest}" "${asset}" >> release-assets/SHA256SUMS
-          done < <(find release-assets -type f ! -name SHA256SUMS -print0 | sort -z)
+          done < <(find release-assets/packages -type f -print0 | sort -z)
+
+          digest="$(sha256sum release-assets/vanehub-ai-sbom.spdx.json | cut -d' ' -f1)"
+          printf '%s  %s\n' "${digest}" "vanehub-ai-sbom.spdx.json" >> release-assets/SHA256SUMS
 
           echo "Published checksum manifest:"
           cat release-assets/SHA256SUMS
