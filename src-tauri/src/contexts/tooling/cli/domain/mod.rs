@@ -13,6 +13,23 @@ pub(crate) struct ToolDefinition {
     pub(crate) script_install_url: Option<&'static str>,
     pub(crate) powershell_install_url: Option<&'static str>,
     pub(crate) winget_package_id: Option<&'static str>,
+    /// How this CLI's shell installer accepts a version, when it accepts one at all.
+    ///
+    /// The npm path pins by construction -- `package@version` cannot be misread. A script is an
+    /// opaque program whose calling convention is the vendor's, so pinning through one is only
+    /// possible where that convention is known. `None` means a pinned install is refused rather
+    /// than run: the script would otherwise install whatever it defaults to, which is latest, and
+    /// report success for a version it did not install.
+    pub(crate) script_version_argument: Option<ScriptVersionArgument>,
+}
+
+/// The shape a shell installer expects its version in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptVersionArgument {
+    /// First positional argument, as in `install.sh 1.2.3`.
+    Positional,
+    /// Named flag followed by the version, as in `install --version 1.2.3`.
+    Flag(&'static str),
 }
 
 /// Which interpreter an installer URL must be fed to. The URL alone does not say: a `.sh`
@@ -47,6 +64,8 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
         script_install_url: Some("https://claude.ai/install.sh"),
         powershell_install_url: None,
         winget_package_id: Some("Anthropic.ClaudeCode"),
+        // `Usage: $0 [stable|latest|VERSION]`.
+        script_version_argument: Some(ScriptVersionArgument::Positional),
     },
     ToolDefinition {
         agent_id: "codex-cli",
@@ -57,6 +76,7 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
         script_install_url: None,
         powershell_install_url: None,
         winget_package_id: None,
+        script_version_argument: None,
     },
     ToolDefinition {
         agent_id: "gemini-cli",
@@ -67,6 +87,7 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
         script_install_url: None,
         powershell_install_url: None,
         winget_package_id: None,
+        script_version_argument: None,
     },
     ToolDefinition {
         agent_id: "opencode",
@@ -77,6 +98,8 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
         script_install_url: Some("https://opencode.ai/install"),
         powershell_install_url: None,
         winget_package_id: None,
+        // `-v, --version <version> Install a specific version`.
+        script_version_argument: Some(ScriptVersionArgument::Flag("--version")),
     },
     ToolDefinition {
         agent_id: "antigravity-cli",
@@ -87,6 +110,10 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
         script_install_url: Some("https://antigravity.google/cli/install.sh"),
         powershell_install_url: Some("https://antigravity.google/cli/install.ps1"),
         winget_package_id: None,
+        // Left unset deliberately: its installers' version convention has not been verified, and
+        // guessing one would reintroduce exactly the silent wrong-version install this field
+        // exists to prevent.
+        script_version_argument: None,
     },
 ];
 
@@ -513,6 +540,7 @@ mod tests {
             script_install_url: None,
             powershell_install_url: None,
             winget_package_id: None,
+            script_version_argument: None,
         };
         assert_eq!(
             derive_lifecycle_eligibility(orphan, false, None),
