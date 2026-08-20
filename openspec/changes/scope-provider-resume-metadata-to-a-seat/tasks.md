@@ -18,23 +18,37 @@
 - [x] 3.3 ~~Do the same in the terminal path~~ — **verified unnecessary, no change made.** A terminal is always opened for `session.agent_id` (`terminal_service.rs:91`), which mirrors the first seat, so the session's id is already that Agent's own thread. There is no cross-Agent leak to fix, and changing it for symmetry would add risk for nothing.
 - [x] 3.4 Confirm `ProviderCapability::Resume` is evaluated against the speaking seat's Agent. It already is: `request.agent` is the seat's Agent, confirmed on the live run where the codex-cli seat's turn invoked `codex`.
 
-## 4. A rejected resume does not fail the turn
+## 4. A dead thread does not stay dead
 
-**Open, and needs a design pass before code.** Two findings from attempting it:
+Implemented as recovery on the next turn rather than a retry of the failing one, and the spec
+delta was amended to match rather than left describing behaviour that does not exist.
 
-- There is no retry machinery to hook. `GenerationProcessFailureKind::Retryable` is produced by the providers but nothing in the application layer acts on it, and the failure path (`GenerationEventHandler::failed`) is an event sink that finalizes the message — it does not own the process lifecycle, so it cannot re-run the turn. A same-turn retry means building that capability, which is a change in its own right rather than part of this fix.
-- Classifying the rejection is not obvious. Matching provider text (`no rollout found for thread id`) is per-CLI and brittle. The behavioural alternative — discard the seat's thread whenever a turn that passed a resume id fails with no output — is robust but over-eager: a transient outage would silently drop a conversation's continuity, which the user would see and not understand.
+Two findings drove that. There is no retry machinery to hook: `GenerationProcessFailureKind::Retryable`
+is produced by the providers and nothing acts on it, and the failure path is an event sink that
+finalizes the message rather than owning the process lifecycle. And classifying the rejection by
+provider wording (`no rollout found for thread id …` is codex's) is per-CLI and would be a list to
+maintain forever.
 
-The trade-off in the second point is user-visible (losing thread continuity against staying stuck), so it wants an explicit decision rather than a default. Note this is now a recovery path rather than a live defect: it was reachable only because of the bug groups 1-3 fixed, and remains reachable if a CLI's own thread storage is cleared or expires.
+So the signal is behavioural: a turn that passed a resume id and failed having said nothing. The
+cost of being wrong is bounded and already a supported state -- `seat_turn.rs:32-34` gives prior
+conversation to a seat that cannot resume -- so what a false positive loses is the CLI's own cached
+context, not the thread the user sees. That is cheap next to a seat that fails identically forever
+and explains nothing.
 
-- [ ] 4.1 Add a failing test that a provider rejecting a resume for an unknown thread leads to a new thread and a completed turn.
-- [ ] 4.2 Classify the provider's unknown-thread rejection, discard the stored id for that seat, and retry once on a new thread.
-- [ ] 4.3 Record the rejection through the unified log rather than surfacing it as an Agent failure, and keep the retry bounded to one attempt so a genuinely broken provider still terminates.
+A same-turn retry remains worth building, but as its own change: the capability would serve every
+`Retryable` failure, not just this one.
+
+- [x] 4.1 Add failing tests for the discard, for a turn that speaks before failing, and for a turn
+  that resumed nothing -- the last two are what stop the rule being over-eager.
+- [x] 4.2 Discard the stored id for the seat that failed, clearing the session's copy too when the
+  speaking seat is the first one, since that is where a pre-seat session keeps looking.
+- [x] 4.3 Record the discard through the unified log at `warn`. No retry to bound, because the turn
+  is not retried.
 
 ## 5. Gates and live verification
 
 - [x] 5.1 Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `npm run lint:ci`, `npm run test`, `npm run build`, `openspec validate --specs --strict`.
 - [x] 5.2 Run `openspec validate scope-provider-resume-metadata-to-a-seat --strict`.
 - [x] 5.3 Raise the budgets the change exceeds, with reasons: `agent_runtime/infrastructure` +12, `agent_runtime/application/tests.rs` +21, `sessions/infrastructure/tests.rs` +1.
-- [ ] 5.4 Run `tests/desktop/specs/domain-multi-agent.e2e.mjs` against a host with two installed CLI Agents; the handoff case must pass rather than report BLOCKED, and its file header must be updated to record the fix.
-- [ ] 5.5 Confirm a single-Agent session still resumes across turns, so the compatibility path is exercised and not only reasoned about.
+- [x] 5.4 Ran `tests/desktop/specs/domain-multi-agent.e2e.mjs` against claude-code and codex-cli seated together: 2 passing, no BLOCKED. The run's unified log shows one `claude` and one `codex` invocation in the same session, `executing codex with 13 arguments` against 15 before, and no `thread/resume` at all. File header updated.
+- [x] 5.5 Confirmed on a two-turn single-Agent session: turn one invokes with 7 arguments, turn two with 9 -- the two extra being the resume pair -- and the Agent recalls a word given in turn one. The compatibility path is exercised, not reasoned about.

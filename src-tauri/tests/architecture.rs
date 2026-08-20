@@ -2160,12 +2160,14 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
     // port double and its ~25 impls. That is one cohesive test double, not a bucket, so it was
     // deliberately left whole — see the change's design.md.
-    // Raised by 21 for `FakeWorld`'s `update_seat_provider_thread_id`. The double has to record
-    // the write per seat, not just accept it: a stub that dropped the id would let the seat-scoped
-    // capture pass while storing nothing, which is the defect it exists to catch.
+    // Raised by 21 for `FakeWorld`'s `update_seat_provider_thread_id`, then by 31 more for its
+    // `clear_seat_provider_thread_id` and `clear_runtime_session_id`. The double has to record
+    // these per seat, not just accept them: a stub that dropped the write would let both the
+    // seat-scoped capture and the discard pass while storing nothing, which is exactly the defect
+    // they exist to catch.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_872,
+        budget: 1_903,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2274,9 +2276,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // sessions gateway's `update_seat_provider_thread_id` and its mapping of the seat's own thread
     // id, and 1 in the API adapter's test request. The generation adapter is net zero -- it stops
     // reading `session.runtime_session_id` and reads the already-resolved id instead.
+    //
+    // Raised again by +19 for the same change's recovery half: the gateway's two clearing methods,
+    // which let a turn that failed to resume forget the thread so the seat is not stuck resuming a
+    // dead id on every turn thereafter.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_437,
+        budget: 59_456,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

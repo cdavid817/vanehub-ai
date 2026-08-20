@@ -18,10 +18,15 @@ The desktop runtime SHALL store provider runtime session metadata when a CLI rep
 - **THEN** the desktop runtime SHALL continue the current generation without failing solely due to missing resume metadata
 - **AND** it SHALL record the missing metadata condition in diagnostics when useful
 
-#### Scenario: Provider rejects the resumed thread
-- **WHEN** a provider rejects a resume because the referenced thread does not exist on that provider
-- **THEN** the desktop runtime SHALL discard the rejected id for that seat, start a new provider thread, and continue the turn
-- **AND** SHALL record the rejection in diagnostics rather than presenting the turn as an Agent failure
+#### Scenario: A resumed turn fails without producing output
+- **WHEN** a turn that passed a stored runtime session id ends failed having produced no output
+- **THEN** the desktop runtime SHALL discard that stored id, so the next turn for that seat starts a new provider thread
+- **AND** SHALL record the discard in diagnostics
+- **AND** the failed turn itself SHALL remain failed rather than being retried
+
+#### Scenario: A resumed turn fails after producing output
+- **WHEN** a turn that passed a stored runtime session id produces output and then fails
+- **THEN** the desktop runtime SHALL keep that stored id, because output proves the thread was resumed successfully
 
 #### Scenario: Single-seat session keeps its existing thread
 - **WHEN** a session created before seats carried their own resume metadata takes a turn

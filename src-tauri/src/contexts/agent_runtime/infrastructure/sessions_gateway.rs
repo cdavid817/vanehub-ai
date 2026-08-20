@@ -530,6 +530,25 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             .update_seat_provider_thread_id(session_id, seat_id, provider_thread_id)
             .map_err(session_error)
     }
+
+    fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.sessions
+            .clear_seat_provider_thread_id(session_id, seat_id)
+            .map_err(session_error)
+    }
+
+    fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.sessions
+            .clear_runtime_session_id(session_id)
+            .map_err(session_error)
+    }
 }
 
 fn file_reference_input(reference: &AgentFileReference) -> FileReferenceInput {

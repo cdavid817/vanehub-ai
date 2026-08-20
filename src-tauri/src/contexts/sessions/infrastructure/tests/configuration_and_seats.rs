@@ -188,6 +188,17 @@ fn a_seats_provider_thread_survives_the_round_trip_independently_of_other_seats(
         Some("claude-thread"),
         "the session keeps the first seat's thread, which is what pre-seat sessions resume",
     );
+
+    // A thread can stop existing on the provider's side. Forgetting one seat's must not disturb
+    // the other's, or recovering one seat would restart the whole session.
+    let mut cleared = saved;
+    cleared.seats[1].provider_thread_id = None;
+    let after = SessionRepository::save(&fixture.repository, &cleared).expect("clear seat thread");
+    assert_eq!(after.seats[1].provider_thread_id, None);
+    assert_eq!(
+        after.seats[0].provider_thread_id.as_deref(),
+        Some("claude-thread"),
+    );
 }
 
 /// Sessions created before seats existed store `[]`, and each must still open as its own Agent.

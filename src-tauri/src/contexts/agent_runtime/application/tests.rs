@@ -675,6 +675,37 @@ impl AgentSessionGateway for FakeWorld {
         }
         Ok(())
     }
+
+    fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut sessions = self.sessions.lock().expect("sessions");
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| AgentRuntimeApplicationError::SessionNotFound(session_id.to_string()))?;
+        if let Some(seat) = session
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        {
+            seat.provider_thread_id = None;
+        }
+        Ok(())
+    }
+
+    fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut sessions = self.sessions.lock().expect("sessions");
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| AgentRuntimeApplicationError::SessionNotFound(session_id.to_string()))?;
+        session.runtime_session_id = None;
+        Ok(())
+    }
 }
 
 impl AgentCliProfileGateway for FakeWorld {

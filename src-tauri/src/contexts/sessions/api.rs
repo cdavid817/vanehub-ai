@@ -507,6 +507,19 @@ impl SessionsApi {
             .update_seat_provider_thread_id(session_id, seat_id, provider_thread_id)
     }
 
+    pub(crate) fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), SessionsError> {
+        self.service
+            .clear_seat_provider_thread_id(session_id, seat_id)
+    }
+
+    pub(crate) fn clear_runtime_session_id(&self, session_id: &str) -> Result<(), SessionsError> {
+        self.service.clear_runtime_session_id(session_id)
+    }
+
     pub(crate) fn export(
         &self,
         request: SessionExportRequest,

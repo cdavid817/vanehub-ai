@@ -1444,6 +1444,48 @@ impl SessionsApplicationService {
             .map(|_| ())
     }
 
+    /// Forgets a seat's provider thread so its next turn starts a new one.
+    pub(crate) fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        let mut session = self.load_session(session_id)?;
+        let Some(seat) = session
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        else {
+            return Ok(());
+        };
+        if seat.provider_thread_id.is_none() {
+            return Ok(());
+        }
+        seat.provider_thread_id = None;
+        session.updated_at = self.ports.clock.now();
+        self.ports
+            .transactions
+            .save_runtime_session(&session)
+            .map(|_| ())
+    }
+
+    /// Forgets the session's provider thread so its next turn starts a new one.
+    pub(crate) fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        let mut session = self.load_session(session_id)?;
+        if session.runtime_session_id.is_none() {
+            return Ok(());
+        }
+        session.runtime_session_id = None;
+        session.updated_at = self.ports.clock.now();
+        self.ports
+            .transactions
+            .save_runtime_session(&session)
+            .map(|_| ())
+    }
+
     pub(crate) fn export_session(
         &self,
         request: SessionExportRequest,
