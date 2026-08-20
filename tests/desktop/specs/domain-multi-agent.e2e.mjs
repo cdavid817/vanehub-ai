@@ -28,6 +28,17 @@ const stamp = Date.now().toString(36);
  * (application/service.rs:520-521), and the role id is what the handle actually comes from. An
  * earlier version of this file asserted on `roleSnapshot.roleName` and read its absence as a
  * missing handle, which was checking one input of the derivation instead of its result.
+ *
+ * This spec earned its keep on the first honest run: the handoff did not relay, and the reason was
+ * a real defect rather than a flaky host. `seat_roster` (seat_turn.rs:107) resolves a seat's role
+ * through `ExpertRolePort`, which was the bare `SqliteExpertRoleRepository` -- stored roles only.
+ * The built-in roles live in the binary and were merged solely by
+ * `ExpertRoleApplicationService::list`, so every seat holding one of the three roles the product
+ * ships resolved to no role, the roster named the seat after its Agent, and the mention became
+ * `@OnePiece` instead of `@架构师`. The round then ended `NobodyMentioned` and the second seat was
+ * never dispatched -- silently, for the default configuration. Fixed by
+ * `BuiltinAwareExpertRoleRepository`, which merges the built-ins at the port so its one caller's
+ * assumption that the port means "every role there is" actually holds.
  */
 const BUILTIN_ROLES = ["builtin-architect", "builtin-implementer", "builtin-reviewer"];
 

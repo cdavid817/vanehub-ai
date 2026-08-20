@@ -119,7 +119,9 @@ pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
 pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
-pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
+pub(crate) use expert_role_repository::{
+    BuiltinAwareExpertRoleRepository, SqliteExpertRoleRepository,
+};
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use local_model_discovery::HttpLocalModelDiscoveryAdapter;
 pub(crate) use local_runner::LocalRunner;

@@ -2248,9 +2248,26 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // NUL, while every token it admits is written into a script file that an interpreter reads
     // back, and a batch file has no escape for a raw newline. Six lines record why this validator
     // is stricter than the argv one, and five extend the test to the rest of the control range.
+    //
+    // Raised again from 59,318 to 59,425 by +107, which is two changes rather than one.
+    //
+    // +23 is `fix(agent-runtime): resolve an Agent's executable the way its launch does`
+    // (4e7a0d4b), which should have carried its own raise and did not: availability checking moved
+    // off a bare `command_exists` onto the same `CliApi::resolve_executable` the launch uses, so
+    // the gateway now holds a `CliApi` and its port takes the `agent_id` that resolution needs.
+    // An Agent installed anywhere but the default PATH entry reported unavailable while launching
+    // fine.
+    //
+    // +84 is `BuiltinAwareExpertRoleRepository`: 51 production, of which 12 are the decorator's
+    // struct, constructor and three trait methods and 39 are the doc comments recording why the
+    // merge lives at the port rather than in the roster; and 33 for the regression test. The seat
+    // roster resolved a seat's role through the bare SQLite port, which holds only stored roles,
+    // so the three roles the product actually ships resolved to nothing, seats fell back to being
+    // named after their Agent, and `@架构师` addressed nobody -- multi-Agent handoff silently
+    // stopped relaying for the default configuration.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_318,
+        budget: 59_425,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2493,15 +2510,36 @@ fn registered_supplemental_commands(source: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every string literal in the `is_command` name list.
+/// The command names in the `is_command` name list.
+///
+/// Every quoted span after `fn is_command` is not the same thing as every name it routes: the
+/// registry's own `#[cfg(test)]` block sits after that function, and its assertion messages are
+/// string literals too. Harvesting those reported prose like `unknown command` as a routed
+/// command, which failed this test against a registry that was in fact consistent.
+///
+/// So the scan stops at the test module, and keeps only lines whose whole content is one quoted
+/// command name -- optionally behind the `|` of a `matches!` arm -- which is the shape the list is
+/// actually written in. That is the same discipline
+/// `supplemental_registry::tests::every_registered_supplemental_command_is_also_routed_to` applies
+/// to the same list; the two parsers disagreeing is what let this drift through.
 fn routed_supplemental_commands(source: &str) -> Vec<String> {
     let start = source
         .find("fn is_command")
         .expect("supplemental registry declares a name-based router");
-    source[start..]
-        .split('"')
-        .skip(1)
-        .step_by(2)
+    let body = &source[start..];
+    let body = match body.find("#[cfg(test)]") {
+        Some(end) => &body[..end],
+        None => body,
+    };
+    body.lines()
+        .map(|line| line.trim().trim_start_matches('|').trim())
+        .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
+        .filter(|name| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+        })
         .map(str::to_string)
         .collect()
 }
