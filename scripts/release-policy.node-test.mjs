@@ -55,6 +55,10 @@ test("the first stable release keeps the rehearsed five-target matrix", () => {
   assert.deepEqual(tauriConfig.bundle.targets, ["nsis", "app", "dmg", "deb", "appimage"]);
 });
 
+test("Linux runners install every native AppImage prerequisite", () => {
+  assert.match(workflow, /wget \\\n {12}xdg-utils/);
+});
+
 test("stable notes distinguish platform signing from Linux integrity evidence", () => {
   for (const heading of ["## Downloads", "## Verify your download", "## Updates", "## Known limitations", "## Reporting problems"]) {
     assert.ok(stableNotes.includes(heading), `Missing stable release section: ${heading}`);

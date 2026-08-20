@@ -39,7 +39,7 @@ Target version: `1.0.0`
 | --- | --- | --- |
 | Protected `release` environment | PASSED | Environment exists and accepts only the `v*` tag policy. |
 | Required environment secret names | BLOCKED | GitHub API reports 0 of 11 required names. No secret values were requested or exposed. |
-| Non-publishing package rehearsal | NOT RUN | Requires the reviewed branch to be pushed before dispatch. |
+| Non-publishing package rehearsal | FAILED | Run `32328440115` proved native ARM64 compilation and `.deb` bundling but exposed a missing `xdg-utils` AppImage prerequisite; corrective rerun pending. |
 | Annotated `v1.0.0` tag | NOT RUN | Prohibited until rehearsal, credentials, merge, and explicit maintainer approval are complete. |
 
 The current source state is not eligible for a stable tag while any row above is `BLOCKED`, `FAILED`, or `NOT RUN`.

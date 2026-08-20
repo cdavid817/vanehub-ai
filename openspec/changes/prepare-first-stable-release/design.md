@@ -26,7 +26,7 @@ The three authoritative manifest versions and their lockfile projections will mo
 
 ### Extend the package matrix with native Linux ARM64
 
-The first stable release will use NSIS for Windows x64, DMG/app for macOS x64 and ARM64, and deb/AppImage for Linux x64 and ARM64. Linux ARM64 uses the existing `package:linux:arm64` command on GitHub's native `ubuntu-24.04-arm` hosted runner so the package is not represented as verified by an x64 cross-build. The runner label is in public preview, so every branch rehearsal and the tag build must prove its current availability. MSI/RPM and Windows ARM64 remain deferred because they add new formats or signing paths.
+The first stable release will use NSIS for Windows x64, DMG/app for macOS x64 and ARM64, and deb/AppImage for Linux x64 and ARM64. Linux ARM64 uses the existing `package:linux:arm64` command on GitHub's native `ubuntu-24.04-arm` hosted runner so the package is not represented as verified by an x64 cross-build. Linux jobs explicitly install `xdg-utils` because AppImage bundling requires `xdg-open` and the ARM64 image does not preinstall it. The runner label is in public preview, so every branch rehearsal and the tag build must prove its current availability. MSI/RPM and Windows ARM64 remain deferred because they add new formats or signing paths.
 
 ### Track stable notes separately from preview notes
 

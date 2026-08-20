@@ -71,7 +71,7 @@ Adding either format remains a separate release change with its own packaging, s
 
 Desktop packages use the shared Cargo release profile declared in `src-tauri/Cargo.toml`: optimization level 3, ThinLTO, one codegen unit, and debuginfo stripping. ThinLTO and a single codegen unit can extend release link time while enabling whole-program optimization and changing distributable size; they do not guarantee a smaller package on every target.
 
-Windows x64 builds use the Rust-toolchain-provided LLD linker. Linux x64 and ARM64 builds require Clang and mold; the package workflow verifies both before compilation. Linux ARM64 runs natively on GitHub's `ubuntu-24.04-arm` hosted runner, whose label is currently in public preview. Other targets retain their platform-default linker unless a target-specific policy is added and validated.
+Windows x64 builds use the Rust-toolchain-provided LLD linker. Linux x64 and ARM64 builds require Clang and mold; AppImage bundling additionally requires `xdg-utils`, which is installed explicitly because it is not preinstalled on every runner image. The package workflow verifies the linkers before compilation. Linux ARM64 runs natively on GitHub's `ubuntu-24.04-arm` hosted runner, whose label is currently in public preview. Other targets retain their platform-default linker unless a target-specific policy is added and validated.
 
 Debuginfo stripping does not remove VaneHub's operational `debug` log level. Release builds continue to persist redacted `error`, `warn`, `info`, and `debug` events through unified logging. Build prerequisites, verification commands, worktree cache behavior, and measurement evidence are documented in `docs/build-performance.md`.
 

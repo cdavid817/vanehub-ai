@@ -92,7 +92,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             mold \
             patchelf \
-            wget
+            wget \
+            xdg-utils
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
