@@ -26,30 +26,36 @@ function proxyEnvironment() {
   };
 }
 
-// `smoke.e2e.mjs` is the only spec that has ever run on all three platforms. Everything beside it
-// was written and verified against the Windows runtime in one pass, and its first contact with the
-// macOS and Linux runners failed for three unrelated reasons, none of which is a product defect
-// this suite was pointed at:
+// CI runs `smoke.e2e.mjs` only, which is the coverage it had before these specs existed. The other
+// twelve stay in the repository and run locally; they are not ready to gate a pull request.
 //
-// - Linux CI has no Secret Service, so every command that touches the credential store returns
-//   `communications-credential-read-failed`. Those cases should report BLOCKED, as the OnePiece
-//   cases already do, rather than fail.
-// - On both runners the driver repeatedly failed to create a session at all, four specs deep into
-//   the run, which is a harness-stability problem and not something the specs can assert around.
-// - WebKit does not present the Settings shell the way WebView2 does, so the page probes miss.
+// Three things have to be true before one joins the gate, and none is yet:
 //
-// Running them anyway would put twelve red jobs in front of every future PR and teach everyone to
-// ignore the Desktop Smoke result, which costs more than the coverage is worth. They are pinned to
-// the platform where they are known to hold while each of the three is fixed with evidence from
-// the runner that shows it. `smoke` keeps its three-platform coverage, unchanged.
-const WINDOWS_ONLY_SPECS = path.join(configDir, "specs", "**", "*.e2e.mjs");
-const CROSS_PLATFORM_SPECS = path.join(configDir, "specs", "smoke.e2e.mjs");
-const specs = process.platform === "win32" ? [WINDOWS_ONLY_SPECS] : [CROSS_PLATFORM_SPECS];
-if (process.platform !== "win32") {
-  // Said out loud, not left to whoever compares spec counts between platforms. A run that silently
+// - It has to hold on all three runners. These were written against the Windows runtime in one
+//   pass, and their first contact with macOS and Linux failed for three unrelated reasons: Linux
+//   CI has no Secret Service, so anything touching the credential store returns
+//   `communications-credential-read-failed` where it should report BLOCKED; the driver repeatedly
+//   failed to create a session at all, four specs into the run; and WebKit does not present the
+//   Settings shell the way WebView2 does, so the page probes miss.
+// - It has to be stable. A full Windows run still turns up `database is locked` in the OnePiece
+//   send, with every spec sharing one data directory and one app instance following another.
+// - It has to be worth its wall clock. The full suite is roughly fifteen minutes on the Windows
+//   runner, against a gate that is otherwise a couple of minutes for this job.
+//
+// A flaky fifteen-minute job in front of every pull request teaches people to ignore the Desktop
+// Smoke result, which costs more than the coverage buys. Run them with
+// `npm run test:desktop` locally, or set `VANEHUB_DESKTOP_FULL_SUITE=1` in a workflow that wants
+// them, and promote them into the gate one at a time as each is made to hold.
+const FULL_SUITE = path.join(configDir, "specs", "**", "*.e2e.mjs");
+const GATE_SUITE = path.join(configDir, "specs", "smoke.e2e.mjs");
+// Opt in, and off by default wherever CI is set. `VANEHUB_DESKTOP_FULL_SUITE=1` forces it back on.
+const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
+const specs = runFullSuite ? [FULL_SUITE] : [GATE_SUITE];
+if (!runFullSuite) {
+  // Said out loud rather than left to whoever compares spec counts between runs: a run that
   // covers one spec instead of thirteen still prints PASSED.
   process.stdout.write(
-    `Desktop specs: running smoke only on ${process.platform}; the other 12 are pinned to win32 pending per-platform fixes.\n`,
+    "Desktop specs: gate run (smoke only). Set VANEHUB_DESKTOP_FULL_SUITE=1 for all 13.\n",
   );
 }
 
