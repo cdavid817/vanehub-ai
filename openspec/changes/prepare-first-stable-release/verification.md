@@ -2,6 +2,7 @@
 
 Date: 2026-08-20
 Branch: `release/first-stable-version`
+Source commit: `f0a71ca3621305f377b3ba33e81c8566db126931`
 Target version: `1.0.0`
 
 ## Repository gates
@@ -33,13 +34,28 @@ Target version: `1.0.0`
 | Linux x64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending. |
 | Linux ARM64 | NOT RUN | Native results cannot be inferred from Windows. GitHub rehearsal pending on `ubuntu-24.04-arm`. |
 
+## Package rehearsal status
+
+GitHub Actions run [32331092008](https://github.com/cdavid817/vanehub-ai/actions/runs/32331092008) completed successfully against the source commit above. The publish job was skipped, and each package job generated an ephemeral updater key used only for rehearsal.
+
+| Target | Status | Artifact |
+| --- | --- | --- |
+| Windows x64 | PASSED | `VaneHub-AI-windows-x64` |
+| macOS x64 | PASSED | `VaneHub-AI-macos-x64` |
+| macOS ARM64 | PASSED | `VaneHub-AI-macos-arm64` |
+| Linux x64 | PASSED | `VaneHub-AI-linux-x64` |
+| Linux ARM64 | PASSED | `VaneHub-AI-linux-arm64` |
+
+Earlier rehearsals exposed and verified corrections for the ARM64 runner's missing `xdg-utils` package and Tauri's bundler-specific updater key variable. The successful run includes both corrections.
+
 ## GitHub release readiness
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
 | Protected `release` environment | PASSED | Environment exists and accepts only the `v*` tag policy. |
 | Required environment secret names | BLOCKED | GitHub API reports 0 of 11 required names. No secret values were requested or exposed. |
-| Non-publishing package rehearsal | FAILED | Run `32328440115` exposed missing `xdg-utils`; run `32329743078` then produced Linux x64/ARM64 `.deb` and AppImage bundles but exposed that current Tauri bundling ignores a path-only signing variable. Corrective rerun pending. |
+| Non-publishing package rehearsal | PASSED | Run `32331092008` passed all five package jobs and skipped publication. |
+| Source ready to merge | PASSED | Commit `f0a71ca3621305f377b3ba33e81c8566db126931` is pushed, locally validated, and reproduced by the successful package rehearsal. |
 | Annotated `v1.0.0` tag | NOT RUN | Prohibited until rehearsal, credentials, merge, and explicit maintainer approval are complete. |
 
 The current source state is not eligible for a stable tag while any row above is `BLOCKED`, `FAILED`, or `NOT RUN`.
