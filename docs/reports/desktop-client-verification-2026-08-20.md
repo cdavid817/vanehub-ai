@@ -84,7 +84,7 @@ Web mock adapter 从内存作答，这一轮发现的缺陷没有一条在它上
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| `openspec archive correct-cli-launch-and-availability-contracts` | **阻塞** | 本机 `D:\cdavid\Documents\` 下的目录改名被 OS 拦截，`openspec archive` 依赖目录改名，因此必定失败。已排除沙箱、MAX_PATH 与句柄占用 |
+| `openspec archive correct-cli-launch-and-availability-contracts` | **已完成** | 归档为 `archive/2026-08-20-...`，索引 194 条，主 specs 折入后 `validate --specs --strict` 138/138。此前"目录改名被 OS 拦截"的判断是错的——真正原因是开发服务器在监视 `openspec/`，Windows 上监视器持有的目录句柄会阻止改名。已把 `**/openspec/**` 加进 `vite.config.ts` 的忽略列表 |
 | claude-code 增量流式 | 决定不做 | 不是「是否有双计风险」的权衡，而是记录在案的事实：CLI 把 delta 包在 `stream_event` 里，同一轮还会发终态 `assistant` 携带完整文本。拆包会先发 `PO` 再发 `PONG`。要流式就必须同时抑制终态事件的文本，那会改变「回复」对账本与用量的定义，应当单独立项 |
 | provider 拒绝是否进 registry | 决定不做 | 可用性是文件系统探测，答的是「二进制在不在」，且每次列举都会遍历全部 Agent。让它回答「provider 会不会接受这个账号」等于在该路径塞进每 Agent 一次网络往返，而答案在真正发起会话时已经过期。更合适的形态是记住上次观测到的拒绝并在 Agent 卡片上做提示，那属于会话状态而非注册表 |
 | 全局作用域 Skill 逃出隔离数据目录 | 待处理 | `skills/infrastructure/filesystem/paths.rs:31` 把全局作用域根解析为 `%USERPROFILE%`/`$HOME`，不受 `VANEHUB_APP_DATA_DIR` 重定向。现有 spec 只断言「未创建」并留了 `delete_skill` 兜底，但任何未来会**创建**全局 Skill 的桌面 spec 都会污染宿主 |
