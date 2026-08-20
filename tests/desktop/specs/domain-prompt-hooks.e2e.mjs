@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import process from "node:process";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
+
+// Run-scoped so a second run against the same data directory does not collide with its own
+// leftovers: the memory pool is keyed by file name.
+const RUN = process.env.VANEHUB_TEST_RUN_ID ?? String(Date.now());
 
 // A Prompt Hook id is 3..=64 characters of [a-z0-9-] starting on a letter or digit
 // (src-tauri/src/contexts/tooling/prompt_hooks/domain/identity.rs:9-16).
@@ -569,15 +576,18 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       [7, 30, 90].includes(before.contextQualityRetentionDays),
       `unexpected retention window: ${before.contextQualityRetentionDays}`,
     );
-    // `AppSettings` (desktop/dto.rs:23-40) carries only two of the seven fields
-    // `AgentPersonalizationPort` reads (agent_runtime/infrastructure/personalization_gateway.rs:
-    // 28-36). The custom-instructions and memory toggles are write-only across this boundary, so
-    // the assertions below prove they are accepted and validated, never that they were stored.
-    blocked.push(
-      "personalization read-back: get_settings omits customInstructionsAboutUser, "
-      + "customInstructionsStyleRules, customInstructionsEnabled, memoryEnabled and "
-      + "memoryToolAssistedChatsEnabled, so their stored values cannot be verified over IPC",
-    );
+    // These five were write-only when this spec was written: they parsed as mutations and
+    // persisted, but `AppSettings` had no field for them, so the response omitted them and the
+    // frontend normalizer replaced them with its own defaults -- the Personalization page showed
+    // an empty box over a stored instruction. That is D-09, fixed in 39bcf278 by carrying them
+    // through the DTO and mapper, which landed after this case was first written and left its
+    // BLOCKED note behind. They are asserted as a real round trip now, which is the assertion that
+    // would have caught the defect and is what stops it coming back.
+    assert.equal(typeof before.customInstructionsAboutUser, "string");
+    assert.equal(typeof before.customInstructionsStyleRules, "string");
+    for (const key of ["customInstructionsEnabled", "memoryEnabled", "memoryToolAssistedChatsEnabled"]) {
+      assert.equal(typeof before[key], "boolean", `get_settings omitted ${key}`);
+    }
 
     try {
       await saveSetting("automaticContextCompactionEnabled", !before.automaticContextCompactionEnabled);
@@ -604,22 +614,39 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       await rejects(() => saveSetting("notASetting", "value"), "an unknown setting key");
 
       // Custom instructions are capped at 3000 characters
-      // (desktop/domain/settings.rs:4, :426-428). The accepted value is written and reverted in
-      // the same breath so a later spec's generation never inherits it.
-      await saveSetting("customInstructionsAboutUser", "Desktop sweep personalization sentinel.");
+      // (desktop/domain/settings.rs:4, :426-428). Each accepted value is read back before it is
+      // reverted -- reverting without reading is what let a write-only setting look healthy -- and
+      // reverted in the same breath so a later spec's generation never inherits it.
+      const sentinel = "Desktop sweep personalization sentinel.";
+      await saveSetting("customInstructionsAboutUser", sentinel);
+      assert.equal(
+        (await readSettings()).customInstructionsAboutUser,
+        sentinel,
+        "a saved custom instruction did not survive a read",
+      );
       await saveSetting("customInstructionsAboutUser", "");
-      await saveSetting("customInstructionsStyleRules", "x".repeat(3_000));
+      assert.equal((await readSettings()).customInstructionsAboutUser, "");
+
+      const longRule = "x".repeat(3_000);
+      await saveSetting("customInstructionsStyleRules", longRule);
+      assert.equal(
+        (await readSettings()).customInstructionsStyleRules,
+        longRule,
+        "a style rule at the 3000-character limit did not survive a read",
+      );
       await saveSetting("customInstructionsStyleRules", "");
       await rejects(
         () => saveSetting("customInstructionsAboutUser", "x".repeat(3_001)),
         "an over-limit custom instruction",
       );
 
-      // Same flip-and-revert for the three booleans, whose defaults are all `true`
+      // Same flip-and-read-back-and-revert for the three booleans, whose defaults are all `true`
       // (desktop/domain/settings.rs:467-472).
       for (const key of ["customInstructionsEnabled", "memoryEnabled", "memoryToolAssistedChatsEnabled"]) {
         await saveSetting(key, false);
+        assert.equal((await readSettings())[key], false, `${key} did not survive a read after being turned off`);
         await saveSetting(key, true);
+        assert.equal((await readSettings())[key], true, `${key} did not survive a read after being turned back on`);
       }
 
       const memories = await listMemories();
@@ -654,16 +681,51 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
     }
   });
 
-  globalThis.it("deletes one entry from the shared agent memory pool", async function deleteOneMemory() {
-    const memories = await listMemories();
-    if (memories.length === 0) {
-      // Reported as skipped rather than passed: memories are only written by a live provider
-      // generation, which this spec does not run, and the run's data directory starts empty.
-      blocked.push("agent memory delete: the shared pool is empty, and only a live generation writes to it");
+  globalThis.it("reads and deletes an entry in the shared agent memory pool", async function deleteOneMemory() {
+    const dataDir = process.env.VANEHUB_APP_DATA_DIR;
+    if (!dataDir) {
+      blocked.push("agent memory delete: VANEHUB_APP_DATA_DIR is unset, so the pool cannot be seeded");
       this.skip();
     }
 
-    const target = memories[0];
+    // Seeded as a file rather than produced by a generation. Nothing writes a memory except
+    // extraction, and extraction only runs inside compaction, so producing one for real would mean
+    // pushing a conversation past the compaction threshold and then depending on the model
+    // choosing to emit a well-formed create action -- which makes the provider's behaviour the
+    // precondition of the test. The pool is a directory of markdown files whose id is the relative
+    // path (infrastructure/memory_directory.rs:53-54, :412-418), so a file is a first-class way in,
+    // the same way domain-skills seeds a Skill package. Under test here is the read and delete
+    // surface over real on-disk state, not extraction.
+    const name = `desktop-sweep-memory-${RUN}`;
+    const memoryRoot = join(dataDir, "memory");
+    await mkdir(memoryRoot, { recursive: true });
+    // Frontmatter shape taken from `compose_memory_document`
+    // (domain/memory_document.rs:131-153), which is what writes these files in production.
+    await writeFile(
+      join(memoryRoot, `${name}.md`),
+      [
+        "---",
+        `name: ${name}`,
+        "description: Seeded by the desktop prompt-hook sweep.",
+        "type: project",
+        "source: automatic",
+        "---",
+        "",
+        "The desktop sweep seeded this memory to exercise the pool's read and delete surface.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const memories = await listMemories();
+    const target = memories.find((memory) => memory.name === name);
+    assert.ok(
+      target,
+      `the seeded memory was not listed; the pool held ${JSON.stringify(memories.map((entry) => entry.name))}`,
+    );
+    assert.equal(target.description, "Seeded by the desktop prompt-hook sweep.");
+    assert.match(target.content, /read and delete surface/);
+
     await deleteMemory(target.id);
     const remaining = await listMemories();
     assert.equal(
@@ -671,7 +733,11 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
       undefined,
       "the deleted memory is still in the pool",
     );
-    assert.equal(remaining.length, memories.length - 1);
+    assert.equal(
+      remaining.length,
+      memories.length - 1,
+      "deleting one memory changed the pool by more than one entry",
+    );
   });
 
   globalThis.after(async () => {

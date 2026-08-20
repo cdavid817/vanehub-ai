@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
+
+import { readOnePieceApiKey } from "../helpers/onepiece-credential.mjs";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
@@ -508,17 +511,99 @@ globalThis.describe("VaneHub AI desktop orchestration domains", () => {
     assert.match(twice ?? "", /Plan state changed/, "deleting an absent Plan reported success");
   });
 
-  globalThis.it("generates a Plan draft from the planner", async function generateDraft() {
-    // task_orchestration/generate_plan_draft.rs:8 is the one draft-side command that is not a
-    // pure database operation: it builds a planner prompt and runs a real OnePiece turn through
-    // `OnePiecePlanGenerator` (contexts/task_orchestration/application/service.rs:65-77), which
-    // needs an active provider profile and bills a live generation. Deliberately not exercised
-    // here, and reported rather than quietly omitted.
-    blocked.push(
-      "generate_plan_draft: drives a live OnePiece planner turn (active provider profile plus a "
-      + "billed generation); the draft persistence path it feeds is covered without it",
-    );
-    this.skip();
+  globalThis.it("generates a Plan draft from the planner over the live provider", async function generateDraft() {
+    // `generate_plan_draft` is the one draft-side command that is not a pure database operation:
+    // it builds a planner prompt and runs a real OnePiece turn, so it needs an active provider
+    // profile and bills a generation. A host without a key reports BLOCKED rather than failing.
+    const apiKey = readOnePieceApiKey();
+    if (!apiKey) {
+      blocked.push("generate_plan_draft: set VANEHUB_ONEPIECE_API_KEY or VANEHUB_ONEPIECE_PROFILE_ID");
+      this.skip();
+    }
+
+    const profiles = await invoke(({ core }, input) => core.invoke("save_onepiece_provider_profile", { input }), {
+      id: null,
+      name: `Plan planner ${RUN}`,
+      providerId: "deepseek",
+      endpointType: "openai-chat-completions",
+      modelId: "deepseek-v4-flash",
+      apiKey,
+    });
+    const profile = profiles.profiles.find((entry) => entry.name === `Plan planner ${RUN}`);
+
+    try {
+      // A real directory, unlike `PROJECT_PATH`, which every other case in this file uses as an
+      // opaque string because the draft-side commands only check it is non-empty. The planner is
+      // the exception: it canonicalizes the path
+      // (workspaces/infrastructure/filesystem.rs:39-44) and answers "Project unavailable" for one
+      // that is not on disk.
+      const plannerProject = await mkdtemp(join(tmpdir(), "vanehub-planner-"));
+      // `generate_plan_draft` is synchronous: it runs the whole planner turn inline rather than
+      // returning an operation to poll, so this one `execute` call has to outlast a model round
+      // trip. WebDriver's script timeout defaults to thirty seconds and the turn has been measured
+      // either side of that on this host, so it is raised for this call and put back afterwards --
+      // leaving it raised would blunt every other spec's detection of a genuine hang.
+      await globalThis.browser.setTimeout({ script: 180_000 });
+      let draft;
+      try {
+        draft = await invoke(({ core }, input) => core.invoke("generate_plan_draft", { input }), {
+          planId: null,
+          version: 1,
+          // Deliberately small and concrete. The assertion is that the planner returns a
+          // structured draft this side can persist, not that the model decomposed a hard problem
+          // well -- the latter is not a property a test can hold a provider to.
+          goal: "Add a CHANGELOG.md file with a single Unreleased heading.",
+          projectPath: plannerProject,
+          baseRef: "main",
+          availableTools: ["read_file", "write_file"],
+        });
+      } catch (error) {
+        // Reported rather than failed: a turn that runs past even the raised ceiling is the
+        // provider being slow, which is not a defect this suite can hold it to.
+        if (/timed out/i.test(String(error?.message ?? error))) {
+          blocked.push("generate_plan_draft: the planner turn ran past 180s on this host");
+          this.skip();
+        }
+        throw error;
+      } finally {
+        await globalThis.browser.setTimeout({ script: 30_000 });
+      }
+
+      assert.ok(draft, "the planner returned no draft");
+      // `PlanDraft` is an alias of `PlanVersion` (domain/model.rs:561), whose identifier is `id`;
+      // `planId` is only the *argument* name the read command takes.
+      assert.ok(draft.id, "the generated draft carried no plan id");
+      createdPlans.add(draft.id);
+      assert.ok(Array.isArray(draft.subtasks), "the generated draft carried no subtask list");
+      assert.ok(draft.subtasks.length > 0, "the planner produced a draft with no subtasks at all");
+      // Every subtask has to be addressable and ordered, because the run side schedules them by
+      // exactly these two fields; a draft that generated but could not be run would otherwise pass.
+      for (const subtask of draft.subtasks) {
+        assert.ok(subtask.id, `a generated subtask carried no id: ${JSON.stringify(subtask)}`);
+        assert.ok(subtask.title, `subtask ${subtask.id} carried no title`);
+      }
+      const ids = draft.subtasks.map((subtask) => subtask.id);
+      assert.equal(new Set(ids).size, ids.length, "the planner produced duplicate subtask ids");
+
+      // The generated draft has to survive the same read path the Plan centre opens it through --
+      // generating into a shape the reader cannot load is the failure worth catching here.
+      const reloaded = await invoke(
+        ({ core }, planId) => core.invoke("get_plan_draft", { planId }),
+        draft.id,
+      );
+      assert.equal(reloaded.id, draft.id, "the generated draft did not read back");
+      assert.equal(
+        reloaded.subtasks.length,
+        draft.subtasks.length,
+        "the reloaded draft lost subtasks the planner produced",
+      );
+    } finally {
+      if (profile?.id) {
+        await invoke(({ core }, profileId) => core.invoke("delete_onepiece_provider_profile", {
+          profileId,
+        }), profile.id).catch(() => {});
+      }
+    }
   });
 
   globalThis.after(async () => {

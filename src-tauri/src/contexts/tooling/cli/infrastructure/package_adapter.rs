@@ -7,7 +7,8 @@ use crate::contexts::tooling::cli::application::{
     CliApplicationError, CliLogCategory, CliLogEvent, CliLogLevel, CliPackagePort, CliToolStatus,
 };
 use crate::contexts::tooling::cli::domain::{
-    winget_package_id, InstallSource, LifecycleEligibility, ScriptInstaller, ToolDefinition,
+    winget_package_id, InstallSource, LifecycleEligibility, ScriptInstaller, ScriptVersionArgument,
+    ToolDefinition,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -288,12 +289,25 @@ fn lifecycle_plan(
             fallback_npm_on_failure: false,
         }),
         LifecycleEligibility::Wget => {
-            let (executable, args) = script_install_plan(definition).ok_or_else(|| {
-                CliApplicationError::Validation(format!(
-                    "{} does not have a verified installer for this platform",
-                    definition.display_name
-                ))
-            })?;
+            let (executable, args) =
+                script_install_plan(definition, target_version).ok_or_else(|| {
+                    // Two different refusals share this branch, and the message says which: a
+                    // platform with no installer at all, versus an installer whose version
+                    // convention is unknown. The second one used to install latest and report
+                    // success under the requested version's name.
+                    if definition.platform_installer().is_none() {
+                        CliApplicationError::Validation(format!(
+                            "{} does not have a verified installer for this platform",
+                            definition.display_name
+                        ))
+                    } else {
+                        CliApplicationError::Validation(format!(
+                            "{} can only be script-installed at its latest version on this \
+                             platform; installing {target_version} specifically is not supported",
+                            definition.display_name
+                        ))
+                    }
+                })?;
             Ok(LifecyclePlan {
                 method: LifecycleMethod::Wget,
                 executable,
@@ -339,18 +353,52 @@ fn npm_install_args(definition: ToolDefinition, target_version: &str) -> Option<
     ])
 }
 
-fn script_install_plan(definition: ToolDefinition) -> Option<(String, Vec<String>)> {
+/// The one target version that means "whatever the installer decides", and so is never passed on.
+const LATEST_VERSION: &str = "latest";
+
+/// Single-quotes a value for the `bash -lc` script the installer is invoked through.
+///
+/// `validate_target_version` has already restricted this to `latest` or a stable semantic version,
+/// so there is nothing hostile left to escape. Quoting anyway costs nothing and keeps that the
+/// caller's guarantee rather than this function's assumption -- the value is interpolated into a
+/// shell string, and a later relaxation of that validation must not silently become an injection.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+fn script_install_plan(
+    definition: ToolDefinition,
+    target_version: &str,
+) -> Option<(String, Vec<String>)> {
     match definition.platform_installer()? {
         ScriptInstaller::Shell(url) => {
+            // `latest` is the script's own default, so it is passed as no argument at all rather
+            // than as the literal word -- not every installer accepts it as a version.
+            let version_args = if target_version == LATEST_VERSION {
+                String::new()
+            } else {
+                match definition.script_version_argument? {
+                    ScriptVersionArgument::Positional => {
+                        format!(" {}", shell_quote(target_version))
+                    }
+                    ScriptVersionArgument::Flag(flag) => {
+                        format!(" {flag} {}", shell_quote(target_version))
+                    }
+                }
+            };
             let script = format!(
                 "tmp=$(mktemp) && \
                  (if command -v wget >/dev/null 2>&1; then wget -qO \"$tmp\" {url}; \
                  elif command -v curl >/dev/null 2>&1; then curl -fsSL {url} -o \"$tmp\"; \
                  else echo \"wget or curl is required\" >&2; exit 127; fi) && \
-                 bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status"
+                 bash \"$tmp\"{version_args}; status=$?; rm -f \"$tmp\"; exit $status"
             );
             Some(("bash".to_string(), vec!["-lc".to_string(), script]))
         }
+        // `irm | iex` has nowhere to put an argument, and no PowerShell installer's version
+        // convention has been verified, so a pinned install through one is refused by the caller
+        // rather than run as latest under a pinned label.
+        ScriptInstaller::PowerShell(_) if target_version != LATEST_VERSION => None,
         ScriptInstaller::PowerShell(url) => Some((
             "powershell".to_string(),
             vec![
@@ -532,6 +580,57 @@ mod tests {
         }
     }
 
+    /// A script installer runs whatever version it defaults to unless told otherwise, and its
+    /// default is latest. Passing the requested version was missing entirely, so asking the CLI
+    /// Management page for an older opencode reported success and left the host on the newest
+    /// build -- observed directly: a pinned install of 1.18.17 into an empty host produced
+    /// 1.18.19.
+    ///
+    /// Asserted on the generated command rather than by running it: what went wrong was the
+    /// argument never being constructed, and that is visible here without downloading anything.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn a_pinned_script_install_passes_the_version_in_the_installers_own_convention() {
+        let opencode = definition("opencode").expect("opencode");
+        let (_, args) = script_install_plan(opencode, "1.18.17").expect("opencode plan");
+        let script = args.last().expect("script body");
+        assert!(
+            script.contains("--version '1.18.17'"),
+            "opencode's installer takes `--version <v>`, got: {script}",
+        );
+
+        // claude's installer takes the version positionally, so the same request has to produce a
+        // different command shape -- a single shared convention would be wrong for one of them.
+        let claude = definition("claude-code").expect("claude-code");
+        let (_, args) = script_install_plan(claude, "2.1.230").expect("claude plan");
+        let script = args.last().expect("script body");
+        assert!(
+            script.contains(r#"bash "$tmp" '2.1.230'"#),
+            "claude's installer takes the version positionally, got: {script}",
+        );
+
+        // `latest` is the script's own default and is passed as nothing at all: not every
+        // installer accepts the literal word as a version.
+        let (_, args) = script_install_plan(opencode, "latest").expect("latest plan");
+        let script = args.last().expect("script body");
+        assert!(
+            !script.contains("--version"),
+            "latest should be the installer's default, not an argument: {script}",
+        );
+
+        // No verified convention means the pin is refused, not silently run as latest. This is the
+        // whole point of the field being Option.
+        let antigravity = definition("antigravity-cli").expect("antigravity-cli");
+        assert!(
+            script_install_plan(antigravity, "1.1.0").is_none(),
+            "a pin was accepted for an installer whose version convention is unknown",
+        );
+        assert!(
+            script_install_plan(antigravity, "latest").is_some(),
+            "an unpinned script install must still be available",
+        );
+    }
+
     struct FakeProcess {
         requests: Mutex<Vec<CliProcessRequest>>,
         outputs: Mutex<VecDeque<Result<CliProcessOutput, String>>>,
@@ -682,7 +781,16 @@ mod tests {
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].executable, "bash");
         assert_eq!(requests[0].args[0], "-lc");
-        assert!(!requests[0].args[1].contains("9.9.9"));
+        // This used to assert the opposite -- that the script was run without the requested
+        // version -- which encoded the defect rather than a requirement: the installer then
+        // fetched its own default, which is latest, while the operation reported success for
+        // 9.9.9. claude's installer takes the version positionally, so it belongs after the
+        // script path.
+        assert!(
+            requests[0].args[1].contains(r#"bash "$tmp" '9.9.9'"#),
+            "the script install dropped the requested version: {}",
+            requests[0].args[1],
+        );
         assert_eq!(
             requests[1].args,
             ["install", "-g", "@anthropic-ai/claude-code@9.9.9"]

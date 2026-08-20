@@ -53,6 +53,7 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
                 role_snapshot: seat.role_snapshot.map(role_snapshot_from_dto),
                 joined_at: seat.joined_at.unwrap_or_default(),
                 left_at: seat.left_at,
+                provider_thread_id: None,
             })
             .collect(),
         interaction_mode: input.interaction_mode.as_str().to_string(),
@@ -324,6 +325,7 @@ pub(super) fn seats_from_dto(seats: Vec<dto::SessionSeat>) -> Vec<SessionSeat> {
             role_snapshot: seat.role_snapshot.map(role_snapshot_from_dto),
             joined_at: seat.joined_at.unwrap_or_default(),
             left_at: seat.left_at,
+            provider_thread_id: None,
         })
         .collect()
 }

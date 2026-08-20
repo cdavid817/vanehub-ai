@@ -208,6 +208,51 @@ impl AgentSessionGateway for TerminalWorld {
             Some(runtime_session_id.to_string());
         Ok(())
     }
+
+    fn update_seat_provider_thread_id(
+        &self,
+        _session_id: &str,
+        seat_id: &str,
+        provider_thread_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        if let Some(seat) = self
+            .session
+            .lock()
+            .expect("session")
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        {
+            seat.provider_thread_id = Some(provider_thread_id.to_string());
+        }
+        Ok(())
+    }
+
+    fn clear_seat_provider_thread_id(
+        &self,
+        _session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        if let Some(seat) = self
+            .session
+            .lock()
+            .expect("session")
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        {
+            seat.provider_thread_id = None;
+        }
+        Ok(())
+    }
+
+    fn clear_runtime_session_id(
+        &self,
+        _session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.session.lock().expect("session").runtime_session_id = None;
+        Ok(())
+    }
 }
 
 impl AgentCliProfileGateway for TerminalWorld {

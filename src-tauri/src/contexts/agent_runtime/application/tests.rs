@@ -655,6 +655,57 @@ impl AgentSessionGateway for FakeWorld {
         session.runtime_session_id = Some(runtime_session_id.to_string());
         Ok(())
     }
+
+    fn update_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+        provider_thread_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut sessions = self.sessions.lock().expect("sessions");
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| AgentRuntimeApplicationError::SessionNotFound(session_id.to_string()))?;
+        if let Some(seat) = session
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        {
+            seat.provider_thread_id = Some(provider_thread_id.to_string());
+        }
+        Ok(())
+    }
+
+    fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut sessions = self.sessions.lock().expect("sessions");
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| AgentRuntimeApplicationError::SessionNotFound(session_id.to_string()))?;
+        if let Some(seat) = session
+            .seats
+            .iter_mut()
+            .find(|seat| seat.seat_id == seat_id)
+        {
+            seat.provider_thread_id = None;
+        }
+        Ok(())
+    }
+
+    fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut sessions = self.sessions.lock().expect("sessions");
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| AgentRuntimeApplicationError::SessionNotFound(session_id.to_string()))?;
+        session.runtime_session_id = None;
+        Ok(())
+    }
 }
 
 impl AgentCliProfileGateway for FakeWorld {
@@ -1721,6 +1772,7 @@ pub(super) fn seat_turn_world() -> Arc<FakeWorld> {
                 agent_id: (*agent_id).to_string(),
                 role_id: Some((*role_id).to_string()),
                 left_at: None,
+                provider_thread_id: None,
             })
             .collect();
     }

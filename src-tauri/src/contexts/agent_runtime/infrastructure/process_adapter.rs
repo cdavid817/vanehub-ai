@@ -169,14 +169,13 @@ impl RuntimeAgentProcessAdapter {
         let provider = self
             .providers
             .require(&request.agent.id, ProviderCapability::StructuredOutput)?;
-        if request.session.runtime_session_id.is_some() {
+        if request.resume_thread_id.is_some() {
             self.providers
                 .require(&request.agent.id, ProviderCapability::Resume)?;
         }
-        let provider_session = self.providers.resolve_session(
-            &request.agent.id,
-            request.session.runtime_session_id.as_deref(),
-        )?;
+        let provider_session = self
+            .providers
+            .resolve_session(&request.agent.id, request.resume_thread_id.as_deref())?;
         let output_format = provider.output_format();
         let mut spec = provider.prepare_generation(ProviderGenerationInvocationRequest {
             executable,

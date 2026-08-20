@@ -22,9 +22,9 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, migrate_memory_rows, AgentRuntimeLoggingAdapter,
-    AgentRuntimeOperationAdapter, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
-    CredentialAwareAgentRegistry, ExplicitReferenceContextSource, FileAgentMemoryStore,
-    HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
+    AgentRuntimeOperationAdapter, BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource,
+    CompositeAgentProcessGateway, CredentialAwareAgentRegistry, ExplicitReferenceContextSource,
+    FileAgentMemoryStore, HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
@@ -167,6 +167,7 @@ pub(crate) fn assemble_agent_runners(
 pub(crate) fn assemble_shared_agent_registry(
     database: NativeDatabase,
     sdk: SdkApi,
+    cli: CliApi,
     fallback_log_directory: PathBuf,
 ) -> SharedAgentRegistry {
     let unified_logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
@@ -174,7 +175,7 @@ pub(crate) fn assemble_shared_agent_registry(
     let operation_logs: Arc<dyn OperationLogPort> = unified_logging.clone();
     let logging = Arc::new(AgentRuntimeLoggingAdapter::new(diagnostics, operation_logs));
     let clock = Arc::new(SystemAgentRuntimeClock);
-    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(sdk));
+    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(sdk, cli));
     let repository = Arc::new(SqliteAgentRuntimeRepository::new(database, availability));
     let api_credentials = Arc::new(OsApiCredentialAdapter::new());
     let registry = Arc::new(CredentialAwareAgentRegistry::new(
@@ -818,6 +819,14 @@ pub(crate) fn assemble_agent_runtime_api(
     let expert_role_repository = Arc::new(SqliteExpertRoleRepository::new(
         dependencies.database.clone(),
     ));
+    // The seat roster resolves a seat's role through this port, and the built-in roles live in the
+    // binary rather than in SQLite. Handing it the bare repository made every seat holding a
+    // built-in role resolve to no role, so its handle fell back to the Agent's name and `@架构师`
+    // addressed nobody.
+    let seat_expert_roles = Arc::new(BuiltinAwareExpertRoleRepository::new(
+        expert_role_repository.clone(),
+        builtin_expert_roles(),
+    ));
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: registry.clone(),
         workflows: repository.clone(),
@@ -835,7 +844,7 @@ pub(crate) fn assemble_agent_runtime_api(
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
         seat_completions: seat_completions.clone(),
-        expert_roles: expert_role_repository.clone(),
+        expert_roles: seat_expert_roles,
         history: sessions.clone(),
         message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
         api_agents: repository.clone(),

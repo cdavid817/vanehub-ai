@@ -77,6 +77,18 @@ fn known_candidate_paths(definition: ToolDefinition) -> Vec<PathBuf> {
             candidates.push(base.join(format!("{}.cmd", definition.executable_name)));
             candidates.push(base.join(format!("{}.exe", definition.executable_name)));
         }
+        // Scoop shims. The guide recommends scoop for opencode on Windows
+        // (`scoop install extras/opencode`), and scoop puts every installed program behind a shim
+        // in one fixed directory rather than one per package, so this is a single entry regardless
+        // of what was installed through it.
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            candidates.push(
+                PathBuf::from(profile)
+                    .join("scoop")
+                    .join("shims")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
+        }
         if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
             let base = PathBuf::from(local_app_data);
             candidates.push(
@@ -111,15 +123,48 @@ fn known_candidate_paths(definition: ToolDefinition) -> Vec<PathBuf> {
                 ".volta/bin",
                 ".bun/bin",
                 ".opencode/bin",
+                // asdf puts every managed executable behind a shim in one fixed directory, so this
+                // covers whichever nodejs version is selected without naming one.
+                ".asdf/shims",
             ] {
                 candidates.push(home.join(relative).join(definition.executable_name));
             }
+            candidates.extend(nvm_bin_paths(&home, definition.executable_name));
         }
         for base in ["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
             candidates.push(PathBuf::from(base).join(definition.executable_name));
         }
     }
     candidates
+}
+
+/// Every nvm-managed node's bin directory, newest version first.
+///
+/// nvm is what the install guide tells people to use -- "never use sudo npm install -g; use nvm or
+/// adjust the npm global prefix" -- and it installs global packages under the *selected* node
+/// version, a path no fixed string can name. It is also the case this whole candidate list exists
+/// for: nvm puts its bin on `PATH` from a shell profile, so a desktop app launched from an icon
+/// inherits neither, and a CLI installed exactly as documented reads as not installed.
+///
+/// Which version is selected cannot be known without that `PATH`, so all of them are offered and
+/// sorted newest-first. Ordering is lexical on the directory name, which is right for nvm's
+/// zero-padded-free `vMAJOR.MINOR.PATCH` only within a major; the intent is a stable, sensible
+/// order rather than a correct semver ranking, and any of these is a working install.
+fn nvm_bin_paths(home: &Path, executable_name: &str) -> Vec<PathBuf> {
+    let versions_root = home.join(".nvm").join("versions").join("node");
+    let Ok(entries) = std::fs::read_dir(&versions_root) else {
+        return Vec::new();
+    };
+    let mut versions: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    versions.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+    versions
+        .into_iter()
+        .map(|version| version.join("bin").join(executable_name))
+        .collect()
 }
 
 fn select_candidates(
@@ -164,6 +209,50 @@ fn candidate_key(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// nvm installs global packages under whichever node version is selected, so the path cannot
+    /// be a fixed string and the directory has to be read. Built against a real tree rather than
+    /// a mocked filesystem because the thing under test is the directory walk itself.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn nvm_versions_are_offered_newest_first_and_absent_nvm_is_not_an_error() {
+        let root = std::env::temp_dir().join(format!(
+            "vanehub-nvm-candidates-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        // A home with no nvm at all is the common case and must answer empty rather than fail.
+        std::fs::create_dir_all(&root).expect("root");
+        assert!(nvm_bin_paths(&root, "claude").is_empty());
+
+        for version in ["v20.11.0", "v22.3.0", "v18.19.1"] {
+            std::fs::create_dir_all(
+                root.join(".nvm")
+                    .join("versions")
+                    .join("node")
+                    .join(version)
+                    .join("bin"),
+            )
+            .expect("version dir");
+        }
+        let paths = nvm_bin_paths(&root, "claude");
+        let names: Vec<String> = paths
+            .iter()
+            .map(|path| {
+                path.parent()
+                    .and_then(Path::parent)
+                    .and_then(|version| version.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .expect("version name")
+            })
+            .collect();
+
+        assert_eq!(names, vec!["v22.3.0", "v20.11.0", "v18.19.1"]);
+        assert!(paths.iter().all(|path| path.ends_with("bin/claude")));
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
 
     #[test]
     fn candidate_selection_is_deduplicated_and_bounded() {
