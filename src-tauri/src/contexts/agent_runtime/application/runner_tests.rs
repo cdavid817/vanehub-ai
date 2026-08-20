@@ -3,6 +3,9 @@ use super::{
     RunnerErrorKind, RunnerEvent, RunnerHandle, RunnerInspection, RunnerKind, RunnerLaunchSpec,
     RunnerRecoveryMode, RunnerReference, RunnerSelection,
 };
+use crate::contexts::agent_runtime::application::runner::{
+    MAX_RUNNER_ARGUMENT_CHARS, MAX_RUNNER_ID_CHARS,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
@@ -241,4 +244,93 @@ fn reference() -> RunnerReference {
         recovery: RunnerRecoveryMode::None,
         authority_witness: "local-policy-v1".into(),
     }
+}
+
+/// gemini-cli, opencode and antigravity-cli receive the prompt as an argv entry rather than on
+/// stdin, and VaneHub composes that prompt from several sections, so it always contains newlines.
+/// Rejecting every control character therefore made a chat turn impossible for three of the five
+/// managed CLI Agents -- `runner_invalid_launch` before the process was ever spawned.
+///
+/// Newlines are not an injection vector here: arguments are handed to the OS as an array, never
+/// through a shell. NUL is different -- it terminates a C string and would silently truncate the
+/// argument the caller believes it passed -- so it stays rejected.
+#[test]
+fn a_multi_line_prompt_argument_is_accepted_but_a_nul_is_not() {
+    let mut multi_line = launch_spec();
+    multi_line.arguments = vec![
+        "run".into(),
+        "System context\n\nUser: reply with PONG\n".into(),
+    ];
+    multi_line
+        .validate()
+        .expect("a composed prompt delivered through argv must launch");
+
+    let mut tabbed = launch_spec();
+    tabbed.arguments = vec!["--format".into(), "a\tb\r\nc".into()];
+    tabbed
+        .validate()
+        .expect("tabs and carriage returns are ordinary prompt text");
+
+    let mut nul = launch_spec();
+    nul.arguments = vec!["run".into(), "before\u{0}after".into()];
+    assert_eq!(
+        nul.validate().expect_err("NUL truncates the argument").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+
+    let mut escape = launch_spec();
+    escape.arguments = vec!["run".into(), "\u{1b}[31mred\u{1b}[0m".into()];
+    assert_eq!(
+        escape
+            .validate()
+            .expect_err("terminal escape sequences are not prompt text")
+            .kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+
+    // The executable itself is an identifier, not free text, and stays strict.
+    let mut executable = launch_spec();
+    executable.executable = "fixture\ncli".into();
+    assert_eq!(
+        executable.validate().expect_err("executable name").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+}
+
+/// The executable is a filesystem path, not an identifier, and `MAX_RUNNER_ID_CHARS` (128) is not
+/// a path budget. codex-cli resolves through its npm shim to a vendored binary at
+/// `…/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe`
+/// — 141 characters on a default Windows install — so every codex turn was rejected as
+/// `runner_invalid_launch` before anything spawned. `cwd` is the same kind of value and already
+/// used the larger budget.
+#[test]
+fn a_vendored_executable_path_is_not_measured_against_the_identifier_budget() {
+    let mut vendored = launch_spec();
+    vendored.executable = [
+        r"C:\Users\someone\AppData\Roaming\npm\node_modules\@openai\codex",
+        r"node_modules\@openai\codex-win32-x64\vendor",
+        r"x86_64-pc-windows-msvc\bin\codex.exe",
+    ]
+    .join("\\");
+    assert!(
+        vendored.executable.len() > MAX_RUNNER_ID_CHARS,
+        "fixture must exceed the identifier budget to be meaningful"
+    );
+    vendored
+        .validate()
+        .expect("a real vendored CLI path must launch");
+
+    // It is still bounded, and still an executable rather than free text.
+    let mut absurd = launch_spec();
+    absurd.executable = "x".repeat(MAX_RUNNER_ARGUMENT_CHARS + 1);
+    assert_eq!(
+        absurd.validate().expect_err("beyond any path length").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
+    let mut newline = launch_spec();
+    newline.executable = "fixture\ncli".into();
+    assert_eq!(
+        newline.validate().expect_err("executable name").kind,
+        RunnerErrorKind::InvalidLaunch
+    );
 }

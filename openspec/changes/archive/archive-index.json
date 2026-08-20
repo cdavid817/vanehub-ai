@@ -3035,6 +3035,21 @@
                          "capabilities":  [
 
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-20",
+                         "changeName":  "correct-cli-launch-and-availability-contracts",
+                         "path":  "openspec/changes/archive/2026-08-20-correct-cli-launch-and-availability-contracts/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-provider-runtime",
+                                              "agent-runner-runtime",
+                                              "agent-tool-registry"
+                                          ]
                      }
                  ]
 }

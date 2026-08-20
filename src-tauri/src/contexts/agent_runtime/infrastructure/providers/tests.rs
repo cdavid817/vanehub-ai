@@ -1168,3 +1168,42 @@ fn agents_without_a_native_channel_report_that_the_briefing_was_not_placed() {
         );
     }
 }
+
+/// VaneHub's own argv passes `--include-partial-messages`, so a single claude-code turn emits
+/// eight `stream_event` envelopes and a `rate_limit_event` alongside the one `assistant` event
+/// that carries the reply. None of those envelope types has a parser arm, and the fallback treated
+/// any unrecognised line as literal output -- so the persisted assistant message began with
+/// `{"type":"stream_event",...}` instead of the answer.
+///
+/// A line that is valid JSON is a structured event whether or not this parser knows the type;
+/// the raw-text fallback exists for output that is not JSON at all.
+#[test]
+fn claude_code_unrecognised_structured_events_are_not_emitted_as_text() {
+    let parser = output_parser_for("claude-code");
+
+    for line in [
+        r#"{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-opus-5","content":[]}},"session_id":"s1","uuid":"u1","ttft_ms":1776}"#,
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"PO"}},"session_id":"s1"}"#,
+        r#"{"type":"stream_event","event":{"type":"message_stop"},"session_id":"s1"}"#,
+        r#"{"type":"rate_limit_event","rate_limit":{"status":"allowed"}}"#,
+    ] {
+        assert_eq!(
+            parser.parse_line(line),
+            ProviderOutputEvent::Empty,
+            "a structured claude event must not be emitted as literal text: {line}"
+        );
+    }
+
+    // The turn's actual reply still arrives through the `assistant` event.
+    assert_eq!(
+        parser.parse_line(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"PONG"}]}}"#
+        ),
+        ProviderOutputEvent::Token("PONG".to_string())
+    );
+    // Output that is not JSON at all is still the CLI talking to the user.
+    assert_eq!(
+        parser.parse_line("plain progress text"),
+        ProviderOutputEvent::Token("plain progress text".to_string())
+    );
+}

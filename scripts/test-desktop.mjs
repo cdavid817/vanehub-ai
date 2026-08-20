@@ -51,6 +51,16 @@ async function buildDesktop() {
   return artifact;
 }
 
+/** Pass/fail/skip counts the WDIO run recorded, or null when it never got that far. */
+async function readWdioCoverage(resultDir) {
+  try {
+    const parsed = JSON.parse(await readFile(path.join(resultDir, "wdio-result.json"), "utf8"));
+    return typeof parsed.skipped === "number" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function loadArtifact() {
   const requested = process.env.VANEHUB_DESKTOP_ARTIFACT;
   if (requested) return { ...JSON.parse(await readFile(latestArtifactPath, "utf8")), executablePath: path.resolve(requested) };
@@ -117,9 +127,14 @@ async function smokeDesktop(artifact) {
     nativeLogs,
     ...(errorDetails ? { error: errorDetails } : {}),
   });
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layer] });
+  const coverage = await readWdioCoverage(context.resultDir);
+  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layer], coverage });
   await disposeRunContext(context);
-  process.stdout.write(`Desktop smoke: ${status}\nEvidence: ${context.resultDir}\n`);
+  // Skips are named in the verdict rather than buried in the reporter: a host without a proxy,
+  // provider key, SSH target or installed CLI skips whole capabilities and still exits 0, and
+  // "PASSED" alone presents that reduced coverage as a clean bill of health.
+  const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
+  process.stdout.write(`Desktop smoke: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
 }

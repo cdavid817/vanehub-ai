@@ -289,12 +289,14 @@ impl RuntimeAgentProcessAdapter {
         ) {
             Ok(handle) => handle,
             Err(error) => {
+                // The detail names the constraint that rejected the launch. Without it the log
+                // says only `runner_invalid_launch`, which is not something anyone can act on.
                 self.record_runner_log(
                     AgentLogLevel::Error,
                     "spawn",
                     selection.kind,
                     selection.target_id.as_deref().unwrap_or("local"),
-                    error.code(),
+                    &runner_failure_category(&error),
                     &request,
                 );
                 let _ = self.telemetry.finish_span(
@@ -471,6 +473,20 @@ fn prepare_and_spawn_authorized(
     runner.spawn(prepared)
 }
 
+#[allow(clippy::too_many_arguments)]
+/// `code` alone, or `code (detail)` when the error names the constraint it tripped.
+fn runner_failure_category(
+    error: &crate::contexts::agent_runtime::application::RunnerError,
+) -> String {
+    match error.detail() {
+        Some(detail) => format!("{} ({detail})", error.code()),
+        None => error.code().to_string(),
+    }
+}
+
+// Correlation identity (agent, session, operation, run) is what a lifecycle line is for, so the
+// parameter list is long by construction; the wrapper above suppresses the same lint for the same
+// list. Every caller is in this file, which is what keeps positional passing checkable.
 #[allow(clippy::too_many_arguments)]
 fn record_runner_lifecycle(
     logging: &dyn AgentLoggingPort,
