@@ -2321,6 +2321,7 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
             role_snapshot: None,
             joined_at: "2026-08-07T00:00:00+00:00".to_string(),
             left_at: None,
+            provider_thread_id: None,
         },
         SessionSeat {
             seat_id: "seat-2".to_string(),
@@ -2329,6 +2330,7 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
             role_snapshot: None,
             joined_at: "2026-08-07T00:00:00+00:00".to_string(),
             left_at: None,
+            provider_thread_id: None,
         },
     ];
     fixture.store.seed_session(session.clone());
@@ -2372,6 +2374,7 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
         role_snapshot: None,
         joined_at: "2026-08-07T00:00:00+00:00".to_string(),
         left_at: None,
+        provider_thread_id: None,
     }];
     fixture.store.seed_session(session.clone());
 
@@ -2402,6 +2405,7 @@ fn active_seat(seat_id: &str, agent_id: &str, role_id: Option<&str>) -> SessionS
         role_snapshot: None,
         joined_at: "2026-07-01T00:00:00+00:00".to_string(),
         left_at: None,
+        provider_thread_id: None,
     }
 }
 

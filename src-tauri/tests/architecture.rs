@@ -2151,17 +2151,21 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // record builders, and the evidence/logging port doubles — plus the tests interleaved with
     // it. The entry survives the split rather than being deleted: the file is still real, and
     // nothing else bounds its regrowth (this subtree has no registered subtree budget).
+    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 843,
+        budget: 844,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
     // port double and its ~25 impls. That is one cohesive test double, not a bucket, so it was
     // deliberately left whole — see the change's design.md.
+    // Raised by 21 for `FakeWorld`'s `update_seat_provider_thread_id`. The double has to record
+    // the write per seat, not just accept it: a stub that dropped the id would let the seat-scoped
+    // capture pass while storing nothing, which is the defect it exists to catch.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_851,
+        budget: 1_872,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2265,9 +2269,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // so the three roles the product actually ships resolved to nothing, seats fell back to being
     // named after their Agent, and `@架构师` addressed nobody -- multi-Agent handoff silently
     // stopped relaying for the default configuration.
+    //
+    // Raised again from 59,425 by +12 for `scope-provider-resume-metadata-to-a-seat`: 11 for the
+    // sessions gateway's `update_seat_provider_thread_id` and its mapping of the seat's own thread
+    // id, and 1 in the API adapter's test request. The generation adapter is net zero -- it stops
+    // reading `session.runtime_session_id` and reads the already-resolved id instead.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_425,
+        budget: 59_437,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

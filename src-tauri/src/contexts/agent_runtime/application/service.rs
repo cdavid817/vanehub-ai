@@ -2795,6 +2795,18 @@ impl AgentRuntimeApplicationService {
                 interactive,
                 runner,
                 endpoint_profile,
+                // A seat resumes only its own Agent's thread. Without seat ownership this is a
+                // plain single-Agent turn, whose thread is the session's and must keep resuming
+                // exactly as it did before seats carried threads of their own.
+                resume_thread_id: match seat_ownership.as_ref() {
+                    Some(ownership) => super::resume_thread_for(
+                        &session.seats,
+                        &ownership.seat_id,
+                        session.runtime_session_id.as_deref(),
+                    )
+                    .map(str::to_string),
+                    None => session.runtime_session_id.clone(),
+                },
             }) {
             Ok(started) => started,
             Err(error) => {
@@ -4259,10 +4271,34 @@ impl AgentProcessEventSink for GenerationEventHandler {
             GenerationProcessEvent::ToolUse(tool_use) => self.tool_use(tool_use),
             GenerationProcessEvent::ToolLifecycle(event) => self.tool_lifecycle(event),
             GenerationProcessEvent::RichBlock(block) => self.rich_block(block),
-            GenerationProcessEvent::RuntimeSessionId(runtime_session_id) => self
-                .ports
-                .sessions
-                .update_runtime_session_id(&self.session_id, &runtime_session_id),
+            // A provider thread belongs to the Agent that created it. When a seat owns this
+            // generation the id is recorded against that seat; writing it to the session's single
+            // slot is what left every other seat resuming an id its own CLI had never issued.
+            //
+            // The session slot is still written for the seat that mirrors `agent_id`, because
+            // that is where a session created before seats carried threads keeps looking, and the
+            // terminal path and telemetry read it too.
+            GenerationProcessEvent::RuntimeSessionId(runtime_session_id) => {
+                match self.seat_ownership.as_ref() {
+                    Some(ownership) => {
+                        self.ports.sessions.update_seat_provider_thread_id(
+                            &self.session_id,
+                            &ownership.seat_id,
+                            &runtime_session_id,
+                        )?;
+                        if ownership.seat_index == 0 {
+                            self.ports
+                                .sessions
+                                .update_runtime_session_id(&self.session_id, &runtime_session_id)?;
+                        }
+                        Ok(())
+                    }
+                    None => self
+                        .ports
+                        .sessions
+                        .update_runtime_session_id(&self.session_id, &runtime_session_id),
+                }
+            }
             GenerationProcessEvent::Stderr(diagnostic) => {
                 self.stderr(diagnostic);
                 Ok(())

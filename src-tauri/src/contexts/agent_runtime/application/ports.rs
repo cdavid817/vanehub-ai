@@ -425,6 +425,18 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         session_id: &str,
         runtime_session_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Records the provider thread a seat's Agent reported for its own turn.
+    ///
+    /// Separate from `update_runtime_session_id` because that one is keyed by session, and a
+    /// provider thread is owned by exactly one Agent. Writing a second seat's thread into the
+    /// session's slot is what made every later seat resume a thread its CLI had never issued.
+    fn update_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+        provider_thread_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait AgentCliProfileGateway: Send + Sync {

@@ -40,14 +40,19 @@ const stamp = Date.now().toString(36);
  * `BuiltinAwareExpertRoleRepository`, which merges the built-ins at the port so its one caller's
  * assumption that the port means "every role there is" actually holds.
  *
- * With that fixed, the relay dispatches: the second seat gets its own turn and its own attributed
- * row. It then fails on a *second*, unrelated defect, which is why the live case here still
- * reports BLOCKED against two different CLIs. `runtime_session_id` is one column on `sessions`,
- * but a provider thread belongs to a single Agent. The first seat to run writes its thread id
- * there, and every later seat resumes that id against its own CLI, which has never heard of it --
- * `thread/resume failed: no rollout found for thread id … (code -32600)`, and the turn ends
- * `failed` with empty content. Two seats on the *same* Agent relay end to end, which is what
- * isolates the fault to thread identity rather than to routing.
+ * With that fixed the relay dispatched, and immediately exposed a *second*, unrelated defect that
+ * this file then caught. `runtime_session_id` was one column on `sessions`, but a provider thread
+ * belongs to a single Agent: the first seat to run wrote its thread id there, and every later seat
+ * resumed that id against its own CLI, which had never heard of it --
+ * `thread/resume failed: no rollout found for thread id … (code -32600)`, turn ends `failed` with
+ * empty content. Two seats on the *same* Agent relayed end to end throughout, which is what
+ * isolated that fault to thread identity rather than to routing. Fixed by
+ * `scope-provider-resume-metadata-to-a-seat`, which moved the thread id onto the seat.
+ *
+ * Both are now covered live rather than argued: this file passes against claude-code and codex-cli
+ * seated together, with the native log showing one `claude` and one `codex` invocation in the same
+ * session and no `thread/resume` at all, where the failing run invoked codex with two extra
+ * arguments and got the rejection above.
  */
 const BUILTIN_ROLES = ["builtin-architect", "builtin-implementer", "builtin-reviewer"];
 
@@ -302,8 +307,8 @@ globalThis.describe("VaneHub AI desktop multi-Agent group chat", () => {
       blocked.push(
         `handoff: the ${targetHandle} seat was dispatched and its turn produced nothing `
         + `(status ${JSON.stringify(row?.status ?? null)}). The @ routing worked; what failed is `
-        + "that seat's turn -- on this host, because a non-first seat resumes the session's single "
-        + "`runtime_session_id`, which belongs to whichever Agent ran first",
+        + "that seat's turn. Check the run's unified log for a provider rejection before "
+        + "suspecting the routing",
       );
       this.skip();
     }
