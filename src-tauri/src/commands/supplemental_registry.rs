@@ -96,5 +96,16 @@ pub(super) fn is_command(command: &str) -> bool {
             | "set_im_binding_paused"
             | "set_im_completion_notifications"
             | "remove_im_session_binding"
+            | "list_goals"
+            | "get_goal"
+            | "create_goal"
+            | "update_goal"
+            | "delete_goal"
+            | "link_goal_target"
+            | "unlink_goal_target"
+            | "activate_goal"
+            | "accept_goal"
+            | "reopen_goal"
+            | "abandon_goal"
     )
 }

@@ -16,11 +16,11 @@
 
 Desktop-first workspace for managing AI coding agents through one React interface and explicit Web/mock and Tauri runtime boundaries.
 
-<!-- docs-fact:project-version value:0.1.0-preview.1 -->
+<!-- docs-fact:project-version value:1.0.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-0.1.0--preview.1-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
@@ -69,9 +69,9 @@ The full catalog — vendor icons, endpoint protocols, default models, and API k
 
 ## Download
 
-Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a Windows `.exe` installer, a macOS `.dmg`, and Linux `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
+Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a signed Windows x64 `.exe` installer, signed and notarized macOS x64 and Apple Silicon `.dmg` files, and Linux x64 and ARM64 `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
 
-The current build is an unsigned preview. Windows and macOS warn before running it, and the release notes carry the steps for each platform. Verify your download against the published `SHA256SUMS` before installing.
+Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attestations. Linux packages carry integrity and provenance evidence but do not use operating-system code signing.
 
 <!-- docs-section:documentation -->
 

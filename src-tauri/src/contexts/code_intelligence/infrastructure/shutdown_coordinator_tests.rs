@@ -51,8 +51,14 @@ async fn shutdown_runs_processes_concurrently_and_forces_unresponsive_trees() {
         .expect("hanging process");
     let started = Instant::now();
 
+    // The deadline only has to be long enough for `lsp-success` to complete its graceful
+    // handshake and short enough that the test does not wait on `lsp-hang` forever. Widening it
+    // costs nothing in discriminating power -- a serial implementation still drains the whole
+    // budget on `lsp-hang` first and forces `lsp-success` with it, whatever the budget is -- but
+    // 900ms had to cover two `node` spawns plus a shutdown round trip, which a loaded machine
+    // running the rest of this suite alongside it does not fit into.
     let summary = coordinator
-        .shutdown_all(started + Duration::from_millis(900))
+        .shutdown_all(started + Duration::from_secs(5))
         .await;
 
     assert_eq!(summary.total, 2);

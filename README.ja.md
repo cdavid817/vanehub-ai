@@ -16,11 +16,11 @@
 
 単一の React インターフェースと明確な Web/mock・Tauri runtime 境界を通じて AI Coding Agent を管理する、デスクトップ優先のワークスペースです。
 
-<!-- docs-fact:project-version value:0.1.0-preview.1 -->
+<!-- docs-fact:project-version value:1.0.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-0.1.0--preview.1-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
@@ -69,9 +69,9 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 
 ## ダウンロード
 
-ビルド済みのデスクトップパッケージは [Releases ページ](https://github.com/cdavid817/vanehub-ai/releases)で公開しています。Windows は `.exe` インストーラー、macOS は `.dmg`、Linux は `.deb` と AppImage です。`.msi` と `.rpm` は公開していません。
+ビルド済みのデスクトップパッケージは [Releases ページ](https://github.com/cdavid817/vanehub-ai/releases)で公開しています。署名済み Windows x64 `.exe` インストーラー、署名・公証済み macOS x64 / Apple Silicon `.dmg`、Linux x64 / ARM64 `.deb` と AppImage があり、`.msi` と `.rpm` は公開していません。
 
-現在のビルドは署名なしのプレビューです。Windows と macOS は実行前に警告を表示します。プラットフォームごとの手順は release notes に記載しています。インストール前に、公開されている `SHA256SUMS` でダウンロードを検証してください。
+公開済みの `SHA256SUMS`、SPDX SBOM、GitHub attestations でダウンロードを検証してください。Linux パッケージには整合性と来歴の証拠がありますが、OS のコード署名は使用していません。
 
 <!-- docs-section:documentation -->
 

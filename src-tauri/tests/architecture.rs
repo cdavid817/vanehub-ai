@@ -2203,9 +2203,54 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and import block; 7 net new `use` lines in the three existing modules that gained a
     // helper; and 94 of caller-side `match`/destructure scaffolding at eight call sites, already
     // net of the 40 lines saved by de-duplicating the five copies of the tool-outcome tail.
+    //
+    // Raised from 59,010 by the PTY-lifecycle fixes from the 2026-08-19 end-to-end pass. +223, of
+    // which 163 are regression tests and 60 are production:
+    //
+    // +118 in `terminal_process.rs`'s test module: 54 for
+    // `a_blocked_terminal_writer_does_not_hold_the_registry_lock`, 52 for
+    // `a_read_that_decodes_to_no_text_still_reaches_the_provider_framer`, and 12 for splitting the
+    // `managed_terminal` fixture into a `managed_terminal_named` that can build a second terminal
+    // (the lock test needs two) plus its `TerminalIo` construction.
+    //
+    // +45 in `subagent_worktree_tests.rs` for
+    // `a_reap_that_falls_back_to_the_filesystem_leaves_no_administrative_record`, which covers
+    // git's administrative record on the reap path where the directory is already gone —
+    // `the_worktree_is_reaped_when_dropped` only ever covered the files.
+    //
+    // +60 production, none of it a duplicated body: 22 for `split_terminal_read` and its doc,
+    // which is the extracted per-read step whose old inline form dropped a read's bytes from the
+    // provider framer whenever that read decoded to no displayable text; 15 for
+    // `checkout_terminal_io` and its doc; 13 for the `TerminalIo` struct and its doc; 8 for the
+    // `checkout_io` method; and 2 net across the construction site, the reader loop and the
+    // `input`/`resize` rewrites that stopped holding the registry lock across blocking PTY calls.
+    //
+    // Raised again from 59,233 by +46, all of it one regression test:
+    // `claude_code_unrecognised_structured_events_are_not_emitted_as_text` in
+    // `providers/tests.rs`. It pins the case where a claude-code turn's eight `stream_event`
+    // wrappers and its `rate_limit_event` were emitted as the Agent's own words, because the
+    // parser's fallback treated any unrecognised line as literal output. The production side of
+    // that fix replaced one match arm and added no net lines.
+    //
+    // Raised again from 59,279 by +24, all of it explanation rather than logic. gemini-cli moved
+    // from argv to stdin prompt delivery (+6 net in `providers/invocation.rs`, a shorter arm under
+    // a longer comment), the spawn path now carries the OS failure through `RunnerError::detail`
+    // (+3 in `local_runner.rs`), and `process_adapter.rs` renders that detail into the lifecycle
+    // log (+12, a small helper and its doc). The reasons are worth the lines: each one is a defect
+    // that cost a full investigation to find because the code said what it did and not why.
+    //
+    // Raised again from 59,303 by +4: adding the `detail` parameter above took
+    // `record_runner_lifecycle` past clippy's argument threshold, and the suppression carries a
+    // reason rather than standing bare, since the wrapper one function above suppresses the same
+    // lint for the same list and a reader deserves to know why both are acceptable.
+    //
+    // Raised again from 59,307 by +11 in `terminal_wrapper.rs`: its token validator rejected only
+    // NUL, while every token it admits is written into a script file that an interpreter reads
+    // back, and a batch file has no escape for a raw newline. Six lines record why this validator
+    // is stricter than the argv one, and five extend the test to the rest of the control range.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_010,
+        budget: 59_318,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2367,4 +2412,96 @@ fn physical_line_counter_matches_newline_terminated_counting() {
     assert_eq!(physical_lines("a\nb\nc\n"), 3);
     assert_eq!(physical_lines("a\nb\nc"), 3);
     assert_eq!(physical_lines(""), 0);
+}
+
+/// `registry.rs` routes an invoke by *name*: `supplemental_registry::is_command` decides whether a
+/// command reaches the supplemental handler at all, and anything it does not name falls through to
+/// the core handler, which does not have it. A command registered in `generate_handler!` but
+/// missing from that name list is therefore dead at runtime -- `Command <name> not found` -- and
+/// nothing in the type system notices, because the two lists never reference each other.
+///
+/// Found this way: the Goals screen rendered its error banner on a real desktop run while every
+/// goals command sat correctly in the handler macro.
+#[test]
+fn supplemental_registry_routes_every_command_it_registers() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/supplemental_registry.rs"),
+    )
+    .expect("read supplemental registry");
+
+    let registered = registered_supplemental_commands(&source);
+    assert!(
+        registered.len() > 20,
+        "the registry parser found only {} commands, so it has stopped matching the source",
+        registered.len()
+    );
+    let routed = routed_supplemental_commands(&source);
+
+    let unroutable = registered
+        .iter()
+        .filter(|command| !routed.contains(*command))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        unroutable.is_empty(),
+        "[ARCH-NATIVE-008] registered but never routed, so every call answers \
+         `Command <name> not found`:\n{}",
+        unroutable.join("\n")
+    );
+
+    let unregistered = routed
+        .iter()
+        .filter(|command| !registered.contains(*command))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        unregistered.is_empty(),
+        "[ARCH-NATIVE-008] routed to the supplemental handler but not registered in it, so the \
+         call reaches a handler that cannot answer it:\n{}",
+        unregistered.join("\n")
+    );
+}
+
+/// Final path segment of every entry inside `generate_handler![ ... ]`.
+fn registered_supplemental_commands(source: &str) -> Vec<String> {
+    let start = source
+        .find("generate_handler![")
+        .map(|index| index + "generate_handler![".len())
+        .expect("supplemental registry declares a handler");
+    let mut depth = 1usize;
+    let mut end = start;
+    for (offset, character) in source[start..].char_indices() {
+        match character {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = start + offset;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    source[start..end]
+        .lines()
+        .filter_map(|line| {
+            let entry = line.trim().trim_end_matches(',');
+            (!entry.is_empty() && !entry.starts_with("//"))
+                .then(|| entry.rsplit("::").next().unwrap_or(entry).to_string())
+        })
+        .collect()
+}
+
+/// Every string literal in the `is_command` name list.
+fn routed_supplemental_commands(source: &str) -> Vec<String> {
+    let start = source
+        .find("fn is_command")
+        .expect("supplemental registry declares a name-based router");
+    source[start..]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
 }

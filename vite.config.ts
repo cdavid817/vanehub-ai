@@ -7,8 +7,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 // The displayed version used to be hand-copied into src/services/about-service.ts, which
-// check-version-sync.mjs does not cover — so it silently drifted to 0.1.0 while the project
-// moved to 0.1.0-preview.1. Reading package.json here makes drift impossible.
+// check-version-sync.mjs does not cover, so it once drifted from the release manifests.
+// Reading package.json here makes future version transitions automatic.
 const packageVersion = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
 ).version;
@@ -59,6 +59,22 @@ export default defineConfig({
         // is exactly the failure mode that already made nested worktrees stall Vite past the e2e
         // timeout — same cause, new location.
         "**/target/**",
+        // Nested git worktrees live here, each with its own `node_modules` and `target`. The
+        // test runner already skips them (`test.exclude` below); the dev server did not, so a
+        // machine carrying a handful of them watched hundreds of thousands of files and took
+        // longer to bootstrap the app than the e2e navigation timeout allows — the run fails on
+        // a static shell, which reads as a deterministic UI regression rather than a watcher
+        // problem.
+        "**/.claude/**",
+        // Nothing under `openspec/` is imported by the app — it is proposals and specs — but
+        // watching it breaks `openspec archive`, which works by renaming the change directory.
+        // On Windows the watcher holds a directory handle on every directory it registers, and a
+        // held directory cannot be renamed: archive fails with EPERM, every time, for as long as
+        // any dev server is up. Confirmed by control: a directory of the same shape created under
+        // an already-ignored path renames after the same wait, while one created here does not.
+        // The failure reads as an OS or permissions problem rather than as a watcher one, which
+        // is how it survived being diagnosed twice.
+        "**/openspec/**",
         "**/.docs-build/**",
         "**/.docs-screenshots/**",
         "**/.docs-target/**",
