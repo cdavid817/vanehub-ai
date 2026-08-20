@@ -222,6 +222,43 @@ beforeEach(() => {
 });
 
 describe("SkillsPage interactions", () => {
+  it("replaces resolved drift with the refreshed post-synchronization overview", async () => {
+    const reportedDrift = {
+      scope: "global" as const,
+      workspacePath: null,
+      issues: [{
+        skillId: "code-review",
+        type: "metadata-changed" as const,
+        agentId: null,
+        path: "~/.vanehub/cache/skills/system/code-review/SKILL.md",
+        message: "SKILL.md differs from the registry snapshot",
+      }],
+      driftHash: "legacy-drift",
+    };
+    serviceMocks.getSkillOverview
+      .mockResolvedValueOnce({ ...overview, drift: reportedDrift })
+      .mockResolvedValue(overview);
+    serviceMocks.syncSkillDrift.mockResolvedValue({
+      mounted: [],
+      unmounted: [],
+      overwritten: [],
+      backedUp: [],
+      restored: ["code-review"],
+      failed: [],
+      resolvedFrom: reportedDrift,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("检测到 1 个 Skill 漂移问题")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "同步" }));
+
+    await waitFor(() => expect(serviceMocks.getSkillOverview).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Skill 同步完成")).toBeTruthy();
+    expect(screen.queryByText("检测到 1 个 Skill 漂移问题")).toBeNull();
+    expect((screen.getByRole("button", { name: "同步" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("exposes an accessible Tools tab with governed inventory facts", async () => {
     const user = userEvent.setup();
     renderPage();

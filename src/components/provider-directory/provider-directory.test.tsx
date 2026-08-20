@@ -38,6 +38,15 @@ describe("shared provider directory components", () => {
     expect(onSelect.mock.calls[0]?.[0]).toMatchObject({ providerId: "openrouter", endpointType: "openai-responses" });
   });
 
+  it("offers a custom endpoint as a first-class provider choice", () => {
+    const onCreateCustom = vi.fn();
+    render(<CliConfigProviderCatalog customSelected onCreateCustom={onCreateCustom} onSelectPreset={() => undefined} presets={getCliConfigPresets("codex-cli")} selectedPresetId={null} />);
+    const custom = screen.getByRole("button", { name: /Custom/i });
+    expect(custom.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(custom);
+    expect(onCreateCustom).toHaveBeenCalledOnce();
+  });
+
   it("routes provider help links through the application opener", () => {
     const onOpenUrl = vi.fn();
     render(<ProviderHelpLinks apiKeyLabel="Open API key page" apiKeyUrl="https://example.test/keys" docsLabel="View docs" docsUrl="https://example.test/docs" onOpenUrl={onOpenUrl} />);

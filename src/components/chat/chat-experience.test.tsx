@@ -108,6 +108,7 @@ describe("chat Mermaid and file references", () => {
     // Candidates arrive already ranked from the native search; a source file must be offerable.
     expect(html).toContain("src-tauri/src/session_search.rs");
     expect(html).toContain('data-testid="wechat-style-composer"');
+    expect(html).not.toContain("rounded-xl border border-border bg-background shadow-xs");
     expect(html).toContain('data-testid="composer-toolbar"');
     expect(html).toContain('data-testid="effective-execution-policy"');
   });

@@ -3057,6 +3057,24 @@
     },
     {
       "archivedOn": "2026-08-20",
+      "changeName": "polish-agent-settings-cli-and-skill-sync",
+      "path": "openspec/changes/archive/2026-08-20-polish-agent-settings-cli-and-skill-sync/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "app-settings",
+        "cli-agent-config-management",
+        "cli-parameter-management",
+        "main-layout-ui",
+        "settings-skill-management-ui",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-20",
       "changeName": "scope-provider-resume-metadata-to-a-seat",
       "path": "openspec/changes/archive/2026-08-20-scope-provider-resume-metadata-to-a-seat/",
       "artifacts": [

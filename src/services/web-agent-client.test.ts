@@ -1087,7 +1087,11 @@ describe("webAgentClient", () => {
     expect(overview.restoreCandidates).toContain("code-review");
 
     const sync = await webAgentClient.syncSkillDrift({ scope: "global" });
-    expect(sync.restored).toEqual([]);
+    expect(sync).toMatchObject({
+      restored: [],
+      failed: [],
+      resolvedFrom: drift,
+    });
     await webAgentClient.restoreBuiltinSkill("code-review");
   });
 

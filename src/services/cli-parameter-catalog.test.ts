@@ -14,10 +14,10 @@ import {
 
 const reservedFlags = new Set(["--output-format", "--resume", "--session", "--json", "--format", "--prompt"]);
 const expectedParameterIds = {
-  "claude-code": ["model", "effort", "chrome"],
-  "codex-cli": ["model", "reasoningEffort", "ephemeral", "strictConfig"],
-  "gemini-cli": ["model"],
-  opencode: ["model", "variant", "thinking"],
+  "claude-code": ["model", "effort", "chrome", "agent", "advisor", "disableSlashCommands", "screenReader", "bare", "safeMode"],
+  "codex-cli": ["model", "reasoningEffort", "ephemeral", "strictConfig", "profile", "search", "oss", "noAltScreen"],
+  "gemini-cli": ["model", "debug", "screenReader"],
+  opencode: ["model", "variant", "thinking", "pure", "printLogs", "logLevel"],
   "antigravity-cli": ["model", "effort", "agent"],
 } as const;
 

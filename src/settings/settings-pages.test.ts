@@ -8,6 +8,7 @@ describe("settingsPages", () => {
       "agent-configurations",
       "agent-policies",
       "cli-parameters",
+      "code-intelligence",
       "mcp",
       "skills",
       "personalization",
@@ -24,7 +25,7 @@ describe("settingsPages", () => {
     ]);
   });
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(17);
+    expect(settingsPages).toHaveLength(18);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });
@@ -43,6 +44,16 @@ describe("settingsPages", () => {
       searchPlaceholderKey: "settings.search.agentConfigurations",
     });
     expect(settingsPages[configurationsIndex].loader).toBeTypeOf("function");
+  });
+
+  it("registers workspace-wide code intelligence outside Agent configurations", () => {
+    const page = settingsPages.find((candidate) => candidate.id === "code-intelligence");
+    expect(page).toMatchObject({
+      group: "capabilities",
+      labelKey: "settings.pages.codeIntelligence",
+      searchPlaceholderKey: "settings.search.codeIntelligence",
+    });
+    expect(page?.loader).toBeTypeOf("function");
   });
 
   it("registers Personalization after Skills and before Prompt Hooks", () => {

@@ -4,8 +4,8 @@ async function openAgentConfigurations(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
-  await page.getByRole("tab", { name: /OnePiece/ }).click();
-  await expect(page.getByRole("tabpanel", { name: "OnePiece" }).getByRole("heading", { name: /^(API 提供商|API providers)$/i })).toBeVisible();
+  await page.getByRole("button", { name: /OnePiece/ }).click();
+  await expect(page.getByRole("region", { name: "OnePiece" }).getByRole("heading", { name: /^(API 提供商|API providers)$/i })).toBeVisible();
 }
 
 function agentButton(dialog: Locator, name: string) {
@@ -15,7 +15,7 @@ function agentButton(dialog: Locator, name: string) {
 test.describe("OnePiece native Agent", () => {
   test("configures OnePiece and creates a local API chat without an Agent Terminal", async ({ page }) => {
     await openAgentConfigurations(page);
-    const onepiecePanel = page.getByRole("tabpanel", { name: "OnePiece" });
+    const onepiecePanel = page.getByRole("region", { name: "OnePiece" });
     await onepiecePanel.getByRole("button", { name: "新增配置" }).first().click();
     const addDialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
     await addDialog.getByRole("button", { name: /Anthropic/ }).click();
@@ -134,7 +134,7 @@ test.describe("OnePiece native Agent", () => {
     await openAgentConfigurations(page);
     await expect(page.getByRole("heading", { name: "已注册 Agent" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "注册 API Agent" })).toHaveCount(0);
-    const expectedTabs = [
+    const expectedTargets = [
       "Claude Code",
       "Codex CLI",
       "OpenCode",
@@ -142,9 +142,9 @@ test.describe("OnePiece native Agent", () => {
       "Gemini CLI",
       "OnePiece",
     ];
-    const tabs = page.getByRole("tablist").getByRole("tab");
-    for (let index = 0; index < expectedTabs.length; index += 1) {
-      await expect(tabs.nth(index)).toContainText(expectedTabs[index]);
+    const targets = page.getByRole("navigation", { name: "配置目标 Agent" }).getByRole("button");
+    for (let index = 0; index < expectedTargets.length; index += 1) {
+      await expect(targets.nth(index)).toContainText(expectedTargets[index]);
     }
 
     await page.getByRole("button", { name: "返回", exact: true }).click();
@@ -169,7 +169,7 @@ test.describe("OnePiece native Agent", () => {
   test("keeps the API provider dialog usable at narrow width", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openAgentConfigurations(page);
-    const onepiecePanel = page.getByRole("tabpanel", { name: "OnePiece" });
+    const onepiecePanel = page.getByRole("region", { name: "OnePiece" });
     await onepiecePanel.getByRole("button", { name: "新增配置" }).first().click();
     const dialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
     await expect(dialog.getByLabel("搜索厂商")).toBeVisible();
