@@ -7,7 +7,7 @@ use crate::contexts::agent_runtime::application::{
     NativeToolResultStatus, OcrInferencePort, IMAGE_ARTIFACT_METADATA_KEY,
     NATIVE_TOOL_CONTRACT_VERSION,
 };
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactCreateRequest, ArtifactCreator, ArtifactDescriptor, ArtifactEvidenceKind,
     ArtifactService, ArtifactVisibility,
 };

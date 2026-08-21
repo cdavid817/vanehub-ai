@@ -6,7 +6,7 @@ use super::{
     SystemDelegationMaterializationAdapter,
 };
 use crate::contexts::agent_runtime::application::NativeToolPortRequest;
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactCreateRequest, ArtifactCreator, ArtifactDescriptor, ArtifactEvidenceKind,
     ArtifactService, ArtifactVisibility,
 };

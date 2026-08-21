@@ -2,7 +2,7 @@ use crate::contexts::agent_runtime::application::{
     NativeToolErrorCode, NativeToolResultEnvelope, NativeToolResultStatus,
     NATIVE_TOOL_CONTRACT_VERSION,
 };
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::contexts::cli_delegation::application::{
     ClaudeDelegationAdapter, DelegationAgentReportV1, DelegationArtifactInput,
     DelegationArtifactPort, DelegationMode, DelegationReportNormalizer,

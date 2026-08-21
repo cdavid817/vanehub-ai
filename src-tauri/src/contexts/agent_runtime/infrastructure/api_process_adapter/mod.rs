@@ -20,7 +20,7 @@ use crate::contexts::agent_runtime::application::{
     StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolUseBlock,
     UtilityDelegationApplicationService, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::tooling::skill_tools::application::{

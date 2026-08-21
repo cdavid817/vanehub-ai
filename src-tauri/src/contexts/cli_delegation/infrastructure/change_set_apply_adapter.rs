@@ -6,7 +6,7 @@ use crate::contexts::agent_runtime::api::{
     NativeToolPersistencePort, NativeToolPortRequest, NativeToolResultEnvelope,
     NativeToolResultStatus,
 };
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::contexts::cli_delegation::application::{
     DelegationApplyPreflightRequest, DelegationApplyPreflightService, DelegationApplyRecoveryPort,
     DelegationApplyRecoveryService, DelegationApplyStagingService, DelegationExactApplyService,

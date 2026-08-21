@@ -33,7 +33,7 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::{
     MemoryType, UtilityDelegationLimits, UtilityDelegationRequest,
 };
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::platform::filesystem::BoundedFilesystem;
 use serde::Deserialize;
 use serde_json::{json, Value};

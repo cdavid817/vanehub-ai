@@ -273,6 +273,10 @@ enum Layer {
 #[derive(Debug)]
 struct SourceScope {
     context: String,
+    /// The subdomain this file belongs to, when its context has them. `tooling` nests its
+    /// subdomains a level deeper than every other context — `contexts/tooling/<subdomain>/<layer>`
+    /// — so the layer rules have to look past this segment to find the layer at all.
+    subdomain: Option<String>,
     layer: Layer,
 }
 
@@ -407,18 +411,26 @@ fn is_forbidden_technology(segments: &[String]) -> bool {
     ) {
         return true;
     }
+    let path = segments.iter().map(String::as_str).collect::<Vec<_>>();
+    // `std::net` carries two unrelated things. `IpAddr` and friends are value types that parse and
+    // classify an address and touch no network; `TcpStream` and friends are the I/O this rule is
+    // for. Banning the module wholesale forced a domain that validates a declared origin to either
+    // launder the parse through another layer or be exempted, so the ban is on the I/O types.
+    if matches!(path.as_slice(), ["std", "net", ..] | ["tokio", "net", ..]) {
+        return path.get(2).is_none_or(|item| !is_network_value_type(item));
+    }
     matches!(
-        segments
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        ["std", "fs", ..]
-            | ["std", "net", ..]
-            | ["std", "process", ..]
-            | ["tokio", "fs", ..]
-            | ["tokio", "net", ..]
-            | ["tokio", "process", ..]
+        path.as_slice(),
+        ["std", "fs", ..] | ["std", "process", ..] | ["tokio", "fs", ..] | ["tokio", "process", ..]
+    )
+}
+
+/// Address types that perform no I/O. Everything else under `std::net` stays forbidden, including
+/// `TcpStream`, `TcpListener`, `UdpSocket`, and `ToSocketAddrs`, whose resolution hits DNS.
+fn is_network_value_type(item: &str) -> bool {
+    matches!(
+        item,
+        "IpAddr" | "Ipv4Addr" | "Ipv6Addr" | "AddrParseError" | "Ipv6MulticastScope"
     )
 }
 
@@ -435,9 +447,22 @@ fn is_forbidden_outer_layer(scope: &SourceScope, segments: &[String]) -> bool {
         return true;
     }
     if path.len() >= 5 && path[0] == "crate" && path[1] == "contexts" && path[2] == scope.context {
+        // Inside a subdomain the layer segment is one deeper, and this inward-pointing rule only
+        // concerns a file reaching its *own* outer layers. Reaching into a sibling subdomain is a
+        // different question, answered by the cross-context and private-module rules.
+        let layer_segment = match scope.subdomain.as_deref() {
+            Some(subdomain) if path.len() >= 6 && path[3] == subdomain => path[4],
+            Some(_) => return false,
+            None => path[3],
+        };
         return match scope.layer {
-            Layer::Domain => matches!(path[3], "application" | "infrastructure" | "interfaces"),
-            Layer::Application => matches!(path[3], "infrastructure" | "interfaces"),
+            Layer::Domain => {
+                matches!(
+                    layer_segment,
+                    "application" | "infrastructure" | "interfaces"
+                )
+            }
+            Layer::Application => matches!(layer_segment, "infrastructure" | "interfaces"),
             Layer::Infrastructure | Layer::Command => false,
         };
     }
@@ -469,24 +494,60 @@ fn imports_cross_context_concrete_persistence(scope: &SourceScope, segments: &[S
             .any(|segment| segment.ends_with("Repository") || *segment == "NativeDatabase")
 }
 
-fn source_scope(relative_path: &Path) -> Option<SourceScope> {
-    let parts = relative_path
+fn layer_named(segment: Option<&str>) -> Option<Layer> {
+    match segment {
+        Some("domain") => Some(Layer::Domain),
+        Some("application") => Some(Layer::Application),
+        Some("infrastructure") => Some(Layer::Infrastructure),
+        _ => None,
+    }
+}
+
+/// Splits a path into segments on either separator.
+///
+/// `Path::components` alone is not enough: on Unix a `\` is an ordinary filename character, so a
+/// Windows-shaped fixture path arrives as one component and resolves to no scope at all. Rules
+/// that silently inspect nothing are the failure mode this whole file exists to prevent.
+fn path_segments_for_scope(relative_path: &Path) -> Vec<String> {
+    relative_path
         .components()
-        .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
+        .flat_map(|part| {
+            part.as_os_str()
+                .to_string_lossy()
+                .split('\\')
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn source_scope(relative_path: &Path) -> Option<SourceScope> {
+    let parts = path_segments_for_scope(relative_path);
     if let Some(contexts) = parts.iter().position(|part| part == "contexts") {
         let context = parts.get(contexts + 1)?.clone();
-        let layer = match parts.get(contexts + 2).map(String::as_str) {
-            Some("domain") => Layer::Domain,
-            Some("application") => Layer::Application,
-            Some("infrastructure") => Layer::Infrastructure,
-            _ => return None,
-        };
-        return Some(SourceScope { context, layer });
+        if let Some(layer) = layer_named(parts.get(contexts + 2).map(String::as_str)) {
+            return Some(SourceScope {
+                context,
+                subdomain: None,
+                layer,
+            });
+        }
+        // A context with subdomains puts the layer one segment further in. Reading only
+        // `contexts + 2` returned `None` here, and `analyze` treats `None` as "nothing to check",
+        // so every file under every `tooling` subdomain was skipped rather than passing.
+        let subdomain = parts.get(contexts + 2)?.clone();
+        let layer = layer_named(parts.get(contexts + 3).map(String::as_str))?;
+        return Some(SourceScope {
+            context,
+            subdomain: Some(subdomain),
+            layer,
+        });
     }
     let commands = parts.iter().position(|part| part == "commands")?;
     Some(SourceScope {
         context: parts.get(commands + 1)?.clone(),
+        subdomain: None,
         layer: Layer::Command,
     })
 }
@@ -1157,6 +1218,130 @@ fn runner_contracts_and_adapters_use_only_published_runtime_boundaries() {
         violations.is_empty(),
         "Runner code must use application ports and published context APIs:\n{}",
         violations.join("\n")
+    );
+}
+
+#[test]
+fn scope_resolution_covers_flat_contexts_nested_subdomains_and_commands() {
+    let flat = source_scope(Path::new("contexts/permissions/domain/action.rs"))
+        .expect("flat context should resolve");
+    assert_eq!(flat.context, "permissions");
+    assert_eq!(flat.subdomain, None);
+    assert_eq!(flat.layer, Layer::Domain);
+
+    // The case that was silently skipped: the third segment is a subdomain, not a layer.
+    let nested = source_scope(Path::new(
+        "contexts/tooling/skill_tools/domain/permission_manifest.rs",
+    ))
+    .expect("nested subdomain should resolve");
+    assert_eq!(nested.context, "tooling");
+    assert_eq!(nested.subdomain.as_deref(), Some("skill_tools"));
+    assert_eq!(nested.layer, Layer::Domain);
+
+    let nested_application = source_scope(Path::new(
+        "contexts/tooling/extension_platform/application/feature_gates.rs",
+    ))
+    .expect("nested application should resolve");
+    assert_eq!(nested_application.layer, Layer::Application);
+
+    let command = source_scope(Path::new("commands/tooling/extension_platform/mod.rs"))
+        .expect("command should resolve");
+    assert_eq!(command.context, "tooling");
+    assert_eq!(command.layer, Layer::Command);
+
+    // A path with no recognisable layer still resolves to nothing, so `analyze` keeps ignoring
+    // module roots and shared helpers rather than guessing a scope for them.
+    assert!(source_scope(Path::new("contexts/tooling/mod.rs")).is_none());
+    assert!(source_scope(Path::new("platform/database/mod.rs")).is_none());
+}
+
+#[test]
+fn scope_resolution_is_identical_for_both_path_separators() {
+    let unix = source_scope(Path::new(
+        "contexts/tooling/skill_tools/infrastructure/module_runtime.rs",
+    ))
+    .expect("unix path should resolve");
+    let windows = source_scope(Path::new(
+        r"contexts\tooling\skill_tools\infrastructure\module_runtime.rs",
+    ))
+    .expect("windows path should resolve");
+
+    assert_eq!(unix.context, windows.context);
+    assert_eq!(unix.subdomain, windows.subdomain);
+    assert_eq!(unix.layer, windows.layer);
+}
+
+#[test]
+fn nested_subdomain_layers_are_enforced_inward_without_blocking_siblings() {
+    let own_outer_layer = r#"
+use crate::contexts::tooling::extension_platform::infrastructure::SqliteFeatureGateRepository;
+"#;
+    let violations = analyze(
+        Path::new("contexts/tooling/extension_platform/domain/feature.rs"),
+        own_outer_layer,
+    )
+    .expect("nested domain fixture");
+    assert_eq!(violations.len(), 1, "{violations:?}");
+
+    // A sibling subdomain's published API is a legitimate dependency; only its private modules
+    // are not. Treating the whole sibling as off-limits would make the rule unusable.
+    let sibling_api = r#"
+use crate::contexts::tooling::skills::api::SkillApi;
+"#;
+    assert!(analyze(
+        Path::new("contexts/tooling/extension_platform/application/gates.rs"),
+        sibling_api,
+    )
+    .expect("sibling api fixture")
+    .is_empty());
+
+    let compliant = r#"
+use crate::contexts::tooling::extension_platform::domain::ExtensionPlatformFeature;
+"#;
+    assert!(analyze(
+        Path::new("contexts/tooling/extension_platform/application/gates.rs"),
+        compliant,
+    )
+    .expect("compliant fixture")
+    .is_empty());
+}
+
+#[test]
+fn network_rule_separates_address_value_types_from_socket_io() {
+    let address_parsing = r#"
+use std::net::IpAddr;
+use std::net::Ipv6Addr;
+"#;
+    assert!(analyze(
+        Path::new("contexts/tooling/skill_tools/domain/permission_manifest.rs"),
+        address_parsing,
+    )
+    .expect("address fixture")
+    .is_empty());
+
+    // The relaxation must not widen past value types: sockets and DNS resolution stay out.
+    for socket in ["TcpStream", "TcpListener", "UdpSocket", "ToSocketAddrs"] {
+        let source = format!("use std::net::{socket};\n");
+        let violations = analyze(
+            Path::new("contexts/tooling/skill_tools/domain/permission_manifest.rs"),
+            &source,
+        )
+        .expect("socket fixture");
+        assert_eq!(violations.len(), 1, "{socket} should still be rejected");
+    }
+
+    let bare_module = r#"
+use std::net;
+"#;
+    assert_eq!(
+        analyze(
+            Path::new("contexts/tooling/skill_tools/domain/permission_manifest.rs"),
+            bare_module,
+        )
+        .expect("bare module fixture")
+        .len(),
+        1,
+        "importing the module itself keeps every socket type one path segment away"
     );
 }
 

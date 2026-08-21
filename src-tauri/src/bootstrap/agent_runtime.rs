@@ -46,7 +46,7 @@ use crate::contexts::agent_runtime::infrastructure::{
     UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
     WorkspaceLoopProjectAdapter,
 };
-use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
+use crate::contexts::artifacts::api::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
     ArtifactBlobStore, ArtifactNativeToolAdapter, BrowserArtifactAdapter, CodeArtifactAdapter,
     SqliteArtifactCatalog,

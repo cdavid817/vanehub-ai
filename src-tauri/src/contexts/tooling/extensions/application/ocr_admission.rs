@@ -1,5 +1,5 @@
 use super::ocr_media::validate_image_dimensions;
-use crate::contexts::artifacts::application::{ArtifactDescriptor, ArtifactService};
+use crate::contexts::artifacts::api::{ArtifactDescriptor, ArtifactService};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -199,7 +199,7 @@ fn admitted_extension(media_type: &str, bytes: &[u8]) -> Result<&'static str, Oc
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::artifacts::application::{
+    use crate::contexts::artifacts::api::{
         ArtifactCreator, ArtifactEvidenceKind, ArtifactVisibility,
     };
 

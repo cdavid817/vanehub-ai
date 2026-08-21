@@ -3,7 +3,7 @@ use crate::contexts::agent_runtime::application::{
     CanonicalToolResource, NativeToolExecutionContext, NativeToolOperation, NativeToolProgressSink,
     ToolResourceKind, ValidatedNativeToolInput,
 };
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactBlobMetadata, ArtifactBlobPort, ArtifactBlobStoreError, ArtifactCatalogPort,
     ArtifactPublicationReference, ArtifactServiceError,
 };

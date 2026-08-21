@@ -1,4 +1,4 @@
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactCreateRequest, ArtifactCreator, ArtifactEvidenceKind, ArtifactService,
     ArtifactVisibility,
 };

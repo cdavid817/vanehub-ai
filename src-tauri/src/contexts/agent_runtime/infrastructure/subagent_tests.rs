@@ -605,7 +605,7 @@ fn executor_for(
     provider: &ScriptedProvider,
     directory: &crate::test_support::TempDirectory,
 ) -> NativeSubagentExecutor {
-    use crate::contexts::artifacts::application::ArtifactBlobStorePolicy;
+    use crate::contexts::artifacts::api::ArtifactBlobStorePolicy;
     use crate::contexts::artifacts::infrastructure::{ArtifactBlobStore, SqliteArtifactCatalog};
     use crate::platform::database::NativeDatabase;
 

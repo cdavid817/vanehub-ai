@@ -41,7 +41,7 @@ use crate::contexts::agent_runtime::application::{
     REMEMBER_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{AutomaticCompactionState, UsageAnchor};
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::contexts::sessions::api::{NewModelInvocation, SessionsApi, UsagePurpose, UsageStatus};
 use crate::contexts::skill_evolution_evidence::domain::ObservedSkillRevision;
 use crate::contexts::tooling::skill_tools::application::{

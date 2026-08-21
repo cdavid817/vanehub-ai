@@ -1,4 +1,4 @@
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactBlobStorePolicy, ArtifactService, ArtifactVisibility,
 };
 use crate::contexts::artifacts::infrastructure::{ArtifactBlobStore, SqliteArtifactCatalog};

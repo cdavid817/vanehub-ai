@@ -1,5 +1,5 @@
 use super::artifacts::{artifact_service, map_artifact_error};
-use crate::contexts::artifacts::application::{ArtifactDescriptor, ArtifactService};
+use crate::contexts::artifacts::api::{ArtifactDescriptor, ArtifactService};
 use crate::platform::database::NativeDatabase;
 use serde_json::{json, Value};
 

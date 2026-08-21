@@ -25,7 +25,7 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::application::{
     ChangeSetFileRecord, ChangeSetRecord, FileChangeKind,
 };
-use crate::contexts::artifacts::application::{
+use crate::contexts::artifacts::api::{
     ArtifactCreateRequest, ArtifactCreator, ArtifactEvidenceKind, ArtifactService,
     ArtifactVisibility,
 };

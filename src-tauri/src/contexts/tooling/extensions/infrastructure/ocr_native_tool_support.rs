@@ -2,7 +2,7 @@ use crate::contexts::agent_runtime::application::{
     NativeToolErrorCode, NativeToolPortRequest, NativeToolResultEnvelope, NativeToolResultStatus,
     NATIVE_TOOL_CONTRACT_VERSION,
 };
-use crate::contexts::artifacts::application::{ArtifactDescriptor, ArtifactPublicationReference};
+use crate::contexts::artifacts::api::{ArtifactDescriptor, ArtifactPublicationReference};
 use crate::contexts::tooling::extensions::application::{
     OcrAdmissionError, OcrExecutionError, PaddleOcrInferenceLimits,
 };

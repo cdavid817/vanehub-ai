@@ -21,7 +21,7 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::{
     parse_memory_actions, ContextBudget, ContextRequest, MEMORY_ACTIONS_INSTRUCTION,
 };
-use crate::contexts::artifacts::application::ArtifactService;
+use crate::contexts::artifacts::api::ArtifactService;
 use crate::contexts::sessions::api::{SessionsApi, UsagePurpose, UsageStatus};
 use crate::contexts::skill_evolution_evidence::application::{
     NativeExecutionFact, RuntimeEvidenceProjector,

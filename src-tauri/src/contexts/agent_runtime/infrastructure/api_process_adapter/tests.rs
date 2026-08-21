@@ -3387,7 +3387,7 @@ use base64::Engine as _;
 fn artifact_store(
     directory: &crate::test_support::TempDirectory,
 ) -> std::sync::Arc<ArtifactService> {
-    use crate::contexts::artifacts::application::ArtifactBlobStorePolicy;
+    use crate::contexts::artifacts::api::ArtifactBlobStorePolicy;
     use crate::contexts::artifacts::infrastructure::{ArtifactBlobStore, SqliteArtifactCatalog};
     use crate::platform::database::NativeDatabase;
 
@@ -3422,10 +3422,10 @@ fn try_seal(
     media_type: &str,
     bytes: &[u8],
 ) -> Result<
-    crate::contexts::artifacts::application::ArtifactDescriptor,
-    crate::contexts::artifacts::application::ArtifactServiceError,
+    crate::contexts::artifacts::api::ArtifactDescriptor,
+    crate::contexts::artifacts::api::ArtifactServiceError,
 > {
-    use crate::contexts::artifacts::application::{
+    use crate::contexts::artifacts::api::{
         ArtifactCreateRequest, ArtifactCreator, ArtifactEvidenceKind, ArtifactVisibility,
     };
 
