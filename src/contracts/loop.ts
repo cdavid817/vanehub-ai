@@ -143,6 +143,60 @@ export interface StartLoopResult {
   operationId: string;
 }
 
+export interface LoopProjectChoice {
+  path: string;
+  displayName: string;
+  available: boolean;
+  simulated: boolean;
+}
+
+export type LoopBranchKind = "local" | "remote";
+
+export interface LoopBranchChoice {
+  name: string;
+  kind: LoopBranchKind;
+  available: boolean;
+  simulated: boolean;
+}
+
+export type LoopReadinessCheckCode =
+  | "definition-enabled"
+  | "project-available"
+  | "branch-available"
+  | "worker-eligible"
+  | "verifier-eligible"
+  | "verification-valid"
+  | "path-scope-valid"
+  | "no-active-run";
+
+export type LoopReadinessCategory = "definition" | "workspace" | "agent" | "verification" | "runtime";
+export type LoopReadinessCheckStatus = "passed" | "blocked";
+export type LoopReadinessRemediationTarget =
+  | "definition"
+  | "project"
+  | "branch"
+  | "worker"
+  | "verifier"
+  | "verification"
+  | "runs";
+
+export interface LoopReadinessCheck {
+  code: LoopReadinessCheckCode;
+  category: LoopReadinessCategory;
+  status: LoopReadinessCheckStatus;
+  blocking: boolean;
+  detail: string | null;
+  remediationTarget: LoopReadinessRemediationTarget | null;
+}
+
+export interface LoopReadinessReport {
+  definitionId: string;
+  ready: boolean;
+  simulated: boolean;
+  checks: LoopReadinessCheck[];
+  checkedAt: string;
+}
+
 export type LoopEventKind = "run-updated" | "iteration-updated" | "evidence-added";
 
 export interface LoopEvent {

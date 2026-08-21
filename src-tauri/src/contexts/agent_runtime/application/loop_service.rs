@@ -1,12 +1,13 @@
 use super::{
-    AgentClockPort, AgentRegistryRepository, AgentRuntimeApplicationError, ApiAgentGateway,
-    CanonicalLoopSignal, LoopDefinitionView, LoopOperationContext, LoopOperationKind,
-    LoopOperationObserver, LoopProjectPort, LoopRepository, LoopRunView, SaveLoopDefinitionRequest,
+    AgentClockPort, AgentLogLevel, AgentRegistryRepository, AgentRuntimeApplicationError,
+    ApiAgentGateway, CanonicalLoopSignal, LoopDefinitionView, LoopOperationContext,
+    LoopOperationKind, LoopOperationObserver, LoopProjectPort, LoopReadinessCheckView,
+    LoopReadinessReportView, LoopRepository, LoopRunView, SaveLoopDefinitionRequest,
     StartLoopResultView,
 };
 use crate::contexts::agent_runtime::domain::{
-    InteractionMode, LoopDefinition, LoopDefinitionInput, LoopRun, LoopRunStatus,
-    LoopTerminalReason,
+    InteractionMode, LoopDefinition, LoopDefinitionInput, LoopReadinessCategory,
+    LoopReadinessCheckCode, LoopRun, LoopRunStatus, LoopTerminalReason,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -114,6 +115,125 @@ impl LoopApplicationService {
             .loops
             .find_run_view(run_id)?
             .ok_or_else(|| loop_validation("Loop run not found."))
+    }
+
+    pub(crate) fn readiness(
+        &self,
+        definition_id: &str,
+    ) -> Result<LoopReadinessReportView, AgentRuntimeApplicationError> {
+        let definition = self
+            .ports
+            .loops
+            .find_definition(definition_id)?
+            .ok_or_else(|| loop_validation("Loop definition not found."))?;
+        let values = definition.values();
+        let project = self
+            .ports
+            .projects
+            .validate_local_git_project(&values.project_path);
+        let project_ready = project.is_ok();
+        let branch = project.as_ref().ok().map_or(Ok(false), |canonical| {
+            self.ports
+                .projects
+                .base_branch_available(canonical, &values.base_branch)
+        });
+        let worker = self.validate_agent(&values.worker_agent_id);
+        let verifier = self.validate_agent(&values.verifier_agent_id);
+        let commands_ready = !values.verification_commands.is_empty()
+            && values.verification_commands.iter().all(|command| {
+                !command.program().trim().is_empty() && command.timeout_seconds() > 0
+            });
+        let scope_ready = !values.allowed_paths.iter().any(|allowed| {
+            values
+                .protected_paths
+                .iter()
+                .any(|protected| normalized_scope(allowed) == normalized_scope(protected))
+        });
+        let no_active_run = !self.ports.loops.has_active_run(definition_id)?;
+        let checks = vec![
+            readiness_check(
+                LoopReadinessCheckCode::DefinitionEnabled,
+                LoopReadinessCategory::Definition,
+                values.enabled,
+                None,
+                "definition",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::ProjectAvailable,
+                LoopReadinessCategory::Workspace,
+                project_ready,
+                project.err(),
+                "project",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::BranchAvailable,
+                LoopReadinessCategory::Workspace,
+                branch.as_ref().copied().unwrap_or(false),
+                branch.err(),
+                "branch",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::WorkerEligible,
+                LoopReadinessCategory::Agent,
+                worker.is_ok(),
+                worker.err(),
+                "worker",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::VerifierEligible,
+                LoopReadinessCategory::Agent,
+                verifier.is_ok(),
+                verifier.err(),
+                "verifier",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::VerificationValid,
+                LoopReadinessCategory::Verification,
+                commands_ready,
+                None,
+                "verification",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::PathScopeValid,
+                LoopReadinessCategory::Verification,
+                scope_ready,
+                None,
+                "verification",
+            ),
+            readiness_check(
+                LoopReadinessCheckCode::NoActiveRun,
+                LoopReadinessCategory::Runtime,
+                no_active_run,
+                None,
+                "runs",
+            ),
+        ];
+        let report = LoopReadinessReportView {
+            definition_id: definition_id.to_string(),
+            ready: checks.iter().all(|check| check.passed),
+            checks,
+            checked_at: self.ports.clock.now(),
+        };
+        if !report.ready {
+            let blocked = report
+                .checks
+                .iter()
+                .filter(|check| !check.passed)
+                .map(|check| check.code.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = self.ports.observer.record(
+                &LoopOperationContext {
+                    run_id: definition_id.to_string(),
+                    iteration_id: None,
+                    kind: LoopOperationKind::Readiness,
+                },
+                None,
+                AgentLogLevel::Warn,
+                &format!("Loop readiness blocked: {blocked}"),
+            );
+        }
+        Ok(report)
     }
 
     pub(crate) fn start_manual(
@@ -283,4 +403,27 @@ fn definition_input(
 
 fn loop_validation(message: &str) -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Validation(message.to_string())
+}
+
+fn readiness_check(
+    code: LoopReadinessCheckCode,
+    category: LoopReadinessCategory,
+    passed: bool,
+    error: Option<AgentRuntimeApplicationError>,
+    remediation_target: &'static str,
+) -> LoopReadinessCheckView {
+    LoopReadinessCheckView {
+        code,
+        category,
+        passed,
+        detail: error.map(|value| value.to_string()),
+        remediation_target: (!passed).then_some(remediation_target),
+    }
+}
+
+fn normalized_scope(value: &str) -> String {
+    value
+        .trim_matches(['/', '\\'])
+        .replace('\\', "/")
+        .to_lowercase()
 }

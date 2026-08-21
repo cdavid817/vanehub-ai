@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 import { fill, selectOption } from "../helpers/form-control.mjs";
@@ -40,19 +41,14 @@ let repository = null;
 let primarySessionId = null;
 let secondarySessionId = null;
 let workItemId = null;
+const fixtureRoot = process.env.VANEHUB_APP_DATA_DIR
+  ? join(dirname(process.env.VANEHUB_APP_DATA_DIR), "fixtures")
+  : tmpdir();
 
-/**
- * Deliberately not under the harness run root, unlike the other specs' fixtures.
- *
- * Opening a CLI session's workspace mounts `AgentTerminalTab`, which calls `openAgentTerminal` on
- * mount (src/session-workspace/agent-terminal-tab.tsx:150) and leaves a PTY rooted in the project
- * directory. `screen-sweep.e2e.mjs` survives that by calling `exit_application` so the runtime
- * reaps the child before `disposeRunContext` deletes the run root; this file must not exit the app
- * (it races WDIO's `deleteSession` and discards the file's results), so it keeps its fixture out of
- * the directory the harness has to delete instead.
- */
+/** The run-context disposer removes this fixture after the final app process has exited. */
 async function createRepository() {
-  const root = await mkdtemp(join(tmpdir(), "vanehub-uiflow-"));
+  await mkdir(fixtureRoot, { recursive: true });
+  const root = await mkdtemp(join(fixtureRoot, "vanehub-uiflow-"));
   await run("git", ["init"], { cwd: root });
   await run("git", ["config", "user.email", "desktop-e2e@example.invalid"], { cwd: root });
   await run("git", ["config", "user.name", "Desktop E2E"], { cwd: root });
@@ -502,19 +498,19 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       { timeout: 30_000, timeoutMsg: "The work item form stayed open after submitting." },
     );
 
-    // work-board-card.tsx:20 -- cards carry their id, so the title only has to be read once, to
-    // find the card this file just typed. Everything after this is by id.
-    const locateCard = async () => {
-      for (const article of await globalThis.$$('#todo-board article[data-testid^="work-item-"]')) {
-        if ((await (await article.$("h3")).getText()).trim() === workItemTitle) {
-          return (await article.getAttribute("data-testid")).replace("work-item-", "");
-        }
-      }
-      return false;
-    };
-    workItemId = await globalThis.browser.waitUntil(locateCard, {
+    // Resolve the durable id first, then require the UI to render the card with that exact id.
+    // Reading every heading through WebDriver is both slower and sensitive to a card rerender
+    // between locating the article and locating its h3.
+    workItemId = await globalThis.browser.waitUntil(async () => {
+      const items = await invoke(({ core }) => core.invoke("list_work_items", { filters: { archived: false } }));
+      return items.find((item) => item.title === workItemTitle)?.id ?? false;
+    }, {
       timeout: 30_000,
-      timeoutMsg: "The work item was submitted but never appeared on the board.",
+      timeoutMsg: "The work item form closed without persisting the submitted item.",
+    });
+    await (await globalThis.$(`[data-testid="work-item-${workItemId}"]`)).waitForDisplayed({
+      timeout: 30_000,
+      timeoutMsg: "The persisted work item never appeared on the board.",
     });
 
     const stageOf = async () => {
@@ -588,7 +584,10 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     // concerned; without this reload the filter would be narrowing a list of one.
     await globalThis.browser.refresh();
     await bootstrapReady("React bootstrap did not become ready after seeding the second session.");
-    await navigate("/workspace/sessions");
+    const sessionsButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="workspace-session-sidebar"]');
+    await sessionsButton.waitForClickable({ timeout: 20_000 });
+    await sessionsButton.click();
+    await waitForUrl("/workspace/sessions", "The activity bar did not return to the sessions destination.");
     await (await globalThis.$('[data-testid="session-sidebar"]')).waitForDisplayed({ timeout: 30_000 });
 
     // session-sidebar.tsx:268 -- the view switcher is [list, category, project], and the choice is
@@ -659,9 +658,10 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       });
     }
     if (workItemId) {
-      await attempt("delete the work item", () => invoke(
-        ({ core }, id) => core.invoke("delete_work_item", { workItemId: id }), workItemId,
-      ));
+      await attempt("archive and delete the work item", async () => {
+        await invoke(({ core }, id) => core.invoke("archive_work_item", { workItemId: id }), workItemId);
+        await invoke(({ core }, id) => core.invoke("delete_work_item", { workItemId: id }), workItemId);
+      });
     }
     for (const sessionId of [primarySessionId, secondarySessionId].filter(Boolean)) {
       await attempt(`delete session ${sessionId}`, () => invoke(
@@ -675,9 +675,6 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       await bootstrapReady("React bootstrap did not become ready during cleanup.");
       await navigate("/workspace/sessions");
     });
-    // Best effort: on Windows the directory stays locked while any child the app spawned is alive.
-    if (repository) await attempt("remove the fixture repository", () => rm(repository, { recursive: true, force: true }));
-
     if (blocked.length > 0) {
       globalThis.console.warn(`BLOCKED on this host:\n  ${blocked.join("\n  ")}`);
     }

@@ -879,7 +879,7 @@ pub(crate) fn assemble_agent_runtime_api(
         builtins: builtin_expert_roles(),
     });
     let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database.clone()));
-    let loop_projects = Arc::new(WorkspaceLoopProjectAdapter::new(dependencies.workspaces));
+    let loop_projects = Arc::new(WorkspaceLoopProjectAdapter(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
     let loops = LoopApplicationService::new(LoopApplicationPorts {
         loops: loop_repository.clone(),

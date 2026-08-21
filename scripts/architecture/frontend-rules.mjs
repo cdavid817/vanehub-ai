@@ -23,8 +23,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 是 native `route_user_message` 的镜像实现(mention → 上一轮发言者 → 首席位),没有可搬移的现成
 // 代码;`seatHandlesFromNames` 反向减少了重复——句柄去重原先在 `seat-mention-options.ts` 里
 // 单独实现一份,现在两处共用同一份,那个文件因此是净减的。
+// 上调理由(optimize-loop-engineering-workbench):Loop 服务新增的项目/分支发现与只读 preflight
+// 需要独立的 Tauri/Web 适配器和契约测试。两端实现同一 service boundary，避免 React 直接
+// 依赖 native invoke；新增代码是跨运行时边界和确定性模拟所必需的，不是对既有业务分支的复制。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19414, owner: "route-user-messages-to-mentioned-seat" },
+  { root: "src/services", budget: 19581, owner: "optimize-loop-engineering-workbench" },
 ]);
 
 const STATE_PACKAGES = new Set([

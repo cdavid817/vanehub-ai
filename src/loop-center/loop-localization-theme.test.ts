@@ -6,6 +6,8 @@ import { ucdThemes } from "../theme/theme-registry";
 import type {
   LoopEvidenceKind,
   LoopEvidenceStatus,
+  LoopReadinessCheckCode,
+  LoopReadinessRemediationTarget,
   LoopRunPhase,
   LoopRunStatus,
   LoopTerminalReason,
@@ -59,6 +61,10 @@ describe("Loop Center localization and themes", () => {
         .map((value) => `loops.evidence.kind.${value}`),
       ...exactValues<LoopEvidenceStatus>()(["pending", "passed", "failed", "blocked", "cancelled"] as const)
         .map((value) => `loops.evidence.status.${value}`),
+      ...exactValues<LoopReadinessCheckCode>()(["definition-enabled", "project-available", "branch-available", "worker-eligible", "verifier-eligible", "verification-valid", "path-scope-valid", "no-active-run"] as const)
+        .map((value) => `loops.preflight.check.${value}`),
+      ...exactValues<Exclude<LoopReadinessRemediationTarget, null>>()(["definition", "project", "branch", "worker", "verifier", "verification", "runs"] as const)
+        .map((value) => `loops.preflight.remediation.${value}`),
     ];
 
     for (const key of dynamicKeys) {

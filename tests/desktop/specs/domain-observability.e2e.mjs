@@ -19,10 +19,6 @@ const fixtureRoot = process.env.VANEHUB_APP_DATA_DIR
   ? join(dirname(process.env.VANEHUB_APP_DATA_DIR), "fixtures")
   : tmpdir();
 
-// Deliberately not 11434: smoke.e2e.mjs binds that port for local-endpoint discovery, and two
-// specs in one run must not race for it.
-const LOCAL_MODEL_PORT = 11533;
-const LOCAL_MODEL_BASE_URL = `http://127.0.0.1:${LOCAL_MODEL_PORT}/v1`;
 const LOCAL_MODEL_ID = "domain-sweep-local-model";
 const LOCAL_PROFILE_NAME = "Domain sweep local model";
 
@@ -583,8 +579,11 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
     });
     await new Promise((resolve, reject) => {
       server.once("error", reject);
-      server.listen(LOCAL_MODEL_PORT, "127.0.0.1", resolve);
+      server.listen(0, "127.0.0.1", resolve);
     });
+    const address = server.address();
+    assert.ok(address && typeof address !== "string", "the local model fixture did not bind a TCP port");
+    const localModelBaseUrl = `http://127.0.0.1:${address.port}/v1`;
 
     let profileId = null;
     let sessionId = null;
@@ -598,7 +597,7 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       ), {
         id: null,
         name: LOCAL_PROFILE_NAME,
-        baseUrl: LOCAL_MODEL_BASE_URL,
+        baseUrl: localModelBaseUrl,
         modelId: LOCAL_MODEL_ID,
         runtimeKind: "local",
         authenticationMode: "none",

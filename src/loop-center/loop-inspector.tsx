@@ -5,8 +5,7 @@ import { cn } from "../lib/utils";
 import { AgentRunOwnerStatus } from "../components/ui/agent-run-owner-status";
 import type { LoopInspectionTarget, LoopRun } from "../types/loop";
 import { LoopInspectionActions } from "./loop-inspection-actions";
-import { latestLoopOperationEvidence, useLoopElapsed } from "./loop-monitoring";
-import { LoopRunControls } from "./loop-run-controls";
+import { latestLoopOperationEvidence } from "./loop-monitoring";
 
 interface LoopInspectorProps {
   className?: string;
@@ -19,10 +18,8 @@ interface LoopInspectorProps {
 
 export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(function LoopInspector({ className, id, loading, onClose, onInspect, run }, ref) {
   const { i18n, t } = useTranslation();
-  const elapsed = useLoopElapsed(run);
   const operationEvidence = run ? latestLoopOperationEvidence(run) : null;
   const latestIteration = run?.iterations.at(-1) ?? null;
-  const latestDecision = latestIteration?.decisionReason ?? null;
   const inspectionSessionId = latestIteration?.workerSessionId ?? latestIteration?.verifierSessionId ?? null;
   return (
     <aside aria-label={t("loops.inspector.title")} className={cn("ucd-panel min-h-0 min-w-0 overflow-y-auto rounded-lg p-3", className)} id={id} ref={ref} tabIndex={-1}>
@@ -45,17 +42,11 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
         <div className="grid gap-5">
           <InspectorSection title={t("loops.inspector.run")}>
             <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
-            <Field label={t("loops.inspector.status")} value={t(`loops.status.${run.status}`)} />
-            <Field label={t("loops.inspector.phase")} value={t(`loops.phase.${run.phase}`)} />
-            <Field label={t("loops.monitor.elapsed")} value={elapsed} />
-            <Field label={t("loops.inspector.iteration")} value={`${run.currentIteration} / ${run.definitionSnapshot.limits.maxIterations}`} />
             <Field label={t("loops.monitor.operation")} value={run.activeOperationId && ["queued", "running"].includes(run.status) ? t("loops.operation.active") : operationEvidence ? t(`loops.evidence.status.${operationEvidence.status}`) : t("loops.operation.none")} />
             {run.activeOperationId || operationEvidence?.operationId ? <Field label={t("loops.monitor.operationId")} value={run.activeOperationId ?? operationEvidence?.operationId ?? ""} /> : null}
             {run.activeOperationId || operationEvidence?.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["logs"]} /> : null}
-            {latestDecision ? <Field label={t("loops.iterations.decision")} value={latestDecision} /> : null}
             {run.terminalReason ? <Field label={t("loops.inspector.reason")} value={t(`loops.reason.${run.terminalReason}`)} /> : null}
           </InspectorSection>
-          <LoopRunControls run={run} />
           <InspectorSection title={t("loops.inspector.limits")}>
             <Field label={t("loops.editor.field.stepTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.stepTimeoutSeconds })} />
             <Field label={t("loops.editor.field.totalTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.totalTimeoutSeconds })} />

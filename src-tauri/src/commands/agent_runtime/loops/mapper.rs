@@ -1,8 +1,39 @@
 use super::dto;
 use crate::contexts::agent_runtime::api::{
-    AgentRuntimeApplicationError, LoopDefinitionView, LoopLimits, LoopRunView,
-    LoopVerificationCommand, SaveLoopDefinitionRequest,
+    AgentRuntimeApplicationError, LoopDefinitionView, LoopLimits, LoopReadinessReportView,
+    LoopRunView, LoopVerificationCommand, SaveLoopDefinitionRequest,
 };
+use crate::contexts::workspaces::api::GitBranchReference;
+
+pub(crate) fn branch(value: GitBranchReference) -> dto::LoopBranchChoice {
+    dto::LoopBranchChoice {
+        name: value.name,
+        kind: value.kind.to_string(),
+        available: true,
+        simulated: false,
+    }
+}
+
+pub(crate) fn readiness(value: LoopReadinessReportView) -> dto::LoopReadinessReport {
+    dto::LoopReadinessReport {
+        definition_id: value.definition_id,
+        ready: value.ready,
+        simulated: false,
+        checks: value
+            .checks
+            .into_iter()
+            .map(|check| dto::LoopReadinessCheck {
+                code: check.code.as_str().to_string(),
+                category: check.category.as_str().to_string(),
+                status: if check.passed { "passed" } else { "blocked" }.to_string(),
+                blocking: true,
+                detail: check.detail,
+                remediation_target: check.remediation_target.map(str::to_string),
+            })
+            .collect(),
+        checked_at: value.checked_at,
+    }
+}
 
 pub(crate) fn save_request(
     input: dto::SaveLoopDefinitionInput,
@@ -150,5 +181,79 @@ pub(crate) fn run(value: LoopRunView) -> dto::LoopRun {
         started_at: value.started_at,
         updated_at: value.updated_at,
         completed_at: value.completed_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::error::CommandErrorCategory;
+    use crate::contexts::agent_runtime::domain::{LoopReadinessCategory, LoopReadinessCheckCode};
+
+    #[test]
+    fn branch_and_readiness_mappers_keep_stable_camel_case_transport_shapes() {
+        let branch = branch(GitBranchReference {
+            name: "origin/main".to_string(),
+            kind: "remote",
+        });
+        let report = readiness(LoopReadinessReportView {
+            definition_id: "loop-1".to_string(),
+            ready: false,
+            checks: vec![
+                crate::contexts::agent_runtime::api::LoopReadinessCheckView {
+                    code: LoopReadinessCheckCode::BranchAvailable,
+                    category: LoopReadinessCategory::Workspace,
+                    passed: false,
+                    detail: Some("missing".to_string()),
+                    remediation_target: Some("branch"),
+                },
+            ],
+            checked_at: "2026-08-21T00:00:00Z".to_string(),
+        });
+
+        assert_eq!(
+            serde_json::to_value(branch).expect("branch")["kind"],
+            "remote"
+        );
+        let value = serde_json::to_value(report).expect("readiness");
+        assert_eq!(value["definitionId"], "loop-1");
+        assert_eq!(value["checks"][0]["code"], "branch-available");
+        assert_eq!(value["checks"][0]["remediationTarget"], "branch");
+    }
+
+    #[test]
+    fn invalid_command_input_becomes_a_command_safe_validation_error() {
+        let error = save_request(dto::SaveLoopDefinitionInput {
+            name: "Loop".to_string(),
+            enabled: true,
+            project_path: "C:/repo".to_string(),
+            base_branch: "main".to_string(),
+            goal: "Goal".to_string(),
+            acceptance_criteria: vec!["Done".to_string()],
+            allowed_paths: vec!["src".to_string()],
+            protected_paths: vec![".git".to_string()],
+            worker_agent_id: "worker".to_string(),
+            verifier_agent_id: "verifier".to_string(),
+            verification_commands: vec![dto::LoopVerificationCommand {
+                id: "tests".to_string(),
+                program: " ".to_string(),
+                args: Vec::new(),
+                working_directory: None,
+                timeout_seconds: 0,
+                required: true,
+            }],
+            limits: dto::LoopLimits {
+                max_iterations: 3,
+                step_timeout_seconds: 60,
+                total_timeout_seconds: 600,
+                max_consecutive_runtime_errors: 2,
+                max_consecutive_no_progress: 2,
+            },
+            expected_version: None,
+        })
+        .expect_err("invalid command");
+
+        assert_eq!(error.category(), CommandErrorCategory::Validation);
+        assert!(error.message().starts_with("validation error:"));
     }
 }

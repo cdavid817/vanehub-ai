@@ -5,8 +5,9 @@ import { cn } from "../lib/utils";
 import type { LoopEvidence, LoopInspectionTarget, LoopIteration } from "../types/loop";
 import { LoopInspectionActions } from "./loop-inspection-actions";
 import { evidenceDetailNumber } from "./loop-monitoring";
+import { compareConsecutiveIterations } from "./loop-presentation";
 
-export function LoopIterationDetails({ iteration, onInspect, open }: { iteration: LoopIteration; onInspect?: (target: LoopInspectionTarget) => void; open: boolean }) {
+export function LoopIterationDetails({ iteration, onInspect, open, previousIteration }: { iteration: LoopIteration; onInspect?: (target: LoopInspectionTarget) => void; open: boolean; previousIteration: LoopIteration | null }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(open);
   const workerEvidence = iteration.evidence.find((evidence) => evidence.kind === "worker");
@@ -14,6 +15,8 @@ export function LoopIterationDetails({ iteration, onInspect, open }: { iteration
   const changedFiles = evidenceDetailNumber(workerEvidence, "changedFiles");
   const additions = evidenceDetailNumber(workerEvidence, "additions");
   const deletions = evidenceDetailNumber(workerEvidence, "deletions");
+  const comparison = previousIteration ? compareConsecutiveIterations(previousIteration, iteration) : null;
+  const recovery = iteration.evidence.filter((evidence) => evidence.kind === "recovery");
   return (
     <details className="group rounded-md border border-border/70 bg-background/30" onToggle={(event) => setExpanded(event.currentTarget.open)} open={expanded}>
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -26,6 +29,8 @@ export function LoopIterationDetails({ iteration, onInspect, open }: { iteration
         <span className="text-xs text-muted-foreground">{t(`loops.status.${iteration.status}`)}</span>
       </summary>
       <div className="grid gap-4 border-t border-border/60 p-3">
+        <DetailSection label={t("loops.iterations.outcome")}><p>{iteration.decisionReason ?? iteration.workerSummary ?? t(`loops.status.${iteration.status}`)}</p></DetailSection>
+        {comparison ? <DetailSection label={t("loops.iterations.comparison")}><p>{comparison.resolvedFailures.length ? t("loops.iterations.resolvedFailures", { checks: comparison.resolvedFailures.join(", ") }) : t("loops.iterations.noResolvedFailures")}</p><p>{comparison.newFailures.length ? t("loops.iterations.newFailures", { checks: comparison.newFailures.join(", ") }) : t("loops.iterations.noNewFailures")}</p>{comparison.changeDelta ? <p>{t("loops.iterations.changeDelta", { additions: comparison.changeDelta.additions, deletions: comparison.changeDelta.deletions, files: comparison.changeDelta.changedFiles })}</p> : <p className="text-muted-foreground">{t("loops.iterations.changeDeltaUnknown")}</p>}</DetailSection> : null}
         {iteration.workerSummary || iteration.workerSessionId ? <DetailSection label={t("loops.iterations.workerSummary")}><p>{iteration.workerSummary}</p><LoopInspectionActions onInspect={onInspect} sessionId={iteration.workerSessionId} /></DetailSection> : null}
         {changedFiles !== null || iteration.diffFingerprint ? <DetailSection label={t("loops.iterations.changes")}><p>{t("loops.iterations.diffSummary", { additions: additions ?? 0, deletions: deletions ?? 0, files: changedFiles ?? 0 })}</p>{iteration.diffFingerprint ? <code className="mt-1 block break-all text-[11px] text-muted-foreground">{iteration.diffFingerprint}</code> : null}<LoopInspectionActions onInspect={onInspect} sessionId={iteration.workerSessionId ?? iteration.verifierSessionId} surfaces={["changes", "files"]} /></DetailSection> : null}
         {checks.length > 0 ? <DetailSection label={t("loops.iterations.checks")}><div className="grid gap-2">{checks.map((evidence) => <EvidenceRow evidence={evidence} key={evidence.id} onInspect={onInspect} sessionId={iteration.workerSessionId ?? iteration.verifierSessionId} />)}</div></DetailSection> : null}
@@ -36,7 +41,8 @@ export function LoopIterationDetails({ iteration, onInspect, open }: { iteration
         </DetailSection> : null}
         {iteration.decisionReason ? <DetailSection label={t("loops.iterations.decision")}><p>{iteration.decisionReason}</p></DetailSection> : null}
         {iteration.userFeedback ? <DetailSection label={t("loops.iterations.feedback")}><p>{iteration.userFeedback}</p></DetailSection> : null}
-        <DetailSection label={t("loops.iterations.allEvidence")}><div className="grid gap-2">{iteration.evidence.map((evidence) => <EvidenceRow evidence={evidence} key={evidence.id} onInspect={onInspect} sessionId={evidence.kind === "verifier" ? iteration.verifierSessionId : iteration.workerSessionId ?? iteration.verifierSessionId} />)}{iteration.evidence.length === 0 ? <p className="text-muted-foreground">{t("loops.iterations.noEvidence")}</p> : null}</div></DetailSection>
+        {recovery.length ? <DetailSection label={t("loops.iterations.recovery")}>{recovery.map((evidence) => <p key={evidence.id}>{evidence.summary}</p>)}</DetailSection> : null}
+        <details className="border-t border-border/60 pt-3"><summary className="cursor-pointer text-[11px] font-semibold uppercase text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">{t("loops.iterations.allEvidence")}</summary><div className="mt-3 grid gap-2">{iteration.evidence.map((evidence) => <EvidenceRow evidence={evidence} key={evidence.id} onInspect={onInspect} sessionId={evidence.kind === "verifier" ? iteration.verifierSessionId : iteration.workerSessionId ?? iteration.verifierSessionId} />)}{iteration.evidence.length === 0 ? <p className="text-muted-foreground">{t("loops.iterations.noEvidence")}</p> : null}</div></details>
       </div>
     </details>
   );

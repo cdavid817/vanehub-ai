@@ -117,6 +117,27 @@ impl WorkspaceGitPort for FakeGit {
         Ok(self.root.clone())
     }
 
+    fn list_branches(
+        &self,
+        project_path: &str,
+        limit: usize,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("git:list-branches:{project_path}:{limit}"));
+        Ok(vec![
+            GitBranchReference {
+                name: "main".to_string(),
+                kind: "local",
+            },
+            GitBranchReference {
+                name: "origin/main".to_string(),
+                kind: "remote",
+            },
+        ])
+    }
+
     fn create_worktree(
         &self,
         project_path: &str,
@@ -419,6 +440,36 @@ fn invalid_project_path_stops_before_external_ports() {
             crate::contexts::workspaces::domain::WorkspaceDomainError::ProjectPathRequired
         ))
     );
+    assert!(calls.lock().expect("calls").is_empty());
+}
+
+#[test]
+fn branch_discovery_canonicalizes_validates_git_and_applies_a_bound() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service(calls.clone());
+
+    let branches = service
+        .list_git_branches("C:\\code\\app")
+        .expect("branches");
+
+    assert_eq!(branches.len(), 2);
+    assert_eq!(branches[0].name, "main");
+    assert_eq!(
+        *calls.lock().expect("calls"),
+        vec![
+            "filesystem:canonicalize:C:\\code\\app",
+            "git:inspect:C:\\code\\app",
+            "git:list-branches:C:\\code\\app:200",
+        ]
+    );
+}
+
+#[test]
+fn branch_discovery_rejects_an_invalid_project_before_calling_ports() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service(calls.clone());
+
+    assert!(service.list_git_branches(" ").is_err());
     assert!(calls.lock().expect("calls").is_empty());
 }
 
