@@ -2280,9 +2280,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // Raised again by +19 for the same change's recovery half: the gateway's two clearing methods,
     // which let a turn that failed to resume forget the thread so the seat is not stuck resuming a
     // dead id on every turn thereafter.
+    // Raised from 59,456 by +11 for `prevent-hook-bash-permission-blocks`: 3 lines inject the
+    // VaneHub-owned Claude Code scope marker, and 8 lines verify chat and terminal projections add
+    // it only for Claude Code across the complete managed-CLI policy matrix.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_456,
+        budget: 59_467,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

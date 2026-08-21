@@ -24,6 +24,8 @@ use std::time::Duration;
 /// sweep well before this fires; this is only a safety net against a request that never got a
 /// response through any channel at all.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(320);
+const MANAGED_SCOPE_ENV: &str = "VANEHUB_PERMISSION_HOOK_SCOPE";
+const MANAGED_SCOPE_VALUE: &str = "managed";
 
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +48,7 @@ fn main() {
 }
 
 enum Decision {
+    PassThrough,
     Allow,
     Deny(&'static str),
 }
@@ -86,6 +89,24 @@ fn run(timeout: Duration) -> Decision {
     let Some(request) = parse_hook_request(&input) else {
         return Decision::Deny("could not parse the tool-use request");
     };
+
+    let scope = std::env::var(MANAGED_SCOPE_ENV).ok();
+    run_request(&request, timeout, scope.as_deref())
+}
+
+fn run_request(request: &HookRequest, timeout: Duration, scope: Option<&str>) -> Decision {
+    run_request_with_discovery(request, timeout, scope, read_discovery)
+}
+
+fn run_request_with_discovery(
+    request: &HookRequest,
+    timeout: Duration,
+    scope: Option<&str>,
+    read_discovery: impl FnOnce() -> Option<Discovery>,
+) -> Decision {
+    if scope != Some(MANAGED_SCOPE_VALUE) {
+        return Decision::PassThrough;
+    }
 
     let discovery = read_discovery();
     // Which offline story applies if the request below yields nothing: discovery data that led
@@ -212,7 +233,15 @@ fn decide(response: Option<HttpResponse>, offline: OfflineKind, tool_name: &str)
 }
 
 fn print_hook_output(decision: &Decision) {
+    let Some(output) = hook_output(decision) else {
+        return;
+    };
+    println!("{output}");
+}
+
+fn hook_output(decision: &Decision) -> Option<serde_json::Value> {
     let (permission_decision, reason) = match decision {
+        Decision::PassThrough => return None,
         Decision::Allow => ("allow", None),
         Decision::Deny(reason) => ("deny", Some(*reason)),
     };
@@ -226,7 +255,7 @@ fn print_hook_output(decision: &Decision) {
         output["hookSpecificOutput"]["permissionDecisionReason"] =
             serde_json::Value::String(reason.to_string());
     }
-    println!("{output}");
+    Some(output)
 }
 
 #[cfg(test)]
@@ -252,6 +281,57 @@ mod tests {
         assert!(
             parse_hook_request("{}").is_none(),
             "missing required fields should fail to parse"
+        );
+    }
+
+    fn bash_request() -> HookRequest {
+        parse_hook_request(
+            r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"cwd":"/tmp"}"#,
+        )
+        .expect("valid hook request")
+    }
+
+    #[test]
+    fn unscoped_request_passes_through_without_reading_discovery() {
+        let decision =
+            run_request_with_discovery(&bash_request(), Duration::from_secs(1), None, || {
+                panic!("an unmanaged request must not read discovery data")
+            });
+
+        assert!(matches!(decision, Decision::PassThrough));
+        assert!(hook_output(&decision).is_none());
+    }
+
+    #[test]
+    fn unknown_scope_also_passes_through_without_a_permission_decision() {
+        let decision = run_request_with_discovery(
+            &bash_request(),
+            Duration::from_secs(1),
+            Some("unexpected"),
+            || panic!("an unknown scope must not read discovery data"),
+        );
+
+        assert!(matches!(decision, Decision::PassThrough));
+        assert!(hook_output(&decision).is_none());
+    }
+
+    #[test]
+    fn managed_scope_preserves_offline_bash_denial() {
+        let decision = run_request_with_discovery(
+            &bash_request(),
+            Duration::from_secs(1),
+            Some(MANAGED_SCOPE_VALUE),
+            || None,
+        );
+
+        assert!(matches!(decision, Decision::Deny(_)));
+        assert_eq!(
+            hook_output(&decision)
+                .and_then(|output| output["hookSpecificOutput"]["permissionDecision"]
+                    .as_str()
+                    .map(str::to_string))
+                .as_deref(),
+            Some("deny")
         );
     }
 
