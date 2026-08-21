@@ -88,6 +88,32 @@ describe("recovery adapter contract", () => {
     ]);
   });
 
+  it("recovers a stuck runtime identically in both adapters", async () => {
+    const session = seedWebRecoverySessionForTest("action_required");
+    const webResult = await webAgentClient.recoverSession(session.id);
+    invokeMock.mockResolvedValueOnce(webResult);
+
+    await expect(tauriAgentClient.recoverSession(session.id)).resolves.toEqual(webResult);
+    expect(webResult.lifecycleState).toBe("idle");
+    // Recovery restores a usable state; it never claims to have started anything.
+    expect(webResult.processStopped).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith("recover_session", { sessionId: session.id });
+
+    // Idempotent: a second run finds nothing left to release and still lands on idle.
+    await expect(webAgentClient.recoverSession(session.id)).resolves.toEqual({
+      cancelledMessageIds: [],
+      processStopped: false,
+      lifecycleState: "idle",
+    });
+  });
+
+  it("refuses to recover an archived session in the Web adapter", async () => {
+    const session = seedWebRecoverySessionForTest("action_required");
+    await webAgentClient.archiveSession(session.id);
+
+    await expect(webAgentClient.recoverSession(session.id)).rejects.toThrow(/[Aa]rchived/);
+  });
+
   it("rejects stale revisions in both adapters", async () => {
     const session = seedWebRecoverySessionForTest("action_required");
     const staleError = new Error("recovery revision conflict: current revision is 1");

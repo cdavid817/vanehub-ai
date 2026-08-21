@@ -29,6 +29,26 @@ test.describe("session recovery review", () => {
     await expect(page.getByPlaceholder("输入指令，下发任务给当前 Agent...")).toBeEnabled();
   });
 
+  test("unsticks a session runtime from the session list without switching sessions", async ({ page }) => {
+    await seedRecovery(page, "action_required");
+
+    // The runtime failure banner and the crash-recovery notice are independent surfaces and both
+    // apply here: one asks for an acknowledgement decision, the other offers a retry.
+    const banner = page.getByTestId("session-runtime-failure-notice");
+    await expect(banner).toBeVisible();
+    await expect(banner.getByRole("button", { name: "恢复会话" })).toBeEnabled();
+
+    const sessionCard = page.locator("[data-session-id]").filter({ hasText: "Recovered Web session" });
+    await sessionCard.click({ button: "right" });
+    // Recovery is idempotent, so it is offered for any live session rather than only for one that
+    // already looks broken — a user who suspects a stuck runtime should not have to prove it first.
+    const menu = page.locator("div.ucd-panel.fixed").filter({ hasText: "导出会话" });
+    await menu.getByRole("button", { name: "恢复会话" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "会话已恢复" })).toBeVisible();
+    await expect(banner).toHaveCount(0);
+  });
+
   test("keeps quarantined sessions inspectable and exportable while execution stays blocked", async ({ page }) => {
     await seedRecovery(page, "quarantined");
 

@@ -31,9 +31,10 @@ pub(crate) use super::application::{
     NativeToolPersistencePort, NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope,
     NativeToolResultStatus, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
     OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView, RecoveryRecord,
-    RecoveryStatus, RegisterApiAgentInput, ResizeAgentTerminalRequest, RunnerDescriptor,
-    RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
+    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView,
+    RecoverSessionResult, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
+    SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, ToolApprovalDecision,
@@ -839,6 +840,13 @@ impl AgentRuntimeApi {
         session_id: &str,
     ) -> Result<StopGenerationResult, AgentRuntimeApplicationError> {
         self.service.stop_generation(session_id)
+    }
+
+    pub(crate) fn recover_session(
+        &self,
+        session_id: &str,
+    ) -> Result<RecoverSessionResult, AgentRuntimeApplicationError> {
+        self.service.recover_session(session_id)
     }
 
     pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {

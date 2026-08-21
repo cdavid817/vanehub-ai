@@ -20,18 +20,19 @@ import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
 import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
-import { WorkspaceActivityBar } from "./workspace-activity-bar";
+import { workspaceActivityBarLabels, WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import type { SettingsPageId } from "../settings/settings-pages";
 import type { WorkspaceLocation } from "./workspace-route";
 import { seatsFromSession } from "../services/session-seats";
-import { SessionRecoveryNotice } from "../session-workspace/session-recovery-notice";
+import { SessionNotices } from "../session-workspace/session-notices";
+import { useSessionRuntimeRecovery } from "./use-session-runtime-recovery";
 import { useMediaQuery } from "../hooks/use-media-query";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
-const minSessionSidebarWidth = 220;
+const minSessionSidebarWidth = 232;
 const maxSessionSidebarWidth = 420;
-const defaultSessionSidebarWidth = 220;
+const defaultSessionSidebarWidth = 232;
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
@@ -80,6 +81,7 @@ export function MainLayout({
   const { t } = useTranslation();
   const { notify } = useNotifications();
   const narrowLayout = useMediaQuery("(max-width: 900px)");
+  const { recoverSession, recoveringSessionId } = useSessionRuntimeRecovery();
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(narrowLayout);
   const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
@@ -246,21 +248,8 @@ export function MainLayout({
         <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
           <WorkspaceActivityBar
             activeDestination={destination}
-            labels={{
-              navigation: t("layout.activityBar.label"),
-              sessions: t("layout.activityBar.sessions"),
-              expandSessions: t("layout.activityBar.expandSessions"),
-              collapseSessions: t("layout.activityBar.collapseSessions"),
-              loops: t("layout.activityBar.loops"),
-              scheduledTasks: t("layout.activityBar.scheduledTasks"),
-              todoBoard: t("layout.activityBar.todoBoard"),
-              goals: t("layout.activityBar.goals"),
-              evaluations: t("layout.activityBar.evaluations"),
-              missionControl: t("layout.activityBar.missionControl"),
-              settings: t("layout.activityBar.settings"),
-              help: t("layout.activityBar.help"),
-            }}
-            onHelp={() => onOpenSettings("about")}
+            labels={workspaceActivityBarLabels(t)}
+            onHelp={() => onOpenSettings("help")}
             onOpenSettings={onOpenSettings}
             onLoops={() => goTo({ destination: "loops" })}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
@@ -358,11 +347,14 @@ export function MainLayout({
                   onLoadEarlier={model.loadEarlier}
                   onOpenSettings={onOpenSettings}
                   recoveryNotice={!loopInspection ? (
-                    <SessionRecoveryNotice
+                    <SessionNotices
                       acknowledging={model.acknowledgingRecovery}
+                      messages={model.messages}
                       onAcknowledge={model.acknowledgeRecovery}
+                      onRecover={(target) => void recoverSession(target)}
+                      recovering={recoveringSessionId === model.activeSession?.id}
+                      recoverySummary={model.recoverySummary}
                       session={model.activeSession}
-                      summary={model.recoverySummary}
                     />
                   ) : null}
                   requestedTab={requestedWorkspaceTab}
@@ -461,7 +453,9 @@ export function MainLayout({
         onDismiss={() => setContextPanel(null)}
         onExport={model.exportSession}
         onPin={model.pinSession}
+        onRecover={(session) => void recoverSession(session)}
         onRename={model.renameSession}
+        recovering={recoveringSessionId !== null}
         value={contextPanel}
       />
       <CreateSessionDialog

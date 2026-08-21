@@ -31,6 +31,24 @@ interface WorkspaceActivityBarProps {
   sessionSidebarExpanded: boolean;
 }
 
+/** Every entry is icon-only, so each one needs a localized accessible name and tooltip. */
+export function workspaceActivityBarLabels(t: (key: string) => string): WorkspaceActivityBarLabels {
+  return {
+    navigation: t("layout.activityBar.label"),
+    sessions: t("layout.activityBar.sessions"),
+    expandSessions: t("layout.activityBar.expandSessions"),
+    collapseSessions: t("layout.activityBar.collapseSessions"),
+    loops: t("layout.activityBar.loops"),
+    scheduledTasks: t("layout.activityBar.scheduledTasks"),
+    todoBoard: t("layout.activityBar.todoBoard"),
+    goals: t("layout.activityBar.goals"),
+    evaluations: t("layout.activityBar.evaluations"),
+    missionControl: t("layout.activityBar.missionControl"),
+    settings: t("layout.activityBar.settings"),
+    help: t("layout.activityBar.help"),
+  };
+}
+
 const activityButtonClass =
   "ucd-interactive flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground outline-hidden focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 

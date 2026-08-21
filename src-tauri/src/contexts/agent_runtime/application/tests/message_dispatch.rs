@@ -501,6 +501,62 @@ fn im_completion_receiver_observes_persisted_completed_failed_and_cancelled_mess
 }
 
 #[test]
+fn recovery_releases_a_stuck_generation_and_leaves_the_session_idle() {
+    let world = test_world();
+    let service = service(world.clone());
+    let started = service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "this one gets stuck".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("start generation");
+    *world.streaming_message_ids.lock().expect("streaming ids") = vec![started.message.id.clone()];
+
+    let recovered = service.recover_session("session-1").expect("recover");
+
+    assert_eq!(recovered.lifecycle, AgentLifecycle::Idle);
+    assert!(recovered
+        .cancelled_message_ids
+        .contains(&started.message.id));
+    // Idle, not Starting: recovery restores a session that accepts the next message, it does not
+    // spend the user's budget relaunching an Agent they did not ask for.
+    assert_eq!(
+        world
+            .lifecycle_updates
+            .lock()
+            .expect("lifecycle updates")
+            .last(),
+        Some(&AgentLifecycle::Idle)
+    );
+}
+
+#[test]
+fn recovery_is_idempotent_and_refuses_archived_sessions() {
+    let world = test_world();
+    let service = service(world.clone());
+
+    let quiet = service.recover_session("session-1").expect("recover quiet");
+    assert!(quiet.cancelled_message_ids.is_empty());
+    assert!(!quiet.process_stopped);
+    assert_eq!(quiet.lifecycle, AgentLifecycle::Idle);
+
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .get_mut("session-1")
+        .expect("seeded session")
+        .archived = true;
+    assert!(matches!(
+        service.recover_session("session-1"),
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+}
+
+#[test]
 fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
     let world = test_world();
     let (service, telemetry) = service_with_telemetry(world.clone());

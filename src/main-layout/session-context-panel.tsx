@@ -1,18 +1,25 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { PlugZap, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 
 export type ContextPanelState = { session: Session; mode: "menu" | "rename" | "delete"; draftTitle: string; position?: { x: number; y: number } };
 
-export function SessionContextPanel({ categories, onArchive, onAssignCategory, onChange, onCreateCategory, onDelete, onDismiss, onExport, onPin, onRename, value }: {
+export function SessionContextPanel({ categories, onArchive, onAssignCategory, onChange, onCreateCategory, onDelete, onDismiss, onExport, onPin, onRecover, onRename, recovering = false, value }: {
   categories: SessionCategory[];
   onArchive: (session: Session) => void; onChange: (value: ContextPanelState) => void; onDelete: (session: Session) => void;
   onAssignCategory: (session: Session, categoryId: string | null) => void;
   onCreateCategory: (session: Session) => void;
   onDismiss: () => void;
   onExport: (session: Session, format: SessionExportFormat) => void;
-  onPin: (session: Session) => void; onRename: (session: Session, title: string) => void; value: ContextPanelState | null;
+  onPin: (session: Session) => void;
+  /** Clears a stuck runtime. Offered unconditionally for live sessions because recovery is
+   *  idempotent, so it is safe on a session that only looks stuck. */
+  onRecover: (session: Session) => void;
+  onRename: (session: Session, title: string) => void;
+  /** A recovery is already in flight; a second request would race the first. */
+  recovering?: boolean;
+  value: ContextPanelState | null;
 }) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -55,6 +62,17 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
     <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => onChange({ ...value, mode: "rename" })} type="button">{t("layout.rename")}</button>
     <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onPin(value.session); onDismiss(); }} type="button">{value.session.pinned ? t("layout.unpin") : t("layout.pinned")}</button>
     <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onArchive(value.session); onDismiss(); }} type="button">{value.session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />{t("layout.restore")}</> : t("layout.archive")}</button>
+    {value.session.archived ? null : (
+      <button
+        className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+        disabled={recovering}
+        onClick={() => { onRecover(value.session); onDismiss(); }}
+        type="button"
+      >
+        <PlugZap aria-hidden="true" className="h-3.5 w-3.5" />
+        {t("sessionRuntime.recover.action")}
+      </button>
+    )}
     <div className="my-1 border-t border-border" />
     <p className="px-2 py-1 text-xs text-muted-foreground">{t("layout.moveToCategory")}</p>
     <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onAssignCategory(value.session, null); onDismiss(); }} type="button">{t("layout.uncategorized")}</button>

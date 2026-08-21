@@ -207,7 +207,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   const card = (session: Session) => <SessionCard active={activeSessionId === session.id} batchMode={batchMode} checked={selectedIds.has(session.id)} draggable={!batchMode && presentation === "category"} key={session.id} onContextMenu={(event) => onContextMenu(event, session)} onDragStart={(event) => event.dataTransfer.setData("text/plain", session.id)} onSelect={() => onSelect(session)} onToggleChecked={(checked) => toggleSelected(session, checked)} session={session} />;
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col bg-[hsl(var(--panel-muted))] p-3 max-[640px]:max-h-64" data-testid="session-sidebar" onContextMenu={(event) => event.preventDefault()}>
+    <aside className="flex h-full min-h-0 w-full flex-col bg-[hsl(var(--panel-muted))] py-3 pl-3 pr-1.5 max-[640px]:max-h-64" data-testid="session-sidebar" onContextMenu={(event) => event.preventDefault()}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
         <div className="flex items-center gap-1">

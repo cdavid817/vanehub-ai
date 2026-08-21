@@ -1088,6 +1088,15 @@ pub(crate) struct StopGenerationResult {
     pub(crate) process_stopped: bool,
 }
 
+/// What recovery actually released, so the UI can say "nothing was stuck" instead of implying it
+/// repaired something. `lifecycle` is the state the session is left in, not the state it was in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecoverSessionResult {
+    pub(crate) cancelled_message_ids: Vec<String>,
+    pub(crate) process_stopped: bool,
+    pub(crate) lifecycle: AgentLifecycle,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RegisterApiAgentInput {
     pub(crate) display_name: String,

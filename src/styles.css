@@ -290,11 +290,15 @@ body.floating-assistant-surface {
 }
 
 .ucd-workspace-grid {
-  grid-template-columns: var(--session-sidebar-width, 220px) minmax(0, 1fr) 300px;
+  /* Reserved inside the sidebar column, not between columns: the resize handle used to hang off
+     the column edge at a negative offset, which put it — and anything the sidebar overflowed —
+     under the conversation column's opaque background. */
+  --session-sidebar-gutter: 10px;
+  grid-template-columns: var(--session-sidebar-width, 232px) minmax(0, 1fr) 300px;
 }
 
 .ucd-workspace-grid[data-info-collapsed="true"] {
-  grid-template-columns: var(--session-sidebar-width, 220px) minmax(0, 1fr) 0;
+  grid-template-columns: var(--session-sidebar-width, 232px) minmax(0, 1fr) 0;
 }
 
 .ucd-workspace-grid[data-session-collapsed="true"] {
@@ -305,13 +309,29 @@ body.floating-assistant-surface {
   grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
+/* Raised so a menu opened inside the sidebar draws above the conversation column, which comes
+   later in the DOM and paints an opaque background. */
+.ucd-session-sidebar-shell {
+  z-index: 10;
+  padding-right: var(--session-sidebar-gutter, 10px);
+  background: hsl(var(--panel-muted));
+}
+
+/* A border-box element cannot shrink below its own padding and border, so leaving the gutter on
+   kept the collapsed sidebar 11px wide inside a zero-width column. The gutter only separates a
+   sidebar that is showing, so it goes away with it; the 1px border stays, which is the width the
+   collapsed shell is expected to keep. */
+.ucd-workspace-grid[data-session-collapsed="true"] .ucd-session-sidebar-shell {
+  padding-right: 0;
+}
+
 .ucd-session-sidebar-resize {
   position: absolute;
   top: 10px;
-  right: -5px;
+  right: 0;
   z-index: 20;
   height: calc(100% - 20px);
-  width: 10px;
+  width: var(--session-sidebar-gutter, 10px);
   cursor: col-resize;
   border: 0;
   border-radius: 999px;
@@ -344,7 +364,7 @@ body.floating-assistant-surface {
 @media (max-width: 900px) {
   .ucd-workspace-grid,
   .ucd-workspace-grid[data-info-collapsed="true"] {
-    grid-template-columns: minmax(220px, min(var(--session-sidebar-width, 220px), 42vw)) minmax(0, 1fr);
+    grid-template-columns: minmax(232px, min(var(--session-sidebar-width, 232px), 42vw)) minmax(0, 1fr);
   }
 
   .ucd-workspace-grid[data-session-collapsed="true"],
@@ -411,6 +431,12 @@ body.floating-assistant-surface {
 .ucd-shell-terminal {
   background: var(--terminal-background);
   border-radius: 6px;
+  /* xterm sizes its canvas in whole rows, so the leftover fraction overhangs the host's content
+     box (measured: 4.25px into a 6px corner arc). Chromium clips that overhang to the radius on
+     its own; WebKitGTK — what the desktop client runs — does not, and the opaque canvas filled
+     the two bottom corners square while the top two stayed round. Clipping here makes both
+     engines agree instead of relying on either one's behaviour. */
+  overflow: hidden;
   /* The canvas stays dark in every style for the reason above. In the light style that put an
      unframed black rectangle against white chrome; a border and inset shadow close the seam
      without touching the palette the TUIs depend on. */

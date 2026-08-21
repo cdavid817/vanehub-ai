@@ -47,6 +47,7 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::resolve_agent_question::resolve_agent_question,
         crate::commands::agent_runtime::resolve_plan_exit::resolve_plan_exit,
         crate::commands::agent_runtime::stop_generation::stop_generation,
+        crate::commands::agent_runtime::recover_session::recover_session,
         crate::commands::agent_runtime::open_agent_terminal::open_agent_terminal,
         crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,
         crate::commands::agent_runtime::resize_agent_terminal::resize_agent_terminal,
