@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Fragment } from "react";
 import "../../i18n";
 import type { MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
@@ -12,7 +13,9 @@ const { readSessionFile } = vi.hoisted(() => ({ readSessionFile: vi.fn() }));
 vi.mock("../../services/runtime-agent-client", () => ({ agentService: { readSessionFile } }));
 vi.mock("../measured-virtual-list", () => ({
   MeasuredVirtualList: <T,>({ items, renderItem, testId }: { items: readonly T[]; renderItem: (item: T, index: number) => unknown; testId?: string }) => (
-    <div data-testid={testId}>{items.map((item, index) => renderItem(item, index) as never)}</div>
+    <div data-testid={testId}>
+      {items.map((item, index) => <Fragment key={index}>{renderItem(item, index) as never}</Fragment>)}
+    </div>
   ),
 }));
 

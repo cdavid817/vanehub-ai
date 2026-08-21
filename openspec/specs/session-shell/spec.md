@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines desktop PTY and Web-simulated shell behavior, lifecycle controls, cleanup, and diagnostic boundaries for a session workspace.
+
 ## Requirements
+
 ### Requirement: Desktop PTY shell
 The Shell tab SHALL provide one real PTY-backed interactive shell for the mounted selected-session panel in the desktop runtime, using a local process for local workspaces and an authenticated SSH PTY channel for bound remote workspaces.
 
@@ -122,3 +124,13 @@ The Shell SHALL keep raw interactive input out of persistence while allowing con
 - **THEN** raw input and output SHALL NOT be copied into persistent diagnostic logs
 - **AND** eligible remote output MAY be persisted only through the bounded Terminal output service
 
+### Requirement: Shell natural-exit reclamation
+The desktop shell runtime MUST remove and reap a managed PTY child after the child exits naturally, and frontend event subscriptions MUST remain cleanup-safe while registration is pending.
+
+#### Scenario: Shell exits without an explicit disconnect
+- **WHEN** a local PTY reaches EOF or reports process exit before the user requests disconnect
+- **THEN** the runtime SHALL remove the matching shell generation from its live registry and wait for the child without affecting a replacement shell
+
+#### Scenario: Shell view unmounts during subscription
+- **WHEN** a Shell view is disposed before asynchronous event subscription completes
+- **THEN** the completed subscription SHALL be immediately removed and SHALL NOT deliver events to the disposed terminal
