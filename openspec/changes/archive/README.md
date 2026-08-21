@@ -226,6 +226,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-21 | integrate-plan-mode-into-onepiece | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, main-layout-ui, onepiece-native-agent, plan-execution-runtime, plan-management, session-chat-configuration, unified-todo-board | `openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/` |
 | 2026-08-21 | make-guide-images-resolve-in-both-layouts | user-guide-documentation | `openspec/changes/archive/2026-08-21-make-guide-images-resolve-in-both-layouts/` |
 | 2026-08-21 | optimize-loop-engineering-workbench | loop-management-ui | `openspec/changes/archive/2026-08-21-optimize-loop-engineering-workbench/` |
+| 2026-08-21 | prevent-hook-bash-permission-blocks | claude-code-permission-hook, cli-agent-permission-launch-flags | `openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/` |
 | 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

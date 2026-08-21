@@ -3291,6 +3291,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-21",
+                         "changeName":  "prevent-hook-bash-permission-blocks",
+                         "path":  "openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "claude-code-permission-hook",
+                                              "cli-agent-permission-launch-flags"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
                          "changeName":  "rebuild-project-documentation-topology",
                          "path":  "openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/",
                          "artifacts":  [
