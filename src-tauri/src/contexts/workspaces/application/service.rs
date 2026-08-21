@@ -1,7 +1,7 @@
 use super::{
-    CreatedWorktree, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree,
-    ProjectDirectorySelectionPort, WorkspaceApplicationError, WorkspaceClockPort,
-    WorkspaceFilesystemPort, WorkspaceGitPort, WorkspaceHistoryRepository,
+    CreatedWorktree, KnownProject, KnownRemoteWorkspace, ProjectDirectorySelectionPort,
+    WorkspaceApplicationError, WorkspaceClockPort, WorkspaceFilesystemPort, WorkspaceGitPort,
+    WorkspaceHistoryRepository,
 };
 use crate::contexts::workspaces::domain::{
     GitReference, ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
@@ -122,37 +122,6 @@ impl WorkspaceApplicationService {
             path: target,
             name: name.as_str().to_string(),
             branch,
-        })
-    }
-
-    pub(crate) fn create_guarded_plan_worktree(
-        &self,
-        project_path: &str,
-        name: &str,
-        base_ref: &str,
-    ) -> Result<PreparedPlanWorktree, WorkspaceApplicationError> {
-        let requested = ProjectPath::parse(project_path.to_string())?;
-        let name = WorktreeName::parse(name.to_string())?;
-        let base_ref = GitReference::parse(base_ref.to_string())?;
-        let canonical = self.filesystem.canonicalize_project(&requested)?;
-        let root = self.git.repository_root(&canonical)?.ok_or_else(|| {
-            WorkspaceApplicationError::Validation(
-                "Plan execution requires a local Git repository.".to_string(),
-            )
-        })?;
-        let base_oid = self.git.resolve_commit_oid(&root, base_ref.as_str())?;
-        let target = self.filesystem.sibling_worktree_target(&root, &name)?;
-        let branch = name.branch_name();
-        self.git
-            .validate_loop_worktree(&root, &target, &branch, base_ref.as_str())?;
-        self.git
-            .create_loop_worktree(&root, &target, &branch, base_ref.as_str())?;
-        Ok(PreparedPlanWorktree {
-            project_path: root,
-            path: target,
-            name: name.as_str().to_string(),
-            branch,
-            base_oid,
         })
     }
 }

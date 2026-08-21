@@ -16,17 +16,15 @@ import { RunnerSelector } from "./runner-selector";
 import { useRunnerSelection } from "./use-runner-selection";
 
 const NO_NAVIGATION: SlashCommandNavigation = {
-  openAssociatedPlan: null, openDestination: () => undefined, openSessionTab: () => undefined,
+  openDestination: () => undefined, openSessionTab: () => undefined,
 };
 
 export function ApiSessionComposer({
   model,
   navigation,
-  onOpenPlan,
 }: {
   model: MainLayoutModel;
   navigation?: SlashCommandNavigation;
-  onOpenPlan?: () => void;
 }) {
   const { t } = useTranslation();
   const { notify } = useNotifications();
@@ -35,10 +33,6 @@ export function ApiSessionComposer({
   const participantMentions = seatMentionOptions(model.activeSession, model.agents, roles);
   const [pendingLiteralSend, setPendingLiteralSend] = useState(false);
   const runner = useRunnerSelection(model.activeSession, model.agents);
-  // A session with no plan run has nothing for `/plan` to open, and offering a command that does
-  // nothing is worse than not offering it — so the handler is withheld, not just left unused.
-  const openPlan = model.chatConfig.associatedPlanRun ? onOpenPlan : undefined;
-
   const slash = useSlashCommands({
     session: model.activeSession,
     config: model.chatConfig.config,
@@ -61,7 +55,7 @@ export function ApiSessionComposer({
         };
       },
     },
-    navigate: navigation ?? { ...NO_NAVIGATION, openAssociatedPlan: openPlan ?? null },
+    navigate: navigation ?? NO_NAVIGATION,
     // Same channel `use-main-layout-model` reports chat failures through, so a failure a command
     // absorbed to show its own message still reaches the unified log rather than only the screen.
     onError: (source, reason) => {
@@ -123,7 +117,6 @@ export function ApiSessionComposer({
       onConfigStreamingChange={model.chatConfig.setStreaming}
       onConfigThinkingChange={model.chatConfig.setThinking}
       onDismissSlashCommandOutput={slash.dismissOutput}
-      onOpenPlan={openPlan}
       onRemoveFileReference={model.removeFileReference}
       onSelectSlashCommand={(name) => model.setDraft(slash.completeDraft(name))}
       onStop={model.stop}

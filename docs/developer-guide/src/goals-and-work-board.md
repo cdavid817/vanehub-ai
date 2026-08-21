@@ -2,8 +2,8 @@
 
 `goals` and `work_board` are two independent contexts, but they solve opposite sides of the same problem: **execution items are scattered everywhere — how do they get tracked in one place**.
 
-- **Goals (`goals`)** — top-down: you declare a goal first, then attach plans, loops, work items, and sessions to it, and its acceptance readiness is **derived** from their completion.
-- **Work board (`work_board`)** — bottom-up: existing sessions, plans, and scheduled tasks are **reconciled** into board cards, giving you one view to prioritize across.
+- **Goals (`goals`)** — top-down: you declare a goal first, then attach loops, work items, and sessions to it, and its acceptance readiness is **derived** from their completion.
+- **Work board (`work_board`)** — bottom-up: existing sessions and scheduled tasks are **reconciled** into board cards, giving you one view to prioritize across.
 
 ## Goals
 
@@ -34,7 +34,7 @@ stateDiagram-v2
 
 > Acceptance needs the derived readiness the caller computed from the goal's children; the aggregate cannot see them itself.
 
-**The aggregate root cannot see its own children.** Readiness is computed by the caller walking the linked objects and passed in; when `awaiting_acceptance` is false, the result is `AcceptanceNotReady` outright. This keeps the aggregate root from holding references to plans or loops, and keeps the derivation logic from scattering into domain objects.
+**The aggregate root cannot see its own children.** Readiness is computed by the caller walking the linked objects and passed in; when `awaiting_acceptance` is false, the result is `AcceptanceNotReady` outright. This keeps the aggregate root from holding references to loops or work items, and keeps the derivation logic from scattering into domain objects.
 
 ### Five link kinds, only three participate in derivation
 
@@ -50,13 +50,13 @@ But `participates_in_derivation()` **excludes `Session` and `Run` from derivatio
 
 ## The work board
 
-### Five stages, five priorities, four sources
+### Five stages, five priorities, two sources
 
 | Dimension | Values |
 | --- | --- |
 | Stage `stage` | `inbox`, `planned`, `in_progress`, `review`, `done` |
 | Priority `priority` | `none`, `low`, `medium`, `high`, `urgent` |
-| Source `source_kind` | `session`, `plan`, `plan_run`, `scheduled_task` |
+| Source `source_kind` | `session`, `scheduled_task` |
 
 All three are **allowlist-validated** — a value outside the set is rejected outright, rather than stored and left to explode later.
 
@@ -67,7 +67,6 @@ All three are **allowlist-validated** — a value outside the set is rejected ou
 ```mermaid
 flowchart LR
   SE["sessions"] --> RC["reconcile"]
-  PL["task_orchestration<br/>Plan / plan run"] --> RC
   ST["scheduled_task"] --> RC
   RC --> WI["WorkItem<br/>+ WorkItemSourceLink"]
   WI --> BOARD["Board view<br/>columned by stage, ordered by rank"]
@@ -94,8 +93,8 @@ They can stack: a work item can appear on the board and also be attached to a go
 
 ## Relationship to other contexts
 
-- Plans and plan runs are owned by `task_orchestration`; see [Loop and Plan runtimes](loop-and-plan-runtime.md).
 - Scheduled tasks and sessions are owned by `sessions`.
+- Historical goal links to retired Plans remain display-only and do not participate in new linking or Work Board reconciliation.
 - The user-facing surfaces are covered in the user guide's chapters on goal management and the todo board.
 
 ## Where the design lives

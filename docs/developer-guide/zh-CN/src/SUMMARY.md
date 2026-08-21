@@ -20,7 +20,7 @@
 - [扩展工具上下文](extended-tool-contexts.md)
 - [CLI 委派与 ChangeSet 管线](cli-delegation.md)
 - [多 Agent 群聊](multi-agent-group-chat.md)
-- [Loop 与 Plan 运行时](loop-and-plan-runtime.md)
+- [Loop 运行时与会话 Plan 模式](loop-and-plan-runtime.md)
 - [目标与任务看板](goals-and-work-board.md)
 - [会话恢复](session-recovery.md)
 

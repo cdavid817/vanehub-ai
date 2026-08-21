@@ -25,7 +25,7 @@ describe("web Mission Control adapter", () => {
       expect(first.active.items[0]).not.toHaveProperty("facets");
 
       const detail = await webAgentClient.getMissionControlRun(first.active.items[0].runId);
-      expect(detail.facets).toHaveLength(10);
+      expect(detail.facets).toHaveLength(9);
     });
   }
 
@@ -53,6 +53,6 @@ describe("web Mission Control adapter", () => {
     await expect(webAgentClient.getMissionControlOverview({ cursor: "../secret" })).rejects.toThrow("invalid mission control cursor");
     const overview = await webAgentClient.getMissionControlOverview({ states: ["completed"] });
     const run = overview.recent.items[0];
-    await expect(webAgentClient.performMissionControlAction({ runId: run.runId, version: run.version - 1, action: "verify" })).rejects.toThrow("conflict");
+    await expect(webAgentClient.performMissionControlAction({ runId: run.runId, version: run.version - 1, action: "cancel" })).rejects.toThrow("conflict");
   });
 });

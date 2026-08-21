@@ -48,10 +48,12 @@ pub(crate) enum EvidenceSourceEnvelope {
         tool_count: u32,
         approval_count: u32,
     },
-    PlanVerification {
+    #[serde(alias = "plan_verification")]
+    RunVerification {
         schema_version: u16,
         common: EnvelopeCommon,
-        plan_run_id: String,
+        #[serde(alias = "planRunId")]
+        run_id: String,
         verifier: VerificationClass,
         outcome: VerificationOutcome,
         passed_count: u32,
@@ -92,7 +94,7 @@ impl EvidenceSourceEnvelope {
             Self::NativeExecution { schema_version, .. }
             | Self::SkillLoading { schema_version, .. }
             | Self::DelegatedUtility { schema_version, .. }
-            | Self::PlanVerification { schema_version, .. }
+            | Self::RunVerification { schema_version, .. }
             | Self::ManagedCli { schema_version, .. }
             | Self::InteractiveCli { schema_version, .. }
             | Self::ExplicitFeedback { schema_version, .. } => *schema_version,
@@ -104,7 +106,7 @@ impl EvidenceSourceEnvelope {
             Self::NativeExecution { .. } => SourceFamily::NativeExecution,
             Self::SkillLoading { .. } => SourceFamily::SkillLoading,
             Self::DelegatedUtility { .. } => SourceFamily::DelegatedUtility,
-            Self::PlanVerification { .. } => SourceFamily::PlanVerification,
+            Self::RunVerification { .. } => SourceFamily::RunVerification,
             Self::ManagedCli { .. } => SourceFamily::ManagedCli,
             Self::InteractiveCli { .. } => SourceFamily::InteractiveCli,
             Self::ExplicitFeedback { .. } => SourceFamily::ExplicitFeedback,
@@ -147,12 +149,12 @@ impl EvidenceSourceEnvelope {
                 validate_identifier(utility_skill_id, "utility_skill_id")?;
                 validate_identifier(revision, "revision")
             }
-            Self::PlanVerification {
-                plan_run_id,
+            Self::RunVerification {
+                run_id,
                 predecessor_attempt_id,
                 ..
             } => {
-                validate_identifier(plan_run_id, "plan_run_id")?;
+                validate_identifier(run_id, "run_id")?;
                 validate_optional_identifier(predecessor_attempt_id, "predecessor_attempt_id")
             }
             Self::ManagedCli {
@@ -177,7 +179,7 @@ impl EvidenceSourceEnvelope {
             Self::NativeExecution { common, .. }
             | Self::SkillLoading { common, .. }
             | Self::DelegatedUtility { common, .. }
-            | Self::PlanVerification { common, .. }
+            | Self::RunVerification { common, .. }
             | Self::ManagedCli { common, .. }
             | Self::InteractiveCli { common, .. }
             | Self::ExplicitFeedback { common, .. } => common,

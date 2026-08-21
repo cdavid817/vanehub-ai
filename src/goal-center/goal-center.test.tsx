@@ -111,7 +111,7 @@ describe("GoalCenter", () => {
     fireEvent.change(await screen.findByLabelText("目标 ID"), { target: { value: " loop-9 " } });
     fireEvent.click(screen.getByRole("button", { name: "关联" }));
 
-    await waitFor(() => expect(mocks.link).toHaveBeenCalledWith("goal-1", "plan", "loop-9"));
+    await waitFor(() => expect(mocks.link).toHaveBeenCalledWith("goal-1", "loop", "loop-9"));
   });
 
   it("prompts for a selection before any goal is opened", async () => {

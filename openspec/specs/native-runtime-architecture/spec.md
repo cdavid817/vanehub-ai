@@ -443,11 +443,11 @@ The desktop runtime SHALL run one-shot session recovery reconciliation in Rust a
 - **AND** it SHALL NOT classify sessions as orphaned merely because the runtime adapter has not yet been attached
 
 #### Scenario: Reconcile before dependent runtimes
-- **WHEN** startup contains ordinary sessions owned or referenced by Plan or Loop execution
-- **THEN** ordinary session evidence reconciliation SHALL complete before Plan and Loop project their recovery outcomes
+- **WHEN** startup contains ordinary sessions owned or referenced by Loop execution
+- **THEN** ordinary session evidence reconciliation SHALL complete before Loop projects its recovery outcomes
 
 #### Scenario: Start recurring maintenance after recovery
-- **WHEN** startup recovery and dependent Plan/Loop projection have completed or safely deferred retryable storage work
+- **WHEN** startup recovery and dependent Loop projection have completed or safely deferred retryable storage work
 - **THEN** Rust SHALL start automatic archival and retention schedules without combining those mutations with recovery decisions
 
 #### Scenario: Hourly automatic archival schedule

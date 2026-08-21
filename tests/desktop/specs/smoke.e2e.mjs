@@ -283,7 +283,8 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
     await settingsRoot.waitForExist();
     assert.equal(await root.getAttribute("data-vanehub-fatal-error"), null);
 
-    await globalThis.browser.tauri.execute(({ core }) => core.invoke("exit_application"));
+    // The desktop harness owns process shutdown. Stopping the application here tears down the
+    // embedded WebDriver before WDIO can delete its session on Linux.
     await rm(repository, { recursive: true, force: true });
   });
 });

@@ -5,7 +5,7 @@ import { agentService } from "../services/runtime-agent-client";
 import type { MissionControlAction, MissionControlFacet, MissionControlNavigationTarget, MissionControlOverview, MissionControlRunDetail, MissionControlRunSummary, MissionControlSort } from "../types/mission-control";
 
 const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
-const facets = ["overview", "plan", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
+const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
 
 export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionControlNavigationTarget) => void }) {
   const { t } = useTranslation();

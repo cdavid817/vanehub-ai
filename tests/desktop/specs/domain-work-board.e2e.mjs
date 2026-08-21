@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
-
-import { readOnePieceApiKey } from "../helpers/onepiece-credential.mjs";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
@@ -14,11 +11,9 @@ const blocked = [];
 // itself the second time this spec runs against the same data directory.
 const RUN = process.env.VANEHUB_TEST_RUN_ID ?? String(Date.now());
 
-// A path string, never a directory on disk. The board stores `project_path` verbatim and the
-// draft-side Plan commands only check that it is non-empty
-// (src-tauri/src/contexts/task_orchestration/domain/model.rs:564-578) -- nothing on these code
-// paths opens it. Rooted under the run's fixture directory anyway, so it cannot name a real
-// repository even by accident.
+// A path string, never a directory on disk. The board stores `project_path` verbatim and nothing
+// on these code paths opens it. Rooted under the run's fixture directory anyway, so it cannot
+// name a real repository even by accident.
 const PROJECT_PATH = join(
   process.env.VANEHUB_APP_DATA_DIR ? dirname(process.env.VANEHUB_APP_DATA_DIR) : tmpdir(),
   "fixtures",
@@ -30,7 +25,6 @@ const PROJECT_PATH = join(
 // that fails halfway still has to hand the run back clean.
 const createdWorkItems = new Set();
 const createdGoals = new Set();
-const createdPlans = new Set();
 
 /**
  * Runs a command that is expected to be rejected and returns the native error message.
@@ -38,9 +32,8 @@ const createdPlans = new Set();
  * The rejection is caught inside the WebView rather than at the WDIO boundary. The direct-eval
  * bridge collapses any thrown value to `(e && e.message) || String(e)` and re-raises it as a
  * transport failure on this side, which makes "the command rejected as designed" indistinguishable
- * from "the bridge broke". Work board and Goals reject with `Result<_, String>` and the Plan
- * commands with `CommandError`, which serialises to a bare string
- * (src-tauri/src/commands/error.rs:89-96) -- both arrive here as a plain string.
+ * from "the bridge broke". Work board and Goals reject with `Result<_, String>`, which arrives
+ * here as a plain string.
  */
 const rejectionOf = (command, args) => invoke(
   ({ core }, name, payload) => core.invoke(name, payload).then(
@@ -84,79 +77,6 @@ const getGoal = (goalId) => invoke(
   ({ core }, id) => core.invoke("get_goal", { goalId: id }),
   goalId,
 );
-
-/**
- * A Plan draft that satisfies both gates the draft side applies.
- *
- * `validate_plan_graph` (contexts/task_orchestration/domain/graph.rs:33-53) wants 1-10 SubTasks
- * with 1-3 acceptance criteria each and an acyclic dependency set; `validate_plan_execution_policy`
- * (domain/model.rs:456-545) wants every criterion bound to evidence and at least one *required*
- * validation command per SubTask plus one for the Plan. `maxAttemptsPerSubtask` is deliberately 2
- * rather than the serde default of 3 (domain/model.rs:387-404) so a mistyped key would show up as
- * a round-trip mismatch instead of silently defaulting.
- */
-const planDraft = (planId, versionId, version, goal) => ({
-  id: planId,
-  versionId,
-  version,
-  goal,
-  projectPath: PROJECT_PATH,
-  baseRef: "main",
-  plannerProfileId: null,
-  discovery: { status: "complete", limitations: [] },
-  executionPolicy: {
-    maxAttemptsPerSubtask: 2,
-    repairEligibleClasses: ["verification_failed"],
-    finalValidationCommands: [{
-      id: "final-check",
-      program: "node",
-      args: ["--version"],
-      workingDirectory: null,
-      timeoutSeconds: 300,
-      required: true,
-    }],
-  },
-  subtasks: [
-    {
-      id: "sweep-task-a",
-      title: "Analyse",
-      description: "Analyse the sweep fixture.",
-      acceptanceCriteria: ["The analysis is recorded"],
-      // `kind` is a snake_case enum: CriterionEvidenceKind (domain/model.rs:334-339).
-      criterionEvidence: [{ criterionIndex: 0, kind: "automated", commandId: "verify-a" }],
-      ordinal: 0,
-      assignedRole: "worker",
-      limits: { tokenBudget: 1000, toolCallLimit: 10, timeoutSeconds: 300 },
-      validationCommands: [{
-        id: "verify-a",
-        program: "node",
-        args: ["--version"],
-        workingDirectory: null,
-        timeoutSeconds: 300,
-        required: true,
-      }],
-    },
-    {
-      id: "sweep-task-b",
-      title: "Verify",
-      description: "Verify the sweep fixture.",
-      acceptanceCriteria: ["The verification is reviewed"],
-      criterionEvidence: [{ criterionIndex: 0, kind: "manual", commandId: null }],
-      ordinal: 1,
-      assignedRole: "worker",
-      limits: { tokenBudget: null, toolCallLimit: null, timeoutSeconds: null },
-      validationCommands: [{
-        id: "verify-b",
-        program: "node",
-        args: ["--version"],
-        workingDirectory: null,
-        timeoutSeconds: 300,
-        required: true,
-      }],
-    },
-  ],
-  dependencies: [{ predecessorId: "sweep-task-a", successorId: "sweep-task-b" }],
-});
 
 globalThis.describe("VaneHub AI desktop orchestration domains", () => {
   globalThis.before(async () => {
@@ -219,27 +139,27 @@ globalThis.describe("VaneHub AI desktop orchestration domains", () => {
     // (contexts/work_board/models.rs:71-78). `sourceKind` and `relation` are checked against the
     // SOURCES/RELATIONS lists in contexts/work_board/api.rs:13-14.
     //
-    // A deliberately absent plan run: every real source in this database is already claimed by the
-    // card `reconcile` (contexts/work_board/infrastructure.rs:119-131) minted for it, and the link
-    // table's primary key is the source alone. An unresolvable source also exercises the projection
+    // A deliberately absent session: every real source in this database may already be claimed by
+    // another card, and the link table's primary key is the source alone. An unresolvable source
+    // also exercises the projection
     // branch that reports a vanished source as unavailable rather than dropping the link
     // (contexts/work_board/infrastructure.rs:302-305).
     const sourceId = `desktop-sweep-missing-run-${RUN}`;
     const linked = await invoke(({ core }, input) => core.invoke("link_work_item_source", { input }), {
       workItemId: first.id,
-      sourceKind: "plan_run",
+      sourceKind: "session",
       sourceId,
       relation: "execution",
     });
     const source = linked.sources.find((entry) => entry.sourceId === sourceId);
     assert.ok(source, "the source link was not persisted on the work item");
-    assert.equal(source.sourceKind, "plan_run");
+    assert.equal(source.sourceKind, "session");
     assert.equal(source.relation, "execution");
     assert.equal(source.available, false);
     assert.equal(source.status, "unavailable");
 
     const duplicate = await rejectionOf("link_work_item_source", {
-      input: { workItemId: second.id, sourceKind: "plan_run", sourceId, relation: "supporting" },
+      input: { workItemId: second.id, sourceKind: "session", sourceId, relation: "supporting" },
     });
     assert.match(
       duplicate ?? "",
@@ -415,207 +335,12 @@ globalThis.describe("VaneHub AI desktop orchestration domains", () => {
     assert.equal(remaining.find((entry) => entry.id === goal.id), undefined, "deletion did not persist");
   });
 
-  globalThis.it("validates, versions and deletes a Plan draft", async () => {
-    // This case must stay after the work board cases and must never call `list_work_items`:
-    // `reconcile` (contexts/work_board/infrastructure.rs:165-192) mints a board card for every
-    // row in `plans`, and a card minted for a draft deleted moments later is a leak the next
-    // spec inherits.
-    const planId = `desktop-sweep-plan-${RUN}`;
-    const first = planDraft(planId, `${planId}-v1`, 1, "Sweep the draft-side Plan commands");
-
-    // task_orchestration/plans.rs:8 -- `input: PlanDraft`, the same DTO `save_plan_draft` takes.
-    // A valid graph resolves with nothing; the command returns `Result<(), CommandError>`.
-    assert.equal(
-      await invoke(({ core }, input) => core.invoke("validate_plan_draft", { input }), first),
-      null,
-      "a valid Plan draft was rejected",
-    );
-    const cyclic = await rejectionOf("validate_plan_draft", {
-      input: {
-        ...first,
-        dependencies: [{ predecessorId: "sweep-task-a", successorId: "sweep-task-a" }],
-      },
-    });
-    assert.match(cyclic ?? "", /cannot depend on itself/, "a self-dependency validated");
-
-    // task_orchestration/save_plan_draft.rs:6 -- `input: PlanDraft`, which is `PlanVersion`
-    // (contexts/task_orchestration/domain/model.rs:438-454 and the alias at :561).
-    const saved = await invoke(({ core }, input) => core.invoke("save_plan_draft", { input }), first);
-    createdPlans.add(planId);
-    // Equality against the object that was sent, not a field spot-check: the fields carrying
-    // `#[serde(default)]` (`discovery`, `executionPolicy`, `criterionEvidence`) absorb a mistyped
-    // key silently, and only a whole-shape comparison notices.
-    assert.deepEqual(saved, first, "save_plan_draft did not echo the draft it was given");
-
-    // task_orchestration/get_plan_draft.rs:6 -- `plan_id: String`, exposed as `planId`.
-    const fetched = await invoke(
-      ({ core }, id) => core.invoke("get_plan_draft", { planId: id }),
-      planId,
-    );
-    assert.deepEqual(fetched, first, "the stored draft did not survive a database round trip");
-
-    // A second version needs its own `versionId`: `save_draft` deletes and reinserts the row with
-    // the id it is handed (infrastructure/repository.rs:101, :766-777), so reusing one replaces the
-    // earlier version instead of adding to it.
-    const second = planDraft(planId, `${planId}-v2`, 2, "Sweep the draft-side Plan commands, revised");
-    await invoke(({ core }, input) => core.invoke("save_plan_draft", { input }), second);
-    assert.deepEqual(
-      await invoke(({ core }, id) => core.invoke("get_plan_draft", { planId: id }), planId),
-      second,
-      "the current version did not advance to the newer draft",
-    );
-
-    // task_orchestration/plans.rs:16 -- `plan_id`, newest version first.
-    const versions = await invoke(
-      ({ core }, id) => core.invoke("list_plan_versions", { planId: id }),
-      planId,
-    );
-    assert.deepEqual(versions.map((entry) => entry.version), [2, 1]);
-    assert.deepEqual(versions[0], second);
-    assert.deepEqual(versions[1], first);
-
-    // Saving behind the current version is a conflict, not a silent rollback
-    // (infrastructure/repository.rs:85-88, mapped at commands/error.rs:286-289).
-    const stale = await rejectionOf("save_plan_draft", {
-      input: planDraft(planId, `${planId}-v1-stale`, 1, "A stale revision"),
-    });
-    assert.match(stale ?? "", /Plan state changed/, "a stale Plan version overwrote a newer one");
-
-    // work_board/commands.rs:70 -- `list_plan_summaries` lives in the work board module because it
-    // is what the board reads to project Plan cards (contexts/work_board/models.rs:80-91).
-    const summaries = await invoke(({ core }) => core.invoke("list_plan_summaries"));
-    const summary = summaries.find((entry) => entry.id === planId);
-    assert.ok(summary, "the saved Plan is missing from the summary projection");
-    assert.equal(summary.status, "draft");
-    assert.equal(summary.goal, second.goal, "the summary showed a stale version's goal");
-    assert.equal(summary.projectPath, PROJECT_PATH);
-    assert.equal(summary.latestRunId, null, "an unapproved draft reported a run");
-
-    // task_orchestration/plans.rs:24 -- deletion is scoped to plans still in `draft`
-    // (infrastructure/repository.rs:175-187).
-    await invoke(({ core }, id) => core.invoke("delete_plan_draft", { planId: id }), planId);
-    createdPlans.delete(planId);
-    assert.equal(
-      await invoke(({ core }, id) => core.invoke("get_plan_draft", { planId: id }), planId),
-      null,
-      "a deleted Plan draft is still readable",
-    );
-    assert.deepEqual(
-      await invoke(({ core }, id) => core.invoke("list_plan_versions", { planId: id }), planId),
-      [],
-      "the deleted Plan left its versions behind",
-    );
-    const gone = await invoke(({ core }) => core.invoke("list_plan_summaries"));
-    assert.equal(gone.find((entry) => entry.id === planId), undefined, "deletion did not persist");
-    const twice = await rejectionOf("delete_plan_draft", { planId });
-    assert.match(twice ?? "", /Plan state changed/, "deleting an absent Plan reported success");
-  });
-
-  globalThis.it("generates a Plan draft from the planner over the live provider", async function generateDraft() {
-    // `generate_plan_draft` is the one draft-side command that is not a pure database operation:
-    // it builds a planner prompt and runs a real OnePiece turn, so it needs an active provider
-    // profile and bills a generation. A host without a key reports BLOCKED rather than failing.
-    const apiKey = readOnePieceApiKey();
-    if (!apiKey) {
-      blocked.push("generate_plan_draft: set VANEHUB_ONEPIECE_API_KEY or VANEHUB_ONEPIECE_PROFILE_ID");
-      this.skip();
-    }
-
-    const profiles = await invoke(({ core }, input) => core.invoke("save_onepiece_provider_profile", { input }), {
-      id: null,
-      name: `Plan planner ${RUN}`,
-      providerId: "deepseek",
-      endpointType: "openai-chat-completions",
-      modelId: "deepseek-v4-flash",
-      apiKey,
-    });
-    const profile = profiles.profiles.find((entry) => entry.name === `Plan planner ${RUN}`);
-
-    try {
-      // A real directory, unlike `PROJECT_PATH`, which every other case in this file uses as an
-      // opaque string because the draft-side commands only check it is non-empty. The planner is
-      // the exception: it canonicalizes the path
-      // (workspaces/infrastructure/filesystem.rs:39-44) and answers "Project unavailable" for one
-      // that is not on disk.
-      const plannerProject = await mkdtemp(join(tmpdir(), "vanehub-planner-"));
-      // `generate_plan_draft` is synchronous: it runs the whole planner turn inline rather than
-      // returning an operation to poll, so this one `execute` call has to outlast a model round
-      // trip. WebDriver's script timeout defaults to thirty seconds and the turn has been measured
-      // either side of that on this host, so it is raised for this call and put back afterwards --
-      // leaving it raised would blunt every other spec's detection of a genuine hang.
-      await globalThis.browser.setTimeout({ script: 180_000 });
-      let draft;
-      try {
-        draft = await invoke(({ core }, input) => core.invoke("generate_plan_draft", { input }), {
-          planId: null,
-          version: 1,
-          // Deliberately small and concrete. The assertion is that the planner returns a
-          // structured draft this side can persist, not that the model decomposed a hard problem
-          // well -- the latter is not a property a test can hold a provider to.
-          goal: "Add a CHANGELOG.md file with a single Unreleased heading.",
-          projectPath: plannerProject,
-          baseRef: "main",
-          availableTools: ["read_file", "write_file"],
-        });
-      } catch (error) {
-        // Reported rather than failed: a turn that runs past even the raised ceiling is the
-        // provider being slow, which is not a defect this suite can hold it to.
-        if (/timed out/i.test(String(error?.message ?? error))) {
-          blocked.push("generate_plan_draft: the planner turn ran past 180s on this host");
-          this.skip();
-        }
-        throw error;
-      } finally {
-        await globalThis.browser.setTimeout({ script: 30_000 });
-      }
-
-      assert.ok(draft, "the planner returned no draft");
-      // `PlanDraft` is an alias of `PlanVersion` (domain/model.rs:561), whose identifier is `id`;
-      // `planId` is only the *argument* name the read command takes.
-      assert.ok(draft.id, "the generated draft carried no plan id");
-      createdPlans.add(draft.id);
-      assert.ok(Array.isArray(draft.subtasks), "the generated draft carried no subtask list");
-      assert.ok(draft.subtasks.length > 0, "the planner produced a draft with no subtasks at all");
-      // Every subtask has to be addressable and ordered, because the run side schedules them by
-      // exactly these two fields; a draft that generated but could not be run would otherwise pass.
-      for (const subtask of draft.subtasks) {
-        assert.ok(subtask.id, `a generated subtask carried no id: ${JSON.stringify(subtask)}`);
-        assert.ok(subtask.title, `subtask ${subtask.id} carried no title`);
-      }
-      const ids = draft.subtasks.map((subtask) => subtask.id);
-      assert.equal(new Set(ids).size, ids.length, "the planner produced duplicate subtask ids");
-
-      // The generated draft has to survive the same read path the Plan centre opens it through --
-      // generating into a shape the reader cannot load is the failure worth catching here.
-      const reloaded = await invoke(
-        ({ core }, planId) => core.invoke("get_plan_draft", { planId }),
-        draft.id,
-      );
-      assert.equal(reloaded.id, draft.id, "the generated draft did not read back");
-      assert.equal(
-        reloaded.subtasks.length,
-        draft.subtasks.length,
-        "the reloaded draft lost subtasks the planner produced",
-      );
-    } finally {
-      if (profile?.id) {
-        await invoke(({ core }, profileId) => core.invoke("delete_onepiece_provider_profile", {
-          profileId,
-        }), profile.id).catch(() => {});
-      }
-    }
-  });
-
   globalThis.after(async () => {
-    // Best effort, in dependency order: Goals first (their links point at the cards), then Plans,
-    // then the cards themselves. Every call is allowed to fail -- a case that already removed its
-    // own fixture must not turn a passing file into a failing one.
+    // Best effort, in dependency order: Goals first because their links point at the cards. Every
+    // call is allowed to fail -- a case that already removed its own fixture must not turn a
+    // passing file into a failing one.
     for (const goalId of createdGoals) {
       await invoke(({ core }, id) => core.invoke("delete_goal", { goalId: id }), goalId).catch(() => {});
-    }
-    for (const planId of createdPlans) {
-      await invoke(({ core }, id) => core.invoke("delete_plan_draft", { planId: id }), planId)
-        .catch(() => {});
     }
     for (const workItemId of createdWorkItems) {
       // Archiving first because deletion refuses a live card (contexts/work_board/api.rs:173-184).

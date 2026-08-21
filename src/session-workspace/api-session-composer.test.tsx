@@ -21,7 +21,7 @@ function model(overrides: Record<string, unknown> = {}) {
     chatConfig: {
       availableAgents: [], availableModes: ["inherit"], availableModels: [], availableReasoning: ["low"],
       config: { agentId: "onepiece", interactionMode: "api", executionMode: "inherit", streaming: true, thinking: false, longContext: false },
-      associatedPlanRun: null, changeAgent: vi.fn(), changeModel: vi.fn(), changeProvider: vi.fn(),
+      changeAgent: vi.fn(), changeModel: vi.fn(), changeProvider: vi.fn(),
       setLongContext: vi.fn(), setReasoningDepth: vi.fn(), setSessionExecutionMode: vi.fn(),
       setStreaming: vi.fn(), setThinking: vi.fn(),
     },

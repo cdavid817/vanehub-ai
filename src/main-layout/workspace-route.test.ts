@@ -40,6 +40,7 @@ describe("workspace route", () => {
 
   it("falls back to sessions for an unknown destination rather than rendering nothing", () => {
     expect(parseWorkspaceLocation("/workspace/nope")).toEqual(defaultWorkspaceLocation);
+    expect(parseWorkspaceLocation("/workspace/plans")).toEqual(defaultWorkspaceLocation);
     expect(parseWorkspaceLocation("/workspace")).toEqual(defaultWorkspaceLocation);
     expect(parseWorkspaceLocation("/settings")).toEqual(defaultWorkspaceLocation);
   });

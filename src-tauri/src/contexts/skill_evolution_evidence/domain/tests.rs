@@ -74,10 +74,10 @@ fn envelope_fixtures() -> Vec<Value> {
             "approvalCount": 1
         }),
         json!({
-            "sourceKind": "plan_verification",
+            "sourceKind": "run_verification",
             "schemaVersion": 1,
             "common": common("native"),
-            "planRunId": "plan-run-1",
+            "runId": "plan-run-1",
             "verifier": "test",
             "outcome": "passed",
             "passedCount": 4,
@@ -135,7 +135,7 @@ fn keeps_v1_domain_enum_wire_values_stable() {
         (SourceFamily::NativeExecution, "native_execution"),
         (SourceFamily::SkillLoading, "skill_loading"),
         (SourceFamily::DelegatedUtility, "delegated_utility"),
-        (SourceFamily::PlanVerification, "plan_verification"),
+        (SourceFamily::RunVerification, "run_verification"),
         (SourceFamily::ManagedCli, "managed_cli"),
         (SourceFamily::InteractiveCli, "interactive_cli"),
         (SourceFamily::ExplicitFeedback, "explicit_feedback"),
@@ -279,7 +279,7 @@ fn keeps_v1_domain_enum_wire_values_stable() {
         (VerificationClass::Security, "security"),
         (VerificationClass::Specification, "specification"),
         (VerificationClass::Acceptance, "acceptance"),
-        (VerificationClass::Plan, "plan"),
+        (VerificationClass::Loop, "loop"),
     ] {
         assert_round_trip(value, expected);
     }
@@ -309,6 +309,27 @@ fn round_trips_every_registered_v1_envelope() {
             fixture
         );
     }
+}
+
+#[test]
+fn legacy_plan_verification_aliases_deserialize_to_run_verification() {
+    let mut fixture = envelope_fixtures()
+        .into_iter()
+        .find(|value| value["sourceKind"] == "run_verification")
+        .expect("run verification fixture");
+    fixture["sourceKind"] = json!("plan_verification");
+    fixture["planRunId"] = fixture["runId"].take();
+    fixture
+        .as_object_mut()
+        .expect("fixture object")
+        .remove("runId");
+
+    let envelope: EvidenceSourceEnvelope =
+        serde_json::from_value(fixture).expect("legacy aliases deserialize");
+    let serialized = serde_json::to_value(envelope).expect("canonical serialization");
+    assert_eq!(serialized["sourceKind"], "run_verification");
+    assert_eq!(serialized["runId"], "plan-run-1");
+    assert!(serialized.get("planRunId").is_none());
 }
 
 #[test]

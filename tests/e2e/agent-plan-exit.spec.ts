@@ -48,6 +48,17 @@ async function requestPlanExit(page: Page, title: string) {
 test.describe("agent plan exit request", () => {
   test.describe.configure({ timeout: 120_000 });
 
+  test("keeps Plan mode inside the OnePiece session composer", async ({ page }) => {
+    await createOnePieceChat(page, "会话栏计划模式");
+
+    const mode = page.getByRole("button", { name: /继承|计划 · 只读|Agent · 可写/ });
+    await mode.click();
+    await page.getByRole("menuitemradio", { name: /计划 · 只读/ }).click();
+    await expect(mode).toHaveAttribute("title", "运行模式：计划 · 只读");
+
+    await expect(page.getByRole("button", { name: "Plan 执行" })).toHaveCount(0);
+  });
+
   // Both tools block as `awaiting_input`, and the card is chosen by tool name. Rendering the
   // question card here would parse no options and show no controls at all, leaving the request
   // unanswerable — which unit and type checks would both have called green.

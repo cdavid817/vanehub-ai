@@ -150,7 +150,7 @@ fn extract_verification(
     envelope: &EvidenceSourceEnvelope,
     _: Option<&SanitizationResult>,
 ) -> Vec<SignalDraft> {
-    let EvidenceSourceEnvelope::PlanVerification {
+    let EvidenceSourceEnvelope::RunVerification {
         verifier,
         outcome,
         passed_count,
@@ -186,7 +186,7 @@ fn extract_retry_recovery(
     envelope: &EvidenceSourceEnvelope,
     _: Option<&SanitizationResult>,
 ) -> Vec<SignalDraft> {
-    let EvidenceSourceEnvelope::PlanVerification {
+    let EvidenceSourceEnvelope::RunVerification {
         outcome,
         predecessor_attempt_id: Some(predecessor),
         ..

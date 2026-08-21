@@ -86,7 +86,7 @@ Connection credentials are handed to the operating system's keychain; the contex
 
 Remote isn't a full projection of local — two limitations come from the implementation, not from an oversight:
 
-- **Remote doesn't support Git worktrees** — it can only point at a path that already exists on the remote host. As a result, [Loop and Plan runtimes](loop-and-plan-runtime.md), which depend on worktrees, don't apply to remote workspaces either.
+- **Remote doesn't support Git worktrees** — it can only point at a path that already exists on the remote host. As a result, the durable [Loop runtime](loop-and-plan-runtime.md), which depends on worktrees, doesn't apply to remote workspaces either. Session Plan mode remains a read-only conversation policy and is not a worktree runtime.
 - **The local PTY ownership model doesn't extend to remote as-is** — a remote session takes its own runtime path.
 
 ## Relationship to other contexts

@@ -1,7 +1,6 @@
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentMessageSource,
-    AgentMessageTerminalOutcome, AgentRuntimeApi, InteractionMode, OrchestrationCorrelation,
-    OrchestrationExecutionProfile, SendMessageRequest,
+    AgentMessageTerminalOutcome, AgentRuntimeApi, InteractionMode, SendMessageRequest,
 };
 use crate::contexts::execution_observability::application::AgentExecutionEvidence;
 use crate::contexts::sessions::api::{
@@ -74,44 +73,23 @@ impl NativeEvaluationAgentAdapter {
         let started_at = Instant::now();
         let started = self
             .agents
-            .send_orchestration_message_with_completion(
-                SendMessageRequest {
-                    source: AgentMessageSource::Desktop,
-                    session_id: session_id.clone(),
-                    content: request.prompt.clone(),
-                    configuration: AgentChatConfiguration {
-                        agent_id: request.agent_id.clone(),
-                        interaction_mode: mode,
-                        execution_mode: "execute".to_string(),
-                        provider_id: request.provider_id.clone(),
-                        model_id: request.model_id.clone(),
-                        reasoning_depth: None,
-                        streaming: true,
-                        thinking: false,
-                        long_context: false,
-                    },
-                    file_references: Vec::<AgentFileReference>::new(),
+            .send_evaluation_message_with_completion(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.clone(),
+                content: request.prompt.clone(),
+                configuration: AgentChatConfiguration {
+                    agent_id: request.agent_id.clone(),
+                    interaction_mode: mode,
+                    execution_mode: "execute".to_string(),
+                    provider_id: request.provider_id.clone(),
+                    model_id: request.model_id.clone(),
+                    reasoning_depth: None,
+                    streaming: true,
+                    thinking: false,
+                    long_context: false,
                 },
-                OrchestrationExecutionProfile {
-                    bounded_root: Some(request.workspace.clone()),
-                    tool_mode: crate::contexts::agent_runtime::api::ExecutionToolMode::Standard,
-                    permitted_tools: vec![
-                        "shell".into(),
-                        "file".into(),
-                        "grep".into(),
-                        "glob".into(),
-                        "edit".into(),
-                    ],
-                    tool_call_limit: None,
-                    token_budget: None,
-                    timeout_seconds: Some(timeout_seconds),
-                    correlation: OrchestrationCorrelation {
-                        plan_run_id: Some(request.canonical_run_id.clone()),
-                        subtask_run_id: None,
-                        attempt_id: Some(request.attempt_id.clone()),
-                    },
-                },
-            )
+                file_references: Vec::<AgentFileReference>::new(),
+            })
             .map_err(|error| error.to_string())?;
         let correlation = self
             .agents

@@ -234,7 +234,6 @@ impl MissionControlService {
             .collect();
         let facets = [
             "overview",
-            "plan",
             "timeline",
             "tools",
             "files",
@@ -285,21 +284,11 @@ pub(crate) fn project(run: AgentRun) -> MissionControlRunSummary {
     ) {
         actions.push("resume".into());
     }
-    if run.owner.owner_type == "plan_run"
-        && matches!(run.state, RunState::Failed | RunState::Stuck)
-        && run.retry_count < run.max_retries
-    {
-        actions.push("retry".into());
-    }
     if run.state == RunState::WaitingApproval {
         actions.push("approval".into());
     }
     if review.is_some() {
         actions.push("review".into());
-    }
-    if run.owner.owner_type == "plan_run" && matches!(run.state, RunState::Failed | RunState::Stuck)
-    {
-        actions.push("verify".into());
     }
     let navigation = review
         .map(|link| MissionControlNavigationTarget {

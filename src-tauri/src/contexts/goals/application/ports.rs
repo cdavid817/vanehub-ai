@@ -5,8 +5,8 @@ use super::super::domain::{Goal, GoalLink, GoalLinkTarget};
 pub(crate) enum LinkProgress {
     /// The child reached a state it cannot leave on its own.
     Terminal,
-    /// The child is still in play, including a child parked at its own
-    /// awaiting-acceptance state and a plan run sitting at a retryable failure.
+    /// The child is still in play, including a Loop parked at its own
+    /// awaiting-acceptance state.
     Active,
     /// The child was deleted, or its status could not be read. It is dropped
     /// from the denominator rather than blocking the goal forever.
