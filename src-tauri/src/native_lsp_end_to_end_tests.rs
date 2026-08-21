@@ -143,7 +143,7 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
         .expect("desktop LSP shutdown");
     wait_for_empty(&api).await;
 
-    let lifecycle = std::fs::read_to_string(&fixture.lifecycle).expect("fixture lifecycle");
+    let lifecycle = wait_for_lifecycle_events(&fixture.lifecycle, 3).await;
     assert!(
         lifecycle
             .lines()
@@ -260,6 +260,26 @@ async fn wait_for_empty(api: &CodeIntelligenceApi) {
         if Instant::now() >= deadline {
             panic!("LSP processes were not cleaned up; last observed: {last_observed}");
         }
+        tokio::time::sleep(PROCESS_STATE_POLL_INTERVAL).await;
+    }
+}
+
+async fn wait_for_lifecycle_events(path: &Path, expected_count: usize) -> String {
+    let deadline = Instant::now() + PROCESS_STATE_WAIT_TIMEOUT;
+    loop {
+        let lifecycle = std::fs::read_to_string(path).unwrap_or_default();
+        let shutdown_count = lifecycle
+            .lines()
+            .filter(|event| *event == "shutdown")
+            .count();
+        let exit_count = lifecycle.lines().filter(|event| *event == "exit").count();
+        if shutdown_count >= expected_count && exit_count >= expected_count {
+            return lifecycle;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "LSP lifecycle events did not settle; shutdown={shutdown_count}, exit={exit_count}"
+        );
         tokio::time::sleep(PROCESS_STATE_POLL_INTERVAL).await;
     }
 }
