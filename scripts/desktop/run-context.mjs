@@ -49,8 +49,18 @@ export async function createRunContext(repoRoot, options = {}) {
   const runRoot = await mkdtemp(path.join(options.tempRoot ?? os.tmpdir(), "vanehub-desktop-e2e-"));
   const dataDir = path.join(runRoot, "data");
   const fixtureDir = path.join(runRoot, "fixtures");
+  // CLI global configuration (`~/.claude/settings.json` and friends) is normal application state
+  // too: without its own isolated home, a spec that assigns claude-code a policy template writes
+  // the permission hook into the user's real settings, where it outlives the test app and blocks
+  // every later tool call against a dead approval server.
+  const cliConfigHome = path.join(runRoot, "cli-home");
   const resultDir = path.join(repoRoot, "test-results", "desktop", runId);
-  await Promise.all([mkdir(dataDir), mkdir(fixtureDir), mkdir(resultDir, { recursive: true })]);
+  await Promise.all([
+    mkdir(dataDir),
+    mkdir(fixtureDir),
+    mkdir(cliConfigHome),
+    mkdir(resultDir, { recursive: true }),
+  ]);
   const canonicalRoot = await realpath(runRoot);
   const canonicalData = await realpath(dataDir);
   validateIsolatedDataPath({
@@ -66,6 +76,7 @@ export async function createRunContext(repoRoot, options = {}) {
     resultDir,
     environment: {
       VANEHUB_APP_DATA_DIR: canonicalData,
+      VANEHUB_CLI_CONFIG_HOME: cliConfigHome,
       VANEHUB_TEST_RUN_ID: runId,
       VANEHUB_DESKTOP_RESULT_DIR: resultDir,
     },
