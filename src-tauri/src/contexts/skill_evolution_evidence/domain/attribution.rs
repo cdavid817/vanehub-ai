@@ -142,7 +142,7 @@ pub(crate) fn attribute_evidence(envelope: &EvidenceSourceEnvelope) -> Attributi
             &common.occurred_at,
         ),
         EvidenceSourceEnvelope::NativeExecution { common, .. }
-        | EvidenceSourceEnvelope::PlanVerification { common, .. }
+        | EvidenceSourceEnvelope::RunVerification { common, .. }
         | EvidenceSourceEnvelope::ExplicitFeedback { common, .. } => {
             verified_from_observations(&common.observed_skill_revisions)
         }

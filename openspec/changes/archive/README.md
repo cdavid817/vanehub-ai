@@ -223,6 +223,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-21 | extract-web-client-state-modules | - | `openspec/changes/archive/2026-08-21-extract-web-client-state-modules/` |
 | 2026-08-21 | fix-guide-link-targets | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-fix-guide-link-targets/` |
 | 2026-08-21 | harden-runtime-lifecycle-and-boundaries | agent-execution-observability, agent-terminal-runtime, native-runtime-architecture, runtime-performance-governance, session-shell, skill-evolution-evidence | `openspec/changes/archive/2026-08-21-harden-runtime-lifecycle-and-boundaries/` |
+| 2026-08-21 | integrate-plan-mode-into-onepiece | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, main-layout-ui, onepiece-native-agent, plan-execution-runtime, plan-management, session-chat-configuration, unified-todo-board | `openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/` |
 | 2026-08-21 | make-guide-images-resolve-in-both-layouts | user-guide-documentation | `openspec/changes/archive/2026-08-21-make-guide-images-resolve-in-both-layouts/` |
 | 2026-08-21 | optimize-loop-engineering-workbench | loop-management-ui | `openspec/changes/archive/2026-08-21-optimize-loop-engineering-workbench/` |
 | 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |

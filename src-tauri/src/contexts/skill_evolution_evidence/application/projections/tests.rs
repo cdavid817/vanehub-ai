@@ -84,9 +84,9 @@ fn all_runtime_families_project_only_registered_metadata() {
         tool_count: 3,
         approval_count: 1,
     });
-    projector.verification(PlanVerificationFact {
+    projector.verification(RunVerificationFact {
         common: common("verification"),
-        plan_run_id: "plan-1".to_string(),
+        run_id: "run-1".to_string(),
         verifier: VerificationClass::Test,
         outcome: VerificationOutcome::Passed,
         passed_count: 8,

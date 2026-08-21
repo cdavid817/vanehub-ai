@@ -16,9 +16,7 @@ export type SlashCommandDestination = WorkspaceDestination;
  * Facts a command needs for its availability decision that do not live on the session row.
  * Passing them explicitly is what keeps `appliesTo` a pure function of its arguments.
  */
-export interface CommandCapabilities {
-  hasAssociatedPlan: boolean;
-}
+export type CommandCapabilities = object;
 
 /**
  * Commands emit translation keys rather than finished strings so their unit tests stay free of
@@ -40,8 +38,6 @@ export type CommandOutcome =
   | { kind: "output"; output: CommandOutput };
 
 export interface SlashCommandNavigation {
-  /** Null when the session has no associated plan run, which makes `/plan` inapplicable. */
-  openAssociatedPlan: (() => void) | null;
   openDestination: (destination: SlashCommandDestination) => void;
   openSessionTab: (tab: SessionTabId) => void;
 }

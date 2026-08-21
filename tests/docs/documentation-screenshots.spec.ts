@@ -316,21 +316,6 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     return dialog;
   },
 
-  "plan-center": async (page, locale) => {
-    await visit(page, "/");
-    await page
-      .getByRole("button", { name: text(locale, "Plan 执行", "Plan execution"), exact: true })
-      .click();
-    const shell = page.locator("main").first();
-    await expect(shell).toBeVisible();
-    // The Plan Center's own h1, distinct from the top bar's product name.
-    await waitForFeature(
-      shell,
-      shell.getByRole("heading", { level: 1, name: text(locale, "Plan 执行", "Plan execution") }),
-    );
-    return shell;
-  },
-
   "loop-center": async (page, locale) => {
     await visit(page, "/");
     await page

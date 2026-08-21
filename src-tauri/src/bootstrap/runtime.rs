@@ -295,21 +295,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     session_recovery
         .run_startup_with_retry(100)
         .map_err(boxed_message)?;
-    let task_orchestration_api = super::assemble_task_orchestration_api(
-        database.clone(),
-        sessions_api.clone(),
-        agent_runtime_api.clone(),
-        workspace_api.clone(),
-        operations_api.clone(),
-        agent_runs_api.clone(),
-        fallback_log_directory.clone(),
-    )
-    .map_err(boxed_message)?;
-    let agent_run_controls_api = super::AgentRunControlsApi::new(
-        agent_runs_api.clone(),
-        agent_runtime_api.clone(),
-        task_orchestration_api.clone(),
-    );
+    let agent_run_controls_api =
+        super::AgentRunControlsApi::new(agent_runs_api.clone(), agent_runtime_api.clone());
     agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
@@ -357,7 +344,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     app.manage(workspace_api);
-    app.manage(task_orchestration_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());

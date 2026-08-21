@@ -119,6 +119,7 @@ export const webGoalClient: GoalService = {
 
   async linkGoalTarget(goalId, targetKind, targetId) {
     const goal = requireGoal(goalId);
+    if (targetKind === "plan") throw new Error("Plan targets are retired and cannot be linked.");
     const target = targetId.trim();
     if (!target) throw new Error("A link target id is required.");
     if (goal.links.some((link) => link.targetKind === targetKind && link.targetId === target)) {

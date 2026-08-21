@@ -141,10 +141,10 @@ fn extracts_only_structured_execution_failures() {
 #[test]
 fn extracts_verification_and_retry_recovery_deterministically() {
     let passed = extract(json!({
-        "sourceKind": "plan_verification",
+        "sourceKind": "run_verification",
         "schemaVersion": 1,
         "common": common(),
-        "planRunId": "plan-run-1",
+        "runId": "run-1",
         "verifier": "test",
         "outcome": "passed",
         "passedCount": 4,
@@ -158,10 +158,10 @@ fn extracts_verification_and_retry_recovery_deterministically() {
     assert_eq!(passed[1].polarity(), SignalPolarity::Positive);
 
     let failed = extract(json!({
-        "sourceKind": "plan_verification",
+        "sourceKind": "run_verification",
         "schemaVersion": 1,
         "common": common(),
-        "planRunId": "plan-run-1",
+        "runId": "run-1",
         "verifier": "lint",
         "outcome": "failed",
         "passedCount": 0,
@@ -262,10 +262,10 @@ fn extracts_only_preclassified_lifecycle_anomalies() {
 #[test]
 fn duplicate_and_out_of_order_inputs_remain_pure_and_stable() {
     let fixture = json!({
-        "sourceKind": "plan_verification",
+        "sourceKind": "run_verification",
         "schemaVersion": 1,
         "common": common(),
-        "planRunId": "plan-run-1",
+        "runId": "run-1",
         "verifier": "build",
         "outcome": "passed",
         "passedCount": 1,

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
-let detectionsRefreshed = false;
 
 // The Settings shell parks non-current pages with `hidden` rather than unmounting them, so the
 // visible panel is the one without the attribute. Same selector ui-settings.e2e.mjs uses.
@@ -48,26 +47,12 @@ const cliCard = (agentId) => globalThis.$(`${PANEL} [data-cli-agent="${agentId}"
  * opencode cases below skip as "not installed" against a binary that is sitting on disk.
  */
 async function refreshDetections() {
-  if (detectionsRefreshed) return;
   const refresh = await invoke(({ core }) => core.invoke("refresh_cli_detections"));
-  if (!refresh?.id) {
-    detectionsRefreshed = true;
-    return;
-  }
+  if (!refresh?.id) return;
   await globalThis.browser.waitUntil(async () => {
-    try {
-      const status = await invoke(
-        ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
-        refresh.id,
-      );
-      return ["succeeded", "failed", "cancelled"].includes(status.status);
-    } catch (error) {
-      // Detection operations are short-lived and may be evicted before the first poll. The page
-      // assertions below read the durable catalogue, so absence after creation is terminal here.
-      return String(error).includes("operation not found");
-    }
+    const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
+    return tools.length > 0 && tools.every((tool) => tool.lastOperationId === refresh.id);
   }, { timeout: 120_000, interval: 2_000, timeoutMsg: "CLI detection refresh never settled." });
-  detectionsRefreshed = true;
 }
 
 globalThis.describe("VaneHub AI desktop CLI Management page", () => {
@@ -79,10 +64,10 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
       async () => (await root.getAttribute("data-vanehub-bootstrap")) === "ready",
       { timeout: 120_000, timeoutMsg: "React bootstrap did not become ready." },
     );
+    await refreshDetections();
   });
 
   globalThis.it("renders a card for every managed CLI Agent", async () => {
-    await refreshDetections();
     await openCliManagement();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     assert.ok(tools.length > 0, "the CLI catalogue is empty");
@@ -98,7 +83,6 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
   });
 
   globalThis.it("shows opencode's detected version on its card after an in-app install", async function opencodeCard() {
-    await refreshDetections();
     await openCliManagement();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     const opencode = tools.find((tool) => tool.agentId === "opencode");
@@ -121,7 +105,6 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
   });
 
   globalThis.it("agrees with the Agent registry about whether opencode can be used", async function detectionAgreement() {
-    await refreshDetections();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     const opencode = tools.find((tool) => tool.agentId === "opencode");
     if (!opencode?.currentVersion) {

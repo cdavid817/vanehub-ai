@@ -25,15 +25,6 @@ pub(crate) struct CreatedWorktree {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PreparedPlanWorktree {
-    pub(crate) project_path: String,
-    pub(crate) path: String,
-    pub(crate) name: String,
-    pub(crate) branch: String,
-    pub(crate) base_oid: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitBranchReference {
     pub(crate) name: String,
     pub(crate) kind: &'static str,

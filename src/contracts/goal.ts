@@ -17,6 +17,7 @@ export const derivedGoalStatuses = [
 export type DerivedGoalStatus = (typeof derivedGoalStatuses)[number];
 
 export const goalLinkTargets = ["plan", "loop", "work_item", "session", "run"] as const;
+export const linkableGoalTargets = ["loop", "work_item", "session", "run"] as const;
 export type GoalLinkTarget = (typeof goalLinkTargets)[number];
 
 /** `unresolvable` means the target was deleted or could not be read. */

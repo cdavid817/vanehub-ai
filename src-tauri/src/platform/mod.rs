@@ -7,6 +7,7 @@ pub(crate) mod error;
 pub(crate) mod filesystem;
 pub(crate) mod git;
 pub(crate) mod ids;
+pub(crate) mod legacy_plan_schema;
 pub(crate) mod logging;
 pub(crate) mod network;
 pub(crate) mod private_relay_fs;

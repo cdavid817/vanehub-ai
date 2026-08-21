@@ -45,7 +45,7 @@ pub(super) fn verifier_name(value: VerificationClass) -> &'static str {
         VerificationClass::Security => "security",
         VerificationClass::Specification => "specification",
         VerificationClass::Acceptance => "acceptance",
-        VerificationClass::Plan => "plan",
+        VerificationClass::Loop => "loop",
     }
 }
 

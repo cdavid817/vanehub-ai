@@ -5,13 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { comparableFilesystemPath } from "../helpers/filesystem-path.mjs";
+
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
-
-function normalizedPath(value) {
-  return value.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").toLowerCase();
-}
 
 async function attempt(command, args) {
   return invoke(({ core }, request) => core.invoke(request.command, request.args).then(
@@ -125,9 +123,12 @@ globalThis.describe("VaneHub AI desktop Git worktree sessions", () => {
     // The assertion that matters: git agrees. `--porcelain` rather than the human listing, because
     // the human one is a formatted table whose columns move, and a substring match against it was
     // how an earlier round of this suite reported a defect that did not exist.
-    const listing = normalizedPath(await gitWorktrees(repository));
+    const listing = await gitWorktrees(repository);
+    const listedPaths = listing.split(/\r?\n/)
+      .filter((line) => line.startsWith("worktree "))
+      .map((line) => comparableFilesystemPath(line.slice("worktree ".length)));
     assert.ok(
-      listing.includes(`worktree ${normalizedPath(session.worktreePath)}`),
+      listedPaths.includes(comparableFilesystemPath(session.worktreePath)),
       `git does not list the worktree the session claims: ${listing}`,
     );
     assert.ok(

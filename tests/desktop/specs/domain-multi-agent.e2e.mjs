@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -174,6 +175,10 @@ globalThis.describe("VaneHub AI desktop multi-Agent group chat", () => {
   });
 
   globalThis.it("relays a turn from one seat to another through an `@` handoff", async function handoff() {
+    if (process.env.VANEHUB_DESKTOP_LIVE_AGENTS !== "1") {
+      blocked.push("handoff: set VANEHUB_DESKTOP_LIVE_AGENTS=1 to run host CLIs");
+      this.skip();
+    }
     const usable = await usableAgents();
     if (usable.length < 2) {
       blocked.push(`handoff: needs two installed CLI Agents, found ${usable.length}`);
@@ -247,7 +252,7 @@ globalThis.describe("VaneHub AI desktop multi-Agent group chat", () => {
       const messages = await listMessages(session.id);
       return messages.find((message) => message.role === "assistant"
         && (message.content ?? "").trim().length > 0) ?? false;
-    }, { timeout: 180_000, interval: 2_000, timeoutMsg: "no reply" }).catch(() => null);
+    }, { timeout: 120_000, interval: 2_000, timeoutMsg: "no reply" }).catch(() => null);
 
     if (!firstReply) {
       blocked.push(`handoff: ${usable[0].id} produced no reply, so no handoff could be observed`);

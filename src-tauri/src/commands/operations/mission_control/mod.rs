@@ -19,12 +19,10 @@ pub(crate) struct MissionControlActionReceipt {
 
 pub(crate) fn receipt(
     run: crate::contexts::operations::api::AgentRun,
-    action: &str,
 ) -> MissionControlActionReceipt {
-    let operation_id = matches!(action, "retry" | "verify").then(|| run.id.clone());
     MissionControlActionReceipt {
         run: crate::contexts::operations::application::project_mission_control_run(run),
-        operation_id,
+        operation_id: None,
     }
 }
 
@@ -36,19 +34,19 @@ mod tests {
     #[test]
     fn action_input_and_receipt_keep_the_camel_case_transport_contract() {
         let input: MissionControlActionInput = serde_json::from_value(serde_json::json!({
-            "runId": "run-1", "version": 3, "action": "verify"
+            "runId": "run-1", "version": 3, "action": "cancel"
         }))
         .expect("input contract");
         assert_eq!(
             (input.run_id.as_str(), input.version, input.action.as_str()),
-            ("run-1", 3, "verify")
+            ("run-1", 3, "cancel")
         );
 
         let run = AgentRun {
             id: "run-1".into(),
             owner: RunOwner {
-                owner_type: "plan_run".into(),
-                owner_id: "plan-1".into(),
+                owner_type: "session_generation".into(),
+                owner_id: "session-1".into(),
             },
             links: Vec::new(),
             parent_run_id: None,
@@ -63,8 +61,8 @@ mod tests {
             version: 3,
             last_witness: "failed".into(),
         };
-        let value = serde_json::to_value(receipt(run, "verify")).expect("receipt contract");
-        assert_eq!(value["operationId"], "run-1");
+        let value = serde_json::to_value(receipt(run)).expect("receipt contract");
+        assert!(value["operationId"].is_null());
         assert_eq!(value["run"]["runId"], "run-1");
         assert!(value.get("operation_id").is_none());
     }

@@ -10,6 +10,7 @@ import { fill } from "../helpers/form-control.mjs";
 
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
+let createdSessionId = null;
 
 /**
  * The notification center (src/notifications/) has no IPC surface at all -- `notify()` is a
@@ -152,6 +153,8 @@ async function createSessionForNotification() {
     const segment = decodeURIComponent((current.split("/workspace/sessions/")[1] ?? "").split(/[?#]/)[0]);
     return segment && segment !== "new" ? segment : false;
   }, { timeout: 60_000, timeoutMsg: "Session creation for the notification test never settled." });
+  const current = await globalThis.browser.getUrl();
+  createdSessionId = decodeURIComponent((current.split("/workspace/sessions/")[1] ?? "").split(/[?#]/)[0]);
   return true;
 }
 
@@ -208,7 +211,11 @@ globalThis.describe("VaneHub AI desktop notification center", () => {
     if (blocked.length > 0) {
       globalThis.console.warn(`BLOCKED on this host:\n  ${blocked.join("\n  ")}`);
     }
-    // The run-context disposer removes fixtures after the app exits, when Windows has released
-    // any terminal process whose current directory is this repository.
+    if (createdSessionId) {
+      await invoke(
+        ({ core }, sessionId) => core.invoke("delete_session", { sessionId }),
+        createdSessionId,
+      ).catch(() => undefined);
+    }
   });
 });

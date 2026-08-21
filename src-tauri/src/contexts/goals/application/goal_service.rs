@@ -74,6 +74,9 @@ impl GoalApplicationService {
         if target_id.is_empty() {
             return Err("A link target id is required.".to_string());
         }
+        if target_kind == GoalLinkTarget::Plan {
+            return Err("Plan targets are retired and cannot be linked.".to_string());
+        }
         if self
             .repository
             .link_exists(goal_id, target_kind, target_id)?

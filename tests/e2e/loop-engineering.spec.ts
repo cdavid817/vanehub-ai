@@ -50,6 +50,7 @@ test.describe("Loop engineering", () => {
     await expect(page.getByRole("button", { name: "返回循环工程" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "变更" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "返回循环工程" }).click();
+    await expect(loopCenter).toBeVisible();
 
     await loopCenter.getByLabel("下一次迭代的反馈").fill("补充边界条件回归测试");
     await loopCenter.getByRole("button", { name: "根据反馈继续" }).click();

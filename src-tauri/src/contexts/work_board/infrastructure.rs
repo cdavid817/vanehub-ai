@@ -3,7 +3,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use uuid::Uuid;
 
-use super::models::{PlanSummary, WorkItem, WorkItemSourceLink};
+use super::models::{WorkItem, WorkItemSourceLink};
 
 pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
@@ -23,7 +23,7 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError>
         );
         CREATE TABLE IF NOT EXISTS work_item_links (
             work_item_id TEXT NOT NULL,
-            source_kind TEXT NOT NULL CHECK(source_kind IN ('session','plan','plan_run','scheduled_task')),
+            source_kind TEXT NOT NULL CHECK(source_kind IN ('session','scheduled_task')),
             source_id TEXT NOT NULL,
             relation TEXT NOT NULL CHECK(relation IN ('primary','execution','automation','supporting')),
             created_at TEXT NOT NULL,
@@ -81,21 +81,6 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError>
             SELECT 1 FROM scheduled_task_runs AS history
             WHERE history.session_id = sessions.id
         );
-        UPDATE sessions
-        SET origin_kind = 'plan_attempt',
-            origin_id = (
-                SELECT run.plan_id
-                FROM plan_subtask_attempts AS attempt
-                JOIN plan_subtask_runs AS task ON task.id = attempt.subtask_run_id
-                JOIN plan_runs AS run ON run.id = task.plan_run_id
-                WHERE attempt.session_id = sessions.id
-                LIMIT 1
-            )
-        WHERE EXISTS (
-            SELECT 1
-            FROM plan_subtask_attempts AS attempt
-            WHERE attempt.session_id = sessions.id
-        );
         "#,
     )?;
     Ok(())
@@ -126,7 +111,6 @@ pub(crate) fn reconcile(database: &NativeDatabase) -> Result<(), String> {
         "planned",
         "SELECT id, name, NULL, updated_at FROM scheduled_tasks",
     )?;
-    reconcile_plans(&transaction)?;
     transaction.commit().map_err(error)
 }
 
@@ -155,35 +139,6 @@ fn reconcile_query(
             &id,
             &title,
             stage,
-            project.as_deref(),
-            &timestamp,
-        )?;
-    }
-    Ok(())
-}
-
-fn reconcile_plans(connection: &Connection) -> Result<(), String> {
-    let mut statement = connection.prepare(
-        "SELECT plan.id, COALESCE(version.goal, 'Plan ' || plan.id), version.project_path, plan.updated_at FROM plans AS plan LEFT JOIN plan_versions AS version ON version.plan_id = plan.id AND version.version = plan.current_version",
-    ).map_err(error)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })
-        .map_err(error)?;
-    for row in rows {
-        let (id, title, project, timestamp) = row.map_err(error)?;
-        insert_source_item(
-            connection,
-            "plan",
-            &id,
-            &title,
-            "planned",
             project.as_deref(),
             &timestamp,
         )?;
@@ -287,7 +242,7 @@ fn project_source(
     id: &str,
     relation: &str,
 ) -> Result<WorkItemSourceLink, String> {
-    let query = match kind { "session" => "SELECT title,lifecycle_state,project_path,updated_at FROM sessions WHERE id=?1", "scheduled_task" => "SELECT name,CASE WHEN enabled=0 THEN 'disabled' ELSE latest_status END,NULL,updated_at FROM scheduled_tasks WHERE id=?1", "plan" => "SELECT COALESCE(version.goal,'Plan '||plan.id),plan.status,version.project_path,plan.updated_at FROM plans AS plan LEFT JOIN plan_versions AS version ON version.plan_id=plan.id AND version.version=plan.current_version WHERE plan.id=?1", "plan_run" => "SELECT 'Plan run '||id,status,project_path,updated_at FROM plan_runs WHERE id=?1", _ => return Err("Unsupported work item source kind.".to_string()) };
+    let query = match kind { "session" => "SELECT title,lifecycle_state,project_path,updated_at FROM sessions WHERE id=?1", "scheduled_task" => "SELECT name,CASE WHEN enabled=0 THEN 'disabled' ELSE latest_status END,NULL,updated_at FROM scheduled_tasks WHERE id=?1", _ => return Err("Unsupported work item source kind.".to_string()) };
     let projection = connection
         .query_row(query, [id], |row| {
             Ok((
@@ -320,33 +275,4 @@ pub(crate) fn timestamp() -> String {
 }
 pub(crate) fn error(value: impl std::fmt::Display) -> String {
     value.to_string()
-}
-
-pub(crate) fn list_plan_summaries(database: &NativeDatabase) -> Result<Vec<PlanSummary>, String> {
-    let connection = database.connection().map_err(error)?;
-    let mut statement = connection.prepare(
-        r#"SELECT plan.id, COALESCE(version.goal, 'Plan ' || plan.id), COALESCE(version.project_path, ''), plan.status,
-                  run.id, run.status, plan.created_at, plan.updated_at
-           FROM plans AS plan
-           LEFT JOIN plan_versions AS version ON version.plan_id=plan.id AND version.version=plan.current_version
-           LEFT JOIN plan_runs AS run ON run.id=(SELECT id FROM plan_runs WHERE plan_id=plan.id ORDER BY created_at DESC,id DESC LIMIT 1)
-           ORDER BY plan.updated_at DESC, plan.id DESC"#,
-    ).map_err(error)?;
-    let values = statement
-        .query_map([], |row| {
-            Ok(PlanSummary {
-                id: row.get(0)?,
-                goal: row.get(1)?,
-                project_path: row.get(2)?,
-                status: row.get(3)?,
-                latest_run_id: row.get(4)?,
-                latest_run_status: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-            })
-        })
-        .map_err(error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(error)?;
-    Ok(values)
 }

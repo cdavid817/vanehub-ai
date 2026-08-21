@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 78. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 80. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -19,10 +19,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// Skill configuration records, migration 73 adds revision-bound Skill tool trust, migration 74
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
-/// migration 78 adds Hybrid local/private Profile metadata and routing rules, and migration 79
-/// adds nullable Agent Runner projections.
+/// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
+/// nullable Agent Runner projections, and migration 80 retires standalone Plan execution.
 fn expected_versions() -> Vec<i64> {
-    (1..=79).collect()
+    (1..=80).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -484,7 +484,7 @@ fn runner_projection_migration_preserves_legacy_runtime_evidence_and_local_rollb
         DROP INDEX idx_agent_runs_runner_state;
         ALTER TABLE agent_runs DROP COLUMN runner_target_id;
         ALTER TABLE agent_runs DROP COLUMN runner_kind;
-        DELETE FROM schema_migrations WHERE version = 79;
+        DELETE FROM schema_migrations WHERE version IN (79, 80);
         "#,
     )
     .expect("simulate schema before Runner projections");

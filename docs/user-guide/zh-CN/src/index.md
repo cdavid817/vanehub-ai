@@ -24,7 +24,7 @@
 | [群聊协作案例](multi-agent-testing-tutorial.md) | 用架构师、实现者和代码审查走完 UI、交接与历史身份验收 |
 | [Git Worktree](worktree.md) | 让 Agent 在独立工作副本里改代码，不动你的分支 |
 | [Loop Engineering 工程](loop-engineering.md) | 定目标与必过检查，让它自动迭代到达成 |
-| [目标管理](goal-management.md) | 把计划、循环与看板项归到一个目标下追踪 |
+| [目标管理](goal-management.md) | 把循环与看板项归到一个目标下追踪 |
 | [任务看板](todo-board.md) | 人工待办与 Agent 工作放在同一块看板 |
 | [斜杠命令](slash-commands.md) | 在输入框里直接切页签、改开关、看用量 |
 | [代码评审](code-review.md) | 逐行看差异、留评论、把意见送回 Agent |
