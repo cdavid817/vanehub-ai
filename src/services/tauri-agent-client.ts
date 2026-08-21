@@ -2,13 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type {
-  AgentService,
-  SessionRecoveryAcknowledgement,
-  SessionRecoveryReport,
-  SessionRecoverySummary,
-  SessionStateEvent,
-} from "./agent-service";
+import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -64,6 +58,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
+import { tauriSessionRecoveryClient } from "./tauri-session-recovery-client";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
 import type {
   ContextQualityHistoryPage,
@@ -653,24 +648,6 @@ export const tauriAgentClient: AgentService = {
     return invoke<Session>("get_session", { sessionId });
   },
 
-  getSessionRecoverySummary(sessionId: string) {
-    return invoke<SessionRecoverySummary>("get_session_recovery_summary", { sessionId });
-  },
-
-  listSessionRecoveryReports(sessionId: string, limit?: number) {
-    return invoke<SessionRecoveryReport[]>("list_session_recovery_reports", {
-      sessionId,
-      limit: limit ?? null,
-    });
-  },
-
-  acknowledgeSessionRecovery(sessionId: string, expectedRecoveryRevision: number) {
-    return invoke<SessionRecoveryAcknowledgement>("acknowledge_session_recovery", {
-      sessionId,
-      expectedRecoveryRevision,
-    });
-  },
-
   getActiveSession() {
     return invoke<Session | null>("get_active_session");
   },
@@ -976,6 +953,7 @@ export const tauriAgentClient: AgentService = {
     return unlisten;
   },
 
+  ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {
     return listen<unknown>("session:event", (event) => {

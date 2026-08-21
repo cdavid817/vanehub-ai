@@ -76,6 +76,22 @@ describe("WorkBoard", () => {
     await waitFor(() => expect(screen.queryByTestId("work-item-work-1")).toBeNull());
   });
 
+  it("strips the Windows extended-length prefix from every path it shows", async () => {
+    mocks.items = [{ ...fixture(), projectPath: "\\\\?\\D:\\cdavid\\Documents\\code\\cc-switch" }];
+    render(<WorkBoard />);
+
+    const card = await screen.findByTestId("work-item-work-1");
+    expect(within(card).getByTitle("D:\\cdavid\\Documents\\code\\cc-switch")).toBeTruthy();
+    expect(card.textContent).not.toContain("\\\\?\\");
+
+    const projectFilter = screen.getByLabelText("按项目筛选") as HTMLSelectElement;
+    const option = within(projectFilter).getByRole("option", { name: "D:\\cdavid\\Documents\\code\\cc-switch" });
+    // The label is normalized but the value stays the stored path, or filtering stops matching.
+    expect(option.getAttribute("value")).toBe("\\\\?\\D:\\cdavid\\Documents\\code\\cc-switch");
+    fireEvent.change(projectFilter, { target: { value: "\\\\?\\D:\\cdavid\\Documents\\code\\cc-switch" } });
+    expect(screen.getByTestId("work-item-work-1")).toBeTruthy();
+  });
+
   it("uses one stage column on compact layouts and persists edits", async () => {
     mocks.compact = true;
     render(<WorkBoard />);

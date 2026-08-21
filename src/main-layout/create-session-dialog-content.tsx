@@ -2,11 +2,12 @@ import { SessionSeatAssignment } from "./session-seat-assignment";
 import { withModelFamily } from "../services/agent-model-family";
 import type { SessionSeat } from "../types/agent";
 import type { ExpertRole } from "../types/expert-role";
-import { Loader2 } from "lucide-react";
+import { FolderTree, Loader2, Tag, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { CreateSessionAgentSection } from "./create-session-agent-section";
+import { CreateSessionSection } from "./create-session-section";
 import { RemoteWorkspaceSection } from "./create-session-remote-workspace-section";
 import {
   LocalWorkspaceSection,
@@ -169,78 +170,96 @@ export function CreateSessionDialogContent({
       title={t("createSession.title")}
     >
       <div className="grid gap-4">
-            <SessionAgentModeSelector
-              mode={agentMode}
-              onModeChange={onAgentModeChange}
+        <CreateSessionSection
+          hint={t("createSession.section.participantsHint")}
+          icon={UsersRound}
+          title={t("createSession.section.participants")}
+        >
+          <SessionAgentModeSelector
+            mode={agentMode}
+            onModeChange={onAgentModeChange}
+          />
+          {agentMode === "multi" ? (
+            <SessionSeatAssignment
+              agents={withModelFamily(availableAgents)}
+              onSeatsChange={onSeatsChange}
+              roles={expertRoles}
+              seats={multiSeats}
             />
-            {agentMode === "multi" ? (
-              <SessionSeatAssignment
-                agents={withModelFamily(availableAgents)}
-                onSeatsChange={onSeatsChange}
-                roles={expertRoles}
-                seats={multiSeats}
-              />
-            ) : (
-              <CreateSessionAgentSection
-                agents={availableAgents}
-                onAgentSelect={onAgentSelect}
-                onConfigureOnePiece={onConfigureOnePiece}
-                selectedAgent={selectedAgent}
-              />
-            )}
-            <WorkspaceModeSelector
-              mode={workspaceMode}
-              onModeChange={onWorkspaceModeChange}
-              remoteDisabled={selectedAgent?.id === "onepiece"}
+          ) : (
+            <CreateSessionAgentSection
+              agents={availableAgents}
+              onAgentSelect={onAgentSelect}
+              onConfigureOnePiece={onConfigureOnePiece}
+              selectedAgent={selectedAgent}
             />
-            {selectedAgent?.id === "onepiece" ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
-            {workspaceMode === "local" ? (
-              <LocalWorkspaceSection
-                gitCapable={gitCapable}
-                inspection={inspection}
-                knownProjects={knownProjects}
-                onBrowseProject={onBrowseProject}
-                onInspectPath={onInspectPath}
-                projectPath={projectPath}
-                setProjectPath={setProjectPath}
-                setWorktreeEnabled={setWorktreeEnabled}
-                setWorktreeName={setWorktreeName}
-                worktreeEnabled={worktreeEnabled}
-                worktreeName={worktreeName}
-              />
-            ) : (
-              <RemoteWorkspaceSection
-                knownRemoteWorkspaces={knownRemoteWorkspaces}
-                remoteDisplayName={remoteDisplayName}
-                remoteHost={remoteHost}
-                remotePath={remotePath}
-                remotePort={remotePort}
-                remoteUser={remoteUser}
-                saveSshConnection={saveSshConnection}
-                selectedSshConnectionId={selectedSshConnectionId}
-                setRemoteDisplayName={setRemoteDisplayName}
-                setRemoteHost={setRemoteHost}
-                setRemotePath={setRemotePath}
-                setRemotePort={setRemotePort}
-                setRemoteUser={setRemoteUser}
-                setSaveSshConnection={setSaveSshConnection}
-                setSelectedSshConnectionId={setSelectedSshConnectionId}
-                setSshConnectionDraft={setSshConnectionDraft}
-                sshConnectionDraft={sshConnectionDraft}
-                sshConnections={sshConnections}
-              />
-            )}
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t("createSession.sessionName")}
-              </span>
-              <input
-                className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                onChange={(event) => onTitleChange(event.target.value)}
-                placeholder={t("createSession.sessionPlaceholder")}
-                value={title}
-              />
-            </label>
+          )}
+        </CreateSessionSection>
+        <CreateSessionSection
+          hint={t("createSession.section.workspaceHint")}
+          icon={FolderTree}
+          title={t("createSession.section.workspace")}
+        >
+          <WorkspaceModeSelector
+            mode={workspaceMode}
+            onModeChange={onWorkspaceModeChange}
+            remoteDisabled={selectedAgent?.id === "onepiece"}
+          />
+          {selectedAgent?.id === "onepiece" ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
+          {workspaceMode === "local" ? (
+            <LocalWorkspaceSection
+              gitCapable={gitCapable}
+              inspection={inspection}
+              knownProjects={knownProjects}
+              onBrowseProject={onBrowseProject}
+              onInspectPath={onInspectPath}
+              projectPath={projectPath}
+              setProjectPath={setProjectPath}
+              setWorktreeEnabled={setWorktreeEnabled}
+              setWorktreeName={setWorktreeName}
+              worktreeEnabled={worktreeEnabled}
+              worktreeName={worktreeName}
+            />
+          ) : (
+            <RemoteWorkspaceSection
+              knownRemoteWorkspaces={knownRemoteWorkspaces}
+              remoteDisplayName={remoteDisplayName}
+              remoteHost={remoteHost}
+              remotePath={remotePath}
+              remotePort={remotePort}
+              remoteUser={remoteUser}
+              saveSshConnection={saveSshConnection}
+              selectedSshConnectionId={selectedSshConnectionId}
+              setRemoteDisplayName={setRemoteDisplayName}
+              setRemoteHost={setRemoteHost}
+              setRemotePath={setRemotePath}
+              setRemotePort={setRemotePort}
+              setRemoteUser={setRemoteUser}
+              setSaveSshConnection={setSaveSshConnection}
+              setSelectedSshConnectionId={setSelectedSshConnectionId}
+              setSshConnectionDraft={setSshConnectionDraft}
+              sshConnectionDraft={sshConnectionDraft}
+              sshConnections={sshConnections}
+            />
+          )}
+        </CreateSessionSection>
+        <CreateSessionSection
+          hint={t("createSession.section.identityHint")}
+          icon={Tag}
+          title={t("createSession.section.identity")}
+        >
+          <label className="grid gap-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("createSession.sessionName")}
+            </span>
+            <input
+              className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder={t("createSession.sessionPlaceholder")}
+              value={title}
+            />
+          </label>
+        </CreateSessionSection>
       </div>
     </ApplicationDialog>
   );

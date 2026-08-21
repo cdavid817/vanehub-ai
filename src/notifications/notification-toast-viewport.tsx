@@ -70,8 +70,8 @@ function NotificationToast({
       className={cn(
         "ucd-panel pointer-events-auto grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 rounded-lg border p-3 shadow-xl",
         notification.toastState === "exiting"
-          ? "animate-out fade-out slide-out-to-left-2 duration-200"
-          : "animate-in fade-in slide-in-from-left-2 duration-200",
+          ? "animate-out fade-out slide-out-to-top-2 duration-200"
+          : "animate-in fade-in slide-in-from-top-2 duration-200",
       )}
       role={notification.type === "error" || notification.type === "warning" ? "alert" : "status"}
     >
@@ -116,13 +116,14 @@ export function NotificationToastViewport({
     .slice()
     .reverse();
 
-  // Bottom left, because both alternatives cover a control: the bottom right sits on the
-  // composer's send button and the top right sits on the information panel's tabs.
+  // Top center, below the top bar: bottom left covered the session list, bottom right sits on the
+  // composer's send button, and top right sits on the information panel's tabs. `top-12` clears
+  // the top bar in both of its heights (h-10, and h-9 in focus mode) instead of sitting on it.
   return (
     <div
       aria-label={t("notifications.toastRegion")}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-2 bottom-4 z-60 grid justify-items-start gap-2 sm:right-auto sm:left-4 sm:w-[min(24rem,calc(100vw-2rem))]"
+      className="pointer-events-none fixed inset-x-2 top-12 z-60 grid justify-items-stretch gap-2 sm:left-1/2 sm:right-auto sm:w-[min(26rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:justify-items-center"
     >
       {activeToasts.map((notification) => (
         <NotificationToast

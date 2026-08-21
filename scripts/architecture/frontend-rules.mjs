@@ -23,8 +23,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 是 native `route_user_message` 的镜像实现(mention → 上一轮发言者 → 首席位),没有可搬移的现成
 // 代码;`seatHandlesFromNames` 反向减少了重复——句柄去重原先在 `seat-mention-options.ts` 里
 // 单独实现一份,现在两处共用同一份,那个文件因此是净减的。
+// 上调理由(improve-workspace-ui-ergonomics):这一次同样不是拆分,是补一条缺失的能力——会话运行时
+// 失败后没有任何恢复入口。新增的 57 行是这条能力在服务边界上的固定开销:接口方法与
+// `SessionRuntimeRecovery` 结果类型各一份,Tauri 与 Web/mock 两个适配器实现各一份,外加一条契约
+// 测试。没有复制既有分支;`tauri-agent-client.ts` 反而是净减的——恢复相关的四个方法搬进了
+// `tauri-session-recovery-client.ts`,与 Web 侧早就存在的 `web-session-recovery-client.ts` 对齐,
+// 少一个方法就会一眼看出来。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19414, owner: "route-user-messages-to-mentioned-seat" },
+  { root: "src/services", budget: 19471, owner: "improve-workspace-ui-ergonomics" },
 ]);
 
 const STATE_PACKAGES = new Set([

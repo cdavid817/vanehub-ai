@@ -2,6 +2,7 @@ import { AlertTriangle, Check, Play, Plus, RotateCcw, Trash2, X } from "lucide-r
 import { type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { normalizeDisplayPath } from "../lib/session-path";
 import type { Goal, GoalLinkTarget } from "../contracts/goal";
 import { goalLinkTargets } from "../contracts/goal";
 import {
@@ -39,18 +40,18 @@ export function GoalDetail(props: GoalDetailProps) {
   };
 
   return <section aria-labelledby="goal-detail-title" className="grid content-start gap-4 overflow-y-auto p-4">
-    <header className="grid gap-2">
+    <header className="grid gap-2 rounded-md border border-border bg-muted/10 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="truncate text-lg font-semibold" id="goal-detail-title">{goal.title}</h2>
-          {goal.projectPath ? <p className="truncate text-xs text-muted-foreground">{goal.projectPath}</p> : null}
+          {goal.projectPath ? <p className="truncate text-xs text-muted-foreground" title={normalizeDisplayPath(goal.projectPath)}>{normalizeDisplayPath(goal.projectPath)}</p> : null}
         </div>
         <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${statusTone(goal.derivedStatus)}`}>{t(`goals.status.${goal.derivedStatus}`)}</span>
       </div>
       {goal.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{goal.description}</p> : null}
     </header>
 
-    <div className="flex flex-wrap gap-2">
+    <div aria-label={t("goals.actionsLabel")} className="flex flex-wrap gap-2 rounded-md border border-border bg-muted/20 p-2" role="group">
       {goal.status === "draft" || goal.status === "abandoned"
         ? <Button disabled={busy} onClick={onActivate} size="sm" type="button"><Play aria-hidden="true" />{t("goals.actions.activate")}</Button>
         : null}

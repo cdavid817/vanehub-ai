@@ -20,8 +20,8 @@ use super::{
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor, RunnerDiscoveryPort,
-    RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    RecoverSessionResult, RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor,
+    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnCompletionPort,
     SeatTurnTerminal, SendMessageRequest, StartedAgentMessage, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
@@ -3215,6 +3215,47 @@ impl AgentRuntimeApplicationService {
         Ok(StopGenerationResult {
             cancelled_message_ids: message_ids.into_iter().collect(),
             process_stopped,
+        })
+    }
+
+    /// Returns a stuck session to a state that accepts messages.
+    ///
+    /// Deliberately does not launch anything: CLI generations start per message, so an idle
+    /// session answers the user's next message on its own. Spawning a process here would turn an
+    /// error the user is reporting into work they did not ask for.
+    pub(crate) fn recover_session(
+        &self,
+        session_id: &str,
+    ) -> Result<RecoverSessionResult, AgentRuntimeApplicationError> {
+        let session = self.require_session(session_id)?;
+        if session.archived {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Archived sessions cannot be recovered.".to_string(),
+            ));
+        }
+        // `stop_generation` returns early without touching the lifecycle when there is nothing to
+        // cancel, which is exactly the case a `failed` session is usually in, so the reset below
+        // is unconditional rather than a fallback.
+        let stopped = self.stop_generation(session_id)?;
+        self.ports
+            .sessions
+            .update_lifecycle(session_id, AgentLifecycle::Idle)?;
+        self.record_log(
+            AgentLogLevel::Info,
+            "session.runtime",
+            format!(
+                "session runtime recovered (cancelled {} message(s), process stopped: {})",
+                stopped.cancelled_message_ids.len(),
+                stopped.process_stopped
+            ),
+            Some(&session.agent_id),
+            Some(session_id),
+            None,
+        );
+        Ok(RecoverSessionResult {
+            cancelled_message_ids: stopped.cancelled_message_ids,
+            process_stopped: stopped.process_stopped,
+            lifecycle: AgentLifecycle::Idle,
         })
     }
 

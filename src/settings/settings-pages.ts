@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  BookOpen,
   Boxes,
   Braces,
   Cpu,
@@ -20,6 +21,27 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { LazyFeatureLoader } from "../components/lazy-feature";
+import {
+  loadAboutPage,
+  loadAgentConfigurationsPage,
+  loadAgentPoliciesPage,
+  loadBasicPage,
+  loadCliParametersPage,
+  loadCodeIntelligencePage,
+  loadDocumentationPage,
+  loadExpertRolesPage,
+  loadExtensionsPage,
+  loadImPage,
+  loadMcpPage,
+  loadObservabilityPage,
+  loadPersonalizationPage,
+  loadPluginIntegrationsPage,
+  loadPromptHooksPage,
+  loadProvidersPage,
+  loadSkillsPage,
+  loadSshConnectionsPage,
+  loadUsagePage,
+} from "./settings-page-loaders";
 import type { CliConfigAgentId } from "../types/cli-agent-config";
 
 export type SettingsPageId =
@@ -40,6 +62,7 @@ export type SettingsPageId =
   | "ssh-connections"
   | "observability"
   | "usage"
+  | "help"
   | "about";
 
 export interface SettingsPageContext {
@@ -84,43 +107,6 @@ export interface SettingsPageDefinition {
   searchPlaceholderKey: string;
   loader: LazyFeatureLoader<SettingsPageContext>;
 }
-
-const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/basic-settings-page")
-  .then((module) => ({ default: module.BasicSettingsPage }));
-const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
-  .then((module) => ({ default: module.ProvidersPage }));
-const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-parameters-page")
-  .then((module) => ({ default: module.CliParametersPage }));
-const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
-  .then((module) => ({ default: module.ExtensionsPage }));
-const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/mcp-page")
-  .then((module) => ({ default: module.McpPage }));
-const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
-  .then((module) => ({ default: module.AgentConfigurationsPage }));
-const loadCodeIntelligencePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/code-intelligence-page")
-  .then((module) => ({ default: module.CodeIntelligencePage }));
-const loadExpertRolesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/expert-roles-page")
-  .then((module) => ({ default: module.ExpertRolesPage }));
-const loadAgentPoliciesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-policies-page")
-  .then((module) => ({ default: module.AgentPoliciesPage }));
-const loadPersonalizationPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/personalization-page")
-  .then((module) => ({ default: module.PersonalizationPage }));
-const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
-  .then((module) => ({ default: module.SkillsPage }));
-const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
-  .then((module) => ({ default: module.PromptHooksPage }));
-const loadImPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/im-page")
-  .then((module) => ({ default: module.ImPage }));
-const loadSshConnectionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/ssh-connections-page")
-  .then((module) => ({ default: module.SshConnectionsPage }));
-const loadPluginIntegrationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/plugin-integrations-page")
-  .then((module) => ({ default: module.PluginIntegrationsPage }));
-const loadObservabilityPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/observability-settings-page")
-  .then((module) => ({ default: module.ObservabilitySettingsPage }));
-const loadUsagePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/usage-statistics-page")
-  .then((module) => ({ default: module.UsageStatisticsPage }));
-const loadAboutPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/about-page")
-  .then((module) => ({ default: module.AboutPage }));
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
@@ -275,6 +261,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: BarChart3,
     searchPlaceholderKey: "settings.search.usage",
     loader: loadUsagePage,
+  },
+  {
+    id: "help",
+    group: "diagnostics",
+    labelKey: "settings.pages.help",
+    crumbKey: "settings.pages.help",
+    icon: BookOpen,
+    searchPlaceholderKey: "settings.search.help",
+    loader: loadDocumentationPage,
   },
   {
     id: "about",

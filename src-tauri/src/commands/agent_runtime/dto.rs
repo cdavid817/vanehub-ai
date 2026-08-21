@@ -531,6 +531,14 @@ pub(crate) struct LaunchResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct SessionRecoveryResult {
+    pub(crate) cancelled_message_ids: Vec<String>,
+    pub(crate) process_stopped: bool,
+    pub(crate) lifecycle_state: SessionLifecycleState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SessionDetails {
     pub(crate) agent_id: Option<String>,
     pub(crate) interaction_mode: Option<InteractionMode>,

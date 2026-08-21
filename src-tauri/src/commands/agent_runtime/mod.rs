@@ -31,6 +31,7 @@ pub(crate) mod loops;
 mod mapper;
 pub(crate) mod open_agent_terminal;
 pub(crate) mod preview_hybrid_route;
+pub(crate) mod recover_session;
 pub(crate) mod register_api_agent;
 pub(crate) mod replace_hybrid_routing_rules;
 pub(crate) mod reset_agent_memories;

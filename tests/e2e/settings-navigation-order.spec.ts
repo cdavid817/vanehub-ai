@@ -22,6 +22,7 @@ test("orders Settings destinations around common setup and customization workflo
     "SSH 连接",
     "执行可观测性",
     "使用统计",
+    "使用文档",
     "关于",
   ];
   const navigation = page.locator("nav");

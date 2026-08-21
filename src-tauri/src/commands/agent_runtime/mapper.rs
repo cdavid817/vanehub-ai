@@ -4,8 +4,9 @@ use crate::contexts::agent_runtime::api::{
     AgentMessage, AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
     AgentTerminalSize as ApiAgentTerminalSize, AgentView, ApiProviderConfig, InteractionMode,
     LaunchWorkflowResult, OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput,
-    SendMessageRequest, StopAgentTerminalRequest, UpdateApiAgentInput, WorkflowView,
+    RecoverSessionResult, RegisterApiAgentInput, ResizeAgentTerminalRequest,
+    SaveOnePieceProviderConfigInput, SendMessageRequest, StopAgentTerminalRequest,
+    UpdateApiAgentInput, WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
@@ -410,6 +411,14 @@ pub(super) fn launch_to_dto(launch: LaunchWorkflowResult) -> dto::LaunchResult {
         operation_id: Some(launch.operation_id),
         workflow: workflow_to_dto(launch.workflow),
         message: launch.message,
+    }
+}
+
+pub(super) fn session_recovery_to_dto(result: RecoverSessionResult) -> dto::SessionRecoveryResult {
+    dto::SessionRecoveryResult {
+        cancelled_message_ids: result.cancelled_message_ids,
+        process_stopped: result.process_stopped,
+        lifecycle_state: lifecycle_to_dto(result.lifecycle),
     }
 }
 

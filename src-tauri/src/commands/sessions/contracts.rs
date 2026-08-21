@@ -128,7 +128,12 @@ fn recovery_commands_are_registered_one_per_file_with_safe_errors() {
         include_str!("../builtin_tool_registry.rs"),
         include_str!("../supplemental_registry.rs")
     );
-    let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
+    // Recovery's invokes live in their own adapter module, mirroring the Web side; the contract
+    // is that a frontend invoke exists, not that it sits in one particular file.
+    let tauri_client = concat!(
+        include_str!("../../../../src/services/tauri-agent-client.ts"),
+        include_str!("../../../../src/services/tauri-session-recovery-client.ts")
+    );
     for (command, handler) in RECOVERY_NATIVE_COMMANDS {
         assert!(
             native_registration.contains(&format!("commands::sessions::{command}::{command}")),
