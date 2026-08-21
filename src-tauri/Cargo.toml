@@ -18,6 +18,15 @@ desktop-e2e = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 # Discovery, integrity, trust, and governance all work with this off — a `wasm` tool is then
 # reported as `module-runtime-unavailable` rather than silently missing from the inventory.
 skill-tool-module-runtime = ["dep:wasmtime"]
+# Extension Platform build capabilities (`add-unified-extension-platform`). Both off by default,
+# and separate from the runtime kill switches in `extension_platform_feature_gates`: a gate can
+# only be enabled at runtime if its code is in the binary, and asking for one that is not returns
+# `FeatureUnavailableInBuild` rather than a stored "on" nothing will ever honour.
+#
+# The WASM gate reuses the existing Skill tool Wasmtime *module* runtime — the pinned engine has
+# no component-model feature, and a second Wasmtime engine is prohibited.
+extension-wasm-module-runtime = ["skill-tool-module-runtime"]
+extension-sidecar-runtime = []
 
 [build-dependencies]
 tauri-build = { workspace = true }

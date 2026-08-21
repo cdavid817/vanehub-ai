@@ -35,8 +35,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 上调理由(add-unified-extension-platform):Extension Platform 的能力门需要一条新的 service
+// boundary,新增 126 行全部是跨运行时边界的固定开销——接口一份,Tauri 与 Web/mock 适配器各一份,
+// runtime 选择器一份,外加适配器一致性测试。没有复制既有分支:门状态此前在前端不存在任何表示。
+// Web/mock 侧把两个 runtime-bearing 门如实报成 `not_compiled` 而非"关着",这需要它自己的状态机,
+// 无法从既有 mock 搬用。实测 19360,上限按实测值收紧。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19234, owner: "improve-workspace-ui-ergonomics" },
+  { root: "src/services", budget: 19360, owner: "add-unified-extension-platform" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -324,6 +324,22 @@ fn agent_runtime_command_registration_and_frontend_invokes_keep_stable_names() {
 }
 
 #[test]
+fn extension_platform_command_registration_and_frontend_invokes_keep_stable_names() {
+    let native_registration = command_registration_source();
+    let tauri_client = include_str!("../../src/services/tauri-extension-platform-client.ts");
+    for command in ["get_extension_feature_gates", "set_extension_feature_gate"] {
+        assert!(
+            native_registration.contains(&format!("::{command}")),
+            "native command registration missing {command}"
+        );
+        assert!(
+            tauri_client.contains(&format!("\"{command}\"")),
+            "frontend invoke missing {command}"
+        );
+    }
+}
+
+#[test]
 fn plugin_integration_command_registration_and_frontend_invokes_keep_stable_names() {
     let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-plugin-integration-client.ts");

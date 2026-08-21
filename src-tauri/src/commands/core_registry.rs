@@ -333,6 +333,9 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::extensions::start_extension::start_extension,
         crate::commands::tooling::extensions::stop_extension::stop_extension,
         crate::commands::tooling::extensions::test_extension::test_extension,
+        // Tooling: Extension Platform
+        crate::commands::tooling::extension_platform::get_extension_feature_gates::get_extension_feature_gates,
+        crate::commands::tooling::extension_platform::set_extension_feature_gate::set_extension_feature_gate,
         // Tooling: Plugin Integrations
         crate::commands::tooling::plugin_integrations::get_plugin_integration_overview::get_plugin_integration_overview,
         crate::commands::tooling::plugin_integrations::refresh_plugin_integrations::refresh_plugin_integrations,

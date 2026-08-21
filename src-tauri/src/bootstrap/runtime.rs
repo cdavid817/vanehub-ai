@@ -176,6 +176,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     );
     let plugin_integration_api =
         super::assemble_plugin_integration_api(fallback_log_directory.clone());
+    let extension_platform_api = super::assemble_extension_platform_api(database.clone());
     let skill_api = super::assemble_skill_api(database.clone(), fallback_log_directory.clone());
     let skill_tool_api = super::assemble_skill_tool_api(
         database.clone(),
@@ -339,6 +340,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(sdk_api);
     app.manage(extension_api);
     app.manage(plugin_integration_api);
+    app.manage(extension_platform_api);
     app.manage(skill_api);
     app.manage(skill_tool_api);
     app.manage(prompt_hook_api);

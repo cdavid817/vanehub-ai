@@ -9,6 +9,7 @@ mod code_intelligence;
 mod communications;
 mod desktop;
 mod execution_observability;
+mod extension_platform;
 mod extensions;
 mod managed_mcp_relay;
 mod mcp;
@@ -46,6 +47,7 @@ pub(crate) use execution_observability::{
     assemble_evaluation_api, assemble_execution_observability_api, relay_telemetry,
     start_execution_retention_job,
 };
+pub(crate) use extension_platform::assemble_extension_platform_api;
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;
 #[cfg(test)]

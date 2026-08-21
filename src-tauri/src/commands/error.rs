@@ -9,6 +9,7 @@ use crate::contexts::ssh_connections::api::SshRuntimeError;
 use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
+use crate::contexts::tooling::extension_platform::api::FeatureGateError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
 use crate::contexts::tooling::plugin_integrations::api::PluginIntegrationError;
@@ -668,6 +669,24 @@ impl From<ExtensionError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
+        }
+    }
+}
+
+impl From<FeatureGateError> for CommandError {
+    fn from(error: FeatureGateError) -> Self {
+        // `Unsupported` rather than `Validation` for a gate this build lacks: the request is
+        // well-formed and the caller cannot fix it by correcting input. `Conflict` for a stale
+        // revision, so a client can distinguish "retry after re-reading" from "never going to
+        // work".
+        let category = match error {
+            FeatureGateError::FeatureUnavailableInBuild { .. } => CommandErrorCategory::Unsupported,
+            FeatureGateError::StaleRevision { .. } => CommandErrorCategory::Conflict,
+            FeatureGateError::Storage(_) => CommandErrorCategory::Infrastructure,
+        };
+        Self {
+            category,
+            message: format!("{}: {error}", error.code()),
         }
     }
 }
