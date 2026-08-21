@@ -25,15 +25,69 @@
 
 ## 1. Extension domain contracts and manifest schema
 
-- [ ] 1.1 Add `src-tauri/src/contexts/tooling/extension_platform/` with `domain`, `application`, `infrastructure`, `api.rs`, and `mod.rs`, following existing DDD layout and visibility conventions.
-- [ ] 1.2 Implement validated newtypes for extension id, publisher id, contribution local/global id, package hash, snapshot id, installation id, runtime generation id, operation witness, activation event, and capability path/origin.
-- [ ] 1.3 Implement `VersionedExtensionManifest::V1` and strict raw-to-domain conversion; reject unknown security-sensitive fields, invalid ids, unsupported schema versions, incompatible application versions, and duplicate contribution ids.
-- [ ] 1.4 Implement manifest declarations for runtime, activation events, extension/Skill dependencies, requested capabilities, tools, Skills, MCP definitions, mode presets, Hooks, authorization rules, connectors, configuration schemas, and transforms.
-- [ ] 1.5 Implement normalized package-path resolution that proves every referenced entry remains inside the immutable snapshot and rejects traversal, case/Unicode collision, Windows reserved names, alternate streams, and unsupported entry kinds.
-- [ ] 1.6 Define stable error codes/DTOs for manifest, compatibility, package, signature, dependency, lifecycle, runtime, contribution, Hook, rule, connector, and stale-witness failures.
-- [ ] 1.7 Add canonical valid/invalid manifest fixtures, including every contribution kind, minimum/maximum bounds, forward-version rejection, and deterministic serialization/hash fixtures.
-- [ ] 1.8 Add JSON Schema generation or a checked-in schema fixture for `vanehub-extension.yaml`, plus tests proving Rust validation and schema acceptance/rejection remain aligned.
-- [ ] 1.9 Add unit/property tests for identifier normalization, contribution namespacing, SemVer requirements, URL/origin validation, path constraints, duplicate detection, and deterministic manifest digest.
+Implemented in this order. Manifest parsing stays two-stage throughout — `Bounded YAML Parser -> BoundedYamlValue -> ExtensionManifestV1Decoder -> ExtensionManifestV1` — so no domain type is ever constructed from raw text.
+
+- [x] 1.1 Add `src-tauri/src/contexts/tooling/extension_platform/` with `domain`, `application`, `infrastructure`, `api.rs`, and `mod.rs`, following existing DDD layout and visibility conventions. (Landed with the Task Group 0 capability gates.)
+
+### 1.A Characterization tests before extraction
+
+- [ ] 1.A.1 Add characterization tests pinning the current accept and reject behavior of `skills/domain/config_document.rs`: every resource limit at and past its boundary, duplicate keys, each unsupported construct, indentation handling, and scalar/sequence/mapping shapes.
+- [ ] 1.A.2 Pin the exact diagnostic each rejection produces, so a relocation that changes what an operator is told is as visible as one that changes what is accepted.
+
+### 1.B Extract the shared bounded YAML crate
+
+- [ ] 1.B.1 Add workspace member `crates/vanehub-bounded-yaml` containing only the restricted lexer, grammar, caller-supplied resource limits, duplicate-key detection, and a generic `BoundedYamlValue` AST. No I/O, no domain semantics, no serde derives that imply a schema.
+- [ ] 1.B.2 Reject anchors, aliases, merge keys, tags, multi-document streams, and every construct not explicitly supported. Do not add `serde_yaml`.
+- [ ] 1.B.3 Make `BoundedYamlLimits` a caller-supplied profile and give Skills and Extension Manifest separate profiles; a manifest needing more nodes SHALL NOT widen the Skill bound.
+- [ ] 1.B.4 Move `SkillConfigDocument` onto the shared parser while its domain decoding and validation stay owned by Skills. Re-run 1.A unchanged and prove identical behavior.
+- [ ] 1.B.5 Keep the dependency direction clean: Skills does not depend on `extension_platform`, and `extension_platform` does not import `skills` internals. Confirm with `cargo test --manifest-path src-tauri/Cargo.toml --test architecture`.
+
+### 1.C SemVer dependency review
+
+- [ ] 1.C.1 Review a maintained `semver` crate for license, NOTICE obligations, advisory history, and maintenance status before any code depends on it; record the outcome.
+- [ ] 1.C.2 Add it as a workspace dependency with an explicit version, inherited by `src-tauri`. Do not hand-write version or requirement parsing.
+
+### 1.D Manifest domain
+
+- [ ] 1.D.1 Implement validated newtypes for extension id, publisher id, contribution local/global id, package hash, snapshot id, installation id, runtime generation id, operation witness, and activation event.
+- [ ] 1.D.2 Implement `VersionedExtensionManifest::V1` and `ExtensionManifestV1` over those newtypes plus `semver::Version` and `semver::VersionReq`.
+- [ ] 1.D.3 Implement manifest declarations for runtime, activation events, extension/Skill dependencies, requested capabilities, tools, Skills, MCP definitions, mode presets, Hooks, authorization rules, connectors, configuration schemas, and transforms.
+
+### 1.E Explicit AST decoding
+
+- [ ] 1.E.1 Implement `ExtensionManifestV1Decoder` reading `BoundedYamlValue` explicitly, field by field. No blanket deserialization: an unknown security-sensitive field must be a decision, not an omission.
+- [ ] 1.E.2 Reject unknown fields, unsupported schema versions, incompatible application versions, and malformed shapes with stable per-field diagnostics.
+- [ ] 1.E.3 Reject a schema version above the one this build supports as incompatible rather than guessing its security semantics.
+
+### 1.F URL and origin validation
+
+- [ ] 1.F.1 Validate requested network origins through `url`, requiring an explicit scheme and host and rejecting wildcards, userinfo, and non-origin forms.
+
+### 1.G Portable package paths
+
+- [ ] 1.G.1 Implement a `PortablePackagePath` value object that checks the raw string **before** `Path::components()` and rejects backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, `..`, and other non-portable forms. `Path::components()` treats a backslash as an ordinary filename character on Unix, so component analysis alone passes a Windows-shaped traversal on a Linux runner.
+- [ ] 1.G.2 Reject an invalid path outright; never auto-normalize one into a valid-looking path.
+- [ ] 1.G.3 Reject Windows reserved names, alternate data streams, case-fold collisions, and Unicode normalization collisions among declared paths.
+
+### 1.H Contribution uniqueness and references
+
+- [ ] 1.H.1 Namespace every external contribution as `ext::<extension-id>::<kind>::<local-id>` and reject an attempt to claim a non-namespaced native id.
+- [ ] 1.H.2 Reject duplicate contribution ids within a manifest and prove every referenced path, schema, and handler resolves to a declared entry.
+
+### 1.I Digest and fixtures
+
+- [ ] 1.I.1 Implement a deterministic canonical manifest digest that does not depend on source key order or insignificant whitespace.
+- [ ] 1.I.2 Add canonical valid and invalid manifest fixtures covering every contribution kind, minimum and maximum bounds, forward-version rejection, and deterministic serialization/digest.
+
+### 1.J Bounded schema validator
+
+- [ ] 1.J.1 Add a checked-in schema fixture for `vanehub-extension.yaml` validated by a bounded validator following `BoundedSkillToolSchemaValidator`; do not introduce a full `jsonschema` engine.
+- [ ] 1.J.2 Fail closed on an unknown schema keyword rather than ignoring it, and test that Rust validation and the schema fixture accept and reject the same manifests.
+
+### 1.K Invariant and failure tests
+
+- [ ] 1.K.1 Add invariant, table-driven, and bounded-combinatorial tests for identifier normalization, contribution namespacing, SemVer requirements, URL/origin validation, path constraints, duplicate detection, and digest determinism. Do not add `proptest` or `quickcheck`, and do not describe an example test as property-based.
+- [ ] 1.K.2 Define stable error codes/DTOs for manifest, compatibility, package, signature, dependency, lifecycle, runtime, contribution, Hook, rule, connector, and stale-witness failures, with a test proving every code is distinct.
 
 ## 2. Package security, publisher trust, and immutable storage
 

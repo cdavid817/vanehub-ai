@@ -241,6 +241,31 @@ pub struct ExtensionManifestV1 {
 
 Serde/infrastructure types are converted into validated domain types. Application services do not accept raw strings where a validated id, path, URL, matcher, or version type exists.
 
+### The manifest is parsed in two stages, over a shared bounded YAML subset
+
+Parsing is split so that no domain type is ever constructed from text:
+
+```text
+Bounded YAML Parser -> BoundedYamlValue -> ExtensionManifestV1Decoder -> ExtensionManifestV1
+```
+
+The first stage answers "is this well-formed YAML within our limits?" and knows nothing about extensions. The second answers "does this describe a valid extension?" and never touches bytes or indentation. Collapsing them would put resource limits and domain rules in the same pass, where a manifest rule change could quietly move a security bound.
+
+**`serde_yaml` is excluded.** The repository already made this call: `skills/domain/config_document.rs` hand-writes a bounded subset scanner because a general YAML parser accepts anchors, aliases, and merge keys whose expansion is unbounded *before* any validator runs. A manifest arriving from an untrusted `.vhext` is the case that rationale was written for. `serde_yaml` is also unmaintained. Anchors, aliases, merge keys, tags, multi-document streams, and any construct not explicitly supported are rejected rather than interpreted.
+
+**The subset scanner becomes a shared crate.** Copying it into `extension_platform` would fork a security primitive; importing `skills`' domain module across contexts is prohibited and would invert the dependency. It is extracted to `crates/vanehub-bounded-yaml`, a workspace member containing only:
+
+* the restricted lexer and grammar;
+* resource limits as a caller-supplied profile;
+* duplicate-key detection;
+* a generic `BoundedYamlValue` AST.
+
+It contains no I/O and no domain semantics. `SkillConfigDocument` decoding and validation stay in Skills; `ExtensionManifestV1` decoding and validation belong to `extension_platform`. Skills does not depend on `extension_platform`, and `extension_platform` does not reach into `skills`.
+
+**Limits are per-consumer profiles.** `BoundedYamlLimits` is supplied by the caller, so a manifest that needs more nesting or more nodes than a Skill config cannot widen the Skill bound as a side effect. Each consumer pins its own profile and tests it.
+
+**Extraction is behavior-preserving.** Characterization tests covering the current accept and reject behavior — including every limit and every rejected construct — land *before* the move, and must pass unchanged after it. A relocation that silently changes what Skills accepts is the failure mode worth spending a test suite on.
+
 ## Decision 2: Package installation is immutable, bounded, and witness-bound
 
 `.vhext` is a ZIP archive in the first release. The archive implementation SHALL be selected after maintenance, advisory, license, Windows path, and streaming-limit review. If the active Skill Registry change introduces shared safe-archive primitives, this change SHALL reuse or extract them into an application-owned package-security module rather than fork validation logic.
@@ -1121,6 +1146,21 @@ Therefore, in the first release:
 The only bounded archive implementation in the repository is `skills/infrastructure/filesystem/overlay_import.rs`, which already enforces compressed size, expanded size, entry count, per-file size, symlink rejection, and path-component validation. It lives in another context's `infrastructure`, which cross-context callers may not import.
 
 Task 2.1 is therefore an **extraction**, not a reuse: the safe-archive, path-normalization, and content-addressed-store primitives move to an application-owned `platform` module that `skills`, the future `skill_registry`, and `extension_platform` all consume. `zip`, `sha2`, `flate2`, `globset`, and `regex` are already pinned; Ed25519 signature verification is a genuinely new dependency for task 2.2.
+
+### Manifest-parsing dependencies
+
+| Need | Repository state | Decision |
+| --- | --- | --- |
+| YAML | No general parser, deliberately. `skills/domain/config_document.rs` is a 435-line bounded subset scanner whose header records why. | Extract to `crates/vanehub-bounded-yaml`. No `serde_yaml`. |
+| SemVer | Absent. `ExtensionManifestV1` needs `Version` and `VersionReq`. | Add a maintained `semver` crate as a workspace dependency after license, NOTICE, and maintenance review. Version parsing is not hand-written — a subtly wrong precedence rule is worse than an audited dependency. |
+| JSON Schema | No engine. `skill_tools` hand-wrote `BoundedSkillToolSchemaValidator`. | Follow that precedent. No full `jsonschema` engine, and an unknown keyword fails closed rather than being ignored. |
+| Property testing | No `proptest` or `quickcheck`. | Use invariant, table-driven, and bounded-combinatorial tests. Do not describe an example test as property-based. |
+| URL / origin | `url` present, already used by `skill_tools`. | Reuse. |
+| Hashing, archive, encoding | `sha2`, `zip`, `base64` present. | Reuse. |
+
+### Portable package paths
+
+Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.
 
 ### Permissions seam
 
