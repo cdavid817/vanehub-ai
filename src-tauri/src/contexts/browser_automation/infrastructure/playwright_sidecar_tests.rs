@@ -192,7 +192,9 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         .ok
     );
     worker
-        .shutdown(Duration::from_secs(5))
+        // A real Chromium context can need more than five seconds to release its Windows Job
+        // Object when the full native suite is running many process fixtures concurrently.
+        .shutdown(Duration::from_secs(15))
         .expect("worker shutdown");
 }
 

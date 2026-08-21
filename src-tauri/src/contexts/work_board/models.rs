@@ -76,16 +76,3 @@ pub(crate) struct LinkWorkItemSourceInput {
     pub(crate) source_id: String,
     pub(crate) relation: String,
 }
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PlanSummary {
-    pub(crate) id: String,
-    pub(crate) goal: String,
-    pub(crate) project_path: String,
-    pub(crate) status: String,
-    pub(crate) latest_run_id: Option<String>,
-    pub(crate) latest_run_status: Option<String>,
-    pub(crate) created_at: String,
-    pub(crate) updated_at: String,
-}

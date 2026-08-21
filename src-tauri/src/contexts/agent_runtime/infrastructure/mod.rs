@@ -62,8 +62,6 @@ mod native_tool_provider_parity_tests;
 mod native_tool_repository;
 mod native_tool_schema;
 mod onepiece_model_discovery;
-#[cfg(test)]
-mod onepiece_planning;
 mod openai_compatible_provider;
 mod permission_adapter;
 mod personalization_gateway;

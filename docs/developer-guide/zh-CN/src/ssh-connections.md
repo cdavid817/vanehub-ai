@@ -86,7 +86,7 @@ POOL_CAPACITY  ∈ 1..=32
 
 远端不是本地的完整投影，两条限制来自实现而非疏漏：
 
-- **远端不支持 Git worktree**——只能指向远端已存在的路径。因此依赖 worktree 的 [Loop 与 Plan 运行时](loop-and-plan-runtime.md)也不适用于远程工作区。
+- **远端不支持 Git worktree**——只能指向远端已存在的路径。因此依赖 worktree 的持久化 [Loop 运行时](loop-and-plan-runtime.md)不适用于远程工作区。会话 Plan 模式只是只读会话策略，不是 worktree 运行时。
 - **本地 PTY 的归属模型不原样延伸到远端**，远程会话走自己的运行时路径。
 
 ## 与其他上下文的关系

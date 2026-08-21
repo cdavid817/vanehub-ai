@@ -23,7 +23,7 @@ fn a_partially_finished_goal_is_not_awaiting_acceptance() {
     let progress = derive(
         GoalStatus::Active,
         &[
-            link(GoalLinkTarget::Plan, LinkProgress::Terminal),
+            link(GoalLinkTarget::WorkItem, LinkProgress::Terminal),
             link(GoalLinkTarget::Loop, LinkProgress::Active),
         ],
     );
@@ -38,15 +38,14 @@ fn a_goal_whose_children_all_finished_awaits_acceptance() {
     let progress = derive(
         GoalStatus::Active,
         &[
-            link(GoalLinkTarget::Plan, LinkProgress::Terminal),
             link(GoalLinkTarget::Loop, LinkProgress::Terminal),
             link(GoalLinkTarget::WorkItem, LinkProgress::Terminal),
         ],
     );
 
     assert!(progress.awaiting_acceptance());
-    assert_eq!(progress.counted, 3);
-    assert_eq!(progress.terminal, 3);
+    assert_eq!(progress.counted, 2);
+    assert_eq!(progress.terminal, 2);
 }
 
 #[test]
@@ -96,7 +95,7 @@ fn a_session_alongside_finished_work_does_not_hold_the_goal_back() {
     let progress = derive(
         GoalStatus::Active,
         &[
-            link(GoalLinkTarget::Plan, LinkProgress::Terminal),
+            link(GoalLinkTarget::WorkItem, LinkProgress::Terminal),
             link(GoalLinkTarget::Session, LinkProgress::Active),
         ],
     );
@@ -107,25 +106,11 @@ fn a_session_alongside_finished_work_does_not_hold_the_goal_back() {
 
 #[test]
 fn a_child_parked_at_its_own_acceptance_keeps_the_goal_active() {
-    // Both loops and plan runs report `Active` while they sit at
-    // awaiting-acceptance; the child still needs a human, so the goal must not
-    // claim it is ready for one.
-    for kind in [GoalLinkTarget::Loop, GoalLinkTarget::Plan] {
-        let progress = derive(GoalStatus::Active, &[link(kind, LinkProgress::Active)]);
-        assert_eq!(
-            progress.derived_status,
-            DerivedGoalStatus::Active,
-            "{} parked at acceptance must not promote its goal",
-            kind.as_str()
-        );
-    }
-}
-
-#[test]
-fn a_retryable_plan_failure_keeps_the_goal_active() {
+    // The child still needs a human, so the goal must not claim it is ready
+    // for acceptance as well.
     let progress = derive(
         GoalStatus::Active,
-        &[link(GoalLinkTarget::Plan, LinkProgress::Active)],
+        &[link(GoalLinkTarget::Loop, LinkProgress::Active)],
     );
 
     assert_eq!(progress.derived_status, DerivedGoalStatus::Active);
@@ -133,7 +118,7 @@ fn a_retryable_plan_failure_keeps_the_goal_active() {
 
 #[test]
 fn non_active_goals_pass_their_stored_status_straight_through() {
-    let finished = [link(GoalLinkTarget::Plan, LinkProgress::Terminal)];
+    let finished = [link(GoalLinkTarget::WorkItem, LinkProgress::Terminal)];
 
     for (stored, expected) in [
         (GoalStatus::Draft, DerivedGoalStatus::Draft),
@@ -146,9 +131,9 @@ fn non_active_goals_pass_their_stored_status_straight_through() {
 
 #[test]
 fn reopening_a_child_pulls_a_goal_back_out_of_acceptance() {
-    let finished = [link(GoalLinkTarget::Plan, LinkProgress::Terminal)];
+    let finished = [link(GoalLinkTarget::Loop, LinkProgress::Terminal)];
     assert!(derive(GoalStatus::Active, &finished).awaiting_acceptance());
 
-    let reopened = [link(GoalLinkTarget::Plan, LinkProgress::Active)];
+    let reopened = [link(GoalLinkTarget::Loop, LinkProgress::Active)];
     assert!(!derive(GoalStatus::Active, &reopened).awaiting_acceptance());
 }

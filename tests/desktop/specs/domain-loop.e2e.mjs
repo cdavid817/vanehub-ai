@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import { comparableFilesystemPath } from "../helpers/filesystem-path.mjs";
+
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
@@ -96,7 +98,7 @@ globalThis.describe("VaneHub AI desktop Loop Engineering domain", () => {
     definitions.push(created.id);
 
     assert.equal(created.name, input.name);
-    assert.equal(created.projectPath, repository);
+    assert.equal(comparableFilesystemPath(created.projectPath), comparableFilesystemPath(repository));
     assert.equal(created.workerAgentId, "codex-cli");
     assert.equal(created.verifierAgentId, "claude-code");
     assert.deepEqual(created.acceptanceCriteria, input.acceptanceCriteria);

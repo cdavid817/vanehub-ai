@@ -43,7 +43,6 @@ export function ChatInputBox({
   onConfigReasoningChange,
   onConfigStreamingChange,
   onConfigThinkingChange,
-  onOpenPlan,
   onStop,
   onSubmit,
   onRemoveFileReference,
@@ -76,7 +75,6 @@ export function ChatInputBox({
   onConfigReasoningChange: (value: ReasoningDepth) => void;
   onConfigStreamingChange: (value: boolean) => void;
   onConfigThinkingChange: (value: boolean) => void;
-  onOpenPlan?: () => void;
   onStop: () => void;
   onSubmit: () => void;
   onRemoveFileReference: (referenceId: string) => void;
@@ -257,7 +255,6 @@ export function ChatInputBox({
           onAgentChange={onConfigAgentChange}
           onLongContextChange={onConfigLongContextChange}
           onModeChange={onConfigModeChange}
-          onOpenPlan={onOpenPlan}
           onModelChange={onConfigModelChange}
           onProviderChange={onConfigProviderChange}
           onReasoningChange={onConfigReasoningChange}

@@ -106,10 +106,10 @@ fn corrected(event: &str, time: &str, workspace: &str) -> SignalDraft {
 
 fn recovery(event: &str, time: &str, predecessor: &str) -> SignalDraft {
     extract(json!({
-        "sourceKind": "plan_verification",
+        "sourceKind": "run_verification",
         "schemaVersion": 1,
         "common": common(event, time, "run-recovery", "attempt-recovery", "workspace-a"),
-        "planRunId": "plan-1",
+        "runId": "run-1",
         "verifier": "test",
         "outcome": "passed",
         "passedCount": 3,

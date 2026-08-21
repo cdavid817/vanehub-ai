@@ -33,7 +33,7 @@ If you're new to this codebase, read these in order before anything else — the
 | [Extended tool contexts](extended-tool-contexts.md) | Sandboxed execution, the browser, web research, and artifact storage, and each one's gates and isolation constraints |
 | [CLI delegation and the ChangeSet pipeline](cli-delegation.md) | Isolated execution, ChangeSet capture and sealing, one-time exact apply, and the recovery capsule |
 | [Multi-Agent group chat](multi-agent-group-chat.md) | Seat model, mid-session add/remove, turn routing, durable presence |
-| [Loop and Plan runtimes](loop-and-plan-runtime.md) | Durable Loop definitions, topology-aware serial subtask scheduling, Worker/Verifier trust |
+| [Loop runtime and session Plan mode](loop-and-plan-runtime.md) | Durable Loop execution plus the read-only Plan mode inside OnePiece sessions |
 | [Goals and the work board](goals-and-work-board.md) | The goal state machine and derived acceptance, and the board's idempotent reconciliation |
 | [Session recovery](session-recovery.md) | Recovery status orthogonal to lifecycle, durable execution identity and ownership |
 

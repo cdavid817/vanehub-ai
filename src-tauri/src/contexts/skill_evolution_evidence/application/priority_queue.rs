@@ -184,7 +184,7 @@ pub(crate) fn priority_for(envelope: &EvidenceSourceEnvelope) -> EvidencePriorit
             feedback: FeedbackState::Corrected,
             ..
         }
-        | EvidenceSourceEnvelope::PlanVerification {
+        | EvidenceSourceEnvelope::RunVerification {
             outcome: VerificationOutcome::Passed | VerificationOutcome::Failed,
             ..
         } => EvidencePriority::Critical,

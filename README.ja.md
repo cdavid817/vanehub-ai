@@ -89,7 +89,7 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 | セッションリスト | [グループ化/検索/フィルタ/一括操作/ドラッグ、コンテキストメニュー、フォーカスモード](docs/user-guide/en/src/user-interface.md#session-list) |
 | フローティングアシスタント | [独立したフローティングウィンドウセッション、ステータスバッジ、メインアクションメニュー](docs/user-guide/en/src/user-interface.md#floating-assistant) |
 | ループセンター | [Loop 実行コントロール、検証コマンド、タイムライン](docs/user-guide/en/src/loop-engineering.md) |
-| プランセンター | [タスクグラフ生成、承認制約、実行と受け入れ](docs/user-guide/en/src/user-interface.md#plan-center) |
+| OnePiece Plan モード | [読み取り専用の計画と承認後の Agent モード移行](docs/user-guide/en/src/user-interface.md#onepiece-plan-mode) |
 | ゴールセンター | [散らばった実行項目を一箇所で追跡](docs/user-guide/en/src/goal-management.md) |
 | タスクボード | [作業項目のボードビューとステージ遷移](docs/user-guide/en/src/todo-board.md) |
 | Agent 評価 | [同一タスクで複数の Agent を対戦させ、合格率・トークン・時間を比較](docs/user-guide/en/src/evaluation.md) |

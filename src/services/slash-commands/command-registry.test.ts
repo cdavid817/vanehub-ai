@@ -11,14 +11,13 @@ const command = (name: string, overrides: Partial<SlashCommand> = {}): SlashComm
   run: async () => ({ kind: "handled" }), ...overrides,
 });
 
-const capabilities = (hasAssociatedPlan = false) => ({ hasAssociatedPlan });
+const capabilities = () => ({});
 
 describe("command registry", () => {
   const commands = [
     command("help"),
     command("status", { aliases: ["st"] }),
     command("compact", { appliesTo: (target) => target.agentId === "onepiece" }),
-    command("plan", { appliesTo: (_target, caps) => caps.hasAssociatedPlan }),
   ];
 
   it("finds a command by name", () => {
@@ -38,13 +37,8 @@ describe("command registry", () => {
     expect(findCommand(commands, "compact", session("onepiece"), capabilities())?.name).toBe("compact");
   });
 
-  it("consults capabilities, not just the session", () => {
-    expect(findCommand(commands, "plan", session("onepiece"), capabilities(false))).toBeNull();
-    expect(findCommand(commands, "plan", session("onepiece"), capabilities(true))?.name).toBe("plan");
-  });
-
   it("lists only applicable commands, sorted by name", () => {
     expect(listCommands(commands, session("claude-code"), capabilities()).map((entry) => entry.name)).toEqual(["help", "status"]);
-    expect(listCommands(commands, session("onepiece"), capabilities(true)).map((entry) => entry.name)).toEqual(["compact", "help", "plan", "status"]);
+    expect(listCommands(commands, session("onepiece"), capabilities()).map((entry) => entry.name)).toEqual(["compact", "help", "status"]);
   });
 });

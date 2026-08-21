@@ -10,8 +10,6 @@ test.describe("workspace routing", () => {
   test("addresses every destination and restores them with Back", async ({ page }) => {
     await openWorkspace(page);
 
-    await page.getByRole("button", { name: "Plan 执行", exact: true }).click();
-    await expect(page).toHaveURL(/\/workspace\/plans$/);
     await page.getByRole("button", { name: "循环工程", exact: true }).click();
     await expect(page).toHaveURL(/\/workspace\/loops$/);
     await page.getByRole("button", { name: "任务看板", exact: true }).click();
@@ -21,8 +19,8 @@ test.describe("workspace routing", () => {
     await expect(page).toHaveURL(/\/workspace\/loops$/);
     await expect(page.locator("#loop-center")).toBeVisible();
     await page.goBack();
-    await expect(page).toHaveURL(/\/workspace\/plans$/);
-    await expect(page.locator("#plan-center")).toBeVisible();
+    await expect(page).toHaveURL(/\/workspace\/sessions$/);
+    await expect(page.getByTestId("session-sidebar")).toBeVisible();
   });
 
   test("opens a destination directly from its URL", async ({ page }) => {

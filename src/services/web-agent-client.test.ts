@@ -882,7 +882,14 @@ describe("webAgentClient", () => {
   });
 
   it("persists chat configuration per session and keeps session identity authoritative", async () => {
-    const first = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Config one" });
+    await webAgentClient.saveOnePieceProviderConfig({
+      provider: "Anthropic",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+      apiKey: "session-plan-mode-test-key",
+    });
+    const first = await createMockSession({ agentId: "onepiece", interactionMode: "api", title: "Config one" });
     const second = await createMockSession({ agentId: "gemini-cli", interactionMode: "browser", title: "Config two" });
     const events: string[] = [];
     const unsubscribe = await webAgentClient.subscribeSessionEvents((event) => events.push(event.kind));
@@ -890,7 +897,7 @@ describe("webAgentClient", () => {
     const saved = await webAgentClient.saveSessionChatConfig(first.id, {
       agentId: "claude-code",
       interactionMode: "browser",
-      executionMode: "execute",
+      executionMode: "plan",
       providerId: "openai",
       modelId: "gpt-5-4",
       reasoningDepth: "medium",
@@ -900,10 +907,9 @@ describe("webAgentClient", () => {
     });
 
     expect(saved).toMatchObject({
-      agentId: "codex-cli",
-      interactionMode: "cli",
-      modelId: "gpt-5-4",
-      executionMode: "execute",
+      agentId: "onepiece",
+      interactionMode: "api",
+      executionMode: "plan",
     });
     expect(await webAgentClient.getSessionChatConfig(first.id)).toEqual(saved);
     expect((await webAgentClient.getSessionChatConfig(second.id)).agentId).toBe("gemini-cli");
