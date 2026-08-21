@@ -63,3 +63,13 @@ test("test:verify delegates to existing npm scripts instead of reimplementing th
   assert.equal(new Set(plan.map(canonicalize)).size, plan.length);
   assert.equal(canonicalize(plan.at(-1)), "npm run test:desktop");
 });
+
+test("desktop smoke judges the process marker only after bounded shutdown", async () => {
+  const source = await readFile("scripts/test-desktop.mjs", "utf8");
+  const initialRead = source.indexOf("processState = await readProcessMarker(context.dataDir);");
+  const cleanup = source.indexOf("processCleanup = await ensureOwnedProcessesStopped", initialRead);
+  const settledRead = source.indexOf("processState = await readProcessMarker(context.dataDir);", initialRead + 1);
+  const verdict = source.indexOf('if (processState.state !== "exited")', settledRead);
+
+  assert.ok(initialRead >= 0 && initialRead < cleanup && cleanup < settledRead && settledRead < verdict);
+});
