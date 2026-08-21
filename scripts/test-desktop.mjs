@@ -93,6 +93,7 @@ async function smokeDesktop(artifact) {
     }
     processState = await readProcessMarker(context.dataDir);
     processCleanup = await ensureOwnedProcessesStopped({ marker: processState, runId: context.runId });
+    processState = await readProcessMarker(context.dataDir);
     if (processState.state !== "exited") {
       throw new DesktopVerificationError("FAILED", "The desktop runtime did not record a clean shutdown.", {
         marker: processState,
