@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -218,7 +219,7 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
 
     const agentRun = await globalThis.browser.tauri.execute(({ core }) => core.invoke("create_agent_run", {
       input: {
-        id: "018f0f17-4d6a-7e20-b41d-66c5271a28e0",
+        id: randomUUID(),
         owner: { ownerType: "desktop_agent_operation", ownerId: "desktop-smoke" },
         links: [],
         parentRunId: null,

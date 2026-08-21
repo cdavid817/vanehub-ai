@@ -177,6 +177,9 @@ fn project_policy_and_build_args(
     if let Some((key, value)) = opencode_standard_permission_env_var(agent_id, launch_template) {
         env.insert(key.to_string(), value.to_string());
     }
+    if agent_id == "claude-code" {
+        env.insert("VANEHUB_PERMISSION_HOOK_SCOPE".into(), "managed".into());
+    }
     Ok((selections, managed_args, env))
 }
 
@@ -363,7 +366,7 @@ mod tests {
                     .assign_template(agent_id, template)
                     .expect("assign template");
                 for mode in modes {
-                    let (selections, _, _) = project_policy_and_build_args(
+                    let (selections, _, env) = project_policy_and_build_args(
                         &parameters,
                         &permissions,
                         agent_id,
@@ -374,12 +377,20 @@ mod tests {
                     .expect("chat policy projection");
                     let effective = resolve_effective_execution_policy(template, mode);
                     assert_policy_projection(agent_id, &selections, effective.launch_template());
+                    assert_eq!(
+                        env.contains_key("VANEHUB_PERMISSION_HOOK_SCOPE"),
+                        agent_id == "claude-code"
+                    );
                 }
 
-                let (selections, _, _) =
+                let (selections, _, env) =
                     interactive_selections_and_args(&parameters, &permissions, agent_id)
                         .expect("terminal policy projection");
                 assert_policy_projection(agent_id, &selections, template);
+                assert_eq!(
+                    env.contains_key("VANEHUB_PERMISSION_HOOK_SCOPE"),
+                    agent_id == "claude-code"
+                );
             }
         }
     }
@@ -450,7 +461,7 @@ mod tests {
 
         assert_eq!(selections["permissionMode"], "default");
         assert!(!managed_args.iter().any(|arg| arg == "--permission-mode"));
-        assert!(env.is_empty());
+        assert_eq!(env["VANEHUB_PERMISSION_HOOK_SCOPE"], "managed");
     }
 
     #[test]
