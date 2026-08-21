@@ -189,7 +189,7 @@ The user guide's [group chat collaboration case](../../user-guide/en/src/multi-a
 
 The desktop suite under `tests/desktop/specs/` runs the real Tauri client with real installed
 CLIs (this host: claude-code, codex-cli, opencode) and is where the routing and attribution
-defects above were found and proven fixed. Five specs cover group chat, at increasing depth:
+defects above were found and proven fixed. Six specs cover group chat, at increasing depth:
 
 | Spec | What it proves live |
 |---|---|
@@ -197,6 +197,7 @@ defects above were found and proven fixed. Five specs cover group chat, at incre
 | `domain-multi-agent-routing.e2e.mjs` | Human routing by mention, last-holder fallback, a three-seat chain (human → seat → seat), a claude+codex+opencode trio each answering its own mention, and the departed-seat fallback |
 | `domain-multi-agent-business.e2e.mjs` | One real coding task through 架构师 → 实现者 → 代码审查 across three heterogeneous CLIs: the implementer's file lands in the session repository, the reviewer reads it, `@用户 done` closes the round |
 | `domain-multi-agent-project.e2e.mjs` | A three-file project through TWO relay rounds: the review sends work back and the implementer takes a second turn on the same thread (chain depth 3, re-dispatch of an already-spoken seat). The correctness judge is `python3 -m unittest` run by the harness, never the Agent's own claim |
+| `domain-multi-agent-human-decision.e2e.mjs` | A blocking `@用户 handoff` stops the round — including suppressing the teammate that the same reply names — and an unaddressed human answer resumes it with the seat that asked |
 | `ui-multi-agent.e2e.mjs` | The same runtime driven through the DOM: the members pane grows the roster by one seat (backend-verified, role included), typing `@` offers every seat, picking one with the pointer routes the send, and the reply bubble paints that seat's role label and colour dot |
 
 Conventions these specs settled on, learned from failing runs:
@@ -211,6 +212,10 @@ Conventions these specs settled on, learned from failing runs:
   which is the collaboration working.
 - **A provider declining an instruction is reported as `BLOCKED`, never failed** — the suite
   cannot hold a model to an instruction, only observe it.
+- **A pause is an absence, so assert it over a window, not at an instant.** The coordinator polls
+  terminals every 200ms, so a round that failed to stop dispatches within a second or two; the
+  human-decision spec watches for thirty seconds of silence, which makes the absence evidence
+  rather than luck.
 - **Preserve evidence on failure**: a failed flow keeps its session in the run's isolated
   database instead of deleting it in `after`. `VANEHUB_DESKTOP_KEEP_SESSIONS=1` keeps every
   session even on success, so a person can open the test client against the run's
