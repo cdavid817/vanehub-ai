@@ -217,9 +217,10 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
       { sessionId: session.id, path: "review.txt", expectedSnapshot: review.fingerprint, hunkFingerprint: diff.hunks[0].fingerprint, confirmed: true },
     ));
 
-    const agentRun = await globalThis.browser.tauri.execute(({ core }) => core.invoke("create_agent_run", {
+    const agentRunId = randomUUID();
+    const agentRun = await globalThis.browser.tauri.execute(({ core }, runId) => core.invoke("create_agent_run", {
       input: {
-        id: randomUUID(),
+        id: runId,
         owner: { ownerType: "desktop_agent_operation", ownerId: "desktop-smoke" },
         links: [],
         parentRunId: null,
@@ -227,7 +228,7 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
         maxRetries: 0,
         witness: "desktop-smoke-created",
       },
-    }));
+    }), agentRunId);
     assert.equal(agentRun.state, "created");
     const missionOverview = await globalThis.browser.tauri.execute(({ core }) => core.invoke("get_mission_control_overview", {
       query: { limit: 20, sort: "newest" },
