@@ -216,6 +216,8 @@ test("the settings persistence layer orders its specs so the relaunch is real", 
   // A glob would not promise that the change runs before the check, and the check is only
   // meaningful against an application that started after the change was written.
   assert.match(config, /specFiles: \["change-setting\.e2e\.mjs", "verify-after-relaunch\.e2e\.mjs"\]/);
+  assert.match(config, /specFileRetries: 2/);
+  assert.match(config, /specFileRetriesDelay: 5/);
   // Importing the sibling spec would register its describe block twice in the same worker.
   assert.doesNotMatch(relaunch, /from "\.\/change-setting\.e2e\.mjs"/);
   // Browser storage is the Web adapter's persistence, not the desktop client's.
