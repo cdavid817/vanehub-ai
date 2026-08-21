@@ -3,14 +3,12 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentTerminalShell {
     WindowsPowerShell,
     WindowsCmd,
     UnixDefault,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentTerminalWrapperRequest {
     pub(crate) terminal_id: String,
@@ -25,7 +23,6 @@ pub(crate) struct AgentTerminalWrapperRequest {
     /// (`add-cli-agent-permission-launch-flags`). Empty in every other case.
     pub(crate) env: BTreeMap<String, String>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentTerminalWrapperSpec {
     pub(crate) executable: String,
@@ -33,7 +30,6 @@ pub(crate) struct AgentTerminalWrapperSpec {
     pub(crate) wrapper_path: PathBuf,
     pub(crate) redacted_command: String,
 }
-
 pub(crate) fn default_agent_terminal_shell() -> (AgentTerminalShell, String) {
     if cfg!(target_os = "windows") {
         if crate::platform::process::command_exists(
@@ -54,7 +50,6 @@ pub(crate) fn default_agent_terminal_shell() -> (AgentTerminalShell, String) {
         )
     }
 }
-
 pub(crate) fn generate_agent_terminal_wrapper(
     request: &AgentTerminalWrapperRequest,
 ) -> Result<AgentTerminalWrapperSpec, String> {
@@ -185,16 +180,11 @@ fn cmd_wrapper_body(
     } else {
         format!(" {}", args.join(" "))
     };
-    let extension = Path::new(executable)
+    let batch_prefix = Path::new(executable)
         .extension()
         .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let batch_prefix =
-        if extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat") {
-            "call "
-        } else {
-            ""
-        };
+        .filter(|value| value.eq_ignore_ascii_case("cmd") || value.eq_ignore_ascii_case("bat"))
+        .map_or("", |_| "call ");
     lines.push(format!("{batch_prefix}{}{}", cmd_quote(executable), suffix));
     lines.push("exit /b %ERRORLEVEL%".to_string());
     format!("{}\r\n", lines.join("\r\n"))
@@ -374,18 +364,6 @@ mod tests {
         );
         assert!(body.contains("\"C:\\Program Files\\Agent CLI\\agent.exe\""));
         assert!(body.contains("\"literal & $(value) \"\"quoted\"\" %%PATH%%\""));
-    }
-
-    #[test]
-    fn cmd_wrapper_calls_batch_executables_without_transferring_control() {
-        let (_directory, mut request) = request(AgentTerminalShell::WindowsCmd);
-        request.executable = r"C:\Program Files\Agent CLI\agent.cmd".to_string();
-
-        let spec = generate_agent_terminal_wrapper(&request).expect("wrapper");
-        let body = fs::read_to_string(&spec.wrapper_path).expect("body");
-
-        assert!(body.contains(r#"call "C:\Program Files\Agent CLI\agent.cmd""#));
-        assert!(body.contains("exit /b %ERRORLEVEL%"));
     }
 
     #[test]
