@@ -206,14 +206,13 @@ async function mcpCardNames() {
 }
 
 /**
- * prompt-hooks/prompt-hook-card-list.tsx:126-135 -- one `section[role="listitem"]` per hook, whose
- * first `<p>` is the hook id. The list virtualizes only above 500 hooks (lib/virtual-list.ts:1-5),
- * so every card is really in the DOM here.
+ * prompt-hooks/prompt-hook-card-list.tsx renders one `article[data-hook-id]` per hook. The list
+ * virtualizes only above 500 hooks, so every compact row is really in the DOM here.
  */
 async function promptHookCardIds() {
   return globalThis.browser.execute(
-    (scope) => Array.from(globalThis.document.querySelectorAll(`${scope} section[role="listitem"]`))
-      .map((card) => (card.querySelector("p")?.textContent ?? "").trim()),
+    (scope) => Array.from(globalThis.document.querySelectorAll(`${scope} article[data-hook-id]`))
+      .map((row) => row.getAttribute("data-hook-id") ?? ""),
     PANEL,
   );
 }
@@ -495,18 +494,13 @@ globalThis.describe("VaneHub AI desktop Settings interactions", () => {
     assert.ok(created, "the card rendered but no hook was stored");
     assert.equal(created.name, HOOK_NAME, "the name typed into the dialog was not the one stored");
 
-    // prompt-hooks/prompt-hook-card-list.tsx:191-193 -- the per-card delete action.
-    const cardDelete = () => pick(
-      "the Prompt Hook delete button on the created card",
-      `${PANEL} section[role="listitem"] button`,
-      (selector, id) => Array.from(globalThis.document.querySelectorAll(selector)).flatMap((button, index) => {
-        const card = button.closest('section[role="listitem"]');
-        const matches = (card?.querySelector("p")?.textContent ?? "").trim() === id
-          && button.querySelector("svg.lucide-trash-2") !== null;
-        return matches ? [index] : [];
-      }),
-      HOOK_ID,
-    );
+    const cardDelete = async () => {
+      const row = await globalThis.$(`${PANEL} article[data-hook-id="${HOOK_ID}"]`);
+      const summary = await row.$("summary");
+      assert.ok(summary, "the Prompt Hook overflow summary is missing");
+      await summary.click();
+      return row.$("button*=Delete");
+    };
 
     // Cancelling the confirmation must leave the hook alone -- a delete dialog whose cancel still
     // deletes is exactly the wiring bug a command-level test cannot see.

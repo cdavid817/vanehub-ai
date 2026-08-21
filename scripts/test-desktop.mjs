@@ -1,7 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { Buffer } from "node:buffer";
-import { appendFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDesktopMetadata, resolveDesktopArtifact } from "./desktop/artifact.mjs";
@@ -15,6 +13,10 @@ import { DesktopVerificationError } from "./desktop/verification-error.mjs";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const npmCli = process.env.npm_execpath;
 const latestArtifactPath = path.join(repoRoot, "test-results", "desktop", "latest-artifact.json");
+// The expanded native layers are valuable release coverage, but they do not yet hold on every
+// hosted runner. Keep the PR gate on the cross-platform smoke contract; developers and release
+// workflows can opt into the complete suite explicitly.
+const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
@@ -53,6 +55,12 @@ async function buildDesktop() {
   return artifact;
 }
 
+async function loadArtifact() {
+  const requested = process.env.VANEHUB_DESKTOP_ARTIFACT;
+  if (requested) return { ...JSON.parse(await readFile(latestArtifactPath, "utf8")), executablePath: path.resolve(requested) };
+  return JSON.parse(await readFile(latestArtifactPath, "utf8"));
+}
+
 /** Pass/fail/skip counts the WDIO run recorded, or null when it never got that far. */
 async function readWdioCoverage(resultDir) {
   try {
@@ -63,100 +71,15 @@ async function readWdioCoverage(resultDir) {
   }
 }
 
-async function loadArtifact() {
-  const requested = process.env.VANEHUB_DESKTOP_ARTIFACT;
-  if (requested) return { ...JSON.parse(await readFile(latestArtifactPath, "utf8")), executablePath: path.resolve(requested) };
-  return JSON.parse(await readFile(latestArtifactPath, "utf8"));
-}
-
-async function desktopSpecNames() {
-  const requested = (process.env.VANEHUB_DESKTOP_SPEC ?? "")
-    .split(",")
-    .map((value) => path.basename(value.trim()))
-    .filter(Boolean);
-  if (requested.length > 0) return requested;
-  if (process.env.CI && process.env.VANEHUB_DESKTOP_FULL_SUITE !== "1") return ["smoke.e2e.mjs"];
-  const entries = await readdir(path.join(repoRoot, "tests", "desktop", "specs"));
-  return entries.filter((entry) => entry.endsWith(".e2e.mjs")).sort();
-}
-
-async function runDesktopSpecs(env, resultDir) {
-  const coverage = { exitCode: 0, passed: 0, failed: 0, skipped: 0 };
-  const failedSpecs = [];
-  const aggregateLogDir = path.join(env.VANEHUB_APP_DATA_DIR, "logs");
-  await mkdir(aggregateLogDir, { recursive: true });
-  for (const spec of await desktopSpecNames()) {
-    const specSlug = spec.replace(/\.e2e\.mjs$/, "").replaceAll(/[^a-z0-9-]+/gi, "-");
-    const specRoot = path.join(env.VANEHUB_APP_DATA_DIR, "spec-runs", specSlug);
-    const specDataDir = path.join(specRoot, "data");
-    await mkdir(specDataDir, { recursive: true });
-    const driverPort = Number(env.VANEHUB_WEBDRIVER_PORT ?? 4445);
-    let available = false;
-    for (let attempt = 0; attempt < 40 && !available; attempt += 1) {
-      available = await new Promise((resolve) => {
-        const server = createServer();
-        server.once("error", () => resolve(false));
-        server.listen(driverPort, "127.0.0.1", () => server.close(() => resolve(true)));
-      });
-      if (!available) await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
-    }
-    if (!available) throw new DesktopVerificationError("BLOCKED", `Desktop driver port ${driverPort} is still occupied.`);
-    // Windows releases the listening socket before the embedded driver service has finished all
-    // process teardown. A short quiet period prevents the next isolated app from racing that exit.
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 1_000));
-    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", "tests/desktop/wdio.conf.mjs"], {
-      cwd: repoRoot,
-      env: {
-        ...env,
-        VANEHUB_APP_DATA_DIR: specDataDir,
-        VANEHUB_DESKTOP_SPEC: spec,
-        VANEHUB_WEBDRIVER_PORT: String(driverPort),
-      },
-      stdio: "inherit",
-    });
-    const specCoverage = await readWdioCoverage(resultDir);
-    coverage.passed += specCoverage?.passed ?? 0;
-    coverage.failed += specCoverage?.failed ?? 0;
-    coverage.skipped += specCoverage?.skipped ?? 0;
-    if (result.error || result.status !== 0) failedSpecs.push(spec);
-    try {
-      const marker = await readProcessMarker(specDataDir);
-      await ensureOwnedProcessesStopped({ marker, runId: env.VANEHUB_TEST_RUN_ID });
-      if (marker.state !== "exited" && !failedSpecs.includes(spec)) failedSpecs.push(spec);
-      const persistedMarker = {
-        pid: marker.pid,
-        runId: marker.runId,
-        state: marker.state,
-        updatedAt: marker.updatedAt,
-      };
-      await writeFile(
-        path.join(env.VANEHUB_APP_DATA_DIR, "desktop-e2e-process.json"),
-        `${JSON.stringify(persistedMarker, null, 2)}\n`,
-      );
-    } catch {
-      if (!failedSpecs.includes(spec)) failedSpecs.push(spec);
-    }
-    try {
-      const nativeLog = await readFile(path.join(specDataDir, "logs", "vanehub.log"));
-      await appendFile(
-        path.join(aggregateLogDir, "vanehub.log"),
-        Buffer.concat([Buffer.from(`\n--- ${spec} ---\n`), nativeLog]),
-      );
-    } catch {
-      // A spec that failed before logging is already represented by its WDIO result.
-    }
-  }
-  coverage.exitCode = failedSpecs.length > 0 ? 1 : 0;
-  await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify(coverage, null, 2)}\n`);
-  if (failedSpecs.length > 0) {
-    throw new DesktopVerificationError("FAILED", "Native desktop smoke failed.", { failedSpecs });
-  }
-}
-
-async function smokeDesktop(artifact) {
+/**
+ * Runs one wdio-driven desktop layer end to end: isolated run context, artifact launch, owned
+ * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
+ * and its own wdio configuration, so one layer's environment cannot change what another tests.
+ */
+async function runDesktopLayer({ layer, config, label, artifact }) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
-    throw new DesktopVerificationError("BLOCKED", "Desktop smoke requires an absolute test-build artifact path.");
+    throw new DesktopVerificationError("BLOCKED", `${label} requires an absolute test-build artifact path.`);
   }
   const context = await createRunContext(repoRoot);
   const startedAt = new Date().toISOString();
@@ -166,9 +89,20 @@ async function smokeDesktop(artifact) {
   let processState;
   try {
     const env = { ...process.env, ...context.environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
-    await runDesktopSpecs(env, context.resultDir);
+    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", config], {
+      cwd: repoRoot,
+      env,
+      stdio: "inherit",
+    });
+    if (result.error || result.status !== 0) {
+      throw new DesktopVerificationError("FAILED", `${label} failed.`, {
+        exitCode: result.status,
+        error: result.error?.message,
+      });
+    }
     processState = await readProcessMarker(context.dataDir);
     processCleanup = await ensureOwnedProcessesStopped({ marker: processState, runId: context.runId });
+    processState = await readProcessMarker(context.dataDir);
     if (processState.state !== "exited") {
       throw new DesktopVerificationError("FAILED", "The desktop runtime did not record a clean shutdown.", {
         marker: processState,
@@ -189,8 +123,8 @@ async function smokeDesktop(artifact) {
     }
   }
   const nativeLogs = await collectUnifiedLogs(context.dataDir, context.resultDir);
-  const layer = createLayerResult({
-    layer: "desktop-smoke",
+  const layerResult = createLayerResult({
+    layer,
     status,
     platform: artifact.platform,
     architecture: artifact.architecture,
@@ -204,23 +138,84 @@ async function smokeDesktop(artifact) {
     ...(errorDetails ? { error: errorDetails } : {}),
   });
   const coverage = await readWdioCoverage(context.resultDir);
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layer], coverage });
+  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
   await disposeRunContext(context);
-  // Skips are named in the verdict rather than buried in the reporter: a host without a proxy,
-  // provider key, SSH target or installed CLI skips whole capabilities and still exits 0, and
-  // "PASSED" alone presents that reduced coverage as a clean bill of health.
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
-  process.stdout.write(`Desktop smoke: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
+  process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
+}
+
+function smokeDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-smoke",
+    config: "tests/desktop/wdio.conf.mjs",
+    label: "Desktop smoke",
+    artifact,
+  });
+}
+
+function cliTerminalDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-cli-terminal",
+    config: "tests/desktop/wdio.cli-terminal.conf.mjs",
+    label: "Desktop CLI terminal",
+    artifact,
+  });
+}
+
+function sessionWorkspaceDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-workspace",
+    config: "tests/desktop/wdio.session-workspace.conf.mjs",
+    label: "Desktop session workspace",
+    artifact,
+  });
+}
+
+function dialogsDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-dialogs",
+    config: "tests/desktop/wdio.dialogs.conf.mjs",
+    label: "Desktop dialogs",
+    artifact,
+  });
+}
+
+function settingsPersistenceDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-settings-persistence",
+    config: "tests/desktop/wdio.settings-persistence.conf.mjs",
+    label: "Desktop settings persistence",
+    artifact,
+  });
 }
 
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
   else if (mode === "smoke") await smokeDesktop();
-  else if (mode === "all") await smokeDesktop(await buildDesktop());
-  else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
+  else if (mode === "cli-terminal") await cliTerminalDesktop();
+  else if (mode === "session-workspace") await sessionWorkspaceDesktop();
+  else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "all") {
+    const artifact = await buildDesktop();
+    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
+    const layers = runFullSuite ? fullSuiteLayers : [smokeDesktop];
+    if (!runFullSuite) {
+      process.stdout.write("Desktop verification: CI gate runs smoke only; set VANEHUB_DESKTOP_FULL_SUITE=1 for all layers.\n");
+    }
+    const results = [];
+    // Sequential rather than concurrent: the layers share one webdriver port and one desktop
+    // artifact, and a layer's evidence is only attributable if it owned the machine while it ran.
+    for (const layer of layers) {
+      results.push(await layer(artifact));
+    }
+    // Each layer sets its own exit code as it finishes; the run as a whole is only green when
+    // every layer is, so the worst result has to win rather than the last one.
+    process.exitCode = Math.max(...results.map((result) => verificationExitCode(result.status)));
+  } else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
 }
 
 main().catch((error) => {

@@ -147,7 +147,7 @@ pub(crate) use seat_roster::{
     SeatBriefingEntry, SeatContext, SeatContextMode, SeatTurn,
 };
 pub(crate) use seat_turn::{
-    apply_human_handoff, next_turn_targets, parse_human_handoff, ChainEndReason,
+    apply_human_handoff, next_turn_targets, parse_human_handoff, route_user_message, ChainEndReason,
 };
 pub(crate) use utility_delegation::{
     UtilityDelegationAttempt, UtilityDelegationCounts, UtilityDelegationLimits,

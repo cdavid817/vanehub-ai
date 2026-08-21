@@ -38,6 +38,8 @@ There are three governance markings: **Immutable**, **Human Gated**, and **Auto 
 
 ![The Prompt Hooks settings page](assets/screenshots/prompt-hooks-en.png)
 
+The page opens in **Hook Management**. Compact Hook rows are grouped by category; search, enabled state, and CLI are primary filters, while source, stage, and category live under **More filters**. Selecting a row opens one detail workflow with **Overview**, **Content & publication**, and **Version history**, so there is no separate edit-versus-advanced choice. Assembled-prompt preview and safe Hook traces live under **Runtime Records**.
+
 ## What a Hook is made of
 
 | Field | Notes |
@@ -94,7 +96,7 @@ Version history is listed **newest first**, with version number, publication tim
 
 ## Preview and evaluation
 
-**Preview** shows you the assembled result before it takes effect. **Open draft, versions, and evaluation** on a Hook card opens the advanced panel, where version history and runtime performance live.
+**Preview** shows you the assembled result before it takes effect. Select a Hook row: **Content & publication** owns template drafts, preview, and publication, while **Version history** owns immutable versions, rollback, and operational outcomes. Previewing the complete assembled prompt lives under **Runtime Records**.
 
 Evaluation shows a **success rate**, **succeeded / failed** counts, and **average time**. With no evaluated live runs yet it says "No evaluated live executions yet." — **it does not compute a flattering percentage out of zero data.**
 

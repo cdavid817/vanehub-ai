@@ -2179,22 +2179,33 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let mut configuration = self
-            .ports
-            .sessions
-            .validate_configuration(&session, request.configuration)?;
+        let initial_seat_context = self.initial_seat_turn_context(&session, &content)?;
+        // The addressed seat runs its own Agent, which is not necessarily the session's: the
+        // session mirrors the *first* seat, so honouring a mention while still invoking
+        // `session.agent_id` would answer as one participant in another's name.
+        let (agent, mut configuration) = match initial_seat_context.as_ref() {
+            Some((seat, _, _)) if seat.agent_id != session.agent_id => {
+                let agent = self.require_agent(&seat.agent_id)?;
+                let configuration = self.seat_chat_configuration(&session, &agent)?;
+                (agent, configuration)
+            }
+            _ => (
+                self.require_agent(&session.agent_id)?,
+                self.ports
+                    .sessions
+                    .validate_configuration(&session, request.configuration)?,
+            ),
+        };
         if session.read_only {
             configuration.execution_mode = "plan".to_string();
         }
-        let agent = self.require_agent(&session.agent_id)?;
         if !agent.supports(configuration.interaction_mode) {
             return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
                 configuration.interaction_mode.as_str().to_string(),
             ));
         }
-        let initial_seat_context = self.initial_seat_turn_context(&session)?;
         let (seat_ownership, role_briefing) = initial_seat_context
-            .map(|(ownership, briefing)| (Some(ownership), Some(briefing)))
+            .map(|(_, ownership, briefing)| (Some(ownership), Some(briefing)))
             .unwrap_or((None, None));
         let terminal = register_completion
             .then(|| self.ports.message_completions.register(&session.id))

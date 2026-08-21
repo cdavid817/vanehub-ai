@@ -152,3 +152,76 @@ async function collectEvidenceNames(directory) {
   const entries = await readdir(directory, { withFileTypes: true, recursive: true });
   return entries.map((entry) => entry.name);
 }
+
+test("each desktop layer owns a disjoint spec directory and its own wdio configuration", async () => {
+  const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
+  const smoke = await readFile("tests/desktop/wdio.conf.mjs", "utf8");
+  const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
+
+  // The CLI layer stays runnable on demand; the CI gate selects only the stable smoke layer.
+  assert.match(orchestrator, /mode === "cli-terminal"/);
+  assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
+  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[smokeDesktop\]/);
+  assert.match(smoke, /specDirectory: "specs"/);
+  assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
+});
+
+test("the CLI terminal layer resolves its fixture Agent instead of an installed one", async () => {
+  const config = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
+  const fixture = "tests/desktop/fixtures/cli/opencode";
+  const windowsSourcePath = `${fixture}.rs`;
+
+  // Ahead of the inherited PATH, or a host with the real Agent installed would test that Agent.
+  assert.match(config, /PATH: `\$\{cliFixtureDir\}\$\{path\.delimiter\}/);
+  assert.match(config, /await prepareCliFixture\(\)/);
+  assert.ok(await exists(fixture), "the fixture CLI executable is missing");
+  assert.ok(await exists(windowsSourcePath), "the Windows native fixture source is missing");
+  const source = await readFile(fixture, "utf8");
+  const windowsNativeSource = await readFile(windowsSourcePath, "utf8");
+  assert.match(source, /VANEHUB-FIXTURE-CLI READY/);
+  assert.match(windowsNativeSource, /VANEHUB-FIXTURE-CLI READY/);
+  // The fixture is what makes this layer runnable without credentials on any CI host.
+  assert.doesNotMatch(source, /require\(|fetch\(|https?:\/\//);
+});
+
+test("the fixture CLI stays executable through a fresh clone", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { stdout } = await promisify(execFile)("git", ["ls-files", "--stage", "tests/desktop/fixtures/cli/opencode"]);
+
+  assert.match(stdout, /^100755 /, "the fixture must be committed with its executable bit");
+});
+
+test("every native UI layer is wired, disjoint, and reachable on its own", async () => {
+  const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
+  const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
+  const layers = [
+    ["session-workspace", "sessionWorkspaceDesktop"],
+    ["dialogs", "dialogsDesktop"],
+    ["settings-persistence", "settingsPersistenceDesktop"],
+  ];
+
+  for (const [mode, factory] of layers) {
+    assert.match(orchestrator, new RegExp(`mode === "${mode}"`), `${mode} has no mode`);
+    assert.match(orchestrator, new RegExp(`${factory}[,\\]]`), `${mode} is missing from the full-layer run`);
+    assert.ok(`test:desktop:${mode}` in scripts, `${mode} has no npm script`);
+    const config = await readFile(`tests/desktop/wdio.${mode}.conf.mjs`, "utf8");
+    assert.match(config, new RegExp(`specDirectory: "specs-${mode}"`), `${mode} does not own its spec directory`);
+  }
+});
+
+test("the settings persistence layer orders its specs so the relaunch is real", async () => {
+  const config = await readFile("tests/desktop/wdio.settings-persistence.conf.mjs", "utf8");
+  const relaunch = await readFile("tests/desktop/specs-settings-persistence/verify-after-relaunch.e2e.mjs", "utf8");
+
+  // A glob would not promise that the change runs before the check, and the check is only
+  // meaningful against an application that started after the change was written.
+  assert.match(config, /specFiles: \["change-setting\.e2e\.mjs", "verify-after-relaunch\.e2e\.mjs"\]/);
+  assert.match(config, /specFileRetries: 2/);
+  assert.match(config, /specFileRetriesDelay: 5/);
+  // Importing the sibling spec would register its describe block twice in the same worker.
+  assert.doesNotMatch(relaunch, /from "\.\/change-setting\.e2e\.mjs"/);
+  // Browser storage is the Web adapter's persistence, not the desktop client's.
+  assert.doesNotMatch(relaunch, /localStorage/);
+  assert.match(relaunch, /core\.invoke\("get_settings"\)/);
+});

@@ -3,14 +3,12 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentTerminalShell {
     WindowsPowerShell,
     WindowsCmd,
     UnixDefault,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentTerminalWrapperRequest {
     pub(crate) terminal_id: String,
@@ -25,7 +23,6 @@ pub(crate) struct AgentTerminalWrapperRequest {
     /// (`add-cli-agent-permission-launch-flags`). Empty in every other case.
     pub(crate) env: BTreeMap<String, String>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentTerminalWrapperSpec {
     pub(crate) executable: String,
@@ -33,9 +30,14 @@ pub(crate) struct AgentTerminalWrapperSpec {
     pub(crate) wrapper_path: PathBuf,
     pub(crate) redacted_command: String,
 }
-
-pub(crate) fn default_agent_terminal_shell() -> (AgentTerminalShell, String) {
+pub(crate) fn default_agent_terminal_shell(executable: &str) -> (AgentTerminalShell, String) {
     if cfg!(target_os = "windows") {
+        if Path::new(executable)
+            .extension()
+            .is_some_and(|value| value.eq_ignore_ascii_case("exe"))
+        {
+            return (AgentTerminalShell::WindowsCmd, "cmd.exe".to_string());
+        }
         if crate::platform::process::command_exists(
             "powershell.exe",
             std::time::Duration::from_secs(2),
@@ -54,7 +56,6 @@ pub(crate) fn default_agent_terminal_shell() -> (AgentTerminalShell, String) {
         )
     }
 }
-
 pub(crate) fn generate_agent_terminal_wrapper(
     request: &AgentTerminalWrapperRequest,
 ) -> Result<AgentTerminalWrapperSpec, String> {
@@ -81,7 +82,6 @@ pub(crate) fn generate_agent_terminal_wrapper(
         redacted_command: redacted_command(&request.executable, &request.args),
     })
 }
-
 fn wrapper_launch_args(shell: AgentTerminalShell, wrapper_path: &Path) -> Vec<OsString> {
     match shell {
         AgentTerminalShell::WindowsPowerShell => vec![
@@ -101,7 +101,6 @@ fn wrapper_launch_args(shell: AgentTerminalShell, wrapper_path: &Path) -> Vec<Os
         AgentTerminalShell::UnixDefault => vec![wrapper_path.as_os_str().to_owned()],
     }
 }
-
 fn wrapper_body(request: &AgentTerminalWrapperRequest) -> String {
     match request.shell {
         AgentTerminalShell::WindowsPowerShell => powershell_wrapper_body(
@@ -124,7 +123,6 @@ fn wrapper_body(request: &AgentTerminalWrapperRequest) -> String {
         ),
     }
 }
-
 fn powershell_wrapper_body(
     folder: Option<&Path>,
     executable: &str,
@@ -162,7 +160,6 @@ fn powershell_wrapper_body(
     lines.push("exit $LASTEXITCODE".to_string());
     format!("{}\r\n", lines.join("\r\n"))
 }
-
 fn cmd_wrapper_body(
     folder: Option<&Path>,
     executable: &str,
@@ -185,11 +182,15 @@ fn cmd_wrapper_body(
     } else {
         format!(" {}", args.join(" "))
     };
-    lines.push(format!("{}{}", cmd_quote(executable), suffix));
+    let batch_prefix = Path::new(executable)
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| value.eq_ignore_ascii_case("cmd") || value.eq_ignore_ascii_case("bat"))
+        .map_or("", |_| "call ");
+    lines.push(format!("{batch_prefix}{}{}", cmd_quote(executable), suffix));
     lines.push("exit /b %ERRORLEVEL%".to_string());
     format!("{}\r\n", lines.join("\r\n"))
 }
-
 fn unix_wrapper_body(
     folder: Option<&Path>,
     executable: &str,
@@ -218,7 +219,6 @@ fn unix_wrapper_body(
     lines.push(format!("exec {}{}", shell_single_quote(executable), suffix));
     format!("{}\n", lines.join("\n"))
 }
-
 fn script_extension(shell: AgentTerminalShell) -> &'static str {
     match shell {
         AgentTerminalShell::WindowsPowerShell => ".ps1",

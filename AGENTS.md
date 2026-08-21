@@ -90,21 +90,29 @@ openspec/
 
 **逐字照抄参数。** `npm run lint` 而非 `lint:ci`、`cargo clippy` 不带 `--all-targets -- -D warnings`、漏掉 `cargo fmt`——这几种写法本地都会通过,而 `.github/workflows/ci.yml` 会拦下来。
 
+`check`/`clippy`/`test` 用 `--workspace` 而不是 `--manifest-path src-tauri/Cargo.toml`:仓库已是 cargo workspace,`--manifest-path` 只覆盖 `vanehub-ai` 一个 crate,`vanehub-permission-hook` 等成员会被静默跳过。`fmt` 是例外,CI 就用 `--manifest-path`。
+
 ```bash
 npm run lint:ci
 npm run test
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+npm run native:panic:check
+cargo test --workspace
 openspec validate --specs --strict
 ```
 
 上面这些之外,CI 还有几条本地不必每次跑、但相应改动落到你手上时必须跑的:
 
 - `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run version:unit:test`、`npm run contracts:check`
+- `npm run architecture:check`:CI 每次都跑,内部串联 `lint:ci`、`tsc --noEmit` 与架构 fitness 测试;改动跨上下文依赖或 Tauri 边界时本地补跑一次
 - UI 行为变更时:`npx playwright test`(CI 的 e2e job 恒跑,本地在改动 UI 行为时必须跑)
 - 桌面运行时、Tauri 启动链路或 IPC 行为变更时:`npm run desktop:unit:test` 与 `npm run test:desktop`;后者会真实构建并启动当前操作系统的测试专用桌面客户端,本地结果不得外推到其他平台
+- `npm run test:desktop` 含五层,各自独立报结果与证据目录:`desktop-smoke`(启动、IPC、导航)、`desktop-cli-terminal`(CLI Agent 终端往返)、`desktop-session-workspace`(9 个工作区标签的真实内容)、`desktop-dialogs`(主路径对话框的焦点与提交)、`desktop-settings-persistence`(设置改动跨真实重启)。可用 `npm run test:desktop:<层名>` 单独跑
+- 需要 CLI Agent 的层用 `tests/desktop/fixtures/cli/` 下的固定桩程序顶替真实 CLI,不发生模型调用,也不读凭据
+- 原生 UI 层的选择器写死 zh-CN,并在启动时通过设置服务固定语言:客户端默认语言跟随宿主 locale,不固定就会在非中文 runner 上因文案不符而失败
+- 持久化只认原生设置服务,不接受 `localStorage` 作为证据——那是 Web/mock adapter 的持久化,不是桌面客户端的
 - CI 的 `Desktop Smoke` 会在 Windows、macOS、Linux 原生 runner 上独立运行;报告结果时逐个平台使用 `PASSED`、`FAILED`、`BLOCKED` 或 `NOT RUN`,失败证据从对应平台的 Actions artifact 获取
 - 起了 proposal 时:`openspec validate <change-name> --strict`——CI 对 `openspec/changes/*` 下每个变更逐个校验,`--specs --strict` 不覆盖这一层

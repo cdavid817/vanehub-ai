@@ -84,6 +84,33 @@ The constants live at `src-tauri/src/contexts/agent_runtime/application/seat_tur
 
 Two forced termination reasons (`ChainEndReason` at `seat_turn.rs:11-14`): `TooManyMentions` and `MaxDepth`. **A normal ending is not a failure** (`NextTurn` at `seat_turn.rs:18-23`): an `ended_reason` of `None` means the chain ran out of mentions. Conflating the two would make every normal ending look like an error.
 
+### Where a user message goes
+
+The human addresses a seat the same way the Agents address each other. `route_user_message`
+(`seat_turn.rs`, next to `next_turn_targets`) resolves the first turn of a round in three steps:
+a line-leading `@handle` dispatches that seat; an unaddressed message continues with whoever last
+held the turn; a thread nobody has spoken in yet goes to the first seat. One target only — a
+person naming two seats is asking for two rounds, and the second would start against a thread the
+first has already moved on from. The same parser rules apply as for Agent handoffs, so a mid-line
+or fenced `@` from the human does not address anyone either.
+
+**The addressed seat answers with its own Agent, not the session's.** The session's `agent_id`
+mirrors the first seat, so `send_message_internal` builds the turn's configuration around the
+routed seat's Agent (`seat_chat_configuration`); invoking the mirrored Agent would answer as one
+participant under another's name. Until 2026-08, `initial_seat_turn_context` unconditionally took
+`roster.first()` — every user message was answered by seat one and the frontend's
+`routeUserMessage` had no caller. The desktop suite below is what caught it.
+
+### Message attribution is by stable seat id
+
+`start_generation` stamps each assistant row with `speaker_seat_id` and deliberately leaves the
+numeric `seat_index` null; the index survives only as read-side compatibility for rows written
+before migration 59. Anything resolving a live thread's speakers must go through `seat_speaker`
+(`application/seat_turn.rs`), which prefers the stable id and falls back to the index. A reader
+keyed on `seat_index` alone sees every live message as unattributed — that exact fault once made
+`seat_turn_prompt` label every teammate's turn as the human's in the next seat's context, and it
+survived unit tests because the fixture filled both fields where production fills one.
+
 ## Handing back to a human
 
 The handle is the `USER_MENTION` constant at `seat_turn.rs:42`. Three intents (`HumanHandoffIntent` at `seat_turn.rs:28-32`) are decided by the word after it (`parse_human_handoff` at `seat_turn.rs:212-229`, case-insensitive), and each produces a different turn effect (`HumanHandoffEffect` at `seat_turn.rs:36-40`):
@@ -158,6 +185,119 @@ The user guide's [group chat collaboration case](../../user-guide/en/src/multi-a
 
 **Web/mock verifies the interface, seat changes, and `@` completion, but starts no CLI.** Real Agent replies and automatic handoff require the Tauri desktop runtime.
 
+## Live desktop verification (WebdriverIO)
+
+The desktop suite under `tests/desktop/specs/` runs the real Tauri client with real installed
+CLIs (this host: claude-code, codex-cli, opencode) and is where the routing and attribution
+defects above were found and proven fixed. Six specs cover group chat, at increasing depth:
+
+| Spec | What it proves live |
+|---|---|
+| `domain-multi-agent.e2e.mjs` | A seated role yields an addressable handle; one Agent's reply relays the turn to another |
+| `domain-multi-agent-routing.e2e.mjs` | Human routing by mention, last-holder fallback, a three-seat chain (human → seat → seat), a claude+codex+opencode trio each answering its own mention, and the departed-seat fallback |
+| `domain-multi-agent-business.e2e.mjs` | One real coding task through 架构师 → 实现者 → 代码审查 across three heterogeneous CLIs: the implementer's file lands in the session repository, the reviewer reads it, `@用户 done` closes the round |
+| `domain-multi-agent-project.e2e.mjs` | A three-file project through TWO relay rounds: the review sends work back and the implementer takes a second turn on the same thread (chain depth 3, re-dispatch of an already-spoken seat). The correctness judge is `python3 -m unittest` run by the harness, never the Agent's own claim |
+| `domain-multi-agent-human-decision.e2e.mjs` | A blocking `@用户 handoff` stops the round — including suppressing the teammate that the same reply names — and an unaddressed human answer resumes it with the seat that asked |
+| `ui-multi-agent.e2e.mjs` | The same runtime driven through the DOM: the members pane grows the roster by one seat (backend-verified, role included), typing `@` offers every seat, picking one with the pointer routes the send, and the reply bubble paints that seat's role label and colour dot |
+
+Conventions these specs settled on, learned from failing runs:
+
+- **Assert on dispatch, not on the reply text.** The assistant row is written with its
+  `speakerSeatId` before the provider is invoked, so the row is the routing verdict; waiting on
+  model output measures a provider's mood instead.
+- **Address turns by ordinal once any seat can speak twice** — "the seat's row" stops
+  identifying a turn in a multi-round thread.
+- **Mandated relays are asserted as the thread's prefix, not its entirety.** Agents own the
+  tail: one honest run had the implementer voluntarily hand its rework back for a second review,
+  which is the collaboration working.
+- **A provider declining an instruction is reported as `BLOCKED`, never failed** — the suite
+  cannot hold a model to an instruction, only observe it.
+- **A pause is an absence, so assert it over a window, not at an instant.** The coordinator polls
+  terminals every 200ms, so a round that failed to stop dispatches within a second or two; the
+  human-decision spec watches for thirty seconds of silence, which makes the absence evidence
+  rather than luck.
+- **Preserve evidence on failure**: a failed flow keeps its session in the run's isolated
+  database instead of deleting it in `after`. `VANEHUB_DESKTOP_KEEP_SESSIONS=1` keeps every
+  session even on success, so a person can open the test client against the run's
+  `VANEHUB_APP_DATA_DIR` (plus `VANEHUB_CLI_CONFIG_HOME`) and inspect the threads by eye.
+
+Two WebKitGTK driver quirks worth knowing before writing more UI cases: `selectByVisibleText`
+clicks the option without firing `change`, so React state keeps the old value while the DOM shows
+the new one (dispatch a real `change` through the prototype value setter instead); and
+`list_agents` races CLI detection for a few seconds after boot, so gate on availability rather
+than asking once.
+
+## What live verification established about the environment
+
+These are properties of hosts and permission templates, not defects in the routing — but a group
+chat that is expected to *act* runs into all of them:
+
+- **A seat turn is headless, so `standard` templates dead-end.** `standard` means
+  ask-before-acting, and nobody is at the prompt: claude-code under `permissionMode=default`
+  declines writes outright. Acting seats need `trusted`.
+- **claude-code's `trusted` and `yolo` both project to `acceptEdits`** — file edits are
+  auto-approved, shell commands are not. A claude seat asked to run its own tests will,
+  correctly, halt the round with a line-leading `@用户 handoff`; command approval belongs to the
+  permission-hook relay, which an isolated test run deliberately does not install. Design tasks
+  so the harness runs the verification commands.
+- **codex-cli's `workspace-write` sandbox cannot start where unprivileged user namespaces are
+  restricted** (`kernel.apparmor_restrict_unprivileged_userns=1`, the Ubuntu 24.04+ default):
+  bwrap fails with `loopback: Failed RTM_NEWADDR: Operation not permitted`, and both `standard`
+  and `trusted` map codex to `workspace-write`, so no assignable template lets a codex seat write
+  on such a host — silently. Seat codex where its work is words until that gap has a diagnostic.
+- **CLI global configuration is normal user state and must not leak from tests.** Assigning
+  claude-code a template installs the permission hook into `~/.claude/settings.json`; an e2e run
+  once wrote the user's real file, where the hook outlived the test app and blocked every later
+  tool call against a dead approval server. `VANEHUB_CLI_CONFIG_HOME` (honoured by
+  `NativeCliGlobalConfigAdapter`, supplied by the desktop run context) now isolates those writes
+  the way `VANEHUB_APP_DATA_DIR` isolates the database.
+
+## Why there is no orchestrator
+
+Group chat is deliberately decentralized: the spec's "No dispatch control is offered" requirement
+places routing with the Agents and with mentions, and coordination is carried by protocol —
+line-leading `@` handoffs, the two-mention and depth-15 bounds, and the three `@用户` intents.
+The `seat_turn_coordinator` is infrastructure (the thread that drives turns serially), and
+`loop_orchestrator` belongs to the Loop runtime — neither is an orchestrator seat.
+
+How the industry's multi-agent patterns map onto this design:
+
+| Pattern | Representatives | Mechanism | Distance from VaneHub |
+|---|---|---|---|
+| Decentralized handoff | OpenAI Swarm / Agents SDK handoffs | An Agent finishing its turn explicitly passes control to the next | **This is what VaneHub is** — `@` is the handoff |
+| Centralized supervisor | LangGraph supervisor pattern, CrewAI hierarchical (manager agent) | One manager node receives every output, picks the next executor each round, and converges the result | Would break the current no-dispatch-control requirement |
+| Speaker selection | AutoGen GroupChat (a manager picks the next speaker by LLM or round-robin) | Weak orchestration: chooses who talks, gives no instructions | In between the two |
+| Orchestrator–worker | Anthropic's multi-agent research system, Claude Code subagent dispatch | The orchestrator decomposes a task, fans workers out **in parallel**, joins results; workers do not talk to each other | Farthest away: VaneHub seats are deliberately serial, because a later seat must read what earlier seats produced |
+| SOP pipeline | MetaGPT | Fixed roles pass artifacts through a fixed sequence of stages | The 架构师 → 实现者 → 代码审查 convention is a soft SOP already |
+
+The rough industry experience: central orchestration pays off for **parallel research and
+retrieval** shapes (Anthropic's research system is the canonical case), while **sequential
+collaboration** — code, where each hand depends on the previous hand's artifact — favors handoff:
+simpler, linear in tokens, and the thread stays legible to the human. The recurring costs of a
+central orchestrator: it becomes a single point of failure (one confused turn derails the whole
+round), every hop adds a model round trip (latency and cost roughly double), and on long tasks
+the orchestrator's own context balloons.
+
+The recommendation this chapter records is to stay with handoff and take three steps in order:
+
+1. **Zero change, works today: an "orchestrator" as a custom expert role.** Its responsibility
+   and instruction say decompose → dispatch one `@` at a time → verify the artifact → `@用户
+   done`. It holds no runtime privilege — the same mention rules, depth bound, and two-mention
+   truncation apply — and the live project-flow spec already shows a plain 架构师 role carrying
+   exactly this light orchestration, with rounds converging naturally and even a voluntary extra
+   review loop. For serial work this covers most of what an orchestrator is for.
+2. **Small protocol additions, worth doing.** `MAX_MENTIONS_PER_REPLY=2` executes serially, but
+   there is no join semantics — no "when both are done, come back to me". A lightweight
+   return-to-sender rule (a dispatched seat that names nobody hands the turn back to whoever
+   dispatched it) is a one-line routing extension that stays decentralized. The other gap is
+   e2e coverage of the paused → human-decides → round-resumes half of the `@用户 handoff` path.
+3. **Only on real evidence, consider a supervisor.** The trigger should be observed failures of
+   the protocol — chains repeatedly spinning into the depth limit, humans constantly rescuing
+   rounds by hand, or genuinely parallel task shapes (multi-repository research). That is an
+   architecture change, not a new role: it starts with an OpenSpec proposal revising the
+   no-dispatch-control requirement, and must answer what happens to a round when the
+   orchestrator itself fails.
+
 ## Index of main code locations
 
 | Concern | Location |
@@ -167,6 +307,8 @@ The user guide's [group chat collaboration case](../../user-guide/en/src/multi-a
 | Handle derivation | `src-tauri/src/contexts/agent_runtime/domain/seat_roster.rs:69-88` |
 | Handoff parsing (the five defenses) | `src-tauri/src/contexts/agent_runtime/domain/seat_turn.rs:139-183` |
 | Chain depth limit | `seat_turn.rs:190-205` (`next_turn_targets`) |
+| User-message routing | Native `route_user_message` in `domain/seat_turn.rs`; web/mock `webRoutedSeatId` in `src/services/web-session-seat-client.ts` |
+| Live-thread speaker resolution | `seat_speaker` in `src-tauri/src/contexts/agent_runtime/application/seat_turn.rs` |
 | Chain limit constants | `src-tauri/src/contexts/agent_runtime/application/seat_turn.rs:29-30` |
 | Handing back to a human | `seat_turn.rs:212-229` (parsing), `:233-251` (effects) |
 | The user-mention literal | Native `seat_turn.rs:42`; frontend `src/services/human-handoff.ts:10` |
