@@ -150,6 +150,7 @@ fn known_candidate_paths(definition: ToolDefinition) -> Vec<PathBuf> {
 /// sorted newest-first. Ordering is lexical on the directory name, which is right for nvm's
 /// zero-padded-free `vMAJOR.MINOR.PATCH` only within a major; the intent is a stable, sensible
 /// order rather than a correct semver ranking, and any of these is a working install.
+#[cfg(not(target_os = "windows"))]
 fn nvm_bin_paths(home: &Path, executable_name: &str) -> Vec<PathBuf> {
     let versions_root = home.join(".nvm").join("versions").join("node");
     let Ok(entries) = std::fs::read_dir(&versions_root) else {
