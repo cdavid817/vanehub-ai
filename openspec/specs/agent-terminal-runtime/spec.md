@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change replace-chat-with-agent-terminal-session. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Session-scoped Agent terminal
 The system SHALL provide a session-scoped Agent Terminal runtime for single-Agent CLI sessions through the frontend Agent service boundary.
 
@@ -291,3 +293,13 @@ The Agent Terminal runtime SHALL ingest the finest verified provider-native usag
 - **THEN** the runtime SHALL report unsupported or estimated coverage explicitly
 - **AND** it SHALL NOT parse ANSI terminal transcript text as usage
 
+### Requirement: Bounded responsive terminal presentation
+The Agent Terminal frontend SHALL batch burst output before rendering and MUST bound retained replay content across all sessions.
+
+#### Scenario: Terminal emits burst output
+- **WHEN** multiple output events arrive before the next animation frame
+- **THEN** the frontend SHALL coalesce them into a bounded terminal write without changing byte order
+
+#### Scenario: Many sessions retain terminal replay
+- **WHEN** retained replay reaches the configured global capacity
+- **THEN** the frontend SHALL evict least-recently-used inactive replay entries while preserving the per-session byte bound

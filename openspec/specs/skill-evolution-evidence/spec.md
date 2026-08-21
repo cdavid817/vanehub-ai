@@ -2,7 +2,9 @@
 
 ## Purpose
 Creates a privacy-first and auditable evidence layer that converts structured Agent outcomes into attributable Skill-improvement signals and deterministic candidate seeds without changing any Skill.
+
 ## Requirements
+
 ### Requirement: Structured evidence source envelope
 The evidence pipeline SHALL accept only versioned structured source envelopes from registered runtime boundaries. Each envelope SHALL contain a stable source-event id, event type, occurrence time, stable Agent and run correlation when available, terminal or verification classification, observed effective Skill revisions, fidelity, workspace scope, and bounded safe fields. It SHALL NOT require a raw log file, prompt, transcript, hidden reasoning, command body, tool result body, or file body.
 
@@ -275,3 +277,13 @@ The service SHALL provide bounded paginated summaries and details for collection
 - **WHEN** a query references an unknown or inaccessible workspace
 - **THEN** it SHALL not return evidence belonging to another workspace
 
+### Requirement: Observable evidence degradation
+The native runtime MUST distinguish unavailable evidence from absent feedback and SHALL expose a safe diagnostic when credential, processor, or repository initialization fails.
+
+#### Scenario: Feedback storage query fails
+- **WHEN** message feedback cannot be loaded because its repository fails
+- **THEN** the command SHALL NOT silently present every message as having no feedback and SHALL return or record a safe classified failure
+
+#### Scenario: Evidence pipeline cannot initialize
+- **WHEN** the installation key or ingestion processor cannot be initialized
+- **THEN** the runtime SHALL expose disabled health with a safe reason and SHALL write a redacted unified diagnostic
