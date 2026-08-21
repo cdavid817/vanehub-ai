@@ -9,7 +9,7 @@ import type { CliConfigAgentId } from "../../types/cli-agent-config";
 import { AgentConfigurationsPage } from "./agent-configurations-page";
 
 describe("AgentConfigurationsPage", () => {
-  it("honors the originating Agent and isolates data when tabs change", async () => {
+  it("honors the originating Agent and isolates data when the grouped selector changes", async () => {
     const listProfiles = vi.fn(async () => []);
     const listPresets = vi.fn(async (agentId: CliConfigAgentId) => getCliConfigPresets(agentId));
     const getStatus = vi.fn(async (agentId: CliConfigAgentId) => ({ agentId, appliedProfileId: null, driftState: "detached" as const, resolvedPaths: [], lastAppliedAt: null, simulated: true, startupSync: { agentId, state: "unavailable" as const, imported: 0, updated: 0, skipped: 0, warnings: [], synchronizedAt: null, simulated: true } }));
@@ -23,26 +23,22 @@ describe("AgentConfigurationsPage", () => {
     const { user } = renderWithAppProviders(<AgentConfigurationsPage isActive navigationTarget={{ cliConfigAgentId: "codex-cli" }} onNavigate={vi.fn()} searchTerm="" service={service} />);
 
     await waitFor(() => expect(getStatus).toHaveBeenCalledWith("codex-cli"));
-    expect(within(screen.getByRole("tablist")).getAllByRole("tab")).toEqual([
-      screen.getByRole("tab", { name: "Claude Code" }),
-      screen.getByRole("tab", { name: "Codex CLI" }),
-      screen.getByRole("tab", { name: "OpenCode" }),
-      screen.getByRole("tab", { name: "Antigravity CLI" }),
-      screen.getByRole("tab", { name: "Gemini CLI" }),
-      screen.getByRole("tab", { name: "OnePiece" }),
+    const selector = screen.getByRole("navigation", { name: "配置目标 Agent" });
+    expect(within(selector).getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "Claude Code" }),
+      screen.getByRole("button", { name: "Codex CLI" }),
+      screen.getByRole("button", { name: "OpenCode" }),
+      screen.getByRole("button", { name: "Antigravity CLI" }),
+      screen.getByRole("button", { name: "Gemini CLI" }),
+      screen.getByRole("button", { name: "OnePiece" }),
     ]);
-    // The tab strip must not hard-code a desktop column count. A fixed `sm:grid-cols-4` matched the
-    // Agent list exactly until a fifth Agent was added, at which point the last tab (OnePiece)
-    // wrapped onto a second row and read as missing. Every DOM-presence assertion above still
-    // passed through that regression, so the guard has to be on the layout itself.
-    const tabStripClasses = screen.getByRole("tablist").className;
-    expect(tabStripClasses).toMatch(/sm:grid-flow-col/);
-    expect(tabStripClasses).not.toMatch(/sm:grid-cols-\d/);
-
-    expect(screen.getByRole("tab", { name: "Codex CLI" }).getAttribute("aria-selected")).toBe("true");
-    await user.click(screen.getByRole("tab", { name: "OpenCode" }));
+    expect(within(selector).getByText("托管 CLI Agent")).toBeTruthy();
+    expect(within(selector).getByText("原生 Agent")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "语言服务器智能" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Codex CLI" }).getAttribute("aria-current")).toBe("page");
+    await user.click(screen.getByRole("button", { name: "OpenCode" }));
     await waitFor(() => expect(getStatus).toHaveBeenCalledWith("opencode"));
-    expect(screen.getByRole("tab", { name: "OpenCode" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "OpenCode" }).getAttribute("aria-current")).toBe("page");
     expect(selectAgent).not.toHaveBeenCalled();
   });
 
@@ -64,8 +60,9 @@ describe("AgentConfigurationsPage", () => {
     );
 
     await waitFor(() => expect(listOnePieceProviderProfiles).toHaveBeenCalledOnce());
-    expect(screen.getByRole("tab", { name: /OnePiece/ }).getAttribute("aria-selected")).toBe("true");
-    const onePiecePanel = screen.getByRole("tabpanel", { name: "OnePiece" });
+    expect(screen.getByRole("button", { name: /OnePiece/ }).getAttribute("aria-current")).toBe("page");
+    const onePiecePanel = screen.getByRole("region", { name: "OnePiece" });
+    expect((await within(onePiecePanel).findByRole("tab", { name: "厂商配置" })).getAttribute("aria-selected")).toBe("true");
     expect(await within(onePiecePanel).findByRole("heading", { name: "API 提供商" })).toBeTruthy();
     expect(within(onePiecePanel).getByText(/尚未添加 API 提供商/)).toBeTruthy();
     await user.click(within(onePiecePanel).getAllByRole("button", { name: "新增配置" })[0]);

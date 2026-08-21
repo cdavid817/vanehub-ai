@@ -36,6 +36,11 @@ pub(crate) struct AppSettings {
     pub(crate) default_policy_template: String,
     pub(crate) automatic_context_compaction_enabled: bool,
     pub(crate) context_quality_retention_days: i64,
+    pub(crate) custom_instructions_about_user: String,
+    pub(crate) custom_instructions_style_rules: String,
+    pub(crate) custom_instructions_enabled: bool,
+    pub(crate) memory_enabled: bool,
+    pub(crate) memory_tool_assisted_chats_enabled: bool,
     pub(crate) logging_policy: LoggingPolicy,
 }
 

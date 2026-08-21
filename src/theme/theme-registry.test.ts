@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { defaultThemeId, getNextThemeId, getThemeDefinition, isUcdThemeId, normalizeThemeId, ucdThemes } from "./theme-registry";
 
 describe("theme registry", () => {
+  it("uses minimal as the first-use and invalid-value fallback", () => {
+    expect(defaultThemeId).toBe("minimal");
+    expect(normalizeThemeId("unknown")).toBe("minimal");
+  });
+
   it("registers the UCD styles used by the style switcher", () => {
     expect(ucdThemes.map((theme) => theme.id)).toEqual(["futuristic", "minimal"]);
   });

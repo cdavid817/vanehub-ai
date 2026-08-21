@@ -6,8 +6,8 @@ use crate::contexts::ssh_connections::application::{
 };
 use crate::contexts::ssh_connections::{
     RusshSshConnector, SqliteSshConnectionRepository, SshConnectionCredentialAdapter,
-    SystemRemoteSshPoolClock, SystemSshConnectionClock, TcpSshConnectionTester,
-    UuidSshConnectionIdentity,
+    SystemRemoteSshPoolClock, SystemSshConnectionClock, TauriRemoteSshBackground,
+    TcpSshConnectionTester, UuidSshConnectionIdentity,
 };
 use crate::contexts::workspaces::domain::{
     REMOTE_TERMINAL_IDLE_TIMEOUT_SECONDS, REMOTE_TERMINAL_POOL_CAPACITY,
@@ -36,6 +36,7 @@ pub(crate) fn assemble_ssh_connections_api(
     let pool = RemoteSshConnectionPool::new(
         connector,
         Arc::new(SystemRemoteSshPoolClock),
+        Arc::new(TauriRemoteSshBackground),
         REMOTE_TERMINAL_POOL_CAPACITY,
         Duration::from_secs(REMOTE_TERMINAL_IDLE_TIMEOUT_SECONDS),
     );

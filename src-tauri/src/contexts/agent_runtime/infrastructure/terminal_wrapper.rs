@@ -256,13 +256,19 @@ fn redacted_command(executable: &str, args: &[String]) -> String {
     logging::redact_text(&tokens.join(" "))
 }
 
+// Unlike a spawned argv, every token here is written into a script file and read back by an
+// interpreter, so the whole control range has to go, not just NUL. `cmd_quote` escapes `%`, `^`
+// and `"`, but a batch file has no escape for a raw newline at all: it ends the command and starts
+// the next one. Nothing reaching this function carries prompt text today -- the interactive
+// invocation emits only flags and ids -- which is exactly why the gap would stay invisible until
+// something did.
 fn validate_token(value: &str, label: &str) -> Result<(), String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(format!("{label} cannot be empty."));
     }
-    if trimmed.chars().any(|character| character == '\0') {
-        return Err(format!("{label} cannot contain NUL bytes."));
+    if trimmed.chars().any(char::is_control) {
+        return Err(format!("{label} cannot contain control characters."));
     }
     Ok(())
 }
@@ -468,7 +474,12 @@ mod tests {
         assert!(generate_agent_terminal_wrapper(&request).is_err());
 
         request.executable = "agent".to_string();
-        request.args = vec!["bad\0arg".to_string()];
-        assert!(generate_agent_terminal_wrapper(&request).is_err());
+        for argument in ["bad\0arg", "bad\narg", "bad\rarg", "bad\u{1b}arg"] {
+            request.args = vec![argument.to_string()];
+            assert!(
+                generate_agent_terminal_wrapper(&request).is_err(),
+                "a control character must not reach the wrapper script: {argument:?}"
+            );
+        }
     }
 }

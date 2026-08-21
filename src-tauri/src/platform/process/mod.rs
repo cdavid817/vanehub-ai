@@ -145,13 +145,6 @@ impl ProcessRequest {
         self
     }
 
-    #[cfg(test)]
-    pub(crate) fn environment_value(&self, key: &str) -> Option<&OsStr> {
-        self.environment
-            .get(OsStr::new(key))
-            .map(OsString::as_os_str)
-    }
-
     pub(crate) fn env_clear(mut self) -> Self {
         self.clear_environment = true;
         self

@@ -14,6 +14,7 @@ const CONDITIONAL_COMMANDS = [
   "npm run test:coverage",
   "npm run coverage:policy:test",
   "npm run version:unit:test",
+  "npm run release:unit:test",
   "npm run contracts:check",
   "npm run docs:check",
   "npm run desktop:unit:test",

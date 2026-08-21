@@ -421,6 +421,47 @@ describe("webAgentClient", () => {
     await webAgentClient.deleteSession(session.id);
   });
 
+  it("preserves sendMessage admission, event order, completion, and cancellation", async () => {
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Characterize Web send",
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => events.push(event));
+
+    const assistant = await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    const immediateMessages = await webAgentClient.listMessages({ sessionId: session.id });
+    const runningSession = (await webAgentClient.listSessions()).find((candidate) => candidate.id === session.id);
+
+    expect(immediateMessages.map((message) => [message.role, message.status])).toEqual([
+      ["user", "completed"],
+      ["assistant", "streaming"],
+    ]);
+    expect(runningSession).toMatchObject({ lifecycleState: "running", activeExecutionRunId: assistant.executionRunId });
+    await expect(webAgentClient.sendMessage({ sessionId: session.id, content: "again", config }))
+      .rejects.toThrow("already active");
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(events[0]?.type).toBe("started");
+    expect(events.findIndex((event) => event.type === "tool_use"))
+      .toBeLessThan(events.findIndex((event) => event.type === "token"));
+    expect(events.at(-1)?.type).toBe("completed");
+    expect((await webAgentClient.listMessages({ sessionId: session.id })).at(-1)?.status).toBe("completed");
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "cancel", config });
+    await vi.advanceTimersByTimeAsync(100);
+    await webAgentClient.stopGeneration(session.id);
+    const eventCountAfterCancel = events.length;
+    expect(events.at(-1)?.type).toBe("cancelled");
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(events).toHaveLength(eventCountAfterCancel);
+
+    unsubscribe();
+    await webAgentClient.deleteSession(session.id);
+  });
+
   it("searches sessions by title, project, and message content", async () => {
     vi.useFakeTimers();
     const session = await createMockSession({
@@ -1087,7 +1128,11 @@ describe("webAgentClient", () => {
     expect(overview.restoreCandidates).toContain("code-review");
 
     const sync = await webAgentClient.syncSkillDrift({ scope: "global" });
-    expect(sync.restored).toEqual([]);
+    expect(sync).toMatchObject({
+      restored: [],
+      failed: [],
+      resolvedFrom: drift,
+    });
     await webAgentClient.restoreBuiltinSkill("code-review");
   });
 

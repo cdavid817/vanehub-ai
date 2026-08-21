@@ -4,8 +4,21 @@
     "executable": "claude",
     "prompt": "fixture prompt for claude",
     "runtimeSessionId": "claude-session",
-    "managedArgs": ["--model", "sonnet"],
-    "expectedArgs": ["--model", "sonnet", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--resume", "claude-session"],
+    "managedArgs": [
+      "--model",
+      "sonnet"
+    ],
+    "expectedArgs": [
+      "--model",
+      "sonnet",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--resume",
+      "claude-session"
+    ],
     "promptDelivery": "stdin"
   },
   {
@@ -13,8 +26,21 @@
     "executable": "codex",
     "prompt": "fixture prompt for codex",
     "runtimeSessionId": "codex-session",
-    "managedArgs": ["--model", "gpt-5.5", "--ephemeral"],
-    "expectedArgs": ["--model", "gpt-5.5", "exec", "resume", "codex-session", "--ephemeral", "--json", "-"],
+    "managedArgs": [
+      "--model",
+      "gpt-5.5",
+      "--ephemeral"
+    ],
+    "expectedArgs": [
+      "--model",
+      "gpt-5.5",
+      "exec",
+      "resume",
+      "codex-session",
+      "--ephemeral",
+      "--json",
+      "-"
+    ],
     "promptDelivery": "stdin"
   },
   {
@@ -22,17 +48,39 @@
     "executable": "gemini",
     "prompt": "fixture prompt for gemini",
     "runtimeSessionId": "gemini-session",
-    "managedArgs": ["--model", "gemini-2.5-flash"],
-    "expectedArgs": ["--model", "gemini-2.5-flash", "--resume", "gemini-session", "-p", "fixture prompt for gemini", "-o", "stream-json"],
-    "promptDelivery": "argument"
+    "managedArgs": [
+      "--model",
+      "gemini-2.5-flash"
+    ],
+    "expectedArgs": [
+      "--model",
+      "gemini-2.5-flash",
+      "--resume",
+      "gemini-session",
+      "-o",
+      "stream-json"
+    ],
+    "promptDelivery": "stdin"
   },
   {
     "agentId": "opencode",
     "executable": "opencode",
     "prompt": "fixture prompt for opencode",
     "runtimeSessionId": "opencode-session",
-    "managedArgs": ["--agent", "build"],
-    "expectedArgs": ["run", "--agent", "build", "--session", "opencode-session", "--format", "json", "fixture prompt for opencode"],
+    "managedArgs": [
+      "--agent",
+      "build"
+    ],
+    "expectedArgs": [
+      "run",
+      "--agent",
+      "build",
+      "--session",
+      "opencode-session",
+      "--format",
+      "json",
+      "fixture prompt for opencode"
+    ],
     "promptDelivery": "argument"
   },
   {
@@ -40,8 +88,24 @@
     "executable": "agy",
     "prompt": "fixture prompt for antigravity",
     "runtimeSessionId": "antigravity-conversation",
-    "managedArgs": ["--model", "gemini-3-pro", "--effort", "high"],
-    "expectedArgs": ["--model", "gemini-3-pro", "--effort", "high", "--conversation", "antigravity-conversation", "-p", "fixture prompt for antigravity", "--output-format", "stream-json"],
+    "managedArgs": [
+      "--model",
+      "gemini-3-pro",
+      "--effort",
+      "high"
+    ],
+    "expectedArgs": [
+      "--model",
+      "gemini-3-pro",
+      "--effort",
+      "high",
+      "--conversation",
+      "antigravity-conversation",
+      "-p",
+      "fixture prompt for antigravity",
+      "--output-format",
+      "stream-json"
+    ],
     "promptDelivery": "argument"
   }
 ]

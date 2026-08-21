@@ -16,8 +16,10 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 上调理由(extract-web-client-chat-state):同上一条,把最后 8 个共享可变绑定搬进 state 模块的
 // 代价还是那两项——每个新模块的固定开销,加上一层按调用点裁剪的访问器。这一轮多出来的访问器都在
 // chat 一侧:原先直接 `activeStreams.has/set/delete`、`messagesBySession.delete`,现在各是一个函数。
+// 上调理由(decompose-web-send-message):`sendMessage` 的方法体移出后,新增 10 行是两个 scheduler
+// 与显式上下文的固定模块/类型边界开销;旧方法已整段删除,未复制业务分支。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19347, owner: "extract-web-client-chat-state" },
+  { root: "src/services", budget: 19357, owner: "decompose-web-send-message" },
 ]);
 
 const STATE_PACKAGES = new Set([

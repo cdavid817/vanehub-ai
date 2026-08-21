@@ -166,8 +166,8 @@ export function ChatInputBox({
       ) : null}
       <div
         className={cn(
-          "relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30",
-          dropTarget.isDropTarget && "border-primary ring-1 ring-ring/40",
+          "relative bg-background transition-colors focus-within:bg-muted/10 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/30",
+          dropTarget.isDropTarget && "bg-primary/[0.04] ring-1 ring-inset ring-ring/40",
         )}
         data-drop-target={dropTarget.isDropTarget ? "true" : undefined}
         data-testid="wechat-style-composer"

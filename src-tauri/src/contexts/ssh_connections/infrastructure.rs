@@ -13,7 +13,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
-pub(crate) use runtime::{RusshSshConnector, SystemRemoteSshPoolClock};
+pub(crate) use runtime::{RusshSshConnector, SystemRemoteSshPoolClock, TauriRemoteSshBackground};
 pub(crate) use sqlite_repository::{apply_schema, SqliteSshConnectionRepository};
 
 const SERVICE_NAME: &str = "io.vanehub.ai.ssh";

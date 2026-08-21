@@ -56,6 +56,19 @@ const PROVIDER_SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250)
 /// the Token Usage panel close to live without adding meaningful file/DB IO.
 const TERMINAL_USAGE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// The blocking halves of an Agent terminal, shared out of the registry so PTY writes and
+/// resizes never run while the registry lock is held.
+///
+/// `write_all` on a PTY master blocks once the slave's input buffer fills, which is what a CLI
+/// that stopped draining its stdin does. Performing that write under the registry lock would
+/// stall input, resize, attach and idle cleanup for *every* other Agent terminal — and `stop()`
+/// takes the same lock, so the wedged terminal could not even be cancelled. The workspace shell
+/// runtime hit this first and solved it the same way (`workspaces::infrastructure::portable_pty`).
+struct TerminalIo {
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+}
+
 struct ManagedAgentTerminal {
     terminal_id: String,
     session_id: String,
@@ -63,8 +76,7 @@ struct ManagedAgentTerminal {
     runtime_session_id: Option<String>,
     last_active_at: i64,
     size: AgentTerminalSize,
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    io: Arc<TerminalIo>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     transcript: BoundedTextBuffer,
 }
@@ -176,6 +188,14 @@ impl PortablePtyAgentTerminalRuntime {
         self.terminals
             .lock()
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))
+    }
+
+    fn checkout_io(
+        &self,
+        terminal_id: &str,
+    ) -> Result<Arc<TerminalIo>, AgentRuntimeApplicationError> {
+        let now = now_timestamp(self.clock.as_ref());
+        checkout_terminal_io(self.terminals.as_ref(), terminal_id, now)
     }
 
     fn record_log(
@@ -488,8 +508,10 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             runtime_session_id: runtime_session_id.clone(),
             last_active_at: now_timestamp(self.clock.as_ref()),
             size: request.size.clone(),
-            master: pair.master,
-            writer,
+            io: Arc::new(TerminalIo {
+                master: Mutex::new(pair.master),
+                writer: Mutex::new(writer),
+            }),
             child: child.clone(),
             transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         };
@@ -597,25 +619,21 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => {
-                        pending.extend_from_slice(&buffer[..count]);
-                        let content = take_decodable_utf8(&mut pending);
-                        if content.is_empty() {
-                            continue;
-                        }
-                        let _ = events.publish_terminal(AgentTerminalEvent::Output {
-                            terminal_id: terminal_id.clone(),
-                            session_id: session_id.clone(),
-                            content: content.clone(),
-                        });
-                        if let Ok(mut terminals) = terminals.lock() {
-                            if let Some(terminal) = terminals.get_mut(&session_id) {
-                                terminal.last_active_at = now_timestamp(clock.as_ref());
-                                terminal.transcript.append(&content);
+                        let (content, framed_lines) =
+                            split_terminal_read(&buffer[..count], &mut pending, &mut output_framer);
+                        if !content.is_empty() {
+                            let _ = events.publish_terminal(AgentTerminalEvent::Output {
+                                terminal_id: terminal_id.clone(),
+                                session_id: session_id.clone(),
+                                content: content.clone(),
+                            });
+                            if let Ok(mut terminals) = terminals.lock() {
+                                if let Some(terminal) = terminals.get_mut(&session_id) {
+                                    terminal.last_active_at = now_timestamp(clock.as_ref());
+                                    terminal.transcript.append(&content);
+                                }
                             }
                         }
-                        let framed_lines = output_framer
-                            .push(ProviderOutputStream::Stdout, &buffer[..count])
-                            .unwrap_or_default();
                         for line in framed_lines {
                             if let ProviderOutputEvent::SessionId(runtime_session_id) =
                                 parser.parse_line(&line)
@@ -818,29 +836,34 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         &self,
         request: AgentTerminalInputRequest,
     ) -> Result<(), AgentRuntimeApplicationError> {
-        let mut terminals = self.lock_terminals()?;
-        let terminal = terminal_by_id_mut(&mut terminals, &request.terminal_id)?;
-        terminal
+        let io = self.checkout_io(&request.terminal_id)?;
+        let mut writer = io
             .writer
-            .write_all(request.content.as_bytes())
-            .and_then(|_| terminal.writer.flush())
+            .lock()
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        terminal.last_active_at = now_timestamp(self.clock.as_ref());
-        Ok(())
+        writer
+            .write_all(request.content.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))
     }
 
     fn resize(
         &self,
         request: ResizeAgentTerminalRequest,
     ) -> Result<(), AgentRuntimeApplicationError> {
-        let mut terminals = self.lock_terminals()?;
-        let terminal = terminal_by_id_mut(&mut terminals, &request.terminal_id)?;
-        terminal
-            .master
+        let io = self.checkout_io(&request.terminal_id)?;
+        io.master
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
             .resize(terminal_size(&request.size))
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        terminal.size = request.size;
-        terminal.last_active_at = now_timestamp(self.clock.as_ref());
+        // Recorded only once the PTY accepted it, so a rejected resize does not leave the
+        // registry reporting a size the terminal never took.
+        if let Ok(mut terminals) = self.lock_terminals() {
+            if let Ok(terminal) = terminal_by_id_mut(&mut terminals, &request.terminal_id) {
+                terminal.size = request.size;
+            }
+        }
         Ok(())
     }
 
@@ -1060,6 +1083,21 @@ fn record_runtime_session_id(
     }
 }
 
+/// Resolves a terminal to its shared PTY handles and marks it active, releasing the registry
+/// lock before the caller performs any blocking PTY operation. See `TerminalIo`.
+fn checkout_terminal_io(
+    terminals: &Mutex<HashMap<String, ManagedAgentTerminal>>,
+    terminal_id: &str,
+    now: i64,
+) -> Result<Arc<TerminalIo>, AgentRuntimeApplicationError> {
+    let mut terminals = terminals
+        .lock()
+        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+    let terminal = terminal_by_id_mut(&mut terminals, terminal_id)?;
+    terminal.last_active_at = now;
+    Ok(terminal.io.clone())
+}
+
 fn terminal_by_id_mut<'a>(
     terminals: &'a mut HashMap<String, ManagedAgentTerminal>,
     terminal_id: &str,
@@ -1163,6 +1201,28 @@ fn drain_complete_lines(line_buffer: &mut String, mut on_line: impl FnMut(&str))
     if line_buffer.len() > MAX_PARSE_LINE_BYTES {
         line_buffer.clear();
     }
+}
+
+/// Splits one PTY read into the text the terminal view shows and the `\n`-terminated records
+/// the provider parser consumes.
+///
+/// The two consumers need different framing but must both see every byte: `pending` carries an
+/// incomplete UTF-8 tail forward so a character split across reads is never rendered as U+FFFD,
+/// while the framer works on raw bytes and assembles them into lines. A read that decodes to
+/// nothing displayable — the leading bytes of a multi-byte character arriving on their own — is
+/// exactly the case where those two diverge, and it is still part of whatever line the parser is
+/// assembling.
+fn split_terminal_read(
+    chunk: &[u8],
+    pending: &mut Vec<u8>,
+    framer: &mut ProviderOutputFramer,
+) -> (String, Vec<String>) {
+    pending.extend_from_slice(chunk);
+    let content = take_decodable_utf8(pending);
+    let lines = framer
+        .push(ProviderOutputStream::Stdout, chunk)
+        .unwrap_or_default();
+    (content, lines)
 }
 
 fn terminal_size(size: &AgentTerminalSize) -> PtySize {
@@ -1289,21 +1349,87 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn managed_terminal(runtime_session_id: Option<&str>) -> ManagedAgentTerminal {
+        managed_terminal_named("terminal-1", "session-1", runtime_session_id)
+    }
+
+    fn managed_terminal_named(
+        terminal_id: &str,
+        session_id: &str,
+        runtime_session_id: Option<&str>,
+    ) -> ManagedAgentTerminal {
         ManagedAgentTerminal {
-            terminal_id: "terminal-1".to_string(),
-            session_id: "session-1".to_string(),
+            terminal_id: terminal_id.to_string(),
+            session_id: session_id.to_string(),
             agent_id: "codex-cli".to_string(),
             runtime_session_id: runtime_session_id.map(str::to_string),
             last_active_at: 1,
             size: AgentTerminalSize { rows: 24, cols: 80 },
-            master: native_pty_system()
-                .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
-                .expect("pty")
-                .master,
-            writer: Box::new(Vec::<u8>::new()),
+            io: Arc::new(TerminalIo {
+                master: Mutex::new(
+                    native_pty_system()
+                        .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
+                        .expect("pty")
+                        .master,
+                ),
+                writer: Mutex::new(Box::new(Vec::<u8>::new())),
+            }),
             child: Arc::new(Mutex::new(dummy_child())),
             transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         }
+    }
+
+    /// The Agent-terminal counterpart of the workspace shell runtime's
+    /// `a_blocked_shell_writer_does_not_stall_other_shells`. A CLI that stopped draining its
+    /// stdin blocks `write_all` indefinitely; if that write ran under the registry lock it would
+    /// freeze every other terminal's input, resize and attach — and `stop()`, which takes the
+    /// same lock, could not cancel the wedged one.
+    #[test]
+    fn a_blocked_terminal_writer_does_not_hold_the_registry_lock() {
+        let mut registry = HashMap::new();
+        registry.insert(
+            "session-1".to_string(),
+            managed_terminal_named("terminal-1", "session-1", None),
+        );
+        registry.insert(
+            "session-2".to_string(),
+            managed_terminal_named("terminal-2", "session-2", None),
+        );
+        let terminals = Arc::new(Mutex::new(registry));
+
+        let blocked = checkout_terminal_io(terminals.as_ref(), "terminal-1", 10)
+            .expect("first terminal checks out");
+        // Stands in for a child that stopped reading: the writer stays held for the whole test.
+        let _held = blocked.writer.lock().expect("hold the first writer");
+
+        let other = checkout_terminal_io(terminals.as_ref(), "terminal-2", 20)
+            .expect("second terminal checks out while the first writer is blocked");
+        other
+            .writer
+            .lock()
+            .expect("second writer is independent")
+            .write_all(b"echo test\n")
+            .expect("second terminal accepts input");
+        other
+            .master
+            .lock()
+            .expect("second master is independent")
+            .resize(terminal_size(&AgentTerminalSize {
+                rows: 30,
+                cols: 100,
+            }))
+            .expect("second terminal resizes");
+
+        // What `stop()` needs: the registry itself is never held across a blocking PTY write.
+        let mut guard = terminals.lock().expect("registry is still lockable");
+        assert!(
+            guard.remove("session-1").is_some(),
+            "the wedged terminal can still be cancelled"
+        );
+        assert_eq!(
+            guard.get("session-2").expect("survivor").last_active_at,
+            20,
+            "checkout marks the terminal active"
+        );
     }
 
     #[test]
@@ -1486,6 +1612,58 @@ mod tests {
         });
         assert_eq!(session_ids, vec!["codex-session".to_string()]);
         assert!(line_buffer.is_empty());
+    }
+
+    /// Unlike `session_marker_split_across_reads_is_parsed_once_the_newline_arrives`, which
+    /// drives the test-only `drain_complete_lines` helper, this exercises the framing the reader
+    /// thread actually runs: `split_terminal_read` feeding `ProviderOutputFramer`.
+    #[test]
+    fn a_read_that_decodes_to_no_text_still_reaches_the_provider_framer() {
+        let parser = output_parser_for("claude-code");
+        let mut framer = ProviderOutputFramer::new(4096);
+        let mut pending: Vec<u8> = Vec::new();
+        // A real `claude-code` init line carries the working directory, so a project path with
+        // non-ASCII characters puts a multi-byte sequence inside the marker line itself.
+        let marker =
+            "{\"type\":\"system\",\"session_id\":\"claude-session\",\"cwd\":\"D:/项目\"}\n";
+        let bytes = marker.as_bytes();
+        let multibyte_at = marker
+            .find('项')
+            .expect("marker contains a multi-byte character");
+
+        // Three reads, the middle one being just the first byte of '项' — a PTY hands back
+        // whatever is available, so a single leading byte is a read the reader thread must
+        // survive without losing it.
+        let reads: [&[u8]; 3] = [
+            &bytes[..multibyte_at],
+            &bytes[multibyte_at..multibyte_at + 1],
+            &bytes[multibyte_at + 1..],
+        ];
+        let mut session_ids: Vec<String> = Vec::new();
+        let mut rendered = String::new();
+        for read in reads {
+            let (content, lines) = split_terminal_read(read, &mut pending, &mut framer);
+            rendered.push_str(&content);
+            for line in lines {
+                if let ProviderOutputEvent::SessionId(id) = parser.parse_line(&line) {
+                    session_ids.push(id);
+                }
+            }
+        }
+
+        assert_eq!(
+            session_ids,
+            vec!["claude-session".to_string()],
+            "the session marker must survive a read that decodes to no displayable text"
+        );
+        assert_eq!(
+            rendered, marker,
+            "no byte may be dropped from the rendered text"
+        );
+        assert!(
+            pending.is_empty(),
+            "nothing is left buffered once the line completes"
+        );
     }
 
     #[test]

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 const cherryIcons = import.meta.glob<string>("../assets/provider-icons/cherry/*.svg", {
   eager: true,
   import: "default",
@@ -10,7 +12,10 @@ const cherryDarkIcons = import.meta.glob<string>("../assets/provider-icons/cherr
 });
 
 const iconAliases: Record<string, string> = {
+  glm: "zhipu",
   siliconflow: "silicon",
+  "zhipu-glm": "zhipu",
+  zhipuai: "zhipu",
   xai: "grok",
   stepfun: "step",
   xiaomi: "xiaomimimo",
@@ -27,7 +32,8 @@ const providerMarks: Record<string, string> = {
 const fallbackMark = "AI";
 
 function resolveProviderIcon(iconKey: string) {
-  const fileName = iconAliases[iconKey] ?? iconKey;
+  const normalizedKey = iconKey.trim().toLocaleLowerCase();
+  const fileName = iconAliases[normalizedKey] ?? normalizedKey;
   return {
     iconUrl: cherryIcons[`../assets/provider-icons/cherry/${fileName}.svg`],
     darkIconUrl: cherryDarkIcons[`../assets/provider-icons/cherry/dark/${fileName}.svg`],
@@ -43,15 +49,21 @@ export function ProviderBrandIcon({ iconKey, label, size = "md" }: {
   label: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const mark = providerMarks[iconKey] ?? fallbackMark;
+  const normalizedKey = iconKey.trim().toLocaleLowerCase();
+  const mark = providerMarks[iconAliases[normalizedKey] ?? normalizedKey] ?? fallbackMark;
   const { iconUrl, darkIconUrl } = resolveProviderIcon(iconKey);
+  const [failedUrls, setFailedUrls] = useState<Set<string>>(() => new Set());
+  useEffect(() => setFailedUrls(new Set()), [iconKey]);
+  const lightAvailable = Boolean(iconUrl && !failedUrls.has(iconUrl));
+  const darkAvailable = Boolean(darkIconUrl && !failedUrls.has(darkIconUrl));
+  const markFailed = (url: string) => setFailedUrls((current) => new Set(current).add(url));
   const sizeClasses = size === "sm" ? "h-8 w-8 text-[9px]" : size === "lg" ? "h-12 w-12 text-xs" : "h-10 w-10 text-[10px]";
 
   return (
     <span aria-label={label} className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-white p-1.5 font-bold tracking-tight text-muted-foreground shadow-xs dark:bg-zinc-950 ${sizeClasses}`} role="img">
-      {!iconUrl ? mark : <>
-        <img alt="" aria-hidden="true" className={`h-full w-full object-contain ${darkIconUrl ? "dark:hidden" : ""}`} src={iconUrl} />
-        {darkIconUrl ? <img alt="" aria-hidden="true" className="hidden h-full w-full object-contain dark:block" src={darkIconUrl} /> : null}
+      {!lightAvailable ? mark : <>
+        <img alt="" aria-hidden="true" className={`h-full w-full object-contain ${darkAvailable ? "dark:hidden" : ""}`} onError={() => markFailed(iconUrl!)} src={iconUrl} />
+        {darkAvailable ? <img alt="" aria-hidden="true" className="hidden h-full w-full object-contain dark:block" onError={() => markFailed(darkIconUrl!)} src={darkIconUrl} /> : null}
       </>}
     </span>
   );

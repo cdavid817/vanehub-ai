@@ -145,17 +145,57 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
     await new Promise((resolve, reject) => localServer.close((error) => (error ? reject(error) : resolve())));
     assert.equal(localServer.listening, false);
 
-    await globalThis.browser.tauri.execute(({ core }, projectPath) => core.invoke("create_session", {
+    // The review fixture used to hardcode codex-cli. That worked only while a missing executable
+    // could be overruled by an installed managed SDK: on a runner with no `codex` on PATH the
+    // registry called it available anyway, and this spec created a CLI session for a binary that
+    // was not there. Availability is now a filesystem probe, so the same call is refused --
+    // correctly -- and the fixture has to ask the host what it actually has.
+    const hostAgents = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_agents", { capabilityTag: null }));
+    const installedCli = hostAgents.find((agent) => agent.availabilityState === "available"
+      && agent.supportedInteractionModes.includes("cli"));
+    // Code review needs a session rooted in a project, not a subprocess, so the API Agent this
+    // spec has already driven above is a sound stand-in where no CLI is installed.
+    const fixtureAgent = installedCli
+      ? { agentId: installedCli.id, interactionMode: "cli" }
+      : { agentId: "onepiece", interactionMode: "api" };
+
+    // A host without the executable is the only place this contract is observable, so assert it
+    // there rather than treating the absence as nothing to test.
+    const codex = hostAgents.find((agent) => agent.id === "codex-cli");
+    if (codex && codex.availabilityState !== "available") {
+      assert.match(
+        codex.unavailableReason ?? "",
+        /codex/,
+        "an Agent whose executable does not resolve must name it, so the user knows what to install",
+      );
+    }
+
+    const reviewSessionOperation = await globalThis.browser.tauri.execute(({ core }, input) => core.invoke("create_session", {
       input: {
-        agentId: "codex-cli",
-        interactionMode: "cli",
+        agentId: input.agentId,
+        interactionMode: input.interactionMode,
         title: "Desktop code review fixture",
-        folder: projectPath,
-        projectPath,
+        folder: input.projectPath,
+        projectPath: input.projectPath,
         remoteWorkspace: null,
         worktree: null,
       },
-    }), repository);
+    }), { ...fixtureAgent, projectPath: repository });
+    // Settled before the list is polled. Without this the operation's own failure reason -- the
+    // runtime logs "Agent is unavailable: Command 'codex' was not found on PATH" -- never reaches
+    // the report, and a refused creation is indistinguishable from a slow one.
+    const settledReviewSession = await globalThis.browser.waitUntil(async () => {
+      const operation = await globalThis.browser.tauri.execute(
+        ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
+        reviewSessionOperation.id,
+      );
+      return ["succeeded", "failed", "cancelled"].includes(operation.status) ? operation : false;
+    }, { timeout: 30_000, timeoutMsg: "Desktop review session operation did not finish." });
+    assert.equal(
+      settledReviewSession.status,
+      "succeeded",
+      settledReviewSession.error ?? `creating a ${fixtureAgent.agentId} review session failed`,
+    );
     const session = await globalThis.browser.waitUntil(async () => {
       const sessions = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_sessions"));
       return sessions.find((item) => item.title === "Desktop code review fixture") ?? false;

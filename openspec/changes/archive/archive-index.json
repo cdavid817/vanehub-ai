@@ -2934,6 +2934,159 @@
       "capabilities": []
     },
     {
+      "archivedOn": "2026-08-19",
+      "changeName": "decompose-api-tool-use-loop",
+      "path": "openspec/changes/archive/2026-08-19-decompose-api-tool-use-loop/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": []
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "extract-web-client-chat-state",
+      "path": "openspec/changes/archive/2026-08-19-extract-web-client-chat-state/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": []
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "freeze-panic-shortcuts-in-production-code",
+      "path": "openspec/changes/archive/2026-08-19-freeze-panic-shortcuts-in-production-code/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "repository-governance"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "prune-unused-dependencies",
+      "path": "openspec/changes/archive/2026-08-19-prune-unused-dependencies/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": []
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "relocate-heavyweight-inline-tests",
+      "path": "openspec/changes/archive/2026-08-19-relocate-heavyweight-inline-tests/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": []
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "retire-panic-shortcut-whitelist",
+      "path": "openspec/changes/archive/2026-08-19-retire-panic-shortcut-whitelist/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "repository-governance"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-19",
+      "changeName": "split-api-adapter-modules",
+      "path": "openspec/changes/archive/2026-08-19-split-api-adapter-modules/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": []
+    },
+    {
+      "archivedOn": "2026-08-20",
+      "changeName": "add-permission-hook-recovery",
+      "path": "openspec/changes/archive/2026-08-20-add-permission-hook-recovery/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "claude-code-permission-hook"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-20",
+      "changeName": "correct-cli-launch-and-availability-contracts",
+      "path": "openspec/changes/archive/2026-08-20-correct-cli-launch-and-availability-contracts/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-provider-runtime",
+        "agent-runner-runtime",
+        "agent-tool-registry"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-20",
+      "changeName": "pin-git-message-locale",
+      "path": "openspec/changes/archive/2026-08-20-pin-git-message-locale/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "session-project-inspection"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-20",
+      "changeName": "polish-agent-settings-cli-and-skill-sync",
+      "path": "openspec/changes/archive/2026-08-20-polish-agent-settings-cli-and-skill-sync/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "app-settings",
+        "cli-agent-config-management",
+        "cli-parameter-management",
+        "main-layout-ui",
+        "settings-skill-management-ui",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-20",
+      "changeName": "scope-provider-resume-metadata-to-a-seat",
+      "path": "openspec/changes/archive/2026-08-20-scope-provider-resume-metadata-to-a-seat/",
+      "artifacts": [
+        "proposal",
+        "tasks"
+      ],
+      "capabilities": [
+        "multi-agent-group-chat",
+        "session-runtime-management"
+      ]
+    },
+    {
       "archivedOn": "2026-08-21",
       "changeName": "add-cli-terminal-desktop-verification",
       "path": "openspec/changes/archive/2026-08-21-add-cli-terminal-desktop-verification/",
@@ -2994,8 +3147,8 @@
     },
     {
       "archivedOn": "2026-08-21",
-      "changeName": "decompose-api-tool-use-loop",
-      "path": "openspec/changes/archive/2026-08-21-decompose-api-tool-use-loop/",
+      "changeName": "decompose-web-send-message",
+      "path": "openspec/changes/archive/2026-08-21-decompose-web-send-message/",
       "artifacts": [
         "proposal",
         "design",
@@ -3016,8 +3169,8 @@
     },
     {
       "archivedOn": "2026-08-21",
-      "changeName": "extract-web-client-chat-state",
-      "path": "openspec/changes/archive/2026-08-21-extract-web-client-chat-state/",
+      "changeName": "extract-web-client-state-modules",
+      "path": "openspec/changes/archive/2026-08-21-extract-web-client-state-modules/",
       "artifacts": [
         "proposal",
         "design",
@@ -3037,19 +3190,6 @@
       "capabilities": [
         "native-developer-documentation",
         "user-guide-documentation"
-      ]
-    },
-    {
-      "archivedOn": "2026-08-21",
-      "changeName": "freeze-panic-shortcuts-in-production-code",
-      "path": "openspec/changes/archive/2026-08-21-freeze-panic-shortcuts-in-production-code/",
-      "artifacts": [
-        "proposal",
-        "design",
-        "tasks"
-      ],
-      "capabilities": [
-        "repository-governance"
       ]
     },
     {
@@ -3085,17 +3225,6 @@
     },
     {
       "archivedOn": "2026-08-21",
-      "changeName": "prune-unused-dependencies",
-      "path": "openspec/changes/archive/2026-08-21-prune-unused-dependencies/",
-      "artifacts": [
-        "proposal",
-        "design",
-        "tasks"
-      ],
-      "capabilities": []
-    },
-    {
-      "archivedOn": "2026-08-21",
       "changeName": "rebuild-project-documentation-topology",
       "path": "openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/",
       "artifacts": [
@@ -3107,41 +3236,6 @@
         "native-developer-documentation",
         "user-guide-documentation"
       ]
-    },
-    {
-      "archivedOn": "2026-08-21",
-      "changeName": "relocate-heavyweight-inline-tests",
-      "path": "openspec/changes/archive/2026-08-21-relocate-heavyweight-inline-tests/",
-      "artifacts": [
-        "proposal",
-        "design",
-        "tasks"
-      ],
-      "capabilities": []
-    },
-    {
-      "archivedOn": "2026-08-21",
-      "changeName": "retire-panic-shortcut-whitelist",
-      "path": "openspec/changes/archive/2026-08-21-retire-panic-shortcut-whitelist/",
-      "artifacts": [
-        "proposal",
-        "design",
-        "tasks"
-      ],
-      "capabilities": [
-        "repository-governance"
-      ]
-    },
-    {
-      "archivedOn": "2026-08-21",
-      "changeName": "split-api-adapter-modules",
-      "path": "openspec/changes/archive/2026-08-21-split-api-adapter-modules/",
-      "artifacts": [
-        "proposal",
-        "design",
-        "tasks"
-      ],
-      "capabilities": []
     }
   ]
 }

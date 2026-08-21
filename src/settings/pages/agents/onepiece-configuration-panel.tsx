@@ -23,6 +23,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
   const [pendingAction, setPendingAction] = useState<OnePieceProfileAction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [profileSearch, setProfileSearch] = useState("");
+  const [view, setView] = useState<"providers" | "runtime" | "tools">("providers");
   const profilesQuery = useQuery({ queryKey, queryFn: async () => {
     const [overview, presets] = await Promise.all([
       service.listOnePieceProviderProfiles(),
@@ -59,7 +60,24 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div aria-label={t("onepiece.views.label")} className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/25 p-1" role="tablist">
+        {(["providers", "runtime", "tools"] as const).map((candidate) => (
+          <button
+            aria-selected={view === candidate}
+            className={`min-h-9 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors ${view === candidate ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}
+            data-testid={`onepiece-view-tab-${candidate}`}
+            key={candidate}
+            onClick={() => setView(candidate)}
+            role="tab"
+            type="button"
+          >
+            {t(`onepiece.views.${candidate}`)}
+          </button>
+        ))}
+      </div>
+
+      {view === "providers" ? <div className="contents" data-testid="onepiece-view-providers">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -74,21 +92,17 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
           <Button onClick={() => setEditingProfile(null)}><Plus className="h-4 w-4" />{t("onepiece.addProvider")}</Button>
           <Button aria-label={t("onepiece.refresh")} disabled={profilesQuery.isFetching} onClick={() => void profilesQuery.refetch()} variant="outline"><RefreshCw className={`h-4 w-4 ${profilesQuery.isFetching ? "animate-spin" : ""}`} /><span className="sm:hidden lg:inline">{t("onepiece.refresh")}</span></Button>
         </div>
-      </div>
+        </div>
 
-      <section aria-label={t("onepiece.status.title")} className="rounded-lg border border-border bg-muted/35 px-4 py-3">
+        <section aria-label={t("onepiece.status.title")} className="rounded-lg border border-border bg-muted/35 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4 text-primary" />{t("onepiece.status.title")}</div>
           <Badge tone={ready ? "success" : "warning"}>{ready ? t("onepiece.status.ready") : t("onepiece.status.incomplete")}</Badge>
           <p className="text-xs text-muted-foreground sm:ml-auto">{ready ? t("onepiece.ready") : t("onepiece.notReady")}</p>
         </div>
-      </section>
+        </section>
 
-      <OnePieceToolReadiness service={service} />
-
-      <HybridLocalRuntimeSection overview={overview} service={service} onSaved={(value) => updateOverview(value, t("onepiece.saved"))} />
-
-      <section aria-labelledby="onepiece-providers-heading">
+        <section aria-labelledby="onepiece-providers-heading">
         <div className="mb-3"><h3 className="font-semibold" id="onepiece-providers-heading">{t("onepiece.providers.title")}</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">{t("onepiece.providers.description")}</p></div>
         {overview.profiles.length ? filteredProfiles.length ? <div className="space-y-3">{filteredProfiles.map((profile) => (
           <article className={`group overflow-hidden rounded-xl border bg-background p-4 transition-all hover:shadow-sm ${profile.active ? "border-primary/55 bg-primary/[0.035] ring-1 ring-primary/10" : "border-border hover:border-primary/30"}`} key={profile.id}>
@@ -128,7 +142,11 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
             </div>
           </article>
         ))}</div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.noMatches")}</p></div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.empty")}</p><Button className="mt-4" onClick={() => setEditingProfile(null)}><Plus className="h-4 w-4" />{t("onepiece.addProvider")}</Button></div>}
-      </section>
+        </section>
+      </div> : null}
+
+      {view === "runtime" ? <div data-testid="onepiece-view-runtime"><HybridLocalRuntimeSection overview={overview} service={service} onSaved={(value) => updateOverview(value, t("onepiece.saved"))} /></div> : null}
+      {view === "tools" ? <div data-testid="onepiece-view-tools"><OnePieceToolReadiness service={service} /></div> : null}
 
       {operationError ? <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{operationError instanceof Error ? operationError.message : String(operationError)}</p> : null}
       {notice ? <p className="rounded-md border p-3 text-sm ucd-status-success" role="status">{notice}</p> : null}

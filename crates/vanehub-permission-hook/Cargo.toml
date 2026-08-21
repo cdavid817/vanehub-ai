@@ -1,6 +1,6 @@
 [package]
 name = "vanehub-permission-hook"
-version = "0.1.0-preview.1"
+version = "1.0.0"
 description = "Claude Code PreToolUse hook wrapper for VaneHub AI"
 authors = ["vanehub-ai"]
 edition = "2021"

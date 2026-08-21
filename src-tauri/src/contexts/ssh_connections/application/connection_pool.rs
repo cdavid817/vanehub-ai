@@ -5,6 +5,8 @@ use crate::contexts::ssh_connections::domain::runtime::RemoteSshConnectionKey;
 use crate::contexts::ssh_connections::domain::SshConnectionProfile;
 use futures_util::future::{BoxFuture, FutureExt, Shared};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,6 +15,18 @@ type SharedConnect = Shared<BoxFuture<'static, ConnectResult>>;
 
 pub(crate) trait RemoteSshPoolClockPort: Send + Sync {
     fn now(&self) -> Instant;
+}
+
+/// Detaches a transport close so the caller never waits on it.
+///
+/// The pool cannot spawn onto a runtime itself. `drain` and the lease `Drop` are reached from
+/// synchronous `#[tauri::command]` bodies, which Tauri runs inline on the IPC thread, and that
+/// thread has no ambient Tokio runtime — a bare `tokio::spawn` there panics, and the panic
+/// unwinds into an `extern "system"` WebView2 callback that cannot unwind, aborting the process.
+/// Which runtime the close lands on is therefore an assembly decision, not one this layer can
+/// make: the adapter is wired in bootstrap.
+pub(crate) trait RemoteSshBackgroundPort: Send + Sync {
+    fn detach(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +51,7 @@ pub(crate) struct RemoteSshConnectionPool {
 struct PoolInner {
     connector: Arc<dyn RemoteSshConnectorPort>,
     clock: Arc<dyn RemoteSshPoolClockPort>,
+    background: Arc<dyn RemoteSshBackgroundPort>,
     capacity: usize,
     idle_timeout: Duration,
     state: Mutex<PoolState>,
@@ -88,12 +103,14 @@ impl RemoteSshConnectionPool {
     pub(crate) fn new(
         connector: Arc<dyn RemoteSshConnectorPort>,
         clock: Arc<dyn RemoteSshPoolClockPort>,
+        background: Arc<dyn RemoteSshBackgroundPort>,
         capacity: usize,
         idle_timeout: Duration,
     ) -> Self {
         Self {
             inner: Arc::new(PoolInner {
                 connector,
+                background,
                 clock,
                 capacity: capacity.max(1),
                 idle_timeout,
@@ -256,7 +273,13 @@ impl RemoteSshConnectionPool {
                 }
             }
         }
-        tokio::spawn(close_transports(closing));
+        // `tauri::async_runtime::spawn`, not `tokio::spawn`: this is reached from synchronous
+        // `#[tauri::command]` bodies, which Tauri runs inline on the IPC thread. That thread has
+        // no ambient Tokio runtime, and a bare `tokio::spawn` there panics into an
+        // `extern "system"` WebView2 callback that cannot unwind — aborting the process.
+        self.inner
+            .background
+            .detach(Box::pin(close_transports(closing)));
     }
 
     pub(crate) async fn shutdown(&self) -> Result<(), RemoteSshError> {
@@ -331,9 +354,12 @@ impl PoolInner {
         }
         drop(state);
         if let Some(transport) = closing {
-            tokio::spawn(async move {
+            // Same reason as `drain`: a lease is dropped wherever its holder happens to live, and
+            // `ssh_runner`'s synchronous port methods hold one across `block_on`, so the last drop
+            // can land on a thread with no ambient runtime.
+            self.background.detach(Box::pin(async move {
                 let _ = transport.close().await;
-            });
+            }));
         }
     }
 }
@@ -427,6 +453,25 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// Runs the close on whatever runtime the test already has, or synchronously when it has
+    /// none -- so a plain `#[test]` exercises the same path production takes from a thread with
+    /// no ambient runtime.
+    struct Background;
+    impl RemoteSshBackgroundPort for Background {
+        fn detach(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(task);
+                }
+                Err(_) => tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime")
+                    .block_on(task),
+            }
+        }
+    }
+
     struct Clock;
     impl RemoteSshPoolClockPort for Clock {
         fn now(&self) -> Instant {
@@ -511,6 +556,7 @@ mod tests {
                 closes: closes.clone(),
             }),
             Arc::new(Clock),
+            Arc::new(Background),
             2,
             Duration::from_secs(60),
         );
@@ -533,13 +579,50 @@ mod tests {
                 closes: closes.clone(),
             }),
             Arc::new(Clock),
+            Arc::new(Background),
             1,
             Duration::from_secs(60),
         );
         let lease = pool.acquire(&profile("one", 1)).await.expect("lease");
         pool.drain("one");
         drop(lease);
-        tokio::task::yield_now().await;
-        assert!(closes.load(Ordering::SeqCst) >= 1);
+
+        // Polled rather than yielded once. The close runs on the application runtime, not this
+        // test's, precisely so it cannot panic when the caller has no ambient runtime -- which
+        // means a single `yield_now` no longer happens to schedule it.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while closes.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            closes.load(Ordering::SeqCst) >= 1,
+            "the drained transport was never closed"
+        );
+    }
+
+    /// Deliberately a plain `#[test]`: production reaches `drain` from the Tauri main thread,
+    /// which has no ambient Tokio runtime. `delete_ssh_connection` and `update_ssh_connection`
+    /// are synchronous `#[tauri::command]`s, so their bodies run inline on the IPC thread, and a
+    /// bare `tokio::spawn` there panics with "there is no reactor running". That panic unwinds
+    /// into an `extern "system"` WebView2 callback, which cannot unwind, so the process aborts --
+    /// deleting or editing an SSH connection in Settings killed the app, with nothing in the
+    /// unified log because an abort skips every flush.
+    ///
+    /// Every existing test here is a `#[tokio::test]`, which supplies exactly the runtime
+    /// production lacks. That is why the crash had no coverage.
+    #[test]
+    fn draining_survives_without_an_ambient_runtime() {
+        let pool = RemoteSshConnectionPool::new(
+            Arc::new(Connector {
+                connects: Arc::new(AtomicUsize::new(0)),
+                closes: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(Clock),
+            Arc::new(Background),
+            1,
+            Duration::from_secs(60),
+        );
+
+        pool.drain("one");
     }
 }

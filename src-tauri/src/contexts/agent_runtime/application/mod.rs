@@ -101,12 +101,12 @@ pub(crate) use models::AgentLaunchView;
 // relevance selection that produces bodies. Until then only the index half of the split is wired.
 #[allow(unused_imports)]
 pub(crate) use models::{
-    format_memory_bodies, format_memory_index, ActiveGenerationCorrelation, AgentChatConfiguration,
-    AgentCoreInstructions, AgentEvent, AgentFileReference, AgentInvocationUsage, AgentLog,
-    AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
-    AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
-    AgentSessionDetails, AgentSessionRunnerTarget, AgentSessionSeat, AgentSkillReadRequest,
-    AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
+    format_memory_bodies, format_memory_index, resume_thread_for, ActiveGenerationCorrelation,
+    AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference,
+    AgentInvocationUsage, AgentLog, AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource,
+    AgentMessageTerminal, AgentMessageTerminalOutcome, AgentMessageTerminalReceiver,
+    AgentOperation, AgentSession, AgentSessionDetails, AgentSessionRunnerTarget, AgentSessionSeat,
+    AgentSkillReadRequest, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
     ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,

@@ -21,6 +21,7 @@ struct FakeAvailability {
 impl AgentAvailabilityGateway for FakeAvailability {
     fn assess(
         &self,
+        _agent_id: &str,
         _managed_sdk_dependency_id: Option<&str>,
         _executable_name: Option<&str>,
     ) -> Result<AvailabilityAssessment, AgentRuntimeApplicationError> {

@@ -63,6 +63,7 @@ describe("AgentGlobalConfigPanel", () => {
     const presetButton = within(screen.getByRole("dialog")).getByRole("button", { name: /Anthropic/ });
     await user.click(presetButton);
     expect(screen.getByRole("dialog")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "继续" }));
     await user.click(screen.getByRole("button", { name: "保存修改" }));
 
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
@@ -132,7 +133,8 @@ describe("AgentGlobalConfigPanel", () => {
     expect(within(dialog).queryByText("Anthropic · Claude Code")).toBeNull();
     expect(within(dialog).getByText("OpenRouter · Claude Code")).toBeTruthy();
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: /删除配置: Anthropic/ }));
+    await user.click(screen.getByRole("button", { name: /更多配置操作: Anthropic/ }));
+    await user.click(screen.getByRole("menuitem", { name: "删除配置" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "删除配置" }));
     await waitFor(() => expect(remove).toHaveBeenCalledOnce());
     expect(confirm).not.toHaveBeenCalled();
@@ -209,7 +211,8 @@ describe("AgentGlobalConfigPanel", () => {
     await user.type(search, "missing provider");
     expect(screen.getByText("没有符合搜索条件的已保存配置。")).toBeTruthy();
     await user.clear(search);
-    await user.click(screen.getByRole("button", { name: /编辑配置: Anthropic/ }));
+    await user.click(screen.getByRole("button", { name: /更多配置操作: Anthropic/ }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑配置" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.queryByText("选择厂商预设")).toBeNull();
   });

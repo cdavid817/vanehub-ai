@@ -7,7 +7,7 @@ export const ucdThemes = [
 
 export type UcdThemeId = (typeof ucdThemes)[number]["id"];
 
-export const defaultThemeId: UcdThemeId = "futuristic";
+export const defaultThemeId: UcdThemeId = "minimal";
 
 export function isUcdThemeId(value: unknown): value is UcdThemeId {
   return typeof value === "string" && ucdThemes.some((theme) => theme.id === value);

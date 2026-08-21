@@ -301,3 +301,150 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Cancelled);
 }
+
+/// A provider thread can stop existing on the provider's side -- its storage cleared, or the
+/// rollout expired. The stored id then refers to nothing, and without this every later turn
+/// resumes it, is rejected before producing a word, and fails identically: the seat is broken
+/// permanently and explains nothing. Forgetting it keeps one bad turn to one bad turn.
+#[test]
+fn a_resumed_turn_that_fails_without_output_forgets_the_thread_it_could_not_resume() {
+    let world = test_world();
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .get_mut("session-1")
+        .expect("session")
+        .runtime_session_id = Some("vanished-thread".to_string());
+    let service = service(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+
+    sink.handle(GenerationProcessEvent::Failed(
+        GenerationProcessFailure::non_retryable("no rollout found for thread id vanished-thread"),
+    ))
+    .expect("failed");
+
+    assert_eq!(
+        world
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get("session-1")
+            .expect("session")
+            .runtime_session_id,
+        None,
+        "the next turn must start a new thread rather than resume one that answered nothing",
+    );
+}
+
+/// Silence is the discriminating signal. A turn that said anything resumed successfully, whatever
+/// went wrong afterwards, so its thread is real. Clearing it there would throw away a working
+/// conversation on an ordinary mid-turn failure.
+#[test]
+fn a_resumed_turn_that_fails_after_speaking_keeps_its_thread() {
+    let world = test_world();
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .get_mut("session-1")
+        .expect("session")
+        .runtime_session_id = Some("live-thread".to_string());
+    let service = service(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+
+    sink.handle(GenerationProcessEvent::Token("partial answer".to_string()))
+        .expect("token");
+    sink.handle(GenerationProcessEvent::Failed(
+        GenerationProcessFailure::retryable("connection dropped mid-turn"),
+    ))
+    .expect("failed");
+
+    assert_eq!(
+        world
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get("session-1")
+            .expect("session")
+            .runtime_session_id
+            .as_deref(),
+        Some("live-thread"),
+    );
+}
+
+/// A turn that never asked to resume has no thread to blame for its failure, and clearing on its
+/// behalf would forget an id captured by some earlier, successful turn.
+#[test]
+fn a_turn_that_resumed_nothing_leaves_the_stored_thread_alone() {
+    let world = test_world();
+    let service = service(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+    // Captured by this turn, after it started, so it was never the id this turn resumed.
+    sink.handle(GenerationProcessEvent::RuntimeSessionId(
+        "captured-this-turn".to_string(),
+    ))
+    .expect("session id");
+
+    sink.handle(GenerationProcessEvent::Failed(
+        GenerationProcessFailure::non_retryable("something else went wrong"),
+    ))
+    .expect("failed");
+
+    assert_eq!(
+        world
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get("session-1")
+            .expect("session")
+            .runtime_session_id
+            .as_deref(),
+        Some("captured-this-turn"),
+    );
+}

@@ -1613,6 +1613,65 @@ mod tests {
     }
 
     #[test]
+    fn synchronization_rolls_back_records_and_tombstones_when_snapshot_persistence_fails() {
+        let fixture = Fixture::new("Skill SQLite synchronization rollback");
+        let deleted = SkillId::parse("code-review").expect("builtin id");
+        let connection = fixture.database.connection().expect("database connection");
+        connection
+            .execute(
+                "INSERT INTO deleted_builtin_skills (skill_id, deleted_at) VALUES (?1, ?2)",
+                params![deleted.as_str(), "2026-07-18T00:00:00Z"],
+            )
+            .expect("tombstone");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TRIGGER reject_skill_drift_snapshot
+                BEFORE INSERT ON skill_drift_snapshots
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected drift snapshot failure');
+                END;
+                "#,
+            )
+            .expect("failure injection trigger");
+        drop(connection);
+        let report = SkillDriftReport {
+            location: location(),
+            issues: Vec::new(),
+            drift_hash: "clean-after-repair".to_string(),
+        };
+
+        fixture
+            .repository
+            .save_synchronization(
+                &[record("rollback-skill", None)],
+                std::slice::from_ref(&deleted),
+                &report,
+            )
+            .expect_err("injected snapshot failure must abort synchronization");
+
+        assert!(fixture
+            .repository
+            .list(&location())
+            .expect("Skill rows")
+            .is_empty());
+        assert_eq!(
+            fixture
+                .repository
+                .deleted_builtin_ids()
+                .expect("tombstones"),
+            vec![deleted]
+        );
+        let connection = fixture.database.connection().expect("database connection");
+        let snapshot_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM skill_drift_snapshots", [], |row| {
+                row.get(0)
+            })
+            .expect("snapshot count");
+        assert_eq!(snapshot_count, 0);
+    }
+
+    #[test]
     fn api_agent_lookup_includes_seeded_builtin_onepiece_and_excludes_cli_agents() {
         let fixture = Fixture::new("Skill API agent lookup");
 

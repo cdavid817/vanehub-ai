@@ -454,7 +454,7 @@ impl DesktopSettings {
         Self {
             application_language: ApplicationLanguage::ChineseSimplified,
             font_size: DesktopFontSize::Px14,
-            theme: DesktopTheme::Futuristic,
+            theme: DesktopTheme::Minimal,
             default_folder_path: String::new(),
             log_directory: default_log_directory.into(),
             network_proxy: NetworkProxyPreferences::defaults(),
@@ -654,7 +654,7 @@ mod tests {
 
         assert_eq!(settings.application_language().as_str(), "zh-CN");
         assert_eq!(settings.font_size().as_str(), "14px");
-        assert_eq!(settings.theme().as_str(), "futuristic");
+        assert_eq!(settings.theme().as_str(), "minimal");
         assert_eq!(settings.default_folder_path(), "");
         assert_eq!(settings.log_directory(), "D:/data/logs");
         assert_eq!(settings.network_proxy().url(), "");

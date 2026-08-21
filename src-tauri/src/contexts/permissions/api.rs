@@ -82,6 +82,23 @@ impl PermissionsApi {
         Ok(principal)
     }
 
+    /// Re-projects the permission-hook entries at desktop startup, iff hook management was
+    /// previously enabled. The only durable representation of "enabled" is a real
+    /// (non-synthesized) `claude-code` principal row — `assign_template` is what creates it at
+    /// the moment it installs the hook — so that row's existence is the trigger. Re-running
+    /// `install()` refreshes the wrapper path the global settings entry names, which otherwise
+    /// keeps pointing at a pre-update install location forever
+    /// (`add-permission-hook-recovery`'s "Hook registration reconverges at desktop startup").
+    /// Returns whether a re-projection was attempted; the caller treats failure as best-effort.
+    pub(crate) fn reconverge_claude_code_hook(&self) -> Result<bool, PermissionsApplicationError> {
+        let (_, assigned) = self.find_principal(CLAUDE_CODE_AGENT_ID)?;
+        if !assigned {
+            return Ok(false);
+        }
+        self.claude_code_hook.install()?;
+        Ok(true)
+    }
+
     /// Reports an agent's current policy template — synthesizing the effective default when no
     /// principal row exists yet — without ever creating one as a side effect of reading
     /// (`add-permissions-settings-ui`'s agent-policy list). The `bool` is whether that template
@@ -191,10 +208,26 @@ impl PermissionsApi {
 
 #[cfg(test)]
 pub(crate) fn test_permissions_api(default_template: PolicyTemplateName) -> PermissionsApi {
-    use super::application::{
-        DefaultTemplatePort, PendingApprovalEventPort, PermissionsApplicationError,
-    };
-    use super::domain::ApprovalRequest;
+    struct NoopHook;
+    impl ClaudeCodeHookPort for NoopHook {
+        fn install(&self) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+
+        fn remove(&self) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+    }
+
+    test_permissions_api_with_hook(default_template, Arc::new(NoopHook))
+}
+
+#[cfg(test)]
+pub(crate) fn test_permissions_api_with_hook(
+    default_template: PolicyTemplateName,
+    claude_code_hook: Arc<dyn ClaudeCodeHookPort>,
+) -> PermissionsApi {
+    use super::application::{DefaultTemplatePort, PendingApprovalEventPort};
     use super::infrastructure::{
         PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
         SqliteGrantRepository, SqlitePrincipalRepository,
@@ -212,17 +245,6 @@ pub(crate) fn test_permissions_api(default_template: PolicyTemplateName) -> Perm
     struct NoopEvents;
     impl PendingApprovalEventPort for NoopEvents {
         fn publish(&self, _request: &ApprovalRequest) -> Result<(), PermissionsApplicationError> {
-            Ok(())
-        }
-    }
-
-    struct NoopHook;
-    impl ClaudeCodeHookPort for NoopHook {
-        fn install(&self) -> Result<(), PermissionsApplicationError> {
-            Ok(())
-        }
-
-        fn remove(&self) -> Result<(), PermissionsApplicationError> {
             Ok(())
         }
     }
@@ -255,6 +277,75 @@ pub(crate) fn test_permissions_api(default_template: PolicyTemplateName) -> Perm
         evaluation,
         approvals,
         Arc::new(HookWaitRegistry::new()),
-        Arc::new(NoopHook),
+        claude_code_hook,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct RecordingHook {
+        installs: AtomicUsize,
+        fail: AtomicBool,
+    }
+
+    impl ClaudeCodeHookPort for RecordingHook {
+        fn install(&self) -> Result<(), PermissionsApplicationError> {
+            self.installs.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(PermissionsApplicationError::infrastructure(
+                    "cli_config",
+                    "install failed".to_string(),
+                ));
+            }
+            Ok(())
+        }
+
+        fn remove(&self) -> Result<(), PermissionsApplicationError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn reconverge_does_nothing_without_an_assigned_claude_code_row() {
+        let hook = Arc::new(RecordingHook::default());
+        let api = test_permissions_api_with_hook(PolicyTemplateName::Standard, hook.clone());
+
+        let attempted = api
+            .reconverge_claude_code_hook()
+            .expect("reconverge should succeed");
+
+        assert!(!attempted);
+        assert_eq!(hook.installs.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn reconverge_reinstalls_when_hook_management_was_previously_enabled() {
+        let hook = Arc::new(RecordingHook::default());
+        let api = test_permissions_api_with_hook(PolicyTemplateName::Standard, hook.clone());
+        api.assign_template(CLAUDE_CODE_AGENT_ID, PolicyTemplateName::Readonly)
+            .expect("assign should succeed");
+        assert_eq!(hook.installs.load(Ordering::SeqCst), 1);
+
+        let attempted = api
+            .reconverge_claude_code_hook()
+            .expect("reconverge should succeed");
+
+        assert!(attempted);
+        assert_eq!(hook.installs.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn reconverge_surfaces_an_install_failure_to_the_best_effort_caller() {
+        let hook = Arc::new(RecordingHook::default());
+        let api = test_permissions_api_with_hook(PolicyTemplateName::Standard, hook.clone());
+        api.assign_template(CLAUDE_CODE_AGENT_ID, PolicyTemplateName::Readonly)
+            .expect("assign should succeed");
+
+        hook.fail.store(true, Ordering::SeqCst);
+        assert!(api.reconverge_claude_code_hook().is_err());
+    }
 }

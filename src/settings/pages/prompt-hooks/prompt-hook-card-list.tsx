@@ -1,4 +1,4 @@
-import { Eye, History, Link2, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Ellipsis, Eye, LockKeyhole, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,221 +8,211 @@ import {
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { useMediaQuery } from "../../../hooks/use-media-query";
-import { chunkItems, shouldVirtualizePromptHooks } from "../../../lib/virtual-list";
-import type { AgentRegistryEntry, ManagedCliAgentId } from "../../../types/agent";
-import type { PromptHook } from "../../../types/prompt-hook";
-
-type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
+import { shouldVirtualizePromptHooks } from "../../../lib/virtual-list";
+import type { PromptHook, PromptHookCategory } from "../../../types/prompt-hook";
+import {
+  flattenPromptHookGroups,
+  groupPromptHooks,
+  type PromptHookInventoryRow,
+} from "./prompt-hook-view-model";
 
 interface PromptHookCardListProps {
-  agents: ManagedAgent[];
   busyHookId: string | null;
+  expandedCategories: ReadonlySet<PromptHookCategory>;
   hooks: PromptHook[];
   onDelete: (hook: PromptHook) => void;
-  onEdit: (hook: PromptHook) => void;
-  onAdvanced: (hook: PromptHook) => void;
+  onOpen: (hook: PromptHook) => void;
   onPreview: (hook: PromptHook) => void;
-  onToggleAgent: (hook: PromptHook, agentId: string, checked: boolean) => void;
+  onToggleCategory: (category: PromptHookCategory) => void;
   onToggleEnabled: (hook: PromptHook, enabled: boolean) => void;
   resetKey: string;
 }
 
 export function PromptHookCardList({
   hooks,
-  agents,
   busyHookId,
-  onToggleEnabled,
-  onToggleAgent,
-  onPreview,
-  onEdit,
-  onAdvanced,
+  expandedCategories,
   onDelete,
+  onOpen,
+  onPreview,
+  onToggleCategory,
+  onToggleEnabled,
   resetKey,
 }: PromptHookCardListProps) {
   const { t } = useTranslation();
-  const wideLayout = useMediaQuery("(min-width: 1280px)");
-  const columnCount = wideLayout ? 2 : 1;
+  const wideLayout = useMediaQuery("(min-width: 768px)");
   const virtualListRef = useRef<MeasuredVirtualListHandle>(null);
-  const rows = useMemo(() => chunkItems(hooks, columnCount), [columnCount, hooks]);
+  const groups = useMemo(() => groupPromptHooks(hooks), [hooks]);
+  const rows = useMemo(
+    () => flattenPromptHookGroups(groups, expandedCategories),
+    [expandedCategories, groups],
+  );
 
   useEffect(() => {
     virtualListRef.current?.measure();
     virtualListRef.current?.scrollToStart();
-  }, [columnCount, resetKey]);
+  }, [resetKey, wideLayout]);
 
   if (hooks.length === 0) {
     return <div className="ucd-panel rounded-lg p-6 text-sm text-muted-foreground">{t("promptHooks.noMatching")}</div>;
   }
 
-  const cardProps = {
-    agents,
-    busyHookId,
-    onDelete,
-    onEdit,
-    onAdvanced,
-    onPreview,
-    onToggleAgent,
-    onToggleEnabled,
-    total: hooks.length,
-  };
+  const renderRow = (row: PromptHookInventoryRow) => row.kind === "category" ? (
+    <CategoryRow
+      category={row.category}
+      count={row.count}
+      expanded={expandedCategories.has(row.category)}
+      onToggle={() => onToggleCategory(row.category)}
+    />
+  ) : (
+    <PromptHookRow
+      busy={busyHookId === row.hook.id}
+      hook={row.hook}
+      onDelete={onDelete}
+      onOpen={onOpen}
+      onPreview={onPreview}
+      onToggleEnabled={onToggleEnabled}
+      position={row.position}
+      total={row.total}
+    />
+  );
 
   if (shouldVirtualizePromptHooks(hooks.length)) {
     return (
       <MeasuredVirtualList
         ariaLabel={t("promptHooks.inventory")}
         className="h-[min(70vh,48rem)] rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2"
-        estimateSize={() => 420}
-        getItemKey={(row) => row.map((hook) => hook.id).join(":")}
-        itemClassName="px-1 pb-4"
+        estimateSize={() => 96}
+        getItemKey={(row) => row.key}
+        itemClassName="px-1 pb-2"
         items={rows}
         overscan={4}
         ref={virtualListRef}
-        renderItem={(row, rowIndex) => (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            {row.map((hook, columnIndex) => (
-              <PromptHookCard
-                {...cardProps}
-                hook={hook}
-                key={hook.id}
-                position={rowIndex * columnCount + columnIndex + 1}
-              />
-            ))}
-          </div>
-        )}
+        renderItem={renderRow}
         testId="prompt-hook-virtual-list"
       />
     );
   }
 
   return (
-    <div aria-label={t("promptHooks.inventory")} className="grid items-start gap-4 xl:grid-cols-2" role="list">
-      {hooks.map((hook, index) => (
-        <PromptHookCard {...cardProps} hook={hook} key={hook.id} position={index + 1} />
-      ))}
+    <div aria-label={t("promptHooks.inventory")} className="space-y-2" role="list">
+      {rows.map((row) => <div key={row.key}>{renderRow(row)}</div>)}
     </div>
   );
 }
 
-function PromptHookCard({
-  agents,
-  busyHookId,
+function CategoryRow({
+  category,
+  count,
+  expanded,
+  onToggle,
+}: {
+  category: PromptHookCategory;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const label = t(`promptHooks.category.${category}`);
+  return (
+    <div className="pt-2" role="presentation">
+      <button
+        aria-expanded={expanded}
+        aria-label={t(expanded ? "promptHooks.group.collapse" : "promptHooks.group.expand", { category: label, count })}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onToggle}
+        type="button"
+      >
+        <ChevronDown className={`h-4 w-4 transition-transform motion-reduce:transition-none ${expanded ? "" : "-rotate-90"}`} aria-hidden="true" />
+        <span>{label}</span>
+        <span className="text-xs font-normal text-muted-foreground">{count}</span>
+      </button>
+    </div>
+  );
+}
+
+function PromptHookRow({
+  busy,
   hook,
   onDelete,
-  onEdit,
-  onAdvanced,
+  onOpen,
   onPreview,
-  onToggleAgent,
   onToggleEnabled,
   position,
   total,
-}: Omit<PromptHookCardListProps, "hooks" | "resetKey"> & {
+}: {
+  busy: boolean;
   hook: PromptHook;
+  onDelete: (hook: PromptHook) => void;
+  onOpen: (hook: PromptHook) => void;
+  onPreview: (hook: PromptHook) => void;
+  onToggleEnabled: (hook: PromptHook, enabled: boolean) => void;
   position: number;
   total: number;
 }) {
   const { t } = useTranslation();
+  const version = hook.source === "user" && hook.publishedVersion == null
+    ? t("promptHooks.lifecycle.unpublished")
+    : `v${hook.publishedVersion ?? hook.version}`;
 
   return (
-    <section
+    <article
       aria-posinset={position}
       aria-setsize={total}
-      className="ucd-panel grid min-h-80 gap-4 rounded-lg p-4"
+      className="ucd-panel grid gap-3 rounded-lg p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+      data-hook-id={hook.id}
       role="listitem"
     >
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="min-w-0">
-              <h3 className="truncate text-base font-semibold leading-6">{hook.name}</h3>
-              <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{hook.id}</p>
-            </div>
-            <div className="flex shrink-0 flex-wrap justify-end gap-1">
-              <Badge tone={hook.source === "builtin" ? "default" : "muted"}>{t(`promptHooks.source.${hook.source}`)}</Badge>
-              <Badge tone={hook.enabled ? "success" : "muted"}>{hook.enabled ? t("promptHooks.enabled") : t("promptHooks.disabled")}</Badge>
-              {hook.source === "user" && hook.publishedVersion == null ? (
-                <Badge tone="muted">{t("promptHooks.lifecycle.unpublished")}</Badge>
-              ) : null}
-              {hook.hasDraft ? (
-                <Badge tone="default">
-                  {t("promptHooks.lifecycle.draftRevision", { revision: hook.draftRevision })}
-                </Badge>
-              ) : null}
-            </div>
+      <button
+        aria-label={t("promptHooks.card.openDetails", { name: hook.name })}
+        className="min-w-0 rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onOpen(hook)}
+        type="button"
+      >
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="sr-only">{hook.id}</span>
+          <span className="truncate font-semibold">{hook.name}</span>
+          <Badge tone={hook.source === "builtin" ? "default" : "muted"}>{t(`promptHooks.source.${hook.source}`)}</Badge>
+          <Badge tone={hook.enabled ? "success" : "muted"}>{hook.enabled ? t("promptHooks.enabled") : t("promptHooks.disabled")}</Badge>
+          {hook.hasDraft ? <Badge tone="default">{t("promptHooks.lifecycle.draftRevision", { revision: hook.draftRevision })}</Badge> : null}
+        </span>
+        <span className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="truncate">{hook.description}</span>
+          <span className="font-mono">{version}</span>
+          <span>{t("promptHooks.card.bindingsCount", { count: hook.cliBindings.length })}</span>
+        </span>
+      </button>
+      <div className="flex items-center justify-between gap-2 md:justify-end">
+        <label className="flex h-9 items-center gap-2 text-sm font-medium">
+          {hook.disableable ? null : <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
+          <input
+            aria-label={t("promptHooks.enabled")}
+            checked={hook.enabled}
+            className="h-4 w-4 accent-[hsl(var(--primary))]"
+            disabled={!hook.disableable || busy}
+            onChange={(event) => onToggleEnabled(hook, event.target.checked)}
+            type="checkbox"
+          />
+        </label>
+        <details className="relative">
+          <summary
+            aria-label={t("promptHooks.actions.more", { name: hook.name })}
+            className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-border hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Ellipsis aria-hidden="true" />
+          </summary>
+          <div className="absolute right-0 z-10 mt-1 grid min-w-40 gap-1 rounded-md border border-border bg-background p-1 shadow-lg">
+            <Button className="justify-start" onClick={() => onPreview(hook)} size="sm" variant="ghost">
+              <Eye aria-hidden="true" />{t("promptHooks.actions.preview")}
+            </Button>
+            {hook.source === "user" ? (
+              <Button className="justify-start" onClick={() => onDelete(hook)} size="sm" variant="ghost">
+                <Trash2 aria-hidden="true" />{t("promptHooks.actions.delete")}
+              </Button>
+            ) : null}
           </div>
-          <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">{hook.description}</p>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge tone="muted">{t(`promptHooks.category.${hook.category}`)}</Badge>
-            <Badge tone="muted">{t(`promptHooks.stage.${hook.stage}`)}</Badge>
-            <Badge tone="muted">{t(`promptHooks.governance.${hook.governance.governanceTier}`)}</Badge>
-          </div>
-          <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-xs text-muted-foreground md:grid-cols-4">
-            <Metric label={t("promptHooks.card.order")} value={String(hook.order)} />
-            <Metric
-              label={t("promptHooks.card.version")}
-              value={hook.publishedVersion == null && hook.source === "user"
-                ? t("promptHooks.lifecycle.unpublished")
-                : `v${hook.publishedVersion ?? hook.version}`}
-            />
-            <Metric label={t("promptHooks.card.hash")} value={hook.templateBody ? t("promptHooks.card.previewOnly") : "-"} />
-            <Metric label={t("promptHooks.card.tokens")} value={t("promptHooks.card.previewOnly")} />
-          </div>
-          <div className="mt-auto grid gap-3 border-t border-border pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label className="flex h-9 items-center gap-2 text-sm font-medium">
-                <input
-                  checked={hook.enabled}
-                  className="h-4 w-4 accent-[hsl(var(--primary))]"
-                  disabled={!hook.disableable || busyHookId === hook.id}
-                  onChange={(event) => onToggleEnabled(hook, event.target.checked)}
-                  type="checkbox"
-                />
-                {t("promptHooks.enabled")}
-              </label>
-              <div className="flex gap-2">
-                <Button aria-label={t("promptHooks.actions.preview")} onClick={() => onPreview(hook)} size="icon" variant="outline">
-                  <Eye className="h-4 w-4" aria-hidden="true" />
-                </Button>
-                {hook.source === "user" ? (
-                  <>
-                    <Button aria-label={t("promptHooks.actions.advanced")} onClick={() => onAdvanced(hook)} size="icon" variant="outline">
-                      <History className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                    <Button aria-label={t("promptHooks.actions.edit")} onClick={() => onEdit(hook)} size="icon" variant="outline">
-                      <Pencil className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                    <Button aria-label={t("promptHooks.actions.delete")} onClick={() => onDelete(hook)} size="icon" variant="ghost">
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Link2 className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-              {t("promptHooks.filters.agent")}
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {agents.map((agent) => (
-                <label className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-[hsl(var(--panel-muted))] px-2 py-2 text-sm" key={agent.id}>
-                  <input
-                    className="h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
-                    checked={hook.cliBindings.includes(agent.id)}
-                    disabled={busyHookId === hook.id}
-                    onChange={(event) => onToggleAgent(hook, agent.id, event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span className="min-w-0 flex-1 truncate">{agent.displayName}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-    </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div>{label}</div>
-      <div className="mt-1 truncate font-mono text-foreground">{value}</div>
-    </div>
+        </details>
+      </div>
+    </article>
   );
 }
