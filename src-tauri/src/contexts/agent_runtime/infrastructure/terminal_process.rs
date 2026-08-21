@@ -401,7 +401,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             .as_deref()
             .filter(|folder| !folder.trim().is_empty())
             .map(normalize_windows_extended_length_path);
-        let (shell, shell_executable) = default_agent_terminal_shell();
+        let (shell, shell_executable) = default_agent_terminal_shell(&invocation.executable);
         let wrapper = generate_agent_terminal_wrapper(&AgentTerminalWrapperRequest {
             terminal_id: terminal_id.clone(),
             session_folder: normalized_folder.as_deref().map(PathBuf::from),
