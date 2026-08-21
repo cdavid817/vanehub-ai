@@ -4,9 +4,9 @@
 
 ## Overview
 
-Sessions, plans, and scheduled tasks each have their own list, and manual to-dos have nowhere to live at all. The Todo Board collects all four into one board: **what you wrote down by hand and what the Agents produced sit side by side**, organized by the same stages, priorities, and filters.
+Sessions and scheduled tasks each have their own list, and manual to-dos have nowhere to live at all. The Todo Board collects them into one board: **what you wrote down by hand and what the Agents produced sit side by side**, organized by the same stages, priorities, and filters.
 
-The key design is that **the board stage and the source status are kept completely separate**: which column a card is in is your decision, while how far the source has got is projected by the runtime. Neither disturbs the other — a plan finishing does not move its card to "Done" by itself.
+The key design is that **the board stage and the source status are kept completely separate**: which column a card is in is your decision, while how far the source has got is projected by the runtime. Neither disturbs the other — a scheduled task finishing does not move its card to "Done" by itself.
 
 ## Open the board
 
@@ -47,17 +47,15 @@ Beyond hand-written to-dos, the board **reconciles** existing and future executi
 | Source | Notes |
 | --- | --- |
 | **Session** | Top-level sessions |
-| **Plan** | The plan itself |
-| **Plan run** | A single run |
 | **Scheduled task** | A scheduled task |
 
 Reconciliation is **idempotent**: the first time you open the board after an upgrade, every eligible unlinked source gets **exactly one** work item; sources created later are picked up on the next reconciliation. Repeated reconciliation does not produce duplicate cards.
 
 Three rules are easy to miss:
 
-- **A child session does not get its own card.** A session created for a plan attempt or a scheduled task run appears as activity under the owning work item, and does **not** become an independent top-level card. Otherwise a plan running ten rounds would spray out ten cards.
+- **A child session does not get its own card.** A session created for a scheduled task run appears as activity under the owning work item and does **not** become an independent top-level card.
 - **An archived work item is not recreated by reconciliation.** What you archived stays recognized on the next pass; no replacement card appears.
-- **One card can carry several sources.** A card linked to both a session and a plan matches both the Session and the Plan source filters, but **it remains one card** and is never split into two by filtering.
+- **One card can carry several sources.** A card linked to both a session and a scheduled task matches both source filters, but **it remains one card** and is never split into two by filtering.
 
 When a source is deleted or cannot be resolved, **the work item is still there**, marked **Unavailable** — the card does not disappear with it.
 
@@ -67,7 +65,7 @@ The top of the board offers a search box and four filters, which **combine**:
 
 | Filter | Options |
 | --- | --- |
-| **Filter by source** | All sources / Session / Plan / Plan run / Scheduled task |
+| **Filter by source** | All sources / Session / Scheduled task |
 | **Filter by stage** | All stages / one of the five stages |
 | **Filter by priority** | All priorities / No priority / Low / Medium / High / Urgent |
 | **Filter by project** | All projects / each project path |
@@ -82,7 +80,7 @@ When a filter matches nothing you get "No items match the current filters", whic
 | **Restore** | Returns to its stage and ordering position | None |
 | **Delete permanently** | Deletes the work item and its source links | None |
 
-**None of the three touch the source.** Deleting permanently removes only the work item itself and its link records; the linked sessions, plans, plan runs, and scheduled tasks are **left exactly as they were**. The board is an organizing layer, not the owner of those things.
+**None of the three touch the source.** Deleting permanently removes only the work item itself and its link records; linked sessions and scheduled tasks are **left exactly as they were**. The board is an organizing layer, not the owner of those things.
 
 Restoring returns the item to **the stage and ordering position it had before archiving**, not to the Inbox.
 

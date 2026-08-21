@@ -213,7 +213,19 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-20 | pin-git-message-locale | session-project-inspection | `openspec/changes/archive/2026-08-20-pin-git-message-locale/` |
 | 2026-08-20 | polish-agent-settings-cli-and-skill-sync | app-settings, cli-agent-config-management, cli-parameter-management, main-layout-ui, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-20-polish-agent-settings-cli-and-skill-sync/` |
 | 2026-08-20 | scope-provider-resume-metadata-to-a-seat | multi-agent-group-chat, session-runtime-management | `openspec/changes/archive/2026-08-20-scope-provider-resume-metadata-to-a-seat/` |
+| 2026-08-21 | add-cli-terminal-desktop-verification | desktop-runtime-verification | `openspec/changes/archive/2026-08-21-add-cli-terminal-desktop-verification/` |
+| 2026-08-21 | add-native-ui-desktop-verification | desktop-runtime-verification | `openspec/changes/archive/2026-08-21-add-native-ui-desktop-verification/` |
+| 2026-08-21 | align-user-guide-audience-and-media | - | `openspec/changes/archive/2026-08-21-align-user-guide-audience-and-media/` |
+| 2026-08-21 | complete-chinese-user-guide-coverage | user-guide-documentation | `openspec/changes/archive/2026-08-21-complete-chinese-user-guide-coverage/` |
+| 2026-08-21 | complete-english-user-guide-content | - | `openspec/changes/archive/2026-08-21-complete-english-user-guide-content/` |
 | 2026-08-21 | decompose-web-send-message | - | `openspec/changes/archive/2026-08-21-decompose-web-send-message/` |
+| 2026-08-21 | document-mcp-skill-worktree-and-hooks | - | `openspec/changes/archive/2026-08-21-document-mcp-skill-worktree-and-hooks/` |
 | 2026-08-21 | extract-web-client-state-modules | - | `openspec/changes/archive/2026-08-21-extract-web-client-state-modules/` |
+| 2026-08-21 | fix-guide-link-targets | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-fix-guide-link-targets/` |
+| 2026-08-21 | harden-runtime-lifecycle-and-boundaries | agent-execution-observability, agent-terminal-runtime, native-runtime-architecture, runtime-performance-governance, session-shell, skill-evolution-evidence | `openspec/changes/archive/2026-08-21-harden-runtime-lifecycle-and-boundaries/` |
+| 2026-08-21 | integrate-plan-mode-into-onepiece | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, main-layout-ui, onepiece-native-agent, plan-execution-runtime, plan-management, session-chat-configuration, unified-todo-board | `openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/` |
+| 2026-08-21 | make-guide-images-resolve-in-both-layouts | user-guide-documentation | `openspec/changes/archive/2026-08-21-make-guide-images-resolve-in-both-layouts/` |
+| 2026-08-21 | prevent-hook-bash-permission-blocks | claude-code-permission-hook, cli-agent-permission-launch-flags | `openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/` |
+| 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

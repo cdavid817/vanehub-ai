@@ -10,7 +10,7 @@ use crate::platform::database::NativeDatabase;
 
 const STAGES: [&str; 5] = ["inbox", "planned", "in_progress", "review", "done"];
 const PRIORITIES: [&str; 5] = ["none", "low", "medium", "high", "urgent"];
-const SOURCES: [&str; 4] = ["session", "plan", "plan_run", "scheduled_task"];
+const SOURCES: [&str; 2] = ["session", "scheduled_task"];
 const RELATIONS: [&str; 4] = ["primary", "execution", "automation", "supporting"];
 
 pub(crate) fn list_items(

@@ -22,53 +22,6 @@ macro_rules! probe_impl {
     };
 }
 
-pub(crate) struct PlanProgressProbe {
-    database: NativeDatabase,
-}
-
-impl PlanProgressProbe {
-    pub(crate) fn new(database: NativeDatabase) -> Self {
-        Self { database }
-    }
-
-    fn resolve(&self, plan_id: &str) -> Option<LinkProgress> {
-        let connection = self.database.connection().ok()?;
-        let plan_status: String = connection
-            .query_row(
-                "SELECT status FROM plans WHERE id = ?1",
-                params![plan_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .ok()??;
-
-        if plan_status == "archived" {
-            return Some(LinkProgress::Terminal);
-        }
-
-        let run_status: Option<String> = connection
-            .query_row(
-                "SELECT status FROM plan_runs WHERE plan_id = ?1
-                 ORDER BY created_at DESC, id DESC LIMIT 1",
-                params![plan_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .ok()?;
-
-        Some(match run_status.as_deref() {
-            // A failed plan run is NOT terminal: the plan run state machine
-            // allows failed -> running, so the work can still be retried.
-            // `awaiting_acceptance` is likewise still active — that run is
-            // waiting on a human of its own.
-            Some("completed" | "cancelled") => LinkProgress::Terminal,
-            _ => LinkProgress::Active,
-        })
-    }
-}
-
-probe_impl!(PlanProgressProbe, GoalLinkTarget::Plan, resolve);
-
 pub(crate) struct LoopProgressProbe {
     database: NativeDatabase,
 }
@@ -100,8 +53,8 @@ impl LoopProgressProbe {
             .ok()?;
 
         Some(match run_status.as_deref() {
-            // Unlike plans, a failed loop run is terminal — the loop state
-            // machine has no edge out of failed. Keep the two lists apart.
+            // A failed Loop run is terminal because its state machine has no
+            // edge out of failed.
             Some("succeeded" | "failed" | "cancelled") => LinkProgress::Terminal,
             _ => LinkProgress::Active,
         })

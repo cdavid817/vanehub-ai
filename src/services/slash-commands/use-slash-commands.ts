@@ -32,10 +32,7 @@ export function useSlashCommands(input: {
   const [suggestionQuery, setSuggestionQuery] = useState<string | null>(null);
 
   const enabled = slashCommandsEnabled(session);
-  const capabilities = useMemo<CommandCapabilities>(
-    () => ({ hasAssociatedPlan: navigate.openAssociatedPlan !== null }),
-    [navigate.openAssociatedPlan],
-  );
+  const capabilities = useMemo<CommandCapabilities>(() => ({}), []);
 
   const available = useMemo(
     () => (session && enabled ? listCommands(SLASH_COMMANDS, session, capabilities) : []),

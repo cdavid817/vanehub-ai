@@ -1,5 +1,7 @@
 # VaneHub AI 用户体验审计报告（Phase 1）
 
+> **历史快照**：本文描述 2026-08-14 审计时点的界面与上下文。独立 Plan 执行入口和 `task_orchestration` 已在后续重构中退役，当前行为以 OpenSpec 主规范和用户指南为准。
+
 - 审计日期：2026-08-14
 - 审计范围：`src/` 下全部已实现的前端页面与视图
 - 审计分支：`worktree-ui-ux-optimization`，基线提交 `3164bdc8`

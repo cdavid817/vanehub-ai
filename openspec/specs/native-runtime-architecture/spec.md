@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the native runtime foundation for app-owned storage, migrations, structured diagnostics, long-running tasks, command safety, and Tauri desktop security.
+
 ## Requirements
+
 ### Requirement: App-owned storage paths
 The native runtime SHALL store application data in VaneHub-owned user data directories resolved through runtime-safe path APIs rather than relying on the process current working directory.
 
@@ -441,11 +443,11 @@ The desktop runtime SHALL run one-shot session recovery reconciliation in Rust a
 - **AND** it SHALL NOT classify sessions as orphaned merely because the runtime adapter has not yet been attached
 
 #### Scenario: Reconcile before dependent runtimes
-- **WHEN** startup contains ordinary sessions owned or referenced by Plan or Loop execution
-- **THEN** ordinary session evidence reconciliation SHALL complete before Plan and Loop project their recovery outcomes
+- **WHEN** startup contains ordinary sessions owned or referenced by Loop execution
+- **THEN** ordinary session evidence reconciliation SHALL complete before Loop projects its recovery outcomes
 
 #### Scenario: Start recurring maintenance after recovery
-- **WHEN** startup recovery and dependent Plan/Loop projection have completed or safely deferred retryable storage work
+- **WHEN** startup recovery and dependent Loop projection have completed or safely deferred retryable storage work
 - **THEN** Rust SHALL start automatic archival and retention schedules without combining those mutations with recovery decisions
 
 #### Scenario: Hourly automatic archival schedule
@@ -1058,3 +1060,14 @@ Native code review behavior SHALL remain in the existing modular-monolith contex
 #### Scenario: Architecture fixtures inspect review code
 - **WHEN** native architecture fitness tests scan the implementation
 - **THEN** no review module SHALL import another context's private domain, repository, or infrastructure implementation
+
+### Requirement: Complete native dependency enforcement
+The native architecture test MUST inspect domain, application, infrastructure, and command source files and SHALL reject private cross-context infrastructure dependencies outside the composition root.
+
+#### Scenario: Infrastructure imports another context repository
+- **WHEN** a bounded context infrastructure module imports another context's concrete repository
+- **THEN** the architecture test SHALL fail with the importing file, line, and dependency
+
+#### Scenario: Command executes infrastructure behavior
+- **WHEN** a command handler imports or invokes a context's private infrastructure implementation
+- **THEN** the architecture test SHALL fail unless the command uses a deliberately published API contract

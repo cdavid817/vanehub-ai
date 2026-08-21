@@ -18,7 +18,7 @@ wire_enum!(SourceFamily {
     NativeExecution,
     SkillLoading,
     DelegatedUtility,
-    PlanVerification,
+    RunVerification,
     ManagedCli,
     InteractiveCli,
     ExplicitFeedback,
@@ -127,7 +127,7 @@ wire_enum!(VerificationClass {
     Security,
     Specification,
     Acceptance,
-    Plan,
+    Loop,
 });
 
 wire_enum!(VerificationOutcome {

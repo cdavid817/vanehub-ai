@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines execution-run correlation, trace topology and fidelity, local timeline inspection, optional OTLP export, bounded metrics, and privacy requirements for Agent execution observability.
+
 ## Requirements
+
 ### Requirement: Execution run identity
 The system SHALL create one execution run with independent run, trace, and root span identifiers for every accepted user-task submission before Agent execution begins.
 
@@ -157,47 +159,6 @@ Execution metadata SHALL record the bounded set of canonical Skill revisions act
 - **WHEN** a CLI Skill binding exists but no active mount snapshot was captured
 - **THEN** observability SHALL NOT label that Skill as used or mounted
 
-### Requirement: Plan execution trace correlation
-The observability system SHALL correlate PlanRun, SubTaskRun, and SubTaskAttempt identities with their Agent sessions, provider generations, tool operations, validation operations, and state transitions while preserving the existing execution-run and trace topology.
-
-#### Scenario: Inspect a SubTask attempt timeline
-- **WHEN** a user opens the evidence for a SubTask attempt
-- **THEN** the service boundary SHALL return a bounded timeline whose safe correlation fields connect the attempt to its session, generation, operations, and verification result
-
-#### Scenario: Trace a PlanRun summary
-- **WHEN** a PlanRun contains multiple serial attempts
-- **THEN** the runtime SHALL expose their parent-child correlation and durations without embedding full session transcripts in the PlanRun summary
-
-### Requirement: Redacted Plan telemetry
-Plan execution diagnostics SHALL allow stable IDs, state names, durations, counts, safe filenames, exit classifications, and non-reversible fingerprints, and SHALL exclude user goals, generated task descriptions, prompts, credentials, raw tool arguments, raw tool results, and unredacted command output by default.
-
-#### Scenario: Record an orchestration failure
-- **WHEN** planning, dispatch, execution, verification, or recovery fails
-- **THEN** the unified observability path SHALL persist a redacted classified event that remains useful for correlation without persisting prohibited content
-
-#### Scenario: Preserve user-facing output separately
-- **WHEN** a user inspects allowed Agent or validation output in the Plan UI
-- **THEN** the frontend SHALL obtain it through the bounded session or operation presentation service rather than from diagnostic telemetry
-
-### Requirement: Autonomous Plan loop trace correlation
-The observability system SHALL correlate Plan driver activation, scheduling cycles, discovery sessions, original and repair Attempts, SubTask verification, final verification, pause and cancellation boundaries, and user recovery actions while preserving metadata-only diagnostic defaults.
-
-#### Scenario: Trace an automatic repair chain
-- **WHEN** one SubTask has multiple original or repair Attempts
-- **THEN** the execution topology SHALL retain their sequence, parent PlanRun and SubTask identities, safe failure classes, durations, and terminal states without storing prompts or raw validation output in diagnostics
-
-#### Scenario: Trace background continuation
-- **WHEN** the native driver advances a PlanRun while no Plan view is open
-- **THEN** unified logging SHALL record bounded lifecycle and correlation events sufficient to distinguish activation, claim, execution, verification, repair, and stop boundaries
-
-#### Scenario: Correlate originating session navigation safely
-- **WHEN** a PlanRun is associated with its originating OnePiece session
-- **THEN** diagnostics MAY correlate non-secret session and PlanRun ids while excluding session titles, prompts, goals, and message content
-
-#### Scenario: Inspect final verification evidence
-- **WHEN** a user requests final verification details through the Plan service
-- **THEN** the user-facing bounded evidence path MAY return allowed command summaries while persistent diagnostics SHALL continue excluding unredacted command output
-
 ### Requirement: Canonical lifecycle correlation
 Execution observability SHALL reuse the canonical Run id for lifecycle correlation while retaining independent trace/span identity and telemetry status. Canonical transition persistence SHALL NOT depend on OTLP exporter or timeline availability.
 
@@ -217,3 +178,9 @@ Performance evidence for an Agent Run SHALL use existing Run, operation, span, a
 - **WHEN** dedicated benchmark evidence is produced for a Run
 - **THEN** it SHALL identify commit, platform, profile, dataset, metric, baseline, delta, and correlation ids without captured execution content
 
+### Requirement: Observable telemetry persistence failure
+Execution telemetry failures MUST remain non-blocking to the owning operation and SHALL produce bounded, redacted local diagnostics without recursively using the failing telemetry path.
+
+#### Scenario: Span start or finish fails
+- **WHEN** local persistence or export rejects a span or run transition
+- **THEN** the Agent operation SHALL continue according to its own outcome and the unified log SHALL receive a safe failure classification

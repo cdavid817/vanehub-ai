@@ -18,7 +18,7 @@ describe("OnePiece mode selector", () => {
     expect(screen.getAllByText("Plan · Read-only").length).toBeGreaterThan(0);
     expect(screen.getByText(/without making changes/)).toBeTruthy();
     expect(screen.getByText("Agent · Can edit")).toBeTruthy();
-    expect(screen.getByText(/edit files/)).toBeTruthy();
+    expect(screen.getByText(/edit files/i)).toBeTruthy();
     fireEvent.click(screen.getByText("Agent · Can edit"));
     expect(change).toHaveBeenCalledWith("execute");
     fireEvent.keyDown(document, { key: "Escape" });

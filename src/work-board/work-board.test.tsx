@@ -36,7 +36,7 @@ const fixture = (): WorkItem => ({
   archived: false, createdAt: "2026-01-01", updatedAt: "2026-01-01",
   sources: [
     { sourceKind: "session", sourceId: "session-1", relation: "execution", title: "发布会话", status: "idle", available: true, projectPath: "D:/app", updatedAt: null },
-    { sourceKind: "plan", sourceId: "plan-1", relation: "primary", title: "发布计划", status: "approved", available: true, projectPath: "D:/app", updatedAt: null },
+    { sourceKind: "scheduled_task", sourceId: "task-1", relation: "automation", title: "发布任务", status: "idle", available: true, projectPath: "D:/app", updatedAt: null },
   ],
 });
 
@@ -67,7 +67,7 @@ describe("WorkBoard", () => {
     const card = await screen.findByTestId("work-item-work-1");
     expect(within(card).getAllByRole("listitem")).toHaveLength(2);
 
-    fireEvent.change(screen.getByLabelText("按来源筛选"), { target: { value: "plan" } });
+    fireEvent.change(screen.getByLabelText("按来源筛选"), { target: { value: "scheduled_task" } });
     expect(screen.getByTestId("work-item-work-1")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("工作阶段"), { target: { value: "review" } });
     await waitFor(() => expect(mocks.move).toHaveBeenCalledWith({ workItemId: "work-1", stage: "review" }));

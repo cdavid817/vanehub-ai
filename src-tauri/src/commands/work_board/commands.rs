@@ -65,10 +65,3 @@ pub(crate) fn delete_work_item(
 ) -> Result<(), String> {
     api::delete(&database, &work_item_id)
 }
-
-#[tauri::command]
-pub(crate) fn list_plan_summaries(
-    database: State<'_, NativeDatabase>,
-) -> Result<Vec<PlanSummary>, String> {
-    crate::contexts::work_board::infrastructure::list_plan_summaries(&database)
-}

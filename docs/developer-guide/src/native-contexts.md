@@ -2,7 +2,7 @@
 
 Native code is organized by **ownership**, not by UI page. Where a feature shows up on screen and who owns its code are two different questions.
 
-`src-tauri/src/contexts/` currently holds **21 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
+`src-tauri/src/contexts/` currently holds **20 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,6 @@ flowchart TB
     AR[agent_runtime]
     CD[cli_delegation]
     CE[code_execution]
-    TO[task_orchestration]
   end
 
   subgraph Work["Sessions and workspaces"]
@@ -76,7 +75,6 @@ The diagram only draws **call direction** between contexts, not specific command
 | `agent_runtime` | Agent registry, interaction modes, provider invocation, workflow state, and generation lifecycle | [Agent lifecycle](agent-lifecycle.md) |
 | `cli_delegation` | Delegated CLI invocation for Claude Code and Codex: protocol handling, readiness, scheduling, circuit breaking, restart recovery, and the changeset capture/review/seal/apply pipeline | [CLI delegation](cli-delegation.md) |
 | `code_execution` | Sandboxed code runtimes, the runtime catalog, execution workspaces, and readiness | [Extended tool contexts](extended-tool-contexts.md) |
-| `task_orchestration` | Plan drafts, plan runs, attempt execution and verification, plan worktrees, and recovery evidence | [Loop and Plan runtimes](loop-and-plan-runtime.md) |
 
 ### Sessions and workspaces
 
@@ -110,8 +108,8 @@ The diagram only draws **call direction** between contexts, not specific command
 
 | Context | Owns | Chapter |
 | --- | --- | --- |
-| `goals` | Goal aggregates, their links to plans, loops, work items, and sessions, derived acceptance readiness, and human acceptance transitions | [Goals and the work board](goals-and-work-board.md) |
-| `work_board` | Work items, their stages and priorities, and idempotent reconciliation of sessions, plans, and scheduled tasks into cards | [Goals and the work board](goals-and-work-board.md) |
+| `goals` | Goal aggregates, links to loops, work items, and sessions, legacy Plan-link display, derived acceptance readiness, and human acceptance transitions | [Goals and the work board](goals-and-work-board.md) |
+| `work_board` | Work items, their stages and priorities, and idempotent reconciliation of sessions and scheduled tasks into cards | [Goals and the work board](goals-and-work-board.md) |
 
 ### Desktop and access
 
@@ -138,7 +136,7 @@ This table covers only the eight earliest-established contexts, whose table stru
 
 | Context | Primary capability published by `api.rs` | Key owned SQLite tables (partitioned by migration) |
 | --- | --- | --- |
-| `agent_runtime` | Agent query, workflow, readiness, launch, messaging, stop; Loop/Plan runtime; seat handoff; code-intelligence ports | `expert_roles`, `onepiece_provider_profiles`, `hybrid_model_routing_rules` |
+| `agent_runtime` | Agent query, workflow, readiness, launch, messaging, stop; Loop runtime and session Plan safety; seat handoff; code-intelligence ports | `expert_roles`, `onepiece_provider_profiles`, `hybrid_model_routing_rules` |
 | `sessions` | Create/query/search/switch/rename/pin/archive/delete, categories, chat configuration, message persistence/composition, export, usage, maintenance | Session/message/category/configuration/usage tables |
 | `workspaces` | Project/history/worktree, bounded queries, shell lifecycle | Projections over existing tables |
 | `tooling` | CLI parameters, MCP management, SDK, extensions, plugins, Skill, Prompt Hook | Each subdomain's own tables |

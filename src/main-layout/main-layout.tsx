@@ -36,9 +36,6 @@ const defaultSessionSidebarWidth = 232;
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
-type PlanCenterProps = { onRunAssociated?: (runId: string) => void; originatingSessionId?: string | null; requestedRunId?: string | null };
-const loadPlanCenter: LazyFeatureLoader<PlanCenterProps> = () => import("../plan-center/plan-center")
-  .then((module) => ({ default: module.PlanCenter }));
 const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
   .then((module) => ({ default: module.WorkBoard }));
 const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
@@ -94,7 +91,6 @@ export function MainLayout({
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
-  const [planCenterVisited, setPlanCenterVisited] = useState(false);
   const [workBoardVisited, setWorkBoardVisited] = useState(false);
   const [goalCenterVisited, setGoalCenterVisited] = useState(false);
   const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
@@ -105,7 +101,6 @@ export function MainLayout({
   // Not seeded from a session id: the guard below reconciles this against displayedSession?.id on
   // every render, including the first, so any value that isn't a real session id settles safely.
   const [slashTabRequestSessionId, setSlashTabRequestSessionId] = useState<string | null>(null);
-  const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
@@ -139,7 +134,6 @@ export function MainLayout({
   // rather than from click handlers is what makes a deep link render content instead of nothing.
   useEffect(() => {
     if (destination === "loops") setLoopCenterVisited(true);
-    if (destination === "plans") setPlanCenterVisited(true);
     if (destination === "work-board") setWorkBoardVisited(true);
     if (destination === "goals") setGoalCenterVisited(true);
     if (destination === "evaluations") setEvaluationCenterVisited(true);
@@ -223,29 +217,15 @@ export function MainLayout({
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
-  const openAssociatedPlan = () => {
-    const run = model.chatConfig.associatedPlanRun;
-    if (!run) return;
-    setPlanInspectionRunId(run.id);
-    goTo({ destination: "plans" });
-  };
   const apiComposer = !loopInspection && usesStructuredChat ? (
     <ApiSessionComposer
       model={model}
       navigation={{
-        // Null (not the callback) is what tells the hook `/plan` has nothing to open — passing a
-        // function unconditionally would leave the command offerable but inert.
-        openAssociatedPlan: model.chatConfig.associatedPlanRun ? openAssociatedPlan : null,
         // No visited-flag bookkeeping here: those are derived from `destination` above, which is
         // what lets a deep link render content. A command is just another way to change it.
-        openDestination: (target) => {
-          // Mirrors the sidebar's Plans handler so `/plans` doesn't leave a stale inspected run id.
-          if (target === "plans") setPlanInspectionRunId(null);
-          goTo({ destination: target });
-        },
+        openDestination: (target) => goTo({ destination: target }),
         openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
       }}
-      onOpenPlan={openAssociatedPlan}
     />
   ) : null;
 
@@ -272,10 +252,6 @@ export function MainLayout({
             onHelp={() => onOpenSettings("help")}
             onOpenSettings={onOpenSettings}
             onLoops={() => goTo({ destination: "loops" })}
-            onPlans={() => {
-              setPlanInspectionRunId(null);
-              goTo({ destination: "plans" });
-            }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onWorkBoard={() => goTo({ destination: "work-board" })}
             onGoals={() => goTo({ destination: "goals" })}
@@ -343,7 +319,12 @@ export function MainLayout({
                   <button
                     aria-label={t("loops.inspection.back")}
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => { setLoopInspection(null); goTo({ destination: "loops" }); }}
+                    onClick={() => {
+                      // Navigate before clearing the inspected loop session so the session-route
+                      // reconciler never observes that hidden role session as a normal deep link.
+                      goTo({ destination: "loops" });
+                      setLoopInspection(null);
+                    }}
                     title={t("loops.inspection.back")}
                     type="button"
                   >
@@ -452,23 +433,6 @@ export function MainLayout({
                 className="h-full min-h-0 flex-1"
                 componentProps={{ onInspect: inspectLoopSession }}
                 loader={loadLoopCenter}
-              />
-            ) : null}
-          </section>
-          <section
-            aria-label={t("layout.activityBar.plans")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "plans" ? "flex" : "hidden")}
-            id="plan-center"
-          >
-            {planCenterVisited ? (
-              <LazyFeature
-                className="h-full min-h-0 flex-1"
-                componentProps={{
-                  onRunAssociated: model.chatConfig.activateAssociatedPlanRun,
-                  originatingSessionId: model.activeSession?.agentId === "onepiece" ? model.activeSession.id : null,
-                  requestedRunId: planInspectionRunId,
-                }}
-                loader={loadPlanCenter}
               />
             ) : null}
           </section>

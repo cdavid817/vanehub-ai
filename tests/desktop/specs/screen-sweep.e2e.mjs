@@ -10,7 +10,7 @@ const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 
 const WORKSPACE_DESTINATIONS = [
-  "sessions", "plans", "loops", "work-board", "goals", "evaluations", "mission-control",
+  "sessions", "loops", "work-board", "goals", "evaluations", "mission-control",
 ];
 // Mirrors `SessionTabId` in src/session-workspace/session-tab-bar.tsx. The tab buttons carry
 // `aria-controls`, which is the one selector on this screen that does not move with the locale.

@@ -28,7 +28,7 @@ function context(overrides: { config?: Partial<ChatConfig>; isStreaming?: boolea
       setStreaming: vi.fn(), setThinking: vi.fn(), setLongContext: vi.fn(),
     },
     actions,
-    navigate: { openAssociatedPlan: null, openDestination: vi.fn(), openSessionTab: vi.fn() },
+    navigate: { openDestination: vi.fn(), openSessionTab: vi.fn() },
     reportFailure,
     listAvailableCommands: () => [],
   } as unknown as CommandContext;
