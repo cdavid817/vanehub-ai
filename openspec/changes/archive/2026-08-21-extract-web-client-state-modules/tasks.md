@@ -33,9 +33,9 @@
 - [x] 3.3 The smaller session-adjacent contexts the session-state module unblocks — memories, session categories, expert roles, known projects, usage statistics, terminals, recovery, workflow, chat configs
   - 22 methods into `web-session-category-client.ts` (66), `web-expert-role-client.ts` (55), `web-known-workspace-client.ts` (134), `web-agent-terminal-client.ts` (129) and `web-usage-statistics-client.ts` (65), over `session-organization-service.ts`, `agent-terminal-service.ts` and `usage-statistics-service.ts`.
   - Memories, recovery, workflow and chat configs are **not** extracted — see 3.9.
-- [ ] 3.4 Chat and messaging, including the cascade method `sendMessage`
-  - **Partially done by the follow-up change `extract-web-client-chat-state` (PR #181), and left unticked deliberately.** The chat context did get its own state module (`web-chat-state.ts`) and its methods moved into `web-chat-client.ts`, but the cascade method this task names explicitly — `sendMessage` — is still in the composition root at 529 lines. Ticking this would claim work that was not done.
-  - `sendMessage` cannot move as a verbatim block: `max-lines` is hard at 300 and the `eslint.config.js` debt list is closed to new entries, so a module holding it needs a forbidden exemption. Making it fit means hoisting roughly 15 interleaved `setTimeout` blocks into scheduling helpers — a rewrite of the one method whose observable contract *is* that ordering and those delays. That belongs in a change shaped like `decompose-api-tool-use-loop` (#179): admission rules, coverage-gap check before cutting, each seam justified individually.
+- [x] 3.4 Chat and messaging, including the cascade method `sendMessage`
+  - Completed by the follow-up change `decompose-web-send-message`. Focused fake-timer coverage locks the synchronous state transition, admission failure, event ordering, completion, and cancellation behavior before and after extraction.
+  - `sendMessage` now belongs to `webChatClient`; its response and API-tool scheduling clusters use one immutable turn context and one shared timeout-id array. `web-agent-client.ts` contains no inline `sendMessage` and is 259 lines, so its technical-debt budget entry was removed rather than widened.
 - [x] 3.5 Session lifecycle, including the cascade methods `createSession`, `deleteSession` and `archiveSession`
   - Completed by the follow-up change `extract-web-client-chat-state` (PR #181), verified on main rather than assumed: `web-session-lifecycle-client.ts` and `session-lifecycle-service.ts` exist, and `grep` for `async createSession|async deleteSession|async archiveSession` in `web-agent-client.ts` returns **zero** matches — all three cascade methods left the composition root.
 - [x] 3.6 Each group: a narrow interface whose signatures **move** out of `agent-service.ts`, methods moved verbatim, a single spread in the composition root, and `this: AgentService` on any method that uses `this`
@@ -80,5 +80,5 @@ Each needs its own state module first, exactly as the session and skills sides d
 - [x] 5.2 Set the final `web-agent-client.ts` and `agent-service.ts` budgets to the measured values, or remove the `web-agent-client.ts` entry if the file reached 300 lines
   - Set to 1,877 and 364. Both entries stay: 39 methods are still inline.
 - [x] 5.3 `npm run lint:ci`, `npm run build` and `npm run architecture:check` pass
-- [x] 5.4 `npx playwright test` passes, since the Web/mock adapter backs the browser-mode UI these specs drive
+- [x] 5.4 `CI=1 npm run test:desktop:smoke` passes through WebdriverIO, exercising real Tauri startup, IPC, and navigation
 - [x] 5.5 `openspec validate extract-web-client-state-modules --strict` and `openspec validate --specs --strict` pass
