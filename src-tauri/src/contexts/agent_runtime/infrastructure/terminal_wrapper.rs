@@ -185,7 +185,17 @@ fn cmd_wrapper_body(
     } else {
         format!(" {}", args.join(" "))
     };
-    lines.push(format!("{}{}", cmd_quote(executable), suffix));
+    let extension = Path::new(executable)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let batch_prefix =
+        if extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat") {
+            "call "
+        } else {
+            ""
+        };
+    lines.push(format!("{batch_prefix}{}{}", cmd_quote(executable), suffix));
     lines.push("exit /b %ERRORLEVEL%".to_string());
     format!("{}\r\n", lines.join("\r\n"))
 }
@@ -364,6 +374,18 @@ mod tests {
         );
         assert!(body.contains("\"C:\\Program Files\\Agent CLI\\agent.exe\""));
         assert!(body.contains("\"literal & $(value) \"\"quoted\"\" %%PATH%%\""));
+    }
+
+    #[test]
+    fn cmd_wrapper_calls_batch_executables_without_transferring_control() {
+        let (_directory, mut request) = request(AgentTerminalShell::WindowsCmd);
+        request.executable = r"C:\Program Files\Agent CLI\agent.cmd".to_string();
+
+        let spec = generate_agent_terminal_wrapper(&request).expect("wrapper");
+        let body = fs::read_to_string(&spec.wrapper_path).expect("body");
+
+        assert!(body.contains(r#"call "C:\Program Files\Agent CLI\agent.cmd""#));
+        assert!(body.contains("exit /b %ERRORLEVEL%"));
     }
 
     #[test]
