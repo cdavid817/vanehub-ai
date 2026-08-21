@@ -9,8 +9,17 @@ const webEvaluationTasks: EvaluationTask[] = [
 ];
 let webEvaluationArenas: EvaluationArena[] = [];
 
+// Mirrors the native diagnostic an attempt carries when its Agent could not be dispatched
+// (evaluation_api.rs `DISPATCH_CHECK_ID`), including the exact-match safe reason. The mock has no
+// Agent to fail, so it exercises the shape rather than the failure: a browser session that never
+// renders this branch is how the desktop detail pane and the mock drift apart.
+const WEB_DISPATCH_DIAGNOSTIC = { checkId: "agent-dispatch", passed: false, summary: "evaluation Agent is not installed and available" };
+
 function webEvaluationAttempt(arenaId: string, task: EvaluationTask, agentId: string, index: number) {
   const succeeded = index === 0;
+  // The third Agent onwards never gets dispatched, so an arena wide enough to include one shows
+  // the failure the desktop client shows: a verdict, a reason, and no metrics to read.
+  if (index >= 2) return webDispatchFailedAttempt(arenaId, task, agentId, index);
   return {
     id: `${arenaId}-attempt-${index + 1}`, arenaId, canonicalRunId: `${arenaId}-run-${index + 1}`,
     taskId: task.id, taskVersion: task.version,
@@ -18,7 +27,10 @@ function webEvaluationAttempt(arenaId: string, task: EvaluationTask, agentId: st
     outcome: succeeded ? "succeeded" as const : "task_failed" as const,
     checks: [{ checkId: "deterministic-tests", passed: succeeded, summary: succeeded ? "42/42" : "41/42" }],
     metrics: [
-      { name: "wall_time", value: 12 + index, unit: "seconds", quality: "reported" as const, source: "runtime" },
+      // `duration` in milliseconds, matching what the native engine emits
+      // (evaluation_engine.rs:88). The mock used to call it `wall_time` in seconds, which the
+      // results table -- which looks the metric up by name -- rendered as an empty cell forever.
+      { name: "duration", value: 12_000 + index * 1_000, unit: "ms", quality: "reported" as const, source: "runtime" },
       { name: "tool_calls", value: 5 + index, unit: "count", quality: "reported" as const, source: "runtime" },
       { name: "input_tokens", value: index === 0 ? 820 : null, unit: "tokens", quality: index === 0 ? "reported" as const : "unavailable" as const, source: "provider" },
     ],
@@ -31,13 +43,32 @@ function webEvaluationAttempt(arenaId: string, task: EvaluationTask, agentId: st
   };
 }
 
+// Deliberately empty metrics: the native engine records none for an outcome that never reached
+// verification (`aggregate_error`), and a mock that invented a duration here would teach the table
+// to display something the desktop client never produces.
+function webDispatchFailedAttempt(arenaId: string, task: EvaluationTask, agentId: string, index: number) {
+  return {
+    id: `${arenaId}-attempt-${index + 1}`, arenaId, canonicalRunId: `${arenaId}-run-${index + 1}`,
+    taskId: task.id, taskVersion: task.version,
+    agent: { agentId, providerId: "managed-cli", modelId: null, interactionMode: "cli", configurationFingerprint: `mock-${agentId}-v1` },
+    outcome: "agent_failed" as const,
+    checks: [{ ...WEB_DISPATCH_DIAGNOSTIC }],
+    metrics: [],
+    contextEvidenceManifestId: null, artifactIds: [],
+    timeline: [
+      { id: "prepare", kind: "lifecycle" as const, label: "Clean fixture prepared", status: "completed" },
+      { id: "dispatch", kind: "lifecycle" as const, label: "Canonical evaluation attempt", status: "agent_failed" },
+    ],
+  };
+}
+
 export const webEvaluationClient: EvaluationService = {
   async listEvaluationTasks() { return structuredClone(webEvaluationTasks); },
   async startEvaluation(input) {
     const task = webEvaluationTasks.find((item) => item.id === input.taskId && item.version === input.taskVersion);
     if (!task || input.agentIds.length === 0 || input.agentIds.length > 8) throw new Error("Invalid evaluation configuration");
     const id = `web-eval-${webEvaluationArenas.length + 1}`;
-    const arena: EvaluationArena = { id, operationId: `${id}-operation`, taskId: task.id, taskVersion: task.version, rankingVersion: "deterministic-v1", attempts: input.agentIds.map((agentId, index) => webEvaluationAttempt(id, task, agentId, index)) };
+    const arena: EvaluationArena = { id, operationId: `${id}-operation`, taskId: task.id, taskVersion: task.version, rankingVersion: "deterministic-v2", attempts: input.agentIds.map((agentId, index) => webEvaluationAttempt(id, task, agentId, index)) };
     webEvaluationArenas = [arena, ...webEvaluationArenas]; return structuredClone(arena);
   },
   async listEvaluationArenas() { return structuredClone(webEvaluationArenas); },

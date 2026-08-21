@@ -11,17 +11,19 @@ async function attempt(command, args) {
 }
 
 const stamp = Date.now().toString(36);
+const TERMINAL = new Set(["succeeded", "task_failed", "agent_failed", "timed_out", "stuck", "cancelled", "benchmark_error"]);
 
 /**
  * Agent evaluation -- running several Agents head to head on one task and ranking the results.
  *
- * The catalogue and the guards are covered end to end here. Actually starting an arena is not:
- * `start_evaluation` (evaluation_api.rs:78-110) creates one agent run per Agent and drives each
- * through the real provider, so a single arena is several billed generations plus however long
- * the task's own timeout allows. What that would prove beyond the guards below is the ranking
- * itself, which has its own Rust coverage; what has no coverage anywhere is that the catalogue
- * crosses IPC intact and that the entry points refuse a malformed arena rather than half-starting
- * one.
+ * The catalogue, the guards and one full arena lifecycle are covered end to end here.
+ *
+ * The lifecycle case is affordable because a host without a provider credential settles every
+ * attempt as `agent_failed` in seconds -- no generation is billed, and the start, the background
+ * worker, the persistence, the read-side ranking, the export and the cancel guard are all real.
+ * What is still out of reach is a *passing* attempt, which needs a live provider; the ordering of a
+ * pass above a failure is covered in Rust instead (evaluation_api.rs
+ * `ranking_beats_repository_id_order`).
  */
 globalThis.describe("VaneHub AI desktop Agent evaluation domain", () => {
   globalThis.before(async () => {
@@ -127,6 +129,79 @@ globalThis.describe("VaneHub AI desktop Agent evaluation domain", () => {
       input: { taskId: task.id, taskVersion: task.version, agentIds: [`no-such-agent-${stamp}`] },
     });
     assert.equal(refused.ok, false, "an arena naming an unregistered Agent was started");
+  });
+
+  /**
+   * The whole arena lifecycle, end to end, on a host with no provider credential.
+   *
+   * Every attempt settles as `agent_failed` within seconds there, which is what makes this
+   * affordable: no generation is billed and nothing depends on a model's output, yet the start,
+   * the background worker, the per-attempt persistence, the read-side ranking, the export and the
+   * cancel guard are all real. What it deliberately does not cover is a *passing* attempt -- that
+   * needs a live provider, and the ordering of a pass above a failure is covered in Rust
+   * (evaluation_api.rs `ranking_beats_repository_id_order`).
+   */
+  globalThis.it("runs an arena through to a terminal verdict and reads it back consistently", async function lifecycle() {
+    const tasks = await invoke(({ core }) => core.invoke("list_evaluation_tasks"));
+    const task = tasks[0];
+    const agents = await invoke(({ core }) => core.invoke("list_agents", { capabilityTag: null }));
+    const agentIds = agents.slice(0, 2).map((agent) => agent.id);
+    if (!task || agentIds.length < 2) {
+      blocked.push("evaluation lifecycle: fewer than two registered Agents to put in an arena");
+      this.skip();
+    }
+
+    const arena = await invoke(({ core }, input) => core.invoke("start_evaluation", { input }), {
+      taskId: task.id, taskVersion: task.version, agentIds,
+    });
+    assert.equal(arena.attempts.length, agentIds.length, "the arena did not create one attempt per Agent");
+    assert.equal(arena.rankingVersion, "deterministic-v2", "the arena reported no ranking version");
+    for (const attempt of arena.attempts) {
+      assert.ok(attempt.canonicalRunId, `${attempt.id} was not linked to a canonical run`);
+      assert.ok(Array.isArray(attempt.timeline) && attempt.timeline.length > 0, `${attempt.id} carried no timeline`);
+    }
+
+    // evaluation_api.rs:157 runs the attempts on a background thread, so `start_evaluation` answers
+    // while every attempt is still queued. An arena that never leaves `queued` is the failure this
+    // waits for: the client polls a non-terminal arena forever.
+    const settled = await globalThis.browser.waitUntil(async () => {
+      const current = await invoke(({ core }, arenaId) => core.invoke("get_evaluation_arena", { arenaId }), arena.id);
+      return current.attempts.every((attempt) => TERMINAL.has(attempt.outcome)) ? current : false;
+    }, { timeout: 240_000, timeoutMsg: "an evaluation attempt never reached a terminal outcome" });
+
+    // A failure that records nothing is a failure nobody can act on: an attempt whose Agent could
+    // not be dispatched carries the reason as a failed `agent-dispatch` check
+    // (evaluation_api.rs `DISPATCH_CHECK_ID`), redacted to an exact safe reason.
+    for (const attempt of settled.attempts.filter((item) => item.outcome === "agent_failed")) {
+      const diagnostic = attempt.checks.find((check) => check.checkId === "agent-dispatch");
+      assert.ok(diagnostic, `${attempt.agent.agentId} failed to dispatch without recording why`);
+      assert.equal(diagnostic.passed, false, "the dispatch diagnostic was recorded as passing");
+      assert.ok(diagnostic.summary.length > 0, "the dispatch diagnostic carried no reason");
+    }
+
+    const ids = settled.attempts.map((attempt) => attempt.id);
+    const listed = await invoke(({ core }) => core.invoke("list_evaluation_arenas"));
+    const fromList = listed.find((item) => item.id === arena.id);
+    assert.ok(fromList, "the settled arena was missing from the arena list");
+    assert.deepEqual(fromList.attempts.map((attempt) => attempt.id), ids, "list and get disagree about attempt order");
+
+    const exported = await invoke(({ core }, arenaId) => core.invoke("export_evaluation", { arenaId }), arena.id);
+    assert.equal(exported.schemaVersion, 1, "the export carried no schema version");
+    assert.deepEqual(exported.arena.attempts.map((attempt) => attempt.id), ids, "the export reordered the attempts");
+
+    for (const attempt of settled.attempts) {
+      const fetched = await invoke(({ core }, attemptId) => core.invoke("get_evaluation_attempt", { attemptId }), attempt.id);
+      assert.equal(fetched.outcome, attempt.outcome, `${attempt.id} reported a different outcome when fetched alone`);
+    }
+
+    // evaluation_api.rs `cancel` must not rewrite a verdict an attempt already earned; an attempt
+    // reported as cancelled loses the one fact that explained why it failed.
+    const cancelled = await invoke(({ core }, arenaId) => core.invoke("cancel_evaluation", { arenaId }), arena.id);
+    assert.deepEqual(
+      cancelled.attempts.map((attempt) => attempt.outcome),
+      settled.attempts.map((attempt) => attempt.outcome),
+      "cancelling a settled arena overwrote the outcomes its attempts had already earned",
+    );
   });
 
   globalThis.after(async () => {

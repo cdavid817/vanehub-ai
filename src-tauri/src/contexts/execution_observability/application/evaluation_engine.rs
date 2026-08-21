@@ -131,8 +131,8 @@ pub(crate) fn compare_aggregates(
     left: &EvaluationAggregate,
     right: &EvaluationAggregate,
 ) -> Ordering {
-    success_rank(&right.outcome)
-        .cmp(&success_rank(&left.outcome))
+    outcome_tier(&right.outcome)
+        .cmp(&outcome_tier(&left.outcome))
         .then_with(|| failed_checks(left).cmp(&failed_checks(right)))
         .then_with(|| comparable_metric(left, right, "interventions"))
         .then_with(|| comparable_metric(left, right, "tool_calls"))
@@ -222,10 +222,31 @@ fn context_metric(manifest_id: Option<&str>) -> EvaluationMetric {
     )
 }
 
-fn success_rank(outcome: &EvaluationOutcome) -> u8 {
-    u8::from(matches!(outcome, EvaluationOutcome::Succeeded))
+/// Higher is better. Three tiers, compared before any evidence count is.
+///
+/// The tier exists because `failed_checks` counts a list that is empty for every non-completion
+/// outcome (`aggregate_error` records no checks): an Agent that crashed before writing a line has
+/// zero failed checks, and under a count alone it outranked an Agent that produced a patch failing
+/// one test. Absent evidence must never read as evidence of doing well.
+fn outcome_tier(outcome: &EvaluationOutcome) -> u8 {
+    match outcome {
+        EvaluationOutcome::Succeeded => 2,
+        // The Agent produced work and the deterministic verifiers judged it.
+        EvaluationOutcome::TaskFailed => 1,
+        // Nothing was judged: queued, running, or ended before verification could say anything.
+        _ => 0,
+    }
 }
+/// Failing acceptance checks, counted only where acceptance actually ran.
+///
+/// A non-completion outcome has no verification evidence by definition, but it may carry a
+/// diagnostic check explaining why dispatch failed. Counting that as a failed acceptance result
+/// would rank an attempt that recorded a reason *below* one that recorded nothing at all -- the
+/// same "absence beats evidence" inversion `outcome_tier` exists to prevent, one tier down.
 fn failed_checks(result: &EvaluationAggregate) -> usize {
+    if outcome_tier(&result.outcome) == 0 {
+        return 0;
+    }
     result.checks.iter().filter(|check| !check.passed).count()
 }
 fn comparable_metric(

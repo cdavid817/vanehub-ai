@@ -27,6 +27,14 @@ fn evidence() -> AgentExecutionEvidence {
     }
 }
 
+fn timed_out_evidence() -> AgentExecutionEvidence {
+    AgentExecutionEvidence {
+        completed: false,
+        timed_out: true,
+        ..evidence()
+    }
+}
+
 #[test]
 fn deterministic_failure_and_missing_values_are_preserved() {
     let result = aggregate_evaluation(Ok(evidence()), vec![Ok(check(false))], None);
@@ -86,6 +94,78 @@ fn flaky_and_ranking_precedence_are_deterministic() {
             &aggregate_evaluation(Ok(intervened), vec![], None)
         ),
         Ordering::Less
+    );
+}
+
+/// An empty check list is absence of evidence, not evidence of zero failures. Before the outcome
+/// tier existed, `failed_checks` compared 0 against 1 and ranked an Agent that crashed before
+/// writing a line ahead of one that produced a patch failing a single test.
+#[test]
+fn recorded_failure_outranks_an_outcome_that_recorded_nothing() {
+    let task_failed = aggregate_evaluation(
+        Ok(evidence()),
+        vec![Ok(check(false)), Ok(check(false))],
+        None,
+    );
+    let succeeded = aggregate_evaluation(Ok(evidence()), vec![Ok(check(true))], None);
+    for empty in [
+        aggregate_evaluation(Err("dispatch".into()), vec![], None),
+        aggregate_evaluation(Ok(timed_out_evidence()), vec![], None),
+    ] {
+        assert!(empty.checks.is_empty(), "the fixture recorded checks");
+        assert_eq!(
+            compare_aggregates(&task_failed, &empty),
+            Ordering::Less,
+            "a task failure with recorded checks must rank ahead of {:?}",
+            empty.outcome,
+        );
+        assert_eq!(compare_aggregates(&succeeded, &empty), Ordering::Less);
+    }
+    assert_eq!(compare_aggregates(&succeeded, &task_failed), Ordering::Less);
+}
+
+/// Recording why dispatch failed must not cost the attempt its place. `EvaluationApi::execute`
+/// appends a failed `agent-dispatch` check to an `agent_failed` attempt; if that counted as a
+/// failed acceptance result it would sort below a timeout that recorded nothing.
+#[test]
+fn a_dispatch_diagnostic_does_not_rank_below_a_failure_that_recorded_nothing() {
+    let mut diagnosed = aggregate_evaluation(Err("no configured model".into()), vec![], None);
+    diagnosed.checks.push(EvaluationCheck {
+        check_id: "agent-dispatch".into(),
+        passed: false,
+        summary: "API agent is missing a configured model".into(),
+    });
+    let silent = aggregate_evaluation(Ok(timed_out_evidence()), vec![], None);
+    assert!(silent.checks.is_empty());
+    assert_eq!(compare_aggregates(&diagnosed, &silent), Ordering::Equal);
+
+    // And it still ranks behind an attempt whose work was actually verified.
+    let task_failed = aggregate_evaluation(Ok(evidence()), vec![Ok(check(false))], None);
+    assert_eq!(compare_aggregates(&task_failed, &diagnosed), Ordering::Less);
+}
+
+/// Within one tier the existing metric keys still decide, so the tier cannot flatten the ordering
+/// it sits in front of.
+#[test]
+fn ordering_inside_the_non_completion_tier_still_falls_through_to_metrics() {
+    let mut intervened = timed_out_evidence();
+    intervened.interventions = 1;
+    let autonomous = timed_out_evidence();
+    let left = aggregate_evaluation(Ok(autonomous), vec![], None);
+    let right = aggregate_evaluation(Ok(intervened), vec![], None);
+    assert_eq!(left.outcome, right.outcome);
+    // `aggregate_error` records no metrics either, so two non-completion outcomes are
+    // indistinguishable here -- which is the honest answer, not a hidden ordering.
+    assert_eq!(compare_aggregates(&left, &right), Ordering::Equal);
+
+    let mut busy = evidence();
+    busy.tool_calls = 50;
+    assert_eq!(
+        compare_aggregates(
+            &aggregate_evaluation(Ok(busy), vec![Ok(check(false))], None),
+            &aggregate_evaluation(Ok(evidence()), vec![Ok(check(false))], None),
+        ),
+        Ordering::Greater,
     );
 }
 

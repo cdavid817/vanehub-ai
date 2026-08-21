@@ -54,6 +54,28 @@ describe("EvaluationCenter", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("无法加载评测数据。");
   });
 
+  // The detail pane used to hold the attempt object captured at click time. Polling replaced the
+  // arena around it, so the pane kept reporting `queued` -- and kept offering Cancel -- next to a
+  // row that had already settled.
+  it("follows the polled arena instead of the attempt captured when the row was clicked", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
+    render(<EvaluationCenter />);
+    const run = await screen.findByRole("button", { name: "运行竞技场" });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(run);
+    await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
+    expect(screen.getByTestId("evaluation-cancel")).toBeTruthy();
+
+    list.mockResolvedValue([arena("cancelled")]);
+    await waitFor(
+      () => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("cancelled"),
+      { timeout: 4_000 },
+    );
+    expect(screen.queryByTestId("evaluation-cancel")).toBeNull();
+  });
+
   it("provides every evaluation label in all registered locales", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
       for (const key of ["agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError"]) {
@@ -64,5 +86,5 @@ describe("EvaluationCenter", () => {
 });
 
 function arena(outcome: "queued" | "cancelled"): EvaluationArena {
-  return { id: "arena-cancel", operationId: "operation-cancel", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v1", attempts: [{ id: "attempt-cancel", arenaId: "arena-cancel", canonicalRunId: "run-cancel", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome, checks: [], metrics: [{ name: "input_tokens", value: null, unit: "tokens", quality: "unavailable", source: "provider" }], contextEvidenceManifestId: null, artifactIds: [], timeline: [] }] };
+  return { id: "arena-cancel", operationId: "operation-cancel", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-cancel", arenaId: "arena-cancel", canonicalRunId: "run-cancel", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome, checks: [], metrics: [{ name: "input_tokens", value: null, unit: "tokens", quality: "unavailable", source: "provider" }], contextEvidenceManifestId: null, artifactIds: [], timeline: [] }] };
 }
