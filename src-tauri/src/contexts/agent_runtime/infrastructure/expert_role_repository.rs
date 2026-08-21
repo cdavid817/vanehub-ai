@@ -4,6 +4,7 @@ use crate::contexts::agent_runtime::domain::{
 };
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, Row};
+use std::sync::Arc;
 
 /// SQLite-backed store for reusable expert roles. Roles outlive any single session, so they are
 /// persisted rather than derived from a session's seats.
@@ -121,6 +122,50 @@ fn app_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Registry(error.to_string())
 }
 
+/// A role list that includes the built-ins, which live in the binary rather than in SQLite.
+///
+/// `ExpertRoleApplicationService` merges them for everything that goes through it, so
+/// `list_expert_roles` reports architect, implementer and reviewer. The seat roster reads the
+/// `ExpertRolePort` directly, and the repository alone knows only what the database holds --
+/// nothing. A seat assigned a built-in role therefore resolved to no role at all, and the roster
+/// fell back to naming the seat after its Agent. That made the handle `OnePiece` instead of
+/// `架构师`, so an `@架构师` in a reply addressed nobody, the round ended `NobodyMentioned`, and
+/// group chat quietly did not relay for exactly the roles the product ships.
+///
+/// Composed here rather than merged inside the roster so the port keeps meaning "every role there
+/// is", which is what its one caller assumes.
+pub(crate) struct BuiltinAwareExpertRoleRepository {
+    inner: Arc<dyn ExpertRolePort>,
+    builtins: Vec<ExpertRole>,
+}
+
+impl BuiltinAwareExpertRoleRepository {
+    pub(crate) fn new(inner: Arc<dyn ExpertRolePort>, builtins: Vec<ExpertRole>) -> Self {
+        Self { inner, builtins }
+    }
+}
+
+impl ExpertRolePort for BuiltinAwareExpertRoleRepository {
+    /// Built-ins first, then stored roles -- the same order
+    /// `ExpertRoleApplicationService::list` uses, so the two views cannot disagree about
+    /// precedence.
+    fn list(&self) -> Result<Vec<ExpertRole>, AgentRuntimeApplicationError> {
+        let mut roles = self.builtins.clone();
+        roles.extend(self.inner.list()?);
+        Ok(roles)
+    }
+
+    /// Writes belong to the database. A built-in is not editable, and the service that owns that
+    /// rule rejects the attempt before it reaches any port.
+    fn upsert(&self, role: &ExpertRole) -> Result<(), AgentRuntimeApplicationError> {
+        self.inner.upsert(role)
+    }
+
+    fn delete(&self, role_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.inner.delete(role_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +216,42 @@ mod tests {
 
         repository.delete("r1").expect("delete");
         assert!(repository.list().expect("list after delete").is_empty());
+    }
+
+    /// The seat roster resolves a seat's role through this port, so a port that cannot see the
+    /// built-ins reports "no role" for the three roles the product ships. The roster then names the
+    /// seat after its Agent, and `@架构师` addresses nobody -- which is how multi-Agent handoff
+    /// silently stopped relaying.
+    #[test]
+    fn the_builtin_aware_port_lists_builtins_alongside_stored_roles() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
+        let stored = Arc::new(SqliteExpertRoleRepository::new(database));
+        stored.upsert(&role("r1", "自定义角色")).expect("insert");
+
+        let builtins = crate::contexts::agent_runtime::infrastructure::builtin_expert_roles();
+        assert!(
+            !builtins.is_empty(),
+            "the product ships built-in expert roles"
+        );
+        let port = BuiltinAwareExpertRoleRepository::new(stored.clone(), builtins.clone());
+
+        let listed = port.list().expect("list");
+        for builtin in &builtins {
+            assert!(
+                listed.iter().any(|role| role.id == builtin.id),
+                "built-in {} is not visible to the seat roster",
+                builtin.id,
+            );
+        }
+        assert!(
+            listed.iter().any(|role| role.id == "r1"),
+            "a stored role stopped being listed once built-ins were merged",
+        );
+        assert_eq!(listed.len(), builtins.len() + 1);
+
+        // Writes still belong to the database, and merging must not have made them disappear.
+        port.delete("r1").expect("delete");
+        assert!(stored.list().expect("stored").is_empty());
     }
 }

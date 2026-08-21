@@ -166,6 +166,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let shared_agent_registry = super::assemble_shared_agent_registry(
         database.clone(),
         sdk_api.clone(),
+        cli_api.clone(),
         fallback_log_directory.clone(),
     );
     let extension_api = super::assemble_extension_api(

@@ -142,6 +142,39 @@ pub(crate) struct AgentSessionSeat {
     /// `None` for a plain single-Agent session, which has no role assigned.
     pub(crate) role_id: Option<String>,
     pub(crate) left_at: Option<String>,
+    /// The provider thread this seat's own Agent reported. `None` until it has spoken.
+    pub(crate) provider_thread_id: Option<String>,
+}
+
+/// The provider thread a seat should resume, or `None` to start a new one.
+///
+/// Seats gained their own thread id after sessions already had one, so the first seat also answers
+/// to the session's `runtime_session_id`. That is where every pre-existing session's thread lives,
+/// and the first seat is the only seat that can own it: a session's `agent_id` mirrors its first
+/// seat, so the thread stored there was created by that seat's Agent and no other.
+///
+/// No backfill migration copies it onto the seat. There is nothing to gain by rewriting rows that
+/// already answer correctly -- the fallback reads them where they are, and a seat that speaks once
+/// records its own id and stops consulting the session.
+///
+/// Every other seat gets `None` when it has no thread of its own, which is the whole fix: a seat
+/// that has not spoken starts a new thread instead of resuming one its Agent never created.
+pub(crate) fn resume_thread_for<'a>(
+    seats: &'a [AgentSessionSeat],
+    seat_id: &str,
+    session_runtime_session_id: Option<&'a str>,
+) -> Option<&'a str> {
+    let (index, seat) = seats
+        .iter()
+        .enumerate()
+        .find(|(_, seat)| seat.seat_id == seat_id)?;
+    if let Some(thread) = seat.provider_thread_id.as_deref() {
+        return Some(thread);
+    }
+    if index == 0 {
+        return session_runtime_session_id.filter(|value| !value.trim().is_empty());
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -768,6 +801,13 @@ pub(crate) struct GenerationProcessRequest {
     pub(crate) interactive: bool,
     pub(crate) runner: super::RunnerSelection,
     pub(crate) endpoint_profile: Option<FrozenEndpointProfile>,
+    /// The provider thread this turn resumes, already resolved for the seat that is speaking.
+    ///
+    /// Resolved by the caller rather than read from `session.runtime_session_id` here, because
+    /// that field answers for the session and a provider thread belongs to one Agent. Taking it
+    /// straight off the session is what sent a second seat's turn to resume a thread its own CLI
+    /// had never issued.
+    pub(crate) resume_thread_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1751,4 +1791,93 @@ pub(crate) fn format_memory_bodies(
     Some(format!(
         "## Relevant memories\n{MEMORY_BLOCK_PREAMBLE}\n<memory>\n{entries}\n</memory>"
     ))
+}
+
+#[cfg(test)]
+mod seat_thread_tests {
+    use super::*;
+
+    fn seat(index: usize, agent_id: &str, thread: Option<&str>) -> AgentSessionSeat {
+        AgentSessionSeat {
+            seat_id: format!("seat-{index}"),
+            agent_id: agent_id.to_string(),
+            role_id: None,
+            left_at: None,
+            provider_thread_id: thread.map(str::to_string),
+        }
+    }
+
+    /// The case the whole change exists for. A seat that has never spoken must not inherit the
+    /// thread of whichever Agent happened to speak first: resuming it produced
+    /// `no rollout found for thread id ... (code -32600)` and a failed, wordless turn, which is
+    /// what stopped multi-Agent handoff working across two different CLIs.
+    #[test]
+    fn a_later_seat_with_no_thread_of_its_own_resumes_nothing() {
+        let seats = vec![
+            seat(0, "claude-code", Some("claude-thread")),
+            seat(1, "codex-cli", None),
+        ];
+        assert_eq!(
+            resume_thread_for(&seats, "seat-1", Some("claude-thread")),
+            None,
+        );
+    }
+
+    #[test]
+    fn a_seat_resumes_its_own_thread() {
+        let seats = vec![
+            seat(0, "claude-code", Some("claude-thread")),
+            seat(1, "codex-cli", Some("codex-thread")),
+        ];
+        assert_eq!(
+            resume_thread_for(&seats, "seat-1", Some("claude-thread")),
+            Some("codex-thread"),
+        );
+    }
+
+    /// Every session that existed before seats carried threads keeps its id on the session. The
+    /// first seat must go on resuming it, or this change would silently restart every open
+    /// conversation on the next turn.
+    #[test]
+    fn the_first_seat_falls_back_to_the_sessions_stored_thread() {
+        let seats = vec![seat(0, "claude-code", None)];
+        assert_eq!(
+            resume_thread_for(&seats, "seat-0", Some("legacy-thread")),
+            Some("legacy-thread"),
+        );
+    }
+
+    /// A seat's own id wins, so a seat that has spoken since stops consulting the session and
+    /// cannot be dragged back onto a stale thread.
+    #[test]
+    fn a_first_seat_with_its_own_thread_ignores_the_session() {
+        let seats = vec![seat(0, "claude-code", Some("current"))];
+        assert_eq!(
+            resume_thread_for(&seats, "seat-0", Some("stale")),
+            Some("current"),
+        );
+    }
+
+    #[test]
+    fn resumes_nothing_for_a_session_that_never_captured_a_thread() {
+        let seats = vec![seat(0, "claude-code", None)];
+        for stored in [None, Some(""), Some("   ")] {
+            assert_eq!(
+                resume_thread_for(&seats, "seat-0", stored),
+                None,
+                "failed for {stored:?}",
+            );
+        }
+    }
+
+    /// A seat id absent from the list is a caller bug, and inventing a thread for it would resume
+    /// some other seat's conversation.
+    #[test]
+    fn resumes_nothing_for_an_unknown_seat() {
+        let seats = vec![seat(0, "claude-code", Some("claude-thread"))];
+        assert_eq!(
+            resume_thread_for(&seats, "seat-9", Some("claude-thread")),
+            None,
+        );
+    }
 }

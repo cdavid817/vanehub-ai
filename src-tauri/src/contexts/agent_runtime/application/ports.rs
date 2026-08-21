@@ -291,8 +291,13 @@ pub(crate) trait AgentRegistryRepository: Send + Sync {
 }
 
 pub(crate) trait AgentAvailabilityGateway: Send + Sync {
+    /// `agent_id` is what lets the executable be resolved the way the launch path resolves it,
+    /// rather than by asking `which` for the bare name. The two answers differ for any Agent
+    /// installed outside the desktop process's `PATH` -- which includes ones VaneHub installed
+    /// itself, since the vendor installers write to their own directories.
     fn assess(
         &self,
+        agent_id: &str,
         managed_sdk_dependency_id: Option<&str>,
         executable_name: Option<&str>,
     ) -> Result<AvailabilityAssessment, AgentRuntimeApplicationError>;
@@ -419,6 +424,38 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         &self,
         session_id: &str,
         runtime_session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Records the provider thread a seat's Agent reported for its own turn.
+    ///
+    /// Separate from `update_runtime_session_id` because that one is keyed by session, and a
+    /// provider thread is owned by exactly one Agent. Writing a second seat's thread into the
+    /// session's slot is what made every later seat resume a thread its CLI had never issued.
+    fn update_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+        provider_thread_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Forgets a stored provider thread so the next turn starts a new one.
+    ///
+    /// A thread can stop existing on the provider's side -- its storage cleared, or the rollout
+    /// expired -- and a stored id then refers to nothing. Every later turn resumes it, is rejected
+    /// before producing a word, and fails identically: the seat is broken permanently and says
+    /// nothing about why. Forgetting the id costs the CLI's own cached context, which is a state
+    /// the runtime already supports (`seat_turn.rs` supplies prior conversation to a seat that
+    /// cannot resume), and is cheap next to staying stuck.
+    fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// The same, for a session whose thread is not owned by a seat.
+    fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError>;
 }
 

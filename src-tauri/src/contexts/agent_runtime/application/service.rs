@@ -2776,6 +2776,18 @@ impl AgentRuntimeApplicationService {
             "start_agent_span",
             self.ports.telemetry.start_span(&agent_span),
         );
+        // A seat resumes only its own Agent's thread. Without seat ownership this is a plain
+        // single-Agent turn, whose thread is the session's and must keep resuming exactly as it
+        // did before seats carried threads of their own.
+        let resume_thread_id = match seat_ownership.as_ref() {
+            Some(ownership) => super::resume_thread_for(
+                &session.seats,
+                &ownership.seat_id,
+                session.runtime_session_id.as_deref(),
+            )
+            .map(str::to_string),
+            None => session.runtime_session_id.clone(),
+        };
         let started = match self
             .ports
             .processes
@@ -2795,6 +2807,7 @@ impl AgentRuntimeApplicationService {
                 interactive,
                 runner,
                 endpoint_profile,
+                resume_thread_id: resume_thread_id.clone(),
             }) {
             Ok(started) => started,
             Err(error) => {
@@ -2942,6 +2955,7 @@ impl AgentRuntimeApplicationService {
                 folder: session.folder.clone(),
                 user_prompt: prompt.clone(),
                 originated_from_im,
+                resumed_thread_id: resume_thread_id,
             },
         ));
         if let Err(error) = self
@@ -3343,6 +3357,7 @@ struct GenerationEventHandler {
     folder: Option<String>,
     user_prompt: String,
     originated_from_im: bool,
+    resumed_thread_id: Option<String>,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -3364,6 +3379,9 @@ struct GenerationEventHandlerInput {
     folder: Option<String>,
     user_prompt: String,
     originated_from_im: bool,
+    /// The provider thread this turn asked to resume, if any. Kept so a turn that fails without
+    /// producing a word can forget an id that no longer refers to anything.
+    resumed_thread_id: Option<String>,
 }
 
 // Streaming deltas are persisted for crash/live-reload durability only — the terminal
@@ -3445,6 +3463,7 @@ impl GenerationEventHandler {
             folder: input.folder,
             user_prompt: input.user_prompt,
             originated_from_im: input.originated_from_im,
+            resumed_thread_id: input.resumed_thread_id,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -3973,6 +3992,71 @@ impl GenerationEventHandler {
         result
     }
 
+    /// Forgets a resumed provider thread after a turn that used it failed without saying anything.
+    ///
+    /// A thread can stop existing on the provider's side, and a stored id then refers to nothing.
+    /// Every later turn resumes it, is rejected before producing a word, and fails identically --
+    /// the seat is broken permanently and explains nothing. Forgetting the id makes the next turn
+    /// start a new thread, so one bad turn stays one bad turn.
+    ///
+    /// Judged by behaviour rather than by matching the provider's wording, which differs per CLI
+    /// (`no rollout found for thread id …` is codex's) and would be a list to maintain forever.
+    /// The cost of being wrong is bounded and already a supported state: a seat that cannot resume
+    /// is given the preceding conversation instead (`seat_turn.rs`), so what is lost is the CLI's
+    /// own cached context and not the thread the user can see.
+    ///
+    /// Silence is the discriminating signal. A turn that produced any output resumed successfully,
+    /// whatever went wrong afterwards, so its thread is real and is left alone.
+    fn forget_unusable_resumed_thread(&self) {
+        if self.resumed_thread_id.is_none() {
+            return;
+        }
+        let said_nothing = self
+            .state()
+            .map(|state| state.response.trim().is_empty())
+            .unwrap_or(false);
+        if !said_nothing {
+            return;
+        }
+        let cleared = match self.seat_ownership.as_ref() {
+            Some(ownership) => {
+                let seat = self
+                    .ports
+                    .sessions
+                    .clear_seat_provider_thread_id(&self.session_id, &ownership.seat_id);
+                // The first seat also answers to the session's own id, which is where a session
+                // predating seat-owned threads keeps looking. Clearing one and not the other would
+                // leave the dead id reachable.
+                if ownership.seat_index == 0 {
+                    seat.and_then(|()| {
+                        self.ports
+                            .sessions
+                            .clear_runtime_session_id(&self.session_id)
+                    })
+                } else {
+                    seat
+                }
+            }
+            None => self
+                .ports
+                .sessions
+                .clear_runtime_session_id(&self.session_id),
+        };
+        match cleared {
+            Ok(()) => self.record_log(
+                AgentLogLevel::Warn,
+                "Forgetting the provider thread this turn tried to resume: the turn failed without \
+                 producing output, so the thread may no longer exist. The next turn starts a new \
+                 one."
+                    .to_string(),
+            ),
+            Err(error) => self.record_log(
+                AgentLogLevel::Warn,
+                format!("Could not forget the resumed provider thread: {error}"),
+            ),
+        }
+    }
+
     fn fail_claimed(
         &self,
         diagnostic: String,
@@ -3984,6 +4068,7 @@ impl GenerationEventHandler {
             return Ok(());
         }
         self.record_log(AgentLogLevel::Error, diagnostic);
+        self.forget_unusable_resumed_thread();
         // A failed turn hands off nothing, but the coordinator still has to learn the round ended —
         // otherwise a chain waits forever on a seat that already gave up.
         self.deliver_seat_turn(None);
@@ -4259,10 +4344,34 @@ impl AgentProcessEventSink for GenerationEventHandler {
             GenerationProcessEvent::ToolUse(tool_use) => self.tool_use(tool_use),
             GenerationProcessEvent::ToolLifecycle(event) => self.tool_lifecycle(event),
             GenerationProcessEvent::RichBlock(block) => self.rich_block(block),
-            GenerationProcessEvent::RuntimeSessionId(runtime_session_id) => self
-                .ports
-                .sessions
-                .update_runtime_session_id(&self.session_id, &runtime_session_id),
+            // A provider thread belongs to the Agent that created it. When a seat owns this
+            // generation the id is recorded against that seat; writing it to the session's single
+            // slot is what left every other seat resuming an id its own CLI had never issued.
+            //
+            // The session slot is still written for the seat that mirrors `agent_id`, because
+            // that is where a session created before seats carried threads keeps looking, and the
+            // terminal path and telemetry read it too.
+            GenerationProcessEvent::RuntimeSessionId(runtime_session_id) => {
+                match self.seat_ownership.as_ref() {
+                    Some(ownership) => {
+                        self.ports.sessions.update_seat_provider_thread_id(
+                            &self.session_id,
+                            &ownership.seat_id,
+                            &runtime_session_id,
+                        )?;
+                        if ownership.seat_index == 0 {
+                            self.ports
+                                .sessions
+                                .update_runtime_session_id(&self.session_id, &runtime_session_id)?;
+                        }
+                        Ok(())
+                    }
+                    None => self
+                        .ports
+                        .sessions
+                        .update_runtime_session_id(&self.session_id, &runtime_session_id),
+                }
+            }
             GenerationProcessEvent::Stderr(diagnostic) => {
                 self.stderr(diagnostic);
                 Ok(())

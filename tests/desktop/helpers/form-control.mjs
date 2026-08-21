@@ -1,29 +1,40 @@
 import assert from "node:assert/strict";
-import { Key } from "webdriverio";
 
 /**
- * Types `value` into a controlled input, clearing it with the keyboard first.
+ * Types `value` into a controlled input, clearing it first.
  *
- * Not `setValue`: that issues WebDriver's Element Clear, which assigns `value` directly. React's
- * controlled-input value tracker can swallow the event that follows, leaving component state on
- * the old text while the box on screen looks empty -- the submit then sends the stale value and
- * the test "passes" against a field it never actually changed.
+ * Not `setValue` for the final value: that issues WebDriver's Element Clear, which assigns
+ * `value` directly. React's controlled-input value tracker can swallow the event that follows,
+ * leaving component state on the old text while the box on screen looks empty -- the submit then
+ * sends the stale value and the test "passes" against a field it never actually changed.
  *
- * Not one Backspace per character either. A counted run is off by one whenever a keystroke lands
- * before the caret settles from the click, and the residue rides into the typed value: clearing a
- * 12-character field with 12 Backspaces produced "Ivanehub-ui-settings-e2e", which reads as the
- * app mangling input rather than as the test miscounting. Ctrl+A does not depend on the caret
- * position or on how many keys arrive.
+ * Not keyboard-driven clearing either, not anymore. One Backspace per character is off by one
+ * whenever a keystroke lands before the caret settles from the click, and the residue rides into
+ * the typed value: clearing a 12-character field with 12 Backspaces produced
+ * "Ivanehub-ui-settings-e2e". Ctrl+A was meant to fix that by not depending on caret position or
+ * keystroke count, but on WebKitGTK it silently failed to select anything often enough that two
+ * `fill()` calls in a row produced a search box reading "primary-tokennomatch-token" -- the
+ * Backspace after it deleted nothing, and `addValue` appended after the leftover text instead of
+ * replacing it. A bounded End+Backspace fallback was tried next and failed the same way on a
+ * second field (a derived session title read back as "derived-nameuiflow-primary-x": the retry
+ * loop's own `browser.keys()` calls did not reach the field either). Every failure in this history
+ * has one thing in common -- synthetic key events dispatched through the driver, not delivered by
+ * a real keyboard. So clearing now bypasses it entirely, the same way `selectOption` below already
+ * has to for the same underlying reason: assign through the native value setter in the page and
+ * dispatch a bubbling `input` (what React's controlled-input listener actually reads), which lands
+ * synchronously and needs no keyboard focus at all.
  */
 export async function fill(description, element, value) {
   await element.waitForClickable({ timeout: 15_000 });
   await element.click();
-  const current = String((await element.getProperty("value")) ?? "");
-  if (current.length > 0) {
-    await globalThis.browser.keys([Key.Ctrl, "a"]);
-    await globalThis.browser.keys(["Backspace"]);
-  }
-  if (value.length > 0) await element.addValue(value);
+  await globalThis.browser.execute((input, next) => {
+    const proto = input instanceof globalThis.HTMLTextAreaElement
+      ? globalThis.HTMLTextAreaElement.prototype
+      : globalThis.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    setter?.call(input, next);
+    input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+  }, element, value);
   await globalThis.browser.waitUntil(
     async () => (await element.getProperty("value")) === value,
     { timeout: 15_000, timeoutMsg: `${description} did not accept the typed value.` },

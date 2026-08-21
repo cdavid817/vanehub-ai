@@ -85,6 +85,7 @@ fn seats_survive_a_create_and_are_updated_on_save() {
             role_snapshot: None,
             joined_at: "2026-08-07T00:00:00+00:00".to_string(),
             left_at: None,
+            provider_thread_id: None,
         },
         SessionSeat {
             seat_id: "seat-2".to_string(),
@@ -93,6 +94,7 @@ fn seats_survive_a_create_and_are_updated_on_save() {
             role_snapshot: None,
             joined_at: "2026-08-07T00:00:00+00:00".to_string(),
             left_at: None,
+            provider_thread_id: None,
         },
     ];
     SessionTransactionPort::create_session(
@@ -115,9 +117,88 @@ fn seats_survive_a_create_and_are_updated_on_save() {
         role_snapshot: None,
         joined_at: "2026-08-07T00:00:01+00:00".to_string(),
         left_at: None,
+        provider_thread_id: None,
     });
     let saved = SessionRepository::save(&fixture.repository, &loaded).expect("save seats");
     assert_eq!(saved.seats, loaded.seats);
+}
+
+/// A seat's provider thread is what its next turn resumes, so it has to survive the round trip
+/// through the seat column. Losing it sends the seat back to a new thread and drops its history,
+/// silently -- the turn still succeeds, it just does not remember anything.
+#[test]
+fn a_seats_provider_thread_survives_the_round_trip_independently_of_other_seats() {
+    let fixture = fixture("sessions-seat-threads");
+    let mut session = session_record(
+        "session-seat-threads",
+        SessionLifecycle::Idle,
+        "多 Agent 线程",
+        "2026-08-07T00:00:00+00:00",
+    );
+    session.runtime_session_id = Some("claude-thread".to_string());
+    session.seats = vec![
+        SessionSeat {
+            seat_id: "seat-1".to_string(),
+            agent_id: "claude-code".to_string(),
+            role_id: Some("role-architect".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
+            provider_thread_id: Some("claude-thread".to_string()),
+        },
+        SessionSeat {
+            seat_id: "seat-2".to_string(),
+            agent_id: "codex-cli".to_string(),
+            role_id: Some("role-reviewer".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
+            provider_thread_id: None,
+        },
+    ];
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create seated session");
+
+    let mut loaded = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find seated session")
+        .expect("seated session");
+    assert_eq!(
+        loaded.seats[1].provider_thread_id, None,
+        "a seat that has not spoken must not come back holding another seat's thread",
+    );
+
+    // The second seat speaks for the first time and reports a thread of its own.
+    loaded.seats[1].provider_thread_id = Some("codex-thread".to_string());
+    let saved = SessionRepository::save(&fixture.repository, &loaded).expect("save seat thread");
+    assert_eq!(
+        saved.seats[1].provider_thread_id.as_deref(),
+        Some("codex-thread"),
+    );
+    assert_eq!(
+        saved.seats[0].provider_thread_id.as_deref(),
+        Some("claude-thread"),
+        "recording one seat's thread must not disturb another's",
+    );
+    assert_eq!(
+        saved.runtime_session_id.as_deref(),
+        Some("claude-thread"),
+        "the session keeps the first seat's thread, which is what pre-seat sessions resume",
+    );
+
+    // A thread can stop existing on the provider's side. Forgetting one seat's must not disturb
+    // the other's, or recovering one seat would restart the whole session.
+    let mut cleared = saved;
+    cleared.seats[1].provider_thread_id = None;
+    let after = SessionRepository::save(&fixture.repository, &cleared).expect("clear seat thread");
+    assert_eq!(after.seats[1].provider_thread_id, None);
+    assert_eq!(
+        after.seats[0].provider_thread_id.as_deref(),
+        Some("claude-thread"),
+    );
 }
 
 /// Sessions created before seats existed store `[]`, and each must still open as its own Agent.
@@ -158,6 +239,7 @@ fn a_session_without_seats_reads_as_one_seat() {
             role_snapshot: None,
             joined_at: "2026-07-01T00:00:00+00:00".to_string(),
             left_at: None,
+            provider_thread_id: None,
         }]
     );
 }

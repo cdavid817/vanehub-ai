@@ -576,6 +576,56 @@ mod tests {
         assert_eq!(tasks[0].next_run_at, "2026-07-19T00:00:00Z");
     }
 
+    /// The frequency shapes cross the IPC boundary as JSON built by the frontend, so what matters
+    /// is the wire spelling, not that a Rust-constructed value round-trips through itself. Every
+    /// caller sends camelCase (`ScheduledTaskFrequency` in types/agent.ts, the dialog's
+    /// `initialFrequency`, and the web mock client); this pins each variant that carries a
+    /// multi-word field to that spelling. Deserializing from a literal, rather than from
+    /// `to_string` of a Rust value, is the part that earns its keep -- a symmetric round-trip
+    /// passes just as happily with the wrong name on both sides, which is how the mismatch this
+    /// covers survived.
+    #[test]
+    fn frequency_variants_deserialize_from_the_camel_case_the_frontend_sends() {
+        let daily: dto::ScheduledTaskFrequency =
+            serde_json::from_str(r#"{"kind":"daily","timeOfDay":"09:00"}"#).expect("daily");
+        assert_eq!(
+            daily,
+            dto::ScheduledTaskFrequency::Daily {
+                time_of_day: "09:00".to_string(),
+            }
+        );
+
+        let weekly: dto::ScheduledTaskFrequency =
+            serde_json::from_str(r#"{"kind":"weekly","weekday":1,"timeOfDay":"09:00"}"#)
+                .expect("weekly");
+        assert_eq!(
+            weekly,
+            dto::ScheduledTaskFrequency::Weekly {
+                weekday: 1,
+                time_of_day: "09:00".to_string(),
+            }
+        );
+
+        let monthly: dto::ScheduledTaskFrequency =
+            serde_json::from_str(r#"{"kind":"monthly","dayOfMonth":1,"timeOfDay":"09:00"}"#)
+                .expect("monthly");
+        assert_eq!(
+            monthly,
+            dto::ScheduledTaskFrequency::Monthly {
+                day_of_month: 1,
+                time_of_day: "09:00".to_string(),
+            }
+        );
+
+        // Serialization has to agree, because the value is stored as JSON and read back by the
+        // same enum: a rename applied to only one direction would make every stored daily task
+        // unreadable on the next launch.
+        assert_eq!(
+            serde_json::to_string(&daily).expect("serialize"),
+            r#"{"kind":"daily","timeOfDay":"09:00"}"#,
+        );
+    }
+
     #[test]
     fn create_scheduled_task_accepts_a_cli_agent() {
         let (_directory, database) = database();
