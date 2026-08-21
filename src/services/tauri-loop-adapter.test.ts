@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
-import { tauriAgentClient } from "./tauri-agent-client";
+import { tauriLoopClient } from "./tauri-loop-client";
 
 const input = {
   name: "Loop",
@@ -39,22 +39,29 @@ describe("Tauri Loop adapter", () => {
   afterEach(() => vi.useRealTimers());
 
   it("maps every Loop management and control call to its thin command", async () => {
-    await tauriAgentClient.listLoopDefinitions();
-    await tauriAgentClient.createLoopDefinition(input);
-    await tauriAgentClient.updateLoopDefinition("definition-1", input);
-    await tauriAgentClient.deleteLoopDefinition("definition-1");
-    await tauriAgentClient.listLoopRuns();
-    await tauriAgentClient.listLoopRuns("definition-1");
-    await tauriAgentClient.getLoopRun("run-1");
-    await tauriAgentClient.startLoop("definition-1");
-    await tauriAgentClient.pauseLoop("run-1");
-    await tauriAgentClient.resumeLoop("run-1");
-    await tauriAgentClient.cancelLoop("run-1");
-    await tauriAgentClient.acceptLoop("run-1");
-    await tauriAgentClient.continueLoop({ runId: "run-1", feedback: "Revise tests" });
-    await tauriAgentClient.rejectLoop("run-1");
+    invokeMock.mockResolvedValueOnce([{ path: "D:/project", displayName: "project", isGit: true, lastOpenedAt: "now" }]);
+    await tauriLoopClient.listLoopProjectChoices();
+    await tauriLoopClient.listLoopBranches("D:/project");
+    await tauriLoopClient.checkLoopReadiness("definition-1");
+    await tauriLoopClient.listLoopDefinitions();
+    await tauriLoopClient.createLoopDefinition(input);
+    await tauriLoopClient.updateLoopDefinition("definition-1", input);
+    await tauriLoopClient.deleteLoopDefinition("definition-1");
+    await tauriLoopClient.listLoopRuns();
+    await tauriLoopClient.listLoopRuns("definition-1");
+    await tauriLoopClient.getLoopRun("run-1");
+    await tauriLoopClient.startLoop("definition-1");
+    await tauriLoopClient.pauseLoop("run-1");
+    await tauriLoopClient.resumeLoop("run-1");
+    await tauriLoopClient.cancelLoop("run-1");
+    await tauriLoopClient.acceptLoop("run-1");
+    await tauriLoopClient.continueLoop({ runId: "run-1", feedback: "Revise tests" });
+    await tauriLoopClient.rejectLoop("run-1");
 
     expect(invokeMock.mock.calls).toEqual([
+      ["list_known_projects"],
+      ["list_loop_branches", { projectPath: "D:/project" }],
+      ["check_loop_readiness", { definitionId: "definition-1" }],
       ["list_loop_definitions"],
       ["create_loop_definition", { input }],
       ["update_loop_definition", { definitionId: "definition-1", input }],
@@ -80,7 +87,7 @@ describe("Tauri Loop adapter", () => {
     invokeMock.mockResolvedValueOnce(initial).mockResolvedValue(updated);
     const handler = vi.fn();
 
-    const unsubscribe = await tauriAgentClient.subscribeLoopEvents("run-1", handler);
+    const unsubscribe = await tauriLoopClient.subscribeLoopEvents("run-1", handler);
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(invokeMock.mock.calls).toEqual([

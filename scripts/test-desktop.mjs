@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { appendFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDesktopMetadata, resolveDesktopArtifact } from "./desktop/artifact.mjs";
@@ -67,6 +69,90 @@ async function loadArtifact() {
   return JSON.parse(await readFile(latestArtifactPath, "utf8"));
 }
 
+async function desktopSpecNames() {
+  const requested = (process.env.VANEHUB_DESKTOP_SPEC ?? "")
+    .split(",")
+    .map((value) => path.basename(value.trim()))
+    .filter(Boolean);
+  if (requested.length > 0) return requested;
+  if (process.env.CI && process.env.VANEHUB_DESKTOP_FULL_SUITE !== "1") return ["smoke.e2e.mjs"];
+  const entries = await readdir(path.join(repoRoot, "tests", "desktop", "specs"));
+  return entries.filter((entry) => entry.endsWith(".e2e.mjs")).sort();
+}
+
+async function runDesktopSpecs(env, resultDir) {
+  const coverage = { exitCode: 0, passed: 0, failed: 0, skipped: 0 };
+  const failedSpecs = [];
+  const aggregateLogDir = path.join(env.VANEHUB_APP_DATA_DIR, "logs");
+  await mkdir(aggregateLogDir, { recursive: true });
+  for (const spec of await desktopSpecNames()) {
+    const specSlug = spec.replace(/\.e2e\.mjs$/, "").replaceAll(/[^a-z0-9-]+/gi, "-");
+    const specRoot = path.join(env.VANEHUB_APP_DATA_DIR, "spec-runs", specSlug);
+    const specDataDir = path.join(specRoot, "data");
+    await mkdir(specDataDir, { recursive: true });
+    const driverPort = Number(env.VANEHUB_WEBDRIVER_PORT ?? 4445);
+    let available = false;
+    for (let attempt = 0; attempt < 40 && !available; attempt += 1) {
+      available = await new Promise((resolve) => {
+        const server = createServer();
+        server.once("error", () => resolve(false));
+        server.listen(driverPort, "127.0.0.1", () => server.close(() => resolve(true)));
+      });
+      if (!available) await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
+    }
+    if (!available) throw new DesktopVerificationError("BLOCKED", `Desktop driver port ${driverPort} is still occupied.`);
+    // Windows releases the listening socket before the embedded driver service has finished all
+    // process teardown. A short quiet period prevents the next isolated app from racing that exit.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 1_000));
+    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", "tests/desktop/wdio.conf.mjs"], {
+      cwd: repoRoot,
+      env: {
+        ...env,
+        VANEHUB_APP_DATA_DIR: specDataDir,
+        VANEHUB_DESKTOP_SPEC: spec,
+        VANEHUB_WEBDRIVER_PORT: String(driverPort),
+      },
+      stdio: "inherit",
+    });
+    const specCoverage = await readWdioCoverage(resultDir);
+    coverage.passed += specCoverage?.passed ?? 0;
+    coverage.failed += specCoverage?.failed ?? 0;
+    coverage.skipped += specCoverage?.skipped ?? 0;
+    if (result.error || result.status !== 0) failedSpecs.push(spec);
+    try {
+      const marker = await readProcessMarker(specDataDir);
+      await ensureOwnedProcessesStopped({ marker, runId: env.VANEHUB_TEST_RUN_ID });
+      if (marker.state !== "exited" && !failedSpecs.includes(spec)) failedSpecs.push(spec);
+      const persistedMarker = {
+        pid: marker.pid,
+        runId: marker.runId,
+        state: marker.state,
+        updatedAt: marker.updatedAt,
+      };
+      await writeFile(
+        path.join(env.VANEHUB_APP_DATA_DIR, "desktop-e2e-process.json"),
+        `${JSON.stringify(persistedMarker, null, 2)}\n`,
+      );
+    } catch {
+      if (!failedSpecs.includes(spec)) failedSpecs.push(spec);
+    }
+    try {
+      const nativeLog = await readFile(path.join(specDataDir, "logs", "vanehub.log"));
+      await appendFile(
+        path.join(aggregateLogDir, "vanehub.log"),
+        Buffer.concat([Buffer.from(`\n--- ${spec} ---\n`), nativeLog]),
+      );
+    } catch {
+      // A spec that failed before logging is already represented by its WDIO result.
+    }
+  }
+  coverage.exitCode = failedSpecs.length > 0 ? 1 : 0;
+  await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify(coverage, null, 2)}\n`);
+  if (failedSpecs.length > 0) {
+    throw new DesktopVerificationError("FAILED", "Native desktop smoke failed.", { failedSpecs });
+  }
+}
+
 async function smokeDesktop(artifact) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
@@ -80,17 +166,7 @@ async function smokeDesktop(artifact) {
   let processState;
   try {
     const env = { ...process.env, ...context.environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
-    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", "tests/desktop/wdio.conf.mjs"], {
-      cwd: repoRoot,
-      env,
-      stdio: "inherit",
-    });
-    if (result.error || result.status !== 0) {
-      throw new DesktopVerificationError("FAILED", "Native desktop smoke failed.", {
-        exitCode: result.status,
-        error: result.error?.message,
-      });
-    }
+    await runDesktopSpecs(env, context.resultDir);
     processState = await readProcessMarker(context.dataDir);
     processCleanup = await ensureOwnedProcessesStopped({ marker: processState, runId: context.runId });
     if (processState.state !== "exited") {

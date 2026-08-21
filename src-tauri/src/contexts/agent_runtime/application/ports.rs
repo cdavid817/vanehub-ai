@@ -231,6 +231,13 @@ pub(crate) trait LoopProjectPort: Send + Sync {
         &self,
         project_path: &str,
     ) -> Result<String, AgentRuntimeApplicationError>;
+    fn base_branch_available(
+        &self,
+        _project_path: &str,
+        _base_branch: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        Ok(true)
+    }
     fn prepare_loop_worktree(
         &self,
         _project_path: &str,

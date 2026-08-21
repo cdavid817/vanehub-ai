@@ -1,5 +1,8 @@
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
-use crate::contexts::workspaces::application::{WorkspaceApplicationError, WorkspaceGitPort};
+use crate::contexts::workspaces::application::{
+    GitBranchReference, WorkspaceApplicationError, WorkspaceGitPort,
+};
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::git::{GitAdapter, GitOutput};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -98,6 +101,42 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         Ok(oid)
     }
 
+    fn list_branches(
+        &self,
+        project_path: &str,
+        limit: usize,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceApplicationError> {
+        let root = Path::new(project_path);
+        let output = self
+            .git
+            .execute(
+                root,
+                &[
+                    "for-each-ref".to_string(),
+                    "--format=%(refname)".to_string(),
+                    "refs/heads".to_string(),
+                    "refs/remotes".to_string(),
+                ],
+                GIT_TIMEOUT,
+            )
+            .map_err(|error| WorkspaceApplicationError::Validation(error.to_string()))?;
+        if !output.status.success() {
+            self.record(
+                LogSeverity::Warn,
+                "git.branch",
+                "list",
+                Self::diagnostic("branch-list", root, &output),
+            );
+            return Err(WorkspaceApplicationError::Validation(
+                "Unable to inspect Git branches.".to_string(),
+            ));
+        }
+        Ok(parse_branch_references(
+            &String::from_utf8_lossy(&output.stdout),
+            limit,
+        ))
+    }
+
     fn create_worktree(
         &self,
         project_path: &str,
@@ -108,7 +147,7 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         let args = vec![
             "worktree".to_string(),
             "add".to_string(),
-            target_path.to_string(),
+            normalize_windows_extended_length_path(target_path),
             "-b".to_string(),
             branch.to_string(),
         ];
@@ -239,7 +278,7 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
                     "add".to_string(),
                     "-b".to_string(),
                     branch.to_string(),
-                    target_path.to_string(),
+                    normalize_windows_extended_length_path(target_path),
                     base_branch.to_string(),
                 ],
                 GIT_TIMEOUT,
@@ -267,5 +306,56 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
 }
 
 fn normalized_path(path: &str) -> String {
-    path.replace('\\', "/").trim_end_matches('/').to_lowercase()
+    normalize_windows_extended_length_path(path)
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
+fn parse_branch_references(raw: &str, limit: usize) -> Vec<GitBranchReference> {
+    let mut branches = raw
+        .lines()
+        .filter_map(|line| {
+            let reference = line.trim();
+            if let Some(name) = reference.strip_prefix("refs/heads/") {
+                return Some(GitBranchReference {
+                    name: name.to_string(),
+                    kind: "local",
+                });
+            }
+            let name = reference.strip_prefix("refs/remotes/")?;
+            (!name.ends_with("/HEAD")).then(|| GitBranchReference {
+                name: name.to_string(),
+                kind: "remote",
+            })
+        })
+        .collect::<Vec<_>>();
+    branches.sort_by(|left, right| left.name.cmp(&right.name).then(left.kind.cmp(right.kind)));
+    branches.dedup_by(|left, right| left.name == right.name && left.kind == right.kind);
+    branches.truncate(limit);
+    branches
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::{normalized_path, parse_branch_references};
+
+    #[test]
+    fn worktree_comparisons_strip_windows_extended_length_prefixes() {
+        assert_eq!(normalized_path(r"\\?\C:\code\app"), "c:/code/app");
+    }
+
+    #[test]
+    fn parses_sorts_deduplicates_and_bounds_branch_refs() {
+        let values = parse_branch_references(
+            "refs/remotes/origin/main\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/heads/main\nrefs/heads/zeta\n",
+            2,
+        );
+        assert_eq!(values.len(), 2);
+        assert_eq!((values[0].name.as_str(), values[0].kind), ("main", "local"));
+        assert_eq!(
+            (values[1].name.as_str(), values[1].kind),
+            ("origin/main", "remote")
+        );
+    }
 }

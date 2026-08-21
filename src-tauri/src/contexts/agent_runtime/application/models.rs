@@ -288,6 +288,7 @@ pub(crate) struct LoopVerificationProcessResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoopOperationKind {
+    Readiness,
     Worktree,
     RoleGeneration,
     Verification,
@@ -299,6 +300,7 @@ pub(crate) enum LoopOperationKind {
 impl LoopOperationKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Readiness => "readiness",
             Self::Worktree => "worktree",
             Self::RoleGeneration => "role-generation",
             Self::Verification => "verification",

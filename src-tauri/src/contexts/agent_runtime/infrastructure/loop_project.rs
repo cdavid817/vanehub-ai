@@ -5,27 +5,16 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::workspaces::api::{
     ensure_git_worktree_available, GitDiffResult, GitDiffSource, WorkspaceApi,
 };
-
 const VERIFIER_DIFF_BYTES: usize = 16 * 1024;
-
 #[derive(Clone)]
-pub(crate) struct WorkspaceLoopProjectAdapter {
-    workspaces: WorkspaceApi,
-}
-
-impl WorkspaceLoopProjectAdapter {
-    pub(crate) fn new(workspaces: WorkspaceApi) -> Self {
-        Self { workspaces }
-    }
-}
-
+pub(crate) struct WorkspaceLoopProjectAdapter(pub(crate) WorkspaceApi);
 impl LoopProjectPort for WorkspaceLoopProjectAdapter {
     fn validate_local_git_project(
         &self,
         project_path: &str,
     ) -> Result<String, AgentRuntimeApplicationError> {
         let inspection = self
-            .workspaces
+            .0
             .inspect_project(project_path)
             .map_err(|error| AgentRuntimeApplicationError::Loop(error.to_string()))?;
         ensure_git_worktree_available(inspection.is_git())
@@ -37,13 +26,24 @@ impl LoopProjectPort for WorkspaceLoopProjectAdapter {
         })
     }
 
+    fn base_branch_available(
+        &self,
+        project_path: &str,
+        base_branch: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.0
+            .list_git_branches(project_path)
+            .map(|branches| branches.iter().any(|branch| branch.name == base_branch))
+            .map_err(loop_error)
+    }
+
     fn prepare_loop_worktree(
         &self,
         project_path: &str,
         name: &str,
         base_branch: &str,
     ) -> Result<PreparedLoopWorktree, AgentRuntimeApplicationError> {
-        self.workspaces
+        self.0
             .create_guarded_loop_worktree(project_path, name, base_branch)
             .map(|created| PreparedLoopWorktree {
                 path: created.path,
@@ -53,10 +53,9 @@ impl LoopProjectPort for WorkspaceLoopProjectAdapter {
             .map_err(loop_error)
     }
 }
-
 impl LoopGitStatePort for WorkspaceLoopProjectAdapter {
     fn snapshot(&self, session_id: &str) -> Result<LoopGitStateView, AgentRuntimeApplicationError> {
-        self.workspaces
+        self.0
             .get_session_git_status(session_id)
             .map(|status| LoopGitStateView {
                 branch: status.branch,
@@ -78,14 +77,14 @@ impl LoopGitStatePort for WorkspaceLoopProjectAdapter {
 impl LoopVerifierContextPort for WorkspaceLoopProjectAdapter {
     fn bounded_diff(&self, session_id: &str) -> Result<String, AgentRuntimeApplicationError> {
         let status = self
-            .workspaces
+            .0
             .get_session_git_status(session_id)
             .map_err(loop_error)?;
         let mut output = String::new();
         for item in status.items {
             for source in [GitDiffSource::Working, GitDiffSource::Staged] {
                 let diff = self
-                    .workspaces
+                    .0
                     .get_session_git_diff(session_id, &item.path, source)
                     .map_err(loop_error)?;
                 append_diff(&mut output, &diff);

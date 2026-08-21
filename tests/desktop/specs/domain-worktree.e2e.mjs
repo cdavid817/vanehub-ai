@@ -9,6 +9,10 @@ const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
 
+function normalizedPath(value) {
+  return value.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").toLowerCase();
+}
+
 async function attempt(command, args) {
   return invoke(({ core }, request) => core.invoke(request.command, request.args).then(
     (value) => ({ ok: true, value }),
@@ -121,9 +125,9 @@ globalThis.describe("VaneHub AI desktop Git worktree sessions", () => {
     // The assertion that matters: git agrees. `--porcelain` rather than the human listing, because
     // the human one is a formatted table whose columns move, and a substring match against it was
     // how an earlier round of this suite reported a defect that did not exist.
-    const listing = await gitWorktrees(repository);
+    const listing = normalizedPath(await gitWorktrees(repository));
     assert.ok(
-      listing.includes(`worktree ${session.worktreePath}`),
+      listing.includes(`worktree ${normalizedPath(session.worktreePath)}`),
       `git does not list the worktree the session claims: ${listing}`,
     );
     assert.ok(

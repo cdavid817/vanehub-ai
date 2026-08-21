@@ -192,7 +192,7 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         .ok
     );
     worker
-        .shutdown(Duration::from_secs(5))
+        .shutdown(limits.request_timeout)
         .expect("worker shutdown");
 }
 

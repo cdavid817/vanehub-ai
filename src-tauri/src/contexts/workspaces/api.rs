@@ -1,8 +1,8 @@
 pub(crate) use super::application::{
     CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
-    FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
-    GitStatusResult, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree, ResizeShellRequest,
-    ReviewDiffFile, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
+    FileSearchListing, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
+    GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree,
+    ResizeShellRequest, ReviewDiffFile, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
     SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
     WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel, WorkspaceReviewPort,
 };
@@ -131,6 +131,23 @@ impl WorkspaceApi {
         name: &str,
     ) -> Result<CreatedWorktree, WorkspaceError> {
         self.service.create_worktree(project_path, name)
+    }
+
+    pub(crate) fn list_git_branches(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceError> {
+        self.service.list_git_branches(project_path)
+    }
+
+    pub(crate) async fn list_git_branches_blocking(
+        &self,
+        project_path: String,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.list_git_branches(&project_path))
+            .await
+            .map_err(|_| WorkspaceError::Storage("Git branch discovery task failed".to_string()))?
     }
 
     pub(crate) fn create_guarded_loop_worktree(

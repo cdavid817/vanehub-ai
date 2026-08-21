@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 import { fill } from "../helpers/form-control.mjs";
@@ -29,9 +30,13 @@ const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
  */
 const blocked = [];
 let repository = null;
+const fixtureRoot = process.env.VANEHUB_APP_DATA_DIR
+  ? join(dirname(process.env.VANEHUB_APP_DATA_DIR), "fixtures")
+  : tmpdir();
 
 async function createRepository() {
-  const root = await mkdtemp(join(tmpdir(), "vanehub-notif-"));
+  await mkdir(fixtureRoot, { recursive: true });
+  const root = await mkdtemp(join(fixtureRoot, "vanehub-notif-"));
   await run("git", ["init"], { cwd: root });
   await run("git", ["config", "user.email", "desktop-e2e@example.invalid"], { cwd: root });
   await run("git", ["config", "user.name", "Desktop E2E"], { cwd: root });
@@ -203,6 +208,7 @@ globalThis.describe("VaneHub AI desktop notification center", () => {
     if (blocked.length > 0) {
       globalThis.console.warn(`BLOCKED on this host:\n  ${blocked.join("\n  ")}`);
     }
-    if (repository) await rm(repository, { recursive: true, force: true });
+    // The run-context disposer removes fixtures after the app exits, when Windows has released
+    // any terminal process whose current directory is this repository.
   });
 });

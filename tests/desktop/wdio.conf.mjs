@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,21 @@ function proxyEnvironment() {
   };
 }
 
+async function waitForDesktopExit() {
+  const markerPath = path.join(process.env.VANEHUB_APP_DATA_DIR, "desktop-e2e-process.json");
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const marker = JSON.parse(await readFile(markerPath, "utf8"));
+      if (marker.state === "exited") return true;
+    } catch {
+      // Startup owns marker creation; a short read race during teardown is safe to retry.
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+  }
+  return false;
+}
+
 // CI runs `smoke.e2e.mjs` only, which is the coverage it had before these specs existed. The other
 // thirteen stay in the repository and run locally; they are not ready to gate a pull request.
 //
@@ -48,9 +63,14 @@ function proxyEnvironment() {
 // them, and promote them into the gate one at a time as each is made to hold.
 const FULL_SUITE = path.join(configDir, "specs", "**", "*.e2e.mjs");
 const GATE_SUITE = path.join(configDir, "specs", "smoke.e2e.mjs");
+const requestedSpecs = (process.env.VANEHUB_DESKTOP_SPEC ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => path.join(configDir, "specs", path.basename(value)));
 // Opt in, and off by default wherever CI is set. `VANEHUB_DESKTOP_FULL_SUITE=1` forces it back on.
 const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
-const specs = runFullSuite ? [FULL_SUITE] : [GATE_SUITE];
+const specs = requestedSpecs.length > 0 ? requestedSpecs : runFullSuite ? [FULL_SUITE] : [GATE_SUITE];
 if (!runFullSuite) {
   // Said out loud rather than left to whoever compares spec counts between runs: a run that
   // covers one spec instead of thirteen still prints PASSED.
@@ -107,7 +127,7 @@ export const config = {
   // earlier one, so the run with the most to diagnose kept the least evidence -- one screen-sweep
   // failure was already lost this way, to screenshots taken by a later spec.
   afterTest: async (test, _context, result) => {
-    if (result.passed) {
+    if (result.passed || result.skipped || !result.error) {
       return;
     }
     const slug = `${test.parent ?? "spec"}-${test.title ?? "test"}`
@@ -123,24 +143,36 @@ export const config = {
       );
     }
   },
-  // Every session is asked to shut down gracefully, not just whichever spec happens to sort last.
+  // Every session is asked to shut down gracefully.
   //
   // The harness's clean-shutdown verdict reads a marker the runtime writes on exit, and all specs
   // in a run share one marker file, so the verdict reflects only the final app instance. While
   // `smoke.e2e.mjs` sorted last that worked by accident; adding the `ui-*` specs moved a file that
   // deliberately does not exit itself into last place, and a run with all 14 specs green reported
   // "The desktop runtime did not record a clean shutdown." Doing it here makes the verdict a
-  // property of the runtime rather than of filename ordering, and turns every spec into evidence
-  // that the app can exit on request instead of only one.
+  // property of the runtime rather than of whether a spec happens to exit itself.
   //
-  // Best effort: a spec that already exited, or one whose window is gone, must not turn a passing
-  // file red on the way out.
+  // Best effort: the app may already be gone after a fatal assertion. The test hook above only
+  // captures screenshots for real errors, so pending tests no longer race this shutdown path.
   after: async () => {
+    let shutdownError;
     try {
       await globalThis.browser.tauri.execute(({ core }) => core.invoke("exit_application"));
-    } catch {
-      // Already gone, or refusing to answer -- either way the marker keeps whatever it holds and
-      // the verdict below reports it.
+    } catch (error) {
+      shutdownError = error;
+    }
+    // Native shutdown closes the embedded driver, so prevent WDIO's runner teardown from issuing
+    // DELETE against a server that is intentionally going away. This also covers specs that
+    // requested exit themselves before the global hook ran.
+    globalThis.browser.sessionId = undefined;
+    // Keep the worker alive while native services shut down, otherwise the Tauri test service
+    // kills the application before it can persist the clean-exit marker.
+    const exited = await waitForDesktopExit();
+    if (!exited && shutdownError) {
+      await writeFile(
+        path.join(resultDir, "shutdown-hook-error.txt"),
+        `${shutdownError instanceof Error ? shutdownError.stack ?? shutdownError.message : String(shutdownError)}\n`,
+      );
     }
   },
   onPrepare: async () => {

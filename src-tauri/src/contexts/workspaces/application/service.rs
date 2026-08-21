@@ -1,5 +1,5 @@
 use super::{
-    CreatedWorktree, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree,
+    CreatedWorktree, GitBranchReference, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree,
     ProjectDirectorySelectionPort, WorkspaceApplicationError, WorkspaceClockPort,
     WorkspaceFilesystemPort, WorkspaceGitPort, WorkspaceHistoryRepository,
 };
@@ -75,6 +75,20 @@ impl WorkspaceApplicationService {
         &self,
     ) -> Result<Option<String>, WorkspaceApplicationError> {
         self.selection.select_directory()
+    }
+
+    pub(crate) fn list_git_branches(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceApplicationError> {
+        let requested = ProjectPath::parse(project_path.to_string())?;
+        let canonical = self.filesystem.canonicalize_project(&requested)?;
+        let root = self.git.repository_root(&canonical)?.ok_or_else(|| {
+            WorkspaceApplicationError::Validation(
+                "Loop branch discovery requires a local Git repository.".to_string(),
+            )
+        })?;
+        self.git.list_branches(&root, 200)
     }
 
     pub(crate) fn create_worktree(

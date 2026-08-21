@@ -11,6 +11,29 @@ export function useLoopDefinitionsQuery() {
   });
 }
 
+export function useLoopProjectChoicesQuery() {
+  return useQuery({
+    queryKey: loopQueryKeys.projects,
+    queryFn: () => agentService.listLoopProjectChoices(),
+  });
+}
+
+export function useLoopBranchesQuery(projectPath: string) {
+  return useQuery({
+    enabled: Boolean(projectPath),
+    queryKey: loopQueryKeys.branches(projectPath),
+    queryFn: () => agentService.listLoopBranches(projectPath),
+  });
+}
+
+export function useLoopReadinessQuery(definitionId: string | null, enabled = true) {
+  return useQuery({
+    enabled: enabled && Boolean(definitionId),
+    queryKey: loopQueryKeys.readiness(definitionId ?? ""),
+    queryFn: () => agentService.checkLoopReadiness(definitionId ?? ""),
+  });
+}
+
 export function useLoopRunsQuery(definitionId?: string) {
   return useQuery({
     queryKey: loopQueryKeys.runs(definitionId),

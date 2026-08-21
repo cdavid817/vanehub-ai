@@ -1,8 +1,8 @@
 use super::*;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
-    InteractionMode, LaunchMetadata, LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun,
-    LoopRunPhase, LoopRunStatus, LoopVerificationCommand,
+    InteractionMode, LaunchMetadata, LoopDefinition, LoopDefinitionInput, LoopLimits,
+    LoopReadinessCheckCode, LoopRun, LoopRunPhase, LoopRunStatus, LoopVerificationCommand,
 };
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +11,7 @@ struct FakeWorld {
     agents: Vec<AgentDefinition>,
     trusted_agents: Vec<String>,
     project_is_git: bool,
+    branch_available: Mutex<bool>,
     run: Mutex<Option<LoopRun>>,
     snapshot: Mutex<Option<LoopDefinition>>,
     operation_id: Mutex<Option<String>>,
@@ -34,6 +35,7 @@ impl FakeWorld {
             agents,
             trusted_agents: trusted_agents.into_iter().map(str::to_string).collect(),
             project_is_git,
+            branch_available: Mutex::new(true),
             run: Mutex::new(None),
             snapshot: Mutex::new(None),
             operation_id: Mutex::new(None),
@@ -207,6 +209,13 @@ impl LoopProjectPort for FakeWorld {
                 "Loop project must be a local Git repository.".to_string(),
             ))
         }
+    }
+    fn base_branch_available(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        Ok(*self.branch_available.lock().expect("branch"))
     }
 }
 
@@ -463,4 +472,108 @@ fn manual_start_rejects_a_second_active_run() {
     world.service().start_manual("loop-1").expect("first run");
     assert!(world.service().start_manual("loop-1").is_err());
     assert_eq!(*world.operation_starts.lock().expect("starts"), 1);
+}
+
+#[test]
+fn readiness_reports_all_checks_without_starting_a_run() {
+    let world = FakeWorld::new(true, true, vec![agent("worker"), agent("verifier")]);
+
+    let report = world.service().readiness("loop-1").expect("readiness");
+
+    assert!(report.ready);
+    assert_eq!(report.definition_id, "loop-1");
+    assert_eq!(report.checked_at, "2026-07-21T08:00:00Z");
+    assert_eq!(report.checks.len(), 8);
+    assert!(report.checks.iter().all(|check| check.passed));
+    assert!(world.run.lock().expect("run").is_none());
+    assert!(world.snapshot.lock().expect("snapshot").is_none());
+    assert_eq!(*world.operation_starts.lock().expect("starts"), 0);
+    assert!(world.logs.lock().expect("logs").is_empty());
+}
+
+#[test]
+fn readiness_identifies_disabled_project_branch_and_agent_blockers() {
+    let disabled = FakeWorld::new(false, true, vec![agent("worker"), agent("verifier")]);
+    let missing_project = FakeWorld::new(true, false, vec![agent("worker"), agent("verifier")]);
+    let missing_verifier = FakeWorld::new(true, true, vec![agent("worker")]);
+    let missing_branch = FakeWorld::new(true, true, vec![agent("worker"), agent("verifier")]);
+    *missing_branch.branch_available.lock().expect("branch") = false;
+
+    for (world, expected) in [
+        (disabled, LoopReadinessCheckCode::DefinitionEnabled),
+        (missing_project, LoopReadinessCheckCode::ProjectAvailable),
+        (missing_branch, LoopReadinessCheckCode::BranchAvailable),
+        (missing_verifier, LoopReadinessCheckCode::VerifierEligible),
+    ] {
+        let report = world.service().readiness("loop-1").expect("readiness");
+        assert!(!report.ready);
+        let check = report
+            .checks
+            .iter()
+            .find(|check| check.code == expected)
+            .expect("expected readiness check");
+        assert!(!check.passed);
+        assert!(check.remediation_target.is_some());
+        let logs = world.logs.lock().expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].category, "loop.readiness");
+        assert_eq!(logs[0].level, AgentLogLevel::Warn);
+        assert!(!logs[0].message.contains("C:/work/project"));
+    }
+}
+
+#[test]
+fn readiness_blocks_when_the_definition_has_an_active_run() {
+    let world = FakeWorld::new(true, true, vec![agent("worker"), agent("verifier")]);
+    *world.run.lock().expect("run") =
+        Some(LoopRun::new("run-1".to_string(), "loop-1".to_string()).expect("run"));
+
+    let report = world.service().readiness("loop-1").expect("readiness");
+    let check = report
+        .checks
+        .iter()
+        .find(|check| check.code == LoopReadinessCheckCode::NoActiveRun)
+        .expect("active run check");
+
+    assert!(!report.ready);
+    assert!(!check.passed);
+    assert_eq!(*world.operation_starts.lock().expect("starts"), 0);
+}
+
+#[test]
+fn readiness_blocks_conflicting_normalized_path_scopes() {
+    let mut world = FakeWorld::new(true, true, vec![agent("worker"), agent("verifier")]);
+    let mut input = world.definition.values().clone();
+    input.protected_paths = vec!["src/".to_string()];
+    Arc::get_mut(&mut world)
+        .expect("exclusive world")
+        .definition = LoopDefinition::new(input).expect("definition");
+
+    let report = world.service().readiness("loop-1").expect("readiness");
+    let scope = report
+        .checks
+        .iter()
+        .find(|check| check.code == LoopReadinessCheckCode::PathScopeValid)
+        .expect("scope check");
+
+    assert!(!report.ready);
+    assert!(!scope.passed);
+    assert_eq!(scope.remediation_target, Some("verification"));
+}
+
+#[test]
+fn invalid_verification_commands_are_rejected_before_readiness_or_launch() {
+    let world = FakeWorld::new(true, true, vec![agent("worker"), agent("verifier")]);
+
+    assert!(LoopVerificationCommand::new(
+        "tests".to_string(),
+        " ".to_string(),
+        Vec::new(),
+        None,
+        0,
+        true,
+    )
+    .is_err());
+    assert!(world.run.lock().expect("run").is_none());
+    assert_eq!(*world.operation_starts.lock().expect("starts"), 0);
 }

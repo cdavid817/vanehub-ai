@@ -1,11 +1,20 @@
 import type {
   ContinueLoopInput,
   LoopDefinition,
+  LoopBranchChoice,
   LoopEvent,
+  LoopProjectChoice,
+  LoopReadinessReport,
   LoopRun,
   SaveLoopDefinitionInput,
   StartLoopResult,
 } from "../types/loop";
+
+export interface LoopReadinessService {
+  listLoopProjectChoices(): Promise<LoopProjectChoice[]>;
+  listLoopBranches(projectPath: string): Promise<LoopBranchChoice[]>;
+  checkLoopReadiness(definitionId: string): Promise<LoopReadinessReport>;
+}
 
 export interface LoopService {
   listLoopDefinitions(): Promise<LoopDefinition[]>;
@@ -23,3 +32,5 @@ export interface LoopService {
   rejectLoop(runId: string): Promise<LoopRun>;
   subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void): Promise<() => void>;
 }
+
+export interface LoopWorkbenchService extends LoopService, LoopReadinessService {}

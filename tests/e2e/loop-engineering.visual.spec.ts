@@ -26,7 +26,7 @@ test.describe("Loop engineering visual verification", () => {
       const loopCenter = page.locator("#loop-center");
       const timeline = loopCenter.getByRole("main");
       await expect(timeline.getByText("等待验收", { exact: true }).first()).toBeVisible();
-      await expect(timeline.getByText("验证检查")).toBeVisible();
+      await expect(timeline.getByLabel("人工验收").getByText("验证检查")).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
 
       if (variant.drawer === "navigation") {

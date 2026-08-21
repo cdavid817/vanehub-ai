@@ -26,20 +26,24 @@ pub(crate) use super::application::{
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
     DiscoverOnePieceProviderModelsInput, EmbeddingEndpointView, ExecutionToolMode, FileChangeKind,
     HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult,
-    LocalEndpointVerificationRequest, LocalModelDiscoveryResult, LoopDefinitionView, LoopRunView,
-    ManualApplyDelegationRequest, ManualStartDelegationRequest, NativeToolErrorCode,
-    NativeToolPersistencePort, NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
-    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, OrchestrationCorrelation, OrchestrationExecutionProfile,
-    ProviderCredentialValidationResult, ReadinessView, RecoveryRecord, RecoveryStatus,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
+    LocalEndpointVerificationRequest, LocalModelDiscoveryResult, LoopDefinitionView,
+    LoopReadinessReportView, LoopRunView, ManualApplyDelegationRequest,
+    ManualStartDelegationRequest, NativeToolErrorCode, NativeToolPersistencePort,
+    NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    OrchestrationCorrelation, OrchestrationExecutionProfile, ProviderCredentialValidationResult,
+    ReadinessView, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, ToolApprovalDecision,
     UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
+
+#[cfg(test)]
+pub(crate) use super::application::LoopReadinessCheckView;
 
 const GUARDED_VALIDATION_OUTPUT_LIMIT: usize = 4_000;
 
@@ -392,6 +396,27 @@ impl AgentRuntimeApi {
         run_id: &str,
     ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
         self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn check_loop_readiness(
+        &self,
+        definition_id: &str,
+    ) -> Result<LoopReadinessReportView, AgentRuntimeApplicationError> {
+        self.loops.readiness(definition_id)
+    }
+
+    pub(crate) async fn check_loop_readiness_blocking(
+        &self,
+        definition_id: String,
+    ) -> Result<LoopReadinessReportView, AgentRuntimeApplicationError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.check_loop_readiness(&definition_id))
+            .await
+            .map_err(|_| {
+                AgentRuntimeApplicationError::Loop(
+                    "Loop readiness task failed before completion.".to_string(),
+                )
+            })?
     }
 
     pub(crate) fn start_loop(

@@ -7,6 +7,10 @@ import process from "node:process";
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
 
+function normalizedPath(value) {
+  return value.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").toLowerCase();
+}
+
 const fixtureRoot = process.env.VANEHUB_APP_DATA_DIR
   ? join(dirname(process.env.VANEHUB_APP_DATA_DIR), "fixtures")
   : tmpdir();
@@ -87,12 +91,12 @@ globalThis.describe("VaneHub AI desktop LSP code intelligence domain", () => {
       { canonicalRoot: workspace, trusted: true },
     );
     assert.equal(trusted.trusted, true);
-    assert.equal(trusted.canonicalRoot, workspace);
+    assert.equal(normalizedPath(trusted.canonicalRoot), normalizedPath(workspace));
     const firstRevision = trusted.revision;
 
     const list = await invoke(({ core }) => core.invoke("list_lsp_workspace_trust"));
     assert.ok(
-      list.some((entry) => entry.canonicalRoot === workspace && entry.trusted),
+      list.some((entry) => normalizedPath(entry.canonicalRoot) === normalizedPath(workspace) && entry.trusted),
       "the trusted workspace did not appear in list_lsp_workspace_trust",
     );
 

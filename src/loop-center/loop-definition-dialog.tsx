@@ -3,16 +3,17 @@ import { ArrowLeft, ArrowRight, Loader2, Play, Save, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { useLoopBranchesQuery, useLoopProjectChoicesQuery } from "../hooks/use-loop-queries";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentRegistryEntry } from "../types/agent";
-import type { LoopDefinition, LoopLimits } from "../types/loop";
+import type { LoopBranchChoice, LoopDefinition, LoopLimits, LoopProjectChoice } from "../types/loop";
 import { createLoopDefinitionDraft, toSaveLoopDefinitionInput, validateLoopDefinitionStep, type LoopDefinitionDraft } from "./loop-definition-form";
 import { LoopVerificationCommandEditor } from "./loop-verification-command-editor";
 
 interface LoopDefinitionDialogProps {
   definition: LoopDefinition | null;
   onClose: () => void;
-  onSaved: (definition: LoopDefinition, runId: string | null) => void;
+  onSaved: (definition: LoopDefinition, requestStart: boolean) => void;
 }
 
 const steps = ["scope", "agents", "verification", "review"] as const;
@@ -21,7 +22,9 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const agents = useQuery({ queryKey: ["agents", "loops"], queryFn: () => agentService.listAgents() });
+  const projects = useLoopProjectChoicesQuery();
   const [draft, setDraft] = useState(() => createLoopDefinitionDraft(definition));
+  const branches = useLoopBranchesQuery(draft.projectPath);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +43,20 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
   }, [agents.data]);
 
   useEffect(() => {
+    const first = projects.data?.find((project) => project.available);
+    if (!first) return;
+    setDraft((current) => current.projectPath ? current : { ...current, projectPath: first.path });
+  }, [projects.data]);
+
+  useEffect(() => {
     const panel = panelRef.current;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panel?.querySelector<HTMLElement>("input, textarea, select, button")?.focus();
+    return () => previous?.focus();
+  }, []);
+
+  useEffect(() => {
+    const panel = panelRef.current;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !saving) onClose();
       if (event.key !== "Tab" || !panel) return;
@@ -79,8 +94,7 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
           : await agentService.createLoopDefinition(input);
         setPersistedDefinition(saved);
       }
-      const result = start ? await agentService.startLoop(saved.id) : null;
-      onSaved(saved, result?.run.id ?? null);
+      onSaved(saved, start);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -102,7 +116,7 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
           {steps.map((value, index) => <li className={`border-b-2 px-1 py-2 text-center text-[11px] font-medium sm:text-xs ${index === step ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`} key={value}>{index + 1}. {t(`loops.editor.step.${value}`)}</li>)}
         </ol>
         <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
-          {step === 0 ? <ScopeStep draft={draft} setDraft={updateDraft} /> : null}
+          {step === 0 ? <ScopeStep branches={branches.data ?? []} draft={draft} loading={projects.isLoading || branches.isFetching} projects={projects.data ?? []} setDraft={updateDraft} /> : null}
           {step === 1 ? <AgentsStep agents={agents.data ?? []} draft={draft} loading={agents.isLoading} setDraft={updateDraft} /> : null}
           {step === 2 ? <VerificationStep draft={draft} setDraft={updateDraft} showErrors={showStepErrors} /> : null}
           {step === 3 ? <ReviewStep agents={agents.data ?? []} draft={draft} /> : null}
@@ -122,11 +136,15 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
   );
 }
 
-function ScopeStep({ draft, setDraft }: StepProps) {
+function ScopeStep({ branches, draft, loading, projects, setDraft }: StepProps & { branches: LoopBranchChoice[]; loading: boolean; projects: LoopProjectChoice[] }) {
+  const { t } = useTranslation();
+  const projectOptions = retainProjectChoice(projects, draft.projectPath);
+  const branchOptions = retainBranchChoice(branches, draft.baseBranch);
   return <div className="grid gap-4 sm:grid-cols-2">
     <Field label="loops.editor.field.name"><input className={inputClass} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
-    <Field label="loops.editor.field.project"><input className={inputClass} value={draft.projectPath} onChange={(event) => setDraft({ ...draft, projectPath: event.target.value })} /></Field>
-    <Field label="loops.editor.field.branch"><input className={inputClass} value={draft.baseBranch} onChange={(event) => setDraft({ ...draft, baseBranch: event.target.value })} /></Field>
+    <Field label="loops.editor.field.project"><select className={inputClass} disabled={loading && projectOptions.length === 0} value={draft.projectPath} onChange={(event) => setDraft({ ...draft, projectPath: event.target.value })}><option value="">{t("loops.editor.selectProject")}</option>{projectOptions.map((project) => <option key={project.path} value={project.path}>{project.displayName}{project.available ? "" : ` — ${t("loops.editor.unavailable")}`}</option>)}</select></Field>
+    <Field label="loops.editor.field.branch"><select className={inputClass} disabled={!draft.projectPath || (loading && branchOptions.length === 0)} value={draft.baseBranch} onChange={(event) => setDraft({ ...draft, baseBranch: event.target.value })}><option value="">{t("loops.editor.selectBranch")}</option>{branchOptions.map((branch) => <option key={`${branch.kind}:${branch.name}`} value={branch.name}>{branch.name}{branch.available ? "" : ` — ${t("loops.editor.unavailable")}`}</option>)}</select></Field>
+    <label className="flex min-h-9 items-center gap-2 text-sm"><input checked={draft.enabled} className="h-4 w-4 accent-primary" onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} type="checkbox" /><span>{t("loops.editor.field.enabled")}</span></label>
     <Field className="sm:col-span-2" label="loops.editor.field.goal"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.goal} onChange={(event) => setDraft({ ...draft, goal: event.target.value })} /></Field>
     <Field className="sm:col-span-2" label="loops.editor.field.acceptance"><textarea className={`${inputClass} min-h-24 py-2`} value={draft.acceptanceCriteria} onChange={(event) => setDraft({ ...draft, acceptanceCriteria: event.target.value })} /></Field>
     <Field label="loops.editor.field.allowedPaths"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.allowedPaths} onChange={(event) => setDraft({ ...draft, allowedPaths: event.target.value })} /></Field>
@@ -159,8 +177,15 @@ function ReviewStep({ agents, draft }: { agents: AgentRegistryEntry[]; draft: Lo
   const { t } = useTranslation();
   const name = (id: string) => agents.find((agent) => agent.id === id)?.displayName ?? id;
   const commands = draft.verificationCommands.map((command) => `${command.program} ${command.arguments.split(/\r?\n/).filter(Boolean).join(" ")}`.trim()).join("; ");
-  const rows = [["name", draft.name], ["project", draft.projectPath], ["branch", draft.baseBranch], ["worker", name(draft.workerAgentId)], ["verifier", name(draft.verifierAgentId)], ["commands", commands], ["maxIterations", String(draft.limits.maxIterations)]];
-  return <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word text-sm">{value}</dd></div>)}</dl>;
+  const rows = [
+    ["name", draft.name], ["enabled", t(draft.enabled ? "loops.definition.enabled" : "loops.definition.disabled")],
+    ["project", draft.projectPath], ["branch", draft.baseBranch], ["goal", draft.goal], ["acceptance", draft.acceptanceCriteria],
+    ["allowedPaths", draft.allowedPaths], ["protectedPaths", draft.protectedPaths], ["worker", name(draft.workerAgentId)],
+    ["verifier", name(draft.verifierAgentId)], ["commands", commands], ["maxIterations", String(draft.limits.maxIterations)],
+    ["stepTimeoutSeconds", String(draft.limits.stepTimeoutSeconds)], ["totalTimeoutSeconds", String(draft.limits.totalTimeoutSeconds)],
+    ["maxConsecutiveRuntimeErrors", String(draft.limits.maxConsecutiveRuntimeErrors)], ["maxConsecutiveNoProgress", String(draft.limits.maxConsecutiveNoProgress)],
+  ];
+  return <div className="grid gap-4"><dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word whitespace-pre-line text-sm">{value}</dd></div>)}</dl><div className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground"><p>{t("loops.editor.review.worktree")}</p><p className="mt-1 font-medium text-foreground">{t("loops.editor.review.humanGate")}</p></div></div>;
 }
 
 interface StepProps { draft: LoopDefinitionDraft; setDraft: (draft: LoopDefinitionDraft) => void }
@@ -173,4 +198,14 @@ function Field({ children, className = "", label }: { children: ReactNode; class
 
 function NumberField({ draft, field, max, setDraft }: StepProps & { field: keyof LoopLimits; max?: number }) {
   return <Field label={`loops.editor.field.${field}`}><input className={inputClass} max={max} min={1} type="number" value={draft.limits[field]} onChange={(event) => setDraft({ ...draft, limits: { ...draft.limits, [field]: Number(event.target.value) } })} /></Field>;
+}
+
+function retainProjectChoice(choices: LoopProjectChoice[], value: string) {
+  if (!value || choices.some((choice) => choice.path === value)) return choices;
+  return [{ path: value, displayName: value, available: false, simulated: false }, ...choices];
+}
+
+function retainBranchChoice(choices: LoopBranchChoice[], value: string) {
+  if (!value || choices.some((choice) => choice.name === value)) return choices;
+  return [{ name: value, kind: "local" as const, available: false, simulated: false }, ...choices];
 }

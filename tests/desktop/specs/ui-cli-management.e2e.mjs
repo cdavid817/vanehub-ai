@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
+let detectionsRefreshed = false;
 
 // The Settings shell parks non-current pages with `hidden` rather than unmounting them, so the
 // visible panel is the one without the attribute. Same selector ui-settings.e2e.mjs uses.
@@ -47,15 +48,26 @@ const cliCard = (agentId) => globalThis.$(`${PANEL} [data-cli-agent="${agentId}"
  * opencode cases below skip as "not installed" against a binary that is sitting on disk.
  */
 async function refreshDetections() {
+  if (detectionsRefreshed) return;
   const refresh = await invoke(({ core }) => core.invoke("refresh_cli_detections"));
-  if (!refresh?.id) return;
+  if (!refresh?.id) {
+    detectionsRefreshed = true;
+    return;
+  }
   await globalThis.browser.waitUntil(async () => {
-    const status = await invoke(
-      ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
-      refresh.id,
-    );
-    return ["succeeded", "failed", "cancelled"].includes(status.status);
+    try {
+      const status = await invoke(
+        ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
+        refresh.id,
+      );
+      return ["succeeded", "failed", "cancelled"].includes(status.status);
+    } catch (error) {
+      // Detection operations are short-lived and may be evicted before the first poll. The page
+      // assertions below read the durable catalogue, so absence after creation is terminal here.
+      return String(error).includes("operation not found");
+    }
   }, { timeout: 120_000, interval: 2_000, timeoutMsg: "CLI detection refresh never settled." });
+  detectionsRefreshed = true;
 }
 
 globalThis.describe("VaneHub AI desktop CLI Management page", () => {
