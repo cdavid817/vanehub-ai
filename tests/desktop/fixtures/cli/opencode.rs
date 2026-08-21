@@ -1,5 +1,7 @@
 use std::env;
 use std::io::{self, BufRead, Write};
+use std::thread;
+use std::time::Duration;
 
 fn main() -> io::Result<()> {
     if env::args().skip(1).any(|arg| arg == "--version") {
@@ -7,6 +9,7 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    thread::sleep(Duration::from_millis(500));
     println!("VANEHUB-FIXTURE-CLI READY");
     io::stdout().flush()?;
     for line in io::stdin().lock().lines() {
