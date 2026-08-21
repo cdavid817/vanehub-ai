@@ -4,9 +4,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { PromptHook, PromptHookVersionHistory } from "../../../types/prompt-hook";
-import { PromptHookLifecyclePanel } from "./prompt-hook-lifecycle-panel";
+import { PromptHookDetailPanel } from "./prompt-hook-detail-panel";
 
-describe("PromptHookLifecyclePanel", () => {
+describe("PromptHookDetailPanel", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("shows variables, draft state, version metrics, publishing, and confirmed rollback", async () => {
@@ -31,22 +31,24 @@ describe("PromptHookLifecyclePanel", () => {
       rollbackPromptHook: rollback,
     });
     const { user } = renderWithAppProviders(
-      <PromptHookLifecyclePanel
+      <PromptHookDetailPanel
+        agents={[{ id: "codex-cli", displayName: "Codex CLI" }]}
         hook={hook}
         onChanged={() => undefined}
         onClose={() => undefined}
+        onDelete={() => undefined}
+        onPreview={() => undefined}
+        onToggleAgent={() => undefined}
+        onToggleEnabled={() => undefined}
         service={service}
       />,
     );
 
-    expect(await screen.findByText("草稿修订 2", {}, { timeout: 20_000 })).toBeTruthy();
-    expect(screen.getByText("v2 · 当前版本")).toBeTruthy();
-    expect(screen.getByText("50%")).toBeTruthy();
-    expect(screen.getByText("200 ms")).toBeTruthy();
-    expect(screen.getByText("1/1")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "内容与发布" }));
+    expect(await screen.findByText(/草稿修订 2/, {}, { timeout: 20_000 })).toBeTruthy();
     expect(screen.getByText("当前 Agent 的显示名称")).toBeTruthy();
-    expect(screen.getByText("选择 Agent 后可用")).toBeTruthy();
-    expect(screen.getByText("Codex CLI")).toBeTruthy();
+    expect(screen.getByText(/选择 Agent 后可用/)).toBeTruthy();
+    expect(screen.getByText(/Codex CLI/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "{{agent_name}}" }));
     expect(screen.getByLabelText("模板正文")).toHaveProperty(
       "value",
@@ -59,6 +61,12 @@ describe("PromptHookLifecyclePanel", () => {
       expectedDraftRevision: 2,
       expectedPublishedVersion: 2,
     });
+
+    await user.click(screen.getByRole("tab", { name: "版本历史" }));
+    expect(screen.getByText("v2 · 当前版本")).toBeTruthy();
+    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByText("200 ms")).toBeTruthy();
+    expect(screen.getByText("1/1")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "回滚" }));
     const confirmation = await screen.findByRole("dialog", { name: /确认将 v1 重新发布/ });
     await user.click(within(confirmation).getByRole("button", { name: "确认" }));
@@ -80,15 +88,21 @@ describe("PromptHookLifecyclePanel", () => {
       savePromptHookDraft: save,
     });
     const { user } = renderWithAppProviders(
-      <PromptHookLifecyclePanel
+      <PromptHookDetailPanel
+        agents={[{ id: "codex-cli", displayName: "Codex CLI" }]}
         hook={hook}
         onChanged={() => undefined}
         onClose={() => undefined}
+        onDelete={() => undefined}
+        onPreview={() => undefined}
+        onToggleAgent={() => undefined}
+        onToggleEnabled={() => undefined}
         service={service}
       />,
     );
 
-    await screen.findByText("草稿修订 2", {}, { timeout: 20_000 });
+    await user.click(screen.getByRole("tab", { name: "内容与发布" }));
+    await screen.findByText(/草稿修订 2/, {}, { timeout: 20_000 });
     await user.click(screen.getByRole("button", { name: "发布" }));
     expect(await screen.findByText(/stale_variable/)).toBeTruthy();
 

@@ -87,7 +87,7 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         }),
     );
     if !context.ok {
-        let _ = worker.shutdown(Duration::from_secs(5));
+        let _ = worker.shutdown(limits.request_timeout);
         return;
     }
     let context_id = context
@@ -192,7 +192,7 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         .ok
     );
     worker
-        .shutdown(Duration::from_secs(5))
+        .shutdown(limits.request_timeout)
         .expect("worker shutdown");
 }
 
