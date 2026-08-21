@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
