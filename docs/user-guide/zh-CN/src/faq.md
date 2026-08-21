@@ -73,3 +73,9 @@ CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何
 ## 我想了解内部实现，看哪里？
 
 本指南只讲怎么用。想知道这些机制**为什么这样设计**、内部如何实现，见[《VaneHub AI 开发者指南》](../../../developer-guide/zh-CN/src/index.md)——它面向开发者与贡献者，含架构说明与代码位置引用。
+
+再往下一层是**协议与技术本身**：MCP、LSP、Function Calling、Agent Skills、RAG、Tree-sitter、多 Agent 编排、A2A 等，见[Agent 基础设施技术文档](../../../agent-infrastructure/README.md)。
+
+## 这里没有我的问题怎么办？
+
+功能行为的疑问看本页，出错了看[故障排查](troubleshooting.md)。两边都没有，就[提一个 Issue](reporting-issues.md)——那一章写了要填什么、日志从哪取，以及提交前怎么脱敏。

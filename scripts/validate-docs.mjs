@@ -288,6 +288,23 @@ export function boundedContextDrift(documented, actual) {
   return { stale, undocumented };
 }
 
+/**
+ * Context names from every `| \`name\` |` row of a guide chapter, wherever those rows sit.
+ *
+ * The chapter groups its contexts under several headings and carries a second table of
+ * facades that repeats a subset of them, so this collects across the whole file and dedupes
+ * rather than reading one table the way the standards file is read. Anything the chapter
+ * mentions in prose stays out: only a leading table cell counts as documenting a context.
+ */
+export function chapterBoundedContexts(chapter) {
+  const names = new Set();
+  for (const line of chapter.split(/\r?\n/)) {
+    const row = line.trim().match(/^\|\s*`([a-z_]+)`\s*\|/);
+    if (row) names.add(row[1]);
+  }
+  return [...names].sort();
+}
+
 /** Line-scanned rather than sliced by regex, because the standards file uses CRLF endings. */
 export function documentedBoundedContexts(standards) {
   const lines = standards.split(/\r?\n/);
@@ -331,6 +348,44 @@ function validateBoundedContexts(errors) {
   }
   for (const name of stale) {
     errors.push(`openspec/project.md: bounded context "${name}" is documented but has no directory in src-tauri/src/contexts/.`);
+  }
+
+  validateContextMapChapters(errors, actual);
+}
+
+/**
+ * The developer guide's context map is the chapter a contributor opens to find where code
+ * lives, and nothing checked it. It had drifted to eight rows against twenty-one directories,
+ * so thirteen subsystems — browser automation, sandboxed execution, SSH, goals — were absent
+ * from the map that claims to be complete.
+ *
+ * Only the chapters listed here are enforced. A translation joins the list once it carries the
+ * full map, so an untranslated guide fails review rather than CI.
+ */
+const enforcedContextMapChapters = [
+  "docs/developer-guide/zh-CN/src/native-contexts.md",
+  "docs/developer-guide/src/native-contexts.md",
+];
+
+function validateContextMapChapters(errors, actual) {
+  for (const relative of enforcedContextMapChapters) {
+    const path = resolve(repositoryRoot, relative);
+    if (!existsSync(path)) {
+      errors.push(`${relative}: the bounded-context map chapter is missing.`);
+      continue;
+    }
+    const documented = chapterBoundedContexts(readFileSync(path, "utf8"));
+    if (documented.length === 0) {
+      errors.push(`${relative}: no bounded-context table rows could be read.`);
+      continue;
+    }
+    const { stale, undocumented } = boundedContextDrift(documented, actual);
+    for (const name of undocumented) {
+      errors.push(`${relative}: bounded context "${name}" exists in src-tauri/src/contexts/ but has no row in the context map.`);
+    }
+    for (const name of stale) {
+      errors.push(`${relative}: bounded context "${name}" is mapped but has no directory in src-tauri/src/contexts/.`);
+    }
   }
 }
 

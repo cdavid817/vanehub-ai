@@ -2704,9 +2704,11 @@ CSS token 的三层架构——原始 token（颜色值）、语义 token（语�
 
 让我们跟随一个新用户从零开始的完整旅程，看 VaneHub 的各个子系统如何被串联起来。这个用户刚装好 VaneHub，想用 Claude Code 完成一个编码任务。这个旅程会经过 CLI 检测、SDK 安装、会话创建、配置、生成、流式、计量、持久化的全链路。
 
-旅程的第一步是可用性检测。用户打开应用时，agent 运行时的可用性适配器会检查 Claude Code 是否已安装。这个检查分两层：先看受管 SDK（claude-sdk）是否就绪，因为 Claude Code 依赖它；如果 SDK 不在，看 PATH 上有没有 `claude` 可执行文件。这个两层检查反映了一个事实：有的用户可能已经自己装了 Claude Code，有的用户依赖 VaneHub 帮它装 SDK。检测结果是"可用"、"不可用"、"需要认证"或"未知"之一。如果 Claude Code 不可用，agent 在注册表里会被标记为不可选，UI 上提示用户去 CLI 管理页安装。
+旅程的第一步是可用性检测。用户打开应用时，agent 运行时的可用性适配器会检查 Claude Code 是否已安装。这个检查分两层，但**两层是串联的闸门而不是互为回退**（`AvailabilityAssessment::assess`，`domain/catalog.rs:144`）：先看受管 SDK（claude-sdk）是否就绪，缺失就直接判定为"不可用"并附上原因，**PATH 根本不会被查**；只有当 SDK 已就绪或该 agent 压根不需要受管 SDK 时，才继续看 PATH 上有没有 `claude` 可执行文件。检测结果是"可用"、"不可用"、"需要认证"或"未知"之一。如果 Claude Code 不可用，agent 在注册表里会被标记为不可选，UI 上提示用户去 CLI 管理页安装。
 
-用户决定让 VaneHub 帮他安装。他在 CLI 管理页点安装。这个动作触发一个可观测操作——`operations.start` 创建一个操作任务，状态为排队。然后操作进入运行态，工具子域的包适配器执行 npm install，把 claude-sdk 装到一个受管目录。安装过程的每一行输出被记录到三个 sink：操作任务的日志（供 UI 实时展示）、sdk_operation_logs 表（供历史查询）、统一日志（供持久诊断）。安装完成后操作任务转成功，CLI 检测重新跑，这次 Claude Code 被标记为可用。
+这里要说清楚一件容易误解的事：**受管 SDK 不是 CLI 的运行时依赖**。VaneHub 驱动 Claude Code、Codex、Gemini、OpenCode、Antigravity 的方式自始至终是 headless 命令行——按 provider 规则拼出 argv（`claude -p --output-format stream-json --include-partial-messages --verbose`、`codex exec --json -` 等），启动子进程或 PTY，再解析它们各自的结构化输出。执行链路从不加载 `@anthropic-ai/claude-agent-sdk` 或 `@openai/codex-sdk`，这两个 npm 包只出现在 tooling 的 SDK 子域目录里，供"安装/升级/回退"这一组管理动作使用。因此把 SDK 状态放在可用性闸门的第一层，会让一个 `claude`/`codex` 已装好且能正常执行的环境仅仅因为没装那个 npm 包就被判为不可用——这是当前实现的行为，不是被驱动 CLI 的真实约束。
+
+用户决定让 VaneHub 帮他安装。他在 CLI 管理页点安装。这个动作触发一个可观测操作——`operations.start` 创建一个操作任务，状态为排队。然后操作进入运行态，工具子域的包适配器执行 npm install，把 claude-sdk 装到一个受管目录。安装过程的每一行输出被记录到三个 sink：操作任务的日志（供 UI 实时展示）、sdk_operation_logs 表（供历史查询）、统一日志（供持久诊断）。安装完成后操作任务转成功，CLI 检测重新跑——此时闸门的第一层放行了，但结论仍取决于第二层：`claude` 可执行文件必须在 PATH 上，agent 才会被标记为可用。装上 npm 包本身并不会产生这个可执行文件。
 
 这里有一个细节值得注意：安装是异步的，UI 立即拿到操作任务 ID 返回，用户能在操作面板看到进度。这种"立即返回 + 异步执行 + 进度可观测"的模式，是 VaneHub 处理所有长操作的标准模式，它保证了 UI 永远不会因为一个慢操作而卡死。
 

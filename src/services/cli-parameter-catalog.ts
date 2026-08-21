@@ -23,7 +23,8 @@ const option = (prefix: string, value: string) => ({
     : `${prefix}.values.${value}.description`,
 });
 
-function enumDefinition(
+function textDefinition(
+  control: "enum" | "custom-text",
   agentId: ManagedCliAgentId,
   id: string,
   flag: string,
@@ -37,31 +38,7 @@ function enumDefinition(
     id,
     agentId,
     flag,
-    control: "enum",
-    labelKey: `${prefix}.label`,
-    descriptionKey: `${prefix}.description`,
-    options: values.map((value) => (value === "default" ? defaultOption(prefix) : option(prefix, value))),
-    defaultValue,
-    launchScopes: scopes,
-    risk,
-  };
-}
-
-function customTextDefinition(
-  agentId: ManagedCliAgentId,
-  id: string,
-  flag: string,
-  values: string[],
-  scopes: Array<"interactive" | "chat"> = ["interactive", "chat"],
-  defaultValue = "default",
-  risk: "normal" | "warning" = "normal",
-): CliParameterDefinition {
-  const prefix = `cliParameters.${agentId}.${id}`;
-  return {
-    id,
-    agentId,
-    flag,
-    control: "custom-text",
+    control,
     labelKey: `${prefix}.label`,
     descriptionKey: `${prefix}.description`,
     options: values.map((value) => (value === "default" ? defaultOption(prefix) : option(prefix, value))),
@@ -95,30 +72,45 @@ function booleanDefinition(
 
 export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefinition[]> = {
   "claude-code": [
-    customTextDefinition("claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
-    enumDefinition("claude-code", "effort", "--effort", ["default", "low", "medium", "high", "xhigh", "max"]),
+    textDefinition("custom-text", "claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
+    textDefinition("enum", "claude-code", "effort", "--effort", ["default", "low", "medium", "high", "xhigh", "max"]),
     booleanDefinition("claude-code", "chrome", "--chrome", ["interactive"]),
+    textDefinition("custom-text", "claude-code", "agent", "--agent", ["default"]),
+    textDefinition("custom-text", "claude-code", "advisor", "--advisor", ["default"]),
+    booleanDefinition("claude-code", "disableSlashCommands", "--disable-slash-commands", ["interactive"]),
+    booleanDefinition("claude-code", "screenReader", "--ax-screen-reader", ["interactive"]),
+    booleanDefinition("claude-code", "bare", "--bare", ["interactive"]),
+    booleanDefinition("claude-code", "safeMode", "--safe-mode", ["interactive", "chat"]),
   ],
   "codex-cli": [
-    customTextDefinition("codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
-    enumDefinition("codex-cli", "reasoningEffort", "--config", ["default", "low", "medium", "high", "xhigh", "max"]),
+    textDefinition("custom-text", "codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
+    textDefinition("enum", "codex-cli", "reasoningEffort", "--config", ["default", "low", "medium", "high", "xhigh", "max"]),
     booleanDefinition("codex-cli", "ephemeral", "--ephemeral", ["chat"]),
     booleanDefinition("codex-cli", "strictConfig", "--strict-config", ["interactive", "chat"]),
+    textDefinition("custom-text", "codex-cli", "profile", "--profile", ["default"]),
+    booleanDefinition("codex-cli", "search", "--search", ["interactive", "chat"]),
+    booleanDefinition("codex-cli", "oss", "--oss", ["interactive", "chat"]),
+    booleanDefinition("codex-cli", "noAltScreen", "--no-alt-screen", ["interactive"]),
   ],
   opencode: [
-    customTextDefinition("opencode", "model", "--model", ["default"]),
-    customTextDefinition("opencode", "variant", "--variant", ["default", "low", "medium", "high", "max"], ["chat"]),
+    textDefinition("custom-text", "opencode", "model", "--model", ["default"]),
+    textDefinition("custom-text", "opencode", "variant", "--variant", ["default", "low", "medium", "high", "max"], ["chat"]),
     booleanDefinition("opencode", "thinking", "--thinking", ["chat"]),
+    booleanDefinition("opencode", "pure", "--pure", ["interactive"]),
+    booleanDefinition("opencode", "printLogs", "--print-logs", ["interactive", "chat"]),
+    textDefinition("enum", "opencode", "logLevel", "--log-level", ["default", "DEBUG", "INFO", "WARN", "ERROR"]),
   ],
   // No bypass-flag entry: Antigravity's graduated approval modes live in its settings document,
   // so a permissive posture is reached through the CLI configuration profile instead.
   "antigravity-cli": [
-    customTextDefinition("antigravity-cli", "model", "--model", ["default"]),
-    enumDefinition("antigravity-cli", "effort", "--effort", ["default", "low", "medium", "high"]),
-    customTextDefinition("antigravity-cli", "agent", "--agent", ["default"]),
+    textDefinition("custom-text", "antigravity-cli", "model", "--model", ["default"]),
+    textDefinition("enum", "antigravity-cli", "effort", "--effort", ["default", "low", "medium", "high"]),
+    textDefinition("custom-text", "antigravity-cli", "agent", "--agent", ["default"]),
   ],
   "gemini-cli": [
-    customTextDefinition("gemini-cli", "model", "--model", ["default", "auto", "pro", "flash", "flash-lite"]),
+    textDefinition("custom-text", "gemini-cli", "model", "--model", ["default", "auto", "pro", "flash", "flash-lite"]),
+    booleanDefinition("gemini-cli", "debug", "--debug", ["interactive", "chat"]),
+    booleanDefinition("gemini-cli", "screenReader", "--screen-reader", ["interactive"]),
   ],
 };
 

@@ -18,8 +18,8 @@ use crate::contexts::tooling::skills::application::{
     SkillScopeQuery, SkillWorkspaceSelectionPort, BUILTIN_RECONCILIATION_VERSION,
 };
 use crate::contexts::tooling::skills::domain::{
-    builtin_definitions, SkillAvailability, SkillId, SkillKey, SkillLayer, SkillLocation,
-    SkillOrigin, SkillScope, SkillSource,
+    builtin_definitions, SkillAvailability, SkillDriftIssueType, SkillId, SkillKey, SkillLayer,
+    SkillLocation, SkillOrigin, SkillScope, SkillSource,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -719,4 +719,98 @@ fn drift_repairs_immutable_system_cache_but_adopts_mutable_override_changes() {
         .metadata
         .description
         .starts_with("User revised override:"));
+}
+
+#[test]
+fn reported_legacy_builtin_cache_drift_converges_for_the_entire_affected_set() {
+    const AFFECTED_SKILLS: [&str; 4] = [
+        "api-doc-generation",
+        "code-review",
+        "code-security-scan",
+        "readme-generation",
+    ];
+    let stack = RuntimeStack::new("reported-legacy-builtin-drift");
+    let listed = stack
+        .service
+        .list_skills(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("seed immutable System packages");
+
+    for skill_id in AFFECTED_SKILLS {
+        let record = listed
+            .skills
+            .iter()
+            .find(|record| record.key.id.as_str() == skill_id)
+            .expect("affected System record");
+        make_test_file_writable(&record.managed_source.skill_md_path);
+        let current = std::fs::read_to_string(&record.managed_source.skill_md_path)
+            .expect("current derived cache");
+        std::fs::write(
+            &record.managed_source.skill_md_path,
+            format!("{current}\nlegacy-registry-cache-snapshot: {skill_id}\n"),
+        )
+        .expect("write legacy cache divergence");
+    }
+
+    let before = stack
+        .service
+        .detect_skill_drift(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("detect reported drift");
+    for skill_id in AFFECTED_SKILLS {
+        assert!(
+            before.issues.iter().any(|issue| {
+                issue.skill_id == skill_id
+                    && issue.issue_type == SkillDriftIssueType::MetadataChanged
+            }),
+            "the legacy fixture must reproduce drift for {skill_id}: {:?}",
+            before.issues
+        );
+    }
+
+    let synchronized = stack
+        .service
+        .sync_skill_drift(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("synchronize affected built-ins");
+    assert!(
+        synchronized.failed.is_empty(),
+        "sync failures: {:?}",
+        synchronized.failed
+    );
+    for skill_id in AFFECTED_SKILLS {
+        assert!(synchronized.restored.contains(&skill_id.to_string()));
+        assert!(synchronized
+            .resolved_from
+            .issues
+            .iter()
+            .any(|issue| issue.skill_id == skill_id));
+    }
+
+    let after = stack
+        .service
+        .detect_skill_drift(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("detect post-repair drift");
+    assert!(
+        after
+            .issues
+            .iter()
+            .all(|issue| !AFFECTED_SKILLS.contains(&issue.skill_id.as_str())),
+        "repaired built-ins must not reappear: {:?}",
+        after.issues
+    );
+
+    let repeated = stack
+        .service
+        .sync_skill_drift(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("repeat synchronization");
+    assert!(repeated.resolved_from.issues.is_empty());
+    assert!(repeated.restored.is_empty());
 }

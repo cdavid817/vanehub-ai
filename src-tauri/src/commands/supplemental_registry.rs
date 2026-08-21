@@ -96,5 +96,77 @@ pub(super) fn is_command(command: &str) -> bool {
             | "set_im_binding_paused"
             | "set_im_completion_notifications"
             | "remove_im_session_binding"
+            | "list_goals"
+            | "get_goal"
+            | "create_goal"
+            | "update_goal"
+            | "delete_goal"
+            | "link_goal_target"
+            | "unlink_goal_target"
+            | "activate_goal"
+            | "accept_goal"
+            | "reopen_goal"
+            | "abandon_goal"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    /// This file holds the same command list twice: `generate_handler!` registers the handlers,
+    /// and `is_command` decides what gets routed to them. Nothing but agreement between two
+    /// hand-edited lists keeps them in step, and when they drifted the whole Goals domain became
+    /// unreachable on the desktop -- eleven commands registered, none listed, so every call fell
+    /// through to the core handler and came back "unknown command" (D-01, fixed in 13b0738f).
+    ///
+    /// Neither list is enumerable at runtime: `generate_handler!` expands to a closure and
+    /// `is_command` to a `matches!`. So the check reads this file's own source, which is exactly
+    /// what the drift is in. Adding a command to one list and not the other fails here rather than
+    /// in whichever feature silently stops working.
+    #[test]
+    fn every_registered_supplemental_command_is_also_routed_to() {
+        let source = include_str!("supplemental_registry.rs");
+        let (handler_block, routing_block) = source
+            .split_once("pub(super) fn is_command")
+            .expect("the routing function should follow the handler list");
+
+        let registered: std::collections::BTreeSet<&str> = handler_block
+            .lines()
+            .filter_map(|line| line.trim().strip_suffix(','))
+            .filter(|line| line.starts_with("crate::commands::"))
+            .filter_map(|path| path.rsplit("::").next())
+            .collect();
+
+        // Skips this comment block's own quoted names by taking only lines whose whole content is
+        // one quoted identifier, optionally preceded by the `|` of the `matches!` arm.
+        let routed: std::collections::BTreeSet<&str> = routing_block
+            .lines()
+            .map(|line| line.trim().trim_start_matches('|').trim())
+            .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
+            .filter(|name| {
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+            })
+            .collect();
+
+        assert!(
+            !registered.is_empty() && !routed.is_empty(),
+            "the lists could not be parsed: {} registered, {} routed",
+            registered.len(),
+            routed.len(),
+        );
+        let registered_not_routed: Vec<_> = registered.difference(&routed).collect();
+        assert!(
+            registered_not_routed.is_empty(),
+            "registered with generate_handler! but not routed by is_command, so calls report \
+             \"unknown command\": {registered_not_routed:?}",
+        );
+        let routed_not_registered: Vec<_> = routed.difference(&registered).collect();
+        assert!(
+            routed_not_registered.is_empty(),
+            "routed by is_command but not registered with generate_handler!, so calls reach no \
+             handler at all: {routed_not_registered:?}",
+        );
+    }
 }

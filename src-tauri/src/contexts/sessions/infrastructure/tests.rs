@@ -241,6 +241,7 @@ fn session_record(
             role_snapshot: None,
             joined_at: updated_at.to_string(),
             left_at: None,
+            provider_thread_id: None,
         }],
         interaction_mode: "interactive".to_string(),
         workspace: SessionWorkspace {

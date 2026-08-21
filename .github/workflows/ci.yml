@@ -43,6 +43,9 @@ jobs:
       - name: Release version sync regression tests
         run: npm run version:unit:test
 
+      - name: Release policy regression tests
+        run: npm run release:unit:test
+
       - name: Vitest with coverage
         run: npm run test:coverage
 

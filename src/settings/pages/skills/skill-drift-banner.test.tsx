@@ -31,4 +31,21 @@ describe("SkillDriftBanner", () => {
     await user.click(screen.getByRole("button", { name: "关闭同步结果" }));
     expect(dismiss).toHaveBeenCalledOnce();
   });
+
+  it("shows bounded per-Skill reasons for partial synchronization failures", () => {
+    const failed = Array.from({ length: 6 }, (_, index) => ({
+      skillId: `broken-${index + 1}`,
+      reason: `failure-${index + 1}`,
+    }));
+    render(<SkillDriftBanner
+      drift={{ ...drift, issues: [{ skillId: "broken-1", type: "metadata-changed", agentId: null, path: null, message: "changed" }] }}
+      onSync={vi.fn()}
+      syncResult={{ mounted: [], unmounted: [], overwritten: [], restored: [], backedUp: [], failed, resolvedFrom: drift }}
+      syncing={false}
+    />);
+
+    expect(screen.getByRole("alert").textContent).toContain("broken-1: failure-1");
+    expect(screen.getByRole("alert").textContent).toContain("broken-4: failure-4");
+    expect(screen.queryByText(/broken-5:/)).toBeNull();
+  });
 });

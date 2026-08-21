@@ -182,8 +182,19 @@ pub(crate) struct CreateSessionInput {
     pub(crate) worktree: Option<CreateWorktreeInput>,
 }
 
+// `rename_all` renames the *variants* ("minutes", "daily"); it does not reach the fields inside
+// them, so without `rename_all_fields` this enum accepted `{kind: "daily", time_of_day: "09:00"}`
+// while every caller -- the dialog, `ScheduledTaskFrequency` in types/agent.ts, and the web mock
+// client -- sends `timeOfDay`. Daily, weekly and monthly tasks were rejected at the IPC boundary
+// with `missing field time_of_day`, and the dialog opens on daily, so the feature's default path
+// could not create a task at all. Only minutes and hours worked, their `interval` being one word
+// in either convention.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum ScheduledTaskFrequency {
     Minutes {
         interval: i64,

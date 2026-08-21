@@ -24,6 +24,13 @@ pub(crate) struct SessionSeat {
     pub(crate) role_snapshot: Option<SessionSeatRoleSnapshot>,
     pub(crate) joined_at: String,
     pub(crate) left_at: Option<String>,
+    /// The provider thread this seat resumes, as reported by its own Agent's CLI.
+    ///
+    /// A provider thread belongs to the Agent that created it, so it cannot live on the session:
+    /// `sessions.runtime_session_id` held whichever Agent spoke first, and every other seat then
+    /// resumed an id its CLI had never issued. `None` means this seat has not spoken yet and must
+    /// start a new thread rather than borrow one.
+    pub(crate) provider_thread_id: Option<String>,
 }
 
 impl SessionSeat {
@@ -51,6 +58,7 @@ pub(crate) fn encode_seats(seats: &[SessionSeat]) -> String {
                 })),
                 "joinedAt": seat.joined_at,
                 "leftAt": seat.left_at,
+                "providerThreadId": seat.provider_thread_id,
             })
         })
         .collect();
@@ -75,6 +83,7 @@ pub(crate) fn decode_seats(
         role_snapshot: None,
         joined_at: created_at.to_string(),
         left_at: None,
+        provider_thread_id: None,
     }];
     let Ok(serde_json::Value::Array(entries)) = serde_json::from_str::<serde_json::Value>(stored)
     else {
@@ -110,6 +119,11 @@ pub(crate) fn decode_seats(
                 left_at: entry
                     .get("leftAt")
                     .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                provider_thread_id: entry
+                    .get("providerThreadId")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
                     .map(str::to_string),
             })
         })
@@ -157,6 +171,46 @@ mod tests {
             role_snapshot: None,
             joined_at: "2026-08-10T00:00:00Z".to_string(),
             left_at: None,
+            provider_thread_id: None,
+        }
+    }
+
+    /// The id is what a later turn resumes, so losing it in storage silently sends the seat back
+    /// to a new thread and drops its history.
+    #[test]
+    fn round_trips_a_seats_provider_thread() {
+        let seats = vec![SessionSeat {
+            provider_thread_id: Some("thread-abc".to_string()),
+            ..seat("claude-code", Some("role-architect"))
+        }];
+        assert_eq!(
+            decode_seats(
+                &encode_seats(&seats),
+                "session-1",
+                "claude-code",
+                "2026-08-10T00:00:00Z"
+            ),
+            seats
+        );
+    }
+
+    /// Seats stored before this field existed carry no thread of their own. Reading one as `None`
+    /// is what sends it to a new thread instead of to another seat's.
+    #[test]
+    fn reads_a_seat_stored_without_a_provider_thread_as_having_none() {
+        let stored = r#"[{"agentId":"claude-code","seatId":"session-1:seat:0",
+            "joinedAt":"2026-08-10T00:00:00Z"}]"#;
+        let seats = decode_seats(stored, "session-1", "claude-code", "2026-08-10T00:00:00Z");
+        assert_eq!(seats[0].provider_thread_id, None);
+    }
+
+    /// An empty string is not a thread id. Passing one through would become `--resume ""`.
+    #[test]
+    fn treats_a_blank_provider_thread_as_absent() {
+        for stored in [r#""""#, r#""   ""#, "null"] {
+            let json = format!(r#"[{{"agentId":"claude-code","providerThreadId":{stored}}}]"#);
+            let seats = decode_seats(&json, "session-1", "claude-code", "2026-08-10T00:00:00Z");
+            assert_eq!(seats[0].provider_thread_id, None, "failed for {stored}");
         }
     }
 

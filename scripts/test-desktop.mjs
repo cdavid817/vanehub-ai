@@ -57,6 +57,16 @@ async function loadArtifact() {
   return JSON.parse(await readFile(latestArtifactPath, "utf8"));
 }
 
+/** Pass/fail/skip counts the WDIO run recorded, or null when it never got that far. */
+async function readWdioCoverage(resultDir) {
+  try {
+    const parsed = JSON.parse(await readFile(path.join(resultDir, "wdio-result.json"), "utf8"));
+    return typeof parsed.skipped === "number" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Runs one wdio-driven desktop layer end to end: isolated run context, artifact launch, owned
  * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
@@ -122,9 +132,11 @@ async function runDesktopLayer({ layer, config, label, artifact }) {
     nativeLogs,
     ...(errorDetails ? { error: errorDetails } : {}),
   });
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult] });
+  const coverage = await readWdioCoverage(context.resultDir);
+  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
   await disposeRunContext(context);
-  process.stdout.write(`${label}: ${status}\nEvidence: ${context.resultDir}\n`);
+  const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
+  process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
 }

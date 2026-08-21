@@ -204,17 +204,18 @@ mod tests {
         assert!(agent.has_capability("coding"));
     }
 
+    /// The reason has to name what the user must actually fix. The executable is what execution
+    /// needs — nothing on that path loads the managed SDK — so when a binary is on PATH the Agent
+    /// is available whatever the SDK says, and when it is not, PATH is what gets reported. The SDK
+    /// reasons are still preserved for the case where the SDK is the only evidence there is.
     #[test]
     fn availability_assessment_preserves_dependency_and_executable_reasons() {
         let missing_sdk = AvailabilityAssessment::assess(AvailabilityProbe {
             managed_sdk: ManagedSdkStatus::Missing("codex-sdk".to_string()),
             executable: ExecutableStatus::Available,
         });
-        assert_eq!(missing_sdk.state(), AgentAvailability::Unavailable);
-        assert_eq!(
-            missing_sdk.reason(),
-            Some("Managed SDK dependency 'codex-sdk' is not installed.")
-        );
+        assert_eq!(missing_sdk.state(), AgentAvailability::Available);
+        assert_eq!(missing_sdk.reason(), None);
 
         let missing_command = AvailabilityAssessment::assess(AvailabilityProbe {
             managed_sdk: ManagedSdkStatus::NotRequired,
@@ -233,9 +234,20 @@ mod tests {
             AgentAvailability::Unknown
         );
 
+        // No executable declared: the managed SDK is all there is to go on, so its wording stands.
+        let missing_sdk_only = AvailabilityAssessment::assess(AvailabilityProbe {
+            managed_sdk: ManagedSdkStatus::Missing("codex-sdk".to_string()),
+            executable: ExecutableStatus::NotDeclared,
+        });
+        assert_eq!(missing_sdk_only.state(), AgentAvailability::Unavailable);
+        assert_eq!(
+            missing_sdk_only.reason(),
+            Some("Managed SDK dependency 'codex-sdk' is not installed.")
+        );
+
         let unknown_sdk = AvailabilityAssessment::assess(AvailabilityProbe {
             managed_sdk: ManagedSdkStatus::Unrecognized("other-sdk".to_string()),
-            executable: ExecutableStatus::Available,
+            executable: ExecutableStatus::NotDeclared,
         });
         assert_eq!(unknown_sdk.state(), AgentAvailability::Unavailable);
         assert_eq!(

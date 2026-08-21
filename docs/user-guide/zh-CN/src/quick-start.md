@@ -4,7 +4,7 @@
 
 ## 1. 准备一个 CLI
 
-VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管 Provider 认证。至少装一个。装法有两种：
+VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管各家的订阅登录。至少装一个。装法有两种：
 
 **方式 A：在 VaneHub AI 里装（推荐）**
 
@@ -22,21 +22,44 @@ npm install -g @anthropic-ai/claude-code
 
 ## 1.5 认证 / 配置模型
 
-CLI Agent 和原生 Agent 的认证方式不同：
+有两件事容易混为一谈，先分开看：**登录**是向厂商证明你是谁，**配置模型**是决定这个 CLI 去调哪个端点、哪个模型。VaneHub AI 管得了后者，管不了前者。
 
-**外部 CLI（Claude Code、Codex CLI、Gemini CLI 等）——在终端里完成官方登录**
+| | 官方订阅登录（OAuth） | 配置第三方大模型 |
+| --- | --- | --- |
+| **外部 CLI** | 只能在终端里做 | **可以在 VaneHub AI 里做** |
+| **原生 Agent OnePiece** | 不涉及 | 在 VaneHub AI 里做 |
 
-VaneHub AI 不替你走各家的登录流程，也不保存它们的凭据。先在普通终端里跑一次并完成认证：
+### 官方登录：在终端里完成
+
+VaneHub AI 不替你走各家的 OAuth 流程，也不保存由此产生的会话凭据。先在普通终端里跑一次并完成认证：
 
 ```powershell
 claude
 ```
 
-按提示完成 Anthropic 订阅或 API 凭据登录即可。Codex CLI、Gemini CLI、OpenCode 同理，用各自的登录命令；Antigravity CLI 走 Google 登录并存入系统钥匙串。**在终端里跑不通的 CLI，在 VaneHub AI 里也一样跑不通。**
+按提示完成 Anthropic 订阅登录即可。Codex CLI、Gemini CLI、OpenCode 同理，用各自的登录命令；Antigravity CLI 走 Google 登录并存入系统钥匙串。**在终端里跑不通的 CLI，在 VaneHub AI 里也一样跑不通**。
 
-**原生 Agent OnePiece——在设置里配第三方大模型**
+### 第三方大模型：在 VaneHub AI 里配
 
-不想装 CLI 也能用。打开**设置 → Agent 配置**进入 OnePiece 配置面板：从 25 家 provider 目录（Anthropic、OpenAI 等官方及常用兼容端点）里选厂商，或填自定义兼容端点；填入 API Key——**保存前会实际调用一次校验，不通过不保存**；校验通过后拉取可用模型列表，选定即可。这里的 API Key 由 VaneHub AI 保存。详见[原生 API Agent](native-agent.md)。
+不想用官方订阅，想让 CLI 去调 DeepSeek、OpenRouter、智谱 GLM 这类兼容端点时，**不必手改配置文件**。打开**设置 → Agent 配置**，选中目标 CLI，从内置的 25 家 provider 目录里挑一个存成配置，填好 API Key 再应用。VaneHub AI 会把相应字段写进该 CLI 自己的全局配置文件，并保留文件里与它无关的内容。
+
+各 CLI 能配到什么程度并不一样：
+
+| Agent | 第三方端点 | 纳管的配置文件 |
+| --- | --- | --- |
+| **Claude Code** | 支持 | `~/.claude/settings.json` |
+| **Codex CLI** | 支持 | `~/.codex/config.toml` |
+| **OpenCode** | 支持 | `~/.config/opencode/opencode.json` |
+| **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` |
+| **Antigravity CLI** | **不支持** | `~/.gemini/antigravity-cli/settings.json` |
+
+> **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
+
+字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+
+### 原生 Agent OnePiece
+
+不想装 CLI 也能用。同样在**设置 → Agent 配置**里进入 OnePiece 配置面板：从同一份 25 家 provider 目录里选厂商，或填自定义兼容端点；填入 API Key——**保存前会实际调用一次校验，不通过不保存**；校验通过后拉取可用模型列表，选定即可。这里的 API Key 由 VaneHub AI 保存。详见[原生 API Agent](native-agent.md)。
 
 ## 2. 确认 VaneHub AI 检测到它
 
@@ -87,4 +110,5 @@ claude
 
 ## 注意事项
 
-- **Provider 凭据始终保存在各 CLI 自己的存储中**，VaneHub AI 不会要求你输入 Provider 密码。
+- **官方订阅登录产生的凭据始终留在各 CLI 自己的存储里**，VaneHub AI 不接管、也不会要求你输入订阅账号密码。
+- **你在 Agent 配置里填的第三方 API Key 由 VaneHub AI 保管**，存放在操作系统的凭据服务中，不写进 SQLite，界面上只回显「已配置」。

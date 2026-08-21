@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { getOnePieceProviderPresets } from "../config/onepiece-provider-presets";
 import { hasBundledProviderIcon, ProviderBrandIcon } from "./provider-brand-icon";
@@ -17,6 +17,15 @@ describe("ProviderBrandIcon", () => {
   it("renders the initials fallback for an unknown provider", () => {
     render(<ProviderBrandIcon iconKey="unknown" label="Unknown" />);
     expect(screen.getByRole("img", { name: "Unknown" }).textContent).toBe("AI");
+  });
+
+  it("resolves the Zhipu GLM aliases to the bundled Zhipu mark", () => {
+    render(<ProviderBrandIcon iconKey="zhipu-glm" label="Zhipu GLM" />);
+    const icon = screen.getByRole("img", { name: "Zhipu GLM" });
+    const image = icon.querySelector("img");
+    expect(image?.getAttribute("src")).toContain("zhipu.svg");
+    fireEvent.error(image!);
+    expect(icon.textContent).toBe("GLM");
   });
 
   it("bundles an unmodified mark for every provider in the fixed directory", () => {

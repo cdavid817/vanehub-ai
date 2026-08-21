@@ -11,6 +11,6 @@ mod infrastructure;
 pub(crate) use infrastructure::apply_schema;
 pub(crate) use infrastructure::{
     RusshSshConnector, SqliteSshConnectionRepository, SshConnectionCredentialAdapter,
-    SystemRemoteSshPoolClock, SystemSshConnectionClock, TcpSshConnectionTester,
-    UuidSshConnectionIdentity,
+    SystemRemoteSshPoolClock, SystemSshConnectionClock, TauriRemoteSshBackground,
+    TcpSshConnectionTester, UuidSshConnectionIdentity,
 };

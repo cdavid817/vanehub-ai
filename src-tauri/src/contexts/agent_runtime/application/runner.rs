@@ -200,25 +200,47 @@ impl RunnerLaunchSpec {
             .as_deref()
             .is_some_and(|value| validate_token(value, "session_id").is_err())
         {
-            return Err(RunnerError::new(RunnerErrorKind::InvalidLaunch));
+            return Err(invalid_launch("session id"));
         }
-        validate_value(&self.executable, MAX_RUNNER_ID_CHARS)?;
-        if self.arguments.len() > MAX_RUNNER_ARGUMENTS
-            || self.environment.len() > MAX_RUNNER_ENVIRONMENT_KEYS
-            || self
-                .arguments
-                .iter()
-                .any(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
-            || self
-                .cwd
-                .as_deref()
-                .is_some_and(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
-            || self.environment.iter().any(|(key, value)| {
-                !valid_environment_key(key)
-                    || validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err()
-            })
+        // A path budget, not the identifier one. The executable is resolved to an absolute path
+        // before it reaches here, and a vendored npm binary routinely exceeds 128 characters --
+        // codex-cli lands at 141 on a default Windows install, so every one of its turns was
+        // rejected before anything spawned. `cwd` is the same kind of value and already uses this.
+        validate_value(&self.executable, MAX_RUNNER_ARGUMENT_CHARS)
+            .map_err(|_| invalid_launch("executable"))?;
+        if self.arguments.len() > MAX_RUNNER_ARGUMENTS {
+            return Err(invalid_launch("argument count"));
+        }
+        if self.environment.len() > MAX_RUNNER_ENVIRONMENT_KEYS {
+            return Err(invalid_launch("environment size"));
+        }
+        if self
+            .arguments
+            .iter()
+            .any(|value| validate_text_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
         {
-            return Err(RunnerError::new(RunnerErrorKind::InvalidLaunch));
+            return Err(invalid_launch("argument text"));
+        }
+        if self
+            .cwd
+            .as_deref()
+            .is_some_and(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
+        {
+            return Err(invalid_launch("working directory"));
+        }
+        if self
+            .environment
+            .keys()
+            .any(|key| !valid_environment_key(key))
+        {
+            return Err(invalid_launch("environment key"));
+        }
+        if self
+            .environment
+            .values()
+            .any(|value| validate_value(value, MAX_RUNNER_ARGUMENT_CHARS).is_err())
+        {
+            return Err(invalid_launch("environment value"));
         }
         Ok(())
     }
@@ -332,15 +354,30 @@ impl RunnerErrorKind {
 #[error("{kind:?}")]
 pub(crate) struct RunnerError {
     pub(crate) kind: RunnerErrorKind,
+    /// Which constraint rejected the launch. `code()` alone says only that something was
+    /// invalid, which left `runner_invalid_launch` in the log with nothing to act on -- an Agent
+    /// that could not start a single turn, and no way to tell why without a debugger.
+    pub(crate) detail: Option<&'static str>,
 }
 
 impl RunnerError {
     pub(crate) const fn new(kind: RunnerErrorKind) -> Self {
-        Self { kind }
+        Self { kind, detail: None }
+    }
+
+    pub(crate) const fn with_detail(kind: RunnerErrorKind, detail: &'static str) -> Self {
+        Self {
+            kind,
+            detail: Some(detail),
+        }
     }
 
     pub(crate) const fn code(&self) -> &'static str {
         self.kind.code()
+    }
+
+    pub(crate) const fn detail(&self) -> Option<&'static str> {
+        self.detail
     }
 }
 
@@ -377,8 +414,46 @@ fn validate_token(value: &str, _field: &'static str) -> Result<(), RunnerError> 
     Ok(())
 }
 
+const fn invalid_launch(field: &'static str) -> RunnerError {
+    RunnerError::with_detail(RunnerErrorKind::InvalidLaunch, field)
+}
+
 fn validate_value(value: &str, limit: usize) -> Result<(), RunnerError> {
     if value.is_empty() || value.len() > limit || value.chars().any(char::is_control) {
+        Err(RunnerError::new(RunnerErrorKind::InvalidLaunch))
+    } else {
+        Ok(())
+    }
+}
+
+/// Same bounds as `validate_value`, but tolerant of the whitespace that ordinary text contains.
+///
+/// Arguments are not identifiers. Some managed CLIs take the prompt as an argv entry rather than
+/// on stdin, and VaneHub composes that prompt from several sections, so it always holds newlines
+/// — rejecting every control character made a chat turn impossible for those Agents, failing as
+/// `runner_invalid_launch` before anything was spawned.
+///
+/// Tab, CR and LF are the only ones let through. The rest of the control range stays rejected —
+/// NUL terminates a C string and would silently truncate the argument the caller believes it
+/// passed, and an escape sequence in an argument is not prompt text.
+///
+/// What keeps the three that are admitted from being an injection vector differs per path, and
+/// none of it is "arguments are always an array":
+/// - POSIX spawn is a genuine `execvp` array, so a newline is data.
+/// - Windows `CreateProcessW` takes one command line, but `CommandLineToArgvW` splits only on
+///   space and tab, so a newline round-trips into the child's argv as data.
+/// - Windows `.bat`/`.cmd` shims are the exception: `std::process::Command` composes
+///   `cmd.exe /d /c "…"`, which *is* line-oriented. The only thing stopping a newline there is
+///   that std refuses the spawn outright (the CVE-2024-24576 hardening), which surfaces as
+///   `RunnerErrorKind::Spawn`. That path is live — `antigravity-cli` and `opencode`'s shim
+///   fallback both put the prompt in argv — so relaxing this validator further, or resolving a
+///   shim to its interpreter, removes a guarantee this function does not itself provide.
+/// - SSH re-serialises the spec into an `sh` program and rejects the whole control range again
+///   before leasing a channel (`remote_command::validate_field`), single-quoting what it keeps.
+fn validate_text_value(value: &str, limit: usize) -> Result<(), RunnerError> {
+    let disallowed =
+        |character: char| character.is_control() && !matches!(character, '\t' | '\n' | '\r');
+    if value.is_empty() || value.len() > limit || value.chars().any(disallowed) {
         Err(RunnerError::new(RunnerErrorKind::InvalidLaunch))
     } else {
         Ok(())

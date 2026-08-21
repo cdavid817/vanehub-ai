@@ -46,6 +46,11 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         default_policy_template: settings.default_policy_template().to_string(),
         automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled(),
         context_quality_retention_days: settings.context_quality_retention_days(),
+        custom_instructions_about_user: settings.custom_instructions_about_user().to_string(),
+        custom_instructions_style_rules: settings.custom_instructions_style_rules().to_string(),
+        custom_instructions_enabled: settings.custom_instructions_enabled(),
+        memory_enabled: settings.memory_enabled(),
+        memory_tool_assisted_chats_enabled: settings.memory_tool_assisted_chats_enabled(),
         logging_policy: logging_policy_to_dto(view.logging_policy),
     }
 }
@@ -223,6 +228,11 @@ mod tests {
                 "defaultPolicyTemplate": "standard",
                 "automaticContextCompactionEnabled": true,
                 "contextQualityRetentionDays": 30,
+                "customInstructionsAboutUser": "",
+                "customInstructionsStyleRules": "",
+                "customInstructionsEnabled": true,
+                "memoryEnabled": true,
+                "memoryToolAssistedChatsEnabled": true,
                 "loggingPolicy": {
                     "retentionDays": 30,
                     "archiveEnabled": true,
@@ -232,6 +242,32 @@ mod tests {
                 }
             })
         );
+    }
+
+    // Every personalization key was writable and none was readable: the response simply had no
+    // field for them, so the frontend normalizer substituted its defaults and the page showed an
+    // empty box over a stored instruction. The prompt still carried it, which is why nothing else
+    // complained.
+    #[test]
+    fn a_saved_personalization_setting_is_readable_in_the_response_that_reports_it() {
+        let mut settings = DesktopSettings::defaults("D:/data/logs");
+        for (key, value) in [
+            ("customInstructionsAboutUser", "Works on VaneHub AI."),
+            ("customInstructionsStyleRules", "Answer in Chinese."),
+            ("customInstructionsEnabled", "false"),
+            ("memoryEnabled", "false"),
+            ("memoryToolAssistedChatsEnabled", "false"),
+        ] {
+            settings.apply(DesktopSettingMutation::parse(key, value).expect(key));
+        }
+        let value = serde_json::to_value(settings_to_dto(DesktopSettingsView::native(settings)))
+            .expect("settings DTO");
+
+        assert_eq!(value["customInstructionsAboutUser"], "Works on VaneHub AI.");
+        assert_eq!(value["customInstructionsStyleRules"], "Answer in Chinese.");
+        assert_eq!(value["customInstructionsEnabled"], false);
+        assert_eq!(value["memoryEnabled"], false);
+        assert_eq!(value["memoryToolAssistedChatsEnabled"], false);
     }
 
     #[test]

@@ -140,6 +140,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                         agent_id: seat.agent_id,
                         role_id: seat.role_id,
                         left_at: seat.left_at,
+                        provider_thread_id: seat.provider_thread_id,
                     },
                 )
                 .collect(),
@@ -516,6 +517,36 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
     ) -> Result<(), AgentRuntimeApplicationError> {
         self.sessions
             .update_runtime_session_id(session_id, runtime_session_id)
+            .map_err(session_error)
+    }
+
+    fn update_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+        provider_thread_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.sessions
+            .update_seat_provider_thread_id(session_id, seat_id, provider_thread_id)
+            .map_err(session_error)
+    }
+
+    fn clear_seat_provider_thread_id(
+        &self,
+        session_id: &str,
+        seat_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.sessions
+            .clear_seat_provider_thread_id(session_id, seat_id)
+            .map_err(session_error)
+    }
+
+    fn clear_runtime_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.sessions
+            .clear_runtime_session_id(session_id)
             .map_err(session_error)
     }
 }

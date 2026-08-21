@@ -12,6 +12,7 @@ export function repositoryVerificationCommands(npmCli) {
     npm(["run", "contracts:check"]),
     npm(["run", "coverage:policy:test"]),
     npm(["run", "version:unit:test"]),
+    npm(["run", "release:unit:test"]),
     npm(["run", "test"]),
     npm(["run", "test:coverage"]),
     npm(["run", "build"]),

@@ -70,6 +70,8 @@
 | 出错了怎么办 | 本指南的[故障排查](troubleshooting.md) |
 | 这个功能为什么这样设计 | [开发者指南](../../../developer-guide/zh-CN/src/index.md) |
 | 代码在哪个文件 | [开发者指南](../../../developer-guide/zh-CN/src/index.md) |
+| MCP、LSP、RAG 这些技术本身是什么 | [Agent 基础设施技术文档](../../../agent-infrastructure/README.md) |
+| 我发现了一个问题，怎么报 | 本指南的[反馈问题与提交 Issue](reporting-issues.md) |
 
 ## 英文版
 

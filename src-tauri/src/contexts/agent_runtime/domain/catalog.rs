@@ -141,23 +141,35 @@ impl AvailabilityAssessment {
         Self { state, reason }
     }
 
+    /// Resolves availability from what execution actually needs.
+    ///
+    /// The executable decides. Every managed Agent is driven headlessly through argv against its
+    /// CLI binary, and nothing on that path loads the managed SDK — those npm packages exist only
+    /// so VaneHub can offer to install and roll back a version. Letting a missing one veto a
+    /// binary that is present and working reported an installed, executing `codex` as unavailable,
+    /// which is enough to stop a session being created at all.
+    ///
+    /// The SDK still decides when it is the only evidence there is: an Agent that declares no
+    /// executable has nothing to probe on PATH.
     pub(crate) fn assess(probe: AvailabilityProbe) -> Self {
-        match probe.managed_sdk {
-            ManagedSdkStatus::Unrecognized(id) => Self::new(
+        match probe.executable {
+            ExecutableStatus::Available => Self::new(AgentAvailability::Available, None),
+            ExecutableStatus::Missing(name) => Self::new(
                 AgentAvailability::Unavailable,
-                Some(format!("Managed SDK dependency '{id}' is not recognized.")),
+                Some(format!("Command '{name}' was not found on PATH.")),
             ),
-            ManagedSdkStatus::Missing(id) => Self::new(
-                AgentAvailability::Unavailable,
-                Some(format!("Managed SDK dependency '{id}' is not installed.")),
-            ),
-            ManagedSdkStatus::NotRequired | ManagedSdkStatus::Available => match probe.executable {
-                ExecutableStatus::Available => Self::new(AgentAvailability::Available, None),
-                ExecutableStatus::Missing(name) => Self::new(
+            ExecutableStatus::NotDeclared => match probe.managed_sdk {
+                ManagedSdkStatus::Unrecognized(id) => Self::new(
                     AgentAvailability::Unavailable,
-                    Some(format!("Command '{name}' was not found on PATH.")),
+                    Some(format!("Managed SDK dependency '{id}' is not recognized.")),
                 ),
-                ExecutableStatus::NotDeclared => Self::new(AgentAvailability::Unknown, None),
+                ManagedSdkStatus::Missing(id) => Self::new(
+                    AgentAvailability::Unavailable,
+                    Some(format!("Managed SDK dependency '{id}' is not installed.")),
+                ),
+                ManagedSdkStatus::NotRequired | ManagedSdkStatus::Available => {
+                    Self::new(AgentAvailability::Unknown, None)
+                }
             },
         }
     }
@@ -390,4 +402,87 @@ fn optional_value(
     label: &'static str,
 ) -> Result<Option<String>, AgentRuntimeDomainError> {
     value.map(|value| required_value(value, label)).transpose()
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::{
+        AgentAvailability, AvailabilityAssessment, AvailabilityProbe, ExecutableStatus,
+        ManagedSdkStatus,
+    };
+
+    fn assess(
+        managed_sdk: ManagedSdkStatus,
+        executable: ExecutableStatus,
+    ) -> AvailabilityAssessment {
+        AvailabilityAssessment::assess(AvailabilityProbe {
+            managed_sdk,
+            executable,
+        })
+    }
+
+    /// The managed SDK is an npm package VaneHub can install for convenience; nothing on the
+    /// execution path ever loads it, because every managed Agent is driven headlessly through
+    /// argv against its CLI binary. Letting its absence veto a working binary took a `codex`
+    /// that was installed and executing fine and reported it as unavailable, which is enough to
+    /// keep a session from being created at all.
+    #[test]
+    fn an_executable_on_path_is_available_even_without_its_managed_sdk() {
+        let assessment = assess(
+            ManagedSdkStatus::Missing("codex-sdk".to_string()),
+            ExecutableStatus::Available,
+        );
+
+        assert_eq!(assessment.state(), AgentAvailability::Available);
+        assert_eq!(assessment.reason(), None);
+    }
+
+    #[test]
+    fn a_missing_executable_is_reported_against_path_rather_than_the_sdk() {
+        let assessment = assess(
+            ManagedSdkStatus::Missing("codex-sdk".to_string()),
+            ExecutableStatus::Missing("codex".to_string()),
+        );
+
+        assert_eq!(assessment.state(), AgentAvailability::Unavailable);
+        assert_eq!(
+            assessment.reason(),
+            Some("Command 'codex' was not found on PATH."),
+            "PATH is what execution actually needs, so it is what the user is told to fix"
+        );
+    }
+
+    /// With no executable declared there is nothing to probe on PATH, so the managed SDK is the
+    /// only evidence there is and still decides.
+    #[test]
+    fn the_managed_sdk_still_decides_when_no_executable_is_declared() {
+        assert_eq!(
+            assess(
+                ManagedSdkStatus::Missing("claude-sdk".to_string()),
+                ExecutableStatus::NotDeclared,
+            )
+            .state(),
+            AgentAvailability::Unavailable
+        );
+        assert_eq!(
+            assess(ManagedSdkStatus::NotRequired, ExecutableStatus::NotDeclared).state(),
+            AgentAvailability::Unknown
+        );
+        assert_eq!(
+            assess(
+                ManagedSdkStatus::Unrecognized("nope".to_string()),
+                ExecutableStatus::NotDeclared,
+            )
+            .state(),
+            AgentAvailability::Unavailable
+        );
+    }
+
+    #[test]
+    fn an_agent_needing_no_sdk_is_available_on_its_executable_alone() {
+        assert_eq!(
+            assess(ManagedSdkStatus::NotRequired, ExecutableStatus::Available).state(),
+            AgentAvailability::Available
+        );
+    }
 }

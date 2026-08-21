@@ -9,9 +9,9 @@ async function openLspSettings(page: Page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /设置|Settings/ }).click();
-  await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
+  await page.getByRole("button", { name: /^(代码智能|Code Intelligence)$/ }).click();
   await expect(page.getByRole("heading", {
-    name: /^(Agent 配置|Agent Configurations)$/,
+    name: /^(代码智能|Code Intelligence)$/,
     level: 2,
   })).toBeVisible();
   await expect(page.getByRole("heading", {

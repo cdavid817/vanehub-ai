@@ -17,15 +17,6 @@ pub(crate) struct GitAdapter {
     process: ProcessAdapter,
 }
 
-/// Callers classify git failures by matching its stderr, and git translates those messages
-/// through gettext: on a zh-CN system "not a git repository" arrives as "不是 git 仓库", so a
-/// plain non-repository directory reads as a hard failure instead. Pinning the message locale
-/// keeps that classification independent of the machine's language. Paths stay byte-exact
-/// because git emits them verbatim (with `core.quotepath=false`) rather than through gettext.
-fn pin_message_locale(request: ProcessRequest) -> ProcessRequest {
-    request.env("LC_ALL", "C").env("LANGUAGE", "C")
-}
-
 impl GitAdapter {
     pub(crate) fn execute(
         &self,
@@ -33,12 +24,7 @@ impl GitAdapter {
         args: &[String],
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let request = pin_message_locale(
-            ProcessRequest::new("git")
-                .args(args.iter().cloned())
-                .current_dir(root)
-                .timeout(timeout),
-        );
+        let request = base_request(root, args, timeout);
         let output = self.process.execute(&request)?;
         Ok(GitOutput {
             status: output.status,
@@ -55,12 +41,7 @@ impl GitAdapter {
         environment: &BTreeMap<String, String>,
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let mut request = pin_message_locale(
-            ProcessRequest::new("git")
-                .args(args.iter().cloned())
-                .current_dir(root)
-                .timeout(timeout),
-        );
+        let mut request = base_request(root, args, timeout);
         for (key, value) in environment {
             request = request.env(key, value);
         }
@@ -88,18 +69,22 @@ impl GitAdapter {
     }
 }
 
+/// `LC_ALL=C` pins git's message language: callers classify outcomes by matching output text
+/// ("not a git repository", "did not match any files"), and on a zh_CN host git otherwise
+/// localizes those messages, silently breaking every such match
+/// (`session-project-inspection`'s "Git inspection outcomes are locale-independent"). Applied
+/// before caller-supplied environment so an explicit override still wins.
+fn base_request(root: &Path, args: &[String], timeout: Duration) -> ProcessRequest {
+    ProcessRequest::new("git")
+        .args(args.iter().cloned())
+        .current_dir(root)
+        .env("LC_ALL", "C")
+        .timeout(timeout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsStr;
-
-    #[test]
-    fn git_invocations_pin_the_message_locale() {
-        let request = pin_message_locale(ProcessRequest::new("git"));
-
-        assert_eq!(request.environment_value("LC_ALL"), Some(OsStr::new("C")));
-        assert_eq!(request.environment_value("LANGUAGE"), Some(OsStr::new("C")));
-    }
 
     #[test]
     fn diagnostics_hide_workspace_paths_and_credentials() {
@@ -117,6 +102,76 @@ mod tests {
         assert!(diagnostic.contains("token=[REDACTED]"));
         assert!(!diagnostic.contains("private-user"));
         assert!(!diagnostic.contains("git-secret"));
+    }
+
+    fn temp_non_git_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "vanehub-git-locale-test-{}-{name}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn execute_yields_english_classifiable_messages_regardless_of_host_locale() {
+        let dir = temp_non_git_dir("execute");
+        let output = GitAdapter::default()
+            .execute(&dir, &["status".to_string()], Duration::from_secs(10))
+            .expect("git should run");
+        let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+        assert!(!output.status.success());
+        assert!(
+            stderr.contains("not a git repository"),
+            "expected the English classification marker, got: {stderr}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pinned_locale_beats_a_non_english_caller_language_environment() {
+        let dir = temp_non_git_dir("with-env");
+        // LANG/LC_MESSAGES/LANGUAGE sit below LC_ALL in libc's precedence, so the pinned
+        // LC_ALL=C must win over all of them.
+        let environment: BTreeMap<String, String> = [
+            ("LANG", "zh_CN.UTF-8"),
+            ("LC_MESSAGES", "zh_CN.UTF-8"),
+            ("LANGUAGE", "zh_CN"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let output = GitAdapter::default()
+            .execute_with_environment(
+                &dir,
+                &["status".to_string()],
+                &environment,
+                Duration::from_secs(10),
+            )
+            .expect("git should run");
+        let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+        assert!(!output.status.success());
+        assert!(
+            stderr.contains("not a git repository"),
+            "expected the English classification marker, got: {stderr}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_explicit_caller_lc_all_overrides_the_pinned_default() {
+        let request = base_request(
+            Path::new("."),
+            &["status".to_string()],
+            Duration::from_secs(1),
+        )
+        .env("LC_ALL", "zh_CN.UTF-8");
+        let command = request.command().expect("command should build");
+        let lc_all = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("LC_ALL"))
+            .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
+        assert_eq!(lc_all.as_deref(), Some(std::ffi::OsStr::new("zh_CN.UTF-8")));
     }
 
     #[cfg(windows)]

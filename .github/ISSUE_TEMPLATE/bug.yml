@@ -22,7 +22,6 @@ body:
         - Windows
         - macOS
         - Linux
-        - Web/mock preview
     validations:
       required: true
   - type: textarea

@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Boxes,
+  Braces,
   Cpu,
   Info,
   KeyRound,
@@ -29,6 +30,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agent-configurations"
+  | "code-intelligence"
   | "expert-roles"
   | "agent-policies"
   | "personalization"
@@ -95,6 +97,8 @@ const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./page
   .then((module) => ({ default: module.McpPage }));
 const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
   .then((module) => ({ default: module.AgentConfigurationsPage }));
+const loadCodeIntelligencePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/code-intelligence-page")
+  .then((module) => ({ default: module.CodeIntelligencePage }));
 const loadExpertRolesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/expert-roles-page")
   .then((module) => ({ default: module.ExpertRolesPage }));
 const loadAgentPoliciesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-policies-page")
@@ -154,6 +158,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: SlidersHorizontal,
     searchPlaceholderKey: "settings.search.cliParameters",
     loader: loadCliParametersPage,
+  },
+  {
+    id: "code-intelligence",
+    group: "capabilities",
+    labelKey: "settings.pages.codeIntelligence",
+    crumbKey: "settings.pages.codeIntelligence",
+    icon: Braces,
+    searchPlaceholderKey: "settings.search.codeIntelligence",
+    loader: loadCodeIntelligencePage,
   },
   {
     id: "mcp",

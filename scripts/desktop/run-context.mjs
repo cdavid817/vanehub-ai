@@ -34,8 +34,13 @@ export function validateIsolatedDataPath({ runRoot, dataDir, normalDataDir }) {
 // Cleanup lives beside the code that created the run root so a passing run cannot leave the
 // isolated SQLite database, configuration, or fixtures behind — CI would otherwise upload them
 // as evidence from a job that had nothing to diagnose.
+//
+// The retries are for Windows: a spec that opened a terminal or shell tab rooted a PTY child in a
+// fixture directory, and the OS releases that directory handle a moment after the child dies, not
+// synchronously with it. Without them the removal loses the race and reports `EBUSY`, which turns
+// a run whose every test passed into `FAILED` on a cleanup detail.
 export async function disposeRunContext(context) {
-  await rm(context.runRoot, { recursive: true, force: true });
+  await rm(context.runRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   return { removed: context.runRoot, retainedEvidence: context.resultDir };
 }
 

@@ -1,6 +1,6 @@
 # CLI Agent global configuration
 
-VaneHub manages user-level provider profiles for Claude Code, OpenCode, and Codex CLI from the Agent Management page. A saved profile is separate from the runtime Agent and Session selection. Saving or applying a profile never selects an Agent, changes the active Session, or restarts a running CLI process.
+VaneHub manages user-level provider profiles for all five external CLI Agents from the Agent Management page. A saved profile is separate from the runtime Agent and Session selection. Saving or applying a profile never selects an Agent, changes the active Session, or restarts a running CLI process.
 
 ## Supported global files
 
@@ -10,8 +10,12 @@ VaneHub manages user-level provider profiles for Claude Code, OpenCode, and Code
 | Codex CLI | `~/.codex/config.toml` | Selects one model provider and updates only the owned top-level/provider fields while preserving projects, MCP servers, comments, and unrelated providers. |
 | Codex CLI | `~/.codex/auth.json` | Changed only by an explicit `replace-auth` profile after a separate confirmation; the prior bytes are restored if the multi-file switch fails. |
 | OpenCode | `~/.config/opencode/opencode.json` | Adds or updates one provider and the global default model while preserving other providers, plugins, and settings. JSON5 input is accepted and normalized to JSON on write. |
+| Gemini CLI | `~/.gemini/.env` | Updates only the owned endpoint, model, and authentication keys and preserves unrelated environment entries. |
+| Antigravity CLI | `~/.gemini/antigravity-cli/settings.json` | Updates only the owned root-level keys — model, tool-approval mode, verbosity, terminal sandbox — and preserves everything else. Antigravity shares the `~/.gemini` home but keeps its own settings document. |
 
 Claude Code and Codex keep many saved profiles but expose one globally applied profile. OpenCode keeps provider definitions additively and changes only its global default `provider/model` selection.
+
+**Third-party endpoints are not universally available.** Claude Code, Codex CLI, and OpenCode accept any compatible endpoint from the shared provider directory. Gemini CLI accepts a custom base URL but ships only the Google official preset. Antigravity CLI accepts no third-party endpoint and no credential field at all: it authenticates through the operating-system keyring with Google Sign-In, so its profile edits only the settings it does honor.
 
 ## Startup synchronization inspired by CC Switch
 
@@ -25,7 +29,7 @@ The status strip reports the latest startup synchronization outcome. The separat
 
 ## Bundled presets
 
-Catalog version 1 includes compatible Agent-specific templates for Anthropic/OpenAI official configuration, OpenRouter, DeepSeek, Zhipu GLM, Kimi/Moonshot, SiliconFlow, Alibaba Bailian, and Volcengine Ark. The UI also offers a custom provider.
+CLI presets are derived from the same 25-entry provider directory the native OnePiece Agent uses, so the two stay in step rather than drifting apart. It covers Anthropic and OpenAI official configuration alongside OpenRouter, DeepSeek, Zhipu GLM, Kimi, Moonshot, SiliconFlow, Alibaba Bailian, Volcengine Ark, Groq, xAI, Mistral AI, Together AI, Fireworks AI, NVIDIA NIM, Cerebras, MiniMax, StepFun, Baichuan AI, PPIO, Qiniu AI, ModelScope, Xiaomi MiMo, and Z.AI. Each directory entry yields a preset per Agent whose endpoint protocol it matches — Anthropic-messages endpoints produce Claude Code presets, OpenAI-responses and chat-completions endpoints produce Codex and OpenCode presets. Gemini CLI and Antigravity CLI instead carry a single official preset each. The UI also offers a custom provider.
 
 Presets contain only display metadata, endpoint/protocol defaults, recommended model ids, and normalized non-secret fields. Selecting a preset creates an editable user-owned profile; it does not write a CLI file. A later VaneHub catalog update never mutates an existing profile. Endpoint and model offerings can change between releases, so users can review and edit every preset value before saving.
 

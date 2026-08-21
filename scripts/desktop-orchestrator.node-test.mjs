@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import process from "node:process";
+import { clearTimeout, setTimeout } from "node:timers";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -118,6 +121,30 @@ test("removes temporary application data after a successful run and keeps only e
   assert.equal(await exists(path.join(context.resultDir, "summary.json")), true);
   assert.deepEqual(await readdir(path.join(context.resultDir, "logs", "native")), ["vanehub.log"]);
   assert.equal((await collectEvidenceNames(context.resultDir)).some((name) => name.endsWith(".sqlite")), false);
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
+// A spec that opened a terminal or shell tab leaves a PTY child whose working directory is a
+// fixture directory, and Windows keeps that directory undeletable until the process is gone --
+// and for a short while after. A live child reproduces that exactly; an open file handle does
+// not, because Node opens files with FILE_SHARE_DELETE. Without retries the removal loses the
+// race and reports EBUSY, turning a run whose every test passed into FAILED.
+test("disposal outlasts a child process still rooted in a fixture directory", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-cleanup-busy-"));
+  const context = await createRunContext(path.join(tempRoot, "repo"), { tempRoot, runId: "run-busy" });
+  const rooted = path.join(context.fixtureDir, "rooted");
+  await mkdir(rooted, { recursive: true });
+  const child = process.platform === "win32"
+    ? spawn("cmd.exe", ["/c", "pause"], { cwd: rooted, stdio: "ignore", windowsHide: true })
+    : spawn("sh", ["-c", "read line"], { cwd: rooted, stdio: "ignore" });
+  const release = setTimeout(() => child.kill(), 500);
+
+  const disposal = await disposeRunContext(context);
+
+  clearTimeout(release);
+  child.kill();
+  assert.equal(disposal.removed, context.runRoot);
+  assert.equal(await exists(context.runRoot), false);
   await rm(tempRoot, { recursive: true, force: true });
 });
 

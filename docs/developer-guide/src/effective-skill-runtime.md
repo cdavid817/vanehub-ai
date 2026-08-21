@@ -20,6 +20,35 @@ Runtime layers answer which package supplies content. They resolve in this order
 | 3 | `registry` | A locally installed package; the provider is present but has no install or network flow yet |
 | 4 | `system` | An immutable package shipped with the application |
 
+```mermaid
+flowchart TB
+  ID["A canonical Skill id"] --> WS{"Active workspace?"}
+  WS -->|"No"| U
+  WS -->|"Yes"| P["1 · project<br/>discovered inside the active workspace"]
+  P --> U["2 · user<br/>the user's Skill directory"]
+  U --> R["3 · registry<br/>installed locally"]
+  R --> S["4 · system<br/>shipped with the app, immutable"]
+
+  P -.->|"no match, fall through"| U
+  U -.->|"no match, fall through"| R
+  R -.->|"no match, fall through"| S
+
+  P --> WIN["Effective winner<br/>(one row per id)"]
+  U --> WIN
+  R --> WIN
+  S --> WIN
+
+  WIN --> OV["Overlay<br/>governed customization layer"]
+  OV --> INJ["Injected / loaded"]
+
+  LOSE["Lower-priority definitions"] --> SH["Bounded shadow summary<br/>inspection only"]
+  SH -.->|"never injected, never loaded"| INJ
+
+  BIND["Enablement and Agent binding"] -->|"references the canonical id, not a layer"| WIN
+```
+
+**The two dotted lines are the point.** The shadow summary is for inspection only — it is **never injected or loaded alongside the winner**. Bindings hang off the canonical id, not a layer, so when a higher layer's definition replaces a lower layer's winner, existing enablement and Agent assignment **follow the effective definition** without needing to be rebound.
+
 The catalog returns one effective row for each canonical Skill id. Lower-priority definitions are retained as bounded shadow summaries for inspection, but they are never injected or loaded alongside the winner. Project definitions are omitted when there is no active workspace.
 
 Bindings continue to reference the canonical Skill id rather than a layer. If a Project or User definition replaces a lower-layer winner, existing enablement and Agent assignment state follows that effective definition.

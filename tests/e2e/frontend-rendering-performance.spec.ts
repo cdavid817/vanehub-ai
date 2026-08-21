@@ -36,13 +36,14 @@ test.describe("frontend rendering performance", () => {
 
     const list = page.getByTestId("prompt-hook-virtual-list");
     await expect(list).toBeVisible();
-    await expect(list).toHaveAttribute("data-virtual-count", "508");
+    await expect(list).toHaveAttribute("data-virtual-count", "515");
     await expect.poll(async () => Number(await list.getAttribute("data-rendered-count"))).toBeLessThan(30);
 
     await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    const lastCard = list.getByRole("listitem").filter({ hasText: "Hook 500" });
-    await expect(lastCard).toBeVisible();
-    await lastCard.getByRole("button", { name: "预览 Hook 内容" }).click();
+    const lastRow = list.getByRole("listitem").filter({ hasText: "Hook 500" });
+    await expect(lastRow).toBeVisible();
+    await lastRow.locator("summary").click();
+    await lastRow.getByRole("button", { name: "预览 Hook 内容" }).click();
     await expect(page.getByText("Prompt body 500", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "关闭" }).click();
 
