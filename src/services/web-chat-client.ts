@@ -1,11 +1,28 @@
 import type { ChatMessagingService } from "./chat-messaging-service";
-import { webPendingApprovals } from "./web-permissions-mock-state";
+import type { ChatMessage } from "../types/chat";
+import { normalizeChatConfigForSession, withEffectiveExecutionPolicy } from "./chat-configuration";
+import { readWebAppSettings } from "./web-settings-client";
+import {
+  getWebDefaultPolicyTemplate,
+  webPendingApprovals,
+  webPrincipalTemplates,
+} from "./web-permissions-mock-state";
+import { nowIso } from "./web-mock-clock";
+import { prependWebAgentRun, setWebAgentRunEvents } from "./web-agent-run-state";
+import { selectWebRunner, webRunRunner } from "./web-agent-runner";
+import { webRoutedSeatId } from "./web-session-seat-client";
+import { scheduleWebSendMessageResponse } from "./web-send-message-response-scheduler";
+import { scheduleWebSendMessageApiTools } from "./web-send-message-api-scheduler";
 import { findWebSession, updateWebSession } from "./web-session-state";
 import {
   cancelWebActiveStream,
+  createWebMessageId,
   getWebSessionMessages,
+  hasWebActiveStream,
   listWebSessionMessageBuckets,
   publishWebChatEvent,
+  setWebActiveStream,
+  setWebSessionMessages,
   subscribeWebChatEvents,
 } from "./web-chat-state";
 
@@ -39,14 +56,14 @@ export function resolveWebMockToolApproval(sessionId: string, callId: string, ap
  * Marker that makes the Web/mock runtime simulate a clarification round trip. Web/mock has no
  * model deciding when to ask, so the trigger stands in for that decision.
  */
-export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
+export { WEB_MOCK_QUESTION_TRIGGER } from "./web-send-message-context";
 
 /**
  * Marker that makes the Web/mock runtime simulate a request to leave plan mode. Same reason as the
  * question trigger: the request blocks until decided, so emitting one every turn would leave every
  * other mock conversation waiting on a card.
  */
-export const WEB_MOCK_PLAN_EXIT_TRIGGER = "[plan-done]";
+export { WEB_MOCK_PLAN_EXIT_TRIGGER } from "./web-send-message-context";
 
 /**
  * Web/mock backing for `resolveAgentQuestion`. Unlike the desktop runtime there is no blocked
@@ -98,6 +115,102 @@ function resolveSimulatedPlanExit(sessionId: string, callId: string, approved: b
 }
 
 export const webChatClient: ChatMessagingService = {
+  async sendMessage(input) {
+    const session = findWebSession(input.sessionId);
+    if (session.archived) throw new Error("Archived sessions cannot accept messages.");
+    if (session.recoveryStatus !== "clean") {
+      throw new Error(`Session recovery state ${session.recoveryStatus} blocks new messages.`);
+    }
+    if (session.activeExecutionRunId !== null) {
+      throw new Error("A generation is already active for this session.");
+    }
+    const config = normalizeChatConfigForSession(session, input.config);
+    const agentPolicy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
+    const effectiveExecutionPolicy = withEffectiveExecutionPolicy(config, agentPolicy).effectiveExecutionPolicy;
+    if (hasWebActiveStream(input.sessionId)) {
+      throw new Error("A generation is already active for this session.");
+    }
+    const selectedRunner = selectWebRunner(input.sessionId, session.agentId, input.runner);
+    const timestamp = nowIso();
+    const activeSeats = (session.seats ?? []).filter((seat) => seat.leftAt == null);
+    const existingMessages = getWebSessionMessages(input.sessionId);
+    const nextSequence = existingMessages.reduce(
+      (maximum, message) => Math.max(maximum, message.sessionSequence),
+      0,
+    ) + 1;
+    const executionRunId = `web-run-${input.sessionId}-${Date.now()}`;
+    prependWebAgentRun({
+      id: executionRunId,
+      owner: { ownerType: "agent_generation", ownerId: session.agentId },
+      links: [{ linkType: "session", linkId: input.sessionId }],
+      parentRunId: null,
+      state: "running",
+      recoveryPolicy: selectedRunner.selection.kind === "ssh" ? "owner_reconciles" : "not_recoverable",
+      runner: webRunRunner(selectedRunner),
+      retryCount: 0,
+      maxRetries: 0,
+      reasonCode: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 2,
+      lastWitness: `web-simulated-runner-start:${selectedRunner.selection.kind}`,
+    });
+    setWebAgentRunEvents(executionRunId, []);
+    const userMessage: ChatMessage = {
+      id: createWebMessageId(),
+      sessionId: input.sessionId,
+      role: "user",
+      content: input.content.trim(),
+      status: "completed",
+      fileReferences: input.fileReferences,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      sessionSequence: nextSequence,
+      executionRunId,
+    };
+    const assistantMessage: ChatMessage = {
+      id: createWebMessageId(),
+      sessionId: input.sessionId,
+      role: "assistant",
+      // The same routing rule the native runtime applies: a line-leading mention addresses that
+      // seat, an unaddressed message continues with whoever last spoke, and an untouched thread
+      // goes to the first seat.
+      speakerSeatId: webRoutedSeatId(activeSeats, existingMessages, input.content.trim()),
+      content: "",
+      status: "streaming",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      sessionSequence: nextSequence + 1,
+      executionRunId,
+    };
+    setWebSessionMessages(input.sessionId, [...existingMessages, userMessage, assistantMessage]);
+    updateWebSession(input.sessionId, {
+      lifecycleState: "running",
+      activeExecutionRunId: executionRunId,
+      stateRevision: session.stateRevision + 1,
+      historyRevision: session.historyRevision + 2,
+    });
+    const responseText = `Mock ${session.agentId} response: I received "${userMessage.content}". This is a streaming preview in Web mode.`;
+    const settings = readWebAppSettings();
+    const context = {
+      input,
+      session,
+      config,
+      effectiveExecutionPolicy,
+      userMessage,
+      assistantMessage,
+      tokens: responseText.match(/.{1,6}/g) ?? [responseText],
+      memoryEnabled: settings.memoryEnabled,
+      toolAssistedExtractionEnabled: settings.memoryToolAssistedChatsEnabled,
+      automaticCompactionEnabled: settings.automaticContextCompactionEnabled,
+    };
+    const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
+    scheduleWebSendMessageResponse(context, timeoutIds);
+    scheduleWebSendMessageApiTools(context, timeoutIds);
+    setWebActiveStream(input.sessionId, { messageId: assistantMessage.id, timeoutIds });
+    return assistantMessage;
+  },
+
   async listMessages(input) {
     findWebSession(input.sessionId);
     const limit = input.limit ?? 50;
