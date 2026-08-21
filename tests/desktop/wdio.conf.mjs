@@ -77,6 +77,10 @@ export const config = {
     logDir,
     env: {
       VANEHUB_APP_DATA_DIR: process.env.VANEHUB_APP_DATA_DIR,
+      // Isolates the app's CLI global-config reads and writes (permission hook projection
+      // included) the same way the data dir isolates SQLite — without it a spec that assigns
+      // claude-code a policy template edits the user's real ~/.claude/settings.json.
+      VANEHUB_CLI_CONFIG_HOME: process.env.VANEHUB_CLI_CONFIG_HOME,
       VANEHUB_TEST_RUN_ID: process.env.VANEHUB_TEST_RUN_ID,
       VANEHUB_DESKTOP_RESULT_DIR: resultDir,
       // CLI Agents launched by the app inherit this environment, and on a network that requires

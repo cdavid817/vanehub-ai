@@ -2,7 +2,7 @@ import type { SeatMentionOption } from "../components/chat/SeatMentionCompletion
 import type { AgentRegistryEntry, Session } from "../types/agent";
 import type { ExpertRole } from "../types/expert-role";
 import { normalizeModelFamily } from "./model-family";
-import { activeSeatsFromSession } from "./session-seats";
+import { activeSeatsFromSession, seatHandlesFromNames } from "./session-seats";
 
 export function seatMentionOptions(
   session: Session | null,
@@ -12,17 +12,18 @@ export function seatMentionOptions(
   if (!session) return [];
   const seats = activeSeatsFromSession(session);
   if (seats.length < 2) return [];
-  const used = new Map<string, number>();
-  return seats.map((seat, index) => {
+  const resolved = seats.map((seat, index) => {
     const agent = agents.find((candidate) => candidate.id === seat.agentId) ?? null;
     const role = roles.find((candidate) => candidate.id === seat.roleId) ?? null;
     const roleName = seat.roleSnapshot?.roleName ?? role?.displayName ?? null;
     const raw = roleName ?? seat.roleSnapshot?.agentName ?? agent?.displayName ?? `席位${index + 1}`;
-    const base = raw.split(/\s+/).filter(Boolean).join("-") || `席位${index + 1}`;
-    const count = (used.get(base) ?? 0) + 1;
-    used.set(base, count);
+    return { agent, role, roleName, raw };
+  });
+  const handles = seatHandlesFromNames(resolved.map((entry) => entry.raw));
+  return seats.map((seat, index) => {
+    const { agent, role, roleName } = resolved[index];
     return {
-      mention: count === 1 ? base : `${base}-${count}`,
+      mention: handles[index],
       roleName,
       agentName: seat.roleSnapshot?.agentName ?? agent?.displayName ?? seat.agentId,
       modelFamily: seat.roleSnapshot?.modelFamily ?? normalizeModelFamily({
