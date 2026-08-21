@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Prompt Hook settings", () => {
-  test("create and preview-assembly dialogs are real dialogs that close on Escape", async ({ page }) => {
+  test("create and runtime preview dialogs are real dialogs that close on Escape", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("button", { name: "Prompt Hook" }).click();
@@ -13,6 +13,7 @@ test.describe("Prompt Hook settings", () => {
     await page.keyboard.press("Escape");
     await expect(createDialog).toBeHidden();
 
+    await page.getByRole("tab", { name: "运行记录" }).click();
     await page.getByRole("button", { name: "预览组装" }).click();
     const previewDialog = page.getByRole("dialog");
     await expect(previewDialog).toBeVisible();
@@ -20,7 +21,7 @@ test.describe("Prompt Hook settings", () => {
     await expect(previewDialog).toBeHidden();
   });
 
-  test("edit, advanced lifecycle, and delete dialogs on a user hook are real dialogs", async ({ page }) => {
+  test("one user-hook detail dialog owns editing, lifecycle, and deletion", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("button", { name: "Prompt Hook" }).click();
@@ -33,31 +34,28 @@ test.describe("Prompt Hook settings", () => {
     await createDialog.getByRole("button", { name: "保存" }).click();
     await expect(createDialog).toBeHidden();
 
-    const card = page.getByRole("listitem").filter({ hasText: "E2E Dialog Hook" });
-    await expect(card).toBeVisible();
+    const row = page.getByRole("listitem").filter({ hasText: "E2E Dialog Hook" });
+    await expect(row).toBeVisible();
 
-    await card.getByRole("button", { name: "编辑 Hook" }).click();
-    const editDialog = page.getByRole("dialog");
-    await expect(editDialog).toBeVisible();
+    await row.getByRole("button", { name: "打开 E2E Dialog Hook 的详情" }).click();
+    const detailDialog = page.getByRole("dialog");
+    await expect(detailDialog).toBeVisible();
+    await expect(detailDialog.getByRole("tab", { name: "基本设置" })).toBeFocused();
+    await detailDialog.getByRole("tab", { name: "内容与发布" }).click();
+    await expect(detailDialog.getByLabel("模板正文")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(editDialog).toBeHidden();
+    await expect(detailDialog).toBeHidden();
 
-    await card.getByRole("button", { name: "打开草稿、版本与效果评估" }).click();
-    const lifecycleDialog = page.getByRole("dialog");
-    await expect(lifecycleDialog).toBeVisible();
-    await expect(lifecycleDialog.getByLabel("模板正文")).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(lifecycleDialog).toBeHidden();
-
-    await card.getByRole("button", { name: "删除 Hook" }).click();
+    await row.getByRole("button", { name: "打开 E2E Dialog Hook 的详情" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "删除", exact: true }).click();
     const deleteDialog = page.getByRole("dialog");
     await expect(deleteDialog).toBeVisible();
     await deleteDialog.getByRole("button", { name: "删除", exact: true }).click();
     await expect(deleteDialog).toBeHidden();
-    await expect(card).toHaveCount(0);
+    await expect(row).toHaveCount(0);
   });
 
-  test("filter toolbar stays usable at 1024px and the result count sits above the card list", async ({ page }) => {
+  test("filter toolbar stays usable at 1024px and the compact summary sits above the list", async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
@@ -70,12 +68,12 @@ test.describe("Prompt Hook settings", () => {
     expect(searchBox!.width).toBeGreaterThan(300);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-    const showing = page.getByText(/当前显示 \d+ \/ \d+ 个 Prompt Hook/);
-    const firstCard = page.getByRole("listitem").first();
-    const showingBox = await showing.boundingBox();
-    const cardBox = await firstCard.boundingBox();
-    expect(showingBox).not.toBeNull();
-    expect(cardBox).not.toBeNull();
-    expect(showingBox!.y).toBeLessThan(cardBox!.y);
+    const summary = page.getByText(/显示 \d+ \/ \d+ · 已启用 \d+ · 自定义 \d+/);
+    const firstRow = page.getByRole("listitem").first();
+    const summaryBox = await summary.boundingBox();
+    const rowBox = await firstRow.boundingBox();
+    expect(summaryBox).not.toBeNull();
+    expect(rowBox).not.toBeNull();
+    expect(summaryBox!.y).toBeLessThan(rowBox!.y);
   });
 });
