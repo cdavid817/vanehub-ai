@@ -81,14 +81,10 @@ Notebook access observes the workspace boundary and Plan mode as well — **Plan
 
 OnePiece's input area always shows a mode label with an icon and text:
 
-- `Plan · Read-only`: inspect the workspace and prepare a reviewable plan without making changes — reading, searching, and analyzing code within the current project scope, producing an editable task graph, changing no files.
-- `Agent · Can edit`: entered only after you approve the plan; allows editing files in a separate worktree and running protected verification commands.
+- `Plan · Read-only`: inspect the workspace and prepare a reviewable plan without changing files. Shell execution, file writes, effectful MCP tools, and delegated work are unavailable.
+- `Agent · Can edit`: edit files and run guarded validation within the current session's configured workspace and policy.
 
-The approval page states the project, the task count, the verification scope, and the worktree retention rule explicitly. Once approved, the native driver advances automatically in the order "execute task → verify evidence → bounded retry → final integration verification"; the React page only observes state and does not trigger the next step.
-
-When verification fails, the Plan Center retains every attempt, its command evidence, and a summary of changed files. A failure that matches an error type in the approved snapshot and has not exceeded the retry cap can be repaired automatically; when the budget is exhausted or the failure is unsuitable for automatic repair, it becomes "needs attention". After all tasks pass, final verification still runs, and the result can only be accepted when every required final command passes.
-
-A running worktree is retained for inspection. The system does not automatically commit, merge, push, apply to a target branch, or delete the worktree. Web/mock presents the same interface contract, but its execution and evidence are mock data.
+When OnePiece is ready to act, it requests `exit_plan_mode`. Approving applies Agent mode only to a later turn; declining leaves the session in Plan mode. This transition changes the session configuration only and does not create a PlanRun, task graph, or worktree.
 
 ## Notes and limits
 

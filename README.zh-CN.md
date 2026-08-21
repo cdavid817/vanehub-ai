@@ -89,7 +89,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 | 会话列表 | [分组/搜索/筛选/批量/拖拽、右键菜单、专注模式](docs/user-guide/zh-CN/src/user-interface.md#会话列表) |
 | 浮动助手 | [独立浮窗会话、状态徽章、主操作菜单](docs/user-guide/zh-CN/src/user-interface.md#浮动助手) |
 | 循环中心 | [Loop 运行控件、验证命令、时间线](docs/user-guide/zh-CN/src/loop-engineering.md) |
-| 计划中心 | [任务图生成、审批约束、运行与验收](docs/user-guide/zh-CN/src/user-interface.md#计划中心) |
+| OnePiece Plan 模式 | [只读规划与经批准后切换到 Agent 模式](docs/user-guide/zh-CN/src/user-interface.md#onepiece-plan-模式) |
 | 目标中心 | [把分散的执行体归到一处追踪](docs/user-guide/zh-CN/src/goal-management.md) |
 | 任务看板 | [任务的看板视图与状态流转](docs/user-guide/zh-CN/src/todo-board.md) |
 | Agent 评测 | [同题对照跑多个 Agent，比通过率、token 与耗时](docs/user-guide/zh-CN/src/evaluation.md) |

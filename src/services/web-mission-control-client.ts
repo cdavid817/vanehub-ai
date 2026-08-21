@@ -13,7 +13,6 @@ import {
   isTerminalWebRunState,
   listWebAgentRunEvents,
   listWebAgentRuns,
-  prependWebAgentRun,
   updateWebAgentRun,
 } from "./web-agent-run-state";
 
@@ -25,10 +24,8 @@ function webMissionSummary(run: AgentRun): MissionControlRunSummary {
   const actions: MissionControlRunSummary["actions"] = ["open"];
   if (!isTerminalWebRunState(run.state)) actions.push("cancel");
   if (["paused", "blocked", "stuck"].includes(run.state)) actions.push("resume");
-  if (["failed", "stuck"].includes(run.state) && run.retryCount < run.maxRetries) actions.push("retry");
   if (run.state === "waiting_approval") actions.push("approval");
   if (review) actions.push("review");
-  if (["completed", "failed"].includes(run.state)) actions.push("verify");
   return {
     runId: run.id, version: run.version, ownerType: run.owner.ownerType, ownerId: run.owner.ownerId,
     agentId: run.owner.ownerType === "agent" ? run.owner.ownerId : null, title: `Run ${run.owner.ownerId}`,
@@ -103,7 +100,7 @@ export const webMissionControlClient: MissionControlService = {
     const run = listWebAgentRuns().find((item) => item.id === runId);
     if (!run) throw new Error(`run not found: ${runId}`);
     const linked = new Set(run.links.map((link) => link.linkType));
-    const facets: MissionControlRunDetail["facets"] = ["overview", "plan", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"].map((facet) => ({
+    const facets: MissionControlRunDetail["facets"] = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"].map((facet) => ({
       facet: facet as MissionControlRunDetail["facets"][number]["facet"],
       state: facet === "overview" || facet === "timeline" || facet === "logs" || linked.has(facet) ? "available" : "unavailable",
     }));
@@ -115,13 +112,6 @@ export const webMissionControlClient: MissionControlService = {
     if (current.version !== input.version) throw new Error("run version conflict");
     if (input.action === "cancel") return { run: webMissionSummary(await this.cancelAgentRun(input.runId, input.version)), operationId: null };
     if (input.action === "resume") return { run: webMissionSummary(await this.resumeAgentRun(input.runId, input.version)), operationId: null };
-    if (input.action === "retry") {
-      if (!["failed", "stuck"].includes(current.state) || current.retryCount >= current.maxRetries) throw new Error("run cannot be retried");
-      const retried = { ...current, id: `${current.id}-retry-${current.retryCount + 1}`, state: "retrying" as const, retryCount: current.retryCount + 1, version: 1, updatedAt: "2026-08-16T00:10:00.000Z", parentRunId: current.id, lastWitness: `web-retry:${current.id}` };
-      prependWebAgentRun(retried);
-      return { run: webMissionSummary(retried), operationId: `web-retry-operation-${retried.id}` };
-    }
-    if (input.action === "verify") return { run: webMissionSummary(current), operationId: `web-verification-${current.id}` };
     throw new Error("mission control action is unsupported");
   },
 };

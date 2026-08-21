@@ -25,16 +25,16 @@ describe("Goal adapter parity", () => {
     await tauriGoalClient.getGoal(goal.id);
     await tauriGoalClient.createGoal({ title: "x" });
     await tauriGoalClient.updateGoal(goal.id, { title: "x" });
-    await tauriGoalClient.linkGoalTarget(goal.id, "plan", "plan-1");
-    await tauriGoalClient.unlinkGoalTarget(goal.id, "plan", "plan-1");
+    await tauriGoalClient.linkGoalTarget(goal.id, "loop", "loop-1");
+    await tauriGoalClient.unlinkGoalTarget(goal.id, "loop", "loop-1");
     await tauriGoalClient.acceptGoal(goal.id);
 
     expect(invokeMock.mock.calls).toEqual([
       ["get_goal", { goalId: goal.id }],
       ["create_goal", { input: { title: "x" } }],
       ["update_goal", { goalId: goal.id, input: { title: "x" } }],
-      ["link_goal_target", { goalId: goal.id, targetKind: "plan", targetId: "plan-1" }],
-      ["unlink_goal_target", { goalId: goal.id, targetKind: "plan", targetId: "plan-1" }],
+      ["link_goal_target", { goalId: goal.id, targetKind: "loop", targetId: "loop-1" }],
+      ["unlink_goal_target", { goalId: goal.id, targetKind: "loop", targetId: "loop-1" }],
       ["accept_goal", { goalId: goal.id }],
     ]);
   });
@@ -51,20 +51,16 @@ describe("Goal adapter parity", () => {
 
   it("never reports a stored status of awaiting acceptance", async () => {
     const goal = await activeGoal();
-    const ready = await webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-completed");
+    const ready = await webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-succeeded");
 
     expect(ready.derivedStatus).toBe("awaiting_acceptance");
     expect(ready.status).toBe("active");
   });
 
-  it("keeps a retryable plan failure from promoting a goal, unlike a loop failure", async () => {
-    const planGoal = await activeGoal("plan side");
-    const withFailedPlan = await webGoalClient.linkGoalTarget(planGoal.id, "plan", "web-plan-failed");
-    expect(withFailedPlan.derivedStatus).toBe("active");
-
-    const loopGoal = await activeGoal("loop side");
-    const withFailedLoop = await webGoalClient.linkGoalTarget(loopGoal.id, "loop", "web-loop-failed");
-    expect(withFailedLoop.derivedStatus).toBe("awaiting_acceptance");
+  it("rejects new links to the retired Plan target", async () => {
+    const goal = await activeGoal();
+    await expect(webGoalClient.linkGoalTarget(goal.id, "plan", "legacy-plan"))
+      .rejects.toThrow("Plan targets are retired");
   });
 
   it("does not promote a goal whose child is parked at its own acceptance", async () => {
@@ -76,7 +72,7 @@ describe("Goal adapter parity", () => {
 
   it("drops an unresolvable child from the denominator instead of blocking acceptance", async () => {
     const goal = await activeGoal();
-    await webGoalClient.linkGoalTarget(goal.id, "plan", "deleted-plan");
+    await webGoalClient.linkGoalTarget(goal.id, "work_item", "deleted-work-item");
     const ready = await webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-succeeded");
 
     expect(ready.unresolvable).toBe(1);
@@ -94,16 +90,16 @@ describe("Goal adapter parity", () => {
 
   it("pulls a goal back out of acceptance when a child reopens", async () => {
     const goal = await activeGoal();
-    const ready = await webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-completed");
+    const ready = await webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-succeeded");
     expect(ready.derivedStatus).toBe("awaiting_acceptance");
 
-    const reopened = await webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-running");
+    const reopened = await webGoalClient.linkGoalTarget(goal.id, "work_item", "web-work-item-doing");
     expect(reopened.derivedStatus).toBe("active");
   });
 
   it("rejects acceptance while work is outstanding", async () => {
     const goal = await activeGoal();
-    await webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-running");
+    await webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-running");
 
     await expect(webGoalClient.acceptGoal(goal.id)).rejects.toThrow(
       "A goal can only be accepted while it is awaiting acceptance.",
@@ -112,10 +108,10 @@ describe("Goal adapter parity", () => {
 
   it("rejects a duplicate link and a blank title", async () => {
     const goal = await activeGoal();
-    await webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-completed");
+    await webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-succeeded");
 
-    await expect(webGoalClient.linkGoalTarget(goal.id, "plan", "web-plan-completed")).rejects.toThrow(
-      "This plan is already linked to the goal.",
+    await expect(webGoalClient.linkGoalTarget(goal.id, "loop", "web-loop-succeeded")).rejects.toThrow(
+      "This loop is already linked to the goal.",
     );
     await expect(webGoalClient.createGoal({ title: "   " })).rejects.toThrow(
       "Goal title is required.",

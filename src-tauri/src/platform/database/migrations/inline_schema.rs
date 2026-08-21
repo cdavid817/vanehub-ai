@@ -288,7 +288,7 @@ pub(super) fn apply_session_recovery_foundation_migration(
 pub(super) fn apply_plan_and_code_index_reconciliation(
     conn: &Connection,
 ) -> Result<(), DatabaseError> {
-    super::super::legacy_plan_schema::apply_legacy_plan_schema(conn)?;
+    crate::platform::legacy_plan_schema::apply_legacy_plan_schema(conn)?;
     crate::contexts::retrieval::infrastructure::apply_code_index_schema(conn)
 }
 

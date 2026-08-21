@@ -10,7 +10,6 @@ import type {
 } from "../types/work-board";
 import { workItemPriorities, workItemStages } from "../types/work-board";
 import { webAgentClient } from "./web-agent-client";
-import { webPlanClient } from "./web-plan-client";
 import type { WorkBoardService } from "./work-board-service";
 
 const items = new Map<string, WorkItem>();
@@ -57,12 +56,11 @@ function addImported(title: string, stage: WorkItem["stage"], projectPath: strin
 }
 
 async function reconcile(): Promise<void> {
-  const [sessions, scheduledTasks, plans] = await Promise.all([
-    webAgentClient.listSessions(), webAgentClient.listScheduledTasks(), webPlanClient.listPlans(),
+  const [sessions, scheduledTasks] = await Promise.all([
+    webAgentClient.listSessions(), webAgentClient.listScheduledTasks(),
   ]);
   sessions.filter((session) => !session.executionOrigin || session.executionOrigin.kind === "user").forEach((session) => addImported(session.title, "inbox", session.projectPath, { sourceKind: "session", sourceId: session.id, relation: "primary", title: session.title, status: session.lifecycleState, available: true, projectPath: session.projectPath, updatedAt: session.updatedAt }));
   scheduledTasks.forEach((task) => addImported(task.name, "planned", null, { sourceKind: "scheduled_task", sourceId: task.id, relation: "primary", title: task.name, status: task.enabled ? task.latestStatus : "disabled", available: true, projectPath: null, updatedAt: task.updatedAt }));
-  plans.forEach((plan) => addImported(plan.goal, "planned", plan.projectPath, { sourceKind: "plan", sourceId: plan.id, relation: "primary", title: plan.goal, status: plan.latestRunStatus ?? plan.status, available: true, projectPath: plan.projectPath, updatedAt: plan.updatedAt }));
 }
 
 function mutate(id: string, update: (item: WorkItem) => void): WorkItem {

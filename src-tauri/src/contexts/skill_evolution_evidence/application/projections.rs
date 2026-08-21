@@ -98,11 +98,11 @@ impl RuntimeEvidenceProjector {
         })
     }
 
-    pub(crate) fn verification(&self, fact: PlanVerificationFact) -> ProjectionDisposition {
-        self.submit(EvidenceSourceEnvelope::PlanVerification {
+    pub(crate) fn verification(&self, fact: RunVerificationFact) -> ProjectionDisposition {
+        self.submit(EvidenceSourceEnvelope::RunVerification {
             schema_version: EVIDENCE_ENVELOPE_SCHEMA_V1,
             common: fact.common,
-            plan_run_id: fact.plan_run_id,
+            run_id: fact.run_id,
             verifier: fact.verifier,
             outcome: fact.outcome,
             passed_count: fact.passed_count,
@@ -176,9 +176,9 @@ pub(crate) struct DelegatedUtilityFact {
     pub(crate) approval_count: u32,
 }
 
-pub(crate) struct PlanVerificationFact {
+pub(crate) struct RunVerificationFact {
     pub(crate) common: EnvelopeCommon,
-    pub(crate) plan_run_id: String,
+    pub(crate) run_id: String,
     pub(crate) verifier: VerificationClass,
     pub(crate) outcome: VerificationOutcome,
     pub(crate) passed_count: u32,

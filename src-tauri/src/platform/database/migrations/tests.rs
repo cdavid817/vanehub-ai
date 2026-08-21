@@ -316,7 +316,7 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (78, 79));
+    assert_eq!(migration_state, (79, 80));
 
     migrate(&connection).expect("upgrade migration");
 
@@ -868,5 +868,175 @@ fn session_recovery_migration_preserves_runtime_and_orchestrator_evidence() {
             "iteration-1".to_string(),
             "worker".to_string()
         )
+    );
+}
+
+#[test]
+fn fresh_database_retires_plan_work_board_sources() {
+    let connection = Connection::open_in_memory().expect("database");
+    migrate(&connection).expect("fresh migration");
+    connection
+        .execute(
+            "INSERT INTO work_items
+             (id,title,stage,priority,rank,created_at,updated_at)
+             VALUES ('item-1','item','inbox','none',1000,'now','now')",
+            [],
+        )
+        .expect("work item fixture");
+
+    let result = connection.execute(
+        "INSERT INTO work_item_links
+         (work_item_id, source_kind, source_id, relation, created_at)
+         VALUES ('item-1', 'plan', 'plan-1', 'primary', 'now')",
+        [],
+    );
+    assert!(result.is_err(), "the retired source kind must be rejected");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 80",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("migration row"),
+        1
+    );
+}
+
+#[test]
+fn retire_plan_execution_preserves_history_and_mixed_work_items() {
+    let directory = TempDirectory::new("retire-plan-execution");
+    let worktree = directory.path().join("recorded-plan-worktree");
+    std::fs::create_dir_all(&worktree).expect("recorded worktree fixture");
+    let marker = worktree.join("marker.txt");
+    std::fs::write(&marker, "keep").expect("worktree marker");
+
+    let connection = Connection::open_in_memory().expect("database");
+    connection
+        .execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE sessions (id TEXT PRIMARY KEY);
+            CREATE TABLE work_items (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+                stage TEXT NOT NULL, priority TEXT NOT NULL, rank INTEGER NOT NULL,
+                project_path TEXT, due_at TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE work_item_links (
+                work_item_id TEXT NOT NULL,
+                source_kind TEXT NOT NULL CHECK(source_kind IN ('session','plan','plan_run','scheduled_task')),
+                source_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (source_kind, source_id),
+                FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_work_item_links_item ON work_item_links(work_item_id);
+            INSERT INTO work_items
+                (id,title,stage,priority,rank,created_at,updated_at)
+            VALUES ('plan-only','Plan only','planned','none',1000,'now','now'),
+                   ('mixed','Mixed','planned','none',2000,'now','now');
+            INSERT INTO work_item_links VALUES
+                ('plan-only','plan','plan-1','primary','now'),
+                ('mixed','plan_run','plan-run-1','execution','now'),
+                ('mixed','session','session-1','supporting','now');
+            "#,
+        )
+        .expect("legacy work board fixture");
+    crate::platform::legacy_plan_schema::apply_legacy_plan_session_association_schema(&connection)
+        .expect("legacy plan schema");
+    crate::contexts::operations::infrastructure::apply_run_schema(&connection)
+        .expect("agent run schema");
+    crate::contexts::operations::infrastructure::apply_runner_projection_schema(&connection)
+        .expect("runner projection schema");
+
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO sessions (id) VALUES ('session-1');
+            INSERT INTO plans (id,status,current_version,created_at,updated_at)
+            VALUES ('plan-1','approved',1,'now','now');
+            INSERT INTO plan_versions
+                (id,plan_id,version,goal,project_path,base_ref,created_at)
+            VALUES ('plan-version-1','plan-1',1,'goal','project','main','now');
+            "#,
+        )
+        .expect("historical plan fixture");
+    connection
+        .execute(
+            "INSERT INTO plan_runs
+             (id,plan_id,plan_version_id,status,project_path,base_ref,worktree_path,
+              created_at,updated_at,driver_intent)
+             VALUES ('plan-run-1','plan-1','plan-version-1','running','project','main',?1,
+                     'now','now','run')",
+            [worktree.to_string_lossy().as_ref()],
+        )
+        .expect("active plan run");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO agent_runs
+                (run_id,owner_type,owner_id,state,version,updated_at,snapshot_json)
+            VALUES (
+                'agent-run-1','plan_run','plan-run-1','running',1,'now',
+                '{"id":"agent-run-1","owner":{"ownerType":"plan_run","ownerId":"plan-run-1"},"links":[],"state":"running","version":1,"updatedAt":"now","events":[]}'
+            );
+            "#,
+        )
+        .expect("canonical run fixture");
+
+    crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration(&connection)
+        .expect("first retirement");
+    crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration(&connection)
+        .expect("idempotent retirement");
+
+    let plan_run: (String, String, String) = connection
+        .query_row(
+            "SELECT status,driver_intent,worktree_path FROM plan_runs WHERE id='plan-run-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("retained plan run");
+    assert_eq!(plan_run.0, "cancelled");
+    assert_eq!(plan_run.1, "stopped");
+    assert_eq!(plan_run.2, worktree.to_string_lossy());
+    assert!(
+        marker.exists(),
+        "migration must not mutate filesystem worktrees"
+    );
+
+    let canonical: (String, i64, String, i64) = connection
+        .query_row(
+            "SELECT state,version,json_extract(snapshot_json,'$.state'),
+                    (SELECT COUNT(*) FROM agent_run_events WHERE run_id=agent_runs.run_id)
+             FROM agent_runs WHERE run_id='agent-run-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("terminal canonical run");
+    assert_eq!(canonical, ("cancelled".into(), 2, "cancelled".into(), 1));
+
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM plans", [], |row| row.get::<_, i64>(0))
+            .expect("plan history"),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM work_items WHERE id='plan-only'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("plan-only item"),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM work_item_links WHERE work_item_id='mixed' AND source_kind='session'", [], |row| row.get::<_, i64>(0))
+            .expect("mixed retained source"),
+        1
     );
 }

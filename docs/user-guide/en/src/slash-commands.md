@@ -17,8 +17,6 @@ Typing `/` brings up completion candidates, and `/help` lists every command avai
 | Command | What it does |
 | --- | --- |
 | `/todo` | Open the todo board |
-| `/plans` | Open the plan center |
-| `/plan` | Open this session's associated plan run |
 | `/loops` | Open the loop center |
 | `/files` | Open the files tab |
 | `/changes` | Open the changes tab |

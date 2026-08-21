@@ -9,5 +9,5 @@ pub(crate) fn perform_mission_control_action(
     input: MissionControlActionInput,
 ) -> Result<MissionControlActionReceipt, CommandError> {
     let run = api.perform_action(&input.run_id, input.version, &input.action)?;
-    Ok(receipt(run, &input.action))
+    Ok(receipt(run))
 }

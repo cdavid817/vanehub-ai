@@ -89,7 +89,7 @@ Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attes
 | Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md#session-list) |
 | Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md#floating-assistant) |
 | Loop center | [Loop run controls, verification command, timeline](docs/user-guide/en/src/loop-engineering.md) |
-| Plan center | [Task-graph generation, approval constraints, run and acceptance](docs/user-guide/en/src/user-interface.md#plan-center) |
+| OnePiece Plan mode | [Read-only planning and approved transition to Agent mode](docs/user-guide/en/src/user-interface.md#onepiece-plan-mode) |
 | Goal Center | [Track scattered execution items in one place](docs/user-guide/en/src/goal-management.md) |
 | Todo Board | [Board view and stage transitions for work items](docs/user-guide/en/src/todo-board.md) |
 | Agent evaluation | [Run several Agents head-to-head on the same task; compare pass rate, tokens, and time](docs/user-guide/en/src/evaluation.md) |

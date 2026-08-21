@@ -1,5 +1,6 @@
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::workspaces::application::{WorkspaceApplicationError, WorkspaceGitPort};
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::git::{GitAdapter, GitOutput};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -43,7 +44,8 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         &self,
         project_path: &str,
     ) -> Result<Option<String>, WorkspaceApplicationError> {
-        let root = Path::new(project_path);
+        let project_path = external_git_path(project_path);
+        let root = Path::new(&project_path);
         let args = vec!["rev-parse".to_string(), "--show-toplevel".to_string()];
         let output = match self.git.execute(root, &args, GIT_TIMEOUT) {
             Ok(output) => output,
@@ -77,10 +79,11 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         project_path: &str,
         reference: &str,
     ) -> Result<String, WorkspaceApplicationError> {
+        let project_path = external_git_path(project_path);
         let output = self
             .git
             .execute(
-                Path::new(project_path),
+                Path::new(&project_path),
                 &[
                     "rev-parse".to_string(),
                     "--verify".to_string(),
@@ -104,11 +107,13 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         target_path: &str,
         branch: &str,
     ) -> Result<(), WorkspaceApplicationError> {
-        let root = Path::new(project_path);
+        let project_path = external_git_path(project_path);
+        let target_path = external_git_path(target_path);
+        let root = Path::new(&project_path);
         let args = vec![
             "worktree".to_string(),
             "add".to_string(),
-            target_path.to_string(),
+            target_path,
             "-b".to_string(),
             branch.to_string(),
         ];
@@ -153,7 +158,8 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         branch: &str,
         base_branch: &str,
     ) -> Result<(), WorkspaceApplicationError> {
-        let root = Path::new(project_path);
+        let project_path = external_git_path(project_path);
+        let root = Path::new(&project_path);
         let base = self
             .git
             .execute(
@@ -209,7 +215,7 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
                 "Unable to inspect Git worktrees.".to_string(),
             ));
         }
-        let target = normalized_path(target_path);
+        let target = normalized_path(&external_git_path(target_path));
         let collision = String::from_utf8_lossy(&worktrees.stdout)
             .lines()
             .filter_map(|line| line.strip_prefix("worktree "))
@@ -229,7 +235,9 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         branch: &str,
         base_branch: &str,
     ) -> Result<(), WorkspaceApplicationError> {
-        let root = Path::new(project_path);
+        let project_path = external_git_path(project_path);
+        let target_path = external_git_path(target_path);
+        let root = Path::new(&project_path);
         let output = self
             .git
             .execute(
@@ -239,7 +247,7 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
                     "add".to_string(),
                     "-b".to_string(),
                     branch.to_string(),
-                    target_path.to_string(),
+                    target_path,
                     base_branch.to_string(),
                 ],
                 GIT_TIMEOUT,
@@ -268,4 +276,25 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
 
 fn normalized_path(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+fn external_git_path(path: &str) -> String {
+    normalize_windows_extended_length_path(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::external_git_path;
+
+    #[test]
+    fn external_git_path_removes_windows_extended_length_prefixes() {
+        assert_eq!(
+            external_git_path(r"\\?\C:\repo\worktree"),
+            r"C:\repo\worktree"
+        );
+        assert_eq!(
+            external_git_path(r"\\?\UNC\server\share\repo"),
+            r"\\server\share\repo"
+        );
+    }
 }

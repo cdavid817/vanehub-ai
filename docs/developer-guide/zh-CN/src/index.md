@@ -33,7 +33,7 @@
 | [扩展工具上下文](extended-tool-contexts.md) | 沙箱执行、浏览器、联网研究与产物存储，以及各自的门控与隔离约束 |
 | [CLI 委派与 ChangeSet 管线](cli-delegation.md) | 隔离执行、ChangeSet 捕获与封存、一次性精确应用与回滚胶囊 |
 | [多 Agent 群聊](multi-agent-group-chat.md) | 席位模型、中途增减、轮次路由与持久化 presence |
-| [Loop 与 Plan 运行时](loop-and-plan-runtime.md) | 持久化 Loop 定义、拓扑感知的串行子任务调度、Worker/Verifier 信任 |
+| [Loop 运行时与会话 Plan 模式](loop-and-plan-runtime.md) | 持久化 Loop 执行与 OnePiece 会话内的只读 Plan 模式 |
 | [目标与任务看板](goals-and-work-board.md) | 目标状态机与派生验收、看板的幂等对账 |
 | [会话恢复](session-recovery.md) | 恢复状态与生命周期正交、持久化执行身份与所有权 |
 

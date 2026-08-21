@@ -41,7 +41,6 @@ const config: ChatConfig = {
 function setup(overrides: {
   session?: Session | null;
   isStreaming?: boolean;
-  openAssociatedPlan?: () => void;
 } = {}) {
   const chat = {
     setSessionExecutionMode: vi.fn(),
@@ -52,7 +51,6 @@ function setup(overrides: {
     loadUsageSummary: vi.fn().mockResolvedValue({ totalTokens: 1, inputTokens: 1, outputTokens: 0, responseCount: 1 }),
   };
   const navigate = {
-    openAssociatedPlan: overrides.openAssociatedPlan ?? null,
     openDestination: vi.fn(),
     openSessionTab: vi.fn(),
   };
@@ -165,14 +163,10 @@ describe("useSlashCommands", () => {
     expect(result.current.completeDraft("mode")).toBe("/mode ");
   });
 
-  it("offers /plan only when the session has an associated plan run", () => {
-    const without = setup();
-    act(() => { without.result.current.updateSuggestions("/pla"); });
-    expect(without.result.current.suggestions.map((entry) => entry.name)).toEqual(["plans"]);
-
-    const withPlan = setup({ openAssociatedPlan: () => undefined });
-    act(() => { withPlan.result.current.updateSuggestions("/pla"); });
-    expect(withPlan.result.current.suggestions.map((entry) => entry.name)).toEqual(["plan", "plans"]);
+  it("does not offer retired Plan navigation commands", () => {
+    const rendered = setup();
+    act(() => { rendered.result.current.updateSuggestions("/pla"); });
+    expect(rendered.result.current.suggestions).toEqual([]);
   });
 
   it("reports a handler that throws through onError", async () => {

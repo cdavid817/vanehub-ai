@@ -20,7 +20,7 @@ function context(overrides: Partial<ChatConfig> = {}) {
   const ctx = {
     session: session(), config: config(overrides), isStreaming: false, chat,
     actions: { exportSession: vi.fn(), loadUsageSummary: vi.fn() },
-    navigate: { openAssociatedPlan: null, openDestination: vi.fn(), openSessionTab: vi.fn() },
+    navigate: { openDestination: vi.fn(), openSessionTab: vi.fn() },
     listAvailableCommands: () => [],
   } as unknown as CommandContext;
   return { ctx, chat };
@@ -36,7 +36,7 @@ describe("runtime commands", () => {
   it("applies only to OnePiece sessions in this phase", () => {
     // Runtime commands never read capabilities, but appliesTo's signature requires it
     // (types.ts), so every call site — including this generic sweep — must supply one.
-    const capabilities = { hasAssociatedPlan: false };
+    const capabilities = {};
     for (const command of RUNTIME_COMMANDS) {
       expect(command.appliesTo(session("onepiece"), capabilities)).toBe(true);
       expect(command.appliesTo(session("claude-code"), capabilities)).toBe(false);

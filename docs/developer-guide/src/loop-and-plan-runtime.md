@@ -1,6 +1,6 @@
-# Loop and Plan runtimes
+# Loop runtime and session Plan mode
 
-VaneHub runs two durable native execution runtimes for autonomous work: the **Loop** runtime (goal + acceptance-criteria-driven iteration against a Git project) and the **Plan** runtime (topology-aware subtask scheduling). Both persist state in SQLite and treat persisted state as authoritative over in-memory scheduler state. The user-facing Loop/Plan workflow is in the user guide; this chapter covers the native design.
+VaneHub has one durable native runtime for autonomous iterative work: the **Loop** runtime. **Plan** is a read-only execution mode inside an eligible OnePiece session; it is not a second durable task-orchestration runtime. The user-facing workflows are covered in the user guide, while this chapter describes the native ownership boundary.
 
 ## Loop runtime
 
@@ -8,20 +8,20 @@ A Loop definition is persisted with a stable id, name, enabled state, local Git 
 
 First-phase scope is constrained: a definition targeting a non-Git project, a remote workspace, a missing Agent, an unsafe path scope, or an invalid limit is rejected without starting an Agent or creating a worktree. The Worker and Verifier roles accept either a CLI-launched Agent or an API Agent with tool-use trust enabled; an API Agent without tool-use trust is rejected.
 
-## Plan runtime
+## OnePiece session Plan mode
 
-A dedicated task-orchestration boundary persists `PlanRun`, `SubTaskRun`, `SubTaskAttempt`, verification evidence, control request, and correlation records. On approval of a valid Plan version, the runtime creates one `PlanRun` snapshot and one pending `SubTaskRun` for every snapshotted SubTask in a single consistent operation. Overlapping scheduler ticks claiming the same ready SubTask are serialized by a transactional compare-and-set transition — at most one dispatch attempt is created.
+An eligible OnePiece session can switch its composer between Plan and Agent modes. Plan mode persists as `executionMode: "plan"` on the session chat configuration and resolves to a read-only effective policy. It keeps read-only exploration tools while excluding shell execution, file writes, effectful MCP tools, and delegated work.
 
-### Deterministic topology-aware serial scheduling
+The interactive `exit_plan_mode` request asks the user before a later turn can use Agent mode. Declining leaves the session in Plan mode. Approval changes only the session execution mode; it does not create a Plan definition, PlanRun, task graph, or worktree.
 
-The scheduler dispatches only SubTasks whose dependencies succeeded, orders eligible work by topological rank, Plan ordinal, and stable SubTask ID, and runs at most one SubTask attempt per `PlanRun` at a time in this foundation release. A pending SubTask whose predecessor has not reached verified success is not dispatched. When multiple independent SubTasks are eligible, only the deterministic first is dispatched. A failed required SubTask blocks only its transitive descendants, not independent branches.
+Historical Plan and PlanRun database rows remain available for migration compatibility and audit. The forward retirement migration terminalizes active legacy records and removes Plan-derived Work Board links without deleting recorded history or filesystem worktrees.
 
 ## Where the design lives
 
 This chapter orients contributors. The authoritative requirements live in the specs.
 
 - [openspec/specs/loop-engineering-runtime](../../../openspec/specs/loop-engineering-runtime/spec.md) — durable Loop definitions and the Worker/Verifier trust contract.
-- [openspec/specs/plan-execution-runtime](../../../openspec/specs/plan-execution-runtime/spec.md) — the durable execution aggregate and serial scheduler.
-- [openspec/specs/plan-management](../../../openspec/specs/plan-management/spec.md) — Plan definition lifecycle.
+- [openspec/specs/session-chat-configuration](../../../openspec/specs/session-chat-configuration/spec.md) — persisted OnePiece session Plan mode.
+- [openspec/specs/agent-plan-exit-request](../../../openspec/specs/agent-plan-exit-request/spec.md) — interactive Plan-mode exit behavior.
 
-Loop and Plan execution live in the `agent_runtime` bounded context; see [Native bounded contexts](native-contexts.md).
+Loop execution lives in the `agent_runtime` bounded context. OnePiece Plan mode is owned by the `sessions` and `agent_runtime` boundaries; see [Native bounded contexts](native-contexts.md).

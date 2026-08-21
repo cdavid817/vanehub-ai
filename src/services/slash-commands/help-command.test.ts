@@ -32,7 +32,7 @@ describe("/help", () => {
   });
 
   it("is available in any OnePiece session", () => {
-    const capabilities = { hasAssociatedPlan: false };
+    const capabilities = {};
     expect(HELP_COMMAND.appliesTo(session("onepiece"), capabilities)).toBe(true);
     expect(HELP_COMMAND.appliesTo(session("claude-code"), capabilities)).toBe(false);
   });

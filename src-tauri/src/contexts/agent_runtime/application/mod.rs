@@ -111,21 +111,20 @@ pub(crate) use models::{
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
     ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
     DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
-    DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
-    FrozenEndpointProfile, GenerationCancellation, GenerationLease, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, HybridRoutePreview,
-    HybridRoutePreviewInput, LaunchWorkflowResult, LocalEndpointVerificationRequest,
-    LocalModelDiscoveryResult, LocalModelEndpointCandidate, LoopLog, LoopOperationContext,
-    LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
-    LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemoryIndexBounds, MemorySource,
-    MessageTokenUsage, NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
-    OnePieceProviderConfig, OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult,
-    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
-    OnePieceProviderProfiles, OpenAgentTerminalRequest, OrchestrationCorrelation,
-    OrchestrationExecutionProfile, PendingPromptExecution, PersonalizationSettings,
-    ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
-    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, FrozenEndpointProfile,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult,
+    LocalEndpointVerificationRequest, LocalModelDiscoveryResult, LocalModelEndpointCandidate,
+    LoopLog, LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
+    LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
+    MemoryIndexBounds, MemorySource, MessageTokenUsage, NewAgentMessage, OnePieceDiscoveredModel,
+    OnePieceModelDiscoveryRequest, OnePieceProviderConfig, OnePieceProviderEndpoint,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
+    OnePieceProviderProfile, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    PendingPromptExecution, PersonalizationSettings, ProcessStopInitiator, PromptExecutionOutcome,
+    PromptExecutionReport, PromptTrace, PromptVersionReference,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
     ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
     ResizeAgentTerminalRequest, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
@@ -139,9 +138,6 @@ pub(crate) use models::{
     INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
 };
 pub(crate) use ports::ContextQualityRepository;
-
-#[cfg(test)]
-pub(crate) use models::{OnePiecePlanningRequest, OnePiecePlanningResult};
 
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
@@ -172,8 +168,6 @@ pub(crate) use native_tools::{
     IMAGE_ARTIFACT_METADATA_KEY, MAX_SUBAGENT_DURATION_MS, NATIVE_TOOL_CONTRACT_VERSION,
     ONEPIECE_AGENT_ID, ONEPIECE_ONLY_TOOL_NAMES,
 };
-#[cfg(test)]
-pub(crate) use ports::OnePiecePlanningPort;
 pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
     AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCliProfileGateway,

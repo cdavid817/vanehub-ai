@@ -20,7 +20,7 @@
 - [Extended tool contexts](extended-tool-contexts.md)
 - [CLI delegation and the ChangeSet pipeline](cli-delegation.md)
 - [Multi-Agent group chat](multi-agent-group-chat.md)
-- [Loop and Plan runtimes](loop-and-plan-runtime.md)
+- [Loop runtime and session Plan mode](loop-and-plan-runtime.md)
 - [Goals and the work board](goals-and-work-board.md)
 - [Session recovery](session-recovery.md)
 

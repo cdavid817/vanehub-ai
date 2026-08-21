@@ -2,8 +2,8 @@
 
 `goals` 与 `work_board` 是两个独立上下文，但解决的是同一个问题的两面：**分散在各处的执行体，怎么归到一处被追踪**。
 
-- **目标（`goals`）** —— 自上而下：你先声明一个目标，再把 Plan、Loop、工作项、会话挂上去，由它们的完成度**派生**出这个目标能不能验收。
-- **任务看板（`work_board`）** —— 自下而上：把已经存在的会话、Plan、定时任务**对账**成看板卡片，让你在一个视图里排优先级。
+- **目标（`goals`）** —— 自上而下：你先声明一个目标，再把 Loop、工作项、会话挂上去，由它们的完成度**派生**出这个目标能不能验收。
+- **任务看板（`work_board`）** —— 自下而上：把已经存在的会话、定时任务**对账**成看板卡片，让你在一个视图里排优先级。
 
 ## 目标
 
@@ -34,7 +34,7 @@ stateDiagram-v2
 
 > Acceptance needs the derived readiness the caller computed from the goal's children; the aggregate cannot see them itself.
 
-**聚合根看不见自己的子项**。就绪度由调用方遍历关联对象算出来再传进来，`awaiting_acceptance` 为假时直接 `AcceptanceNotReady`。这样聚合根不需要持有对 Plan、Loop 的引用，派生逻辑也不会散进领域对象里。
+**聚合根看不见自己的子项**。就绪度由调用方遍历关联对象算出来再传进来，`awaiting_acceptance` 为假时直接 `AcceptanceNotReady`。这样聚合根不需要持有对 Loop、工作项的引用，派生逻辑也不会散进领域对象里。
 
 ### 五种关联，只有三种参与派生
 
@@ -50,13 +50,13 @@ stateDiagram-v2
 
 ## 任务看板
 
-### 五阶段、五优先级、四种来源
+### 五阶段、五优先级、两种来源
 
 | 维度 | 取值 |
 | --- | --- |
 | 阶段 `stage` | `inbox`、`planned`、`in_progress`、`review`、`done` |
 | 优先级 `priority` | `none`、`low`、`medium`、`high`、`urgent` |
-| 来源 `source_kind` | `session`、`plan`、`plan_run`、`scheduled_task` |
+| 来源 `source_kind` | `session`、`scheduled_task` |
 
 这三组都是**白名单校验**，不在集合内的值直接被拒绝，而不是存进去等以后爆炸。
 
@@ -67,7 +67,6 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
   SE["sessions"] --> RC["reconcile"]
-  PL["task_orchestration<br/>Plan / Plan run"] --> RC
   ST["scheduled_task"] --> RC
   RC --> WI["WorkItem<br/>+ WorkItemSourceLink"]
   WI --> BOARD["看板视图<br/>按 stage 分列、按 rank 排序"]
@@ -94,8 +93,8 @@ flowchart LR
 
 ## 与其他上下文的关系
 
-- Plan 与 Plan run 由 `task_orchestration` 拥有，见 [Loop 与 Plan 运行时](loop-and-plan-runtime.md)。
 - 定时任务与会话由 `sessions` 拥有。
+- 已退役 Plan 的历史目标关联只读展示，不参与新建关联或任务看板对账。
 - 用户侧界面见用户指南的目标管理与任务看板两章。
 
 ## 设计所在

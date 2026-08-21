@@ -3,7 +3,7 @@ import { type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import type { Goal, GoalLinkTarget } from "../contracts/goal";
-import { goalLinkTargets } from "../contracts/goal";
+import { linkableGoalTargets } from "../contracts/goal";
 import {
   blockingReason, canAccept, groupLinks, progressLabel, statusTone, unresolvableLinks,
 } from "./goal-presentation";
@@ -34,7 +34,7 @@ export function GoalDetail(props: GoalDetailProps) {
     const data = new FormData(event.currentTarget);
     const targetId = String(data.get("targetId") ?? "").trim();
     if (!targetId) return;
-    onLink(String(data.get("targetKind") ?? "plan") as GoalLinkTarget, targetId);
+    onLink(String(data.get("targetKind") ?? "loop") as GoalLinkTarget, targetId);
     event.currentTarget.reset();
   };
 
@@ -102,8 +102,8 @@ export function GoalDetail(props: GoalDetailProps) {
       </div>)}
 
       <form className="flex flex-wrap gap-2" onSubmit={submitLink}>
-        <select aria-label={t("goals.fields.targetKind")} className={fieldClass} defaultValue="plan" name="targetKind">
-          {goalLinkTargets.map((kind) => <option key={kind} value={kind}>{t(`goals.target.${kind}`)}</option>)}
+        <select aria-label={t("goals.fields.targetKind")} className={fieldClass} defaultValue="loop" name="targetKind">
+          {linkableGoalTargets.map((kind) => <option key={kind} value={kind}>{t(`goals.target.${kind}`)}</option>)}
         </select>
         <input aria-label={t("goals.fields.targetId")} className={`${fieldClass} min-w-0 flex-1`} name="targetId" placeholder={t("goals.fields.targetId")} />
         <Button disabled={busy} size="sm" type="submit"><Plus aria-hidden="true" />{t("goals.actions.link")}</Button>

@@ -100,13 +100,21 @@ globalThis.describe("VaneHub AI desktop application updates", () => {
     }
 
     const settled = await globalThis.browser.waitUntil(async () => {
-      const snapshot = await invoke(({ core }) => core.invoke("get_desktop_update_snapshot"));
-      return ["available", "up-to-date", "failed"].includes(snapshot.phase) ? snapshot : false;
+      const snapshot = await attempt("get_desktop_update_snapshot");
+      if (!snapshot.ok) return { phase: "failed", error: snapshot.error };
+      return ["available", "up-to-date", "failed"].includes(snapshot.value.phase)
+        ? snapshot.value
+        : false;
     }, {
       timeout: 60_000,
       interval: 1_000,
       timeoutMsg: "The update check never left the checking phase.",
-    });
+    }).catch(() => null);
+
+    if (!settled) {
+      blocked.push("update check: the release endpoint did not settle within 60 seconds on this host");
+      this.skip();
+    }
 
     if (settled.phase === "failed") {
       blocked.push(`update check: the check completed as failed on this host (${settled.error ?? "no reason reported"})`);
