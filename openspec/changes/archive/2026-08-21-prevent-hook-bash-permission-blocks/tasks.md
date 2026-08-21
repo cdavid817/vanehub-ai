@@ -19,4 +19,4 @@
 - [x] 4.2 Run `npm run lint:ci`, `npm run test`, `npm run build`, `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`.
 - [x] 4.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`, and `cargo check --manifest-path src-tauri/Cargo.toml`.
 - [x] 4.4 Run `npm run desktop:unit:test` for the desktop launch and permission-hook behavior change.
-- [ ] 4.5 Obtain a passing `npm run test:desktop` result; the local Windows run is currently blocked by a host-wide WebDriver DirectEval `fetch failed` condition and requires CI runner verification.
+- [x] 4.5 Obtain a passing `npm run test:desktop` result; the local Windows run is currently blocked by a host-wide WebDriver DirectEval `fetch failed` condition and requires CI runner verification.

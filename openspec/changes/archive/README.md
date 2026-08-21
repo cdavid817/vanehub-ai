@@ -224,6 +224,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-21 | fix-guide-link-targets | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-fix-guide-link-targets/` |
 | 2026-08-21 | harden-runtime-lifecycle-and-boundaries | agent-execution-observability, agent-terminal-runtime, native-runtime-architecture, runtime-performance-governance, session-shell, skill-evolution-evidence | `openspec/changes/archive/2026-08-21-harden-runtime-lifecycle-and-boundaries/` |
 | 2026-08-21 | make-guide-images-resolve-in-both-layouts | user-guide-documentation | `openspec/changes/archive/2026-08-21-make-guide-images-resolve-in-both-layouts/` |
+| 2026-08-21 | prevent-hook-bash-permission-blocks | claude-code-permission-hook, cli-agent-permission-launch-flags | `openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/` |
 | 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
