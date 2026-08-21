@@ -170,16 +170,21 @@ test("the CLI terminal layer resolves its fixture Agent instead of an installed 
   const config = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
   const fixture = "tests/desktop/fixtures/cli/opencode";
   const windowsLauncher = `${fixture}.cmd`;
+  const windowsSourcePath = `${fixture}.rs`;
 
   // Ahead of the inherited PATH, or a host with the real Agent installed would test that Agent.
-  assert.match(config, /PATH: `\$\{fixtureDir\}\$\{path\.delimiter\}/);
+  assert.match(config, /PATH: `\$\{cliFixtureDir\}\$\{path\.delimiter\}/);
+  assert.match(config, /await prepareCliFixture\(\)/);
   assert.ok(await exists(fixture), "the fixture CLI executable is missing");
   assert.ok(await exists(windowsLauncher), "the Windows fixture CLI launcher is missing");
+  assert.ok(await exists(windowsSourcePath), "the Windows native fixture source is missing");
   const source = await readFile(fixture, "utf8");
   const windowsSource = await readFile(windowsLauncher, "utf8");
+  const windowsNativeSource = await readFile(windowsSourcePath, "utf8");
   assert.match(source, /VANEHUB-FIXTURE-CLI READY/);
   assert.match(windowsSource, /VANEHUB-FIXTURE-CLI READY/);
   assert.match(windowsSource, /VANEHUB-FIXTURE-ECHO/);
+  assert.match(windowsNativeSource, /VANEHUB-FIXTURE-CLI READY/);
   // The fixture is what makes this layer runnable without credentials on any CI host.
   assert.doesNotMatch(source, /require\(|fetch\(|https?:\/\//);
 });
