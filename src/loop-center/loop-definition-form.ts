@@ -1,6 +1,7 @@
 import type { LoopDefinition, LoopLimits, LoopVerificationCommand, SaveLoopDefinitionInput } from "../types/loop";
 
 export interface LoopDefinitionDraft {
+  enabled: boolean;
   name: string;
   projectPath: string;
   baseBranch: string;
@@ -33,6 +34,7 @@ const defaultLimits: LoopLimits = {
 
 export function createLoopDefinitionDraft(definition?: LoopDefinition | null): LoopDefinitionDraft {
   return {
+    enabled: definition?.enabled ?? true,
     name: definition?.name ?? "",
     projectPath: definition?.projectPath ?? "",
     baseBranch: definition?.baseBranch ?? "main",
@@ -64,7 +66,7 @@ export function validateLoopDefinitionStep(draft: LoopDefinitionDraft, step: num
 export function toSaveLoopDefinitionInput(draft: LoopDefinitionDraft, definition?: LoopDefinition | null): SaveLoopDefinitionInput {
   return {
     name: draft.name.trim(),
-    enabled: definition?.enabled ?? true,
+    enabled: draft.enabled,
     projectPath: draft.projectPath.trim(),
     baseBranch: draft.baseBranch.trim(),
     goal: draft.goal.trim(),

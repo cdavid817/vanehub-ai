@@ -67,6 +67,8 @@ pub(crate) fn invoke_handler(
         crate::commands::evaluation::get_evaluation_attempt::get_evaluation_attempt,
         crate::commands::evaluation::export_evaluation::export_evaluation,
         crate::commands::agent_runtime::loops::list_loop_definitions::list_loop_definitions,
+        crate::commands::agent_runtime::loops::list_loop_branches::list_loop_branches,
+        crate::commands::agent_runtime::loops::check_loop_readiness::check_loop_readiness,
         crate::commands::agent_runtime::loops::create_loop_definition::create_loop_definition,
         crate::commands::agent_runtime::loops::update_loop_definition::update_loop_definition,
         crate::commands::agent_runtime::loops::delete_loop_definition::delete_loop_definition,

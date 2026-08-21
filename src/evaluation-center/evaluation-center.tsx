@@ -13,7 +13,7 @@ export function EvaluationCenter() {
   const [arenas, setArenas] = useState<EvaluationArena[]>([]);
   const [taskId, setTaskId] = useState("");
   const [agentIds, setAgentIds] = useState(AGENTS);
-  const [selected, setSelected] = useState<EvaluationAttempt | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +32,14 @@ export function EvaluationCenter() {
     return () => window.clearInterval(timer);
   }, [arenas]);
   const activeTask = useMemo(() => tasks.find((task) => task.id === taskId), [taskId, tasks]);
+  // Derived rather than held: an attempt captured at click time is a snapshot of a run still in
+  // flight, and the polling below replaces the arena it came from without ever touching it. The
+  // detail pane went on showing `queued` -- Cancel button and all -- beside a row that had already
+  // reported its verdict.
+  const selected = useMemo(
+    () => arenas.flatMap((arena) => arena.attempts).find((attempt) => attempt.id === selectedId) ?? null,
+    [arenas, selectedId],
+  );
   const visible = useMemo(() => arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))
     .filter(({ attempt }) => `${attempt.agent.agentId} ${attempt.outcome}`.toLowerCase().includes(filter.toLowerCase())), [arenas, filter]);
   async function start() {
@@ -39,12 +47,12 @@ export function EvaluationCenter() {
     setRunning(true); setError(null);
     try {
       const arena = await agentService.startEvaluation({ taskId: activeTask.id, taskVersion: activeTask.version, agentIds });
-      setArenas((items) => [arena, ...items]); setSelected(arena.attempts[0] ?? null);
+      setArenas((items) => [arena, ...items]); setSelectedId(arena.attempts[0]?.id ?? null);
     } catch { setError(t("evaluation.runError")); } finally { setRunning(false); }
   }
   async function cancel() {
     if (!selected) return;
-    try { const arena = await agentService.cancelEvaluation(selected.arenaId); replaceArena(arena); setSelected(arena.attempts.find((item) => item.id === selected.id) ?? null); }
+    try { replaceArena(await agentService.cancelEvaluation(selected.arenaId)); }
     catch { setError(t("evaluation.cancelError")); }
   }
   function replaceArena(next: EvaluationArena) { setArenas((items) => items.map((item) => item.id === next.id ? next : item)); }
@@ -56,17 +64,17 @@ export function EvaluationCenter() {
   return <div className="ucd-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg" data-testid="evaluation-center">
     <header className="flex flex-wrap items-center gap-3 border-b border-border p-3">
       <div className="min-w-48 flex-1"><h1 className="text-sm font-semibold">{t("evaluation.title")}</h1><p className="text-xs text-muted-foreground">{t("evaluation.description")}</p></div>
-      <select aria-label={t("evaluation.task")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" onChange={(event) => setTaskId(event.target.value)} value={taskId}>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} v{task.version}</option>)}</select>
-      <fieldset className="flex h-9 items-center gap-2 rounded-md border border-input px-2"><legend className="sr-only">{t("evaluation.agents")}</legend>{AGENTS.map((agent) => <label className="flex items-center gap-1 text-xs" key={agent}><input checked={agentIds.includes(agent)} onChange={() => setAgentIds((items) => items.includes(agent) ? items.filter((item) => item !== agent) : [...items, agent])} type="checkbox" />{agent}</label>)}</fieldset>
-      <button className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm" disabled={!activeTask || running || agentIds.length === 0} onClick={() => void start()} type="button"><Play aria-hidden="true" className="h-4 w-4" />{running ? t("evaluation.running") : t("evaluation.run")}</button>
+      <select aria-label={t("evaluation.task")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" data-testid="evaluation-task" onChange={(event) => setTaskId(event.target.value)} value={taskId}>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} v{task.version}</option>)}</select>
+      <fieldset className="flex h-9 items-center gap-2 rounded-md border border-input px-2"><legend className="sr-only">{t("evaluation.agents")}</legend>{AGENTS.map((agent) => <label className="flex items-center gap-1 text-xs" key={agent}><input checked={agentIds.includes(agent)} data-testid={`evaluation-agent-${agent}`} onChange={() => setAgentIds((items) => items.includes(agent) ? items.filter((item) => item !== agent) : [...items, agent])} type="checkbox" />{agent}</label>)}</fieldset>
+      <button className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm" data-testid="evaluation-run" disabled={!activeTask || running || agentIds.length === 0} onClick={() => void start()} type="button"><Play aria-hidden="true" className="h-4 w-4" />{running ? t("evaluation.running") : t("evaluation.run")}</button>
     </header>
     {error ? <p className="border-b border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive" role="alert">{error}</p> : null}
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(420px,1.3fr)_minmax(280px,0.7fr)]">
-      <section className="min-w-0 border-r border-border p-3"><div className="mb-2 flex items-center justify-between gap-2"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.results")}</h2><input aria-label={t("evaluation.filter")} className="h-8 w-44 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => setFilter(event.target.value)} placeholder={t("evaluation.filter")} value={filter} /></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-border text-muted-foreground"><th className="p-2">{t("evaluation.agent")}</th><th>{t("evaluation.outcome")}</th><th>{t("evaluation.tests")}</th><th>{t("evaluation.tokens")}</th><th>{t("evaluation.time")}</th><th><span className="sr-only">{t("evaluation.export")}</span></th></tr></thead><tbody>{visible.map(({ arena, attempt }) => <tr className="cursor-pointer border-b border-border/60 hover:bg-muted/60" key={attempt.id} onClick={() => setSelected(attempt)}><td className="p-2 font-medium">{attempt.agent.agentId}</td><td>{t(`evaluation.outcome.${attempt.outcome}`)}</td><td>{attempt.checks.filter((item) => item.passed).length}/{attempt.checks.length}</td><td>{metric(attempt, "input_tokens")}</td><td>{metric(attempt, "duration")}</td><td><button aria-label={t("evaluation.export")} className="rounded p-1 hover:bg-muted" onClick={(event) => { event.stopPropagation(); void exportArena(arena); }} type="button"><Download aria-hidden="true" className="h-4 w-4" /></button></td></tr>)}</tbody></table></div>
+      <section className="min-w-0 border-r border-border p-3"><div className="mb-2 flex items-center justify-between gap-2"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.results")}</h2><input aria-label={t("evaluation.filter")} className="h-8 w-44 rounded-md border border-input bg-background px-2 text-xs" data-testid="evaluation-filter" onChange={(event) => setFilter(event.target.value)} placeholder={t("evaluation.filter")} value={filter} /></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-border text-muted-foreground"><th className="p-2">{t("evaluation.agent")}</th><th>{t("evaluation.outcome")}</th><th>{t("evaluation.tests")}</th><th>{t("evaluation.tokens")}</th><th>{t("evaluation.time")}</th><th><span className="sr-only">{t("evaluation.export")}</span></th></tr></thead><tbody>{visible.map(({ arena, attempt }) => <tr className="cursor-pointer border-b border-border/60 hover:bg-muted/60" data-attempt-id={attempt.id} data-outcome={attempt.outcome} data-testid="evaluation-row" key={attempt.id} onClick={() => setSelectedId(attempt.id)}><td className="p-2 font-medium">{attempt.agent.agentId}</td><td>{t(`evaluation.outcome.${attempt.outcome}`)}</td><td>{attempt.checks.filter((item) => item.passed).length}/{attempt.checks.length}</td><td>{metric(attempt, "input_tokens")}</td><td>{metric(attempt, "duration")}</td><td><button aria-label={t("evaluation.export")} className="rounded p-1 hover:bg-muted" data-testid="evaluation-export" onClick={(event) => { event.stopPropagation(); void exportArena(arena); }} type="button"><Download aria-hidden="true" className="h-4 w-4" /></button></td></tr>)}</tbody></table></div>
         {visible.length === 0 ? <p className="p-6 text-center text-sm text-muted-foreground">{t("evaluation.empty")}</p> : null}
       </section>
-      <aside className="min-w-0 p-3"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.detail")}</h2>{selected && !TERMINAL.has(selected.outcome) ? <button className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs" onClick={() => void cancel()} type="button"><Square className="h-3 w-3" />{t("evaluation.cancel")}</button> : null}</div>
+      <aside className="min-w-0 p-3" data-selected-attempt={selected?.id ?? ""} data-selected-outcome={selected?.outcome ?? ""} data-testid="evaluation-detail"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.detail")}</h2>{selected && !TERMINAL.has(selected.outcome) ? <button className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs" data-testid="evaluation-cancel" onClick={() => void cancel()} type="button"><Square className="h-3 w-3" />{t("evaluation.cancel")}</button> : null}</div>
         {selected ? <div className="space-y-3"><div className="rounded-md border border-border bg-muted/30 p-3"><p className="font-mono text-xs">{selected.agent.providerId} / {selected.agent.modelId ?? t("evaluation.unavailable")}</p><p className="mt-1 text-xs text-muted-foreground">{selected.agent.configurationFingerprint}</p></div>
           <Evidence attempt={selected} title={t("evaluation.verification")} /><div><h3 className="text-xs font-semibold">{t("evaluation.diff")}</h3><pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-[11px]">{selected.artifactIds.slice(0, 20).join("\n") || t("evaluation.unavailable")}</pre></div>
           <div><h3 className="text-xs font-semibold">{t("evaluation.metrics")}</h3>{selected.metrics.map((item) => <p className="mt-1 text-xs" key={item.name}>{item.name}: {item.value ?? "—"} {item.unit} · {item.quality} · {item.source}</p>)}</div>
@@ -77,4 +85,11 @@ export function EvaluationCenter() {
 }
 
 function Evidence({ attempt, title }: { attempt: EvaluationAttempt; title: string }) { return <div><h3 className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck aria-hidden="true" className="h-4 w-4" />{title}</h3>{attempt.checks.map((check) => <p className="mt-1 text-xs" key={check.checkId}>{check.passed ? "PASS" : "FAIL"} · {check.summary}</p>)}</div>; }
-function metric(attempt: EvaluationAttempt, name: string) { const value = attempt.metrics.find((item) => item.name === name); return value?.value == null ? "—" : `${value.value} ${value.unit}`; }
+// Milliseconds are what the runtime reports and seconds are what a benchmark is read in; a
+// six-digit `duration` in a table column next to a four-digit token count invites the wrong
+// comparison.
+function metric(attempt: EvaluationAttempt, name: string) {
+  const value = attempt.metrics.find((item) => item.name === name);
+  if (value?.value == null) return "—";
+  return value.unit === "ms" ? `${(value.value / 1_000).toFixed(1)} s` : `${value.value} ${value.unit}`;
+}

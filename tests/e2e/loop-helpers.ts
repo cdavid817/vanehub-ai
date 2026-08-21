@@ -14,8 +14,8 @@ export async function createAndRunLoop(page: Page, name: string) {
   await create.click();
   await expect(page.getByRole("dialog", { name: "新建循环定义" })).toBeVisible();
   await page.getByLabel("名称").fill(name);
-  await page.getByLabel("项目路径").fill("D:\\example-loop-project");
-  await page.getByLabel("基础分支").fill("main");
+  await page.getByLabel("项目路径").selectOption("D:/example-workspace");
+  await page.getByLabel("基础分支").selectOption("main");
   // Exact: getByLabel substring-matches, so the Goal Center destination and its
   // activity-bar button would otherwise be swept in alongside this field.
   await page.getByLabel("目标", { exact: true }).fill("实现并验证 Loop 工程流程");
@@ -32,6 +32,11 @@ export async function createAndRunLoop(page: Page, name: string) {
   await expect(page.getByText(name)).toBeVisible();
   await page.getByRole("button", { name: "保存并运行" }).click();
   await expect(page.getByRole("dialog", { name: "新建循环定义" })).toHaveCount(0);
+  const preflight = page.getByRole("dialog", { name: "运行就绪检查" });
+  await expect(preflight).toBeVisible();
+  await expect(preflight.getByText("已准备好启动")).toBeVisible();
+  await preflight.getByRole("button", { name: "启动循环" }).click();
+  await expect(preflight).toHaveCount(0);
 
   const closeNavigation = page.getByRole("button", { name: "关闭循环列表" });
   if (await closeNavigation.isVisible()) await closeNavigation.click();

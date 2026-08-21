@@ -7,7 +7,7 @@ import type {
   StartLoopResult,
 } from "../types/loop";
 import type { LoopRun } from "../types/loop";
-import type { LoopService } from "./loop-service";
+import type { LoopWorkbenchService } from "./loop-service";
 import { mockAgents } from "./mock-agent-data";
 import { nowIso } from "./web-mock-clock";
 import { prependWebAgentRun, projectWebOwnerRun, setWebAgentRunEvents } from "./web-agent-run-state";
@@ -29,6 +29,7 @@ import {
   replaceWebLoopDefinitions,
   subscribeWebLoopEvents,
 } from "./web-loop-state";
+import { activeLoopStatuses, webLoopReadinessClient } from "./web-loop-readiness-client";
 
 function validateLoopDefinitionInput(input: SaveLoopDefinitionInput) {
   const name = input.name.trim();
@@ -73,7 +74,9 @@ function validateLoopDefinitionInput(input: SaveLoopDefinitionInput) {
   };
 }
 
-export const webLoopClient: LoopService = {
+export const webLoopClient: LoopWorkbenchService = {
+  ...webLoopReadinessClient,
+
   async listLoopDefinitions() {
     return cloneLoopValue([...listWebLoopDefinitions()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
   },
@@ -109,7 +112,7 @@ export const webLoopClient: LoopService = {
 
   async deleteLoopDefinition(definitionId: string) {
     findLoopDefinition(definitionId);
-    if (listWebLoopRuns().some((run) => run.definitionId === definitionId && ["queued", "running", "paused", "awaiting-acceptance"].includes(run.status))) {
+    if (listWebLoopRuns().some((run) => run.definitionId === definitionId && activeLoopStatuses.includes(run.status))) {
       throw new Error(i18n.t("loops.web.error.activeRunDelete"));
     }
     replaceWebLoopDefinitions(listWebLoopDefinitions().filter((candidate) => candidate.id !== definitionId));
@@ -127,7 +130,7 @@ export const webLoopClient: LoopService = {
   async startLoop(definitionId: string): Promise<StartLoopResult> {
     const definition = findLoopDefinition(definitionId);
     if (!definition.enabled) throw new Error(i18n.t("loops.web.error.definitionDisabled"));
-    if (listWebLoopRuns().some((run) => run.definitionId === definitionId && ["queued", "running", "paused", "awaiting-acceptance"].includes(run.status))) {
+    if (listWebLoopRuns().some((run) => run.definitionId === definitionId && activeLoopStatuses.includes(run.status))) {
       throw new Error(i18n.t("loops.web.error.activeRunExists"));
     }
     const timestamp = nowIso();

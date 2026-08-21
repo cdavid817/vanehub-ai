@@ -23,14 +23,20 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 是 native `route_user_message` 的镜像实现(mention → 上一轮发言者 → 首席位),没有可搬移的现成
 // 代码;`seatHandlesFromNames` 反向减少了重复——句柄去重原先在 `seat-mention-options.ts` 里
 // 单独实现一份,现在两处共用同一份,那个文件因此是净减的。
+// 上调理由(optimize-loop-engineering-workbench):Loop 服务新增的项目/分支发现与只读 preflight
+// 需要独立的 Tauri/Web 适配器和契约测试。两端实现同一 service boundary，避免 React 直接
+// 依赖 native invoke；新增代码是跨运行时边界和确定性模拟所必需的，不是对既有业务分支的复制。
 // 上调理由(improve-workspace-ui-ergonomics):这一次同样不是拆分,是补一条缺失的能力——会话运行时
 // 失败后没有任何恢复入口。新增的 57 行是这条能力在服务边界上的固定开销:接口方法与
 // `SessionRuntimeRecovery` 结果类型各一份,Tauri 与 Web/mock 两个适配器实现各一份,外加一条契约
 // 测试。没有复制既有分支;`tauri-agent-client.ts` 反而是净减的——恢复相关的四个方法搬进了
 // `tauri-session-recovery-client.ts`,与 Web 侧早就存在的 `web-session-recovery-client.ts` 对齐,
 // 少一个方法就会一眼看出来。
+// 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
+// src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
+// 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19471, owner: "improve-workspace-ui-ergonomics" },
+  { root: "src/services", budget: 19234, owner: "improve-workspace-ui-ergonomics" },
 ]);
 
 const STATE_PACKAGES = new Set([

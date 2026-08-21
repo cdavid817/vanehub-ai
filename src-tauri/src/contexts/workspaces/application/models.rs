@@ -25,6 +25,12 @@ pub(crate) struct CreatedWorktree {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GitBranchReference {
+    pub(crate) name: String,
+    pub(crate) kind: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionWorkspaceContext {
     pub(crate) availability: &'static str,
     pub(crate) root_name: Option<String>,

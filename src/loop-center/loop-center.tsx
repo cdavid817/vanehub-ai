@@ -5,9 +5,11 @@ import { Button } from "../components/ui/button";
 import { useLoopDefinitionsQuery, useLoopRunQuery, useLoopRunsQuery } from "../hooks/use-loop-queries";
 import { LoopInspector } from "./loop-inspector";
 import { LoopDefinitionDialog } from "./loop-definition-dialog";
+import { LoopDefinitionOverview } from "./loop-definition-overview";
 import { LoopNavigation } from "./loop-navigation";
+import { LoopPreflightDialog } from "./loop-preflight-dialog";
 import { LoopTimeline } from "./loop-timeline";
-import type { LoopInspectionTarget } from "../types/loop";
+import type { LoopDefinition, LoopInspectionTarget } from "../types/loop";
 
 export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionTarget) => void }) {
   const { t } = useTranslation();
@@ -16,6 +18,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [editorDefinitionId, setEditorDefinitionId] = useState<string | "new" | null>(null);
+  const [preflightDefinition, setPreflightDefinition] = useState<LoopDefinition | null>(null);
   const navigationRef = useRef<HTMLElement>(null);
   const inspectorRef = useRef<HTMLElement>(null);
   const navigationTriggerRef = useRef<HTMLButtonElement>(null);
@@ -23,6 +26,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
   const definitions = useLoopDefinitionsQuery();
   const runs = useLoopRunsQuery(definitionId ?? undefined);
   const run = useLoopRunQuery(runId);
+  const selectedDefinition = definitions.data?.find((item) => item.id === definitionId) ?? null;
 
   useEffect(() => {
     const available = definitions.data ?? [];
@@ -33,9 +37,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
 
   useEffect(() => {
     const available = runs.data ?? [];
-    if (!runId || !available.some((item) => item.id === runId)) {
-      setRunId(available[0]?.id ?? null);
-    }
+    if (runId && !available.some((item) => item.id === runId)) setRunId(null);
   }, [runId, runs.data]);
 
   const error = definitions.error ?? runs.error ?? run.error;
@@ -73,7 +75,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
           {!error && !definitions.isLoading && definitions.data?.length === 0 ? (
             <EmptyDefinitions onCreate={() => setEditorDefinitionId("new")} />
           ) : null}
-          {!error && definitions.data?.length !== 0 && !runs.isLoading && runs.data?.length === 0 ? <StateMessage title={t("loops.states.emptyRuns")} /> : null}
+          {!error && selectedDefinition && !runId && !runs.isLoading ? <LoopDefinitionOverview definition={selectedDefinition} onDeleted={() => { setDefinitionId(null); setRunId(null); void definitions.refetch(); }} onEdit={() => setEditorDefinitionId(selectedDefinition.id)} onPreflight={() => setPreflightDefinition(selectedDefinition)} runs={runs.data ?? []} /> : null}
           {!error && runId && run.data ? <LoopTimeline onInspect={onInspect} refreshing={run.isFetching} run={run.data} /> : null}
         </div>
       </div>
@@ -82,15 +84,17 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
         <LoopDefinitionDialog
           definition={editorDefinitionId === "new" ? null : definitions.data?.find((item) => item.id === editorDefinitionId) ?? null}
           onClose={() => setEditorDefinitionId(null)}
-          onSaved={(saved, startedRunId) => {
+          onSaved={(saved, requestStart) => {
             setEditorDefinitionId(null);
             setDefinitionId(saved.id);
-            setRunId(startedRunId);
+            setRunId(null);
+            if (requestStart) setPreflightDefinition(saved);
             void definitions.refetch();
             void runs.refetch();
           }}
         />
       ) : null}
+      {preflightDefinition ? <LoopPreflightDialog definition={preflightDefinition} onClose={() => setPreflightDefinition(null)} onEdit={() => { setPreflightDefinition(null); setEditorDefinitionId(preflightDefinition.id); }} onStarted={(startedRunId) => { setPreflightDefinition(null); setRunId(startedRunId); void runs.refetch(); }} /> : null}
     </div>
   );
 }
