@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// Stands in for a managed CLI Agent's interactive binary so the desktop CLI-terminal layer can
+// exercise the real PTY round trip without a model call, a credential, or a nondeterministic
+// answer. Resolved by shadowing the builtin `opencode` Agent's executable name on PATH, which
+// keeps CLI profile loading, executable resolution, and PTY setup on their production paths.
+//
+// It must survive whatever arguments the interactive profile passes, so arguments are ignored
+// rather than parsed: an unrecognized flag here would fail the layer for the wrong reason.
+
+const READY = "VANEHUB-FIXTURE-CLI READY";
+const ECHO = "VANEHUB-FIXTURE-ECHO";
+const STOP = "vanehub-fixture-stop";
+
+process.stdout.write(`${READY}\n`);
+
+let pending = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  pending += chunk;
+  // A PTY delivers carriage returns, not newlines, when the user presses Enter.
+  const lines = pending.split(/\r\n|\r|\n/);
+  pending = lines.pop() ?? "";
+  for (const line of lines) {
+    const content = line.trim();
+    if (content === STOP) {
+      process.stdout.write("VANEHUB-FIXTURE-CLI STOPPING\n");
+      process.exit(0);
+    }
+    if (content.length > 0) process.stdout.write(`${ECHO} ${content}\n`);
+  }
+});
+process.stdin.on("end", () => process.exit(0));

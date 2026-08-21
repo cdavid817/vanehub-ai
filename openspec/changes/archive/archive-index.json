@@ -3110,8 +3110,84 @@
                      },
                      {
                          "archivedOn":  "2026-08-21",
+                         "changeName":  "add-cli-terminal-desktop-verification",
+                         "path":  "openspec/changes/archive/2026-08-21-add-cli-terminal-desktop-verification/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-runtime-verification"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "add-native-ui-desktop-verification",
+                         "path":  "openspec/changes/archive/2026-08-21-add-native-ui-desktop-verification/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-runtime-verification"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "align-user-guide-audience-and-media",
+                         "path":  "openspec/changes/archive/2026-08-21-align-user-guide-audience-and-media/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "complete-chinese-user-guide-coverage",
+                         "path":  "openspec/changes/archive/2026-08-21-complete-chinese-user-guide-coverage/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "user-guide-documentation"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "complete-english-user-guide-content",
+                         "path":  "openspec/changes/archive/2026-08-21-complete-english-user-guide-content/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
                          "changeName":  "decompose-web-send-message",
                          "path":  "openspec/changes/archive/2026-08-21-decompose-web-send-message/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "document-mcp-skill-worktree-and-hooks",
+                         "path":  "openspec/changes/archive/2026-08-21-document-mcp-skill-worktree-and-hooks/",
                          "artifacts":  [
                                            "proposal",
                                            "design",
@@ -3136,6 +3212,38 @@
                      },
                      {
                          "archivedOn":  "2026-08-21",
+                         "changeName":  "fix-guide-link-targets",
+                         "path":  "openspec/changes/archive/2026-08-21-fix-guide-link-targets/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "native-developer-documentation",
+                                              "user-guide-documentation"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "harden-runtime-lifecycle-and-boundaries",
+                         "path":  "openspec/changes/archive/2026-08-21-harden-runtime-lifecycle-and-boundaries/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "agent-terminal-runtime",
+                                              "native-runtime-architecture",
+                                              "runtime-performance-governance",
+                                              "session-shell",
+                                              "skill-evolution-evidence"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
                          "changeName":  "integrate-plan-mode-into-onepiece",
                          "path":  "openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/",
                          "artifacts":  [
@@ -3153,6 +3261,33 @@
                                               "plan-management",
                                               "session-chat-configuration",
                                               "unified-todo-board"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "make-guide-images-resolve-in-both-layouts",
+                         "path":  "openspec/changes/archive/2026-08-21-make-guide-images-resolve-in-both-layouts/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "user-guide-documentation"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "rebuild-project-documentation-topology",
+                         "path":  "openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "native-developer-documentation",
+                                              "user-guide-documentation"
                                           ]
                      }
                  ]
