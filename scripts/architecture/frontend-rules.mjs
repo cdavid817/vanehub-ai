@@ -18,8 +18,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // chat 一侧:原先直接 `activeStreams.has/set/delete`、`messagesBySession.delete`,现在各是一个函数。
 // 上调理由(decompose-web-send-message):`sendMessage` 的方法体移出后,新增 10 行是两个 scheduler
 // 与显式上下文的固定模块/类型边界开销;旧方法已整段删除,未复制业务分支。
+// 上调理由(route-user-messages-to-mentioned-seat):这一次不是拆分,是补一条原本缺失的行为——
+// mock 侧此前恒把回复归属给首席位,与 native 的路由规则不一致。新增的 57 行里,`webRoutedSeatId`
+// 是 native `route_user_message` 的镜像实现(mention → 上一轮发言者 → 首席位),没有可搬移的现成
+// 代码;`seatHandlesFromNames` 反向减少了重复——句柄去重原先在 `seat-mention-options.ts` 里
+// 单独实现一份,现在两处共用同一份,那个文件因此是净减的。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19357, owner: "decompose-web-send-message" },
+  { root: "src/services", budget: 19414, owner: "route-user-messages-to-mentioned-seat" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -15,12 +15,12 @@ use super::{
     AgentRuntimeApplicationService, AgentSession, SeatTurnOwnership, SeatTurnStatus,
     SeatTurnTerminal,
 };
-use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::agent_runtime::domain::{
     apply_human_handoff, build_seat_briefing, build_seat_context, derive_mentions,
-    next_turn_targets, normalize_model_family, parse_human_handoff, ChainEndReason,
-    SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
+    next_turn_targets, normalize_model_family, parse_human_handoff, route_user_message,
+    ChainEndReason, SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
 };
+use crate::contexts::agent_runtime::domain::{AgentDefinition, InteractionMode};
 use uuid::Uuid;
 
 /// Inherited defaults that have not been measured against this runtime, so they live here as
@@ -78,6 +78,27 @@ pub(crate) struct SeatTurnAssignment {
     pub(crate) depth: usize,
     pub(crate) round_id: String,
     pub(crate) parent_execution_run_id: Option<String>,
+}
+
+/// The seat that spoke a message, when an active seat did.
+///
+/// `speaker_seat_id` is what new writes carry: `start_generation` records the stable seat id and
+/// deliberately leaves `seat_index` null, so anything that reads a *live* thread by index sees
+/// every message as unattributed. The index is still read here because rows written before
+/// migration 59 have only that, and a thread from before the migration still has to render and
+/// route.
+fn seat_speaker<'a>(
+    roster: &'a [SeatRosterEntry],
+    message: &super::AgentMessage,
+) -> Option<&'a SeatRosterEntry> {
+    if let Some(seat_id) = message.speaker_seat_id.as_deref() {
+        if let Some(entry) = roster.iter().find(|entry| entry.seat_id == seat_id) {
+            return Some(entry);
+        }
+    }
+    message
+        .seat_index
+        .and_then(|index| roster.iter().find(|entry| entry.seat_index == index))
 }
 
 impl AgentRuntimeApplicationService {
@@ -165,23 +186,68 @@ impl AgentRuntimeApplicationService {
             .collect())
     }
 
+    /// The seat that most recently held the turn, as its handle.
+    ///
+    /// Read from the thread rather than tracked as session state: the turn holder is already
+    /// recorded, message by message, and a second copy of it would be one more thing to keep
+    /// correct across restarts, seat changes and a round that ended mid-flight. A seat that has
+    /// since left resolves to nobody, which sends an unaddressed message back to the first seat
+    /// instead of to someone no longer in the room.
+    fn last_turn_holder(
+        &self,
+        session_id: &str,
+        roster: &[SeatRosterEntry],
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        let messages = self
+            .ports
+            .history
+            .recent_messages(session_id, SEAT_CONTEXT_MESSAGE_LIMIT)?;
+        Ok(messages
+            .iter()
+            .rev()
+            .find_map(|message| seat_speaker(roster, message))
+            .map(|entry| entry.briefing.mention.clone()))
+    }
+
     /// Gives the first reply in a multi-seat round the same identity and instructions as every
-    /// later handoff. Without this, the first assistant message has no speaker and its mentions
-    /// cannot enter the seat-turn coordinator.
+    /// later handoff, and decides which seat that reply comes from. Without this, the first
+    /// assistant message has no speaker and its mentions cannot enter the seat-turn coordinator.
+    ///
+    /// The human addresses a seat the same way the Agents address each other -- a line-leading
+    /// `@handle` -- rather than through a picker, so the message itself is what selects the
+    /// speaker. Routing every user message to the first seat, as this did before, meant a group
+    /// chat had one answerable participant and the rest could only ever be reached second-hand.
     pub(crate) fn initial_seat_turn_context(
         &self,
         session: &AgentSession,
-    ) -> Result<Option<(SeatTurnOwnership, String)>, AgentRuntimeApplicationError> {
+        content: &str,
+    ) -> Result<Option<(SeatRosterEntry, SeatTurnOwnership, String)>, AgentRuntimeApplicationError>
+    {
         let roster = self.seat_roster(session)?;
         if roster.len() <= 1 {
             return Ok(None);
         }
-        let Some(seat) = roster.first() else {
+        let Some(first) = roster.first() else {
             return Ok(None);
         };
+        let mentions: Vec<String> = roster
+            .iter()
+            .map(|entry| entry.briefing.mention.clone())
+            .collect();
+        let last_holder = self.last_turn_holder(&session.id, &roster)?;
+        let addressed = route_user_message(
+            content,
+            &mentions,
+            last_holder.as_deref(),
+            &first.briefing.mention,
+        );
+        let seat = roster
+            .iter()
+            .find(|entry| entry.briefing.mention == addressed)
+            .unwrap_or(first);
         let others = roster
             .iter()
-            .skip(1)
+            .filter(|entry| entry.seat_index != seat.seat_index)
             .map(|entry| entry.briefing.clone())
             .collect::<Vec<_>>();
         let briefing = build_seat_briefing(
@@ -191,6 +257,7 @@ impl AgentRuntimeApplicationService {
             MAX_MENTIONS_PER_REPLY,
         );
         Ok(Some((
+            seat.clone(),
             SeatTurnOwnership {
                 seat_id: seat.seat_id.clone(),
                 seat_index: seat.seat_index,
@@ -293,6 +360,37 @@ impl AgentRuntimeApplicationService {
         Ok(SeatTurnDecision { next, stop })
     }
 
+    /// How a seat's Agent is configured for a turn.
+    ///
+    /// A seat runs its own Agent, not the session's, so this is built around that Agent rather
+    /// than read from the session's saved chat settings — which belong to whoever the picker last
+    /// selected and would carry one participant's model onto another's turn.
+    pub(super) fn seat_chat_configuration(
+        &self,
+        session: &AgentSession,
+        agent: &AgentDefinition,
+    ) -> Result<AgentChatConfiguration, AgentRuntimeApplicationError> {
+        let interaction_mode = if agent.supports(InteractionMode::Cli) {
+            InteractionMode::Cli
+        } else {
+            InteractionMode::Api
+        };
+        self.ports.sessions.validate_seat_configuration(
+            session,
+            AgentChatConfiguration {
+                agent_id: agent.id().as_str().to_string(),
+                interaction_mode,
+                execution_mode: "inherit".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+        )
+    }
+
     /// Starts one seat's turn: its role in the CLI's own system-prompt channel, the thread it
     /// missed in the prompt.
     pub(crate) fn start_seat_turn(
@@ -312,27 +410,7 @@ impl AgentRuntimeApplicationService {
                 ))
             })?;
         let agent = self.require_agent(&seat.agent_id)?;
-        // A seat runs its own Agent, not the session's, so the configuration is built around that
-        // Agent rather than read from the session's saved chat settings.
-        let interaction_mode = if agent.supports(InteractionMode::Cli) {
-            InteractionMode::Cli
-        } else {
-            InteractionMode::Api
-        };
-        let configuration = self.ports.sessions.validate_seat_configuration(
-            &session,
-            AgentChatConfiguration {
-                agent_id: seat.agent_id.clone(),
-                interaction_mode,
-                execution_mode: "inherit".to_string(),
-                provider_id: None,
-                model_id: None,
-                reasoning_depth: None,
-                streaming: true,
-                thinking: false,
-                long_context: false,
-            },
-        )?;
+        let configuration = self.seat_chat_configuration(&session, &agent)?;
 
         let others: Vec<SeatBriefingEntry> = roster
             .iter()
@@ -410,15 +488,13 @@ impl AgentRuntimeApplicationService {
             .history
             .recent_messages(session_id, SEAT_CONTEXT_MESSAGE_LIMIT)?;
         let turns: Vec<SeatContextTurn> = messages
-            .into_iter()
+            .iter()
             .filter(|message| !message.content.trim().is_empty())
             .map(|message| SeatContextTurn {
-                speaker: message
-                    .seat_index
-                    .and_then(|index| roster.iter().find(|entry| entry.seat_index == index))
+                speaker: seat_speaker(roster, message)
                     .map(|entry| entry.briefing.mention.clone())
                     .unwrap_or_else(|| USER_SPEAKER.to_string()),
-                content: message.content,
+                content: message.content.clone(),
             })
             .collect();
 
