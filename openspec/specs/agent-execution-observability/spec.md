@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines execution-run correlation, trace topology and fidelity, local timeline inspection, optional OTLP export, bounded metrics, and privacy requirements for Agent execution observability.
+
 ## Requirements
+
 ### Requirement: Execution run identity
 The system SHALL create one execution run with independent run, trace, and root span identifiers for every accepted user-task submission before Agent execution begins.
 
@@ -217,3 +219,9 @@ Performance evidence for an Agent Run SHALL use existing Run, operation, span, a
 - **WHEN** dedicated benchmark evidence is produced for a Run
 - **THEN** it SHALL identify commit, platform, profile, dataset, metric, baseline, delta, and correlation ids without captured execution content
 
+### Requirement: Observable telemetry persistence failure
+Execution telemetry failures MUST remain non-blocking to the owning operation and SHALL produce bounded, redacted local diagnostics without recursively using the failing telemetry path.
+
+#### Scenario: Span start or finish fails
+- **WHEN** local persistence or export rejects a span or run transition
+- **THEN** the Agent operation SHALL continue according to its own outcome and the unified log SHALL receive a safe failure classification

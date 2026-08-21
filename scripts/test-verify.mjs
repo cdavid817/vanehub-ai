@@ -16,9 +16,10 @@ export function repositoryVerificationCommands(npmCli) {
     npm(["run", "test:coverage"]),
     npm(["run", "build"]),
     ["cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--all", "--", "--check"]],
-    ["cargo", ["clippy", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--", "-D", "warnings"]],
-    ["cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]],
-    ["cargo", ["check", "--manifest-path", "src-tauri/Cargo.toml"]],
+    ["cargo", ["check", "--workspace"]],
+    ["cargo", ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]],
+    npm(["run", "native:panic:check"]),
+    ["cargo", ["test", "--workspace"]],
     npm([
       "exec",
       "--yes",

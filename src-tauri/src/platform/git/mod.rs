@@ -17,6 +17,15 @@ pub(crate) struct GitAdapter {
     process: ProcessAdapter,
 }
 
+/// Callers classify git failures by matching its stderr, and git translates those messages
+/// through gettext: on a zh-CN system "not a git repository" arrives as "不是 git 仓库", so a
+/// plain non-repository directory reads as a hard failure instead. Pinning the message locale
+/// keeps that classification independent of the machine's language. Paths stay byte-exact
+/// because git emits them verbatim (with `core.quotepath=false`) rather than through gettext.
+fn pin_message_locale(request: ProcessRequest) -> ProcessRequest {
+    request.env("LC_ALL", "C").env("LANGUAGE", "C")
+}
+
 impl GitAdapter {
     pub(crate) fn execute(
         &self,
@@ -24,10 +33,12 @@ impl GitAdapter {
         args: &[String],
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let request = ProcessRequest::new("git")
-            .args(args.iter().cloned())
-            .current_dir(root)
-            .timeout(timeout);
+        let request = pin_message_locale(
+            ProcessRequest::new("git")
+                .args(args.iter().cloned())
+                .current_dir(root)
+                .timeout(timeout),
+        );
         let output = self.process.execute(&request)?;
         Ok(GitOutput {
             status: output.status,
@@ -44,10 +55,12 @@ impl GitAdapter {
         environment: &BTreeMap<String, String>,
         timeout: Duration,
     ) -> Result<GitOutput, ProcessError> {
-        let mut request = ProcessRequest::new("git")
-            .args(args.iter().cloned())
-            .current_dir(root)
-            .timeout(timeout);
+        let mut request = pin_message_locale(
+            ProcessRequest::new("git")
+                .args(args.iter().cloned())
+                .current_dir(root)
+                .timeout(timeout),
+        );
         for (key, value) in environment {
             request = request.env(key, value);
         }
@@ -78,6 +91,15 @@ impl GitAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn git_invocations_pin_the_message_locale() {
+        let request = pin_message_locale(ProcessRequest::new("git"));
+
+        assert_eq!(request.environment_value("LC_ALL"), Some(OsStr::new("C")));
+        assert_eq!(request.environment_value("LANGUAGE"), Some(OsStr::new("C")));
+    }
 
     #[test]
     fn diagnostics_hide_workspace_paths_and_credentials() {

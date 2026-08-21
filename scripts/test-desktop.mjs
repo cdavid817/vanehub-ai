@@ -57,10 +57,15 @@ async function loadArtifact() {
   return JSON.parse(await readFile(latestArtifactPath, "utf8"));
 }
 
-async function smokeDesktop(artifact) {
+/**
+ * Runs one wdio-driven desktop layer end to end: isolated run context, artifact launch, owned
+ * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
+ * and its own wdio configuration, so one layer's environment cannot change what another tests.
+ */
+async function runDesktopLayer({ layer, config, label, artifact }) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
-    throw new DesktopVerificationError("BLOCKED", "Desktop smoke requires an absolute test-build artifact path.");
+    throw new DesktopVerificationError("BLOCKED", `${label} requires an absolute test-build artifact path.`);
   }
   const context = await createRunContext(repoRoot);
   const startedAt = new Date().toISOString();
@@ -70,13 +75,13 @@ async function smokeDesktop(artifact) {
   let processState;
   try {
     const env = { ...process.env, ...context.environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
-    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", "tests/desktop/wdio.conf.mjs"], {
+    const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", config], {
       cwd: repoRoot,
       env,
       stdio: "inherit",
     });
     if (result.error || result.status !== 0) {
-      throw new DesktopVerificationError("FAILED", "Native desktop smoke failed.", {
+      throw new DesktopVerificationError("FAILED", `${label} failed.`, {
         exitCode: result.status,
         error: result.error?.message,
       });
@@ -103,8 +108,8 @@ async function smokeDesktop(artifact) {
     }
   }
   const nativeLogs = await collectUnifiedLogs(context.dataDir, context.resultDir);
-  const layer = createLayerResult({
-    layer: "desktop-smoke",
+  const layerResult = createLayerResult({
+    layer,
     status,
     platform: artifact.platform,
     architecture: artifact.architecture,
@@ -117,19 +122,78 @@ async function smokeDesktop(artifact) {
     nativeLogs,
     ...(errorDetails ? { error: errorDetails } : {}),
   });
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layer] });
+  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult] });
   await disposeRunContext(context);
-  process.stdout.write(`Desktop smoke: ${status}\nEvidence: ${context.resultDir}\n`);
+  process.stdout.write(`${label}: ${status}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
+}
+
+function smokeDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-smoke",
+    config: "tests/desktop/wdio.conf.mjs",
+    label: "Desktop smoke",
+    artifact,
+  });
+}
+
+function cliTerminalDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-cli-terminal",
+    config: "tests/desktop/wdio.cli-terminal.conf.mjs",
+    label: "Desktop CLI terminal",
+    artifact,
+  });
+}
+
+function sessionWorkspaceDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-workspace",
+    config: "tests/desktop/wdio.session-workspace.conf.mjs",
+    label: "Desktop session workspace",
+    artifact,
+  });
+}
+
+function dialogsDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-dialogs",
+    config: "tests/desktop/wdio.dialogs.conf.mjs",
+    label: "Desktop dialogs",
+    artifact,
+  });
+}
+
+function settingsPersistenceDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-settings-persistence",
+    config: "tests/desktop/wdio.settings-persistence.conf.mjs",
+    label: "Desktop settings persistence",
+    artifact,
+  });
 }
 
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
   else if (mode === "smoke") await smokeDesktop();
-  else if (mode === "all") await smokeDesktop(await buildDesktop());
-  else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
+  else if (mode === "cli-terminal") await cliTerminalDesktop();
+  else if (mode === "session-workspace") await sessionWorkspaceDesktop();
+  else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "all") {
+    const artifact = await buildDesktop();
+    const results = [];
+    // Sequential rather than concurrent: the layers share one webdriver port and one desktop
+    // artifact, and a layer's evidence is only attributable if it owned the machine while it ran.
+    for (const layer of [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop]) {
+      results.push(await layer(artifact));
+    }
+    // Each layer sets its own exit code as it finishes; the run as a whole is only green when
+    // every layer is, so the worst result has to win rather than the last one.
+    process.exitCode = Math.max(...results.map((result) => verificationExitCode(result.status)));
+  } else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
 }
 
 main().catch((error) => {
