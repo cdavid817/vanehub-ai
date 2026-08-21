@@ -259,6 +259,36 @@ mod tests {
         assert_eq!(repository.list(1, 1).expect("page")[0].id, "a");
     }
 
+    /// An arena names the ranking algorithm its result was produced under, and a read must not
+    /// restamp it with whatever version the binary happens to carry now -- an export claiming v2
+    /// over an ordering computed under v1 is worse than one that says which rules it ran.
+    #[test]
+    fn a_stored_arena_keeps_the_ranking_version_it_was_recorded_under() {
+        let (_directory, repository) = repository();
+        let mut historical = arena("historical");
+        historical.ranking_version = "deterministic-v1".into();
+        assert_ne!(
+            historical.ranking_version, EVALUATION_RANKING_VERSION,
+            "the fixture must differ from the current version for this to prove anything",
+        );
+        repository
+            .save_terminal(&historical, &historical.attempts[0], "2026-08-01T00:00:00Z")
+            .expect("save");
+
+        assert_eq!(
+            repository
+                .get("historical")
+                .expect("get")
+                .expect("arena")
+                .ranking_version,
+            "deterministic-v1",
+        );
+        assert_eq!(
+            repository.list(0, 10).expect("list")[0].ranking_version,
+            "deterministic-v1",
+        );
+    }
+
     #[test]
     fn retention_cascades_and_unsafe_snapshots_are_rejected() {
         let (_directory, repository) = repository();

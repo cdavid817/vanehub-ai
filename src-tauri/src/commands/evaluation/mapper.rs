@@ -101,24 +101,10 @@ fn json_name<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
+/// Delegates to the domain rule so a failure redacts identically whether it leaves through a
+/// command's `Err` or through a diagnostic check recorded on the attempt.
 pub(crate) fn safe_error(error: String) -> String {
-    const SAFE: [&str; 6] = [
-        "not found",
-        "requires",
-        "unavailable",
-        "unsupported",
-        "invalid",
-        "unknown",
-    ];
-    if error.len() <= 240
-        && SAFE
-            .iter()
-            .any(|marker| error.to_ascii_lowercase().contains(marker))
-    {
-        error
-    } else {
-        "evaluation operation failed; inspect unified logs for redacted diagnostics".to_string()
-    }
+    model::safe_evaluation_error(error)
 }
 
 #[cfg(test)]
