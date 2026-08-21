@@ -24,7 +24,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Plan execution / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
 
 ## Agent types
 
@@ -193,46 +193,13 @@ Once the floating assistant is enabled in settings, a separate floating window s
 
 ![The Loop center](assets/screenshots/loop-center-en.png)
 
-## Plan center
+## OnePiece Plan mode
 
-**Plan execution** in the activity bar opens the plan center, whose job is "**use OnePiece to break down, approve, execute, and verify tasks**."
+OnePiece sessions expose **Plan** and **Agent** in the conversation bar. Plan mode is for read-only exploration and planning: it can inspect project context but cannot run shell commands, write files, call effectful MCP tools, or delegate work.
 
-![The Plan center, generating a task graph from a goal](assets/screenshots/plan-center-en.png)
+When the plan is ready, OnePiece can request `exit_plan_mode`. Approving the request changes the session to Agent mode for a later turn; declining keeps Plan mode active. The left activity bar has no separate Plan execution destination, and planning does not create a task graph or worktree.
 
-**How it divides work with Loop**: Loop has a single Agent iterate against verification commands until they pass; Plan first breaks a goal into a bounded task graph, and execution only starts **after you approve it item by item**.
-
-The flow has three steps:
-
-### 1. Describe the goal
-
-Fill in three fields: **goal**, **project path**, and **base reference**. The goal should spell out the desired outcome, constraints, and any important acceptance requirements — OnePiece generates the task graph from this.
-
-### 2. Approve the task graph
-
-**You can edit anything before execution starts**: task titles and descriptions, acceptance criteria, resource limits, ordering, and dependencies.
-
-At this step, the interface blocks several kinds of invalid plan:
-
-| Constraint | Rule |
-| --- | --- |
-| Task count | 1 to 10 |
-| Acceptance criteria per task | 1 to 3, and each one must be bound to evidence (automated or manual) |
-| Verification commands per task | At least one required command |
-| Final verification | At least one required final verification command |
-| Max attempts | 1 to 5 |
-| Dependencies | Must connect two distinct, existing tasks, and **must not form a cycle** |
-
-**The execution and verification policy is frozen at approval time**, including the project-discovery toggle, the max-attempts-per-task setting, and the auto-repair classification. The approve button is labeled **Approve and Start**, and clicking it switches from plan mode to Agent mode.
-
-> **Execution uses a retained worktree, and VaneHub never automatically commits, merges, pushes, or deletes it.** You need to review and handle the result yourself.
-
-### 3. Run and accept
-
-The run view shows progress per task (`m / n tasks verified`), the token count and tool-call count for each attempt, how many files changed, error classification, and **integration final verification** with its repair history.
-
-Run controls: **Pause / Resume / Cancel / Recover / Retry / Retry final verification / Return to planning / Accept result.**
-
-The slash command `/plans` opens the plan center directly — see [Slash commands](slash-commands.md). Goal-level tracking is covered in [Goal management](goal-management.md).
+Use **Loop** when you need durable autonomous iteration with verification and acceptance controls. Goal-level tracking is covered in [Goal management](goal-management.md).
 
 ## Notifications
 

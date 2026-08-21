@@ -56,7 +56,7 @@ impl GoalProgress {
 /// Recomputes a goal's presented status from its children on every read.
 ///
 /// Sessions never count, and unresolvable children leave the denominator so a
-/// deleted plan cannot strand a goal short of acceptance.
+/// deleted linked object cannot strand a goal short of acceptance.
 pub(crate) fn derive(status: GoalStatus, links: &[LinkProgressView]) -> GoalProgress {
     let derivable = links
         .iter()

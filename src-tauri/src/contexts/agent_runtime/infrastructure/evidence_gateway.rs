@@ -4,7 +4,7 @@ use crate::contexts::agent_runtime::application::{
     LoopVerificationEvidenceFact, LoopVerificationEvidencePort,
 };
 use crate::contexts::skill_evolution_evidence::application::{
-    PlanVerificationFact, RuntimeEvidenceProjector,
+    RunVerificationFact, RuntimeEvidenceProjector,
 };
 use crate::contexts::skill_evolution_evidence::domain::{
     EnvelopeCommon, SourceFidelity, VerificationClass, VerificationOutcome,
@@ -52,7 +52,7 @@ impl LoopVerificationEvidencePort for RuntimeLoopVerificationEvidenceAdapter {
             VerificationOutcome::Failed
         };
         let predecessor_attempt_id = self.predecessor(&fact.iteration_id);
-        let _ = self.evidence.verification(PlanVerificationFact {
+        let _ = self.evidence.verification(RunVerificationFact {
             common: EnvelopeCommon {
                 source_event_id: format!("verification:{}:{}", fact.run_id, fact.iteration_id),
                 occurred_at: fact.occurred_at,
@@ -65,8 +65,8 @@ impl LoopVerificationEvidencePort for RuntimeLoopVerificationEvidenceAdapter {
                 fidelity: SourceFidelity::Native,
                 observed_skill_revisions: Vec::new(),
             },
-            plan_run_id: fact.run_id,
-            verifier: VerificationClass::Plan,
+            run_id: fact.run_id,
+            verifier: VerificationClass::Loop,
             outcome,
             passed_count: fact.passed_count,
             failed_count: fact.failed_count,

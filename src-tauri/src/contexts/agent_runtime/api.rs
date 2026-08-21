@@ -24,14 +24,13 @@ pub(crate) use super::application::{
     AgentView, ApiProviderConfig, ChangeSetApplyPort, ChangeSetApplyRecord, ChangeSetFileRecord,
     ChangeSetRecord, ChangeSetStatus, CliDelegationPort, ContinueLoopRequest,
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
-    DiscoverOnePieceProviderModelsInput, EmbeddingEndpointView, ExecutionToolMode, FileChangeKind,
-    HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult,
-    LocalEndpointVerificationRequest, LocalModelDiscoveryResult, LoopDefinitionView, LoopRunView,
-    ManualApplyDelegationRequest, ManualStartDelegationRequest, NativeToolErrorCode,
-    NativeToolPersistencePort, NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
-    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, OrchestrationCorrelation, OrchestrationExecutionProfile,
+    DiscoverOnePieceProviderModelsInput, EmbeddingEndpointView, FileChangeKind, HybridRoutePreview,
+    HybridRoutePreviewInput, LaunchWorkflowResult, LocalEndpointVerificationRequest,
+    LocalModelDiscoveryResult, LoopDefinitionView, LoopRunView, ManualApplyDelegationRequest,
+    ManualStartDelegationRequest, NativeToolErrorCode, NativeToolPersistencePort,
+    NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
     ProviderCredentialValidationResult, ReadinessView, RecoveryRecord, RecoveryStatus,
     RegisterApiAgentInput, ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
@@ -52,16 +51,6 @@ pub(crate) struct GuardedValidationRequest {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct GuardedValidationCancellation {
     inner: LoopVerificationCancellation,
-}
-
-impl GuardedValidationCancellation {
-    pub(crate) fn cancel(&self) {
-        self.inner.cancel();
-    }
-    #[cfg(test)]
-    pub(crate) fn is_cancelled(&self) -> bool {
-        self.inner.is_cancelled()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -806,15 +795,10 @@ impl AgentRuntimeApi {
         self.service.send_message_with_completion(request)
     }
 
-    pub(crate) fn send_orchestration_message_with_completion(
+    pub(crate) fn send_evaluation_message_with_completion(
         &self,
         request: SendMessageRequest,
-        _profile: OrchestrationExecutionProfile,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        // Plan attempts, repairs, and discovery all send with `AgentMessageSource::Desktop` and
-        // own no Loop session, so nothing about the request distinguishes them from a chat turn.
-        // Routing them here is what keeps a blocking question out of an unattended attempt
-        // (`add-agent-user-question` D4).
         self.service
             .send_non_interactive_message_with_completion(request)
     }

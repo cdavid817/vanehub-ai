@@ -2,8 +2,8 @@ import type { AgentRunRunner, AgentRunState } from "./agent-run";
 
 export type MissionControlSort = "newest" | "oldest" | "attention";
 export type MissionControlAttention = "approval" | "user" | "stuck" | "failed" | "review";
-export type MissionControlAction = "open" | "cancel" | "resume" | "retry" | "approval" | "review" | "verify";
-export type MissionControlFacet = "overview" | "plan" | "timeline" | "tools" | "files" | "review" | "verification" | "context" | "usage" | "logs";
+export type MissionControlAction = "open" | "cancel" | "resume" | "approval" | "review";
+export type MissionControlFacet = "overview" | "timeline" | "tools" | "files" | "review" | "verification" | "context" | "usage" | "logs";
 export type MissionControlFacetState = "available" | "unavailable" | "restricted";
 
 export interface MissionControlQuery {
@@ -22,7 +22,7 @@ export interface MissionControlCounts {
 }
 
 export interface MissionControlNavigationTarget {
-  kind: "session" | "approval" | "review" | "plan" | "loop" | "goal" | "evaluation";
+  kind: "session" | "approval" | "review" | "loop" | "goal" | "evaluation";
   id: string;
   sessionId?: string | null;
 }

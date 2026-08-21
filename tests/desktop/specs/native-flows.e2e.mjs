@@ -103,6 +103,11 @@ globalThis.describe("VaneHub AI desktop native flows", () => {
   });
 
   globalThis.it("detects CLI tools and installs the version the UI offers for opencode", async function installOpencode() {
+    if (process.env.VANEHUB_DESKTOP_MUTATE_HOST !== "1") {
+      blocked.push("opencode install: set VANEHUB_DESKTOP_MUTATE_HOST=1 to reinstall a global CLI");
+      this.skip();
+    }
+    this.timeout(600_000);
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     assert.ok(tools.length >= 4, `expected the managed CLI catalogue, found ${tools.length}`);
 
@@ -142,6 +147,10 @@ globalThis.describe("VaneHub AI desktop native flows", () => {
   });
 
   globalThis.it("installs and removes a real extension framework through pip", async function pipExtension() {
+    if (process.env.VANEHUB_DESKTOP_MUTATE_HOST !== "1") {
+      blocked.push("extension install: set VANEHUB_DESKTOP_MUTATE_HOST=1 to mutate the host Python environment");
+      this.skip();
+    }
     const overview = await invoke(({ core }) => core.invoke("get_extension_overview"));
     assert.ok(overview.definitions.length >= 3, "the extension catalogue is missing frameworks");
     // sherpa-onnx of the three: paddleocr pulls paddlepaddle and faster-whisper pulls

@@ -1,7 +1,7 @@
 # unified-todo-board Specification
 
 ## Purpose
-Defines one durable, runtime-neutral workspace for organizing manual work together with Session, Plan, and Scheduled Task sources while preserving each source's independent lifecycle.
+Defines one durable, runtime-neutral workspace for organizing manual work together with Session and Scheduled Task sources while preserving each source's independent lifecycle.
 ## Requirements
 ### Requirement: Durable unified work item
 The system SHALL persist work items with stable identity, title, description, stage, priority, relative order, optional project path and due timestamp, archive state, timestamps, and zero or more source links.
@@ -15,12 +15,12 @@ The system SHALL persist work items with stable identity, title, description, st
 - **THEN** the system SHALL persist the updated board metadata without mutating linked source lifecycle state
 
 ### Requirement: Multi-source identity and projection
-The system SHALL allow one work item to link Session, Plan, PlanRun, and Scheduled Task sources and SHALL project current source status separately from the user-controlled board stage.
+The system SHALL allow one work item to link Session and Scheduled Task sources and SHALL project current source status separately from the user-controlled board stage.
 
 #### Scenario: Link multiple sources
-- **WHEN** a work item links a Session and a Plan
+- **WHEN** a work item links a Session and a Scheduled Task
 - **THEN** the same card SHALL expose both source identities and their current statuses
-- **AND** it SHALL match both Session and Plan source filters
+- **AND** it SHALL match both Session and Scheduled Task source filters
 
 #### Scenario: Runtime status changes
 - **WHEN** a linked source changes runtime status
@@ -32,18 +32,18 @@ The system SHALL allow one work item to link Session, Plan, PlanRun, and Schedul
 - **THEN** the work item SHALL remain available with an unavailable-source indication
 
 ### Requirement: Automatic source reconciliation
-The system SHALL idempotently reconcile existing and future top-level Sessions, Plans, and Scheduled Tasks into work items without producing duplicate cards.
+The system SHALL idempotently reconcile existing and future top-level Sessions and Scheduled Tasks into work items without producing duplicate cards.
 
 #### Scenario: Reconcile existing sources
 - **WHEN** the board is first loaded after upgrade
 - **THEN** each eligible unlinked source SHALL be represented by exactly one work item
 
 #### Scenario: Reconcile new sources
-- **WHEN** an eligible Session, Plan, or Scheduled Task is created after upgrade
+- **WHEN** an eligible Session or Scheduled Task is created after upgrade
 - **THEN** a subsequent board reconciliation SHALL create or update its work item
 
 #### Scenario: Suppress child Session duplication
-- **WHEN** a Session was created for a Plan attempt or Scheduled Task run
+- **WHEN** a Session was created for a Scheduled Task run
 - **THEN** it SHALL appear as activity under the owning work item
 - **AND** it SHALL NOT create an independent top-level work item
 
@@ -76,7 +76,7 @@ The system SHALL allow work items to be archived, restored, and permanently dele
 #### Scenario: Permanently delete work item
 - **WHEN** a user permanently deletes an archived work item
 - **THEN** only the work item and its source links SHALL be deleted
-- **AND** linked Sessions, Plans, PlanRuns, and Scheduled Tasks SHALL remain unchanged
+- **AND** linked Sessions and Scheduled Tasks SHALL remain unchanged
 
 ### Requirement: Runtime-neutral board service
 All board operations SHALL use a frontend service boundary with contract-compatible Tauri desktop and Web/mock adapters.

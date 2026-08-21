@@ -313,7 +313,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         conn,
         49,
         "plan-execution-foundation",
-        super::legacy_plan_schema::apply_legacy_plan_schema,
+        crate::platform::legacy_plan_schema::apply_legacy_plan_schema,
     )?;
     apply_migration(
         conn,
@@ -394,13 +394,13 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         conn,
         62,
         "onepiece-plan-agent-loop",
-        crate::contexts::task_orchestration::infrastructure::apply_plan_agent_loop_schema,
+        crate::platform::legacy_plan_schema::apply_legacy_plan_agent_loop_schema,
     )?;
     apply_migration(
         conn,
         63,
         "plan-session-association",
-        crate::contexts::task_orchestration::infrastructure::apply_plan_session_association_schema,
+        crate::platform::legacy_plan_schema::apply_legacy_plan_session_association_schema,
     )?;
     apply_transactional_migration(
         conn,
@@ -497,6 +497,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         79,
         "agent-runner-projections",
         crate::contexts::operations::infrastructure::apply_runner_projection_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        80,
+        "retire-plan-execution",
+        crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration,
     )?;
     repair_missing_stable_participant_schema(conn)?;
 
@@ -595,6 +601,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (77, "agent-evaluation-platform"),
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
+    (80, "retire-plan-execution"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

@@ -59,23 +59,22 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `desktop` | App settings, startup, data/log directory actions, floating assistant, and window/tray lifecycle |
 | `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts |
 | `permissions` | Permission policy evaluation, approval brokering, risk classification, and the Claude Code hook wait registry |
-| `task_orchestration` | Plan drafts, plan runs, attempt execution and verification, plan worktrees, and recovery evidence |
 | `code_intelligence` | LSP server configuration, discovery, workspace trust, negotiated capabilities, and normalized diagnostics/hover/locations |
 | `retrieval` | Retrieval configuration, embedding models, code and document indexing, index status, and search |
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings |
 | `ssh_connections` | SSH connection profiles, host-key trust, credential loading, and the pooled remote runtime |
 | `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage |
-| `work_board` | Work items, their stages and priorities, and idempotent reconciliation of Sessions, Plans, and Scheduled Tasks into cards |
+| `work_board` | Work items, their stages and priorities, and idempotent reconciliation of Sessions and Scheduled Tasks into cards |
 | `cli_delegation` | Delegated CLI invocation for Claude Code and Codex: protocol handling, readiness, scheduling, circuit breaking, restart recovery, and the changeset capture/review/seal/apply pipeline |
 | `code_execution` | Sandboxed code runtimes, the runtime catalog, execution workspaces, and readiness |
 | `web_research` | Guarded URL admission, public-URL resolution, fetching, extraction, binary artifact handling, and search |
 | `browser_automation` | Browser sidecar protocol, session and action policy, operation lifecycle, and artifact handoff |
 | `artifacts` | Content-addressed artifact blobs: media type and size validation, deduplication, and store capacity policy |
-| `goals` | Goal aggregates, their links to plans, loops, work items, and sessions, derived acceptance readiness, and human acceptance transitions |
+| `goals` | Goal aggregates, links to loops, work items, and sessions, legacy Plan-link display, derived acceptance readiness, and human acceptance transitions |
 
 - Every new or materially changed native business rule, use case, persistence model, external integration, and Tauri command MUST have one owning context.
 - `tooling` subdomains MUST keep separate domain models and application APIs. A subdomain MAY be promoted to a peer context through an approved architecture decision when it has independent language, lifecycle, or transaction ownership.
-- Usage reporting remains a `sessions` read model while usage records are owned by assistant messages. Scheduled tasks are owned by `sessions` because a task's purpose is to start one; `task_orchestration` owns plan execution, which is a different lifecycle.
+- Usage reporting remains a `sessions` read model while usage records are owned by assistant messages. Scheduled tasks are owned by `sessions` because a task's purpose is to start one. OnePiece planning is a session execution mode owned by `sessions` and `agent_runtime`, not a separate Plan execution lifecycle.
 - A context whose behavior is genuinely stateless persistence MAY omit `domain/` and `application/`, per the ceremony rule above. `work_board` is the current example: it exposes `api.rs` over `models.rs` and `infrastructure.rs` with no aggregate to protect. Adding invariants to such a context MUST add the missing layers rather than growing `api.rs`.
 - `cli_delegation` and `artifacts` currently have no `api.rs`. Both are consumed through the context that owns their calling behavior, so neither has published a cross-context contract of its own. Each MUST gain one before a second consumer depends on it, rather than that consumer reaching into its application modules.
 - Cross-context calls MUST use the owning context's published `api` facade, immutable contract, or explicit event. A context MUST NOT import another context's repository, infrastructure adapter, private aggregate, or command DTO.

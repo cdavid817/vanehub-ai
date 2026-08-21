@@ -122,8 +122,6 @@ globalThis.describe("VaneHub AI desktop scheduled tasks and usage statistics", (
   });
 
   globalThis.it("refuses a task with no name, no content, or an ineligible Agent", async () => {
-    const before = await invoke(({ core }) => core.invoke("list_scheduled_tasks"));
-
     // scheduled_tasks.rs:79-85 -- both fields are trimmed before the emptiness check, so
     // whitespace is not a way around it.
     const blankName = await attempt("create_scheduled_task", {
@@ -149,7 +147,12 @@ globalThis.describe("VaneHub AI desktop scheduled tasks and usage statistics", (
     assert.equal(unknownAgent.ok, false, "a task against an unregistered Agent was accepted");
 
     const after = await invoke(({ core }) => core.invoke("list_scheduled_tasks"));
-    assert.equal(after.length, before.length, "a rejected task was persisted anyway");
+    const rejectedNames = new Set([`blank-content-${stamp}`, `unknown-agent-${stamp}`]);
+    assert.equal(
+      after.some((task) => !task.name.trim() || rejectedNames.has(task.name)),
+      false,
+      "a rejected task was persisted anyway",
+    );
   });
 
   globalThis.it("reports a well-formed token usage summary and detail page", async () => {

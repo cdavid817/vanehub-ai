@@ -50,11 +50,8 @@ async function refreshDetections() {
   const refresh = await invoke(({ core }) => core.invoke("refresh_cli_detections"));
   if (!refresh?.id) return;
   await globalThis.browser.waitUntil(async () => {
-    const status = await invoke(
-      ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
-      refresh.id,
-    );
-    return ["succeeded", "failed", "cancelled"].includes(status.status);
+    const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
+    return tools.length > 0 && tools.every((tool) => tool.lastOperationId === refresh.id);
   }, { timeout: 120_000, interval: 2_000, timeoutMsg: "CLI detection refresh never settled." });
 }
 
@@ -67,10 +64,10 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
       async () => (await root.getAttribute("data-vanehub-bootstrap")) === "ready",
       { timeout: 120_000, timeoutMsg: "React bootstrap did not become ready." },
     );
+    await refreshDetections();
   });
 
   globalThis.it("renders a card for every managed CLI Agent", async () => {
-    await refreshDetections();
     await openCliManagement();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     assert.ok(tools.length > 0, "the CLI catalogue is empty");
@@ -86,7 +83,6 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
   });
 
   globalThis.it("shows opencode's detected version on its card after an in-app install", async function opencodeCard() {
-    await refreshDetections();
     await openCliManagement();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     const opencode = tools.find((tool) => tool.agentId === "opencode");
@@ -109,7 +105,6 @@ globalThis.describe("VaneHub AI desktop CLI Management page", () => {
   });
 
   globalThis.it("agrees with the Agent registry about whether opencode can be used", async function detectionAgreement() {
-    await refreshDetections();
     const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
     const opencode = tools.find((tool) => tool.agentId === "opencode");
     if (!opencode?.currentVersion) {

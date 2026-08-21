@@ -1,5 +1,7 @@
 # VaneHub AI 用户体验优化实施总结
 
+> **历史快照**：本文记录 2026-08-14 的实施结果。独立 Plan 执行入口和 `task_orchestration` 已在后续重构中退役，当前行为以 OpenSpec 主规范和用户指南为准。
+
 - 实施日期：2026-08-14
 - 分支：`worktree-ui-ux-optimization`，基线提交 `3164bdc8`
 - 对应审计：`docs/ux-audit-report.md`
@@ -184,7 +186,7 @@ OpenSpec change：`openspec/changes/harden-workspace-dialogs-and-empty-states`�
 
 调查中发现一个比审计描述更有力的理由：`frontend-runtime-architecture` 的「Routed frontend surfaces」**已经**要求路由层能寻址各表面 "without relying on a single component-local view flag"，而四个目的地正是靠 `MainLayout` 里的 `destination` useState 在切——**现状本身就不满足既有规范**。
 
-四个目的地、活动会话、会话创建现在都可寻址：`/workspace/sessions`、`/workspace/sessions/new`、`/workspace/sessions/<id>`、`/workspace/plans`、`/workspace/loops`、`/workspace/work-board`。URL 段与 P2-3 统一后的标识符一致，没有再引入第三个名字。后退键、深链、重启恢复都生效，`?createSession=1` 这个临时参数也去掉了。
+在该版本中，四个目的地、活动会话和会话创建都可寻址。后续重构已退役 `/workspace/plans`，旧地址现在回退到会话页，Plan 模式收编到 OnePiece 会话输入栏。后退键、深链、重启恢复仍生效，`?createSession=1` 这个临时参数也已去掉。
 
 **关键设计：用单个 `/workspace/*` 路由，而不是四个兄弟路由**。所有访问过的目的地保持挂载、用 `hidden` 隐藏，`main-layout-ui` 和 e2e 都断言了"返回时保留状态"。React Router 默认卸载上一个路由元素——四个兄弟路由这种最自然的写法会**恰好摧毁**这项被断言的行为。单路由 + 内部解析在结构上排除了这个问题，而不是靠"记得别那么写"。
 

@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRegistryEntry, Session } from "../../../types/agent";
 import type { ChatConfig, ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../../types/chat";
 import { agentService } from "../../../services/runtime-agent-client";
-import { planService } from "../../../services/runtime-plan-client";
-import type { PlanRunSummary } from "../../../types/plan";
 import { EXECUTION_MODES, PROVIDER_MODELS, REASONING_DEPTHS, resolveModelLabel } from "../models";
 
 function providerIdFromAgent(agent?: AgentRegistryEntry | null) {
@@ -62,10 +60,7 @@ export function useChatConfig({
   const [streaming, setStreaming] = useState(true);
   const [thinking, setThinking] = useState(true);
   const [longContext, setLongContext] = useState(initialModel.supportsLongContext);
-  const [associatedPlanRun, setAssociatedPlanRun] = useState<PlanRunSummary | null>(null);
-  const [modeTransitioning, setModeTransitioning] = useState(false);
   const loadedSessionRef = useRef<string | null>(null);
-  const modeTransitionRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,18 +96,6 @@ export function useChatConfig({
       cancelled = true;
     };
   }, [activeSessionAgentId, activeSessionId, sessionAgent]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!activeSessionId || activeSessionAgentId !== "onepiece") {
-      setAssociatedPlanRun(null);
-      return () => { cancelled = true; };
-    }
-    void planService.getPlanRunForSession(activeSessionId)
-      .then((run) => { if (!cancelled) setAssociatedPlanRun(run); })
-      .catch(() => { if (!cancelled) setAssociatedPlanRun(null); });
-    return () => { cancelled = true; };
-  }, [activeSessionAgentId, activeSessionId]);
 
   const availableAgents = useMemo(
     () => sessionAgent?.id === "onepiece"
@@ -183,46 +166,6 @@ export function useChatConfig({
     }
   }
 
-  async function waitForPlanningBoundary(runId: string): Promise<void> {
-    while (true) {
-      const run = await planService.getPlanRun(runId);
-      setAssociatedPlanRun(run);
-      if (!["running", "verifying", "repairing", "pause_requested"].includes(run.status)) return;
-      await new Promise((resolve) => window.setTimeout(resolve, 500));
-    }
-  }
-
-  function changeExecutionMode(nextMode: SessionExecutionMode) {
-    if (nextMode !== "plan" || executionMode !== "execute" || !associatedPlanRun) {
-      setSessionExecutionMode(nextMode);
-      return;
-    }
-    if (modeTransitionRef.current) return;
-    modeTransitionRef.current = true;
-    setModeTransitioning(true);
-    void (async () => {
-      try {
-        if (["running", "verifying", "repairing"].includes(associatedPlanRun.status)) {
-          await planService.requestPlanControl(associatedPlanRun.id, "pause");
-        }
-        await waitForPlanningBoundary(associatedPlanRun.id);
-        setSessionExecutionMode("plan");
-      } catch (error: unknown) {
-        onPersistError?.(error);
-      } finally {
-        modeTransitionRef.current = false;
-        setModeTransitioning(false);
-      }
-    })();
-  }
-
-  function activateAssociatedPlanRun(runId: string) {
-    setSessionExecutionMode("execute");
-    void planService.getPlanRun(runId)
-      .then(setAssociatedPlanRun)
-      .catch((error: unknown) => onPersistError?.(error));
-  }
-
   // Leaving plan mode is the model asking and the user agreeing, so the mode follows the approved
   // request rather than a mode-selector click. Keyed on the call id: re-running for the same
   // approval would fight a user who deliberately switched back to plan afterwards
@@ -267,11 +210,8 @@ export function useChatConfig({
     availableModels,
     availableReasoning,
     config,
-    associatedPlanRun,
-    activateAssociatedPlanRun,
-    modeTransitioning,
     selectedModel,
-    setSessionExecutionMode: changeExecutionMode,
+    setSessionExecutionMode,
     setReasoningDepth,
     setStreaming,
     setThinking,

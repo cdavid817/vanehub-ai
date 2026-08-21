@@ -353,14 +353,6 @@
       "path": "zh-CN/src/assets/screenshots/settings-cli-parameters-zh-CN.png"
     },
     {
-      "id": "plan-center-zh-CN",
-      "scenario": "plan-center",
-      "locale": "zh-CN",
-      "runtime": "web-mock",
-      "featureState": "delivered",
-      "path": "zh-CN/src/assets/screenshots/plan-center-zh-CN.png"
-    },
-    {
       "id": "settings-basic-en",
       "scenario": "settings-basic",
       "locale": "en",
@@ -391,14 +383,6 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "en/src/assets/screenshots/settings-cli-parameters-en.png"
-    },
-    {
-      "id": "plan-center-en",
-      "scenario": "plan-center",
-      "locale": "en",
-      "runtime": "web-mock",
-      "featureState": "delivered",
-      "path": "en/src/assets/screenshots/plan-center-en.png"
     }
   ]
 }

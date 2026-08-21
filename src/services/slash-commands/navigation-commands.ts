@@ -8,7 +8,6 @@ const TAB_COMMANDS: SessionTabId[] = [
 
 const DESTINATION_COMMANDS: Array<{ name: string; destination: SlashCommandDestination }> = [
   { name: "todo", destination: "work-board" },
-  { name: "plans", destination: "plans" },
   { name: "loops", destination: "loops" },
 ];
 
@@ -27,14 +26,4 @@ export const NAVIGATION_COMMANDS: SlashCommand[] = [
       return { kind: "handled" };
     },
   })),
-  {
-    name: "plan", category: "navigation",
-    // Availability comes in as an argument rather than module state so the predicate stays pure
-    // and the test suite cannot leak one case's setup into the next.
-    appliesTo: (session, capabilities) => isOnePieceSession(session) && capabilities.hasAssociatedPlan,
-    run: async (context) => {
-      context.navigate.openAssociatedPlan?.();
-      return { kind: "handled" };
-    },
-  },
 ];

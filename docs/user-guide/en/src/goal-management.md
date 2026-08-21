@@ -4,11 +4,11 @@
 
 ## Overview
 
-One piece of work rarely fits in a single plan: you run a [Plan](multi-agent-workflow.md) first, open a few [Loops](loop-engineering.md) along the way to fix tests, and have some board items still open. They live in different centers, and nowhere can answer "how far along is this overall".
+One piece of work often spans a few [Loops](loop-engineering.md), board items, sessions, and execution runs. They live in different surfaces, and nowhere else can answer "how far along is this overall".
 
-Goals are that consolidating layer. You attach the relevant plans, Loops, and board items to one goal and read the whole picture from a single `finished/counted` progress figure and one status label.
+Goals are that consolidating layer. You attach the relevant Loops and board items to one goal and read the whole picture from a single `finished/counted` progress figure and one status label. Sessions and runs may be linked as context but do not count toward progress.
 
-**A goal does not modify what it links to.** The link exists only on the goal's side; a plan is still the same plan, and unlinking does not touch it at all.
+**A goal does not modify what it links to.** The link exists only on the goal's side, and unlinking does not touch the linked object.
 
 ## Create a goal
 
@@ -51,7 +51,6 @@ Select **Link** in the goal detail, then choose a kind and an id:
 
 | Kind | Counts toward progress | Notes |
 | --- | --- | --- |
-| **Plans** | Yes | Judged by its most recent run |
 | **Loops** | Yes | Judged by run state |
 | **Work items** | Yes | Judged by its stage |
 | **Sessions** | **No** | A session has no notion of "finished" |
@@ -65,20 +64,16 @@ Sessions are also **never attached automatically**: even with an active goal, cr
 
 ## What counts as "finished"
 
-This is the easiest place to trip up — **plans and Loops treat failure in exactly opposite ways**:
+Counted children use these terminal rules:
 
 | Child | Counts as finished | Does not count |
 | --- | --- | --- |
-| **Plan** | Completed, cancelled, archived | **Failed**, awaiting acceptance, no run yet |
 | **Loop** | Succeeded, **failed**, cancelled | Awaiting acceptance |
 | **Work item** | Done stage, archived | Any other stage |
 
-**A failed plan is not finished; a failed Loop is.** The reason is that a failed plan run may be re-run, so it has not reached the end; a Loop's failure is that run's final outcome.
+One additional rule is important:
 
-Two more rules are equally counterintuitive:
-
-- **A child sitting at "awaiting acceptance" does not count as finished.** When a plan or Loop is itself waiting on human confirmation, the goal does not follow it into awaiting acceptance — otherwise you would be nesting the same gate.
-- **A plan that has never run does not count as finished.** A plan you just linked, with no run yet, keeps the goal at active.
+- **A child sitting at "awaiting acceptance" does not count as finished.** When a Loop is itself waiting on human confirmation, the goal does not follow it into awaiting acceptance — otherwise you would be nesting the same gate.
 
 ## Acceptance
 
@@ -90,7 +85,7 @@ Two more rules are equally counterintuitive:
 | --- | --- |
 | Every child has finished. This goal is ready for you to accept. | You can press **Accept** |
 | Some children are still running. | Wait for them |
-| Link a plan, loop, or work item before this goal can be accepted. | There are no counted children |
+| Link a loop or work item before this goal can be accepted. | There are no counted children |
 | Only a goal in progress can be accepted. | The goal is still a Draft or Abandoned |
 
 After accepting you can still **Reopen**, returning the goal to active.
@@ -99,7 +94,7 @@ After accepting you can still **Reopen**, returning the goal to active.
 
 If the object a child points at is deleted, or its state cannot be queried, the child is marked **Missing**:
 
-- **It leaves the denominator** — a deleted plan cannot strand a goal one item short forever
+- **It leaves the denominator** — a deleted linked item cannot strand a goal one item short forever
 - **It does not fail the whole goal query** — the other children display normally
 - It is listed explicitly in the detail: "N linked items no longer exist and are left out of the count."
 
@@ -110,12 +105,11 @@ If the object a child points at is deleted, or its state cannot be queried, the 
 - **Web/mock does not persist.** Goals live in memory and are gone when the page reloads. Real persistence needs the desktop runtime — see [Runtime and feature labels](runtime-labels.md).
 - **Acceptance notes take no part in any machine judgement**; they are for humans to read.
 - **Sessions and runs never advance a goal**; a goal linked only to those does not enter awaiting acceptance.
-- **Plans and Loops disagree about failure**, are judged separately, and do not share one terminal-state definition.
 - **Unlinking does not affect the linked object**; it only removes it from this goal's child list.
-- Deleting a goal deletes only the goal itself and its links; plans, Loops, and board items are unaffected.
+- Deleting a goal deletes only the goal itself and its links; Loops and board items are unaffected.
 
 ## Related
 
 - Automatic cycles under a goal → [Loop Engineering](loop-engineering.md)
-- Multi-Agent plans under a goal → [Multi-Agent group chat](multi-agent-workflow.md)
+- Multi-Agent collaboration → [Multi-Agent group chat](multi-agent-workflow.md)
 - How to read the status labels → [Runtime and feature labels](runtime-labels.md)

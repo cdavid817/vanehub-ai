@@ -4,7 +4,7 @@ export type WorkItemStage = (typeof workItemStages)[number];
 export const workItemPriorities = ["none", "low", "medium", "high", "urgent"] as const;
 export type WorkItemPriority = (typeof workItemPriorities)[number];
 
-export const workItemSourceKinds = ["session", "plan", "plan_run", "scheduled_task"] as const;
+export const workItemSourceKinds = ["session", "scheduled_task"] as const;
 export type WorkItemSourceKind = (typeof workItemSourceKinds)[number];
 export type WorkItemLinkRelation = "primary" | "execution" | "automation" | "supporting";
 

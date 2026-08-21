@@ -415,7 +415,7 @@ mod tests {
         let owner_plan = query_plan(
             &connection,
             "SELECT snapshot_json FROM agent_runs WHERE owner_type = ?1 AND owner_id = ?2 ORDER BY updated_at DESC, run_id LIMIT 10",
-            &[&"plan_run", &"plan-1"],
+            &[&"session_generation", &"session-1"],
         );
         let event_plan = query_plan(
             &connection,

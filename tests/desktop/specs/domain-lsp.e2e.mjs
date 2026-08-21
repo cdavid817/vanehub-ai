@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 
+import { comparableFilesystemPath } from "../helpers/filesystem-path.mjs";
+
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
 
@@ -87,12 +89,15 @@ globalThis.describe("VaneHub AI desktop LSP code intelligence domain", () => {
       { canonicalRoot: workspace, trusted: true },
     );
     assert.equal(trusted.trusted, true);
-    assert.equal(trusted.canonicalRoot, workspace);
+    assert.equal(comparableFilesystemPath(trusted.canonicalRoot), comparableFilesystemPath(workspace));
     const firstRevision = trusted.revision;
 
     const list = await invoke(({ core }) => core.invoke("list_lsp_workspace_trust"));
     assert.ok(
-      list.some((entry) => entry.canonicalRoot === workspace && entry.trusted),
+      list.some((entry) => (
+        comparableFilesystemPath(entry.canonicalRoot) === comparableFilesystemPath(workspace)
+        && entry.trusted
+      )),
       "the trusted workspace did not appear in list_lsp_workspace_trust",
     );
 

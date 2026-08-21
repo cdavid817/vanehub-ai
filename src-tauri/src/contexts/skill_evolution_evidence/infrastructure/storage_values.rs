@@ -90,7 +90,7 @@ pub(super) fn source_family(value: SourceFamily) -> &'static str {
         SourceFamily::NativeExecution => "native_execution",
         SourceFamily::SkillLoading => "skill_loading",
         SourceFamily::DelegatedUtility => "delegated_utility",
-        SourceFamily::PlanVerification => "plan_verification",
+        SourceFamily::RunVerification => "run_verification",
         SourceFamily::ManagedCli => "managed_cli",
         SourceFamily::InteractiveCli => "interactive_cli",
         SourceFamily::ExplicitFeedback => "explicit_feedback",

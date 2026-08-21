@@ -65,27 +65,27 @@ async function createSession(input) {
 }
 
 async function sendAndAwaitReply(session, agentId, mode) {
-  await invoke(({ core }, payload) => core.invoke("send_message", payload), {
-    sessionId: session.id,
-    content: PROMPT,
-    config: {
-      agentId,
-      interactionMode: mode,
-      executionMode: "inherit",
-      providerId: null,
-      modelId: null,
-      reasoningDepth: null,
-      streaming: true,
-      thinking: false,
-      longContext: false,
-    },
-    fileReferences: null,
-  });
   // Generous: a cold CLI start plus a provider round trip through an egress proxy is slow, and a
   // timeout here would be reported as a product failure rather than the wait it actually is.
   // Returns null instead of throwing so the caller can tell "the Agent is broken" apart from
   // "this host is slow" by looking at what the run actually did.
   try {
+    await invoke(({ core }, payload) => core.invoke("send_message", payload), {
+      sessionId: session.id,
+      content: PROMPT,
+      config: {
+        agentId,
+        interactionMode: mode,
+        executionMode: "inherit",
+        providerId: null,
+        modelId: null,
+        reasoningDepth: null,
+        streaming: true,
+        thinking: false,
+        longContext: false,
+      },
+      fileReferences: null,
+    });
     return await globalThis.browser.waitUntil(async () => {
       const messages = await invoke(({ core }, sessionId) => core.invoke("list_messages", {
         sessionId,
@@ -123,6 +123,10 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
   });
 
   globalThis.it("answers in a single-Agent OnePiece session over the live provider", async function onePieceSession() {
+    if (process.env.VANEHUB_DESKTOP_LIVE_AGENTS !== "1") {
+      blocked.push("OnePiece live turn: set VANEHUB_DESKTOP_LIVE_AGENTS=1 to contact a provider");
+      this.skip();
+    }
     const apiKey = readOnePieceApiKey();
     if (!apiKey) {
       blocked.push("OnePiece: set VANEHUB_ONEPIECE_API_KEY or VANEHUB_ONEPIECE_PROFILE_ID");
@@ -163,6 +167,10 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
 
   for (const agent of SINGLE_AGENTS) {
     globalThis.it(`answers in a single-Agent ${agent.id} session`, async function cliSession() {
+      if (process.env.VANEHUB_DESKTOP_LIVE_AGENTS !== "1") {
+        blocked.push(`${agent.id} live turn: set VANEHUB_DESKTOP_LIVE_AGENTS=1 to run host CLIs`);
+        this.skip();
+      }
       const agents = await invoke(({ core }) => core.invoke("list_agents", { capabilityTag: null }));
       const definition = agents.find((entry) => entry.id === agent.id);
       if (definition?.availabilityState !== "available") {

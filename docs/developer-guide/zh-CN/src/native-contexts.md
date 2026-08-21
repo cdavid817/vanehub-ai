@@ -2,7 +2,7 @@
 
 native 代码按**所有权**组织，而非按 UI 页面组织。一个功能出现在哪个页面上，和它的代码归谁管，是两回事。
 
-`src-tauri/src/contexts/` 下当前有 **21 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
+`src-tauri/src/contexts/` 下当前有 **20 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,6 @@ flowchart TB
     AR[agent_runtime]
     CD[cli_delegation]
     CE[code_execution]
-    TO[task_orchestration]
   end
 
   subgraph Work["会话与工作区"]
@@ -76,7 +75,6 @@ flowchart TB
 | `agent_runtime` | Agent 注册表、交互模式、provider 调用、工作流状态与生成生命周期 | [Agent 生命周期](agent-lifecycle.md) |
 | `cli_delegation` | Claude Code 与 Codex 的委派式 CLI 调用：协议处理、就绪、调度、熔断、重启恢复，以及 changeset 的捕获/评审/封存/应用管线 | [CLI 委派](cli-delegation.md) |
 | `code_execution` | 沙箱化代码运行时、运行时目录、执行工作区与就绪状态 | [扩展工具上下文](extended-tool-contexts.md) |
-| `task_orchestration` | Plan 草稿、Plan 运行、尝试的执行与验证、Plan worktree 与恢复证据 | [Loop 与 Plan 运行时](loop-and-plan-runtime.md) |
 
 ### 会话与工作区
 
@@ -110,8 +108,8 @@ flowchart TB
 
 | Context | 拥有 | 专章 |
 | --- | --- | --- |
-| `goals` | 目标聚合、它到 Plan/Loop/工作项/会话的关联、派生的验收就绪度与人工验收状态迁移 | [目标与任务看板](goals-and-work-board.md) |
-| `work_board` | 工作项及其阶段与优先级，以及把会话、Plan、定时任务幂等地对账成卡片 | [目标与任务看板](goals-and-work-board.md) |
+| `goals` | 目标聚合、到 Loop/工作项/会话的关联、历史 Plan 关联展示、派生的验收就绪度与人工验收状态迁移 | [目标与任务看板](goals-and-work-board.md) |
+| `work_board` | 工作项及其阶段与优先级，以及把会话和定时任务幂等地对账成卡片 | [目标与任务看板](goals-and-work-board.md) |
 
 ### 桌面与接入
 
@@ -138,7 +136,7 @@ Tauri command 是**传输适配器，不是业务服务**。跨 command 边界�
 
 | Context | `api.rs` 发布的主要能力 | 拥有的关键 SQLite 表（由迁移分区） |
 | --- | --- | --- |
-| `agent_runtime` | Agent 查询、工作流、就绪、启动、消息、停止；Loop/Plan 运行时；席位交接；代码智能端口 | `expert_roles`、`onepiece_provider_profiles`、`hybrid_model_routing_rules` |
+| `agent_runtime` | Agent 查询、工作流、就绪、启动、消息、停止；Loop 运行时与会话 Plan 安全策略；席位交接；代码智能端口 | `expert_roles`、`onepiece_provider_profiles`、`hybrid_model_routing_rules` |
 | `sessions` | 创建/查询/搜索/切换/重命名/置顶/归档/删除、分类、聊天配置、消息持久化与组合、导出、用量、维护 | 会话/消息/分类/配置/用量表 |
 | `workspaces` | 项目/历史/worktree、有界查询、shell 生命周期 | 既有表投影 |
 | `tooling` | CLI 参数、MCP 管理、SDK、扩展、插件、Skill、Prompt Hook | 各子域自有表 |
