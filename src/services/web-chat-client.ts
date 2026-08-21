@@ -10,6 +10,7 @@ import {
 import { nowIso } from "./web-mock-clock";
 import { prependWebAgentRun, setWebAgentRunEvents } from "./web-agent-run-state";
 import { selectWebRunner, webRunRunner } from "./web-agent-runner";
+import { webRoutedSeatId } from "./web-session-seat-client";
 import { scheduleWebSendMessageResponse } from "./web-send-message-response-scheduler";
 import { scheduleWebSendMessageApiTools } from "./web-send-message-api-scheduler";
 import { findWebSession, updateWebSession } from "./web-session-state";
@@ -171,7 +172,10 @@ export const webChatClient: ChatMessagingService = {
       id: createWebMessageId(),
       sessionId: input.sessionId,
       role: "assistant",
-      speakerSeatId: activeSeats.length > 1 ? activeSeats[0]?.seatId : undefined,
+      // The same routing rule the native runtime applies: a line-leading mention addresses that
+      // seat, an unaddressed message continues with whoever last spoke, and an untouched thread
+      // goes to the first seat.
+      speakerSeatId: webRoutedSeatId(activeSeats, existingMessages, input.content.trim()),
       content: "",
       status: "streaming",
       createdAt: timestamp,

@@ -30,6 +30,31 @@ const CLAUDE_CORE_KEYS: [&str; 7] = [
 ];
 const GEMINI_CORE_KEYS: [&str; 3] = ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"];
 
+/// Where CLI global configuration lives: the override when set (absolute only), the real home
+/// otherwise. Pure so the rule is testable without racing on process environment.
+fn resolve_cli_config_home(
+    overridden: Option<std::ffi::OsString>,
+) -> Result<PathBuf, CliConfigError> {
+    match overridden {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Err(CliConfigError::Filesystem {
+                    path: format!(
+                        "VANEHUB_CLI_CONFIG_HOME must be absolute: {}",
+                        path.display()
+                    ),
+                })
+            }
+        }
+        None => dirs::home_dir().ok_or_else(|| CliConfigError::Filesystem {
+            path: "user-home".into(),
+        }),
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct NativeCliGlobalConfigAdapter {
     home_dir: PathBuf,
@@ -38,12 +63,19 @@ pub(crate) struct NativeCliGlobalConfigAdapter {
 
 impl NativeCliGlobalConfigAdapter {
     pub(crate) fn new() -> Result<Self, CliConfigError> {
-        let home_dir = dirs::home_dir().ok_or_else(|| CliConfigError::Filesystem {
-            path: "user-home".into(),
-        })?;
-        Ok(Self::with_home(home_dir))
+        resolve_cli_config_home(std::env::var_os("VANEHUB_CLI_CONFIG_HOME")).map(Self::with_home)
     }
 
+    /// The directory whose `.claude`/`.codex`/`.config` trees this adapter reads and writes.
+    ///
+    /// `VANEHUB_CLI_CONFIG_HOME`, when set, replaces the user's real home. It exists for the
+    /// isolated desktop verification runtime: `desktop-runtime-verification` requires that a test
+    /// run "does not read or mutate the user's normal application state", and CLI global
+    /// configuration is exactly such state — an e2e run that assigned `claude-code` a policy
+    /// template projected the permission hook into the user's real `~/.claude/settings.json`,
+    /// where it outlived the test app and blocked every later tool call against a dead approval
+    /// server. Relative values are refused the same way `VANEHUB_APP_DATA_DIR` refuses them:
+    /// silently resolving one against an incidental working directory would scatter state.
     pub(crate) fn with_home(home_dir: PathBuf) -> Self {
         // Derived from the supported-id constant rather than restated: a hand-maintained copy
         // silently drops write locking for any newly supported Agent.
@@ -1453,6 +1485,30 @@ mod tests {
         AntigravityToolPermission, PAYLOAD_VERSION,
     };
     use crate::test_support::TempDirectory;
+
+    /// The isolation override replaces the real home wholesale, so an isolated desktop run's CLI
+    /// config writes (permission hook included) land in the run's own directory.
+    #[test]
+    fn an_absolute_cli_config_home_override_replaces_the_real_home() {
+        // Built from `temp_dir()` so the path is absolute on every platform's spelling of it.
+        let isolated = std::env::temp_dir().join("e2e-cli-home");
+        let resolved =
+            resolve_cli_config_home(Some(isolated.clone().into_os_string())).expect("resolve");
+        assert_eq!(resolved, isolated);
+    }
+
+    /// A relative override is refused rather than resolved against an incidental working
+    /// directory, mirroring `VANEHUB_APP_DATA_DIR`'s own rule.
+    #[test]
+    fn a_relative_cli_config_home_override_is_refused() {
+        assert!(resolve_cli_config_home(Some("relative/home".into())).is_err());
+    }
+
+    #[test]
+    fn no_override_resolves_to_the_real_home() {
+        let resolved = resolve_cli_config_home(None).expect("resolve");
+        assert_eq!(resolved, dirs::home_dir().expect("home"));
+    }
 
     fn profile(agent_id: &str, payload: CliConfigPayload) -> ProfileRecord {
         ProfileRecord {

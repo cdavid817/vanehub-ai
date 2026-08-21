@@ -182,6 +182,28 @@ pub(crate) fn parse_handoff_mentions(
     }
 }
 
+/// Which seat a message from the human goes to.
+///
+/// A line-leading mention addresses a seat directly. Without one the message continues with
+/// whoever last held the turn, which is how a person replies in a group without naming anyone;
+/// only a thread where nobody has spoken yet falls back to the first seat.
+///
+/// One target, unlike a reply: a person addressing two seats at once is asking for two rounds, and
+/// the second would start against a thread the first has already moved on from. `self_mention` is
+/// `None` because the human is not a seat and so cannot mention itself.
+pub(crate) fn route_user_message(
+    text: &str,
+    mentions: &[String],
+    last_holder: Option<&str>,
+    first_seat: &str,
+) -> String {
+    parse_handoff_mentions(text, mentions, None, 1)
+        .targets
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| last_holder.unwrap_or(first_seat).to_string())
+}
+
 /// Which seats a completed reply hands off to, respecting the chain depth limit.
 ///
 /// The depth limit exists because agents mention each other autonomously; without it a pair can
@@ -377,6 +399,52 @@ mod tests {
         let result = next_turn_targets(reply, &mentions(), "架构师", 1, 15, 2);
         assert_eq!(result.targets, ["实现者"]);
         assert_eq!(result.ended_reason, None);
+    }
+
+    #[test]
+    fn a_user_message_goes_to_the_seat_it_names() {
+        assert_eq!(
+            route_user_message("@代码审查 帮我看下", &mentions(), Some("实现者"), "架构师"),
+            "代码审查"
+        );
+    }
+
+    #[test]
+    fn an_unaddressed_user_message_stays_with_the_last_holder() {
+        assert_eq!(
+            route_user_message("再改一版", &mentions(), Some("实现者"), "架构师"),
+            "实现者"
+        );
+    }
+
+    #[test]
+    fn a_thread_nobody_has_spoken_in_goes_to_the_first_seat() {
+        assert_eq!(
+            route_user_message("开始吧", &mentions(), None, "架构师"),
+            "架构师"
+        );
+    }
+
+    /// Naming two seats is not two rounds: the second would start against a thread the first has
+    /// already moved on from, so only the first named seat is dispatched.
+    #[test]
+    fn a_user_message_dispatches_one_seat_even_when_it_names_two() {
+        assert_eq!(
+            route_user_message("@实现者 改\n@代码审查 看", &mentions(), None, "架构师"),
+            "实现者"
+        );
+    }
+
+    /// The parser rules that keep prose from dispatching a teammate apply to the human too.
+    #[test]
+    fn a_mid_line_or_fenced_user_mention_does_not_address_anyone() {
+        for text in ["麻烦 @代码审查 看下", "示例：\n```\n@代码审查 看下\n```"] {
+            assert_eq!(
+                route_user_message(text, &mentions(), Some("实现者"), "架构师"),
+                "实现者",
+                "failed for {text}"
+            );
+        }
     }
 
     #[test]
