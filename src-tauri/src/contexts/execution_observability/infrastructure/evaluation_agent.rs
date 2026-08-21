@@ -3,6 +3,9 @@ use crate::contexts::agent_runtime::api::{
     AgentMessageTerminalOutcome, AgentRuntimeApi, InteractionMode, SendMessageRequest,
 };
 use crate::contexts::execution_observability::application::AgentExecutionEvidence;
+use crate::contexts::execution_observability::domain::{
+    DISPATCH_AGENT_UNAVAILABLE, DISPATCH_AGENT_UNSUPPORTED, DISPATCH_TERMINAL_DISCONNECTED,
+};
 use crate::contexts::sessions::api::{
     NewSessionRequest, NewSessionWorkspace, SessionActivation, SessionOwner, SessionsApi,
 };
@@ -110,7 +113,7 @@ impl NativeEvaluationAgentAdapter {
                 (false, true, false, None)
             }
             Err(RecvTimeoutError::Disconnected) => {
-                return Err("evaluation Agent terminal channel disconnected".to_string());
+                return Err(DISPATCH_TERMINAL_DISCONNECTED.to_string());
             }
         };
         let summary = self
@@ -177,7 +180,7 @@ fn eligible_mode(
     supported_modes: &[InteractionMode],
 ) -> Result<InteractionMode, String> {
     if availability != AgentAvailability::Available {
-        return Err("evaluation Agent is not installed and available".to_string());
+        return Err(DISPATCH_AGENT_UNAVAILABLE.to_string());
     }
     if agent_id == "onepiece" && supported_modes.contains(&InteractionMode::Api) {
         return Ok(InteractionMode::Api);
@@ -185,7 +188,7 @@ fn eligible_mode(
     if managed_dependency.is_some() && supported_modes.contains(&InteractionMode::Cli) {
         return Ok(InteractionMode::Cli);
     }
-    Err("evaluation supports OnePiece or an available managed CLI Agent".to_string())
+    Err(DISPATCH_AGENT_UNSUPPORTED.to_string())
 }
 
 fn non_negative(value: i64) -> Option<u64> {

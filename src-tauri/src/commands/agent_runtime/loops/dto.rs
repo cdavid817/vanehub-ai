@@ -1,6 +1,36 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopBranchChoice {
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) available: bool,
+    pub(crate) simulated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopReadinessCheck {
+    pub(crate) code: String,
+    pub(crate) category: String,
+    pub(crate) status: String,
+    pub(crate) blocking: bool,
+    pub(crate) detail: Option<String>,
+    pub(crate) remediation_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopReadinessReport {
+    pub(crate) definition_id: String,
+    pub(crate) ready: bool,
+    pub(crate) simulated: bool,
+    pub(crate) checks: Vec<LoopReadinessCheck>,
+    pub(crate) checked_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SaveLoopDefinitionInput {

@@ -3194,6 +3194,19 @@
     },
     {
       "archivedOn": "2026-08-21",
+      "changeName": "harden-evaluation-ranking-and-failure-evidence",
+      "path": "openspec/changes/archive/2026-08-21-harden-evaluation-ranking-and-failure-evidence/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-21",
       "changeName": "harden-runtime-lifecycle-and-boundaries",
       "path": "openspec/changes/archive/2026-08-21-harden-runtime-lifecycle-and-boundaries/",
       "artifacts": [
@@ -3242,6 +3255,19 @@
       ],
       "capabilities": [
         "user-guide-documentation"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-21",
+      "changeName": "optimize-loop-engineering-workbench",
+      "path": "openspec/changes/archive/2026-08-21-optimize-loop-engineering-workbench/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "loop-management-ui"
       ]
     },
     {

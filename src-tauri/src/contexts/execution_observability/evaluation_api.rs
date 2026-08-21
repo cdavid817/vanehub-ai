@@ -3,9 +3,9 @@ use super::application::{
     EvaluationAggregate, EvaluationRepositoryPort, EvaluationVerifierPort,
 };
 use super::domain::{
-    parse_evaluation_manifest, EvaluationAgentSnapshot, EvaluationArena, EvaluationAttempt,
-    EvaluationExport, EvaluationManifest, EvaluationOutcome, EVALUATION_RANKING_VERSION,
-    EVALUATION_SCHEMA_VERSION,
+    parse_evaluation_manifest, safe_dispatch_diagnostic, EvaluationAgentSnapshot, EvaluationArena,
+    EvaluationAttempt, EvaluationCheck, EvaluationExport, EvaluationManifest, EvaluationOutcome,
+    EVALUATION_RANKING_VERSION, EVALUATION_SCHEMA_VERSION,
 };
 use super::infrastructure::{
     verify_static_acceptance, EvaluationDispatchRequest, NativeEvaluationAgentAdapter,
@@ -20,6 +20,9 @@ use crate::contexts::workspaces::api::WorkspaceApi;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Stable id for the diagnostic recorded when an attempt's Agent could not be dispatched.
+const DISPATCH_CHECK_ID: &str = "agent-dispatch";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +161,11 @@ impl EvaluationApi {
             .name("evaluation-arena".into())
             .spawn(move || {
                 if background.execute(&arena_id).is_err() {
+                    // Whatever `execute` gave up on -- a fixture that would not prepare, a run
+                    // transition that was refused -- it abandoned every attempt it had not reached
+                    // yet at `queued`. Queued is not a verdict: the client polls a non-terminal
+                    // arena forever, so the arena has to be closed out here or it never settles.
+                    background.abandon(&arena_id);
                     let _ = background
                         .operations
                         .fail(&operation_id, "evaluation benchmark failed safely".into());
@@ -171,6 +179,27 @@ impl EvaluationApi {
             return Err("evaluation worker is unavailable".into());
         }
         Ok(arena)
+    }
+
+    /// Closes out an arena whose run aborted, so attempts it never reached carry a verdict.
+    fn abandon(&self, arena_id: &str) {
+        let Ok(mut arena) = self.get(arena_id) else {
+            return;
+        };
+        for index in 0..arena.attempts.len() {
+            if arena.attempts[index].outcome.is_terminal() {
+                continue;
+            }
+            arena.attempts[index].outcome = EvaluationOutcome::BenchmarkError;
+            let _ = self.repository.save_terminal(
+                &arena,
+                &arena.attempts[index],
+                &chrono::Utc::now().to_rfc3339(),
+            );
+            let _ = self
+                .workspaces
+                .cleanup_evaluation_fixture(&self.run_root, &arena.attempts[index].id);
+        }
     }
 
     pub(crate) fn execute(&self, arena_id: &str) -> Result<EvaluationArena, String> {
@@ -225,6 +254,10 @@ impl EvaluationApi {
                 PathBuf::from(&prepared.workspace_path).as_path(),
             )?;
             checks.push(Ok(verify_diff_rules(&changed_paths)));
+            // Kept before the aggregate consumes it: `aggregate_evaluation` maps a dispatch `Err`
+            // to `agent_failed` and drops the reason, which left the user with an empty panel and
+            // nothing anywhere on screen saying the Agent had, say, no configured model.
+            let dispatch_error = dispatch.as_ref().err().cloned();
             let aggregate =
                 aggregate_evaluation(dispatch.map(|result| result.evidence), checks, None);
             let verification = aggregate_verification(aggregate.checks.clone(), None, None);
@@ -237,6 +270,16 @@ impl EvaluationApi {
                 aggregate.outcome.clone()
             };
             arena.attempts[index].checks = aggregate.checks;
+            if let Some(error) = dispatch_error {
+                // Evidence, not a verdict: the outcome above is already `agent_failed`, and
+                // `failed_checks` deliberately ignores checks on a non-completion outcome so
+                // recording a reason cannot rank this attempt below one that recorded nothing.
+                arena.attempts[index].checks.push(EvaluationCheck {
+                    check_id: DISPATCH_CHECK_ID.into(),
+                    passed: false,
+                    summary: safe_dispatch_diagnostic(&error),
+                });
+            }
             arena.attempts[index].judge = verification.judge;
             arena.attempts[index].metrics = aggregate.metrics;
             arena.attempts[index].artifact_ids = changed_paths;
@@ -259,9 +302,7 @@ impl EvaluationApi {
                     .cleanup_evaluation_fixture(&self.run_root, &attempt.id);
             }
         }
-        arena.attempts.sort_by(|left, right| {
-            compare_aggregates(&attempt_aggregate(left), &attempt_aggregate(right))
-        });
+        let arena = ranked(arena);
         self.operations
             .complete(&arena.operation_id, serde_json::to_value(&arena).ok())
             .map_err(display)?;
@@ -271,21 +312,22 @@ impl EvaluationApi {
     pub(crate) fn get(&self, arena_id: &str) -> Result<EvaluationArena, String> {
         self.repository
             .get(arena_id)?
+            .map(ranked)
             .ok_or_else(|| "evaluation arena not found".into())
     }
     pub(crate) fn list(&self, offset: usize, limit: usize) -> Result<Vec<EvaluationArena>, String> {
-        self.repository.list(offset, limit)
+        Ok(self
+            .repository
+            .list(offset, limit)?
+            .into_iter()
+            .map(ranked)
+            .collect())
     }
     pub(crate) fn cancel(&self, arena_id: &str) -> Result<EvaluationArena, String> {
         let mut arena = self.get(arena_id)?;
         for index in 0..arena.attempts.len() {
             let attempt = arena.attempts[index].clone();
-            if !matches!(
-                attempt.outcome,
-                EvaluationOutcome::Succeeded
-                    | EvaluationOutcome::TaskFailed
-                    | EvaluationOutcome::AgentFailed
-            ) {
+            if !attempt.outcome.is_terminal() {
                 let run = self.runs.get(&attempt.canonical_run_id).map_err(display)?;
                 let _ = self.runs.cancel(&run.id, run.version);
                 arena.attempts[index].outcome = EvaluationOutcome::Cancelled;
@@ -316,6 +358,22 @@ impl EvaluationApi {
     }
 }
 
+/// Orders an arena's attempts best-first under `EVALUATION_RANKING_VERSION`.
+///
+/// Applied on every read rather than persisted: the repository stores attempts individually and
+/// returns them ordered by their random UUID, so a ranking computed once at the end of a run
+/// reached nobody -- the arena existed to rank Agents against each other and the client was handed
+/// them in arrival order. Ranking is a pure function of the outcome, checks and metrics already
+/// stored, so deriving it on read costs nothing and cannot drift from what was saved. The id is
+/// the last tiebreak so two indistinguishable attempts still come back in a stable order.
+fn ranked(mut arena: EvaluationArena) -> EvaluationArena {
+    arena.attempts.sort_by(|left, right| {
+        compare_aggregates(&attempt_aggregate(left), &attempt_aggregate(right))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    arena
+}
+
 fn attempt_aggregate(attempt: &EvaluationAttempt) -> EvaluationAggregate {
     EvaluationAggregate {
         outcome: attempt.outcome.clone(),
@@ -334,4 +392,137 @@ fn built_in_manifests() -> [&'static str; 3] {
 }
 fn display(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::execution_observability::domain::{
+        EvaluationCheck, SAFE_DISPATCH_REASONS,
+    };
+
+    fn attempt(id: &str, outcome: EvaluationOutcome, failed_checks: usize) -> EvaluationAttempt {
+        EvaluationAttempt {
+            id: id.into(),
+            arena_id: "arena".into(),
+            canonical_run_id: format!("run-{id}"),
+            task_id: "task".into(),
+            task_version: 1,
+            agent: EvaluationAgentSnapshot {
+                agent_id: id.into(),
+                provider_id: "provider".into(),
+                model_id: None,
+                interaction_mode: "api".into(),
+                configuration_fingerprint: "fingerprint".into(),
+            },
+            outcome,
+            checks: (0..failed_checks)
+                .map(|index| EvaluationCheck {
+                    check_id: format!("check-{index}"),
+                    passed: false,
+                    summary: String::new(),
+                })
+                .collect(),
+            judge: None,
+            metrics: Vec::new(),
+            context_evidence_manifest_id: None,
+            artifact_ids: Vec::new(),
+        }
+    }
+
+    fn arena(attempts: Vec<EvaluationAttempt>) -> EvaluationArena {
+        EvaluationArena {
+            id: "arena".into(),
+            operation_id: "operation".into(),
+            task_id: "task".into(),
+            task_version: 1,
+            ranking_version: EVALUATION_RANKING_VERSION.into(),
+            attempts,
+        }
+    }
+
+    /// The repository hands attempts back ordered by their random id, so ranking has to be applied
+    /// on the way out or the arena's whole reason to exist -- comparing Agents -- never reaches the
+    /// client.
+    #[test]
+    fn ranking_beats_repository_id_order() {
+        let ordered = ranked(arena(vec![
+            attempt("attempt-a", EvaluationOutcome::TaskFailed, 2),
+            attempt("attempt-b", EvaluationOutcome::TaskFailed, 1),
+            attempt("attempt-c", EvaluationOutcome::Succeeded, 0),
+            // Recorded no checks at all: it must sort last rather than winning on an empty count.
+            attempt("attempt-d", EvaluationOutcome::AgentFailed, 0),
+            attempt("attempt-e", EvaluationOutcome::TimedOut, 0),
+        ]));
+        assert_eq!(
+            ordered
+                .attempts
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "attempt-c",
+                "attempt-b",
+                "attempt-a",
+                "attempt-d",
+                "attempt-e"
+            ],
+        );
+    }
+
+    /// The diagnostic recorded for a failed dispatch travels the same redaction rule as every
+    /// other evaluation field, so a reason quoting a path or a secret collapses to the safe
+    /// sentence instead of being persisted, exported, and rendered.
+    #[test]
+    fn dispatch_diagnostics_are_redacted_before_they_are_recorded() {
+        for leaking in [
+            "database failed at /home/user/private.db",
+            "authentication rejected token sk-live-4f9c2a77b1e34d0e",
+            // Near-misses: the rule is equality, so a reason that merely *contains* a safe one
+            // does not inherit its safety.
+            "evaluation Agent is not installed and available at /home/user/.local/bin/agy",
+            "evaluation supports OnePiece",
+        ] {
+            let summary = safe_dispatch_diagnostic(leaking);
+            assert!(!summary.contains("/home"), "{summary}");
+            assert!(!summary.contains("sk-live"), "{summary}");
+            assert_eq!(
+                summary,
+                "evaluation operation failed; inspect unified logs for redacted diagnostics",
+            );
+        }
+        // The reasons the dispatch gate itself writes survive verbatim -- that is what makes
+        // recording a diagnostic worth doing rather than printing "it failed" twice.
+        for reason in SAFE_DISPATCH_REASONS {
+            assert_eq!(safe_dispatch_diagnostic(reason), reason);
+        }
+    }
+
+    #[test]
+    fn indistinguishable_attempts_keep_a_stable_order() {
+        let ordered = ranked(arena(vec![
+            attempt("attempt-z", EvaluationOutcome::Succeeded, 0),
+            attempt("attempt-a", EvaluationOutcome::Succeeded, 0),
+        ]));
+        assert_eq!(ordered.attempts[0].id, "attempt-a");
+    }
+
+    /// Cancelling must not rewrite a verdict an attempt already earned: a timed-out attempt
+    /// reported as cancelled loses the one fact that explains why it failed.
+    #[test]
+    fn every_settled_outcome_is_terminal() {
+        for outcome in [
+            EvaluationOutcome::Succeeded,
+            EvaluationOutcome::TaskFailed,
+            EvaluationOutcome::AgentFailed,
+            EvaluationOutcome::TimedOut,
+            EvaluationOutcome::Stuck,
+            EvaluationOutcome::Cancelled,
+            EvaluationOutcome::BenchmarkError,
+        ] {
+            assert!(outcome.is_terminal(), "{outcome:?} should be terminal");
+        }
+        assert!(!EvaluationOutcome::Queued.is_terminal());
+        assert!(!EvaluationOutcome::Running.is_terminal());
+    }
 }

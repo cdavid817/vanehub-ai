@@ -9,6 +9,9 @@ const second = { id: "run-2", status: "succeeded" } as LoopRun;
 describe("Loop query model", () => {
   it("uses stable hierarchical keys", () => {
     expect(loopQueryKeys.definitions).toEqual(["loops", "definitions"]);
+    expect(loopQueryKeys.projects).toEqual(["loops", "projects"]);
+    expect(loopQueryKeys.branches("D:/project")).toEqual(["loops", "branches", "D:/project"]);
+    expect(loopQueryKeys.readiness("definition-1")).toEqual(["loops", "readiness", "definition-1"]);
     expect(loopQueryKeys.runs("definition-1")).toEqual(["loops", "runs", "definition-1"]);
     expect(loopQueryKeys.run("run-1")).toEqual(["loops", "run", "run-1"]);
   });

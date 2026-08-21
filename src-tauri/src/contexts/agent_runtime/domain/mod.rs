@@ -27,6 +27,7 @@ mod hybrid_routing;
 mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
+mod loop_readiness;
 mod memory_document;
 #[cfg(test)]
 mod memory_document_tests;
@@ -111,6 +112,7 @@ pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
 };
+pub(crate) use loop_readiness::{LoopReadinessCategory, LoopReadinessCheckCode};
 pub(crate) use memory_document::{
     compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
     MemoryType,

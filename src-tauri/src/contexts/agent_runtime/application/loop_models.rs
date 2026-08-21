@@ -1,6 +1,7 @@
 use crate::contexts::agent_runtime::domain::{
-    InteractionMode, LoopDefinition, LoopLimits, LoopRunPhase, LoopRunStatus, LoopTerminalReason,
-    LoopVerificationCommand, LoopVerifierRecommendation,
+    InteractionMode, LoopDefinition, LoopLimits, LoopReadinessCategory, LoopReadinessCheckCode,
+    LoopRunPhase, LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
+    LoopVerifierRecommendation,
 };
 use serde_json::Value;
 
@@ -183,6 +184,23 @@ pub(crate) struct LoopRunView {
 pub(crate) struct StartLoopResultView {
     pub(crate) run_id: String,
     pub(crate) operation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopReadinessCheckView {
+    pub(crate) code: LoopReadinessCheckCode,
+    pub(crate) category: LoopReadinessCategory,
+    pub(crate) passed: bool,
+    pub(crate) detail: Option<String>,
+    pub(crate) remediation_target: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopReadinessReportView {
+    pub(crate) definition_id: String,
+    pub(crate) ready: bool,
+    pub(crate) checks: Vec<LoopReadinessCheckView>,
+    pub(crate) checked_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

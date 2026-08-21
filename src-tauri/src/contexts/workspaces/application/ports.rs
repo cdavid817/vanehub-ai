@@ -1,8 +1,8 @@
 use super::{
-    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
-    GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, SessionLogExportResult,
-    SessionLogPage, SessionLogQuery, ShellEvent, ShellLaunch, ShellLog, ShellWorkspace,
-    WorkspaceApplicationError,
+    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
+    GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, ShellEvent, ShellLaunch, ShellLog,
+    ShellWorkspace, WorkspaceApplicationError,
 };
 use crate::contexts::workspaces::domain::{
     ProjectInspection, ProjectPath, RemoteWorkspace, TerminalDimensions, WorktreeName,
@@ -53,6 +53,17 @@ pub(crate) trait WorkspaceGitPort: Send + Sync {
         let _ = (project_path, reference);
         Err(WorkspaceApplicationError::Validation(
             "Git commit resolution is unavailable.".to_string(),
+        ))
+    }
+
+    fn list_branches(
+        &self,
+        project_path: &str,
+        limit: usize,
+    ) -> Result<Vec<GitBranchReference>, WorkspaceApplicationError> {
+        let _ = (project_path, limit);
+        Err(WorkspaceApplicationError::Validation(
+            "Git branch discovery is unavailable.".to_string(),
         ))
     }
 

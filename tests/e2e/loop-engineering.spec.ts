@@ -43,9 +43,10 @@ test.describe("Loop engineering", () => {
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "verifying");
-    await expect(loopCenter.getByText("必需的模拟检查均已通过。")).toBeVisible();
-    await expect(loopCenter.getByText("验证者：通过").first()).toBeVisible();
-    await loopCenter.getByRole("button", { name: "打开变更" }).first().click();
+    const acceptance = loopCenter.getByLabel("人工验收");
+    await expect(acceptance.getByText("必需的模拟检查均已通过。")).toBeVisible();
+    await expect(acceptance.getByText("验证者：通过")).toBeVisible();
+    await acceptance.getByRole("button", { name: "打开变更" }).first().click();
     await expect(page.getByRole("button", { name: "返回循环工程" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "变更" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "返回循环工程" }).click();
@@ -59,7 +60,7 @@ test.describe("Loop engineering", () => {
     await loopCenter.getByRole("button", { name: "接受结果" }).click();
     await expect(loopCenter.getByText("已成功", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "completed");
-    await expect(loopCenter.getByText("目标已达成")).toBeVisible();
+    await expect(loopCenter.getByText("目标已达成").first()).toBeVisible();
   });
 
   test("rejects an acceptance-ready Loop while retaining its evidence", async ({ page }) => {
@@ -69,13 +70,14 @@ test.describe("Loop engineering", () => {
     await createAndRunLoop(page, "Playwright 拒绝循环");
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
-    await expect(loopCenter.getByText("验证检查")).toBeVisible();
+    const acceptance = loopCenter.getByLabel("人工验收");
+    await expect(acceptance.getByText("验证检查")).toBeVisible();
     await loopCenter.getByRole("button", { name: "拒绝结果" }).click();
     await expect(loopCenter.getByText("拒绝此结果？")).toBeVisible();
     await loopCenter.getByRole("button", { name: "确认", exact: true }).click();
 
     await expect(loopCenter.getByText("已取消", { exact: true }).first()).toBeVisible();
-    await expect(loopCenter.getByText("用户已拒绝")).toBeVisible();
-    await expect(loopCenter.getByText("验证检查")).toBeVisible();
+    await expect(loopCenter.getByText("用户已拒绝").first()).toBeVisible();
+    await expect(loopCenter.getByText("验证检查").first()).toBeVisible();
   });
 });

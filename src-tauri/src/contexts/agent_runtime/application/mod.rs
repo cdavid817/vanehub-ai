@@ -76,11 +76,11 @@ pub(crate) use loop_models::LoopVerificationCommandView;
 pub(crate) use loop_models::{
     ContinueLoopRequest, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
     LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView, LoopGitStateView,
-    LoopIterationView, LoopOwnedRecoverySession, LoopRoleSessionRequest, LoopRunView,
-    LoopVerificationBatchResult, LoopVerifierResult, PreparedLoopWorktree,
-    RunLoopVerificationRequest, SaveLoopDefinitionRequest, SaveLoopVerifierResultRequest,
-    StartLoopResultView, StartLoopVerifierRequest, StartLoopWorkerRequest, StartedLoopVerifierView,
-    StartedLoopWorkerView,
+    LoopIterationView, LoopOwnedRecoverySession, LoopReadinessCheckView, LoopReadinessReportView,
+    LoopRoleSessionRequest, LoopRunView, LoopVerificationBatchResult, LoopVerifierResult,
+    PreparedLoopWorktree, RunLoopVerificationRequest, SaveLoopDefinitionRequest,
+    SaveLoopVerifierResultRequest, StartLoopResultView, StartLoopVerifierRequest,
+    StartLoopWorkerRequest, StartedLoopVerifierView, StartedLoopWorkerView,
 };
 pub(crate) use loop_observability::{ActiveLoopOperation, LoopOperationObserver};
 pub(crate) use loop_orchestrator::{LoopOrchestratorApplicationService, LoopOrchestratorPorts};

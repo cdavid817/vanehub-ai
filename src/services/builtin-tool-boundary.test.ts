@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { AgentService } from "./agent-service";
-import { tauriAgentClient } from "./tauri-agent-client";
+import { tauriRuntimeAgentClient } from "./runtime-agent-client";
 import { webAgentClient } from "./web-agent-client";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +26,7 @@ describe("built-in tool service boundary", () => {
   });
 
   it("keeps desktop and Web adapters assignable to the same contract", () => {
-    const adapters: AgentService[] = [tauriAgentClient, webAgentClient];
+    const adapters: AgentService[] = [tauriRuntimeAgentClient, webAgentClient];
 
     for (const adapter of adapters) {
       expect(typeof adapter.getBuiltinToolReadiness).toBe("function");

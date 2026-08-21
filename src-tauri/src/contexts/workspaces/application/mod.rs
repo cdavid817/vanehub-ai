@@ -9,8 +9,8 @@ mod shell_service;
 pub(crate) use error::WorkspaceApplicationError;
 pub(crate) use models::{
     CreateShellRequest, CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing,
-    FileContent, FileSearchListing, FileSearchMatch, GitDiffFile, GitDiffHunk, GitDiffLine,
-    GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, KnownProject,
+    FileContent, FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk,
+    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, KnownProject,
     KnownRemoteWorkspace, ResizeShellRequest, SessionDocument, SessionLogEntry,
     SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellEvent,
     ShellLaunch, ShellLog, ShellRemoteEndpoint, ShellSession, ShellSshBinding, ShellWorkspace,
