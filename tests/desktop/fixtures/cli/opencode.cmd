@@ -1,2 +1,11 @@
 @echo off
-node "%~dp0opencode" %*
+echo VANEHUB-FIXTURE-CLI READY
+:read
+set "VANEHUB_FIXTURE_INPUT="
+set /p "VANEHUB_FIXTURE_INPUT="
+if /i "%VANEHUB_FIXTURE_INPUT%"=="vanehub-fixture-stop" (
+  echo VANEHUB-FIXTURE-CLI STOPPING
+  exit /b 0
+)
+if not "%VANEHUB_FIXTURE_INPUT%"=="" echo VANEHUB-FIXTURE-ECHO %VANEHUB_FIXTURE_INPUT%
+goto read

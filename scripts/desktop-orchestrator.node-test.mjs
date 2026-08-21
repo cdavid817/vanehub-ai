@@ -178,7 +178,8 @@ test("the CLI terminal layer resolves its fixture Agent instead of an installed 
   const source = await readFile(fixture, "utf8");
   const windowsSource = await readFile(windowsLauncher, "utf8");
   assert.match(source, /VANEHUB-FIXTURE-CLI READY/);
-  assert.match(windowsSource, /node "%~dp0opencode" %\*/);
+  assert.match(windowsSource, /VANEHUB-FIXTURE-CLI READY/);
+  assert.match(windowsSource, /VANEHUB-FIXTURE-ECHO/);
   // The fixture is what makes this layer runnable without credentials on any CI host.
   assert.doesNotMatch(source, /require\(|fetch\(|https?:\/\//);
 });
