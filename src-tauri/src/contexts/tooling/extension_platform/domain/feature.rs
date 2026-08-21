@@ -126,6 +126,46 @@ impl FeatureGateStatus {
     }
 }
 
+/// Why a published gate set is not a fresh read of persisted state.
+///
+/// Kept separate from `FeatureGateStatus`: the statuses are always a definite answer — fail-closed
+/// is still an answer — while this says whether that answer came from current data. Merging them
+/// would hide "every gate is off because storage is unreadable" behind "every gate is off".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FeatureGateDegradation {
+    /// No successful read has happened yet, so the values are fail-closed defaults rather than a
+    /// last-known-good set. Startup with unreadable storage lands here.
+    NeverLoaded,
+    /// A previously successful read exists and the most recent reload failed, so the values are
+    /// the last-known-good set.
+    ReloadFailed,
+}
+
+impl FeatureGateDegradation {
+    pub(crate) const fn as_str(&self) -> &'static str {
+        match self {
+            Self::NeverLoaded => "never_loaded",
+            Self::ReloadFailed => "reload_failed",
+        }
+    }
+}
+
+/// Whether a published gate set reflects current persisted state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FeatureGateFreshness {
+    Current,
+    Degraded(FeatureGateDegradation),
+}
+
+impl FeatureGateFreshness {
+    pub(crate) fn degradation(&self) -> Option<FeatureGateDegradation> {
+        match self {
+            Self::Current => None,
+            Self::Degraded(degradation) => Some(*degradation),
+        }
+    }
+}
+
 /// Inputs to one gate's status, gathered by the application layer.
 pub(crate) struct FeatureGateEvaluation {
     pub(crate) desired_enabled: bool,
@@ -253,6 +293,47 @@ mod tests {
             }
         );
         assert!(!status.is_enabled());
+    }
+
+    #[test]
+    fn a_disabled_gate_reports_runtime_disabled_even_when_a_prerequisite_is_unmet() {
+        // Priority guard. `blocked_by_prerequisite` answers "you asked for this and the platform
+        // is not ready"; it must never appear for a gate nobody asked for. Sidecar is the case
+        // that motivates it — its sandbox self-test can never pass today, so an order that
+        // checked prerequisites first would report every default-off install as blocked.
+        let status = evaluate_gate(
+            ExtensionPlatformFeature::Catalog,
+            FeatureGateEvaluation {
+                desired_enabled: false,
+                forced_disable_reason: None,
+                unsatisfied_prerequisite: Some(PrerequisiteReason::SandboxSelfTestUnavailable),
+            },
+        );
+        assert_eq!(status, FeatureGateStatus::RuntimeDisabled);
+    }
+
+    #[test]
+    fn sidecar_is_never_blocked_by_prerequisite_while_it_is_switched_off() {
+        for desired in [false, true] {
+            let status = evaluate_gate(
+                ExtensionPlatformFeature::SidecarRuntime,
+                FeatureGateEvaluation {
+                    desired_enabled: desired,
+                    forced_disable_reason: None,
+                    unsatisfied_prerequisite: Some(PrerequisiteReason::SandboxSelfTestUnavailable),
+                },
+            );
+            let expected = if !ExtensionPlatformFeature::SidecarRuntime.build_available() {
+                FeatureGateStatus::NotCompiled
+            } else if desired {
+                FeatureGateStatus::BlockedByPrerequisite(
+                    PrerequisiteReason::SandboxSelfTestUnavailable,
+                )
+            } else {
+                FeatureGateStatus::RuntimeDisabled
+            };
+            assert_eq!(status, expected, "desired_enabled={desired}");
+        }
     }
 
     #[test]

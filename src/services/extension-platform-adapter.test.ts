@@ -33,6 +33,12 @@ describe("extension platform adapter parity", () => {
     expect(source).not.toContain("invoke(");
   });
 
+  it("reports its fixtures as a current read rather than degraded", async () => {
+    const { freshness } = await webExtensionPlatformClient.getFeatureGates();
+
+    expect(freshness).toEqual({ kind: "current" });
+  });
+
   it("starts every gate disabled", async () => {
     const { gates } = await webExtensionPlatformClient.getFeatureGates();
 

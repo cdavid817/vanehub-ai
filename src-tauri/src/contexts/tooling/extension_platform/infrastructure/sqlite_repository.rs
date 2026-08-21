@@ -1,8 +1,8 @@
 //! SQLite adapters for capability-gate desired state and audit.
 
 use crate::contexts::tooling::extension_platform::application::{
-    FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock, FeatureGateRepository,
-    FeatureGateWrite, PersistedFeatureGate,
+    FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock, FeatureGateDegradationEntry,
+    FeatureGateRepository, FeatureGateWrite, PersistedFeatureGate,
 };
 use crate::contexts::tooling::extension_platform::domain::{
     ExtensionPlatformFeature, FeatureGateError,
@@ -163,6 +163,25 @@ impl FeatureGateAuditSink for SqliteFeatureGateAuditSink {
                     entry.actor,
                     entry.reason,
                 ],
+            )
+            .map_err(storage)?;
+        Ok(())
+    }
+
+    fn record_degradation(
+        &self,
+        entry: &FeatureGateDegradationEntry,
+    ) -> Result<(), FeatureGateError> {
+        let connection = self
+            .database
+            .connection()
+            .map_err(|error| FeatureGateError::Storage(error.to_string()))?;
+        connection
+            .execute(
+                "INSERT INTO extension_platform_feature_gate_degradations \
+                     (degradation, code, recorded_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![entry.degradation.as_str(), entry.code, entry.recorded_at],
             )
             .map_err(storage)?;
         Ok(())

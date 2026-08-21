@@ -36,12 +36,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
 // 上调理由(add-unified-extension-platform):Extension Platform 的能力门需要一条新的 service
-// boundary,新增 126 行全部是跨运行时边界的固定开销——接口一份,Tauri 与 Web/mock 适配器各一份,
+// boundary,新增的行全部是跨运行时边界的固定开销——接口一份,Tauri 与 Web/mock 适配器各一份,
 // runtime 选择器一份,外加适配器一致性测试。没有复制既有分支:门状态此前在前端不存在任何表示。
-// Web/mock 侧把两个 runtime-bearing 门如实报成 `not_compiled` 而非"关着",这需要它自己的状态机,
-// 无法从既有 mock 搬用。实测 19360,上限按实测值收紧。
+// Web/mock 侧是一张 fixture 表而不是 Rust 求值规则的第二份实现:每个门声明它能呈现的两种状态,
+// mock 只做切换;build availability、forced-disable 优先级、先决条件顺序全部留在 Rust。两个
+// runtime-bearing 门在两种位置上都如实报 `not_compiled`——浏览器构建里确实没有 Wasmtime 引擎,
+// 也没有 sidecar 宿主,不能说成"只是关着"。freshness 是同一条边界上的固定开销:degraded 与每个门
+// 自己的状态是两件事,合并会让"全关"同时表示"存储读不出来"和"就是关着"。实测 19407,上限按实测
+// 值收紧,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19360, owner: "add-unified-extension-platform" },
+  { root: "src/services", budget: 19407, owner: "add-unified-extension-platform" },
 ]);
 
 const STATE_PACKAGES = new Set([

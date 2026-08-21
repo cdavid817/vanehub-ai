@@ -8,6 +8,6 @@ mod feature;
 
 pub(crate) use error::FeatureGateError;
 pub(crate) use feature::{
-    evaluate_gate, ExtensionPlatformFeature, FeatureGateEvaluation, FeatureGateStatus,
-    PrerequisiteReason, ALL_FEATURES,
+    evaluate_gate, ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateEvaluation,
+    FeatureGateFreshness, FeatureGateStatus, PrerequisiteReason, ALL_FEATURES,
 };

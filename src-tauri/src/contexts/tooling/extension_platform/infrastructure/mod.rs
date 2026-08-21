@@ -5,7 +5,7 @@ mod sqlite_repository;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use schema::apply_feature_gate_schema;
+pub(crate) use schema::{apply_feature_gate_degradation_schema, apply_feature_gate_schema};
 pub(crate) use sqlite_repository::{
     FeatureGateSystemClock, SqliteFeatureGateAuditSink, SqliteFeatureGateRepository,
 };

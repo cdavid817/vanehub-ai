@@ -2,9 +2,12 @@
 
 use super::{SqliteFeatureGateAuditSink, SqliteFeatureGateRepository};
 use crate::contexts::tooling::extension_platform::application::{
-    FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateRepository, FeatureGateWrite,
+    FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateDegradationEntry,
+    FeatureGateRepository, FeatureGateWrite,
 };
-use crate::contexts::tooling::extension_platform::domain::ExtensionPlatformFeature;
+use crate::contexts::tooling::extension_platform::domain::{
+    ExtensionPlatformFeature, FeatureGateDegradation,
+};
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
@@ -146,6 +149,59 @@ fn build_availability_is_never_persisted() {
             "reason"
         ]
     );
+}
+
+#[test]
+fn degradation_records_store_only_stable_codes() {
+    let fixture = fixture("extension-gate-degradation");
+    let sink = SqliteFeatureGateAuditSink::new(Arc::clone(&fixture.database));
+
+    for degradation in [
+        FeatureGateDegradation::NeverLoaded,
+        FeatureGateDegradation::ReloadFailed,
+    ] {
+        sink.record_degradation(&FeatureGateDegradationEntry {
+            degradation,
+            code: "storage",
+            recorded_at: "2026-08-22T00:00:00Z".to_string(),
+        })
+        .expect("degradation should record");
+    }
+
+    let connection = fixture.database.connection().expect("connection");
+    let mut statement = connection
+        .prepare(
+            "SELECT degradation, code FROM extension_platform_feature_gate_degradations \
+             ORDER BY id ASC",
+        )
+        .expect("statement should prepare");
+    let rows: Vec<(String, String)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("rows should read");
+
+    assert_eq!(
+        rows,
+        vec![
+            ("never_loaded".to_string(), "storage".to_string()),
+            ("reload_failed".to_string(), "storage".to_string()),
+        ]
+    );
+
+    // No free-form detail column: this table is written on exactly the path where a storage
+    // error message is most likely to carry a filesystem path.
+    let mut columns = connection
+        .prepare(
+            "SELECT name FROM pragma_table_info('extension_platform_feature_gate_degradations')",
+        )
+        .expect("pragma should prepare");
+    let names: Vec<String> = columns
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("columns should read");
+    assert_eq!(names, vec!["id", "degradation", "code", "recorded_at"]);
 }
 
 #[test]

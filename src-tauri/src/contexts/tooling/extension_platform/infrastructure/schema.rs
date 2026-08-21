@@ -38,3 +38,28 @@ pub(crate) fn apply_feature_gate_schema(conn: &Connection) -> Result<(), Databas
     )?;
     Ok(())
 }
+
+/// Records that the published gate set went stale.
+///
+/// Separate from the mutation audit because a degradation has no feature, no prior/new state, and
+/// no revision. Only a stable degradation kind and error code are stored — a storage failure's
+/// message can carry a path, and this table is written on exactly the path where that is most
+/// likely.
+pub(crate) fn apply_feature_gate_degradation_schema(
+    conn: &Connection,
+) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS extension_platform_feature_gate_degradations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            degradation TEXT NOT NULL,
+            code TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_extension_platform_feature_gate_degradations_recorded
+            ON extension_platform_feature_gate_degradations (id DESC);
+        "#,
+    )?;
+    Ok(())
+}

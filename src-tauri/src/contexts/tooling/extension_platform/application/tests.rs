@@ -3,10 +3,12 @@
 use super::feature_gates::FeatureGateService;
 use super::ports::{
     FeatureForcedDisablePort, FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock,
-    FeatureGateRepository, FeatureGateWrite, FeaturePrerequisitePort, PersistedFeatureGate,
+    FeatureGateDegradationEntry, FeatureGateRepository, FeatureGateWrite, FeaturePrerequisitePort,
+    PersistedFeatureGate,
 };
 use crate::contexts::tooling::extension_platform::domain::{
-    ExtensionPlatformFeature, FeatureGateError, FeatureGateStatus, PrerequisiteReason, ALL_FEATURES,
+    ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError, FeatureGateFreshness,
+    FeatureGateStatus, PrerequisiteReason, ALL_FEATURES,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -56,11 +58,23 @@ impl FeatureGateRepository for InMemoryRepository {
 #[derive(Default)]
 struct RecordingAudit {
     entries: Mutex<Vec<FeatureGateAuditEntry>>,
+    degradations: Mutex<Vec<FeatureGateDegradationEntry>>,
 }
 
 impl FeatureGateAuditSink for RecordingAudit {
     fn record(&self, entry: &FeatureGateAuditEntry) -> Result<(), FeatureGateError> {
         self.entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(entry.clone());
+        Ok(())
+    }
+
+    fn record_degradation(
+        &self,
+        entry: &FeatureGateDegradationEntry,
+    ) -> Result<(), FeatureGateError> {
+        self.degradations
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .push(entry.clone());
@@ -208,29 +222,132 @@ fn a_storage_read_failure_fails_closed_without_clearing_the_previous_snapshot() 
     assert!(harness
         .service
         .is_enabled(ExtensionPlatformFeature::Catalog));
+
+    // ...but it is published as degraded rather than presented as current.
+    assert_eq!(
+        harness.service.snapshot().freshness(),
+        FeatureGateFreshness::Degraded(FeatureGateDegradation::ReloadFailed)
+    );
+
+    let degradations = harness
+        .audit
+        .degradations
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    assert_eq!(degradations.len(), 1);
+    assert_eq!(
+        degradations[0].degradation,
+        FeatureGateDegradation::ReloadFailed
+    );
+    assert_eq!(degradations[0].code, "storage");
 }
 
 #[test]
-fn a_service_built_on_unreadable_storage_reports_everything_disabled() {
+fn a_healthy_service_publishes_a_current_snapshot() {
+    assert_eq!(
+        harness().service.snapshot().freshness(),
+        FeatureGateFreshness::Current
+    );
+}
+
+#[test]
+fn a_successful_reload_clears_a_previous_degradation() {
+    let harness = harness();
+    *harness
+        .repository
+        .fail_reads
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = true;
+    assert!(harness.service.reload().is_err());
+    assert!(harness
+        .service
+        .snapshot()
+        .freshness()
+        .degradation()
+        .is_some());
+
+    *harness
+        .repository
+        .fail_reads
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = false;
+    harness.service.reload().expect("reload should recover");
+
+    assert_eq!(
+        harness.service.snapshot().freshness(),
+        FeatureGateFreshness::Current
+    );
+}
+
+#[test]
+fn a_startup_read_failure_is_never_loaded_rather_than_a_last_known_good_claim() {
     let repository = Arc::new(InMemoryRepository::default());
     *repository
         .fail_reads
         .lock()
         .unwrap_or_else(|error| error.into_inner()) = true;
+    let audit = Arc::new(RecordingAudit::default());
     let service = FeatureGateService::new(
-        repository as Arc<dyn FeatureGateRepository>,
-        Arc::new(RecordingAudit::default()) as Arc<dyn FeatureGateAuditSink>,
+        Arc::clone(&repository) as Arc<dyn FeatureGateRepository>,
+        Arc::clone(&audit) as Arc<dyn FeatureGateAuditSink>,
         Arc::new(NoForced),
         Arc::new(NoPrerequisites),
         Arc::new(FixedClock),
     );
 
+    // There is no good read to fall back to, so calling this `ReloadFailed` would claim a
+    // last-known-good set that does not exist.
+    assert_eq!(
+        service.snapshot().freshness(),
+        FeatureGateFreshness::Degraded(FeatureGateDegradation::NeverLoaded)
+    );
     for feature in ALL_FEATURES {
         assert!(
             !service.is_enabled(feature),
-            "{feature} enabled on a failed read"
+            "{feature} enabled on a failed startup read"
         );
     }
+
+    let degradations = audit
+        .degradations
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    assert_eq!(degradations.len(), 1);
+    assert_eq!(
+        degradations[0].degradation,
+        FeatureGateDegradation::NeverLoaded
+    );
+}
+
+#[test]
+fn a_repeated_failure_after_a_good_read_stays_reload_failed() {
+    let harness = harness();
+    harness
+        .service
+        .reload()
+        .expect("initial reload should succeed");
+
+    *harness
+        .repository
+        .fail_reads
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = true;
+    assert!(harness.service.reload().is_err());
+    assert!(harness.service.reload().is_err());
+
+    assert_eq!(
+        harness.service.snapshot().freshness(),
+        FeatureGateFreshness::Degraded(FeatureGateDegradation::ReloadFailed)
+    );
+    assert_eq!(
+        harness
+            .audit
+            .degradations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len(),
+        2
+    );
 }
 
 #[test]

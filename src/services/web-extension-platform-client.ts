@@ -9,33 +9,83 @@ import type {
 /**
  * Deterministic Web/mock gate state.
  *
- * The mock does not claim native capability. Both runtime-bearing gates report `not_compiled`,
- * which is what the browser build genuinely is — there is no Wasmtime engine and no sidecar host
- * here — rather than pretending they are merely switched off.
+ * A fixture table, not a second copy of the native evaluation rules. Each gate declares the two
+ * statuses it can present and the mock swaps between them; build availability, forced-disable
+ * precedence, and prerequisite ordering all stay in Rust, where they are tested. If those rules
+ * change, this file keeps returning honest fixtures rather than silently disagreeing.
+ *
+ * The two runtime-bearing gates report `not_compiled` in both positions because that is what a
+ * browser build genuinely is — there is no Wasmtime engine and no sidecar host here — rather than
+ * implying they are merely switched off.
  */
-const FEATURES: readonly ExtensionPlatformFeature[] = [
-  "catalog",
-  "external_packages",
-  "lifecycle_hooks",
-  "authorization_rules",
-  "connectors",
-  "wasm_module_runtime",
-  "sidecar_runtime",
+interface GateFixture {
+  readonly feature: ExtensionPlatformFeature;
+  readonly buildAvailable: boolean;
+  readonly disabledStatus: FeatureGateStatus;
+  readonly enabledStatus: FeatureGateStatus;
+}
+
+const NOT_COMPILED: FeatureGateStatus = { kind: "not_compiled" };
+
+const GATE_FIXTURES: readonly GateFixture[] = [
+  {
+    feature: "catalog",
+    buildAvailable: true,
+    disabledStatus: { kind: "runtime_disabled" },
+    enabledStatus: { kind: "enabled" },
+  },
+  {
+    feature: "external_packages",
+    buildAvailable: true,
+    disabledStatus: { kind: "runtime_disabled" },
+    enabledStatus: { kind: "enabled" },
+  },
+  {
+    feature: "lifecycle_hooks",
+    buildAvailable: true,
+    disabledStatus: { kind: "runtime_disabled" },
+    enabledStatus: { kind: "enabled" },
+  },
+  {
+    feature: "authorization_rules",
+    buildAvailable: true,
+    disabledStatus: { kind: "runtime_disabled" },
+    enabledStatus: { kind: "enabled" },
+  },
+  {
+    feature: "connectors",
+    buildAvailable: true,
+    disabledStatus: { kind: "runtime_disabled" },
+    enabledStatus: { kind: "enabled" },
+  },
+  {
+    feature: "wasm_module_runtime",
+    buildAvailable: false,
+    disabledStatus: NOT_COMPILED,
+    enabledStatus: NOT_COMPILED,
+  },
+  {
+    feature: "sidecar_runtime",
+    buildAvailable: false,
+    disabledStatus: NOT_COMPILED,
+    enabledStatus: NOT_COMPILED,
+  },
 ];
 
-const BUILD_UNAVAILABLE: readonly ExtensionPlatformFeature[] = [
-  "wasm_module_runtime",
-  "sidecar_runtime",
-];
+function fixtureFor(feature: ExtensionPlatformFeature): GateFixture {
+  const fixture = GATE_FIXTURES.find((candidate) => candidate.feature === feature);
+  if (!fixture) throw new Error(`Unknown capability gate: ${feature}`);
+  return fixture;
+}
 
 function initialGates(): Map<ExtensionPlatformFeature, FeatureGate> {
   return new Map(
-    FEATURES.map((feature) => [
-      feature,
+    GATE_FIXTURES.map((fixture) => [
+      fixture.feature,
       {
-        feature,
-        status: statusFor(feature, false),
-        buildAvailable: !BUILD_UNAVAILABLE.includes(feature),
+        feature: fixture.feature,
+        status: fixture.disabledStatus,
+        buildAvailable: fixture.buildAvailable,
         desiredEnabled: false,
         revision: 0,
         updatedAt: null,
@@ -46,17 +96,7 @@ function initialGates(): Map<ExtensionPlatformFeature, FeatureGate> {
   );
 }
 
-function statusFor(feature: ExtensionPlatformFeature, desiredEnabled: boolean): FeatureGateStatus {
-  if (BUILD_UNAVAILABLE.includes(feature)) return { kind: "not_compiled" };
-  if (!desiredEnabled) return { kind: "runtime_disabled" };
-  return { kind: "enabled" };
-}
-
 let gates = initialGates();
-
-function overview(): FeatureGateOverview {
-  return { gates: FEATURES.map((feature) => ({ ...readGate(feature) })) };
-}
 
 function readGate(feature: ExtensionPlatformFeature): FeatureGate {
   const gate = gates.get(feature);
@@ -64,24 +104,31 @@ function readGate(feature: ExtensionPlatformFeature): FeatureGate {
   return gate;
 }
 
+function overview(): FeatureGateOverview {
+  return {
+    gates: GATE_FIXTURES.map((fixture) => ({ ...readGate(fixture.feature) })),
+    freshness: { kind: "current" },
+  };
+}
+
 export const webExtensionPlatformClient: ExtensionPlatformService = {
   async getFeatureGates() {
     return overview();
   },
   async setFeatureGate({ feature, desiredEnabled, expectedRevision, reason }) {
+    const fixture = fixtureFor(feature);
     const current = readGate(feature);
-    if (desiredEnabled && !current.buildAvailable) {
+    if (desiredEnabled && !fixture.buildAvailable) {
       throw new Error(`feature_unavailable_in_build: ${feature}`);
     }
     if (current.revision !== expectedRevision) {
       throw new Error(`stale_revision: ${feature}`);
     }
-    const revision = current.revision + 1;
     gates.set(feature, {
       ...current,
-      status: statusFor(feature, desiredEnabled),
+      status: desiredEnabled ? fixture.enabledStatus : fixture.disabledStatus,
       desiredEnabled,
-      revision,
+      revision: current.revision + 1,
       updatedAt: new Date().toISOString(),
       updatedBy: "web-mock",
       reason: reason ?? null,

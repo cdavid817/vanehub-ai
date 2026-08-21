@@ -83,5 +83,11 @@ fn view_to_dto(view: &FeatureGateView) -> dto::FeatureGateDto {
 pub(super) fn snapshot_to_dto(snapshot: &FeatureGateSnapshot) -> dto::FeatureGateOverviewDto {
     dto::FeatureGateOverviewDto {
         gates: snapshot.views().map(view_to_dto).collect(),
+        freshness: match snapshot.freshness().degradation() {
+            None => dto::FeatureGateFreshnessDto::Current,
+            Some(degradation) => dto::FeatureGateFreshnessDto::Degraded {
+                degradation: degradation.as_str().to_string(),
+            },
+        },
     }
 }

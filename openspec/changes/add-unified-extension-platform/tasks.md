@@ -13,10 +13,11 @@
   - [x] 0.5.6 Add audit records for every gate mutation with gate, prior/new desired state, revision, actor, and reason.
   - [x] 0.5.7 Add thin Tauri commands and the frontend service boundary for reading and setting gates; defer the full settings UI to Task Group 12.
   - [x] 0.5.8 Add tests for fail-closed defaults, enabling an uncompiled gate, the five-state union never merging `not_compiled` with `runtime_disabled`, stale-revision rejection, audit content, and cross-context access through the published API only.
-- [ ] 0.6 Define rollout gates in code/config so an incomplete later gate cannot become reachable merely because database migrations are present.
-  - [x] 0.6.1 Express sandbox self-test and adapter-parity preconditions as `blocked_by_prerequisite` rather than silent failure.
-  - [ ] 0.6.2 Prove with tests that disabling a gate refuses new install/activate/register/execute immediately, drains running work under the existing lifecycle policy, terminates a sidecar after its safe-shutdown timeout, and never reactivates a quarantined extension on re-enable.
-  - [ ] 0.6.3 Prove with tests that every gate is scoped to new Extension Platform behavior: Prompt Hooks, the Permissions PDP and immutable floors, IM connectors, Skill Tool enablement, and the local OCR/ASR/TTS pages are unaffected with all gates off.
+- [x] 0.6 Define rollout gates in code/config so an incomplete later gate cannot become reachable merely because database migrations are present. Task Group 0 owns the gate contract itself — closing semantics, domain errors, state transitions, and audit — and maps enforcement to the groups that first have something to enforce against. Writing enforcement tests here would mean asserting against install, activation, registration, execution, drain, and quarantine machinery that does not exist yet.
+  - [x] 0.6.1 Express sandbox self-test and adapter-parity preconditions as `blocked_by_prerequisite`, ordered below `runtime_disabled` so a gate nobody asked for is never reported as blocked.
+  - [x] 0.6.2 State the closing contract in the `extension-platform` delta spec: disabling refuses new install, activation, registration, and execution at once; running work drains under the existing lifecycle policy; a sidecar is terminated after its safe-shutdown timeout; and re-enabling never reactivates a quarantined extension.
+  - [x] 0.6.3 Cover the gate state machine itself: every transition among the five statuses, `FeatureUnavailableInBuild`, `StaleRevision`, fail-closed reads, degraded republication with last-known-good retention, and one audit record per accepted mutation and per degradation.
+  - [x] 0.6.4 Record the enforcement mapping so no gate ships unverified: install/enable/activation gating verifies in Task Group 4 (4.11); registration and execution gating verifies in Task Group 5 (5.12); WASM and sidecar drain, termination, and crash accounting verify in Task Group 5 (5.13); quarantine and re-enable behavior verifies in Task Group 6 (6.9); existing-subsystem non-regression with every gate off verifies in Task Group 13 (13.11).
 - [ ] 0.7 Extend the architecture fitness harness to cover the new capability. `scripts/architecture/frontend-rules.mjs` already rejects direct React `invoke()`, and `src-tauri/tests/architecture.rs` already rejects cross-context private-module and concrete-persistence imports, but its `source_scope` resolves `contexts/<context>/<layer>` only. `tooling` nests one level deeper, so every one of its nine subdomains — and the planned `permissions/rules` subdomain — is skipped rather than passing.
 
   Teaching `source_scope` and `is_forbidden_outer_layer` about that nesting was prototyped and reverted: it turns the rules on for `tooling` for the first time and surfaces three pre-existing violations that belong to other subsystems this change must not disturb.
@@ -75,6 +76,7 @@
 - [ ] 4.8 Implement crash/timeout accounting, the default three-failures-in-five-minutes quarantine policy, manual reset, rollback, and no automatic trust-profile downgrade.
 - [ ] 4.9 Implement uninstall eligibility and witness validation; preserve logs, audit, Overlay, Skill configuration, user/project forks, credentials owned by other records, and active rollback evidence.
 - [ ] 4.10 Add exhaustive state-machine tests, stale operation tests, concurrent enable/disable/reload tests, failure-injection tests at each lifecycle stage, and restart recovery tests.
+- [ ] 4.11 Prove capability-gate enforcement over lifecycle (moved here from Task Group 0, which had no install or activation machinery to assert against): with `extension_platform.external_packages` off, install and update are refused before quarantine; with `extension_platform.catalog` off, enable and lazy activation are refused; turning a gate off while an operation is in flight refuses new work at once and lets the running operation settle under existing policy.
 
 ## 5. Runtime host registry, WASM, and sidecar protocol
 
@@ -89,6 +91,8 @@
 - [ ] 5.9 Implement capability-mediated reverse host calls. Deny undeclared host calls before touching filesystem/network/process/credentials and route allowed calls through existing Permissions/credential/network/logging services.
 - [ ] 5.10 Add a minimal Trusted-only Python sidecar SDK/bootstrap and fixture implementing `async activate(context) -> Contributions`; do not embed Python in Rust/Tauri.
 - [ ] 5.11 Add tests for malformed/oversized frames, protocol mismatch, unsolicited calls, timeout, cancellation, output flood, stderr flood, crash, process-tree cleanup, forbidden capability calls, and runtime reuse/isolation.
+- [ ] 5.12 Prove capability-gate enforcement over registration and execution (moved here from Task Group 0): with `extension_platform.wasm_module_runtime` or `extension_platform.sidecar_runtime` off, the matching runtime refuses registration and invocation and reports `not_compiled` or `runtime_disabled` rather than failing opaquely; a Standard sidecar without a verified sandbox provider reports `blocked_by_prerequisite` and never launches.
+- [ ] 5.13 Prove WASM and sidecar drain and termination under gate closure (moved here from Task Group 0): turning a runtime gate off drains in-flight calls under the existing bounded window, terminates a sidecar process tree after its safe-shutdown timeout, and counts the closure as an intentional shutdown rather than a crash.
 
 ## 6. Transactional contribution registry
 
@@ -100,6 +104,7 @@
 - [ ] 6.6 Implement startup rebuilding from installed immutable manifests and compare it with persisted projections; drift fails closed and surfaces diagnostics.
 - [ ] 6.7 Add failure injection for every publisher prepare/commit/rollback order and prove the prior generation remains usable after failure.
 - [ ] 6.8 Add concurrent-reader tests proving generation snapshots are immutable and in-flight calls cannot observe mixed old/new contributions.
+- [ ] 6.9 Prove quarantine survives a gate cycle (moved here from Task Group 0): turning a gate off and back on republishes contributions without reactivating a quarantined extension or reversing a prior recovery decision, and the quarantine reason and its evidence are unchanged by the cycle.
 
 ## 7. Tool, Skill, MCP, and interaction-mode adapters
 
@@ -199,6 +204,7 @@
 - [ ] 13.8 Keep the internal provider SDK static and reject external extension contributions that attempt model-provider or CLI-provider registration.
 - [ ] 13.9 Add compatibility tests proving old routes/service methods/Tauri commands and new projections report equivalent state for at least one release.
 - [ ] 13.10 Add deprecation documentation and follow-up removal criteria; do not delete compatibility APIs in this change.
+- [ ] 13.11 Prove gate scoping against the real subsystems (moved here from Task Group 0, which had no consumers to regress): with every `extension_platform.*` gate off, Prompt Hooks, the Permissions decision point and its immutable floors, IM connectors, Skill Tool enablement, and the local OCR/ASR/TTS pages behave exactly as they do without this change.
 
 ## 14. Observability, audit, security review, and documentation
 

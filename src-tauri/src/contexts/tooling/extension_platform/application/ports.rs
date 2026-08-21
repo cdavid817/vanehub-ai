@@ -1,7 +1,7 @@
 //! Consuming-side contracts for capability-gate state.
 
 use crate::contexts::tooling::extension_platform::domain::{
-    ExtensionPlatformFeature, FeatureGateError, PrerequisiteReason,
+    ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError, PrerequisiteReason,
 };
 
 /// One gate's persisted desired state. Storage holds nothing derived: build availability comes
@@ -28,6 +28,17 @@ pub(crate) struct FeatureGateWrite {
     pub(crate) reason: Option<String>,
 }
 
+/// An append-only record of one gate set becoming or remaining stale.
+///
+/// Not a mutation, so it does not fit `FeatureGateAuditEntry`'s prior/new shape. Carries a stable
+/// error code rather than the underlying message: a storage failure's text can contain a path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FeatureGateDegradationEntry {
+    pub(crate) degradation: FeatureGateDegradation,
+    pub(crate) code: &'static str,
+    pub(crate) recorded_at: String,
+}
+
 /// An append-only record of one accepted gate mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FeatureGateAuditEntry {
@@ -52,6 +63,13 @@ pub(crate) trait FeatureGateRepository: Send + Sync {
 
 pub(crate) trait FeatureGateAuditSink: Send + Sync {
     fn record(&self, entry: &FeatureGateAuditEntry) -> Result<(), FeatureGateError>;
+
+    /// Records that the published gate set is stale. Separate from `record` because a degradation
+    /// has no prior/new state and no revision to attribute it to.
+    fn record_degradation(
+        &self,
+        entry: &FeatureGateDegradationEntry,
+    ) -> Result<(), FeatureGateError>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing

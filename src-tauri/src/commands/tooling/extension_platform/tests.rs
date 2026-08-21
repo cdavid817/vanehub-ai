@@ -4,8 +4,8 @@
 //! member would only surface as a runtime parse failure otherwise.
 
 use super::dto::{
-    ExtensionPlatformFeatureDto, FeatureGateDto, FeatureGateOverviewDto, FeatureGateStatusDto,
-    SetFeatureGateRequest,
+    ExtensionPlatformFeatureDto, FeatureGateDto, FeatureGateFreshnessDto, FeatureGateOverviewDto,
+    FeatureGateStatusDto, SetFeatureGateRequest,
 };
 use serde_json::{json, Value};
 
@@ -69,12 +69,14 @@ fn a_gate_serializes_with_camel_case_fields() {
             updated_by: None,
             reason: None,
         }],
+        freshness: FeatureGateFreshnessDto::Current,
     };
 
     let encoded = serde_json::to_value(&overview).expect("overview should encode");
     assert_eq!(
         encoded,
         json!({
+            "freshness": { "kind": "current" },
             "gates": [{
                 "feature": "catalog",
                 "status": { "kind": "runtime_disabled" },
@@ -86,6 +88,23 @@ fn a_gate_serializes_with_camel_case_fields() {
                 "reason": null
             }]
         })
+    );
+}
+
+#[test]
+fn freshness_is_a_tagged_union_that_names_its_degradation() {
+    let degraded = serde_json::to_value(FeatureGateFreshnessDto::Degraded {
+        degradation: "reload_failed".to_string(),
+    })
+    .expect("freshness should encode");
+
+    assert_eq!(
+        degraded,
+        json!({ "kind": "degraded", "degradation": "reload_failed" })
+    );
+    assert_ne!(
+        degraded,
+        serde_json::to_value(FeatureGateFreshnessDto::Current).expect("freshness should encode")
     );
 }
 

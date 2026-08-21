@@ -41,10 +41,24 @@ pub(crate) struct FeatureGateDto {
     pub(crate) reason: Option<String>,
 }
 
+/// Whether the reported gates came from a successful read.
+///
+/// Separate from every gate's own status. A degraded overview still answers each gate
+/// definitively — fail-closed is an answer — but says the answer may be stale or a default. A UI
+/// that only rendered statuses would show "everything is off" identically for "that is the stored
+/// state" and "storage is unreadable".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum FeatureGateFreshnessDto {
+    Current,
+    Degraded { degradation: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FeatureGateOverviewDto {
     pub(crate) gates: Vec<FeatureGateDto>,
+    pub(crate) freshness: FeatureGateFreshnessDto,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

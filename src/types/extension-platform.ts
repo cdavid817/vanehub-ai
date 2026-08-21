@@ -32,8 +32,19 @@ export interface FeatureGate {
   reason: string | null;
 }
 
+/**
+ * Whether the reported gates came from a successful read.
+ *
+ * Independent of each gate's own status: a degraded overview still answers every gate, it just
+ * says the answer may be stale (`reload_failed`) or a fail-closed default (`never_loaded`).
+ */
+export type FeatureGateFreshness =
+  | { kind: "current" }
+  | { kind: "degraded"; degradation: "never_loaded" | "reload_failed" };
+
 export interface FeatureGateOverview {
   gates: FeatureGate[];
+  freshness: FeatureGateFreshness;
 }
 
 export interface SetFeatureGateRequest {
