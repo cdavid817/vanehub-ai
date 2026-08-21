@@ -64,9 +64,9 @@ describe("PromptHooksPage", () => {
     );
 
     expect(html).toContain("law-runtime-boundary");
-    expect(html).toContain("点击预览");
-    expect(html).toContain("not-bound");
-    expect(html).toContain("时间");
+    expect(html).toContain("显示 1 / 1 · 已启用 1 · 自定义 0");
+    expect(html).not.toContain("not-bound");
+    expect(html).not.toContain("Hook 追踪");
     expect(html).not.toContain("Never render this by default.");
   });
 
@@ -79,7 +79,6 @@ describe("PromptHooksPage", () => {
         onClose={() => undefined}
         onCreate={() => undefined}
         onDelete={() => undefined}
-        onUpdate={() => undefined}
       />,
     );
 
@@ -94,7 +93,8 @@ describe("PromptHooksPage", () => {
       "src/settings/pages/prompt-hooks/prompt-hook-card-list.tsx",
       "src/settings/pages/prompt-hooks/prompt-hook-dialogs.tsx",
       "src/settings/pages/prompt-hooks/prompt-hook-filter-toolbar.tsx",
-      "src/settings/pages/prompt-hooks/prompt-hook-stats-cards.tsx",
+      "src/settings/pages/prompt-hooks/prompt-hook-inventory-summary.tsx",
+      "src/settings/pages/prompt-hooks/prompt-hook-detail-panel.tsx",
       "src/settings/pages/prompt-hooks/prompt-hook-trace-panel.tsx",
     ];
     const combined = files.map((file) => readFileSync(file, "utf8")).join("\n");

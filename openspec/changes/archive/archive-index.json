@@ -3110,6 +3110,32 @@
                      },
                      {
                          "archivedOn":  "2026-08-21",
+                         "changeName":  "decompose-web-send-message",
+                         "path":  "openspec/changes/archive/2026-08-21-decompose-web-send-message/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
+                         "changeName":  "extract-web-client-state-modules",
+                         "path":  "openspec/changes/archive/2026-08-21-extract-web-client-state-modules/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-21",
                          "changeName":  "integrate-plan-mode-into-onepiece",
                          "path":  "openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/",
                          "artifacts":  [

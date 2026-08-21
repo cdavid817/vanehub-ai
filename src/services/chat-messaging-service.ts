@@ -3,9 +3,11 @@ import type {
   ChatStreamEvent,
   MessageFeedback,
   SaveMessageFeedbackInput,
+  SendMessageInput,
 } from "../types/chat";
 
 export interface ChatMessagingService {
+  sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
   /**

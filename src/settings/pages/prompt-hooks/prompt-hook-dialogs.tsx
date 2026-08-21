@@ -5,7 +5,7 @@ import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
 import type { PromptHook, PromptHookMutationInput, PromptHookPreview } from "../../../types/prompt-hook";
 
-type DialogMode = "create" | "edit" | "delete" | null;
+type DialogMode = "create" | "delete" | null;
 
 export interface PromptHookDialogState {
   mode: DialogMode;
@@ -17,14 +17,12 @@ export function PromptHookDialogs({
   state,
   onClose,
   onCreate,
-  onUpdate,
   onDelete,
   error,
 }: {
   state: PromptHookDialogState;
   onClose: () => void;
   onCreate: (input: PromptHookMutationInput) => void;
-  onUpdate: (hook: PromptHook, input: PromptHookMutationInput) => void;
   onDelete: (hook: PromptHook) => void;
   error: string | null;
 }) {
@@ -32,12 +30,8 @@ export function PromptHookDialogs({
   const [draft, setDraft] = useState<PromptHookMutationInput>(emptyDraft());
 
   useEffect(() => {
-    if (state.mode === "edit" && state.hook) {
-      setDraft({ ...state.hook, templateBody: state.hook.templateBody ?? "" });
-    } else if (state.mode === "create") {
-      setDraft(emptyDraft());
-    }
-  }, [state.hook, state.mode]);
+    if (state.mode === "create") setDraft(emptyDraft());
+  }, [state.mode]);
 
   if (state.preview) {
     return (
@@ -75,11 +69,10 @@ export function PromptHookDialogs({
     );
   }
 
-  const editing = state.mode === "edit" && state.hook;
   return (
-    <Modal title={editing ? t("promptHooks.dialog.editTitle") : t("promptHooks.dialog.createTitle")} onClose={onClose}>
+    <Modal title={t("promptHooks.dialog.createTitle")} onClose={onClose}>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field disabled={Boolean(editing)} label="ID" onChange={(value) => setDraft((current) => ({ ...current, id: value }))} value={draft.id} />
+        <Field label="ID" onChange={(value) => setDraft((current) => ({ ...current, id: value }))} value={draft.id} />
         <Field autoFocus label={t("promptHooks.dialog.name")} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} value={draft.name} />
         <Select label={t("promptHooks.dialog.category")} onChange={(value) => setDraft((current) => ({ ...current, category: value as PromptHookMutationInput["category"] }))} value={draft.category} values={["bootstrap", "callback", "dynamic", "law", "navigation", "routing", "static"]} />
         <Select label={t("promptHooks.dialog.stage")} onChange={(value) => setDraft((current) => ({ ...current, stage: value as PromptHookMutationInput["stage"] }))} value={draft.stage} values={["session-init", "per-turn"]} />
@@ -100,7 +93,7 @@ export function PromptHookDialogs({
       <DialogError error={error} />
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose} variant="outline">{t("promptHooks.dialog.cancel")}</Button>
-        <Button onClick={() => editing ? onUpdate(state.hook!, draft) : onCreate(draft)}>{t("promptHooks.dialog.save")}</Button>
+        <Button onClick={() => onCreate(draft)}>{t("promptHooks.dialog.save")}</Button>
       </div>
     </Modal>
   );
@@ -113,12 +106,12 @@ function DialogError({ error }: { error: string | null }) {
   return (
     <div className="mt-3 rounded-md border px-3 py-2 text-sm ucd-status-danger">
       <span className="font-medium">{t("promptHooks.dialog.errorTitle")}: </span>
-      {t(localizeErrorKey(error))}
+      {t(localizePromptHookErrorKey(error))}
     </div>
   );
 }
 
-function localizeErrorKey(error: string) {
+export function localizePromptHookErrorKey(error: string) {
   if (error.includes("Invalid Prompt Hook id")) return "promptHooks.error.invalidId";
   if (error.includes("name is required")) return "promptHooks.error.nameRequired";
   if (error.includes("Unsupported Prompt Hook category")) return "promptHooks.error.unsupportedCategory";

@@ -213,6 +213,8 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-20 | pin-git-message-locale | session-project-inspection | `openspec/changes/archive/2026-08-20-pin-git-message-locale/` |
 | 2026-08-20 | polish-agent-settings-cli-and-skill-sync | app-settings, cli-agent-config-management, cli-parameter-management, main-layout-ui, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-20-polish-agent-settings-cli-and-skill-sync/` |
 | 2026-08-20 | scope-provider-resume-metadata-to-a-seat | multi-agent-group-chat, session-runtime-management | `openspec/changes/archive/2026-08-20-scope-provider-resume-metadata-to-a-seat/` |
+| 2026-08-21 | decompose-web-send-message | - | `openspec/changes/archive/2026-08-21-decompose-web-send-message/` |
+| 2026-08-21 | extract-web-client-state-modules | - | `openspec/changes/archive/2026-08-21-extract-web-client-state-modules/` |
 | 2026-08-21 | integrate-plan-mode-into-onepiece | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, main-layout-ui, onepiece-native-agent, plan-execution-runtime, plan-management, session-chat-configuration, unified-todo-board | `openspec/changes/archive/2026-08-21-integrate-plan-mode-into-onepiece/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
