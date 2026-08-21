@@ -169,12 +169,16 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
 test("the CLI terminal layer resolves its fixture Agent instead of an installed one", async () => {
   const config = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
   const fixture = "tests/desktop/fixtures/cli/opencode";
+  const windowsLauncher = `${fixture}.cmd`;
 
   // Ahead of the inherited PATH, or a host with the real Agent installed would test that Agent.
   assert.match(config, /PATH: `\$\{fixtureDir\}\$\{path\.delimiter\}/);
   assert.ok(await exists(fixture), "the fixture CLI executable is missing");
+  assert.ok(await exists(windowsLauncher), "the Windows fixture CLI launcher is missing");
   const source = await readFile(fixture, "utf8");
+  const windowsSource = await readFile(windowsLauncher, "utf8");
   assert.match(source, /VANEHUB-FIXTURE-CLI READY/);
+  assert.match(windowsSource, /node "%~dp0opencode" %\*/);
   // The fixture is what makes this layer runnable without credentials on any CI host.
   assert.doesNotMatch(source, /require\(|fetch\(|https?:\/\//);
 });
