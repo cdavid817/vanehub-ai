@@ -114,7 +114,7 @@ import {
 } from "./web-session-state";
 import { webSessionQueryClient } from "./web-session-query-client";
 import { webSessionLifecycleClient } from "./web-session-lifecycle-client";
-import { webSessionSeatClient } from "./web-session-seat-client";
+import { webRoutedSeatId, webSessionSeatClient } from "./web-session-seat-client";
 import { selectWebRunner, webRunRunner } from "./web-agent-runner";
 import type { Skill } from "../types/skill";
 import {
@@ -300,8 +300,8 @@ export const webAgentClient: AgentService = {
     const selectedRunner = selectWebRunner(input.sessionId, session.agentId, input.runner);
     const timestamp = nowIso();
     const activeSeats = (session.seats ?? []).filter((seat) => seat.leftAt == null);
-    const firstSpeakerSeatId = activeSeats.length > 1 ? activeSeats[0]?.seatId : undefined;
     const existingMessages = getWebSessionMessages(input.sessionId);
+    const firstSpeakerSeatId = webRoutedSeatId(activeSeats, existingMessages, input.content.trim());
     const nextSequence = existingMessages.reduce(
       (maximum, message) => Math.max(maximum, message.sessionSequence),
       0,
