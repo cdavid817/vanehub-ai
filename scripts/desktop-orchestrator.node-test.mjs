@@ -158,10 +158,10 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   const smoke = await readFile("tests/desktop/wdio.conf.mjs", "utf8");
   const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
 
-  // `all` must run both layers, and a layer that reused another's spec directory would silently
-  // run the same specs twice under two different environments.
+  // The CLI layer stays runnable on demand; the CI gate selects only the stable smoke layer.
   assert.match(orchestrator, /mode === "cli-terminal"/);
-  assert.match(orchestrator, /cliTerminalDesktop\(artifact\)/);
+  assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
+  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[smokeDesktop\]/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
 });
@@ -203,7 +203,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
 
   for (const [mode, factory] of layers) {
     assert.match(orchestrator, new RegExp(`mode === "${mode}"`), `${mode} has no mode`);
-    assert.match(orchestrator, new RegExp(`${factory}[,\\]]`), `${mode} is missing from the all-layer run`);
+    assert.match(orchestrator, new RegExp(`${factory}[,\\]]`), `${mode} is missing from the full-layer run`);
     assert.ok(`test:desktop:${mode}` in scripts, `${mode} has no npm script`);
     const config = await readFile(`tests/desktop/wdio.${mode}.conf.mjs`, "utf8");
     assert.match(config, new RegExp(`specDirectory: "specs-${mode}"`), `${mode} does not own its spec directory`);
