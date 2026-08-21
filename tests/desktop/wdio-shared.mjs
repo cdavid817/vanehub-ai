@@ -53,6 +53,7 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       logDir,
       env: {
         VANEHUB_APP_DATA_DIR: process.env.VANEHUB_APP_DATA_DIR,
+        VANEHUB_CLI_CONFIG_HOME: process.env.VANEHUB_CLI_CONFIG_HOME,
         VANEHUB_TEST_RUN_ID: process.env.VANEHUB_TEST_RUN_ID,
         VANEHUB_DESKTOP_RESULT_DIR: resultDir,
         ...proxyEnvironment(),

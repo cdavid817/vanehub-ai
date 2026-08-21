@@ -147,8 +147,8 @@ pub(super) struct FakeWorld {
     expert_roles: Mutex<Vec<crate::contexts::agent_runtime::domain::ExpertRole>>,
     workflow: Mutex<AgentWorkflow>,
     details: Mutex<(String, BTreeMap<String, String>)>,
-    sessions: Mutex<BTreeMap<String, AgentSession>>,
-    messages: Mutex<BTreeMap<String, AgentMessage>>,
+    pub(super) sessions: Mutex<BTreeMap<String, AgentSession>>,
+    pub(super) messages: Mutex<BTreeMap<String, AgentMessage>>,
     pub(super) created_messages: Mutex<Vec<NewAgentMessage>>,
     generation_order: Mutex<Vec<&'static str>>,
     lifecycle_updates: Mutex<Vec<AgentLifecycle>>,
@@ -213,7 +213,7 @@ pub(super) struct FakeWorld {
 }
 
 impl FakeWorld {
-    /// Appends a completed message to the session thread, in call order.
+    /// Appends a completed message, attributed as `start_generation` writes live rows: seat id only.
     pub(super) fn seed_message(&self, _speaker: &str, seat_index: Option<usize>, content: &str) {
         let mut messages = self.messages.lock().expect("messages");
         let ordinal = messages.len() + 1;
@@ -224,7 +224,7 @@ impl FakeWorld {
                 id,
                 session_id: "session-1".to_string(),
                 speaker_seat_id: seat_index.map(|index| format!("seat-{}", index + 1)),
-                seat_index,
+                seat_index: None,
                 role: if seat_index.is_some() {
                     "assistant".to_string()
                 } else {

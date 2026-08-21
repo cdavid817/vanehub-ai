@@ -21,6 +21,21 @@ fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTermina
     }
 }
 
+/// Marks a seat as having left, the way removing it from the roster does.
+fn seat_leaves(world: &super::tests::FakeWorld, seat_index: usize) {
+    let mut sessions = world.sessions.lock().expect("sessions");
+    sessions.get_mut("session-1").expect("session").seats[seat_index].left_at =
+        Some("2026-08-07T01:00:00+00:00".to_string());
+}
+
+/// Rewrites the last seeded row into pre-migration-59 shape: the numeric index, no stable seat id.
+fn make_last_message_legacy(world: &super::tests::FakeWorld, seat_index: usize) {
+    let mut messages = world.messages.lock().expect("messages");
+    let row = messages.values_mut().next_back().expect("a seeded message");
+    row.speaker_seat_id = None;
+    row.seat_index = Some(seat_index);
+}
+
 fn assignment(seat_index: usize, depth: usize) -> SeatTurnAssignment {
     SeatTurnAssignment {
         seat_id: format!("seat-{}", seat_index + 1),
@@ -251,8 +266,8 @@ fn a_multi_seat_session_is_coordinated() {
 fn the_first_reply_owns_the_first_stable_seat_and_receives_its_briefing() {
     let service = service(seat_turn_world());
     let session = service.require_session("session-1").expect("session");
-    let (ownership, briefing) = service
-        .initial_seat_turn_context(&session)
+    let (_, ownership, briefing) = service
+        .initial_seat_turn_context(&session, "开始吧")
         .expect("initial context")
         .expect("multi-seat context");
 
@@ -262,6 +277,76 @@ fn the_first_reply_owns_the_first_stable_seat_and_receives_its_briefing() {
     assert_eq!(ownership.depth, 1);
     assert!(briefing.starts_with("你是架构师。"));
     assert!(briefing.contains("@代码审查"));
+}
+
+/// The human addresses a seat the way the Agents address each other. Before this, every user
+/// message went to the first seat, so a group chat had exactly one answerable participant.
+#[test]
+fn a_user_message_is_answered_by_the_seat_it_names() {
+    let service = service(seat_turn_world());
+    let session = service.require_session("session-1").expect("session");
+    let (seat, ownership, briefing) = service
+        .initial_seat_turn_context(&session, "@实现者 按方案写一版")
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-3");
+    assert_eq!(ownership.seat_mention, "实现者");
+    // The seat runs its own Agent rather than the one the session mirrors, which is what keeps the
+    // reply from being answered by one participant under another's name.
+    assert_eq!(seat.agent_id, "gemini-cli");
+    assert!(briefing.starts_with("你是实现者。"));
+    // Its own handle is not in the roster it is given: a seat cannot hand off to itself.
+    assert!(!briefing.contains("@实现者"));
+    assert!(briefing.contains("@架构师"));
+}
+
+#[test]
+fn an_unaddressed_user_message_continues_with_the_seat_that_last_spoke() {
+    let world = seat_turn_world();
+    world.seed_message("用户", None, "改下登录");
+    world.seed_message("代码审查", Some(1), "有两处要改");
+    let service = service(world);
+    let session = service.require_session("session-1").expect("session");
+    let (_, ownership, _) = service
+        .initial_seat_turn_context(&session, "继续")
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-2");
+    assert_eq!(ownership.seat_mention, "代码审查");
+}
+
+/// A thread that predates migration 59 has only the numeric index, and still has to route.
+#[test]
+fn a_thread_attributed_only_by_index_still_names_its_last_speaker() {
+    let world = seat_turn_world();
+    world.seed_message("代码审查", Some(1), "有两处要改");
+    make_last_message_legacy(&world, 1);
+    let service = service(world);
+    let session = service.require_session("session-1").expect("session");
+    let (_, ownership, _) = service
+        .initial_seat_turn_context(&session, "继续")
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-2");
+}
+
+/// A handle nobody answers to any more is a dead letter, not an error: the message still has to be
+/// answered by somebody in the room.
+#[test]
+fn a_user_message_naming_a_departed_seat_falls_back() {
+    let world = seat_turn_world();
+    seat_leaves(&world, 2);
+    let service = service(world);
+    let session = service.require_session("session-1").expect("session");
+    let (_, ownership, _) = service
+        .initial_seat_turn_context(&session, "@实现者 按方案写一版")
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-1");
 }
 
 /// A seat added mid-session has to act on work it never witnessed, so its first prompt carries the
@@ -297,6 +382,39 @@ fn a_seat_turn_runs_the_seats_own_agent() {
     let requests = world.generation_requests.lock().expect("requests");
     let request = requests.last().expect("a generation was started");
     assert_eq!(request.agent.id, "codex-cli");
+}
+
+/// End of the send path, not just the routing decision: an addressed message has to reach the
+/// named seat's Agent. The session mirrors its first seat, so invoking `session.agent_id` here
+/// would run Claude Code and label the reply as Gemini's seat.
+#[test]
+fn a_user_message_naming_a_seat_runs_that_seats_agent() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "@实现者 按方案写一版".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "claude-code".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                execution_mode: "inherit".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    let requests = world.generation_requests.lock().expect("requests");
+    let request = requests.last().expect("a generation was started");
+    assert_eq!(request.agent.id, "gemini-cli");
 }
 
 /// The briefing is the only channel through which an Agent learns who else is in the room and that
