@@ -63,16 +63,6 @@ pub struct OperationLogEntry {
 /// A partial progress report. Every field is optional so a caller can move one dimension without
 /// clearing the others -- see `OperationTask::report_progress`.
 ///
-/// The first production caller arrives with CLI lifecycle phases (task 8.1 of
-/// `add-source-aware-cli-environment-management`). `expect` rather than `allow`: once that caller
-/// lands, the unfulfilled expectation becomes an error and forces this attribute to be deleted.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by CLI lifecycle phases in task 8.1; remove this attribute with that task"
-    )
-)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OperationProgress {
     pub phase: Option<String>,
@@ -81,13 +71,6 @@ pub struct OperationProgress {
     pub cancellable: Option<bool>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by CLI lifecycle phases in task 8.1; remove this attribute with that task"
-    )
-)]
 impl OperationProgress {
     pub(crate) fn phase(phase: impl Into<String>) -> Self {
         Self {
@@ -170,13 +153,6 @@ impl OperationTask {
 
     /// Records descriptive progress. Only the supplied fields move: a caller reporting a phase
     /// change must not have to restate unit counts it does not own, and vice versa.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by CLI lifecycle phases in task 8.1; remove with that task"
-        )
-    )]
     pub(crate) fn report_progress(&mut self, progress: OperationProgress, updated_at: String) {
         if let Some(phase) = progress.phase {
             self.phase = Some(phase);

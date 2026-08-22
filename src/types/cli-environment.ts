@@ -56,15 +56,71 @@ export const CLI_PLAN_REJECTION_CODES: readonly CliPlanRejectionCode[] = [
   "plan-stale",
 ] as const;
 
-/** Terminal result of a CLI lifecycle operation, carried on `OperationTask.result`. */
+/**
+ * Why an operation could not be verified after the fact.
+ *
+ * "We did not look" and "we looked and could not tell" both leave a stale snapshot, but they lead
+ * to different advice, so they are separate codes.
+ */
+export type CliVerificationWarning =
+  | "detection-skipped-while-busy"
+  | "detection-failed"
+  | "target-version-not-observed";
+
+export const CLI_VERIFICATION_WARNINGS: readonly CliVerificationWarning[] = [
+  "detection-skipped-while-busy",
+  "detection-failed",
+  "target-version-not-observed",
+] as const;
+
+/**
+ * How the external process ended.
+ *
+ * Distinct from the outcome: `exited` with code 0 says the command reported success, while the
+ * outcome says whether the machine was verified to match. Collapsing the two is how a successful
+ * command with a failed verification gets shown as a clean success.
+ */
+export type CliOperationTermination =
+  | "not-started"
+  | "exited"
+  | "exited-without-code"
+  | "timed-out"
+  | "cancelled";
+
+export const CLI_OPERATION_TERMINATIONS: readonly CliOperationTermination[] = [
+  "not-started",
+  "exited",
+  "exited-without-code",
+  "timed-out",
+  "cancelled",
+] as const;
+
+/**
+ * Terminal result of a CLI lifecycle operation, carried on `OperationTask.result`.
+ *
+ * Every field is an identifier, a version, or one of the unions above. No path, credential, or
+ * fragment of process output is representable here -- process output belongs on the operation's
+ * log, where it has already been bounded and redacted.
+ */
 export interface CliMutationResult {
-  agentId: string;
-  sourceId: string;
-  action: string;
+  operationId: string;
+  agentId: string | null;
+  sourceId: string | null;
+  action: string | null;
+  /** The version the plan aimed at. */
   targetVersion: string | null;
-  outcome: CliMutationOutcome;
-  /** Present when the outcome is not `verified`; a localized hint about what to do next. */
-  warningCode: string | null;
+  /** The version detection actually saw afterwards, when it produced one. */
+  observedVersion: string | null;
+  phase: CliOperationPhase;
+  termination: CliOperationTermination;
+  /** Present only for `exited`; a timeout or cancellation reports no code rather than a made-up one. */
+  exitCode: number | null;
+  elapsedMs: number;
+  outcome: CliMutationOutcome | null;
+  warnings: readonly CliVerificationWarning[];
+  outputTruncated: boolean;
+  /** Whether the user should be told something beyond "done". */
+  warning: boolean;
 }
 
 /** Descriptive stages a CLI operation reports through `OperationTask.phase`. */

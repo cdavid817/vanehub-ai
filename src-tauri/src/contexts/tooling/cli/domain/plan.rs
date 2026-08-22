@@ -101,6 +101,20 @@ pub(crate) enum CliPrecondition {
     ElevatedPrivileges,
 }
 
+impl CliPrecondition {
+    /// The stable kind, without the value it carries.
+    ///
+    /// The frontend localizes from this; the source name and host live in the plan's other fields,
+    /// so a UI never has to take one apart to render it.
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::SourceExecutableAvailable { .. } => "source-executable-available",
+            Self::NetworkReachable { .. } => "network-reachable",
+            Self::ElevatedPrivileges => "elevated-privileges",
+        }
+    }
+}
+
 /// Something true about the plan that the user should see before confirming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CliPlanWarning {

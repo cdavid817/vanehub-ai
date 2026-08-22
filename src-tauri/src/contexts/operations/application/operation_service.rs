@@ -105,10 +105,6 @@ impl OperationService {
         self.repository.update(operation_id, &mut mutation)
     }
 
-    #[expect(
-        dead_code,
-        reason = "consumed by CLI lifecycle phases in task 8.1; remove this attribute with that task"
-    )]
     pub(crate) fn report_progress(
         &self,
         operation_id: &str,

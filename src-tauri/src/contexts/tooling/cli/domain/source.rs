@@ -124,6 +124,15 @@ impl CliDynamicCapability {
     pub(crate) fn needs_preflight(self) -> bool {
         matches!(self, Self::RequiresPreflight)
     }
+
+    /// `requires-preflight` is not `supported`: whether the action can run here is only known
+    /// after asking the source, so the UI must not present it as available up front.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Unsupported => "unsupported",
+            Self::RequiresPreflight => "requires-preflight",
+        }
+    }
 }
 
 /// Which lifecycle actions a source supports, and at what version granularity.

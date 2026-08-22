@@ -25,6 +25,17 @@ pub(crate) enum CliActionKind {
 }
 
 impl CliActionKind {
+    /// Every action, so the command boundary can resolve a wire name without a second match arm
+    /// that could fall out of step with `as_str`.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Install,
+        Self::Upgrade,
+        Self::Downgrade,
+        Self::Reinstall,
+        Self::Uninstall,
+        Self::Repair,
+    ];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Install => "install",

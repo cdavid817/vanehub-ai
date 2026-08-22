@@ -2294,9 +2294,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
+    // migrations 81-83 for `cli_environment_snapshots`, `cli_version_catalogs`, and
+    // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
+    // `migration_versions_are_unique_and_dense` plus the derived `expected_migration_versions`.
+    //
+    // The test is the point of the raise. Every worktree shares one `ai.vanehub.app` database, and
+    // a duplicate version number is silently skipped rather than rejected -- it surfaces much later
+    // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
+    // that collision fail a test instead of a user's launch.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_965,
+        budget: 3_029,
         owner: "split-database-migrations",
     },
 ];

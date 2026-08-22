@@ -139,10 +139,6 @@ impl OperationsApi {
         self.service.append_log(operation_id, line)
     }
 
-    #[expect(
-        dead_code,
-        reason = "consumed by CLI lifecycle phases in task 8.1; remove this attribute with that task"
-    )]
     pub(crate) fn report_progress(
         &self,
         operation_id: &str,

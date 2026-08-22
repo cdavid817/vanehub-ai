@@ -1,3 +1,8 @@
+#[path = "api_environment.rs"]
+mod environment;
+
+pub(crate) use environment::{CliEnvironmentApi, CliEnvironmentError};
+
 use crate::contexts::tooling::cli::application::CliApplicationService;
 pub(crate) use crate::contexts::tooling::cli::application::{
     CliApplicationError as CliError, CliToolStatus, PreparedCliInstall, PreparedCliRefresh,

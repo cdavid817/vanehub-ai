@@ -252,6 +252,18 @@ type CliEnvironmentAssertions = [
   Assert<Equal<CliEnvironmentContracts.CliPlanRejectionCode, CliEnvironmentTypes.CliPlanRejectionCode>>,
   Assert<Equal<CliEnvironmentContracts.CliMutationResult, CliEnvironmentTypes.CliMutationResult>>,
   Assert<Equal<CliEnvironmentContracts.CliOperationPhase, CliEnvironmentTypes.CliOperationPhase>>,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliOperationTermination,
+      CliEnvironmentTypes.CliOperationTermination
+    >
+  >,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliVerificationWarning,
+      CliEnvironmentTypes.CliVerificationWarning
+    >
+  >,
 ];
 
 type OnePieceToolAssertions = [

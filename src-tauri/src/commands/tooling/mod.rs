@@ -1,5 +1,6 @@
 pub(crate) mod cli;
 pub(crate) mod cli_config;
+pub(crate) mod cli_environment;
 pub(crate) mod cli_parameters;
 pub(crate) mod extensions;
 pub(crate) mod mcp;

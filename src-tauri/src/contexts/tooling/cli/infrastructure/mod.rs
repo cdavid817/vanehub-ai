@@ -37,6 +37,8 @@ pub(crate) mod environment_probe;
     )
 )]
 pub(crate) mod environment_repository;
+// Assembled by `bootstrap::cli_environment`, so it has a production caller already.
+pub(crate) mod environment_runtime_adapters;
 // Referenced by `platform::database::migrations`, so it has a production caller already.
 pub(crate) mod environment_schema;
 #[cfg_attr(

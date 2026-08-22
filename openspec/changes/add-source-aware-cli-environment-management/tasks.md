@@ -67,7 +67,7 @@
 
 ## 5. Source adapters
 
-- [ ] 5.1 Add a source registry assembled in bootstrap; the application layer must not select concrete adapters.
+- [x] 5.1 Add a source registry assembled in bootstrap; the application layer must not select concrete adapters. (Completed by task group 9: `CliSourceAdapterRegistry` keys each adapter by the id it reports for itself, and `bootstrap/cli_environment.rs` is the only place a concrete source is named.)
 - [x] 5.2 Implement the npm source adapter with source-native catalog lookup, exact target propagation, install/upgrade/downgrade/reinstall/uninstall capability checks, explicit arguments, cancellation, and bounded output.
 - [x] 5.3 Add npm fixture tests proving the selected target version reaches the exact process arguments and that package names come only from the backend catalog.
 - [x] 5.4 Implement the Windows-only WinGet source adapter with WinGet-native version lookup, exact target arguments when supported, install, upgrade, uninstall, and dynamic repair preflight.
@@ -119,15 +119,15 @@
 
 ## 9. Tauri commands and bootstrap
 
-- [ ] 9.1 Add command DTOs separate from domain and SQLite row types.
-- [ ] 9.2 Add one command file for list, refresh, prepare/get/execute single action, prepare/get/execute bulk action, and Doctor.
-- [ ] 9.3 Make every variable-duration command return a stable operation id before process or network work completes.
-- [ ] 9.4 Keep bounded cached reads and persisted-plan reads direct.
-- [ ] 9.5 Add one command-safe error mapper with stable categories and optional diagnostic id.
-- [ ] 9.6 Register commands centrally and assemble concrete repositories/adapters only in bootstrap.
-- [ ] 9.7 Add serialized DTO and command-safe error tests.
-- [ ] 9.8 Migrate all internal callers, then delete `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, their obsolete DTOs, and obsolete background helpers before completing the change.
-- [ ] 9.9 Update `src-tauri/ARCHITECTURE.md` with the source adapter, action-plan, external-effect sequencing, and partial-completion decisions.
+- [x] 9.1 Add command DTOs separate from domain and SQLite row types.
+- [x] 9.2 Add one command file for list, refresh, prepare/get/execute single action, prepare/get/execute bulk action, and Doctor.
+- [x] 9.3 Make every variable-duration command return a stable operation id before process or network work completes.
+- [x] 9.4 Keep bounded cached reads and persisted-plan reads direct.
+- [x] 9.5 Add one command-safe error mapper with stable categories and optional diagnostic id.
+- [x] 9.6 Register commands centrally and assemble concrete repositories/adapters only in bootstrap. — the vendor source is deliberately absent from the registry: `CliInstallerDownloader` has no production implementation (task 5.7), and a plan naming it resolves to `source-unavailable` rather than to an adapter whose download step cannot run.
+- [x] 9.7 Add serialized DTO and command-safe error tests.
+- [ ] 9.8 Migrate all internal callers, then delete `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, their obsolete DTOs, and obsolete background helpers before completing the change. — blocked by design: the frontend still calls the old commands, and migrating it is task group 10. Deleting them now would break the running client.
+- [x] 9.9 Update `src-tauri/ARCHITECTURE.md` with the source adapter, action-plan, external-effect sequencing, and partial-completion decisions.
 
 ## 10. Frontend service and runtime adapters
 

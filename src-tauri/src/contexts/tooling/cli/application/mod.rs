@@ -38,21 +38,7 @@ pub(crate) mod environment_ports;
 #[cfg(test)]
 #[path = "environment_readiness_tests.rs"]
 mod environment_readiness_tests;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
 pub(crate) mod environment_refresh;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
 pub(crate) mod environment_service;
 #[cfg(test)]
 mod environment_service_fixtures;

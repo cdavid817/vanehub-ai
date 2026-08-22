@@ -232,3 +232,59 @@ CLI parameter catalogs and persisted selections remain a Tooling subdomain publi
 ### ADR-005: Generate TypeScript model contracts from Rust with `ts-rs`
 
 Frontend service interfaces stay hand-authored because they express UI/runtime semantics, but command payload/result models are generated from Rust models with `ts-rs`. Each serializable Rust model that crosses the frontend/backend boundary derives `TS` alongside `Serialize` and `Deserialize`; generated files live under a stable frontend contract directory, and a verification command regenerates contracts and fails when committed contract files are stale. This keeps React components behind service interfaces while reducing silent drift between Rust command models and TypeScript types. `specta` / `tauri-specta` were rejected for tighter Tauri coupling and a broader integration surface; manual TypeScript-only was rejected because parallel Rust/TypeScript models drift silently as Agent, MCP, SDK, and operation models grow.
+
+### ADR-006: Route every CLI machine change through a declared source adapter
+
+Each distribution source (npm, WinGet, an audited vendor installer) is a `CliDistributionPort`
+adapter registered in `bootstrap/cli_environment.rs` under the id it reports for itself. The
+application never names a concrete source: it looks one up by the id a plan recorded. A plan naming
+a source that is not registered resolves to `source-unavailable`, a typed refusal.
+
+This replaces the previous behaviour, where a failed npm path could fall through to a vendor script
+and vice versa. Fallback made the source that actually ran unknowable after the fact, and produced
+the specific failure this change exists to remove: a user selecting version 1.2.3 from npm's catalog
+and receiving whatever a vendor installer considered latest. Each adapter stamps its own catalog
+with its own source id, so borrowing another source's version list is not expressible rather than
+merely discouraged.
+
+### ADR-007: Make an action plan single-use, revisioned, and bound to the environment
+
+A mutation is prepared as a persisted `cli_action_plans` row carrying a revision, a ten-minute
+expiry, the exact argv that will run, and a fingerprint of the environment it was built against.
+Execution submits only `{planId, expectedRevision}`. There is no parameter a command could be
+rebuilt from at execution time, so the version the user reviewed is structurally the version that
+runs.
+
+Admission takes an immediate SQLite transaction and moves `draft -> executing` before any external
+effect, so two callers cannot both be admitted. The `state` column is authoritative over the state
+embedded in the stored document: maintenance sweeps move the column alone, and a read that trusted
+the document could re-admit a plan that had already run.
+
+### ADR-008: Sequence external effects so nothing claims a rollback that did not happen
+
+A package manager is an external effect. It cannot be undone by writing an older row, so the
+lifecycle never restores the pre-operation snapshot on failure. Post-mutation detection runs after
+success, failure, timeout, and cancellation alike, and what it observes is what gets persisted.
+
+Detection runs on an uncancelled token even when the operation was cancelled: cancelling an upgrade
+stops the package manager, and must not also stop VaneHub from observing what the package manager
+already did. It asks the mutation coordinator first, and waits rather than probing a tree another
+operation is halfway through writing.
+
+Only positive evidence counts as a change -- two observed versions that differ, or an
+installation-count change from a detection that completed. A version that could not be re-read is
+not a version that vanished.
+
+### ADR-009: Report partial completion as its own outcome rather than as success or failure
+
+Five outcomes, not two: `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`,
+and `cancelled`. `applied-unverified` covers a command that exited zero while verification could not
+confirm it; `changed-but-failed` covers a command that failed or was interrupted after the machine
+had already moved. Collapsing either into success or failure is how a half-applied change gets
+reported as a completed one.
+
+The persisted operation record keeps termination (`exited` with a code, `timed-out`, `cancelled`)
+separate from outcome for the same reason: both statements can be true at once. Every field of that
+record is an identifier, a version, or an enum, so no path, credential, or process fragment is
+representable in it -- process output belongs on the operation log, where it has already been
+bounded and redacted.

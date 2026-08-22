@@ -57,13 +57,6 @@ pub(crate) mod ids;
     )
 )]
 pub(crate) mod installation;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI application service in task group 3; remove with that group"
-    )
-)]
 pub(crate) mod operation_record;
 #[cfg_attr(
     not(test),
@@ -97,13 +90,6 @@ pub(crate) mod probe;
     )
 )]
 pub(crate) mod probe_interpretation;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI application service in task group 3; remove with that group"
-    )
-)]
 pub(crate) mod registry;
 #[cfg_attr(
     not(test),

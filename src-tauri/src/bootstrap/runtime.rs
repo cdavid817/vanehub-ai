@@ -158,6 +158,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
+    // The source-aware service, assembled alongside the flat one it replaces. Both are managed
+    // until task 9.8 removes the old commands; they share the database but not a write model.
+    let cli_environment_api = super::assemble_cli_environment_api(
+        database.clone(),
+        operations_api.clone(),
+        fallback_log_directory.clone(),
+    );
     let sdk_api = super::assemble_sdk_api(
         database.clone(),
         operations_api.clone(),
@@ -333,6 +340,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
+    app.manage(cli_environment_api);
     app.manage(cli_config_api);
     app.manage(cli_parameters_api);
     app.manage(mcp_api);
