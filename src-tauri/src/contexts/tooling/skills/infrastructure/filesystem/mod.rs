@@ -13,6 +13,8 @@ mod usage;
 #[cfg(test)]
 mod overlay_history_tests;
 #[cfg(test)]
+mod overlay_import_characterization_tests;
+#[cfg(test)]
 mod overlay_layout_tests;
 #[cfg(test)]
 mod overlay_manifest_tests;
