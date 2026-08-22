@@ -1355,42 +1355,92 @@ The suite found three things:
 
 ### Schema coverage matrix (Task Group 3)
 
-Written before any of Task Group 3 is implemented, so that ownership, mutability, and concurrency are decided once rather than per table. Five tables already exist; thirteen are new, across four subdomains and four migrations (86–89, confirmed free across every branch).
+Written before any DDL, so ownership, mutability, and concurrency are decided once rather than per table. Three tables already exist; eighteen are new, across four subdomains and four migrations (86–89, confirmed free across every branch).
 
-Three rules apply to every row and are stated once here rather than repeated eighteen times:
+#### Rules that apply to every row
 
-* **No cross-subdomain foreign keys.** A hook, rule, or connector row carries `snapshot_id` as opaque text. A real foreign key would couple two subdomains' storage — the thing the ownership rule exists to prevent — and would make snapshot deletion cascade into evidence, which is separately forbidden. Foreign keys *within* one subdomain are used freely.
-* **No foreign key on `operation_id`.** Operations live in `InMemoryOperationRepository`; there is no operations table to reference and this change must not create one. The id is stored as opaque text because that is what it is.
-* **Immutable evidence is never cascade-deleted.** Packages, snapshots, witnesses, rule sets, and hook definitions are deleted only by an explicit uninstall path that Task Group 4 owns, never by a parent going away.
+* **No foreign key *across* subdomains; a real foreign key *within* one.** A hook, rule, or connector row carries `snapshot_id` as opaque text, because an enforced reference would couple two subdomains' storage and would make snapshot deletion reach into another domain's evidence. Inside one subdomain a pointer gets database integrity, `ON DELETE RESTRICT` throughout — restrict rather than cascade, because everything a pointer points at is evidence.
+* **A composite foreign key wherever a pointer could point sideways.** The active-generation pointer references `(generation_id, installation_id)`, not `generation_id` alone, so installation A cannot be made to point at installation B's generation. A single-column reference would be satisfied by any generation in the table.
+* **No foreign key on `operation_id`.** Operations live in `InMemoryOperationRepository`; there is no table to reference and this change must not create one.
+* **Immutable evidence is never cascade-deleted.** Packages, version claims, snapshots, witnesses, rule sets, hook definitions, and connector definitions go only through an explicit uninstall path that Task Group 4 owns.
 
-| Aggregate | In 81–85 | Owner subdomain | Mutability | Revision / CAS | Foreign key | Unique constraint | Retention | Secret policy | Seed policy |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Publisher keys | **Yes (83)** | `extension_platform` | Mutable | *See deviation below* | — | PK `fingerprint` | Permanent; revoke never deletes | Public key only; credential store not involved | None |
-| Packages | New (86) | `extension_platform` | **Immutable** | — | — | PK `package_hash` | Permanent evidence | None | None |
-| Snapshots | **Yes (85)** | `extension_platform` | **Immutable** | — | — | PK `snapshot_id`; **new** unique `(extension_id, version, package_hash)` | Permanent evidence | None | None |
-| Installations | **Yes (85)** | `extension_platform` | Mutable | `revision` + CAS | — | PK `installation_id`; unique `extension_id` | Permanent | None | None |
-| Snapshot dependencies | New (86) | `extension_platform` | **Immutable** | — | → snapshots | unique `(snapshot_id, kind, dependency_id)` | With its snapshot | None | None |
-| Snapshot contributions | New (86) | `extension_platform` | **Immutable** | — | → snapshots | unique `(snapshot_id, global_id)` | With its snapshot | None | None |
-| Runtime generations | New (86) | `extension_platform` | **Immutable** | — | → snapshots | PK `generation_id` | Bounded per installation | None | None |
-| Active generation pointer | New (86) | `extension_platform` | Mutable | `revision` + CAS | — | PK `installation_id` ⇒ one active row | Permanent | None | None |
-| Operation witnesses | New (86) | `extension_platform` | **Immutable** | — | none on `operation_id` | PK `witness_digest` | Bounded | None | None |
-| Hook definitions | New (87) | `lifecycle_hooks` | **Immutable** | — | none (`snapshot_id` opaque) | unique `(snapshot_id, hook_global_id)` | With its snapshot | None | Built-in seed, idempotent |
-| Hook bindings | New (87) | `lifecycle_hooks` | Mutable | `revision` + CAS | → hook definitions | unique `(hook_global_id, scope)` | Permanent | None | Never overwrites user enablement |
-| Hook executions | New (87) | `lifecycle_hooks` | **Append-only** | — | — | PK `execution_id` | **Bounded, N most recent per hook** | **Bounded and redacted before the repository** | None |
-| Authorization rule sets | New (88) | `permissions::rules` | **Immutable** | — | — | PK `rule_set_id`; unique content digest | Permanent evidence | None | None |
-| Authorization rules | New (88) | `permissions::rules` | **Immutable** | — | → rule sets | unique `(rule_set_id, source, rule_id)` | With its rule set | None | None |
-| Active rule-set pointer | New (88) | `permissions::rules` | Mutable | `revision` + CAS | — | single row, `CHECK (id = 1)` | Permanent | None | None |
-| Connector definitions | New (89) | `connectors` | **Immutable** | — | none (`snapshot_id` opaque) | unique `(snapshot_id, connector_global_id)` | With its snapshot | None | None |
-| Connector instances | New (89) | `connectors` | Mutable | `revision` + CAS | → connector definitions | PK `instance_id`; unique `(connector_global_id, label)` | Permanent | **Credential handle only**, following `im_credential_refs` | Never overwrites a handle |
-| Connector bindings | New (89) | `connectors` | Mutable | `revision` + CAS | → connector instances | unique `(instance_id, target)` | Permanent | None | Never overwrites user bindings |
+#### `tooling::extension_platform` — migration 86
 
-#### One deviation, stated rather than hidden
+| Aggregate | In 81–85 | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `extension_platform_publisher_keys` | **Yes (83)** | **Monotonic mutable** | **Conditional-transition CAS** | — | PK `fingerprint` | Permanent | Public key only | None |
+| `extension_platform_version_claims` | New | **Immutable** | — | — | PK `(publisher, extension_id, version)` | Permanent evidence | None | None |
+| `extension_platform_packages` | New | **Immutable** | — | — | PK `package_hash` | Permanent evidence | None | None |
+| `extension_platform_snapshots` | **Yes (85)** | **Immutable** | — | — | PK `snapshot_id`; **new** unique `(extension_id, version, package_hash)` | Permanent evidence | None | None |
+| `extension_platform_installations` | **Yes (85), rebuilt** | Mutable | `revision` + CAS | `active_snapshot_id`, `previous_snapshot_id` → snapshots, RESTRICT | PK `installation_id`; unique `extension_id` | Permanent | None | None |
+| `extension_platform_snapshot_dependencies` | New | **Immutable** | — | → snapshots, RESTRICT | unique `(snapshot_id, kind, dependency_id)` | With its snapshot | None | None |
+| `extension_platform_snapshot_contributions` | New | **Immutable** | — | → snapshots, RESTRICT | unique `(snapshot_id, global_id)` | With its snapshot | None | None |
+| `extension_platform_runtime_generations` | New | **Immutable** | — | → installations, → snapshots, RESTRICT | PK `generation_id`; unique `(generation_id, installation_id)` | Bounded per installation | None | None |
+| `extension_platform_active_runtime_generations` | New | Mutable | `revision` + CAS | → installations; **composite** `(generation_id, installation_id)` → runtime generations, RESTRICT | PK `installation_id` ⇒ one active row | Permanent | None | None |
+| `extension_platform_operation_witnesses` | New | **Immutable** | — | none on `operation_id` | PK `witness_id`; unique `(operation_id, witness_digest)` | Bounded | None | None |
 
-**Publisher keys are mutable and carry no `revision`.** Every mutation on them is already either idempotent or monotonic: adding a key rewrites only `label`, `source`, and `last_seen_at`; revoking is a conditional `UPDATE … WHERE trust_state = 'trusted'`, which *is* a compare-and-swap and is what keeps the first revocation's timestamp. The dangerous interleaving — preview says "already trusted", another actor revokes, the commit lands — is already safe, because the upsert does not touch `trust_state`, and there is a test for exactly that. Adding a revision would introduce a spurious `StaleRevision` on a label edit without removing any failure mode. Every *new* mutable table below follows the revision + CAS rule.
+**Version equivocation is refused, not recorded twice.** `unique (extension_id, version, package_hash)` on snapshots permits two rows with the same version and different bytes, which is the attack rather than the defence. The claim table is the defence: `(publisher, extension_id, version)` is the primary key and binds to exactly one `package_hash`, forever. Claiming the same hash again is idempotent; claiming a different one returns a stable `VersionContentConflict` and **no activatable snapshot is created**. Hash evidence is still kept — the conflicting package's hash is recorded as a claim attempt — so "same version, different bytes" becomes visible suspicious evidence rather than a silent replacement.
+
+`publisher` is stored explicitly even though `extension_id` is `<publisher>.<name>`: the binding must not depend on the id-parsing rule staying what it is today. The rule is identical for unsigned content — **V1 Developer Mode also requires a version change**, because a build loop that overwrites the same version in place is exactly how an unreviewed change reaches an installed extension.
+
+**Witness identity is `(operation_id, witness_digest)`, not the digest alone.** The digest deliberately covers only the *state* a confirmation is bound to, so that it can be recomputed at confirm time; it does not include the operation. Two operations previewing the same unchanged world therefore produce the same digest, and a digest primary key would make the second collide with the first. `witness_id` is the key and the pair is unique.
+
+#### `tooling::lifecycle_hooks` — migration 87
+
+| Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `extension_hook_subjects` | **Immutable identity** | — | — | PK `hook_global_id` | Permanent | None | Built-in seed, idempotent |
+| `extension_hook_definition_revisions` | **Immutable** | — | → hook subjects, RESTRICT | PK `(hook_global_id, snapshot_id)` | With its snapshot | None | None |
+| `extension_hook_bindings` | Mutable | `revision` + CAS | → hook subjects, RESTRICT | PK `(hook_global_id, scope)` | Permanent | None | **Never overwrites user enablement** |
+| `extension_hook_executions` | **Immutable rows inside a bounded retention window** | — | → hook subjects, RESTRICT | PK `execution_id`; monotonic `sequence` | **N most recent per hook; only terminal rows removed** | **Bounded and redacted before the repository** | None |
+
+#### `permissions::rules` — migration 88
+
+| Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `authorization_rule_sets` | **Immutable** | — | — | PK `rule_set_id`; unique `content_digest` | Permanent evidence | None | None |
+| `authorization_rules` | **Immutable** | — | → rule sets, RESTRICT | unique `(rule_set_id, source, rule_id)` | With its rule set | None | None |
+| `authorization_active_rule_set` | Mutable | `revision` + CAS | → rule sets, RESTRICT | single row, `CHECK (id = 1)` | Permanent | None | None |
+
+#### `tooling::connectors` — migration 89
+
+| Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `extension_connector_subjects` | **Immutable identity** | — | — | PK `connector_global_id` | Permanent | None | None |
+| `extension_connector_definition_revisions` | **Immutable** | — | → connector subjects, RESTRICT | PK `(connector_global_id, snapshot_id)` | With its snapshot | None | None |
+| `extension_connector_instances` | Mutable | `revision` + CAS | → connector subjects, RESTRICT | PK `instance_id`; unique `(connector_global_id, label)` | Permanent | **Opaque credential handle only** | **Never overwrites a handle** |
+| `extension_connector_bindings` | Mutable | `revision` + CAS | → connector instances, RESTRICT | PK `binding_id`; unique `(instance_id, target)` | Permanent | None | **Never overwrites user bindings** |
+
+#### Stable subject, versioned definition
+
+A hook or connector *definition* is versioned by snapshot; a user's *binding* or *instance* is not. Pointing a binding at a versioned definition row would pin it to one snapshot, so an upgrade would either orphan it or require rewriting user state, and a definition that is momentarily unavailable would take the binding with it. So identity is split:
+
+* the **subject** is the stable `<global-id>` and exists for as long as any evidence mentions it;
+* a **definition revision** is `(global-id, snapshot-id)` and is immutable;
+* a **binding** or **instance** references the *subject*, survives every upgrade, and is never deleted because a definition went away.
+
+#### Reconciling a projection that has no foreign key
+
+`snapshot_id` on a definition revision is opaque text, so the database cannot enforce it. An application-level reconciliation makes up the difference, and it is a **read that computes a state, not a write that stores one** — a stored mark can go stale, and a reconciliation that writes is a reconciliation that can delete or rebind by mistake. It reports, per subject:
+
+* `ready` — a definition revision exists for a snapshot that exists, and the digests agree;
+* `orphaned` — the snapshot the revision names is gone;
+* `unavailable` — the snapshot exists but no definition revision references it, so the subject has a binding and nothing to bind to right now;
+* `drifted` — both exist and the stored definition digest disagrees with the snapshot's.
+
+None of the four deletes a row, rebinds anything, or activates anything. The snapshot facts it needs come from `extension_platform`'s published API through a projection port, never from a direct read of another subdomain's tables.
+
+#### Publisher keys are a monotonic state machine, not an exception
+
+Every mutation is idempotent or one-way: adding a key rewrites only `label`, `source`, and `last_seen_at` and never `trust_state`; revoking is `UPDATE … WHERE trust_state = 'trusted'`, which is a compare-and-swap on the state itself and is what preserves the first `revoked_at`; `revoked` is terminal, with no un-revoke in V1. A `revision` column would add a spurious conflict on a label edit without removing a failure mode. Every table above that is *not* a monotonic state machine uses revision + CAS.
+
+#### Credentials
+
+`tooling::connectors` stores an opaque handle and nothing else. There is no `credentials` bounded context in this repository; the established seam — used by `communications`, `agent_runtime`, `ssh_connections`, `cli_config`, and `execution_observability` — is a **port owned by the consuming subdomain**, implemented in that subdomain's infrastructure over `platform::credentials::OsCredentialStore` and assembled in bootstrap. `connectors` follows it with its own `ConnectorCredentialPort`. It does not depend on `communications`' port, its `im_credential_refs` table, or its schema, and there is no cross-context foreign key. No secret is returned to a repository, stored in SQLite, or written to a log.
 
 #### What is deliberately absent
 
-No operations table, no second generic operation registry, and no column anywhere holding a connector secret, a full environment, a raw prompt, a raw tool payload, or an unredacted header. Hook executions and runtime diagnostics are bounded and redacted by the application before a repository sees them, so the repository has no redaction responsibility and cannot be bypassed by a caller that skips it.
+No operations table, no second generic operation registry, and no column anywhere holding a connector secret, a full environment, a raw prompt, a raw tool payload, or an unredacted header. Hook executions and runtime diagnostics are bounded and redacted by the application before a repository sees them, so a repository has no redaction responsibility and a caller cannot skip one.
 
 ### Portable package paths
 
