@@ -35,6 +35,14 @@ semver = "1"
 # Unicode composition are one file on macOS, and a hand-rolled approximation of NFC would give
 # false confidence exactly where a collision is being hunted.
 unicode-normalization = "0.1"
+# Reviewed for `add-unified-extension-platform` Task 2.2: BSD-3-Clause, pure Rust so no C toolchain
+# on any of the three platforms, and already compiled in this build at exactly 3.0.0 through
+# russh -> ssh-key. `default-features = false` matches what ssh-key already asks for, which keeps
+# signing, batch verification, randomness, serde, and PKCS#8 out of a build that only ever
+# verifies. Verification uses `verify_strict`, which refuses the small-order and non-canonical
+# signatures that plain `verify` accepts: a supply-chain signature that verifies here and nowhere
+# else is a bug, not a nicety.
+ed25519-dalek = { version = "3", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"

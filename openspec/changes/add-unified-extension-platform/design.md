@@ -1172,6 +1172,28 @@ Task 2.1 is therefore an **extraction**, not a reuse: the safe-archive, path-nor
 
 Adding it exposed a gap in that monitoring. `establish-cargo-workspace-skeleton` moved every version pin into the root `[workspace.dependencies]` — `src-tauri/Cargo.toml` now carries 73 `workspace = true` inheritances against 2 concrete pins, while the root carries 72 — but `.github/dependabot.yml` still aimed its cargo scan at `/src-tauri`. Seventy-two of seventy-four Cargo pins were unmonitored, and `semver` would have landed among them. The scan now targets the workspace root.
 
+### Package security dependencies (Task 2.2)
+
+Four of the five needs were already answered by pins this repository carries; one, Ed25519 verification, is new.
+
+| Need | Decision | Why |
+| --- | --- | --- |
+| ZIP | `zip = "=8.6.0"`, already pinned, `default-features = false`, only `deflate-flate2-zlib-rs` | MIT, MSRV 1.88, exact pin. The deflate backend resolves to `flate2` over `zlib-rs` 0.6.7, which is a pure-Rust port: no `libz-sys`, no `cc`, so no C toolchain on any of the three platforms. |
+| Ed25519 | `ed25519-dalek = { version = "3", default-features = false }`, new | BSD-3-Clause, MSRV 1.85, pure Rust. Already compiled in this build at exactly 3.0.0 through `russh` → `ssh-key`, so the whole addition is one edge in `Cargo.lock`. |
+| Hashing | `sha2 = "0.11"`, already pinned | MIT OR Apache-2.0, RustCrypto. `ed25519-dalek` 3.0.0 resolves to the same 0.11.0, so package hashing and signature verification share one implementation rather than two. |
+| Canonicalization | No new dependency | The signed payload is the length-prefixed canonical encoding already written for `manifest_digest`, and Unicode canonicalization is the `unicode-normalization` reviewed at Task 1.G. A JCS-style JSON canonicalizer would only help if the payload were JSON, and it is not. |
+| SemVer | `semver = "1"` | Reviewed at Task 1.C above. |
+
+Three things this review turned up that the code has to account for rather than assume:
+
+* **`default-features = false` is not a preference here.** It matches what `ssh-key` already requests, and it keeps signing, batch verification, randomness, `serde`, and PKCS#8 out of a build whose only operation is verification. A verify-only build cannot accidentally grow a signing path.
+* **Verification uses `verify_strict`, not `verify`.** Plain `verify` accepts small-order public keys and non-canonically encoded signatures, which means the same signature can verify under one library and fail under another. For a supply-chain check, "valid here, invalid there" is a defect; `verify_strict` performs both malleability checks and refuses those inputs.
+* **The pinned ZIP reader refuses encrypted entries and unreadable compression methods inside `by_index`**, before this repository's own checks for either are reached. Task 2.1 recorded that with tests asserting the answer that actually comes back. Those checks stay as a guard against a future reader that is more permissive; they are not what is doing the work today, and no diagnostic may claim otherwise.
+
+**Advisories** are monitored by Dependabot and GitHub dependency alerts per `software-supply-chain-security`. As with `semver`, no RustSec query was run from this environment; that check belongs to CI.
+
+**Test vectors and fuzzing are obligations of later tasks, not of this one.** RFC 8032 signature vectors and the tampered/substituted/revoked cases land with the verifier in task 2.3; the archive-boundary corpus lands in task 2.11. Recording that here is what keeps "reviewed for fuzz and test vectors" from meaning "decided not to".
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.
