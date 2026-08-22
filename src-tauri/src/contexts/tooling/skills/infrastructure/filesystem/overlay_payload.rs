@@ -7,7 +7,7 @@ use crate::contexts::tooling::skills::application::{
     OverlayPayloadWrite, SkillApplicationError,
 };
 use crate::contexts::tooling::skills::domain::{OverlayDocument, OverlayScope};
-use sha2::{Digest, Sha256};
+use crate::platform::content_address::{is_sha256_hex, sha256_hex};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
@@ -66,7 +66,7 @@ impl OverlayPayloadStore {
         transaction_id: &str,
     ) -> Result<OverlayPayloadStage, SkillApplicationError> {
         validate_hash(&write.content_hash)?;
-        if sha256(&write.content) != write.content_hash {
+        if sha256_hex(&write.content) != write.content_hash {
             return Err(integrity(OverlayIntegrityCode::PayloadHashMismatch));
         }
         validate_transaction_id(transaction_id)?;
@@ -167,7 +167,7 @@ impl OverlayPayloadStore {
             let Some(content_hash) = entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if !is_valid_hash(&content_hash) || reachable.contains(&content_hash) {
+            if !is_sha256_hex(&content_hash) || reachable.contains(&content_hash) {
                 continue;
             }
             fs::remove_file(entry.path()).map_err(filesystem_error)?;
@@ -217,7 +217,7 @@ impl OverlayPayloadRepository for OverlayPayloadStore {
             return Err(integrity(OverlayIntegrityCode::PayloadMissing));
         }
         let content = fs::read(path).map_err(filesystem_error)?;
-        if sha256(&content) != content_hash {
+        if sha256_hex(&content) != content_hash {
             return Err(integrity(OverlayIntegrityCode::PayloadHashMismatch));
         }
         Ok(content)
@@ -302,7 +302,7 @@ fn document_references(
 ) -> Result<BTreeSet<String>, SkillApplicationError> {
     let mut references = BTreeSet::new();
     for file in &document.files {
-        if !is_valid_hash(&file.content_hash)
+        if !is_sha256_hex(&file.content_hash)
             || file.payload_ref != format!("{HASH_ALGORITHM}/{}", file.content_hash)
         {
             return Err(integrity(OverlayIntegrityCode::DocumentHashMismatch));
@@ -341,7 +341,7 @@ fn create_safe_directory(root: &Path, directory: &Path) -> Result<(), SkillAppli
 
 fn verify_file(path: &Path, expected_hash: &str) -> Result<(), SkillApplicationError> {
     let content = fs::read(path).map_err(filesystem_error)?;
-    if sha256(&content) == expected_hash {
+    if sha256_hex(&content) == expected_hash {
         Ok(())
     } else {
         Err(integrity(OverlayIntegrityCode::PayloadHashMismatch))
@@ -349,20 +349,13 @@ fn verify_file(path: &Path, expected_hash: &str) -> Result<(), SkillApplicationE
 }
 
 fn validate_hash(content_hash: &str) -> Result<(), SkillApplicationError> {
-    if is_valid_hash(content_hash) {
+    if is_sha256_hex(content_hash) {
         Ok(())
     } else {
         Err(SkillApplicationError::Validation(
             "Overlay payload hash must be 64 lowercase hexadecimal characters".to_string(),
         ))
     }
-}
-
-fn is_valid_hash(content_hash: &str) -> bool {
-    content_hash.len() == 64
-        && content_hash
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn validate_transaction_id(transaction_id: &str) -> Result<(), SkillApplicationError> {
@@ -378,13 +371,6 @@ fn validate_transaction_id(transaction_id: &str) -> Result<(), SkillApplicationE
             "Invalid Overlay payload transaction id".to_string(),
         ))
     }
-}
-
-fn sha256(content: &[u8]) -> String {
-    Sha256::digest(content)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 fn integrity(code: OverlayIntegrityCode) -> SkillApplicationError {

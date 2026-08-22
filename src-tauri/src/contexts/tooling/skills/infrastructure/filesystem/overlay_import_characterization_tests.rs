@@ -11,14 +11,15 @@
 //! rule; the gaps are the part most likely to be "fixed" by accident during a move.
 
 use super::overlay_import::{
-    parse_overlay_import_archive, validate_overlay_import_probe, with_isolated_import_staging,
-    OverlayImportEntry, OverlayImportEntryKind, OverlayImportProbe, OverlayImportValidationError,
+    parse_overlay_import_archive, validate_overlay_import_probe, OverlayImportProbe,
+    OverlayImportValidationError,
 };
 use super::overlay_manifest::serialize_overlay_manifest;
 use crate::contexts::tooling::skills::domain::{
     OverlayBaseWitness, OverlayDocument, OverlayFile, OverlayScope, OverlayTrust, SkillId,
     DEFAULT_OVERLAY_LIMITS, OVERLAY_SCHEMA_VERSION,
 };
+use crate::platform::archive::{with_isolated_staging, ArchiveEntry, ArchiveEntryKind};
 use crate::test_support::TempDirectory;
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Write};
@@ -30,20 +31,20 @@ const PAYLOAD_PREFIX: &str = "payloads/sha256/";
 
 type Rejection = OverlayImportValidationError;
 
-fn entry(path: &str, kind: OverlayImportEntryKind, expanded_bytes: u64) -> OverlayImportEntry {
-    OverlayImportEntry {
+fn entry(path: &str, kind: ArchiveEntryKind, expanded_bytes: u64) -> ArchiveEntry {
+    ArchiveEntry {
         path: path.to_string(),
         kind,
         expanded_bytes,
     }
 }
 
-fn file(path: &str, expanded_bytes: u64) -> OverlayImportEntry {
-    entry(path, OverlayImportEntryKind::File, expanded_bytes)
+fn file(path: &str, expanded_bytes: u64) -> ArchiveEntry {
+    entry(path, ArchiveEntryKind::File, expanded_bytes)
 }
 
 fn probe(
-    entries: &[OverlayImportEntry],
+    entries: &[ArchiveEntry],
     compressed_bytes: u64,
     mutation_count: usize,
     schema_version: u32,
@@ -138,11 +139,7 @@ fn import(archive: &[u8], label: &str) -> Result<(), Rejection> {
 fn probe_checks_its_limits_in_a_fixed_order() {
     // Each case violates every rule below it as well; the reported code is the first check, not
     // the worst problem. Callers surface this code to an operator, so the order is behavior.
-    let oversize_link = entry(
-        "../escape.md",
-        OverlayImportEntryKind::SymbolicLink,
-        u64::MAX,
-    );
+    let oversize_link = entry("../escape.md", ArchiveEntryKind::SymbolicLink, u64::MAX);
     assert_eq!(
         probe(
             std::slice::from_ref(&oversize_link),
@@ -297,7 +294,7 @@ fn only_the_manifest_escapes_the_per_file_limit_and_only_files_are_measured() {
         probe(
             &[entry(
                 "references",
-                OverlayImportEntryKind::Directory,
+                ArchiveEntryKind::Directory,
                 limits.maximum_supporting_file_bytes + 1
             )],
             1,
@@ -309,8 +306,8 @@ fn only_the_manifest_escapes_the_per_file_limit_and_only_files_are_measured() {
     assert_eq!(
         probe(
             &[
-                entry("a", OverlayImportEntryKind::Directory, u64::MAX),
-                entry("b", OverlayImportEntryKind::Directory, u64::MAX),
+                entry("a", ArchiveEntryKind::Directory, u64::MAX),
+                entry("b", ArchiveEntryKind::Directory, u64::MAX),
             ],
             1,
             0,
@@ -534,7 +531,7 @@ fn staging_is_removed_whether_the_operation_succeeds_or_fails() {
 
     let created = home.path().join("nested/import-ok");
     assert_eq!(
-        with_isolated_import_staging(&created, |root| {
+        with_isolated_staging(&created, |root| -> Result<bool, Rejection> {
             std::fs::write(root.join("partial.bin"), b"partial")
                 .map_err(|_| Rejection::UnsafePath)?;
             Ok(root.join("partial.bin").is_file())
@@ -546,19 +543,20 @@ fn staging_is_removed_whether_the_operation_succeeds_or_fails() {
 
     let failed = home.path().join("nested/import-failed");
     assert_eq!(
-        with_isolated_import_staging(&failed, |root| {
+        with_isolated_staging(&failed, |root| -> Result<(), Rejection> {
             std::fs::write(root.join("partial.bin"), b"partial")
                 .map_err(|_| Rejection::UnsafePath)?;
-            Err::<(), _>(Rejection::ExpandedSize)
+            Err(Rejection::ExpandedSize)
         }),
         Err(Rejection::ExpandedSize)
     );
     assert!(!failed.exists());
 
-    // A second call on the same path refuses rather than reusing an existing directory.
+    // A second call on the same path refuses rather than reusing an existing directory, and the
+    // shared staging failure still reaches an Overlay operator as `import-unsafe-path`.
     std::fs::create_dir_all(&created).expect("pre-existing staging");
     assert_eq!(
-        with_isolated_import_staging(&created, |_| Ok(())),
+        with_isolated_staging(&created, |_| -> Result<(), Rejection> { Ok(()) }),
         Err(Rejection::UnsafePath)
     );
 }

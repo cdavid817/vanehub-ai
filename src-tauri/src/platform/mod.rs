@@ -1,6 +1,8 @@
 //! Reusable outer technology adapters selected by the composition root.
 
+pub(crate) mod archive;
 pub(crate) mod clock;
+pub(crate) mod content_address;
 pub(crate) mod credentials;
 pub(crate) mod database;
 pub(crate) mod error;
