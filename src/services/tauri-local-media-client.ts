@@ -24,6 +24,31 @@ const OCR_FILE_FILTERS = [
   { name: "Images and PDF", extensions: ["png", "jpg", "jpeg", "bmp", "pdf"] },
 ];
 
+/**
+ * Which file the picker returns.
+ *
+ * A desktop test build asks the native fixture for a repository-controlled image instead of
+ * opening a dialog no headless runner can answer. Only the choice is replaced: the caller still
+ * hands the path to the real `stage_local_media_ocr_source`, so sniffing, the size, page and pixel
+ * ceilings, staging, the one-time claim and cleanup are unchanged.
+ *
+ * `FIXTURE_OCR_SOURCE_UNAVAILABLE` means fixtures were never activated -- the ordinary Desktop
+ * Smoke layer runs this same build -- so the real dialog is correct there. When fixtures *are*
+ * active the native side has already verified the file at startup and refused to boot without it,
+ * which is where fail-closed lives.
+ */
+async function chooseOcrSource(): Promise<string | null> {
+  if (import.meta.env.VITE_DESKTOP_E2E === "1") {
+    try {
+      return await invoke<string>("fixture_local_media_ocr_source");
+    } catch {
+      // Fixtures are off in this run; fall through to the real picker.
+    }
+  }
+  const selected = await open({ multiple: false, filters: OCR_FILE_FILTERS });
+  return typeof selected === "string" ? selected : null;
+}
+
 export const tauriLocalMediaClient: LocalMediaService = {
   async isAvailable() {
     return true;
@@ -69,7 +94,7 @@ export const tauriLocalMediaClient: LocalMediaService = {
    * display name, and the Python worker only ever sees the copy the host made.
    */
   async selectAndStageOcrSource() {
-    const selected = await open({ multiple: false, filters: OCR_FILE_FILTERS });
+    const selected = await chooseOcrSource();
     if (typeof selected !== "string") {
       return null;
     }

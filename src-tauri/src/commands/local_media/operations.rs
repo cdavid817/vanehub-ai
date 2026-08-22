@@ -32,6 +32,26 @@ pub(crate) fn stage_local_media_ocr_source(
         .map_err(map_command_error)
 }
 
+/// The file a fixture picker "chose".
+///
+/// Exists only under `desktop-e2e`. It replaces exactly one thing -- which path the system dialog
+/// would have returned -- and the caller still passes that path to the real
+/// `stage_local_media_ocr_source`, so admission, staging, limits and cleanup are unchanged.
+/// Failing rather than falling back matters: a headless runner has nobody to answer a real dialog,
+/// so a fallback would hang instead of reporting a misconfiguration.
+#[cfg(feature = "desktop-e2e")]
+#[tauri::command]
+pub(crate) fn fixture_local_media_ocr_source() -> Result<String, CommandError> {
+    crate::contexts::local_media::infrastructure::fixtures::fixture_ocr_source()
+        .map(|path| path.to_string_lossy().to_string())
+        .ok_or_else(|| {
+            CommandError::stable_code(
+                crate::commands::error::CommandErrorCategory::Unavailable,
+                "FIXTURE_OCR_SOURCE_UNAVAILABLE",
+            )
+        })
+}
+
 #[tauri::command]
 pub(crate) fn start_local_media_ocr(
     api: State<'_, LocalMediaApi>,

@@ -40,6 +40,8 @@ pub(super) fn invoke_handler(
         crate::commands::local_media::profile::list_local_media_audio_devices,
         crate::commands::local_media::operations::start_local_media_probe,
         crate::commands::local_media::operations::stage_local_media_ocr_source,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::local_media::operations::fixture_local_media_ocr_source,
         crate::commands::local_media::operations::start_local_media_ocr,
         crate::commands::local_media::operations::cleanup_local_media_staged_source,
         crate::commands::local_media::operations::start_microphone_recording,
@@ -53,6 +55,11 @@ pub(super) fn invoke_handler(
 }
 
 pub(super) fn is_command(command: &str) -> bool {
+    // Gated separately from the list below: a default build must not answer this name at all.
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_local_media_ocr_source" {
+        return true;
+    }
     matches!(
         command,
         "save_message_feedback"
@@ -137,6 +144,12 @@ mod tests {
         let routed: std::collections::BTreeSet<&str> = routing_block
             .lines()
             .map(|line| line.trim().trim_start_matches('|').trim())
+            // A feature-gated name cannot be a conditional arm of `matches!`, so it is routed by a
+            // guarded early return instead. Both shapes count as routed.
+            .map(|line| match line.split_once("command == ") {
+                Some((_, rest)) => rest.trim_end_matches(" {").trim(),
+                None => line,
+            })
             .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
             .filter(|name| {
                 !name.is_empty()

@@ -54,8 +54,12 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 再上调 8 行:E2E fake 的接线落在 `runtime-local-media-client.ts`。fake 本体在 `src/testing/`
 // 不计入本预算,这里只有一个构建期常量分支加解释它为何是构建期而非运行时的注释——运行时开关会在
 // 已发布的构建里留下一个可以被打开的入口,而构建期常量在产物中根本不存在。
+// 再上调 25 行:桌面 fixture 需要替换「文件选择器返回了哪个文件」这一个边界,于是
+// `tauri-local-media-client.ts` 多出一个 `chooseOcrSource`——4 行逻辑加 17 行注释,说明为什么
+// 只替换选择结果、为什么 fail-closed 在原生侧而不在这里,以及为什么普通 Desktop Smoke 用同一个
+// 构建却必须仍然走真实对话框。选择之后的嗅探、限额、staging、one-time claim 与清理一行未改。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19613, owner: "add-local-composer-media-tools" },
+  { root: "src/services", budget: 19638, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([

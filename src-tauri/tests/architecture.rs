@@ -2872,7 +2872,9 @@ fn registered_supplemental_commands(source: &str) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let entry = line.trim().trim_end_matches(',');
-            (!entry.is_empty() && !entry.starts_with("//"))
+            // An attribute is not a command. A feature-gated entry carries one on the line above,
+            // and reading it as a name reported the attribute itself as an unroutable command.
+            (!entry.is_empty() && !entry.starts_with("//") && !entry.starts_with("#["))
                 .then(|| entry.rsplit("::").next().unwrap_or(entry).to_string())
         })
         .collect()
@@ -2901,6 +2903,12 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
     };
     body.lines()
         .map(|line| line.trim().trim_start_matches('|').trim())
+        // Two shapes route a name: an arm of the `matches!` list, and a guarded early return. The
+        // second exists because a feature-gated name cannot be a conditional arm of `matches!`.
+        .map(|line| match line.split_once("command == ") {
+            Some((_, rest)) => rest.trim_end_matches(" {").trim(),
+            None => line,
+        })
         .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
         .filter(|name| {
             !name.is_empty()

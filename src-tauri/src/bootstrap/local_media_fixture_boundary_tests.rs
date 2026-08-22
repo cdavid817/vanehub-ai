@@ -169,15 +169,66 @@ fn the_bundle_resource_list_excludes_the_fixture_python() {
 }
 
 #[test]
-fn no_test_only_command_is_registered() {
+fn every_fixture_command_registration_is_feature_gated() {
     let registry = read("src/commands/supplemental_registry.rs");
+    let lines: Vec<&str> = registry.lines().collect();
+    let mut ungated = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if !line.to_lowercase().contains("fixture") {
+            continue;
+        }
+        // A fixture command may be registered, but only directly beneath the feature attribute.
+        // Without that, a default build would expose a test-only entry point.
+        let gated = index > 0 && lines[index - 1].contains("cfg(feature = \"desktop-e2e\")");
+        if !gated {
+            ungated.push(format!("supplemental_registry.rs:{}", index + 1));
+        }
+    }
+
+    assert!(
+        ungated.is_empty(),
+        "ungated fixture command registration:
+{}",
+        ungated.join(
+            "
+"
+        )
+    );
     for token in FIXTURE_TOKENS {
         assert!(
             !registry.contains(token),
             "the command registry mentions `{token}`"
         );
     }
-    assert!(!registry.contains("fixture"));
+}
+
+#[test]
+fn the_fixture_command_is_routed_only_behind_the_feature() {
+    // `is_command` is the name-based router. The fixture name may appear, but only under the
+    // feature gate: an ungated arm would make a default build answer a test-only command.
+    let registry = read("src/commands/supplemental_registry.rs");
+    let router_start = registry
+        .find("fn is_command")
+        .expect("the registry declares a name-based router");
+    let router = &registry[router_start..];
+    let lines: Vec<&str> = router.lines().collect();
+    let mut seen = false;
+    for (index, line) in lines.iter().enumerate() {
+        if !line.contains("fixture_local_media_ocr_source") {
+            continue;
+        }
+        seen = true;
+        let gated = lines[..index]
+            .iter()
+            .rev()
+            .take(3)
+            .any(|above| above.contains("cfg(feature = \"desktop-e2e\")"));
+        assert!(
+            gated,
+            "the fixture command is routed without the feature gate"
+        );
+    }
+    assert!(seen, "the fixture command is registered but never routed");
 }
 
 #[test]

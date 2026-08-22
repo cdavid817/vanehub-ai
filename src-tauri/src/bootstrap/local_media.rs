@@ -114,6 +114,10 @@ fn assemble_with_fixtures(
         variables: activation.worker_environment(),
     };
     let scenario = activation.scenario_file.clone();
+    // Published for the fixture picker command, which exists only under this feature.
+    crate::contexts::local_media::infrastructure::fixtures::publish_ocr_source(
+        activation.ocr_source.clone(),
+    );
 
     LocalMediaApi::new(LocalMediaDependencies {
         repository: Arc::new(SqliteLocalMediaProfileRepository::new(
