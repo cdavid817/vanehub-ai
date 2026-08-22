@@ -13,6 +13,7 @@ pub(crate) fn log_remote_terminal_event(
         level,
         session_id: session_id.to_string(),
         shell_id: shell_id.to_string(),
+        seat_id: None,
         message: redact_remote_terminal_message(message),
     });
 }

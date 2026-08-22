@@ -95,6 +95,9 @@ impl WorkspaceShellLogPort for WorkspaceShellLoggingAdapter {
         let mut context = BTreeMap::new();
         context.insert("sessionId".to_string(), log.session_id);
         context.insert("shellId".to_string(), log.shell_id);
+        if let Some(seat_id) = log.seat_id {
+            context.insert("seatId".to_string(), seat_id);
+        }
         let _ = self.logging.write_diagnostic(DiagnosticLog {
             severity: match log.level {
                 WorkspaceLogLevel::Error => LogSeverity::Error,
@@ -170,6 +173,7 @@ mod tests {
             level: WorkspaceLogLevel::Warn,
             session_id: "session-1".to_string(),
             shell_id: "shell-1".to_string(),
+            seat_id: Some("seat-builder".to_string()),
             message: "Shell input failed.".to_string(),
         });
 
@@ -184,5 +188,26 @@ mod tests {
             logs[0].context.get("shellId").map(String::as_str),
             Some("shell-1")
         );
+        // The seat is what makes a seat-filtered Logs query able to match this record at all.
+        assert_eq!(
+            logs[0].context.get("seatId").map(String::as_str),
+            Some("seat-builder")
+        );
+    }
+
+    #[test]
+    fn a_shell_log_without_a_known_seat_omits_the_correlation() {
+        let diagnostics = Arc::new(CapturingDiagnostics::default());
+        let adapter = WorkspaceShellLoggingAdapter::new(diagnostics.clone());
+        adapter.write(ShellLog {
+            level: WorkspaceLogLevel::Info,
+            session_id: "session-1".to_string(),
+            shell_id: "shell-1".to_string(),
+            seat_id: None,
+            message: "Shell disconnected.".to_string(),
+        });
+
+        let logs = diagnostics.logs.lock().expect("logs");
+        assert!(!logs[0].context.contains_key("seatId"));
     }
 }

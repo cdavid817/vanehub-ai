@@ -251,6 +251,12 @@ export const tauriAgentClient: AgentService = {
   selectCodeReviewComment(reviewId, commentId, selected) {
     return invoke<CodeReview>("select_code_review_comment", { reviewId, commentId, selected });
   },
+  setCodeReviewHunkDecision() {
+    // The hunk decision tables and their command arrive with Task Group 13. Until then this
+    // rejects with a stable reason code rather than falling back to the review-level mutation,
+    // which is the defect this method exists to remove: accepting one hunk accepted the review.
+    return Promise.reject(new Error("review_hunk_decision_unavailable"));
+  },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });
   },

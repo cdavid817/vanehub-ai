@@ -54,6 +54,29 @@ export interface CodeReview {
   findings: ReviewFinding[];
 }
 
+/**
+ * A decision about one witnessed hunk. Separate from the review-level decision on purpose:
+ * accepting a hunk used to call the review mutation, so approving one block of a diff marked the
+ * entire review accepted.
+ */
+export interface SetReviewHunkDecisionInput {
+  reviewId: string;
+  relativePath: string;
+  hunkFingerprint: string;
+  /** The review snapshot the user was looking at. A later snapshot rejects the decision. */
+  expectedSnapshotFingerprint: string;
+  decision: ReviewDecision;
+}
+
+export interface ReviewHunkDecisionReceipt {
+  reviewId: string;
+  relativePath: string;
+  hunkFingerprint: string;
+  decision: ReviewDecision;
+  /** True when only fixture memory changed: no review row, Git index, or working tree was touched. */
+  simulated: boolean;
+}
+
 export interface ReviewDiffLine {
   kind: string;
   content: string;

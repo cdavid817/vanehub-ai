@@ -11,10 +11,10 @@ import type {
   SessionLogExportResult,
   SessionLogPage,
   ShellEvent,
-  ShellSession,
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
+import { normalizeShellSession } from "../contracts/session-workspace";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
@@ -83,8 +83,8 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   exportSessionLogs(input) {
     return invoke<SessionLogExportResult>("export_session_logs", { input });
   },
-  createShell(input) {
-    return invoke<ShellSession>("shell_create", { input });
+  async createShell(input) {
+    return normalizeShellSession(await invoke<unknown>("shell_create", { input }));
   },
   async writeShellInput(shellId, content) {
     await invoke<void>("shell_input", { shellId, content });

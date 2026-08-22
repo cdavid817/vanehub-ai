@@ -1,5 +1,5 @@
 use super::*;
-use crate::contexts::workspaces::domain::TerminalDimensions;
+use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -170,11 +170,13 @@ fn shell_creation_validates_workspace_bounds_dimensions_and_logs_after_open() {
             session_id: "session-1".to_string(),
             rows: 0,
             cols: 900,
+            seat_id: None,
         })
         .expect("shell");
 
     assert_eq!(session.shell_id, "shell-fixture");
     assert_eq!(session.state, "connected");
+    assert_eq!(session.runtime, ShellRuntimeDescriptor::Native);
     let launch = runtime.launches.lock().expect("launches")[0].clone();
     assert_eq!(launch.root, "C:\\code\\app");
     assert_eq!(launch.dimensions.rows(), 1);
@@ -227,6 +229,7 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 session_id: "session-1".to_string(),
                 rows: 24,
                 cols: 80,
+                seat_id: None,
             })
             .expect_err("validation error");
         assert_eq!(
@@ -236,6 +239,91 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
         assert!(runtime.launches.lock().expect("launches").is_empty());
         assert!(logs.logs.lock().expect("logs").is_empty());
     }
+}
+
+#[test]
+fn a_remote_workspace_describes_its_connection_witnesses() {
+    let (service, runtime, _, _, _) = shell_service(ShellWorkspace {
+        agent_id: "codex-cli".to_string(),
+        root: None,
+        remote: true,
+        remote_endpoint: Some(ShellRemoteEndpoint {
+            host: "build-host".to_string(),
+            port: 22,
+            user: "builder".to_string(),
+            path: "/srv/app".to_string(),
+            display_name: "build-host".to_string(),
+            uri: "ssh://builder@build-host/srv/app".to_string(),
+        }),
+        ssh_binding: Some(ShellSshBinding {
+            connection_id: "connection-7".to_string(),
+            revision: 3,
+        }),
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
+        read_only: false,
+    });
+
+    let session = service
+        .create_shell(&CreateShellRequest {
+            session_id: "session-remote".to_string(),
+            rows: 24,
+            cols: 80,
+            seat_id: None,
+        })
+        .expect("remote shell");
+
+    assert_eq!(
+        session.runtime,
+        ShellRuntimeDescriptor::Remote {
+            connection_id: "connection-7".to_string(),
+            profile_revision: 3,
+            supports_reconnect: false,
+        }
+    );
+    assert_eq!(runtime.launches.lock().expect("launches").len(), 1);
+}
+
+#[test]
+fn a_remote_workspace_without_a_binding_is_refused_before_any_runtime_effect() {
+    // Without the binding there is nothing truthful to put in the descriptor, and the local PTY
+    // path would happily open a shell at the remote path and call it `remote`.
+    let (service, runtime, _, _, _) = shell_service(ShellWorkspace {
+        agent_id: "codex-cli".to_string(),
+        root: None,
+        remote: true,
+        remote_endpoint: Some(ShellRemoteEndpoint {
+            host: "build-host".to_string(),
+            port: 22,
+            user: "builder".to_string(),
+            path: "/srv/app".to_string(),
+            display_name: "build-host".to_string(),
+            uri: "ssh://builder@build-host/srv/app".to_string(),
+        }),
+        ssh_binding: None,
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
+        read_only: false,
+    });
+
+    let error = service
+        .create_shell(&CreateShellRequest {
+            session_id: "session-remote".to_string(),
+            rows: 24,
+            cols: 80,
+            seat_id: None,
+        })
+        .expect_err("missing binding is refused");
+
+    assert_eq!(
+        error,
+        WorkspaceApplicationError::Validation(
+            "Remote session workspace has no current SSH binding.".to_string()
+        )
+    );
+    assert!(runtime.launches.lock().expect("launches").is_empty());
 }
 
 #[test]
@@ -309,6 +397,7 @@ fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
             session_id: "verifier-session".to_string(),
             rows: 24,
             cols: 80,
+            seat_id: Some("seat-verifier".to_string()),
         })
         .expect_err("verifier shell rejected");
 
@@ -327,4 +416,6 @@ fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
     let log = &logs.logs.lock().expect("logs")[0];
     assert_eq!(log.level, WorkspaceLogLevel::Warn);
     assert!(log.message.contains("read-only policy"));
+    // The seat travels with the record so a seat-filtered Logs query can find it.
+    assert_eq!(log.seat_id.as_deref(), Some("seat-verifier"));
 }

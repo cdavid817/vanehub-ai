@@ -181,6 +181,8 @@ pub(crate) struct SessionLogQuery {
     pub(crate) session_id: String,
     pub(crate) levels: Vec<WorkspaceLogLevel>,
     pub(crate) search: String,
+    #[serde(default)]
+    pub(crate) seat_id: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
 }
@@ -217,6 +219,8 @@ pub(crate) struct CreateShellInput {
     pub(crate) session_id: String,
     pub(crate) rows: u16,
     pub(crate) cols: u16,
+    #[serde(default)]
+    pub(crate) seat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -227,11 +231,44 @@ pub(crate) struct ResizeShellInput {
     pub(crate) cols: u16,
 }
 
+/// Serialized as an externally tagged discriminated union so the frontend narrows on `kind`
+/// rather than on a bare capability string it has to widen by hand.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum ShellRuntimeDescriptor {
+    #[serde(rename_all = "camelCase")]
+    Native {
+        supports_resize: bool,
+        supports_replay: bool,
+        supports_reconnect: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Remote {
+        connection_id: String,
+        profile_revision: i64,
+        supports_resize: bool,
+        supports_replay: bool,
+        supports_reconnect: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Simulated {
+        supports_resize: bool,
+        supports_replay: bool,
+        supports_reconnect: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Unavailable {
+        reason_code: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        remediation: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShellSession {
     pub(crate) shell_id: String,
     pub(crate) session_id: String,
     pub(crate) state: &'static str,
-    pub(crate) capability: &'static str,
+    pub(crate) runtime: ShellRuntimeDescriptor,
 }

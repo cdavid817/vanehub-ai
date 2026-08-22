@@ -140,7 +140,7 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
       shellId: `web-shell-${nextShellId}`,
       sessionId: input.sessionId,
       state: "connected",
-      capability: "simulated",
+      runtime: { kind: "simulated", supportsResize: false, supportsReplay: true, supportsReconnect: false },
     };
     nextShellId += 1;
     shells.set(shell.shellId, shell);

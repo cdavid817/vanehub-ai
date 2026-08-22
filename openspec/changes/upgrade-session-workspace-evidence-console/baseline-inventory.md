@@ -98,3 +98,27 @@ migration error.
 ## Test baseline
 
 `npm run test` on `ee3eaf3f` in this worktree: 296 files, 1350 tests, 0 failures.
+
+## Verification after Task Groups 0 and 1
+
+| Command | Result |
+| --- | --- |
+| `npm run lint:ci` | PASSED |
+| `npm run test` | PASSED — 299 files, 1375 tests, 0 failures |
+| `npm run build` | PASSED — 16 lazy chunks, 133.1 KiB gzip static closure |
+| `npm run test:coverage` | 1374/1375; `skill-overlay-reconciliation.test.tsx` hit the 10s timeout under 4 workers and passes isolated (file untouched by this change) |
+| `npm run contracts:check` | PASSED — 3 tests |
+| `npm run architecture:check` | PASSED — 12 frontend rule tests, 43 native architecture tests |
+| `npm run desktop:unit:test` | PASSED — 18 tests |
+| `npm run test:desktop:session-workspace` | PASSED on Windows against the real desktop artifact |
+| `npx playwright test` | run 1: 153 passed / 2 failed; run 2: 154 passed / 1 failed — disjoint failures, all passing isolated |
+| `cargo fmt --check` | PASSED |
+| `cargo check --workspace` | PASSED |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASSED |
+| `npm run native:panic:check` | PASSED |
+| `cargo test --workspace` | 3546 passed / 3 failed, all three `relay_stdio` wall-clock assertions; 5/5 pass isolated with `--test-threads=1` |
+| `openspec validate <change> --strict` | PASSED |
+| `openspec validate --specs --strict` | PASSED — 136 items |
+| `git diff --check` | clean |
+
+The Playwright and `cargo test` failures are the known load-sensitive families: no two runs failed the same test, every failure was a bare timeout or wall-clock assertion rather than a behavioural mismatch, and none touched code this change modifies. Platform coverage is Windows only; macOS and Linux desktop results must come from CI artifacts.

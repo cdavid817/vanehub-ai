@@ -133,6 +133,11 @@ export interface SessionLogQuery {
   sessionId: string;
   levels: SessionLogLevel[];
   search: string;
+  /**
+   * Absent means every seat in the session. A concrete seat matches only records that carry that
+   * seat correlation; a record emitted without one is not silently attributed to the selection.
+   */
+  seatId?: string | null;
   cursor?: string | null;
   limit?: number;
 }
@@ -147,19 +152,55 @@ export interface SessionLogExportResult {
 }
 
 export type ShellConnectionState = "connecting" | "connected" | "disconnected" | "failed";
-export type ShellCapability = "native" | "simulated";
+
+export type ShellRuntimeKind = "native" | "remote" | "simulated" | "unavailable";
+
+/**
+ * What a Session Shell can actually do, rather than what its label suggests. Capabilities are
+ * carried per variant so a caller cannot offer resize to a simulated shell or reconnect to a PTY:
+ * the previous string union let the UI ask for both and let the native `remote` value cross a
+ * boundary that claimed it could not exist.
+ */
+export type ShellRuntimeDescriptor =
+  | {
+      kind: "native";
+      supportsResize: true;
+      supportsReplay: true;
+      supportsReconnect: false;
+    }
+  | {
+      kind: "remote";
+      connectionId: string;
+      profileRevision: number;
+      supportsResize: true;
+      supportsReplay: true;
+      supportsReconnect: boolean;
+    }
+  | {
+      kind: "simulated";
+      supportsResize: false;
+      supportsReplay: true;
+      supportsReconnect: false;
+    }
+  | {
+      kind: "unavailable";
+      reasonCode: string;
+      remediation?: string;
+    };
 
 export interface ShellSession {
   shellId: string;
   sessionId: string;
   state: ShellConnectionState;
-  capability: ShellCapability;
+  runtime: ShellRuntimeDescriptor;
 }
 
 export interface CreateShellInput {
   sessionId: string;
   rows: number;
   cols: number;
+  /** Which participant owns this shell. Absent in a single-seat session, which has only one. */
+  seatId?: string | null;
 }
 
 export interface ResizeShellInput {

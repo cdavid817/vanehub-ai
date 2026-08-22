@@ -1,3 +1,4 @@
+import type { SessionSeat } from "../types/agent";
 import type { SessionTabId } from "./session-tab-bar";
 
 export type TabScope = "seat" | "session";
@@ -25,4 +26,21 @@ export function tabScope(tab: SessionTabId): TabScope {
  */
 export function showsSeatSwitcher(tab: SessionTabId, seatCount: number): boolean {
   return tabScope(tab) === "seat" && seatCount > 1;
+}
+
+/**
+ * The seat a tab's service query should actually carry, which is not the same thing as the seat
+ * the switcher is highlighting: a session-scoped tab must not silently narrow because a control
+ * that does not apply to it happens to have a selection.
+ *
+ * Returns null rather than a guessed id when the seat predates stable seat ids — scoping a query
+ * to the wrong participant is worse than not scoping it.
+ */
+export function effectiveSeatId(
+  tab: SessionTabId,
+  seats: SessionSeat[],
+  selectedIndex: number | null,
+): string | null {
+  if (selectedIndex === null || tabScope(tab) !== "seat" || seats.length <= 1) return null;
+  return seats[selectedIndex]?.seatId ?? null;
 }

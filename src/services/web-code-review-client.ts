@@ -5,8 +5,10 @@ import type {
   ReviewComment,
   ReviewDecision,
   ReviewDiffFile,
+  ReviewHunkDecisionReceipt,
   ReviewRevertReceipt,
   RevertReviewChangeInput,
+  SetReviewHunkDecisionInput,
 } from "../types/code-review";
 import type { GitDiffResult, GitDiffSource, GitStatusResult } from "../types/session-workspace";
 import { createWebMockOperation } from "./web-operation-client";
@@ -24,6 +26,8 @@ function fingerprint(value: string) {
 
 export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
   const reviews = new Map<string, CodeReview>();
+  // Keyed by review, path, and hunk fingerprint so a decision cannot leak across hunks.
+  const hunkDecisions = new Map<string, ReviewDecision>();
   let sequence = 0;
   const find = (reviewId: string) => {
     const review = reviews.get(reviewId);
@@ -136,6 +140,24 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
       review.decision = decision;
       review.status = decision === "accepted" ? "completed" : "active";
       return find(reviewId);
+    },
+    async setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput): Promise<ReviewHunkDecisionReceipt> {
+      const review = reviews.get(input.reviewId);
+      if (!review) throw new Error("review-not-found");
+      // Refusing a stale witness here keeps the mock honest about the one guarantee that matters:
+      // a decision belongs to the snapshot the reviewer was actually looking at.
+      if (review.fingerprint !== input.expectedSnapshotFingerprint) throw new Error("stale_witness");
+      if (!review.files.some((file) => file.path === input.relativePath)) throw new Error("review-file-not-found");
+      // Only this key changes. The review decision, status, and every other hunk are untouched,
+      // and no Git index or working tree exists to touch in Web mode.
+      hunkDecisions.set(JSON.stringify([input.reviewId, input.relativePath, input.hunkFingerprint]), input.decision);
+      return {
+        reviewId: input.reviewId,
+        relativePath: input.relativePath,
+        hunkFingerprint: input.hunkFingerprint,
+        decision: input.decision,
+        simulated: true,
+      };
     },
     async revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt> {
       if (!input.confirmed) throw new Error("review-revert-confirmation-required");

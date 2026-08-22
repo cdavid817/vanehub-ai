@@ -86,6 +86,7 @@ fn write_shell_log(
         level,
         session_id: session_id.to_string(),
         shell_id: shell_id.to_string(),
+        seat_id: None,
         message: message.to_string(),
     });
 }

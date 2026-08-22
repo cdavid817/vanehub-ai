@@ -589,6 +589,7 @@ fn bounded_workspace_queries_delegate_only_through_the_injected_port() {
         session_id: "session-1".to_string(),
         levels: vec![WorkspaceLogLevel::Info],
         search: "ready".to_string(),
+        seat_id: None,
         cursor: None,
         limit: Some(25),
     };

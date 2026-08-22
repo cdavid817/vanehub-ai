@@ -7,11 +7,13 @@ import { ArtifactPanel } from "./artifact-panel";
 import { DelegationPanel } from "./delegation-panel";
 export { toolUseCount } from "./terminal-utils";
 
-export function TerminalTab({ builtinToolsAvailable = false, messages, partial, sessionId = null, targetRoot = "" }: { builtinToolsAvailable?: boolean; messages: ChatMessage[]; partial: boolean; sessionId?: string | null; targetRoot?: string }) {
+export function TerminalTab({ builtinToolsAvailable = false, messages, partial, seatId = null, sessionId = null, targetRoot = "" }: { builtinToolsAvailable?: boolean; messages: ChatMessage[]; partial: boolean; seatId?: string | null; sessionId?: string | null; targetRoot?: string }) {
   const { i18n, t } = useTranslation();
-  const entries = messages.flatMap((message) =>
-    (message.toolUse ?? []).map((tool) => ({ message, tool })),
-  );
+  const entries = messages
+    // A message written before speaker attribution existed carries no seat, so it is not shown as
+    // this seat's work rather than being attributed to whichever seat is selected.
+    .filter((message) => seatId === null || message.speakerSeatId === seatId)
+    .flatMap((message) => (message.toolUse ?? []).map((tool) => ({ message, tool })));
   return (
     <div className="grid gap-3 overflow-y-auto pr-1">
       {builtinToolsAvailable && sessionId ? <BuiltinToolActivity sessionId={sessionId} /> : null}

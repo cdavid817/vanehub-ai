@@ -75,6 +75,76 @@ describe("web code review parity", () => {
     })).rejects.toThrow("confirmation");
   });
 
+  // Accepting a hunk used to call the review-level mutation, so approving one block of a diff
+  // marked the entire Review Session accepted and closed it.
+  it("keeps a hunk decision from touching the review decision or repository content", async () => {
+    const source = workspace();
+    const client = createWebCodeReviewClient(source);
+    const review = await client.openCodeReview("session-1");
+    const diff = await client.loadCodeReviewFile("session-1", "src/main.ts", review.fingerprint);
+
+    const receipt = await client.setCodeReviewHunkDecision({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      hunkFingerprint: diff.hunks[0].fingerprint,
+      expectedSnapshotFingerprint: review.fingerprint,
+      decision: "accepted",
+    });
+
+    expect(receipt).toEqual({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      hunkFingerprint: diff.hunks[0].fingerprint,
+      decision: "accepted",
+      simulated: true,
+    });
+    const after = await client.getCodeReview(review.id);
+    expect(after.decision).toBe("pending");
+    expect(after.status).toBe("active");
+    // Nothing in the mock reads or writes Git; asserting the read-only source stayed untouched is
+    // the strongest available statement that no index or working-tree mutation was attempted.
+    expect(source.getSessionGitDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the review decision from rewriting hunk decisions", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+    const diff = await client.loadCodeReviewFile("session-1", "src/main.ts", review.fingerprint);
+    await client.setCodeReviewHunkDecision({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      hunkFingerprint: diff.hunks[0].fingerprint,
+      expectedSnapshotFingerprint: review.fingerprint,
+      decision: "changes-requested",
+    });
+
+    const accepted = await client.setCodeReviewDecision(review.id, "accepted");
+
+    expect(accepted.decision).toBe("accepted");
+    const again = await client.setCodeReviewHunkDecision({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      hunkFingerprint: diff.hunks[0].fingerprint,
+      expectedSnapshotFingerprint: review.fingerprint,
+      decision: "changes-requested",
+    });
+    expect(again.decision).toBe("changes-requested");
+  });
+
+  it("refuses a hunk decision witnessed against an older snapshot", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+
+    await expect(client.setCodeReviewHunkDecision({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      hunkFingerprint: "hunk-1",
+      expectedSnapshotFingerprint: "an-older-snapshot",
+      decision: "accepted",
+    })).rejects.toThrow("stale_witness");
+    expect((await client.getCodeReview(review.id)).decision).toBe("pending");
+  });
+
   it("marks an anchor stale when its file disappears from a later snapshot", async () => {
     const source = workspace();
     const client = createWebCodeReviewClient(source);

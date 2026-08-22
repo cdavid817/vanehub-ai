@@ -1337,6 +1337,11 @@ fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logg
         if entry.context.get("sessionId") != Some(&input.session_id) {
             continue;
         }
+        if let Some(seat_id) = input.seat_id.as_ref() {
+            if entry.context.get("seatId") != Some(seat_id) {
+                continue;
+            }
+        }
         if !input.levels.is_empty() && !input.levels.contains(&workspace_log_level(entry.level)) {
             continue;
         }
@@ -1909,6 +1914,69 @@ mod tests {
     }
 
     #[test]
+    fn a_seat_filter_matches_only_records_carrying_that_seat() {
+        let root = temp_dir("logs-seat");
+        fs::create_dir_all(&root).expect("log dir");
+        for (seat, message) in [
+            (Some("seat-planner"), "planner shell connected"),
+            (Some("seat-builder"), "builder shell connected"),
+            (None, "session runtime started"),
+        ] {
+            let mut context = BTreeMap::new();
+            context.insert("sessionId".to_string(), "session-1".to_string());
+            if let Some(seat) = seat {
+                context.insert("seatId".to_string(), seat.to_string());
+            }
+            logging::write_message(
+                &root,
+                logging::LogLevel::Info,
+                "session.shell",
+                message,
+                context,
+            )
+            .expect("seat log");
+        }
+
+        let page = query_logs(
+            &root,
+            &SessionLogQuery {
+                session_id: "session-1".to_string(),
+                levels: vec![],
+                search: String::new(),
+                seat_id: Some("seat-builder".to_string()),
+                cursor: None,
+                limit: None,
+            },
+        )
+        .expect("seat-filtered query");
+
+        // The uncorrelated record is not attributed to whichever seat happens to be selected.
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|entry| entry.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["builder shell connected"]
+        );
+
+        let all_seats = query_logs(
+            &root,
+            &SessionLogQuery {
+                session_id: "session-1".to_string(),
+                levels: vec![],
+                search: String::new(),
+                seat_id: None,
+                cursor: None,
+                limit: None,
+            },
+        )
+        .expect("all-seat query");
+        assert_eq!(all_seats.items.len(), 3);
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn log_query_is_session_scoped_filtered_and_bounded() {
         let root = temp_dir("logs");
         fs::create_dir_all(&root).expect("log dir");
@@ -1954,6 +2022,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: "safe".to_string(),
+                seat_id: None,
                 cursor: None,
                 limit: Some(1),
             },
@@ -1968,6 +2037,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: "safe".to_string(),
+                seat_id: None,
                 cursor: page.next_cursor,
                 limit: Some(1),
             },
@@ -1981,6 +2051,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![],
                 search: String::new(),
+                seat_id: None,
                 cursor: None,
                 limit: None,
             },
@@ -2027,6 +2098,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: String::new(),
+                seat_id: None,
                 cursor: None,
                 limit: None,
             },

@@ -4,7 +4,7 @@ use super::{
     WorkspaceShellEventPort, WorkspaceShellIdPort, WorkspaceShellLogPort,
     WorkspaceShellRuntimePort,
 };
-use crate::contexts::workspaces::domain::TerminalDimensions;
+use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -43,6 +43,7 @@ impl WorkspaceShellApplicationService {
                 level: WorkspaceLogLevel::Warn,
                 session_id: request.session_id.clone(),
                 shell_id: "policy".to_string(),
+                seat_id: request.seat_id.clone(),
                 message: "Verifier shell creation denied by read-only policy.".to_string(),
             });
             return Err(WorkspaceApplicationError::PolicyDenied {
@@ -63,6 +64,23 @@ impl WorkspaceShellApplicationService {
                     "Session workspace is unavailable.".to_string(),
                 )
             })?;
+        // Describe the runtime before opening it. A remote workspace whose SSH binding is missing
+        // cannot be named honestly — and the local PTY path would otherwise open a shell at a
+        // remote path and label it `remote`.
+        let runtime = if workspace.remote {
+            let binding = workspace.ssh_binding.as_ref().ok_or_else(|| {
+                WorkspaceApplicationError::Validation(
+                    "Remote session workspace has no current SSH binding.".to_string(),
+                )
+            })?;
+            ShellRuntimeDescriptor::Remote {
+                connection_id: binding.connection_id.clone(),
+                profile_revision: binding.revision,
+                supports_reconnect: false,
+            }
+        } else {
+            ShellRuntimeDescriptor::Native
+        };
         let shell_id = self.ids.next_shell_id();
         self.runtime.open_shell(&ShellLaunch {
             shell_id: shell_id.clone(),
@@ -76,6 +94,7 @@ impl WorkspaceShellApplicationService {
             level: WorkspaceLogLevel::Info,
             session_id: request.session_id.clone(),
             shell_id: shell_id.clone(),
+            seat_id: request.seat_id.clone(),
             message: if workspace.remote {
                 format!("Remote shell connected for agent {}.", workspace.agent_id)
             } else {
@@ -86,7 +105,7 @@ impl WorkspaceShellApplicationService {
             shell_id,
             session_id: request.session_id.clone(),
             state: "connected",
-            capability: if workspace.remote { "remote" } else { "native" },
+            runtime,
         })
     }
 
@@ -135,6 +154,7 @@ impl WorkspaceShellApplicationService {
             level: WorkspaceLogLevel::Info,
             session_id: session_id.clone(),
             shell_id: shell_id.clone(),
+            seat_id: None,
             message: "Shell disconnected.".to_string(),
         });
         self.events.publish(ShellEvent::State {

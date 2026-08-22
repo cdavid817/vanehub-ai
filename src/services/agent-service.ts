@@ -145,11 +145,12 @@ import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
+import type { CodeReviewService } from "./code-review-service";
 
 export interface AgentService extends
   ApiAgentService,
   BuiltinToolService,
+  CodeReviewService,
   CliConfigService,
   CliParameterService,
   CliToolService,
@@ -187,16 +188,6 @@ export interface AgentService extends
   checkForDesktopUpdate(): Promise<UpdateOperationReceipt>;
   downloadAndInstallDesktopUpdate(): Promise<UpdateOperationReceipt>;
   restartAfterDesktopUpdate(): Promise<void>;
-  openCodeReview(sessionId: string): Promise<CodeReview>;
-  getCodeReview(reviewId: string): Promise<CodeReview>;
-  loadCodeReviewFile(sessionId: string, path: string, expectedSnapshot: string): Promise<ReviewDiffFile>;
-  addCodeReviewComment(input: AddReviewCommentInput): Promise<ReviewComment>;
-  resolveCodeReviewComment(reviewId: string, commentId: string): Promise<CodeReview>;
-  selectCodeReviewComment(reviewId: string, commentId: string, selected: boolean): Promise<CodeReview>;
-  setCodeReviewDecision(reviewId: string, decision: ReviewDecision): Promise<CodeReview>;
-  revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
-  sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
-  startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
   deleteApiAgent(agentId: string): Promise<void>;
   getLspConfiguration(): Promise<LspConfiguration>;
   saveLspConfiguration(configuration: LspConfiguration): Promise<void>;

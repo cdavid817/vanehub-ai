@@ -27,5 +27,7 @@ pub(crate) use remote_terminal_limits::{
     TERMINAL_SEARCH_MAX_QUERY_BYTES,
 };
 pub(crate) use remote_workspace::RemoteWorkspace;
-pub(crate) use shell::{reset_directory_command, ShellHost, TerminalDimensions};
+pub(crate) use shell::{
+    reset_directory_command, ShellHost, ShellRuntimeDescriptor, TerminalDimensions,
+};
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};

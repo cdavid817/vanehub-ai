@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { LazyFeature } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
@@ -6,7 +7,7 @@ import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import { useSessionRoles } from "../hooks/use-session-speakers";
 import { activeSeatsFromSession, seatsFromSession } from "../services/session-seats";
 import { SeatSwitcher } from "./seat-switcher";
-import { showsSeatSwitcher } from "./tab-scope";
+import { effectiveSeatId, showsSeatSwitcher, tabScope } from "./tab-scope";
 import type { ChatMessage } from "../types/chat";
 import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChatTab } from "./chat-tab";
@@ -69,11 +70,13 @@ export function SessionTabs({
   visibilityControls?: ConversationVisibilityControls;
   workspaceTabsCollapsed?: boolean;
 }) {
+  const { t } = useTranslation();
   const sessionId = activeSession?.id ?? null;
   const seats = useMemo(() => (activeSession ? activeSeatsFromSession(activeSession) : []), [activeSession]);
   const isSharedThread = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
-  const [selectedSeat, setSelectedSeat] = useState(0);
+  // Null is "all seats": a freshly opened tab must not silently narrow to one participant.
+  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
   const [mountedTabs, setMountedTabs] = useState<Set<SessionTabId>>(() => new Set(["chat"]));
   const terminalCount = useMemo(() => toolUseCount(messages), [messages]);
@@ -81,7 +84,7 @@ export function SessionTabs({
   useEffect(() => {
     setActiveTab("chat");
     setMountedTabs(new Set(["chat"]));
-    setSelectedSeat(0);
+    setSelectedSeat(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -98,6 +101,9 @@ export function SessionTabs({
   }
 
   function renderPanel(id: SessionTabId) {
+    // Resolved per tab rather than read from the switcher: a session-scoped tab must not change
+    // because a control that does not apply to it happens to hold a selection.
+    const seatId = effectiveSeatId(id, seats, selectedSeat);
     if (id === "chat") {
       if (activeSession?.interactionMode === "api" || isSharedThread) {
         return (
@@ -116,12 +122,12 @@ export function SessionTabs({
     if (id === "documents") return <LazyFeature componentProps={{ sessionId }} loader={loadDocumentsTab} />;
     if (id === "files") return <LazyFeature componentProps={{ sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
-      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", messages, partial: messagesPartial, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
+      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", messages, partial: messagesPartial, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }
     if (id === "shell") {
-      return <LazyFeature componentProps={{ active: activeTab === "shell", sessionId }} loader={loadShellTab} />;
+      return <LazyFeature componentProps={{ active: activeTab === "shell", seatId, sessionId }} loader={loadShellTab} />;
     }
-    if (id === "logs") return <LazyFeature componentProps={{ sessionId }} loader={loadLogsTab} />;
+    if (id === "logs") return <LazyFeature componentProps={{ seatId, sessionId }} loader={loadLogsTab} />;
     if (id === "traces") return <LazyFeature componentProps={{ session: activeSession, sessionId }} loader={loadExecutionTimelineTab} />;
     return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadReportTab} />;
   }
@@ -166,6 +172,11 @@ export function SessionTabs({
                 seats={seats}
                 selectedIndex={selectedSeat}
               />
+            ) : null}
+            {seats.length > 1 && tabScope(id) === "session" ? (
+              // Without this the absent switcher reads as an omission rather than as a statement
+              // that the tab is not seat-scoped.
+              <p className="sr-only">{t("session.seatSwitcher.sessionScoped")}</p>
             ) : null}
             {renderPanel(id)}
           </section>

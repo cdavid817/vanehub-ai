@@ -28,7 +28,12 @@ describe("Web session workspace adapter", () => {
 
   it("simulates shell I/O and supports cleanup without a native process", async () => {
     const shell = await webSessionWorkspaceClient.createShell({ sessionId: "session-1", rows: 24, cols: 80 });
-    expect(shell.capability).toBe("simulated");
+    expect(shell.runtime).toEqual({
+      kind: "simulated",
+      supportsResize: false,
+      supportsReplay: true,
+      supportsReconnect: false,
+    });
     const events: string[] = [];
     const unsubscribe = await webSessionWorkspaceClient.subscribeShellEvents(shell.shellId, (event) => {
       if (event.type === "output") events.push(event.content);

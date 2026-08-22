@@ -5,25 +5,25 @@
 - [x] 0.3 Inventory the current frontend service methods, Tauri/Web session-workspace adapters, Rust commands, SQLite migrations, Tauri events, and tests for Changes, Terminal History, Documents, Files, Shell, Logs, Traces, Report, Review, Usage, and Basic Info.
 - [x] 0.4 Record the current command names and serialized DTO shapes that must remain compatible during the migration.
 - [x] 0.5 Add or update architecture tests proving the change adds no Rust bounded-context directory and cross-context access uses published APIs or explicit ports.
-- [ ] 0.6 Add failing frontend contract tests for the native `remote` Shell descriptor, effective seat query propagation, hunk-scoped decision mutation, and loaded-log preservation after a load-more failure.
+- [x] 0.6 Add failing frontend contract tests for the native `remote` Shell descriptor, effective seat query propagation, hunk-scoped decision mutation, and loaded-log preservation after a load-more failure.
 - [ ] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted.
 - [ ] 0.8 Add a controlled repository fixture in which a generated review patch can be checked with `git apply --check`.
 - [ ] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states.
 
 ## 1. Immediate Contract and Correctness Fixes
 
-- [ ] 1.1 Replace the string-only frontend `ShellCapability` union with the discriminated `ShellRuntimeDescriptor`, including `native`, `remote`, `simulated`, and `unavailable` variants.
-- [ ] 1.2 Map the existing Rust local and remote Shell results to the new descriptor without changing the current create-shell command name during the transition.
-- [ ] 1.3 Update Tauri and Web/mock serialization fixtures and contract tests for every Shell runtime descriptor variant.
-- [ ] 1.4 Pass the selected seat id into Terminal History, Shell, and Logs service queries according to `tab-scope.ts`.
-- [ ] 1.5 Hide or disable the workspace seat switcher for session-scoped tabs and add an accessible explanation when a tab has no seat scope.
-- [ ] 1.6 Add tests proving a multi-Agent seat change alters seat-scoped query keys/results and does not reset session-scoped tabs.
-- [ ] 1.7 Add a dedicated `setCodeReviewHunkDecision` service method and transport DTO; stop routing hunk Accept through `setCodeReviewDecision`.
-- [ ] 1.8 Implement a Web/mock hunk decision mutation that changes only the selected fixture hunk and labels the mutation simulated.
-- [ ] 1.9 Add review tests proving hunk Accept leaves the review decision, Git index, and working tree unchanged.
-- [ ] 1.10 Refactor Logs state so initial-load failure may show a blocking error, but refresh/load-more/live failures preserve already loaded entries and show an inline retry state.
-- [ ] 1.11 Attach error handling to Shell input and resize promises; display typed connection/process failure instead of silently discarding rejected operations.
-- [ ] 1.12 Split the current Copy Diff action into Copy Displayed Lines and a disabled placeholder for Copy Standard Patch until Task Group 13 implements the backend operation.
+- [x] 1.1 Replace the string-only frontend `ShellCapability` union with the discriminated `ShellRuntimeDescriptor`, including `native`, `remote`, `simulated`, and `unavailable` variants.
+- [x] 1.2 Map the existing Rust local and remote Shell results to the new descriptor without changing the current create-shell command name during the transition.
+- [x] 1.3 Update Tauri and Web/mock serialization fixtures and contract tests for every Shell runtime descriptor variant.
+- [x] 1.4 Pass the selected seat id into Terminal History, Shell, and Logs service queries according to `tab-scope.ts`.
+- [x] 1.5 Hide or disable the workspace seat switcher for session-scoped tabs and add an accessible explanation when a tab has no seat scope.
+- [x] 1.6 Add tests proving a multi-Agent seat change alters seat-scoped query keys/results and does not reset session-scoped tabs.
+- [x] 1.7 Add a dedicated `setCodeReviewHunkDecision` service method and transport DTO; stop routing hunk Accept through `setCodeReviewDecision`.
+- [x] 1.8 Implement a Web/mock hunk decision mutation that changes only the selected fixture hunk and labels the mutation simulated.
+- [x] 1.9 Add review tests proving hunk Accept leaves the review decision, Git index, and working tree unchanged.
+- [x] 1.10 Refactor Logs state so initial-load failure may show a blocking error, but refresh/load-more/live failures preserve already loaded entries and show an inline retry state.
+- [x] 1.11 Attach error handling to Shell input and resize promises; display typed connection/process failure instead of silently discarding rejected operations.
+- [x] 1.12 Split the current Copy Diff action into Copy Displayed Lines and a disabled placeholder for Copy Standard Patch until Task Group 13 implements the backend operation.
 
 ## 2. Frontend Evidence Types, Service Boundary, and Runtime Adapters
 

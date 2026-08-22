@@ -27,13 +27,35 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
   const actionState = useReviewAction(review.id);
   const [railOpen, setRailOpen] = useState(true);
   const [pending, setPending] = useState<{ kind: "revert"; hunk?: string } | { kind: "stale-feedback" } | null>(null);
+  const [hunkError, setHunkError] = useState<string | null>(null);
   const selectedIndex = review.files.findIndex((file) => file.path === state.selectedPath);
   const move = (offset: number) => state.setSelectedPath(review.files[(selectedIndex + offset + review.files.length) % review.files.length].path);
-  const copyDiff = () => navigator.clipboard.writeText(state.diff?.hunks.flatMap((hunk) => hunk.lines.map((line) => line.content)).join("\n") ?? "");
+  // What the panel renders, not an apply-ready patch: no file or hunk headers, and truncated
+  // content is copied as truncated. Copy Standard Patch is the witnessed one; Task Group 13
+  // implements the backend operation that can produce it.
+  const copyDisplayedLines = () => navigator.clipboard.writeText(state.diff?.hunks.flatMap((hunk) => hunk.lines.map((line) => line.content)).join("\n") ?? "");
 
   const decide = async (decision: ReviewDecision) => state.replaceReview(
     await agentService.setCodeReviewDecision(review.id, decision),
   );
+  // Hunk acceptance is its own operation. Routing it through `decide` accepted the whole review.
+  const decideHunk = async (hunkFingerprint: string, decision: ReviewDecision) => {
+    if (!state.selectedPath) return;
+    setHunkError(null);
+    try {
+      await agentService.setCodeReviewHunkDecision({
+        reviewId: review.id,
+        relativePath: state.selectedPath,
+        hunkFingerprint,
+        expectedSnapshotFingerprint: review.fingerprint,
+        decision,
+      });
+    } catch (reason: unknown) {
+      setHunkError(String(reason).includes("review_hunk_decision_unavailable")
+        ? t("sessionTabs.review.hunkDecisionUnavailable")
+        : t("sessionTabs.review.hunkDecisionFailed"));
+    }
+  };
   const submitComment = async () => {
     if (!anchor || !draft.trim()) return;
     await agentService.addCodeReviewComment({ reviewId: review.id, anchor, body: draft });
@@ -74,7 +96,8 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           <strong className="mr-auto min-w-0 truncate text-sm">{state.selectedPath}</strong>
           <button aria-label={t("sessionTabs.review.previous")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(-1)} type="button">←</button>
           <button aria-label={t("sessionTabs.review.next")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(1)} type="button">→</button>
-          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyDiff()} type="button">{t("sessionTabs.review.copy")}</button>
+          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyDisplayedLines()} type="button">{t("sessionTabs.review.copyDisplayedLines")}</button>
+          <button className="rounded border border-border px-2 py-1 text-xs" disabled title={t("sessionTabs.review.copyStandardPatchPending")} type="button">{t("sessionTabs.review.copyStandardPatch")}</button>
           <Toggle active={mode === "unified"} label={t("sessionTabs.changes.unified")} onClick={() => setMode("unified")} />
           <Toggle active={mode === "split"} label={t("sessionTabs.changes.split")} onClick={() => setMode("split")} />
           <button className="rounded border border-destructive/50 px-2 py-1 text-xs text-destructive" onClick={() => revert()} type="button">{t("sessionTabs.review.revertFile")}</button>
@@ -84,7 +107,8 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           {state.error ? <p role="alert" className="text-sm text-destructive">{state.error}</p> : null}
           {state.diff?.binary || state.diff?.oversized ? <WorkspaceState kind="unavailable" message={t(state.diff.binary ? "sessionTabs.files.binary" : "sessionTabs.files.oversized")} /> : null}
           {state.diff?.truncated ? <p className="text-xs text-warning">{t("sessionTabs.review.truncated")}</p> : null}
-          {state.diff?.hunks.map((hunk) => <ReviewHunk hunk={hunk} key={hunk.fingerprint} mode={mode} onAccept={() => void decide("accepted")} onAnchor={setAnchor} onRevert={() => revert(hunk.fingerprint)} path={state.selectedPath ?? ""} />)}
+          {hunkError ? <p role="alert" className="text-sm text-destructive">{hunkError}</p> : null}
+          {state.diff?.hunks.map((hunk) => <ReviewHunk hunk={hunk} key={hunk.fingerprint} mode={mode} onAccept={() => void decideHunk(hunk.fingerprint, "accepted")} onAnchor={setAnchor} onRevert={() => revert(hunk.fingerprint)} path={state.selectedPath ?? ""} />)}
         </div>
         <footer className="space-y-2 border-t border-border p-3">
           {receipt ? <p role="status" className="text-xs text-muted-foreground">{receipt}</p> : null}

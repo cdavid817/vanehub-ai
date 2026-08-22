@@ -11,6 +11,7 @@ use super::application::{
 };
 pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
+    ShellRuntimeDescriptor,
 };
 pub(crate) use super::infrastructure::PreparedEvaluationFixture;
 use std::path::Path;

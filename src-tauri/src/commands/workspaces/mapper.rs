@@ -3,8 +3,8 @@ use crate::contexts::workspaces::api::{
     CreateShellRequest, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult,
     KnownProject, KnownRemoteWorkspace, ProjectInspection, ResizeShellRequest,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
-    WorkspaceLogLevel,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext,
+    ShellRuntimeDescriptor, ShellSession, WorkspaceLogLevel,
 };
 
 pub(super) fn known_project_to_dto(project: KnownProject) -> dto::KnownProject {
@@ -204,6 +204,7 @@ pub(super) fn session_log_query_from_dto(query: dto::SessionLogQuery) -> Session
         session_id: query.session_id,
         levels: query.levels.into_iter().map(log_level_from_dto).collect(),
         search: query.search,
+        seat_id: query.seat_id.filter(|value| !value.trim().is_empty()),
         cursor: query.cursor,
         limit: query.limit,
     }
@@ -242,6 +243,7 @@ pub(super) fn create_shell_request_from_dto(input: dto::CreateShellInput) -> Cre
         session_id: input.session_id,
         rows: input.rows,
         cols: input.cols,
+        seat_id: input.seat_id.filter(|value| !value.trim().is_empty()),
     }
 }
 
@@ -258,7 +260,43 @@ pub(super) fn shell_session_to_dto(shell: ShellSession) -> dto::ShellSession {
         shell_id: shell.shell_id,
         session_id: shell.session_id,
         state: shell.state,
-        capability: shell.capability,
+        runtime: shell_runtime_to_dto(shell.runtime),
+    }
+}
+
+fn shell_runtime_to_dto(runtime: ShellRuntimeDescriptor) -> dto::ShellRuntimeDescriptor {
+    let supports_resize = runtime.supports_resize();
+    let supports_replay = runtime.supports_replay();
+    let supports_reconnect = runtime.supports_reconnect();
+    match runtime {
+        ShellRuntimeDescriptor::Native => dto::ShellRuntimeDescriptor::Native {
+            supports_resize,
+            supports_replay,
+            supports_reconnect,
+        },
+        ShellRuntimeDescriptor::Remote {
+            connection_id,
+            profile_revision,
+            ..
+        } => dto::ShellRuntimeDescriptor::Remote {
+            connection_id,
+            profile_revision,
+            supports_resize,
+            supports_replay,
+            supports_reconnect,
+        },
+        ShellRuntimeDescriptor::Simulated => dto::ShellRuntimeDescriptor::Simulated {
+            supports_resize,
+            supports_replay,
+            supports_reconnect,
+        },
+        ShellRuntimeDescriptor::Unavailable {
+            reason_code,
+            remediation,
+        } => dto::ShellRuntimeDescriptor::Unavailable {
+            reason_code,
+            remediation,
+        },
     }
 }
 
@@ -433,7 +471,7 @@ mod tests {
             shell_id: "shell-1".to_string(),
             session_id: "session-1".to_string(),
             state: "connected",
-            capability: "native",
+            runtime: ShellRuntimeDescriptor::Native,
         });
 
         assert_eq!(create.session_id, "session-1");
@@ -446,8 +484,70 @@ mod tests {
                 "shellId": "shell-1",
                 "sessionId": "session-1",
                 "state": "connected",
-                "capability": "native"
+                "runtime": {
+                    "kind": "native",
+                    "supportsResize": true,
+                    "supportsReplay": true,
+                    "supportsReconnect": false
+                }
             })
+        );
+    }
+
+    /// The frontend narrows on `kind`, so every variant's wire shape is pinned here rather than
+    /// only the one the local development machine happens to produce.
+    #[test]
+    fn every_shell_runtime_descriptor_variant_keeps_its_wire_shape() {
+        let remote = shell_runtime_to_dto(ShellRuntimeDescriptor::Remote {
+            connection_id: "connection-7".to_string(),
+            profile_revision: 3,
+            supports_reconnect: false,
+        });
+        assert_eq!(
+            serde_json::to_value(remote).expect("remote descriptor"),
+            json!({
+                "kind": "remote",
+                "connectionId": "connection-7",
+                "profileRevision": 3,
+                "supportsResize": true,
+                "supportsReplay": true,
+                "supportsReconnect": false
+            })
+        );
+
+        let simulated = shell_runtime_to_dto(ShellRuntimeDescriptor::Simulated);
+        assert_eq!(
+            serde_json::to_value(simulated).expect("simulated descriptor"),
+            json!({
+                "kind": "simulated",
+                "supportsResize": false,
+                "supportsReplay": true,
+                "supportsReconnect": false
+            })
+        );
+
+        let unavailable = shell_runtime_to_dto(ShellRuntimeDescriptor::Unavailable {
+            reason_code: "workspace_provider_unavailable",
+            remediation: Some("Reconnect the SSH profile.".to_string()),
+        });
+        assert_eq!(
+            serde_json::to_value(unavailable).expect("unavailable descriptor"),
+            json!({
+                "kind": "unavailable",
+                "reasonCode": "workspace_provider_unavailable",
+                "remediation": "Reconnect the SSH profile."
+            })
+        );
+
+        // Absent remediation is omitted rather than serialized as null, so the frontend's
+        // optional field stays optional instead of becoming `string | null`.
+        let bare = shell_runtime_to_dto(ShellRuntimeDescriptor::Unavailable {
+            reason_code: "shell_not_found",
+            remediation: None,
+        });
+        assert_eq!(
+            serde_json::to_value(bare).expect("bare unavailable descriptor"),
+            json!({ "kind": "unavailable", "reasonCode": "shell_not_found" })
         );
     }
 }

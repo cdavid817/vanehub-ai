@@ -4,21 +4,22 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
-import type { ShellConnectionState } from "../types/session-workspace";
+import type { ShellConnectionState, ShellRuntimeDescriptor } from "../types/session-workspace";
 import { createTerminalTheme } from "./terminal-theme";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { retainAsyncCleanup } from "../lib/async-cleanup";
 
-export function ShellTab({ active, sessionId }: { active: boolean; sessionId: string | null }) {
+export function ShellTab({ active, seatId = null, sessionId }: { active: boolean; seatId?: string | null; sessionId: string | null }) {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XtermTerminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const shellIdRef = useRef<string | null>(null);
+  const runtimeRef = useRef<ShellRuntimeDescriptor | null>(null);
   const activeRef = useRef(active);
   const [state, setState] = useState<ShellConnectionState>("connecting");
-  const [simulated, setSimulated] = useState(false);
+  const [runtime, setRuntime] = useState<ShellRuntimeDescriptor | null>(null);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
 
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -28,6 +29,11 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     const targetSessionId = sessionId;
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
+    // A rejected write or resize used to be dropped on the floor by `void`, so a shell whose
+    // channel had already failed kept accepting keystrokes that went nowhere.
+    const reportFailure = (reason: unknown) => {
+      if (!disposed) setError(workspaceErrorKey(reason));
+    };
     const terminal = new XtermTerminal({
       allowTransparency: false,
       convertEol: true,
@@ -41,13 +47,17 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     terminalRef.current = terminal; fitRef.current = fit;
     const inputDisposable = terminal.onData((content) => {
       const shellId = shellIdRef.current;
-      if (shellId) void agentService.writeShellInput(shellId, content);
+      if (shellId) agentService.writeShellInput(shellId, content).catch(reportFailure);
     });
     const resizeObserver = new ResizeObserver(() => {
       if (!activeRef.current) return;
       fit.fit();
       const shellId = shellIdRef.current;
-      if (shellId) void agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols });
+      // A simulated runtime has no PTY to resize; asking it to would be a request the adapter
+      // can only reject.
+      if (shellId && runtimeRef.current?.kind !== "simulated") {
+        agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols }).catch(reportFailure);
+      }
     });
     resizeObserver.observe(hostRef.current);
     const themeObserver = new MutationObserver(() => {
@@ -67,10 +77,11 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     async function connect() {
       try {
         setState("connecting");
-        const shell = await agentService.createShell({ sessionId: targetSessionId, rows: terminal.rows, cols: terminal.cols });
+        const shell = await agentService.createShell({ sessionId: targetSessionId, rows: terminal.rows, cols: terminal.cols, seatId });
         if (disposed) { await agentService.killShell(shell.shellId); return; }
-        shellIdRef.current = shell.shellId; setState(shell.state); setSimulated(shell.capability === "simulated");
-        if (shell.capability === "simulated") terminal.writeln(t("sessionTabs.shell.simulatedBanner"));
+        shellIdRef.current = shell.shellId; runtimeRef.current = shell.runtime;
+        setState(shell.state); setRuntime(shell.runtime);
+        if (shell.runtime.kind === "simulated") terminal.writeln(t("sessionTabs.shell.simulatedBanner"));
         const nextUnsubscribe = await agentService.subscribeShellEvents(shell.shellId, (event) => {
           if (disposed) return;
           if (event.type === "output") {
@@ -95,18 +106,23 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     return () => {
       disposed = true; resizeObserver.disconnect(); themeObserver.disconnect(); inputDisposable.dispose(); unsubscribe?.(); terminal.dispose();
       if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
-      const shellId = shellIdRef.current; shellIdRef.current = null;
+      const shellId = shellIdRef.current; shellIdRef.current = null; runtimeRef.current = null;
       if (shellId) void agentService.killShell(shellId);
       terminalRef.current = null; fitRef.current = null;
     };
-  }, [sessionId, t]);
+    // A shell belongs to one seat, so selecting another seat opens that seat's shell rather than
+    // silently reassigning this one. Task Group 7 replaces this teardown with a retained registry.
+  }, [seatId, sessionId, t]);
 
   useEffect(() => {
     if (!active) return;
     const frame = requestAnimationFrame(() => {
       fitRef.current?.fit();
       const terminal = terminalRef.current; const shellId = shellIdRef.current;
-      if (terminal && shellId) void agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols });
+      if (terminal && shellId && runtimeRef.current?.kind !== "simulated") {
+        agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols })
+          .catch((reason: unknown) => setError(workspaceErrorKey(reason)));
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [active]);
@@ -116,11 +132,11 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
       <div className="flex items-center gap-2 border-b border-border p-2 text-xs">
         <span className="rounded-full border border-border px-2 py-1">{t(`sessionTabs.shell.state.${state}`)}</span>
-        {simulated ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{t("sessionTabs.shell.simulated")}</span> : null}
+        {runtime ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{t(`sessionTabs.shell.runtime.${runtime.kind}`)}</span> : null}
         <div className="ml-auto flex gap-1">
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={!shellIdRef.current} onClick={() => { const shellId = shellIdRef.current; if (shellId) void agentService.resetShellDirectory(shellId); }} type="button">{t("sessionTabs.shell.cd")}</button>
+          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={!shellIdRef.current} onClick={() => { const shellId = shellIdRef.current; if (shellId) agentService.resetShellDirectory(shellId).catch((reason: unknown) => setError(workspaceErrorKey(reason))); }} type="button">{t("sessionTabs.shell.cd")}</button>
           <button className="h-7 rounded border border-border px-2 hover:bg-muted" onClick={() => terminalRef.current?.clear()} type="button">{t("sessionTabs.shell.clear")}</button>
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={state !== "connected"} onClick={() => { const shellId = shellIdRef.current; if (!shellId) return; shellIdRef.current = null; setState("disconnected"); void agentService.killShell(shellId); }} type="button">{t("sessionTabs.shell.disconnect")}</button>
+          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={state !== "connected"} onClick={() => { const shellId = shellIdRef.current; if (!shellId) return; shellIdRef.current = null; setState("disconnected"); agentService.killShell(shellId).catch((reason: unknown) => setError(workspaceErrorKey(reason))); }} type="button">{t("sessionTabs.shell.disconnect")}</button>
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
