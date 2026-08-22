@@ -44,7 +44,7 @@ pub(super) fn started_operation_to_dto(operation: &StartedCliOperation) -> Opera
         id: operation.id.clone(),
         execution_run_id: None,
         trace_id: None,
-        kind: OperationKind::Agent,
+        kind: OperationKind::Cli,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),
         message: operation.message.clone(),
@@ -53,6 +53,10 @@ pub(super) fn started_operation_to_dto(operation: &StartedCliOperation) -> Opera
         error: None,
         created_at: operation.created_at.clone(),
         updated_at: operation.updated_at.clone(),
+        phase: None,
+        completed_units: None,
+        total_units: None,
+        cancellable: None,
     }
 }
 
@@ -156,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn started_operation_mapping_keeps_agent_operation_shape() {
+    fn started_operation_mapping_keeps_cli_operation_shape() {
         let value = serde_json::to_value(started_operation_to_dto(&StartedCliOperation {
             id: "op-fixed".to_string(),
             related_entity_id: Some("codex-cli".to_string()),
@@ -166,9 +170,14 @@ mod tests {
         }))
         .expect("serialize");
 
-        assert_eq!(value["kind"], "agent");
+        // Was `agent`, which made CLI work indistinguishable from an Agent generation in the
+        // shared operation list. CLI work is its own observable kind.
+        assert_eq!(value["kind"], "cli");
         assert_eq!(value["status"], "running");
         assert_eq!(value["relatedEntityId"], "codex-cli");
         assert_eq!(value["logs"], serde_json::json!([]));
+        // A freshly started operation declares no progress yet.
+        assert!(value.get("phase").is_none());
+        assert!(value.get("cancellable").is_none());
     }
 }

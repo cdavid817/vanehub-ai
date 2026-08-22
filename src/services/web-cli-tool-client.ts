@@ -143,6 +143,7 @@ export const webCliToolClient: CliToolService = {
     const operationId = `web-cli-refresh-${timestamp}`;
     return createWebMockOperation({
       id: operationId,
+      kind: "cli",
       relatedEntityId: agentId ?? null,
       message,
       terminalStatus: "failed",
@@ -157,6 +158,7 @@ export const webCliToolClient: CliToolService = {
     const operationId = `web-cli-install-${input.agentId}-${timestamp}`;
     return createWebMockOperation({
       id: operationId,
+      kind: "cli",
       relatedEntityId: input.agentId,
       message,
       terminalStatus: "failed",
@@ -170,6 +172,7 @@ export const webCliToolClient: CliToolService = {
     const message = webCliPackageOperationsMessage();
     return createWebMockOperation({
       id: `web-cli-upgrade-all-${timestamp}`,
+      kind: "cli",
       relatedEntityId: null,
       message,
       terminalStatus: "failed",
