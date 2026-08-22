@@ -51,8 +51,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `@tauri-apps/*`,于是 `selectProfilePath` 只能落在服务边界上——接口 8 行(含说明为何设置页持有
 // 真实路径仍不算越界)、Tauri 侧 4 行、Web 侧 8 行(浏览器给不出宿主路径,返回 null 并写明理由,
 // 而不是让用户手填一条注定不可达的路径)。
+// 再上调 8 行:E2E fake 的接线落在 `runtime-local-media-client.ts`。fake 本体在 `src/testing/`
+// 不计入本预算,这里只有一个构建期常量分支加解释它为何是构建期而非运行时的注释——运行时开关会在
+// 已发布的构建里留下一个可以被打开的入口,而构建期常量在产物中根本不存在。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19605, owner: "add-local-composer-media-tools" },
+  { root: "src/services", budget: 19613, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -49,6 +49,12 @@ jobs:
       - name: Vitest with coverage
         run: npm run test:coverage
 
+      # Two real Vite builds, so it is a step of its own rather than part of the Vitest gate. It
+      # proves the local-media E2E fake is absent from a production bundle and present only when
+      # the build sets its flag.
+      - name: Local media fake bundle boundary
+        run: npm run local-media:fake:check
+
       - name: Enforce frontend coverage policy
         run: npm run coverage:check:frontend
 
@@ -383,6 +389,11 @@ jobs:
 
       - name: Run Playwright E2E tests
         run: npx playwright test
+
+      # A separate instrumented dev server, so the suite above keeps asserting truthful
+      # native-only behaviour against an un-instrumented one.
+      - name: Run local media fake-driven E2E tests
+        run: npm run local-media:e2e
 
       - name: Upload Playwright report
         if: failure()

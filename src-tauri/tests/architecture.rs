@@ -2509,10 +2509,15 @@ fn paddleocr_is_imported_and_constructed_only_by_the_local_media_worker() {
                 .to_string();
             if path.is_dir() {
                 // Dependencies, build output, and the immutable OpenSpec archive are not ours.
-                if matches!(
-                    name.as_str(),
-                    "node_modules" | "target" | ".git" | "dist" | "__pycache__" | "archive"
-                ) {
+                // Every dot-directory is skipped because the documentation and screenshot builds
+                // copy the packaged worker into `.docs-target`, and a scan that counted a copy of
+                // our own file as a second runtime would fail for the one reason it must not.
+                if name.starts_with('.')
+                    || matches!(
+                        name.as_str(),
+                        "node_modules" | "target" | "dist" | "coverage" | "__pycache__" | "archive"
+                    )
+                {
                     continue;
                 }
                 stack.push(path);
