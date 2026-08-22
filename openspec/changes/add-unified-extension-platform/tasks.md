@@ -49,9 +49,9 @@ Implemented in this order. Manifest parsing stays two-stage throughout — `Boun
 
 ### 1.D Manifest domain
 
-- [ ] 1.D.1 Implement validated newtypes for extension id, publisher id, contribution local/global id, package hash, snapshot id, installation id, runtime generation id, operation witness, and activation event.
-- [ ] 1.D.2 Implement `VersionedExtensionManifest::V1` and `ExtensionManifestV1` over those newtypes plus `semver::Version` and `semver::VersionReq`.
-- [ ] 1.D.3 Implement manifest declarations for runtime, activation events, extension/Skill dependencies, requested capabilities, tools, Skills, MCP definitions, mode presets, Hooks, authorization rules, connectors, configuration schemas, and transforms.
+- [x] 1.D.1 Implement validated newtypes for extension id, publisher id, contribution local/global id, package hash, snapshot id, installation id, runtime generation id, operation witness, and activation event.
+- [x] 1.D.2 Implement `VersionedExtensionManifest::V1` and `ExtensionManifestV1` over those newtypes plus `semver::Version` and `semver::VersionReq`.
+- [x] 1.D.3 Implement manifest declarations for runtime, activation events, extension/Skill dependencies, requested capabilities, tools, Skills, MCP definitions, mode presets, Hooks, authorization rules, connectors, configuration schemas, and transforms.
 
 ### 1.E Explicit AST decoding
 
@@ -65,9 +65,11 @@ Implemented in this order. Manifest parsing stays two-stage throughout — `Boun
 
 ### 1.G Portable package paths
 
-- [ ] 1.G.1 Implement a `PortablePackagePath` value object that checks the raw string **before** `Path::components()` and rejects backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, `..`, and other non-portable forms. `Path::components()` treats a backslash as an ordinary filename character on Unix, so component analysis alone passes a Windows-shaped traversal on a Linux runner.
-- [ ] 1.G.2 Reject an invalid path outright; never auto-normalize one into a valid-looking path.
-- [ ] 1.G.3 Reject Windows reserved names, alternate data streams, case-fold collisions, and Unicode normalization collisions among declared paths.
+Pulled ahead of 1.E and 1.F: the manifest declarations in 1.D carry these paths as fields, so the type had to exist before the struct could compile. Nothing was skipped by moving it earlier.
+
+- [x] 1.G.1 Implement a `PortablePackagePath` value object that checks the raw string **before** `Path::components()` and rejects backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, `..`, and other non-portable forms. `Path::components()` treats a backslash as an ordinary filename character on Unix, so component analysis alone passes a Windows-shaped traversal on a Linux runner.
+- [x] 1.G.2 Reject an invalid path outright; never auto-normalize one into a valid-looking path.
+- [x] 1.G.3 Reject Windows reserved names, alternate data streams, case-fold collisions, and Unicode normalization collisions among declared paths.
 
 ### 1.H Contribution uniqueness and references
 
