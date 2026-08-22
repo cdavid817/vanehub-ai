@@ -2486,9 +2486,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // is 6 lines of `apply_transactional_migration` plus 1 line in `EXPECTED_MIGRATIONS`, so 35
     // lines against 29 lines of remaining slack. Every migration *body* lives in the context that
     // owns the tables; what is here is the registration, which is the whole point of the file.
+    //
+    // Raised again from 2,971 by +25 for Task Group 3's first migration: 7 lines register migration
+    // 86, and 18 are `begin_write_transaction`, which belongs here because it is database execution
+    // protocol rather than any one context's rule. Migration 86's own tests deliberately do *not*
+    // live here -- they assert about `extension_platform`'s tables, so they moved to that
+    // subdomain. Migrations 87-89 will add 7 lines each; the budget is re-measured once when Task
+    // Group 3 closes rather than nudged per migration.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_971,
+        budget: 2_996,
         owner: "add-unified-extension-platform",
     },
 ];

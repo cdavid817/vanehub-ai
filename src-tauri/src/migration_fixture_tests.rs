@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 85. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 86. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -25,9 +25,11 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// migration 82 adds the gate-degradation record written when a reload leaves the published set
 /// stale, migration 83 adds the trusted publisher-key store, and migration 84 adds the Developer
 /// Mode switch and its audit trail, and migration 85 adds published snapshots and the
-/// pointer that says which one each installation runs.
+/// pointer that says which one each installation runs, and migration 86 adds version claims,
+/// packages, snapshot detail, runtime generations, and operation witnesses while rebuilding
+/// the installations table with the references SQLite cannot add after the fact.
 fn expected_versions() -> Vec<i64> {
-    (1..=85).collect()
+    (1..=86).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

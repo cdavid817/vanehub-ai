@@ -18,6 +18,7 @@
 //! Hook dispatch, rule compilation, connector, stale witness — register here as they land, so the
 //! collision check is never retrofitted onto a codebase that already has one.
 
+use super::runtime_generation::all_runtime_generation_errors;
 use super::{
     all_developer_mode_errors, all_publisher_key_errors, all_snapshot_publication_errors,
     DecodeReason, ExtensionPlatformFeature, FeatureGateError, IdentifierKind, IntegrityReason,
@@ -39,6 +40,7 @@ pub(crate) enum ErrorArea {
     PublisherKeyManagement,
     PackageAdmission,
     SnapshotPublication,
+    RuntimeGeneration,
 }
 
 impl ErrorArea {
@@ -54,6 +56,7 @@ impl ErrorArea {
             Self::PublisherKeyManagement => "publisher_key_management",
             Self::PackageAdmission => "package_admission",
             Self::SnapshotPublication => "snapshot_publication",
+            Self::RuntimeGeneration => "runtime_generation",
         }
     }
 }
@@ -120,6 +123,9 @@ pub(crate) fn registered_failures() -> Vec<RegisteredFailure> {
     }
     for error in all_snapshot_publication_errors() {
         push(ErrorArea::SnapshotPublication, error.code().to_string());
+    }
+    for error in all_runtime_generation_errors() {
+        push(ErrorArea::RuntimeGeneration, error.code().to_string());
     }
 
     failures

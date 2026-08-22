@@ -56,6 +56,7 @@ mod publisher_key_tests;
 mod reconciliation;
 #[cfg(test)]
 mod reconciliation_tests;
+mod runtime_generation;
 mod signature_envelope;
 #[cfg(test)]
 mod signature_test_support;
@@ -64,6 +65,9 @@ mod signature_tests;
 mod signature_verification;
 mod signed_payload;
 mod snapshot;
+mod version_claim;
+#[cfg(test)]
+mod version_claim_tests;
 
 pub(crate) use error::FeatureGateError;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -160,6 +164,11 @@ pub(crate) use reconciliation::{
     ReconciliationVerdict, ALL_EXTENSION_ROOT_SCOPES, ALL_RECONCILIATION_REASONS,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use runtime_generation::{
+    all_runtime_generation_errors, ActiveGeneration, RuntimeGenerationError,
+    RuntimeGenerationRecord,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use signature_envelope::{
     parse_signature_envelope, PackageSignature, SignatureAlgorithm, SignatureEnvelope,
     ENVELOPE_YAML_LIMITS, SIGNATURE_BYTES, SUPPORTED_ENVELOPE_VERSION,
@@ -175,4 +184,8 @@ pub(crate) use signed_payload::signed_payload;
 pub(crate) use snapshot::{
     all_snapshot_publication_errors, ContentPublication, SnapshotPointer, SnapshotPublicationError,
     SnapshotRecord, StagedRecovery,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use version_claim::{
+    decide_claim, ClaimOutcome, ClaimProvenance, VersionClaim, VersionContentConflict,
 };

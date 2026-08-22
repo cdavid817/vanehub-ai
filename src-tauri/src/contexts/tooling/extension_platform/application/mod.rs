@@ -27,8 +27,8 @@ pub(crate) use ports::{
     DefaultPrerequisites, DeveloperModeAuditEntry, DeveloperModeAuditSink, DeveloperModeRepository,
     FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock, FeatureGateDegradationEntry,
     FeatureGateRepository, FeatureGateWrite, NoForcedDisables, PersistedFeatureGate,
-    PublisherKeyDirectory, SnapshotContentStore, SnapshotPointerRepository,
-    TrustedPublisherKeyRepository,
+    PublisherKeyDirectory, RuntimeGenerationRepository, SnapshotContentStore,
+    SnapshotPointerRepository, TrustedPublisherKeyRepository, VersionClaimRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_keys::{

@@ -8,7 +8,7 @@ use crate::contexts::tooling::extension_platform::domain::{
     ExtensionPlatformFeature, FeatureGateError,
 };
 use crate::platform::clock::SystemClock;
-use crate::platform::database::{NativeDatabase, PooledSqlite};
+use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 
@@ -78,7 +78,7 @@ impl FeatureGateRepository for SqliteFeatureGateRepository {
 
     fn upsert(&self, write: &FeatureGateWrite) -> Result<PersistedFeatureGate, FeatureGateError> {
         let connection = self.connection()?;
-        let transaction = connection.unchecked_transaction().map_err(storage)?;
+        let transaction = begin_write_transaction(&connection).map_err(storage)?;
 
         let current_revision: i64 = transaction
             .query_row(

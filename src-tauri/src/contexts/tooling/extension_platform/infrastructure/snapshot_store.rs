@@ -10,7 +10,7 @@ use crate::contexts::tooling::extension_platform::domain::{
     ContentPublication, ExtensionId, InstallationId, ManifestDigest, PackageHash, SnapshotId,
     SnapshotPointer, SnapshotPublicationError, SnapshotRecord, StagedRecovery,
 };
-use crate::platform::database::{NativeDatabase, PooledSqlite};
+use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension};
 use semver::Version;
 use std::path::Path;
@@ -135,8 +135,7 @@ impl SnapshotPointerRepository for SqliteSnapshotPointerRepository {
         expected_revision: i64,
     ) -> Result<SnapshotPointer, SnapshotPublicationError> {
         let connection = self.connection().map_err(pointer_failure)?;
-        let transaction = connection
-            .unchecked_transaction()
+        let transaction = begin_write_transaction(&connection)
             .map_err(|error| pointer_failure(error.to_string()))?;
 
         let current: Option<(String, i64)> = transaction

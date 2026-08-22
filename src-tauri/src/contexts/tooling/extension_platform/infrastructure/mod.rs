@@ -3,6 +3,7 @@
 mod package_reader;
 #[cfg(test)]
 mod package_reader_tests;
+mod persistence_schema;
 mod reconciler;
 #[cfg(test)]
 mod reconciler_tests;
@@ -16,6 +17,9 @@ mod snapshot_store_tests;
 mod sqlite_developer_mode;
 #[cfg(test)]
 mod sqlite_developer_mode_tests;
+mod sqlite_persistence;
+#[cfg(test)]
+mod sqlite_persistence_tests;
 mod sqlite_publisher_keys;
 #[cfg(test)]
 mod sqlite_publisher_keys_tests;
@@ -25,6 +29,7 @@ mod tests;
 
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_reader::{read_extension_package, PackageReadError, ReadPackage};
+pub(crate) use persistence_schema::apply_extension_persistence_schema;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use reconciler::{reconcile, referenced_package_hashes};
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -40,6 +45,11 @@ pub(crate) use snapshot_store::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_developer_mode::{
     SqliteDeveloperModeAuditSink, SqliteDeveloperModeRepository,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use sqlite_persistence::{
+    claim_for, record_operation_witness, record_package, record_snapshot_detail,
+    SqliteRuntimeGenerationRepository, SqliteVersionClaimRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_publisher_keys::SqlitePublisherKeyRepository;

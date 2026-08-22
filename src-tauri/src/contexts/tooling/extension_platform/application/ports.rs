@@ -2,10 +2,11 @@
 
 use super::developer_mode::DeveloperModeView;
 use crate::contexts::tooling::extension_platform::domain::{
-    ContentPublication, DeveloperMode, DeveloperModeError, ExtensionId, ExtensionPlatformFeature,
-    FeatureGateDegradation, FeatureGateError, PackageHash, PrerequisiteReason,
-    PublisherKeyFingerprint, PublisherKeyRecord, SnapshotPointer, SnapshotPublicationError,
-    SnapshotRecord, TrustedPublisherKey,
+    ActiveGeneration, ClaimOutcome, ContentPublication, DeveloperMode, DeveloperModeError,
+    ExtensionId, ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError,
+    InstallationId, PackageHash, PrerequisiteReason, PublisherKeyFingerprint, PublisherKeyRecord,
+    RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord, SnapshotPointer,
+    SnapshotPublicationError, SnapshotRecord, TrustedPublisherKey, VersionClaim,
 };
 use std::path::Path;
 
@@ -185,6 +186,44 @@ pub(crate) trait SnapshotPointerRepository: Send + Sync {
         record: &SnapshotRecord,
         expected_revision: i64,
     ) -> Result<SnapshotPointer, SnapshotPublicationError>;
+}
+
+/// Where a version's binding to one set of bytes is kept.
+///
+/// `claim` decides and writes in one transaction. Reading first and writing after would let two
+/// installs both see an unheld version and both bind it, which is the equivocation this exists to
+/// refuse.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait VersionClaimRepository: Send + Sync {
+    fn held(&self, offered: &VersionClaim) -> Result<Option<VersionClaim>, String>;
+
+    fn claim(&self, offered: &VersionClaim, observed_at: &str) -> Result<ClaimOutcome, String>;
+
+    /// The hashes that were offered for a version already held by other bytes. Kept as evidence.
+    fn conflicts(&self, extension: &ExtensionId) -> Result<Vec<String>, String>;
+}
+
+/// Runtime generations, and the one pointer per installation that says which is live.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait RuntimeGenerationRepository: Send + Sync {
+    fn record(&self, generation: &RuntimeGenerationRecord) -> Result<(), RuntimeGenerationError>;
+
+    fn active(
+        &self,
+        installation: &InstallationId,
+    ) -> Result<Option<ActiveGeneration>, RuntimeGenerationError>;
+
+    /// Moves the pointer, guarded by the revision the caller last observed.
+    ///
+    /// A generation belonging to another installation is refused by the database's composite
+    /// reference, not by a check here: an application check can be forgotten, and this one cannot.
+    fn activate(
+        &self,
+        installation: &InstallationId,
+        generation: &RuntimeGenerationId,
+        expected_revision: i64,
+        updated_at: &str,
+    ) -> Result<ActiveGeneration, RuntimeGenerationError>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing

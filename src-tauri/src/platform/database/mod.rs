@@ -33,6 +33,24 @@ const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
 /// call sites keep using `prepare` / `execute` / `transaction` unchanged.
 pub(crate) type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 
+/// Begins a transaction that will write, taking the write lock up front.
+///
+/// `Connection::unchecked_transaction` begins a *deferred* transaction, which takes a read lock and
+/// tries to upgrade at the first write. SQLite refuses that upgrade with `SQLITE_BUSY` **without
+/// honouring `busy_timeout`**, because two readers that both wait to upgrade would deadlock — so a
+/// read-then-write transaction under contention fails immediately, no matter how generous the
+/// timeout looks. `BEGIN IMMEDIATE` takes the write lock at the start, which is the case
+/// `busy_timeout` does cover.
+///
+/// Use this for every transaction that will write. The cost is serialising writers, which WAL was
+/// already doing; the alternative is an intermittent "database is locked" that only appears under
+/// real concurrency.
+pub(crate) fn begin_write_transaction(
+    connection: &PooledSqlite,
+) -> Result<rusqlite::Transaction<'_>, rusqlite::Error> {
+    rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum DatabaseError {
     #[error("database error: {0}")]
@@ -257,7 +275,7 @@ mod tests {
 
         // Row count rather than maximum version. They agree only while history is dense, so a
         // branch that reserves a number ahead of an unmerged one will see these diverge.
-        assert_eq!(migration_count, 85);
+        assert_eq!(migration_count, 86);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -319,7 +337,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 85);
+        assert_eq!(migration_count, 86);
     }
 
     #[test]
