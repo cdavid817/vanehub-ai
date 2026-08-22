@@ -88,7 +88,9 @@ impl ExecutionEvidenceService {
         let recorded_at = self.clock.now_rfc3339();
         match self.repository.append(&event, &fingerprint, &recorded_at)? {
             EvidenceAppendOutcome::Appended { sequence } => {
-                self.notices.publish(&notice_for(&event, sequence));
+                if let Some(notice) = notice_for(&event, sequence) {
+                    self.notices.publish(&notice);
+                }
                 Ok(RecordEvidenceOutcome::Recorded { sequence })
             }
             // A retry must not publish again: a subscriber would count the same record twice.
@@ -176,20 +178,21 @@ pub(crate) fn bounded_page_size(limit: usize) -> usize {
 /// Every field here is an id, a sequence, or a classification. The payload is not consulted at
 /// all, which is what makes it impossible for command text or a file name to reach the event
 /// channel by accident.
-fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> EvidenceNotice {
+fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> Option<EvidenceNotice> {
     let correlation = event.correlation();
     let kind = if ExecutionRecordKind::for_kind(event.kind()).is_some() {
         EvidenceNoticeKind::RecordAppended
     } else {
         EvidenceNoticeKind::SummaryChanged
     };
-    EvidenceNotice {
+    // A session is a domain invariant, so this is unreachable for a constructed event. Skipping
+    // is still the right failure: a notice routed to a placeholder session would be delivered to
+    // the wrong subscriber, which is worse than not delivering it at all.
+    let session_id = correlation.session().cloned()?;
+    Some(EvidenceNotice {
         kind,
         sequence,
-        session_id: correlation
-            .session()
-            .cloned()
-            .unwrap_or_else(|| EvidenceSessionId::parse("unknown").expect("static session id")),
+        session_id,
         occurred_at: event.occurred_at().to_string(),
         record_id: None,
         run_id: correlation
@@ -219,7 +222,7 @@ fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> EvidenceNotice {
             .map(str::to_string),
         seat_id: correlation.seat_id.as_ref().map(EvidenceSeatId::clone),
         dropped_count: None,
-    }
+    })
 }
 
 /// The coverage a store reports before any producer is connected.

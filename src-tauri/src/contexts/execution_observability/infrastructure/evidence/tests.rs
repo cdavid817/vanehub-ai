@@ -846,8 +846,6 @@ fn a_stored_payload_round_trips_through_the_journal() {
         .expect("payload");
     assert!(json.contains("command.started"));
     assert!(json.contains("npm test"));
-    // The reason code vocabulary is stable enough to be an i18n key, so it must survive storage.
-    let _ = reason(reason_codes::DROPPED_EVENTS);
 }
 
 /// Replay is a pure function of the journal.

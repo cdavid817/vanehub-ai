@@ -5,7 +5,6 @@ use crate::contexts::execution_observability::application::EvidenceApplicationEr
 use crate::contexts::execution_observability::domain::{
     parse_fidelity_token, parse_status_token, reason_codes, EvidenceCommandId,
     EvidenceCoverageState, EvidenceSeatId, EvidenceSessionId, EvidenceToolCallId, QueryCoverage,
-    SafeReasonCode,
 };
 use rusqlite::{params, Connection, Row};
 
@@ -212,10 +211,4 @@ impl<T> OptionalRow<T> for rusqlite::Result<T> {
             Err(error) => Err(error),
         }
     }
-}
-
-pub(super) fn reason(value: &str) -> SafeReasonCode {
-    SafeReasonCode::parse(value).unwrap_or_else(|_| {
-        SafeReasonCode::parse("evidence_unknown_reason").expect("static reason code")
-    })
 }
