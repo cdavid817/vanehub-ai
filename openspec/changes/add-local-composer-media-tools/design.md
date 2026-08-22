@@ -1572,7 +1572,7 @@ Run the repository's exact gates after implementation, including:
 
 ```bash
 npm run lint:ci
-npm run test
+npm run test:coverage
 npm run build
 npm run architecture:check
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -1584,7 +1584,25 @@ openspec validate add-local-composer-media-tools --strict
 openspec validate --specs --strict
 ```
 
-Also run the repository's current Playwright Web command and native desktop verification command(s). Record Windows, macOS, and Linux evidence as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with concrete reasons. Do not convert missing hardware or OS permission automation into a passing result.
+`npm run test:coverage` is the canonical frontend gate rather than `npm run test`, and the
+substitution is deliberate. Both run the identical Vitest suite; `test:coverage` adds
+`--maxWorkers=4 --testTimeout=15000`, and the bounded worker pool is the difference between a
+stable gate and an unstable one. Measured on this repository's Windows developer host, three runs
+per branch:
+
+| Branch | `npm run test` | Observed |
+| --- | --- | --- |
+| `origin/main` (ee3eaf3f) | 1 of 3 runs exited non-zero | 292 files and 1303 tests all passed; the run failed with four `[vitest-pool]: Failed to start forks worker -- Timeout waiting for worker to respond` errors |
+| `worktree-ocr` | 2 of 3 runs exited non-zero | one to two component tests timed out, never the same pair twice, never a local-media test |
+| `worktree-ocr` with `--maxWorkers=4` | passed | 304 files, 1487 tests, exit 0 |
+
+Excluding every local-media test file did not stabilise the default command; it merely moved the
+failure to a different unrelated component. The flake is the unbounded worker pool exhausting the
+host, it predates this change, and lowering concurrency is not a way of hiding a leak here -- it is
+what the repository's own CI gate already does, and what makes the same suite deterministic.
+
+Also run the repository's current Playwright Web command, the local-media fake browser suite
+(`npm run local-media:e2e`), and native desktop verification command(s). Record Windows, macOS, and Linux evidence as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with concrete reasons. Do not convert missing hardware or OS permission automation into a passing result.
 
 ## 25. Risks and mitigations
 

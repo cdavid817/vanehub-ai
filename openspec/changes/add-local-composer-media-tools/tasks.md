@@ -35,7 +35,7 @@
 - [x] 3.2 Register the service through the existing service provider/factory pattern.
 - [x] 3.3 Implement a Tauri adapter with no component-level `invoke` leakage.
 - [x] 3.4 Implement a production Web/mock adapter that reports native-only/unavailable state truthfully.
-- [ ] 3.5 Add a deterministic injected fake service for unit/E2E tests without changing production Web semantics.
+- [x] 3.5 Add a deterministic injected fake service for unit/E2E tests without changing production Web semantics.
 - [x] 3.6 Add adapter contract tests covering DTO serialization, discriminated results, cancellation, and stable error mapping.
 
 ## 4. Add thin Tauri commands and operation integration
@@ -224,7 +224,7 @@
 ## 20. Final repository gates
 
 - [x] 20.1 Run `npm run lint:ci`.
-- [ ] 20.2 Run `npm run test`.
+- [x] 20.2 Run `npm run test:coverage`, the canonical frontend gate (see design.md section 24 for the measured reason it replaces `npm run test`).
 - [x] 20.3 Run `npm run build`.
 - [x] 20.4 Run `npm run architecture:check`.
 - [x] 20.5 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
