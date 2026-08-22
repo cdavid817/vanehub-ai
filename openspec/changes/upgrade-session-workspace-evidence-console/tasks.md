@@ -14,7 +14,7 @@ named below, and blocks only that task.
 
 - [ ] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted. Deferred test gate, split by subject: the evidence pagination fixture is due before 3.9, and the log pagination fixture is due before Group 8. It does not block Groups 2-7. Tick 0.7 only once both fixtures exist and pass.
 - [ ] 0.8 Add a controlled repository fixture in which a generated review patch can be checked with `git apply --check`. Deferred test gate, due before 13.7, which is the task that first renders a patch to check. It does not block Groups 2-12.
-- [ ] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states. Deferred test gate, due before 3.1, which is the task that first defines the correlation and coverage types these builders construct.
+- [x] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states. Deferred test gate, due before 3.1, which is the task that first defines the correlation and coverage types these builders construct.
 
 ## 1. Immediate Contract and Correctness Fixes
 
@@ -45,10 +45,10 @@ named below, and blocks only that task.
 
 ## 3. Execution Evidence Domain, Schema, Repository, and API
 
-- [ ] 3.1 Add evidence ids, correlation, kind, status, safe payload, redaction receipt, coverage, and domain errors under `execution_observability/domain/`.
-- [ ] 3.2 Enforce maximum safe-payload size, allowlisted fields, valid status/kind combinations, required session id, and fidelity invariants in domain constructors.
-- [ ] 3.3 Add an application `RecordExecutionEvidence` use case and query use cases for summary, record page, record detail, and correlation counts.
-- [ ] 3.4 Add narrow application ports for evidence repository, clock, id generation, redaction validation, post-commit notice publication, and gap diagnostics.
+- [x] 3.1 Add evidence ids, correlation, kind, status, safe payload, redaction receipt, coverage, and domain errors under `execution_observability/domain/`.
+- [x] 3.2 Enforce maximum safe-payload size, allowlisted fields, valid status/kind combinations, required session id, and fidelity invariants in domain constructors.
+- [x] 3.3 Add an application `RecordExecutionEvidence` use case and query use cases for summary, record page, record detail, and correlation counts.
+- [x] 3.4 Add narrow application ports for evidence repository, clock, id generation, redaction validation, post-commit notice publication, and gap diagnostics.
 - [ ] 3.5 Add an additive SQLite migration for `execution_evidence_events`, projection tables, coverage/gap metadata, and required indexes.
 - [ ] 3.6 Implement atomic event insert plus monotonic projection update; publish notices only after the transaction commits.
 - [ ] 3.7 Enforce idempotency through `(source_context, source_event_id)` and treat identical duplicates as success.
@@ -60,7 +60,7 @@ named below, and blocks only that task.
 - [ ] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
 - [ ] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
 - [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
-- [ ] 3.16 Add domain tests that run without Tauri, SQLite, filesystem, network, or process dependencies.
+- [x] 3.16 Add domain tests that run without Tauri, SQLite, filesystem, network, or process dependencies.
 - [ ] 3.17 Add SQLite infrastructure tests for migration from the current schema, transaction rollback, indexes, cursor stability, replay, and retention.
 
 ## 4. Evidence Producer Integration and Coverage Gaps
