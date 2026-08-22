@@ -12,7 +12,7 @@
 - [x] 1.2 Add optional operation `phase`, `completedUnits`, `totalUnits`, and `cancellable` fields to Rust and TypeScript contracts.
 - [x] 1.3 Keep `queued`, `running`, `succeeded`, `failed`, and `cancelled` lifecycle statuses unchanged.
 - [x] 1.4 Update operation persistence/mapping so absent progress fields remain backward-compatible.
-- [ ] 1.5 Add contract drift tests for the new operation fields and CLI operation result union. (Operation-field half is done; the result-union half needs the union, which task 2.x/9.x introduce.)
+- [x] 1.5 Add contract drift tests for the new operation fields and CLI operation result union.
 - [x] 1.6 Add Tauri and Web/mock adapter conformance tests for queued, running, succeeded, failed, and cancelled CLI operations.
 
 ## 2. CLI domain model

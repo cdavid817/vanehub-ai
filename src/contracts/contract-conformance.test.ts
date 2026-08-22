@@ -9,6 +9,8 @@ import type * as SkillConfigurationContracts from "./skill-configuration";
 import type * as SkillOverlayContracts from "./skill-overlay";
 import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
+import type * as CliEnvironmentContracts from "./cli-environment";
+import type * as CliEnvironmentTypes from "../types/cli-environment";
 import type * as OnePieceToolContracts from "./onepiece-tools";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
@@ -245,6 +247,13 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
 ];
 
+type CliEnvironmentAssertions = [
+  Assert<Equal<CliEnvironmentContracts.CliMutationOutcome, CliEnvironmentTypes.CliMutationOutcome>>,
+  Assert<Equal<CliEnvironmentContracts.CliPlanRejectionCode, CliEnvironmentTypes.CliPlanRejectionCode>>,
+  Assert<Equal<CliEnvironmentContracts.CliMutationResult, CliEnvironmentTypes.CliMutationResult>>,
+  Assert<Equal<CliEnvironmentContracts.CliOperationPhase, CliEnvironmentTypes.CliOperationPhase>>,
+];
+
 type OnePieceToolAssertions = [
   Assert<Equal<OnePieceToolContracts.OnePieceToolCapability, OnePieceToolTypes.OnePieceToolCapability>>,
   Assert<Equal<OnePieceToolContracts.OnePieceToolReadiness, OnePieceToolTypes.OnePieceToolReadiness>>,
@@ -442,6 +451,7 @@ void (0 as unknown as TokenUsageAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as CliEnvironmentAssertions);
 void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);
