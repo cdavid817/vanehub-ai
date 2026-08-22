@@ -71,7 +71,19 @@ pub(crate) fn create_owned_directory(root: &Path, directory: &Path) -> Result<()
                 return Err(OwnershipError::NotOwned);
             }
             Ok(_) => {}
-            Err(_) => std::fs::create_dir(&current).map_err(|_| OwnershipError::Io)?,
+            // A creation that loses a race with another thread or process is not a failure: what
+            // matters is that the component is a plain directory afterwards, which is re-checked
+            // rather than assumed. Treating `AlreadyExists` as an error would make two concurrent
+            // installs of the same package fail for one of them.
+            Err(_) => {
+                if std::fs::create_dir(&current).is_err() {
+                    let metadata =
+                        std::fs::symlink_metadata(&current).map_err(|_| OwnershipError::Io)?;
+                    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                        return Err(OwnershipError::NotOwned);
+                    }
+                }
+            }
         }
     }
     Ok(())

@@ -139,13 +139,14 @@ pub(crate) fn all_gate_errors() -> Vec<FeatureGateError> {
     ]
 }
 
-pub(crate) const ALL_PATH_REJECTIONS: [PathRejection; 15] = [
+pub(crate) const ALL_PATH_REJECTIONS: [PathRejection; 16] = [
     PathRejection::Empty,
     PathRejection::TooLong,
     PathRejection::TooDeep,
     PathRejection::NulByte,
     PathRejection::Backslash,
     PathRejection::ControlCharacter,
+    PathRejection::DirectionOverride,
     PathRejection::Absolute,
     PathRejection::UncPrefix,
     PathRejection::DrivePrefix,

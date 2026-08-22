@@ -7,3 +7,5 @@ pub(crate) mod api;
 pub(crate) mod application;
 pub(crate) mod domain;
 pub(crate) mod infrastructure;
+#[cfg(test)]
+mod security_tests;

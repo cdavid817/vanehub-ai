@@ -1329,6 +1329,20 @@ The walk is shallow and shaped. It descends exactly as far as each root's layout
 
 **Incomplete transaction journals have no separate mechanism, and this says so rather than implying one.** There is no journal in this design. What a partly finished install leaves is content in quarantine and possibly unreferenced content in `packages/`, and both are covered above. If a later task introduces a journal, it gets its own reconciliation rule.
 
+### The security suite, and what it found (Task 2.11)
+
+The per-module tests check that each rule works. `extension_platform::security_tests` checks what only shows up when the pieces are put together against real storage, and it is one file so it can be found.
+
+**There is no continuous fuzzing harness, and that is a decision rather than an omission.** `cargo-fuzz` needs a nightly toolchain, a separate workspace member, and a CI job, none of which exist here; adding them is its own piece of work. What is here instead is a **deterministic mutation corpus**: a valid package truncated at every boundary and corrupted one byte at a time at every offset, run through the real reader, plus the same treatment for a signature envelope. That is the part of fuzzing that pays for a bounded parser — it finds the input that panics — and it is reproducible, which a fuzzer is not. It is called a corpus rather than a fuzzer because that is what it is.
+
+The suite found three things:
+
+* **`PortablePackagePath` admitted Unicode bidirectional overrides.** `U+202E gnp.exe` renders as `exe.png` in every listing that honours bidirectional formatting, which is how an executable is made to look like an image on a review screen. They are *format* characters, not control characters, so `char::is_control` never saw them. Now refused as `direction_override`, across the whole UAX #9 set rather than the override pair alone — an isolate or an embedding reorders a name just as effectively.
+* **`create_owned_directory` failed under concurrency.** Two installs of the same package raced to create `packages/sha256/`, and the loser's `create_dir` returned `AlreadyExists`, which was reported as a filesystem error. It now re-checks that the component is a plain directory and continues, which is the answer that was always intended.
+* **An archive appended to itself is read as one archive.** Two byte-identical copies leave a final end record that genuinely is the last thing in the file, and whose central-directory offset happens to point at the first copy's — so the trailing-data and prefix checks have nothing to object to. Recorded as behavior rather than fixed, because what actually makes it useless to an attacker is the hash: the signature covers every byte, so appending anything produces a package no signature attests to. The test asserts exactly that.
+
+**Two items on the task's list are not covered here, and both are named rather than quietly dropped.** *Cancellation* has no machinery yet — operations, progress, and cancellation arrive in Task Group 4 — so there is nothing to cancel. *Rollback attempts*, read as version-rollback attacks, are a lifecycle policy rather than a package-security rule: the witness records the installed version alongside the offered one, so a downgrade is visible to whoever confirms, and whether to refuse one is Task Group 4's decision. Both belong to 4.10.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

@@ -89,6 +89,13 @@ fn reject_raw_string(value: &str) -> Result<(), ExtensionPathError> {
     if value.chars().any(char::is_control) {
         return refuse(PathRejection::ControlCharacter);
     }
+    // Found by the task 2.11 corpus. `U+202E gnp.exe` renders as `exe.png` in every file listing
+    // that honours bidirectional formatting, which is how an executable is made to look like an
+    // image in a review screen. These are format characters, not control characters, so
+    // `is_control` does not see them.
+    if value.chars().any(is_direction_override) {
+        return refuse(PathRejection::DirectionOverride);
+    }
     // `//server/share` before the single-slash rule: a UNC path also starts with `/`, and naming
     // it "absolute" would send a publisher looking for a leading slash to remove.
     if value.starts_with("//") {
@@ -168,6 +175,9 @@ pub(crate) enum PathRejection {
     NulByte,
     Backslash,
     ControlCharacter,
+    /// A bidirectional formatting character, which changes how the name renders without changing
+    /// what it names.
+    DirectionOverride,
     Absolute,
     UncPrefix,
     DrivePrefix,
@@ -188,6 +198,7 @@ impl PathRejection {
             Self::NulByte => "nul_byte",
             Self::Backslash => "backslash",
             Self::ControlCharacter => "control_character",
+            Self::DirectionOverride => "direction_override",
             Self::Absolute => "absolute",
             Self::UncPrefix => "unc_prefix",
             Self::DrivePrefix => "drive_prefix",
@@ -199,4 +210,16 @@ impl PathRejection {
             Self::WindowsReservedName => "windows_reserved_name",
         }
     }
+}
+
+/// Unicode bidirectional formatting characters.
+///
+/// The full set from UAX #9, not just the override pair: an isolate or an embedding reorders a
+/// rendered name exactly as effectively, and listing four of the eight would leave the other four
+/// working.
+const fn is_direction_override(character: char) -> bool {
+    matches!(
+        character,
+        '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}'
+    )
 }
