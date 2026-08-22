@@ -4,10 +4,16 @@
 //! lifecycle, runtime, and contribution models arrive with their own task groups.
 
 mod activation;
+mod decode_error;
+mod decode_reader;
 mod error;
 mod feature;
 mod identity;
 mod manifest;
+mod manifest_decoder;
+mod manifest_decoder_contributions;
+#[cfg(test)]
+mod manifest_decoder_tests;
 mod manifest_error;
 #[cfg(test)]
 mod manifest_shape_tests;
@@ -28,6 +34,8 @@ pub(crate) use feature::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use activation::{ActivationEvent, ActivationTarget};
 #[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use decode_error::{identifier_at, path_at, DecodeReason, ManifestDecodeError};
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use identity::{
     is_external_contribution_id, ContributionGlobalId, ContributionKind, ContributionLocalId,
     ExtensionId, InstallationId, OperationWitness, PackageHash, PublisherId, RuntimeGenerationId,
@@ -41,6 +49,11 @@ pub(crate) use manifest::{
     HookHandlerDeclaration, McpContribution, McpTransportDeclaration, ModePresetContribution,
     RuntimeDeclaration, RuntimeKind, SkillContribution, SkillDependency, ToolContribution,
     TransformContribution, TrustProfile, VersionedExtensionManifest, SUPPORTED_SCHEMA_VERSIONS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use manifest_decoder::{
+    ExtensionManifestV1Decoder, EXTENSION_MANIFEST_YAML_LIMITS, MAX_ACTIVATION_EVENTS,
+    MAX_CONTRIBUTIONS_PER_KIND,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use manifest_error::{

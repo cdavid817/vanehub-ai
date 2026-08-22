@@ -55,9 +55,10 @@ Implemented in this order. Manifest parsing stays two-stage throughout — `Boun
 
 ### 1.E Explicit AST decoding
 
-- [ ] 1.E.1 Implement `ExtensionManifestV1Decoder` reading `BoundedYamlValue` explicitly, field by field. No blanket deserialization: an unknown security-sensitive field must be a decision, not an omission.
-- [ ] 1.E.2 Reject unknown fields, unsupported schema versions, incompatible application versions, and malformed shapes with stable per-field diagnostics.
-- [ ] 1.E.3 Reject a schema version above the one this build supports as incompatible rather than guessing its security semantics.
+- [x] 1.E.1 Implement `ExtensionManifestV1Decoder` reading `BoundedYamlValue` explicitly, field by field. No blanket deserialization: an unknown security-sensitive field must be a decision, not an omission.
+- [x] 1.E.2 Reject unknown fields, unsupported schema versions, incompatible application versions, and malformed shapes with stable per-field diagnostics.
+- [x] 1.E.3 Reject a schema version above the one this build supports as incompatible rather than guessing its security semantics.
+- [x] 1.E.4 Decode contributions and dependencies as id-keyed mappings, per the shape decided in `design.md`. The bounded subset's sequences hold scalars, so a list of records either fails as misaligned or parses silently into a scalar; keying by id also makes duplicate ids unrepresentable because the parser already rejects duplicate keys. Detect the list-of-records shape and name the correct form rather than reporting a type error.
 
 ### 1.F URL and origin validation
 

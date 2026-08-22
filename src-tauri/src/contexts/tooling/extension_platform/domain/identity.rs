@@ -1,6 +1,8 @@
-// Landed ahead of its consumer: `ExtensionManifestV1Decoder` (Task 1.E) is what reads these, and
-// the types are validated by their own tests until then. Same idiom `skills`' `config_document`
-// uses. Remove when the decoder lands.
+// The manifest half of this context has no production caller yet: `ExtensionManifestV1Decoder`
+// reads these types, and the install pipeline that calls the decoder arrives with Task Group 2.
+// Dead-code analysis walks from live roots, so the whole chain reads as unused until that root
+// exists. Same idiom `skills`' `config_document` uses. Remove when an application service calls
+// the decoder.
 #![cfg_attr(not(test), allow(dead_code))]
 
 //! Validated identities for extensions, their packages, and their contributions.

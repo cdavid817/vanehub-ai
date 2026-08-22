@@ -148,7 +148,7 @@ description: Adds guarded Git tools, Hooks, rules, and a GitHub connection.
 license: Apache-2.0
 min_vanehub_version: 0.9.0
 runtime:
-  kind: wasm-component
+  kind: wasm-module
   entry: runtime/git_guardian.wasm
   trust_profile: standard
 activation_events:
@@ -156,42 +156,39 @@ activation_events:
   - onHook:tool.before_execute
   - onConnector:github
 requires:
-  extensions: []
   skills:
-    - id: code-reviewer
+    code-reviewer:
       version: ">=2.0.0 <3.0.0"
 permissions:
   filesystem:
     read:
       - "${workspace}/**"
-    write: []
   network:
     origins:
       - "https://api.github.com"
-  process: []
   secrets:
     - github.token
 contributes:
   tools:
-    - id: git_status
+    git_status:
       display_name: Git status
       input_schema: schemas/git-status-input.json
       output_schema: schemas/git-status-output.json
       handler: tool.git_status
   skills:
-    - id: guarded-reviewer
+    guarded-reviewer:
       path: skills/guarded-reviewer/SKILL.md
   hooks:
-    - id: protect-force-push
+    protect-force-push:
       event: tool.before_execute
       matcher:
-        tool_ids: ["native.shell"]
+        tool_ids: [native.shell]
       handler:
         kind: extension-runtime
         entry: hook.protect_force_push
       failure_mode: fail_closed
   authorization_rules:
-    - id: force-push-ask
+    force-push-ask:
       operation: git_operation
       matcher:
         command_regex: "(^|\\s)git\\s+push(?:\\s+.*)?--force(?:-with-lease)?(\\s|$)"
@@ -199,13 +196,20 @@ contributes:
       risk: critical
       allowed_scopes: [once]
   connectors:
-    - id: github
+    github:
       type: cli
       driver: connector.github
-      auth:
-        strategy: external-cli
+      auth_strategy: external-cli
       capabilities: [repository.read, pull_request.read]
 ```
+
+### Collections are keyed by id, not lists of records
+
+Every contribution and dependency is a mapping whose key *is* the id. A list of records was the first shape drafted, and it does not survive contact with the parser: the bounded subset's sequences hold scalars, so `- id: git_status` followed by an indented sibling is `MisalignedIndentation`, and a single-entry item parses silently into the scalar string `"id: git_status"` — a wrong parse rather than a rejection.
+
+Growing the subset to accept sequences of mappings was the alternative. It was rejected: the scanner is a security primitive shared with Skill configuration, and the format is the cheaper thing to change. Keying by id also makes duplicate ids unrepresentable, because the parser already rejects duplicate keys — a validation rule that no longer has to be written, tested, or remembered.
+
+An empty collection is written as a bare key or omitted entirely; `[]` and `{}` are flow collections and only `[]` of scalars is supported. The decoder recognises the list-of-records shape and says what to write instead, since it is the form an author arriving from another extension ecosystem will reach for first.
 
 ### Identity rules
 

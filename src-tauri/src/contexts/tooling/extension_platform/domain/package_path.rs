@@ -1,4 +1,4 @@
-// Landed ahead of its consumer; see `identity.rs`. Remove when Task 1.E's decoder lands.
+// No production caller yet; see `identity.rs`.
 #![cfg_attr(not(test), allow(dead_code))]
 
 //! Paths a manifest may point at, validated as text before they become paths.
