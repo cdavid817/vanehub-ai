@@ -8,6 +8,7 @@ use crate::contexts::tooling::skills::application::{
 };
 use crate::contexts::tooling::skills::domain::{OverlayDocument, OverlayScope};
 use crate::platform::content_address::{is_sha256_hex, sha256_hex};
+use crate::platform::filesystem::{create_owned_directory, OwnershipError};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
@@ -312,31 +313,22 @@ fn document_references(
     Ok(references)
 }
 
+/// Creates a payload directory through the shared ownership check.
+///
+/// The wording of each rejection is preserved because it reaches an operator: `OwnershipError`
+/// says what went wrong in the shared vocabulary, and this says it in Overlay's.
 fn create_safe_directory(root: &Path, directory: &Path) -> Result<(), SkillApplicationError> {
-    fs::create_dir_all(root).map_err(filesystem_error)?;
-    let root_metadata = fs::symlink_metadata(root).map_err(filesystem_error)?;
-    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
-        return Err(SkillApplicationError::Filesystem(
-            "Overlay payload root is not a safe directory".to_string(),
-        ));
-    }
-    let relative = directory.strip_prefix(root).map_err(|_| {
-        SkillApplicationError::Filesystem("Overlay payload path escapes its root".to_string())
-    })?;
-    let mut current = root.to_path_buf();
-    for component in relative.components() {
-        current.push(component);
-        if let Ok(metadata) = fs::symlink_metadata(&current) {
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                return Err(SkillApplicationError::Filesystem(
-                    "Overlay payload directory contains an unsafe link or file".to_string(),
-                ));
-            }
-        } else {
-            fs::create_dir(&current).map_err(filesystem_error)?;
+    create_owned_directory(root, directory).map_err(|error| match error {
+        OwnershipError::OutsideRoot => {
+            SkillApplicationError::Filesystem("Overlay payload path escapes its root".to_string())
         }
-    }
-    Ok(())
+        OwnershipError::NotOwned => SkillApplicationError::Filesystem(
+            "Overlay payload directory contains an unsafe link or file".to_string(),
+        ),
+        OwnershipError::Io => SkillApplicationError::Filesystem(
+            "Overlay payload directory could not be created".to_string(),
+        ),
+    })
 }
 
 fn verify_file(path: &Path, expected_hash: &str) -> Result<(), SkillApplicationError> {

@@ -1270,6 +1270,21 @@ Two fail-closed properties on the switch itself. A read that cannot be answered 
 
 **"Oversized schemas" is a package rule; "oversized results" is not.** A declared JSON Schema is a description, and gets its own 256 KiB ceiling under `schemas/`. Result and log ceilings bound what an extension *produces* rather than what it ships, so they belong to the runtime trust profile in Task Group 5 and are deliberately absent here.
 
+### The four roots, and what makes them the application's (Task 2.7)
+
+A directory under application data is not automatically application-owned. Anything with write access to the parent can replace a component with a symlink, and every later `create_dir_all`, write, and `remove_dir_all` then operates on wherever that link points. `crate::platform::filesystem::owned` walks a path one component at a time with `symlink_metadata` — never `metadata`, which follows links and would report the very thing being checked for as an ordinary directory — and refuses the first component that is a link or is not a directory. The cleanup helper runs the same walk before removing anything, so a substituted component cannot turn a cleanup into a deletion of somebody else's tree.
+
+Two smaller rules that are easy to get wrong:
+
+* **`strip_prefix` compares components; it does not resolve them.** A `..` inside the remainder strips successfully and would then be walked, so every non-`Normal` component is refused explicitly.
+* **The root is inspected before it is created.** A root that is already a file is reported as not owned rather than as whatever error `create_dir_all` happens to raise, which is both more actionable and the same answer on every platform.
+
+The four roots are separate because their lifetimes are: quarantine belongs to one operation and never outlives it, a package is immutable and outlives everything pointing at it, and scratch and sidecar space belong to a runtime generation and are gone when it is. One shared directory would make "is this safe to delete?" a question nobody could answer.
+
+Every path is built from validated identifiers, and each segment is re-checked as a `PortablePackagePath` before use. The opaque-identifier rule permits ASCII alphanumerics, which includes `CON` — a device name on Windows. Application-generated identifiers do not look like that; one edited into a database by hand might, and the check costs one comparison against a rule that is already written down.
+
+This also completes the deferral recorded in task 2.1: `create_safe_directory` moved out of the Overlay payload store into the shared primitive, and Skills now calls it. The Overlay-specific wording of each rejection is preserved, because it reaches an operator.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

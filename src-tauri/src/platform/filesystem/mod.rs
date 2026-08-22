@@ -1,5 +1,14 @@
 //! Canonical path boundaries for workspace-owned filesystem access.
 
+mod owned;
+#[cfg(test)]
+mod owned_tests;
+
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use owned::{
+    create_owned_directory, ensure_owned_root, remove_owned_tree, verify_owned, OwnershipError,
+};
+
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
