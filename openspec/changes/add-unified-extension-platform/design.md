@@ -1225,6 +1225,21 @@ signature: <base64 of 64 bytes>
 
 **Check order is chosen for diagnostics, not speed.** Key fingerprint mismatch, then revocation, then publisher, then package hash, then package length, then the signature. An operator whose download was truncated should be told the hash does not match, which is actionable; "signature invalid" is true and useless. Revocation outranks every package-level problem because the answer does not change once a key is revoked, and reporting a hash mismatch would invite a pointless retry.
 
+### Trusted publisher keys (Task 2.4)
+
+"Store key material and fingerprint according to current secure-storage conventions" has a shorter answer than it looks: **no secret is involved on this path**. A publisher key verifies signatures and cannot make them, so it is public by construction. It lives in SQLite alongside its provenance, and the credential store is not used. The rule that raw secrets never reach SQLite is untouched because nothing here is a secret; the property this store needs is integrity, not confidentiality.
+
+Four rules the implementation encodes:
+
+* **A fingerprint is derived, never supplied.** Every operation reads the store by the fingerprint of the bytes that were actually pasted. On the way back out, the stored fingerprint is checked against the one the stored key material produces, and a row whose two disagree is refused. That is what stops whoever can edit the database file from choosing which key a fingerprint resolves to.
+* **Revocation is permanent in V1, and adding a key again does not undo it.** `PublisherKeyAdmission` reports `Revoked`, `add` refuses, and the SQLite `revoke` is idempotent so the recorded moment stays the moment trust was actually withdrawn. The safe way back from a revoked key is a new key, not an un-revoke. Nothing is deleted: which key signed an installed package is a fact about the past.
+* **One key claimed by two publishers is refused rather than resolved.** It is either an operator error or an attempt to have a package verify under an identity its signer does not hold, and picking one would be guessing.
+* **Preview and commit compute the same answer.** `add` recomputes the admission rather than trusting the preview, so a key revoked while a dialog was open is refused; the approved preview only has to still describe the same key and publisher.
+
+A row that no longer parses — key material that is not 32 bytes, an unknown source or trust state — is dropped from a list read rather than failing it. One corrupt row must not make every trusted key invisible, because invisible keys mean every signed package suddenly reads as signed by an unknown publisher. Dropping resolves the broken row to "not trusted", which is fail-closed for the row that is actually broken.
+
+The publisher-key table (`extension_platform_publisher_keys`, migration 83) lands here rather than in task 3.1, because 2.4 comes first in the required order and needs somewhere to write. Task 3.1 covers the remaining tables and must not add a second one for keys.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

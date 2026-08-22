@@ -2,7 +2,7 @@
 
 use crate::contexts::tooling::extension_platform::domain::{
     ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError, PrerequisiteReason,
-    PublisherKeyFingerprint, PublisherKeyRecord,
+    PublisherKeyFingerprint, PublisherKeyRecord, TrustedPublisherKey,
 };
 
 /// One gate's persisted desired state. Storage holds nothing derived: build availability comes
@@ -88,6 +88,35 @@ pub(crate) trait PublisherKeyDirectory: Send + Sync {
         &self,
         fingerprint: &PublisherKeyFingerprint,
     ) -> Result<Option<PublisherKeyRecord>, String>;
+}
+
+/// Managing trusted publisher keys.
+///
+/// Separate from `PublisherKeyDirectory` on purpose. The verification path takes the narrow
+/// read-only port and therefore cannot write, so no future change to the verifier can reach a
+/// mutation by accident.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait TrustedPublisherKeyRepository: Send + Sync {
+    fn list(&self) -> Result<Vec<TrustedPublisherKey>, String>;
+
+    fn find(
+        &self,
+        fingerprint: &PublisherKeyFingerprint,
+    ) -> Result<Option<TrustedPublisherKey>, String>;
+
+    /// Inserts a new key, or refreshes `last_seen_at`, `label`, and `source` on one already filed
+    /// under this fingerprint. Never changes `publisher`, `first_seen_at`, or trust state — those
+    /// are decided before the call and are not the repository's to reinterpret.
+    fn upsert(&self, key: &TrustedPublisherKey) -> Result<(), String>;
+
+    /// Withdraws trust. Idempotent: a key already revoked keeps the timestamp and reason of the
+    /// first revocation, because when trust was withdrawn is the fact worth keeping.
+    fn revoke(
+        &self,
+        fingerprint: &PublisherKeyFingerprint,
+        revoked_at: &str,
+        reason: Option<&str>,
+    ) -> Result<(), String>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing

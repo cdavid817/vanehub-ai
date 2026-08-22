@@ -39,6 +39,9 @@ mod package_path;
 #[cfg(test)]
 mod package_path_tests;
 mod publisher_key;
+mod publisher_key_admission;
+#[cfg(test)]
+mod publisher_key_tests;
 mod signature_envelope;
 #[cfg(test)]
 mod signature_tests;
@@ -106,8 +109,14 @@ pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PA
 // the key is a lookup against stored trust and lives behind an application port.
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_key::{
-    PublisherKeyFingerprint, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
+    parse_publisher_key_material, PublisherKeyFingerprint, PublisherKeyLabel, PublisherKeyRecord,
+    PublisherKeyRejection, PublisherKeySource, PublisherPublicKey, PublisherTrustState,
+    TrustedPublisherKey, ALL_PUBLISHER_KEY_REJECTIONS, MAX_PUBLISHER_KEY_LABEL_CHARACTERS,
     PUBLISHER_KEY_BYTES,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use publisher_key_admission::{
+    all_publisher_key_errors, decide_admission, PublisherKeyAdmission, PublisherKeyError,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use signature_envelope::{

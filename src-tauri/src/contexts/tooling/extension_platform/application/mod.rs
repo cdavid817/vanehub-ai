@@ -5,6 +5,9 @@ mod package_verification;
 #[cfg(test)]
 mod package_verification_tests;
 mod ports;
+mod publisher_keys;
+#[cfg(test)]
+mod publisher_keys_tests;
 #[cfg(test)]
 mod tests;
 
@@ -15,5 +18,10 @@ pub(crate) use package_verification::{PackageVerificationService, PublisherLooku
 pub(crate) use ports::{
     DefaultPrerequisites, FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock,
     FeatureGateDegradationEntry, FeatureGateRepository, FeatureGateWrite, NoForcedDisables,
-    PersistedFeatureGate, PublisherKeyDirectory,
+    PersistedFeatureGate, PublisherKeyDirectory, TrustedPublisherKeyRepository,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use publisher_keys::{
+    PublisherKeyClock, PublisherKeyPreview, PublisherKeyRequest, RepositoryPublisherKeyDirectory,
+    TrustedPublisherKeyService,
 };

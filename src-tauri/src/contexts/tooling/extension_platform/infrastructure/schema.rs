@@ -39,6 +39,40 @@ pub(crate) fn apply_feature_gate_schema(conn: &Connection) -> Result<(), Databas
     Ok(())
 }
 
+/// Trusted publisher keys and their provenance.
+///
+/// Public key bytes, not secrets: a publisher key verifies signatures and cannot make them, so
+/// SQLite is the right home and the credential store is not involved. The rule that raw secrets
+/// never reach SQLite is untouched because no secret exists on this path.
+///
+/// Keyed by fingerprint, which is derived from the key bytes. Two rows can therefore never
+/// disagree about which key a fingerprint names, and a lookup by the fingerprint an envelope
+/// declares hits at most one row. `key_material` is stored as base64 rather than a blob so the
+/// row is readable in a database browser during an incident, which is when someone is most likely
+/// to need it and least able to write a decoder.
+pub(crate) fn apply_publisher_key_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS extension_platform_publisher_keys (
+            fingerprint TEXT PRIMARY KEY,
+            publisher TEXT NOT NULL,
+            key_material TEXT NOT NULL,
+            label TEXT NOT NULL,
+            source TEXT NOT NULL,
+            trust_state TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            revoked_at TEXT,
+            revocation_reason TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_extension_platform_publisher_keys_publisher
+            ON extension_platform_publisher_keys (publisher, fingerprint);
+        "#,
+    )?;
+    Ok(())
+}
+
 /// Records that the published gate set went stale.
 ///
 /// Separate from the mutation audit because a degradation has no feature, no prior/new state, and
