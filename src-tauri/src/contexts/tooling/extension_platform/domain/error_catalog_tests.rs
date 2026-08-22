@@ -7,6 +7,7 @@
 use super::{
     all_decode_reasons, all_gate_errors, all_integrity_reasons, registered_failures, ErrorArea,
     RegisteredFailure, ALL_IDENTIFIER_KINDS, ALL_ORIGIN_REJECTIONS, ALL_PATH_REJECTIONS,
+    ALL_SIGNATURE_REJECTIONS,
 };
 
 #[test]
@@ -69,6 +70,7 @@ fn every_area_that_has_landed_contributes_at_least_one_failure() {
         ErrorArea::NetworkOrigin,
         ErrorArea::ManifestDecode,
         ErrorArea::ManifestIntegrity,
+        ErrorArea::PackageSignature,
     ] {
         assert!(
             failures.iter().any(|failure| failure.area == area),
@@ -105,6 +107,10 @@ fn the_catalog_covers_every_variant_of_every_enum_it_registers() {
     assert_eq!(
         counted(ErrorArea::ManifestIntegrity),
         all_integrity_reasons().len()
+    );
+    assert_eq!(
+        counted(ErrorArea::PackageSignature),
+        ALL_SIGNATURE_REJECTIONS.len()
     );
 }
 

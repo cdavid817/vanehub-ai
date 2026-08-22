@@ -8,16 +8,11 @@
 //! written differently — reindenting a file or reordering two tools must not invalidate a preview
 //! the user is halfway through approving, and adding a network origin must.
 //!
-//! So the digest is taken over the decoded manifest, not the source bytes. Two rules make that
-//! safe:
-//!
-//! * **Unambiguous encoding.** Every string is length-prefixed. Concatenating fields without that
-//!   would let `["ab", "c"]` and `["a", "bc"]` produce identical bytes, and two different
-//!   manifests sharing a digest is precisely the failure a witness exists to prevent.
-//! * **Sets are sorted, sequences are not.** Source order is meaningless for a set of origins and
-//!   load-bearing for a command line. Sorting the second would make `--force` and `--dry-run`
-//!   interchangeable.
+//! So the digest is taken over the decoded manifest, not the source bytes, using the shared
+//! canonical encoding in `canonical.rs` — the same one a publisher's signature is taken over, so
+//! the two cannot drift into attesting to subtly different things.
 
+use super::canonical::{bool_text, hex, join, sequence, sorted, Canonical};
 use super::{
     ContributionManifest, HookHandlerDeclaration, McpTransportDeclaration,
     VersionedExtensionManifest,
@@ -52,7 +47,7 @@ pub(crate) fn manifest_digest(manifest: &VersionedExtensionManifest) -> Manifest
             write_v1(&mut canonical, inner);
         }
     }
-    ManifestDigest(hex(&Sha256::digest(&canonical.buffer)))
+    ManifestDigest(hex(&Sha256::digest(canonical.bytes())))
 }
 
 fn write_v1(canonical: &mut Canonical, manifest: &super::ExtensionManifestV1) {
@@ -255,85 +250,4 @@ fn matcher_text(matcher: &[(String, Vec<String>)]) -> String {
             .map(|(name, values)| join(&[name, &sorted(values)]))
             .collect::<Vec<_>>(),
     )
-}
-
-#[derive(Default)]
-struct Canonical {
-    buffer: Vec<u8>,
-}
-
-impl Canonical {
-    /// A field marker. Length-prefixed like everything else so a tag cannot be confused with the
-    /// value before it.
-    fn tag(&mut self, tag: &str) {
-        self.text(tag);
-    }
-
-    fn text(&mut self, value: &str) {
-        self.buffer
-            .extend_from_slice(value.len().to_string().as_bytes());
-        self.buffer.push(b':');
-        self.buffer.extend_from_slice(value.as_bytes());
-        self.buffer.push(b';');
-    }
-
-    /// Absent and present-but-empty are different states, so they encode differently.
-    fn optional(&mut self, value: Option<&str>) {
-        match value {
-            Some(value) => {
-                self.text("some");
-                self.text(value);
-            }
-            None => self.text("none"),
-        }
-    }
-
-    /// Order-insensitive. Sorted after rendering so the encoding, not the source, decides.
-    fn set<I: IntoIterator<Item = String>>(&mut self, items: I) {
-        let mut rendered: Vec<String> = items.into_iter().collect();
-        rendered.sort_unstable();
-        self.text(&rendered.len().to_string());
-        for item in rendered {
-            self.text(&item);
-        }
-    }
-}
-
-/// Joins parts unambiguously, for a value that is itself a record inside a set.
-fn join(parts: &[&str]) -> String {
-    let mut joined = String::new();
-    for part in parts {
-        joined.push_str(&part.len().to_string());
-        joined.push(':');
-        joined.push_str(part);
-        joined.push(';');
-    }
-    joined
-}
-
-/// Order-significant rendering.
-fn sequence(items: &[String]) -> String {
-    join(&items.iter().map(String::as_str).collect::<Vec<_>>())
-}
-
-/// Order-insensitive rendering.
-fn sorted(items: &[String]) -> String {
-    let mut ordered: Vec<&str> = items.iter().map(String::as_str).collect();
-    ordered.sort_unstable();
-    join(&ordered)
-}
-
-const fn bool_text(value: bool) -> &'static str {
-    if value {
-        "true"
-    } else {
-        "false"
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>()
 }

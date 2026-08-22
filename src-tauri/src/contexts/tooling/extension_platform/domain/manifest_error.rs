@@ -28,6 +28,7 @@ pub(crate) enum IdentifierKind {
     RuntimeGeneration,
     OperationWitness,
     ActivationEvent,
+    PublisherKeyFingerprint,
 }
 
 impl IdentifierKind {
@@ -42,11 +43,12 @@ impl IdentifierKind {
             Self::RuntimeGeneration => "invalid_runtime_generation_id",
             Self::OperationWitness => "invalid_operation_witness",
             Self::ActivationEvent => "invalid_activation_event",
+            Self::PublisherKeyFingerprint => "invalid_publisher_key_fingerprint",
         }
     }
 }
 
-pub(crate) const ALL_IDENTIFIER_KINDS: [IdentifierKind; 9] = [
+pub(crate) const ALL_IDENTIFIER_KINDS: [IdentifierKind; 10] = [
     IdentifierKind::Extension,
     IdentifierKind::Publisher,
     IdentifierKind::Contribution,
@@ -56,6 +58,7 @@ pub(crate) const ALL_IDENTIFIER_KINDS: [IdentifierKind; 9] = [
     IdentifierKind::RuntimeGeneration,
     IdentifierKind::OperationWitness,
     IdentifierKind::ActivationEvent,
+    IdentifierKind::PublisherKeyFingerprint,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

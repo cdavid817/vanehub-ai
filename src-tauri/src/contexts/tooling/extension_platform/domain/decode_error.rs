@@ -98,6 +98,11 @@ pub(crate) enum DecodeReason {
     },
     /// Present but empty where empty means nothing.
     Empty,
+    /// The bytes were not a well-formed bounded document at all, so no field can be named. Carries
+    /// the parser's own code rather than a message, because that is what a caller branches on.
+    MalformedDocument {
+        code: &'static str,
+    },
 }
 
 impl DecodeReason {
@@ -120,6 +125,7 @@ impl DecodeReason {
             Self::NotPermitted { .. } => "not_permitted",
             Self::TooMany { .. } => "too_many_entries",
             Self::Empty => "empty_value",
+            Self::MalformedDocument { .. } => "malformed_document",
         }
     }
 }
@@ -161,6 +167,9 @@ impl fmt::Display for DecodeReason {
             Self::NotPermitted { detail } => formatter.write_str(detail),
             Self::TooMany { limit } => write!(formatter, "exceeds {limit} entries"),
             Self::Empty => formatter.write_str("cannot be empty"),
+            Self::MalformedDocument { code } => {
+                write!(formatter, "is not a readable document ({code})")
+            }
         }
     }
 }

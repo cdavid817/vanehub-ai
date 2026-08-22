@@ -1194,6 +1194,37 @@ Three things this review turned up that the code has to account for rather than 
 
 **Test vectors and fuzzing are obligations of later tasks, not of this one.** RFC 8032 signature vectors and the tampered/substituted/revoked cases land with the verifier in task 2.3; the archive-boundary corpus lands in task 2.11. Recording that here is what keeps "reviewed for fuzz and test vectors" from meaning "decided not to".
 
+### The signature envelope, and what verifying it establishes (Task 2.3)
+
+Decision 3 says "detached Ed25519 signatures over a canonical package manifest and content digest" without saying what the envelope looks like or in what order the checks run. Both turned out to be load-bearing.
+
+**Detached means beside the archive, not inside it.** A signature stored inside the `.vhext` cannot cover the `.vhext`, so a signature inside would have to cover some subset of entries — and every such scheme has to answer "which entries?" in a way an attacker cannot influence. A sidecar `vanehub-extension.sig` covers the whole file and has no such question.
+
+**The envelope is nine scalar fields, read by the bounded YAML parser under a 4 KiB, depth-1, no-sequences profile.** It is the one structure this context reads *before* anything has been verified, so it gets the tightest profile in the change and the same explicit field-by-field reader and unknown-field rejection the manifest uses. A second hand-written parser for pre-verification input would be the wrong place to add surface.
+
+```text
+envelope_version: 1
+algorithm: ed25519
+publisher: <publisher-id>
+extension: <extension-id>
+version: <semver>
+package_sha256: <64 hex>
+package_bytes: <decimal>
+manifest_sha256: <64 hex>
+key_fingerprint: <64 hex>
+signature: <base64 of 64 bytes>
+```
+
+**The signature covers the values, not the file.** Signing the bytes as written would make verification depend on whitespace and field order. The payload is the shared length-prefixed canonical encoding of every field except `signature`, prefixed with the context string `vanehub.extension-platform.package-signature.v1`. The context is not decoration: an Ed25519 key is just a key, and without domain separation a signature the publisher produced for an unrelated protocol could be replayed here if the byte strings ever coincided.
+
+**Nothing untrusted is parsed before verification, and the manifest is still bound.** `manifest_sha256` is the publisher's *claim*, carried in the envelope and covered by the signature. So the order is: hash the file, read the envelope, look up the key by fingerprint, verify — and only then open the archive and compare the extracted manifest against the claim. That comparison is not a rule written in a comment: `verify_package_signature` returns a `VerifiedSignature`, and the only way to reach the `ConfirmedSignature` a witness can record is `confirm_manifest`, which fails on a mismatch. "Valid signature, real publisher, different manifest" cannot be forgotten because there is no route past it.
+
+**Key lookup is by fingerprint only.** Looking up by publisher id would let a package choose which of a publisher's keys it is checked against, and trying every trusted key would turn "which key signed this" — a fact the evidence has to record — into a guess.
+
+**A lookup failure is not a verdict.** `SignatureState` has four states — `Unsigned`, `Unreadable`, `Rejected`, `Verified` — and a storage failure is none of them; the service returns it separately. Collapsing "we could not check" into "untrusted" would report a definite finding about a package nothing actually examined. The same reasoning keeps `Unsigned` and `Rejected` apart: the first is what Developer Mode exists to contain, the second is an attack or a corrupt download.
+
+**Check order is chosen for diagnostics, not speed.** Key fingerprint mismatch, then revocation, then publisher, then package hash, then package length, then the signature. An operator whose download was truncated should be told the hash does not match, which is actionable; "signature invalid" is true and useless. Revocation outranks every package-level problem because the answer does not change once a key is revoked, and reporting a hash mismatch would invite a pointless retry.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

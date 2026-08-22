@@ -14,13 +14,13 @@
 //! outer code says which was empty. Registering the pair keeps that honest instead of forcing two
 //! subsystems to invent uglier words for the same idea.
 //!
-//! Kinds arriving with later task groups — signature, package, dependency resolution, lifecycle,
-//! runtime, Hook dispatch, rule compilation, connector, stale witness — register here as they
-//! land, so the collision check is never retrofitted onto a codebase that already has one.
+//! Kinds arriving with later task groups — package, dependency resolution, lifecycle, runtime,
+//! Hook dispatch, rule compilation, connector, stale witness — register here as they land, so the
+//! collision check is never retrofitted onto a codebase that already has one.
 
 use super::{
     DecodeReason, ExtensionPlatformFeature, FeatureGateError, IdentifierKind, IntegrityReason,
-    OriginRejection, PathRejection, ALL_IDENTIFIER_KINDS,
+    OriginRejection, PathRejection, ALL_IDENTIFIER_KINDS, ALL_SIGNATURE_REJECTIONS,
 };
 
 /// Which subsystem a failure belongs to. Present so a reader can see which groups have landed and
@@ -33,6 +33,7 @@ pub(crate) enum ErrorArea {
     NetworkOrigin,
     ManifestDecode,
     ManifestIntegrity,
+    PackageSignature,
 }
 
 impl ErrorArea {
@@ -44,6 +45,7 @@ impl ErrorArea {
             Self::NetworkOrigin => "network_origin",
             Self::ManifestDecode => "manifest_decode",
             Self::ManifestIntegrity => "manifest_integrity",
+            Self::PackageSignature => "package_signature",
         }
     }
 }
@@ -89,6 +91,9 @@ pub(crate) fn registered_failures() -> Vec<RegisteredFailure> {
     }
     for reason in all_integrity_reasons() {
         push(ErrorArea::ManifestIntegrity, reason.code().to_string());
+    }
+    for rejection in ALL_SIGNATURE_REJECTIONS {
+        push(ErrorArea::PackageSignature, rejection.code().to_string());
     }
 
     failures
@@ -179,5 +184,6 @@ pub(crate) fn all_decode_reasons() -> Vec<DecodeReason> {
         DecodeReason::NotPermitted { detail: "" },
         DecodeReason::TooMany { limit: 0 },
         DecodeReason::Empty,
+        DecodeReason::MalformedDocument { code: "" },
     ]
 }

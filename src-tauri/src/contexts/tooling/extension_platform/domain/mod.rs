@@ -4,6 +4,7 @@
 //! lifecycle, runtime, and contribution models arrive with their own task groups.
 
 mod activation;
+mod canonical;
 mod decode_error;
 mod decode_reader;
 mod error;
@@ -37,6 +38,12 @@ mod network_origin_tests;
 mod package_path;
 #[cfg(test)]
 mod package_path_tests;
+mod publisher_key;
+mod signature_envelope;
+#[cfg(test)]
+mod signature_tests;
+mod signature_verification;
+mod signed_payload;
 
 pub(crate) use error::FeatureGateError;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -94,3 +101,23 @@ pub(crate) use manifest_integrity::{
 pub(crate) use network_origin::{NetworkOrigin, OriginRejection, MAX_ORIGIN_CHARACTERS};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PATH_CHARACTERS};
+
+// Package provenance (Task 2.3). Verification is a pure function of bytes and lives here; finding
+// the key is a lookup against stored trust and lives behind an application port.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use publisher_key::{
+    PublisherKeyFingerprint, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
+    PUBLISHER_KEY_BYTES,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use signature_envelope::{
+    parse_signature_envelope, PackageSignature, SignatureAlgorithm, SignatureEnvelope,
+    ENVELOPE_YAML_LIMITS, SIGNATURE_BYTES, SUPPORTED_ENVELOPE_VERSION,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use signature_verification::{
+    verify_package_signature, ConfirmedSignature, PackageFacts, SignatureRejection, SignatureState,
+    VerifiedSignature, ALL_SIGNATURE_REJECTIONS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use signed_payload::signed_payload;

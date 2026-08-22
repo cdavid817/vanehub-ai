@@ -1,7 +1,8 @@
-//! Consuming-side contracts for capability-gate state.
+//! Consuming-side contracts for capability-gate state and publisher trust.
 
 use crate::contexts::tooling::extension_platform::domain::{
     ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError, PrerequisiteReason,
+    PublisherKeyFingerprint, PublisherKeyRecord,
 };
 
 /// One gate's persisted desired state. Storage holds nothing derived: build availability comes
@@ -70,6 +71,23 @@ pub(crate) trait FeatureGateAuditSink: Send + Sync {
         &self,
         entry: &FeatureGateDegradationEntry,
     ) -> Result<(), FeatureGateError>;
+}
+
+/// Where a publisher key is looked up by the fingerprint an envelope names.
+///
+/// By fingerprint and nothing else. Looking up by publisher id would let a package choose which of
+/// a publisher's keys to be checked against, and looking up every trusted key and trying each
+/// would turn "which key signed this" — a fact the evidence has to record — into a guess.
+///
+/// A failure is a storage failure. It is deliberately not `Option`, because "the store is
+/// unreachable" and "the key is not trusted" must never collapse into the same answer: one of them
+/// would then read as a definite refusal when nothing was actually checked.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait PublisherKeyDirectory: Send + Sync {
+    fn find(
+        &self,
+        fingerprint: &PublisherKeyFingerprint,
+    ) -> Result<Option<PublisherKeyRecord>, String>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing
