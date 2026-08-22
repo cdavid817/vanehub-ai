@@ -42,14 +42,17 @@ impl CliProbePort for SystemCliProbe {
             .cancellation(ProcessCancellation::from_signal(cancellation.signal()));
 
         match ProcessAdapter.execute(&request) {
-            Ok(output) => Ok(CliProbeOutcome {
-                exit_code: exit_code_of(&output.status_label()),
-                timed_out: false,
-                stdout: bound_and_redact(&output.stdout, command.output_budget_bytes),
-                stderr: bound_and_redact(&output.stderr, command.output_budget_bytes),
-                truncated: exceeds_budget(&output.stdout, command.output_budget_bytes)
-                    || exceeds_budget(&output.stderr, command.output_budget_bytes),
-            }),
+            Ok(output) => {
+                let bounded =
+                    bound_both_streams(&output.stdout, &output.stderr, command.output_budget_bytes);
+                Ok(CliProbeOutcome {
+                    exit_code: exit_code_of(&output.status_label()),
+                    timed_out: false,
+                    stdout: bounded.stdout,
+                    stderr: bounded.stderr,
+                    truncated: bounded.truncated,
+                })
+            }
             // A timeout is a probe result, not a failure of the refresh that requested it: the tool
             // is recorded as timing out and the scan continues to the next one. Whatever the child
             // printed before the deadline is kept -- it is often the useful part.
@@ -58,20 +61,26 @@ impl CliProbePort for SystemCliProbe {
                 stderr,
                 output_truncated,
                 ..
-            }) => Ok(CliProbeOutcome {
-                exit_code: None,
-                timed_out: true,
-                stdout: bound_and_redact(&stdout, command.output_budget_bytes),
-                stderr: bound_and_redact(&stderr, command.output_budget_bytes),
-                truncated: output_truncated,
-            }),
-            Err(ProcessError::Cancelled { stdout, stderr, .. }) => Ok(CliProbeOutcome {
-                exit_code: None,
-                timed_out: false,
-                stdout: bound_and_redact(&stdout, command.output_budget_bytes),
-                stderr: bound_and_redact(&stderr, command.output_budget_bytes),
-                truncated: false,
-            }),
+            }) => {
+                let bounded = bound_both_streams(&stdout, &stderr, command.output_budget_bytes);
+                Ok(CliProbeOutcome {
+                    exit_code: None,
+                    timed_out: true,
+                    stdout: bounded.stdout,
+                    stderr: bounded.stderr,
+                    truncated: output_truncated || bounded.truncated,
+                })
+            }
+            Err(ProcessError::Cancelled { stdout, stderr, .. }) => {
+                let bounded = bound_both_streams(&stdout, &stderr, command.output_budget_bytes);
+                Ok(CliProbeOutcome {
+                    exit_code: None,
+                    timed_out: false,
+                    stdout: bounded.stdout,
+                    stderr: bounded.stderr,
+                    truncated: bounded.truncated,
+                })
+            }
             // The executable could not be started -- deleted between discovery and probe, not
             // executable, wrong architecture. That is a fact about the *tool*, so it is a probe
             // result and the refresh continues to the next candidate.
@@ -110,6 +119,37 @@ fn exit_code_of(status_label: &str) -> Option<i32> {
 
 fn exceeds_budget(value: &str, budget: usize) -> bool {
     value.len() > budget
+}
+
+/// Both streams of one probe, bounded under a single shared budget.
+struct BoundedStreams {
+    stdout: String,
+    stderr: String,
+    truncated: bool,
+}
+
+/// Applies one budget across stdout and stderr together.
+///
+/// A per-stream budget lets a command retain twice the intended volume by splitting its output, and
+/// the documented ceiling for a doctor or auth probe is 128 KiB *total*. stdout is served first
+/// because it carries the answer; stderr gets whatever is left, which may be nothing.
+fn bound_both_streams(stdout: &str, stderr: &str, budget: usize) -> BoundedStreams {
+    if exceeds_budget(stdout, budget) {
+        // The budget is already spent and stdout carries the one marker. A second marker on stderr
+        // would say truncation happened twice.
+        return BoundedStreams {
+            stdout: bound_and_redact(stdout, budget),
+            stderr: String::new(),
+            truncated: true,
+        };
+    }
+    // What stdout did not consume.
+    let remaining = budget - stdout.len();
+    BoundedStreams {
+        stdout: bound_and_redact(stdout, budget),
+        stderr: bound_and_redact(stderr, remaining),
+        truncated: exceeds_budget(stderr, remaining),
+    }
 }
 
 /// Truncates on a character boundary, then redacts.
@@ -173,6 +213,47 @@ mod tests {
         let text = format!("prefix Authorization: Bearer {}", "s".repeat(200));
         let bounded = bound_and_redact(&text, 60);
         assert!(!bounded.contains(&"s".repeat(30)));
+    }
+
+    #[test]
+    fn both_probe_streams_share_one_budget() {
+        // 128 KiB total for a doctor probe, not 128 KiB each. A command that splits its output
+        // across the two streams must not retain twice the ceiling.
+        let bounded = bound_both_streams(&"a".repeat(60), &"b".repeat(60), 100);
+
+        assert_eq!(bounded.stdout, "a".repeat(60));
+        // Only the 40 bytes stdout left over.
+        assert!(bounded.stderr.starts_with(&"b".repeat(40)));
+        assert!(bounded.stderr.ends_with(TRUNCATION_MARKER));
+        assert!(bounded.truncated);
+        assert!(bounded.stdout.len() + bounded.stderr.len() < 100 + TRUNCATION_MARKER.len() * 2);
+    }
+
+    #[test]
+    fn an_over_budget_stdout_leaves_no_second_marker_on_stderr() {
+        let bounded = bound_both_streams(&"a".repeat(500), "warning: something", 100);
+
+        assert!(bounded.stdout.ends_with(TRUNCATION_MARKER));
+        assert_eq!(bounded.stdout.matches(TRUNCATION_MARKER).count(), 1);
+        // Exactly one marker in the whole record.
+        assert_eq!(bounded.stderr, "");
+        assert!(bounded.truncated);
+    }
+
+    #[test]
+    fn output_within_the_shared_budget_is_untouched_on_both_streams() {
+        let bounded = bound_both_streams("claude-code 1.2.3", "npm warn deprecated", 4096);
+
+        assert_eq!(bounded.stdout, "claude-code 1.2.3");
+        assert_eq!(bounded.stderr, "npm warn deprecated");
+        assert!(!bounded.truncated);
+    }
+
+    #[test]
+    fn a_secret_on_stderr_is_redacted_under_the_shared_budget_too() {
+        let bounded =
+            bound_both_streams("ok", "Authorization: Bearer sk-ant-secret-value-here", 4096);
+        assert!(!bounded.stderr.contains("sk-ant-secret-value-here"));
     }
 
     #[test]

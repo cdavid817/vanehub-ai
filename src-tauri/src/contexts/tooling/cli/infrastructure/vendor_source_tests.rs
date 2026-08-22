@@ -340,11 +340,32 @@ fn execution_downloads_the_allowlisted_url_and_runs_the_file() {
         fn emit(&self, _line: &str) {}
     }
 
+    #[derive(Default)]
+    struct Phases(Mutex<Vec<(String, bool)>>);
+    impl CliPhaseSink for Phases {
+        fn enter(&self, phase: CliOperationPhase, cancellable: bool) {
+            self.0
+                .lock()
+                .expect("phases")
+                .push((phase.as_str().to_string(), cancellable));
+        }
+    }
+    let phases = Phases::default();
+
     let outcome = source
-        .execute(spec, &CliCancellation::never(), &Sink)
+        .execute(spec, &CliCancellation::never(), &Sink, &phases)
         .expect("execution");
 
     assert!(outcome.succeeded());
+    // The download is cancellable; the installer that follows it is not. This adapter is the only
+    // thing that knows where that line falls.
+    assert_eq!(
+        phases.0.lock().expect("phases").as_slice(),
+        [
+            ("downloading".to_string(), true),
+            ("mutating".to_string(), false)
+        ]
+    );
     // The URL actually fetched is the audited one from the registry.
     let urls = downloader.urls();
     assert_eq!(urls.len(), 1);

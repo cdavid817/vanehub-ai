@@ -6,7 +6,7 @@
 //! testable claim rather than a hope.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
@@ -15,8 +15,9 @@ use super::environment_error::CliEnvironmentError;
 use super::environment_ports::{
     CliCancellation, CliClock, CliDiagnosticsPort, CliDiscoveryPort, CliDistributionPort,
     CliEnvironmentRepository, CliExecutionSpec, CliIdFactory, CliMutationCoordinator,
-    CliMutationLease, CliOperationsPort, CliOutputSink, CliPlanRequest, CliProbeBudget,
-    CliProbeOutcome, CliProbePort, CliProcessOutcome, CliSourcePreflight, CliSourceRegistry,
+    CliMutationLease, CliOperationsPort, CliOutputSink, CliPhaseSink, CliPlanRequest,
+    CliProbeBudget, CliProbeOutcome, CliProbePort, CliProcessOutcome, CliSourcePreflight,
+    CliSourceRegistry,
 };
 use crate::contexts::tooling::cli::domain::action::CliActionKind;
 use crate::contexts::tooling::cli::domain::bulk::CliBulkActionPlan;
@@ -278,6 +279,8 @@ pub(super) struct FakeSource {
     pub(super) outcome: Mutex<CliProcessOutcome>,
     pub(super) execute_error: Mutex<Option<CliEnvironmentError>>,
     pub(super) catalog_error: Mutex<Option<CliEnvironmentError>>,
+    /// Whether this source fetches an installer before writing, as a vendor source does.
+    downloads: AtomicBool,
 }
 
 impl FakeSource {
@@ -302,7 +305,13 @@ impl FakeSource {
             }),
             execute_error: Mutex::new(None),
             catalog_error: Mutex::new(None),
+            downloads: AtomicBool::new(false),
         })
+    }
+
+    /// Makes this source announce a download phase before it starts writing.
+    pub(super) fn set_downloads_first(&self) {
+        self.downloads.store(true, Ordering::SeqCst);
     }
 
     pub(super) fn set_catalog(&self, catalog: CliVersionCatalog) {
@@ -422,8 +431,14 @@ impl CliDistributionPort for FakeSource {
         spec: CliExecutionSpec,
         cancellation: &CliCancellation,
         output: &dyn CliOutputSink,
+        phases: &dyn CliPhaseSink,
     ) -> Result<CliProcessOutcome, CliEnvironmentError> {
         self.executed.lock().expect("executed").push(spec);
+        // Mirrors a downloading source: cancellable while fetching, not once it starts writing.
+        if self.downloads.load(Ordering::SeqCst) {
+            phases.enter(CliOperationPhase::Downloading, true);
+        }
+        phases.enter(CliOperationPhase::Mutating, false);
         output.emit("fixture output");
         if let Some(error) = self.execute_error.lock().expect("execute error").clone() {
             return Err(error);
@@ -869,6 +884,9 @@ pub(super) struct FakeCoordinator {
     pub(super) held: Arc<Mutex<Vec<(String, String)>>>,
     pub(super) capacity: usize,
     pub(super) detection_safe: bool,
+    /// Stands in for a second operation writing the same resource. Separate from `held` because a
+    /// use case that has just released its own lease still has to ask before probing.
+    detection_blocked: std::sync::atomic::AtomicBool,
 }
 
 impl FakeCoordinator {
@@ -877,11 +895,16 @@ impl FakeCoordinator {
             held: Arc::new(Mutex::new(Vec::new())),
             capacity: 2,
             detection_safe: false,
+            detection_blocked: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub(super) fn currently_held(&self) -> Vec<(String, String)> {
         self.held.lock().expect("held").clone()
+    }
+
+    pub(super) fn block_detection(&self) {
+        self.detection_blocked.store(true, Ordering::SeqCst);
     }
 }
 
@@ -913,6 +936,9 @@ impl CliMutationCoordinator for FakeCoordinator {
     }
 
     fn may_detect_now(&self, key: &CliMutationKey) -> bool {
+        if self.detection_blocked.load(Ordering::SeqCst) {
+            return false;
+        }
         let held = self.held.lock().expect("held");
         !held.iter().any(|(_, existing)| existing == key.as_str()) || self.detection_safe
     }

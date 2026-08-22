@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use crate::contexts::tooling::cli::application::environment_error::CliEnvironmentError;
 use crate::contexts::tooling::cli::application::environment_ports::{
-    CliCancellation, CliDistributionPort, CliExecutionSpec, CliOutputSink, CliPlanRequest,
-    CliProcessOutcome, CliSourcePreflight,
+    CliCancellation, CliDistributionPort, CliExecutionSpec, CliOutputSink, CliPhaseSink,
+    CliPlanRequest, CliProcessOutcome, CliSourcePreflight,
 };
 use crate::contexts::tooling::cli::domain::action::CliActionKind;
 use crate::contexts::tooling::cli::domain::catalog::{
@@ -22,6 +22,7 @@ use crate::contexts::tooling::cli::domain::catalog::{
 };
 use crate::contexts::tooling::cli::domain::definition::CliDistributionDefinition;
 use crate::contexts::tooling::cli::domain::ids::{CliSourceId, CliToolId};
+use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
 use crate::contexts::tooling::cli::domain::plan::{CliActionPlan, CliCommandPreview};
 use crate::contexts::tooling::cli::domain::source::CliMutationKey;
 use crate::contexts::tooling::cli::domain::version::NormalizedCliVersion;
@@ -233,7 +234,12 @@ impl CliDistributionPort for NpmSource {
         spec: CliExecutionSpec,
         cancellation: &CliCancellation,
         output: &dyn CliOutputSink,
+        phases: &dyn CliPhaseSink,
     ) -> Result<CliProcessOutcome, CliEnvironmentError> {
+        // npm fetches and writes inside one command, so there is no observable download boundary
+        // to report. The whole call is treated as the irreversible part, which is the safe
+        // direction to be wrong in: cancel is never offered while npm may be writing.
+        phases.enter(CliOperationPhase::Mutating, false);
         let result = self.gateway.run(
             CliCommandRequest {
                 program: spec.program,

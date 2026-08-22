@@ -64,6 +64,14 @@ pub(crate) mod installation;
         reason = "consumed by the CLI application service in task group 3; remove with that group"
     )
 )]
+pub(crate) mod operation_record;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
 pub(crate) mod phase;
 #[cfg_attr(
     not(test),

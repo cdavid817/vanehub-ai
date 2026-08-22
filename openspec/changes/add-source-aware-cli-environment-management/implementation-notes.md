@@ -213,3 +213,35 @@ No widening of this change into Agent Runtime was needed.
 source migration, user-preferred-installation persistence, Homebrew/Bun/Volta lifecycle, and
 WSL/SSH/container scopes. The platform tests assert classification and grouping only; enumeration
 order, the executable bit, and `noexec` need the temporary-PATH desktop fixtures from task 12.10.
+
+## Two defects the lifecycle work uncovered (task group 8)
+
+Both were found by writing the cancellation tests task 8.11 asks for, not by review. Neither was in
+the brief's list of seven regressions.
+
+**Post-mutation detection inherited the operation's cancellation flag.** `verify_and_persist` took
+its token from `operations.cancellation(operation_id)`, and `discover_and_probe` breaks out of its
+probe loop the moment that token is set. So after a cancellation, detection observed nothing --
+which made `changed-but-failed` structurally unreachable for exactly the case the five outcome
+states exist to distinguish: a package manager interrupted after it had already replaced the binary.
+Detection now runs on `CliCancellation::uncancelled()`. Cancelling an upgrade stops the package
+manager; it must not also stop VaneHub from looking at what the package manager already did.
+
+**"Not observed" was being read as "changed".** `machine_changed` compared
+`Option<String>` versions directly, so a version that could not be re-probed (`Some("1.2.0")` before,
+`None` after) counted as a change and reported a cancelled no-op as `changed-but-failed`. It now
+requires positive evidence: two observed versions that differ, or an installation-count change from
+a detection that actually completed. This is the same silence-is-never-consent rule the readiness
+probes follow, applied to the axis where it had been missed.
+
+## Phase reporting crosses the port boundary (task 8.1)
+
+`CliDistributionPort::execute` gained a `&dyn CliPhaseSink`. Only the adapter knows where a download
+ends and an install begins, and that boundary is exactly where cancellation stops being safe. The
+vendor source reports `downloading` (cancellable) then `mutating` (not cancellable) around its own
+steps; npm and WinGet fetch and write inside one invocation with no observable boundary, so they
+report `mutating` for the whole call -- the safe direction to be wrong in, since cancel is then
+never offered while a package manager may be writing.
+
+Reported from the caller instead, this would have to either label a download `mutating` or keep
+offering cancel during an install. Both are false statements about the machine.

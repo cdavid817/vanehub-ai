@@ -21,8 +21,8 @@ use std::time::Duration;
 
 use crate::contexts::tooling::cli::application::environment_error::CliEnvironmentError;
 use crate::contexts::tooling::cli::application::environment_ports::{
-    CliCancellation, CliDistributionPort, CliExecutionSpec, CliOutputSink, CliPlanRequest,
-    CliProcessOutcome, CliSourcePreflight,
+    CliCancellation, CliDistributionPort, CliExecutionSpec, CliOutputSink, CliPhaseSink,
+    CliPlanRequest, CliProcessOutcome, CliSourcePreflight,
 };
 use crate::contexts::tooling::cli::domain::action::CliActionKind;
 use crate::contexts::tooling::cli::domain::catalog::{
@@ -30,6 +30,7 @@ use crate::contexts::tooling::cli::domain::catalog::{
 };
 use crate::contexts::tooling::cli::domain::definition::CliDistributionDefinition;
 use crate::contexts::tooling::cli::domain::ids::{CliSourceId, CliToolId};
+use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
 use crate::contexts::tooling::cli::domain::plan::{CliActionPlan, CliCommandPreview};
 use crate::contexts::tooling::cli::domain::source::{CliMutationKey, CliPlatform};
 use crate::contexts::tooling::cli::domain::trust::{
@@ -231,6 +232,7 @@ impl CliDistributionPort for VendorSource {
         spec: CliExecutionSpec,
         cancellation: &CliCancellation,
         output: &dyn CliOutputSink,
+        phases: &dyn CliPhaseSink,
     ) -> Result<CliProcessOutcome, CliEnvironmentError> {
         // The URL travels in the preview placeholder; the definition is the authority for what may
         // actually be fetched, so it is re-resolved here rather than parsed back out of a string.
@@ -241,6 +243,9 @@ impl CliDistributionPort for VendorSource {
             ));
         }
 
+        // Downloading is genuinely cancellable: the file lands in a temporary directory and nothing
+        // on the machine has been touched yet.
+        phases.enter(CliOperationPhase::Downloading, true);
         let installer = self
             .downloader
             .download(template.url, &trust, cancellation)?;
@@ -258,6 +263,10 @@ impl CliDistributionPort for VendorSource {
             }
         };
 
+        // The installer is about to run. From here a cancellation cannot undo what it has already
+        // written, so cancel stops being offered at exactly this point rather than a phase earlier
+        // or later.
+        phases.enter(CliOperationPhase::Mutating, false);
         let result = self.gateway.run(
             CliCommandRequest {
                 program: spec.program,

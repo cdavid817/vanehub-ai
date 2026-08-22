@@ -52,9 +52,19 @@ impl CliCancellation {
         Arc::clone(&self.0)
     }
 
+    /// A token that is never signalled.
+    ///
+    /// Post-mutation detection uses one instead of the operation's own flag. Cancelling an upgrade
+    /// stops the package manager; it must not also stop VaneHub from looking at what the package
+    /// manager already did. Sharing the flag makes `changed-but-failed` unreachable after a
+    /// cancellation, which is precisely the case the five outcome states exist to distinguish.
+    pub(crate) fn uncancelled() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
     #[cfg(test)]
     pub(crate) fn never() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
+        Self::uncancelled()
     }
 }
 
@@ -185,6 +195,17 @@ pub(crate) trait CliOutputSink: Send + Sync {
     fn emit(&self, line: &str);
 }
 
+/// Where an adapter announces the stage it has reached.
+///
+/// Only the adapter knows when a download ends and an install begins, and that boundary is exactly
+/// where cancellation stops being safe. Reporting both phases from the caller would either show
+/// `mutating` during a download or offer cancel during an install; neither is true.
+///
+/// Reporting a phase must never fail an operation, so this returns nothing.
+pub(crate) trait CliPhaseSink: Send + Sync {
+    fn enter(&self, phase: CliOperationPhase, cancellable: bool);
+}
+
 /// One distribution source: its catalog, its preflight, and its execution.
 ///
 /// `list_versions` returns a catalog stamped with this adapter's own source id, which is what makes
@@ -231,6 +252,7 @@ pub(crate) trait CliDistributionPort: Send + Sync {
         spec: CliExecutionSpec,
         cancellation: &CliCancellation,
         output: &dyn CliOutputSink,
+        phases: &dyn CliPhaseSink,
     ) -> Result<CliProcessOutcome, CliEnvironmentError>;
 }
 

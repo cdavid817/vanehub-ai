@@ -12,8 +12,10 @@
 //! - post-mutation detection runs after success *and* failure, and its result is what gets saved;
 //! - a failed verification never restores the pre-operation snapshot.
 
+use chrono::{DateTime, Utc};
+
 use super::environment_error::CliEnvironmentError;
-use super::environment_ports::{CliCancellation, CliOutputSink, CliPlanRequest};
+use super::environment_ports::{CliCancellation, CliOutputSink, CliPhaseSink, CliPlanRequest};
 use super::environment_service::CliEnvironmentService;
 use crate::contexts::tooling::cli::domain::action::{
     resolve_target, CliActionKind, CliTargetResolution,
@@ -22,6 +24,9 @@ use crate::contexts::tooling::cli::domain::definition::{
     CliDistributionAction, CliDistributionDefinition, CliToolDefinition,
 };
 use crate::contexts::tooling::cli::domain::ids::{CliActionPlanId, CliSourceId, CliToolId};
+use crate::contexts::tooling::cli::domain::operation_record::{
+    CliOperationRecord, CliOperationTermination, CliVerificationWarning,
+};
 use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
 use crate::contexts::tooling::cli::domain::plan::{
     CliActionPlan, CliActionPlanState, CliFallbackPolicy, CliPlanWarning, CliPrecondition,
@@ -77,6 +82,24 @@ impl CliOutputSink for OperationSink<'_> {
             .ports
             .operations
             .append_output(&self.operation_id, line);
+    }
+}
+
+/// Relays the phases an adapter announces onto the operation.
+struct OperationPhases<'a> {
+    service: &'a CliEnvironmentService,
+    operation_id: String,
+}
+
+impl CliPhaseSink for OperationPhases<'_> {
+    fn enter(&self, phase: CliOperationPhase, cancellable: bool) {
+        // A failure to record a label must not abort a mutation that is otherwise proceeding --
+        // least of all one that has already started writing.
+        let _ = self
+            .service
+            .ports
+            .operations
+            .report_phase(&self.operation_id, phase, cancellable);
     }
 }
 
@@ -392,25 +415,33 @@ impl CliEnvironmentService {
         prepared: PreparedCliActionExecution,
     ) -> Result<(), CliEnvironmentError> {
         let operation_id = prepared.operation_id.clone();
+        let started_at = self.ports.clock.now();
         match self.run_action(&prepared) {
-            Ok(outcome) => {
-                if outcome.warrants_warning() {
-                    self.ports.operations.complete(
-                        &operation_id,
-                        serde_json::json!({ "outcome": outcome.as_str(), "warning": true }),
-                    )
-                } else {
-                    self.ports.operations.complete(
-                        &operation_id,
-                        serde_json::json!({ "outcome": outcome.as_str() }),
-                    )
-                }
+            Ok(record) => {
+                // The whole context, not just the outcome: a reader deciding whether to retry needs
+                // to know the command exited 0 and verification could not confirm it, which one
+                // label cannot carry.
+                self.ports
+                    .operations
+                    .complete(&operation_id, encode_operation_record(&record))
             }
             Err(error) => {
                 let message = error.to_string();
-                self.ports
-                    .diagnostics
-                    .record(&operation_id, None, None, &message);
+                let record = CliOperationRecord {
+                    elapsed_ms: elapsed_ms(started_at, self.ports.clock.now()),
+                    ..CliOperationRecord::unstarted(
+                        operation_id.clone(),
+                        CliOperationPhase::Preflight,
+                    )
+                };
+                // Recorded on the failure path too. An operation that never reached a process is
+                // still an operation someone will ask about.
+                self.ports.diagnostics.record(
+                    &operation_id,
+                    None,
+                    None,
+                    &format!("{message} ({})", describe_record(&record)),
+                );
                 self.ports.operations.fail(&operation_id, message)
             }
         }
@@ -419,9 +450,14 @@ impl CliEnvironmentService {
     fn run_action(
         &self,
         prepared: &PreparedCliActionExecution,
-    ) -> Result<CliMutationOutcome, CliEnvironmentError> {
+    ) -> Result<CliOperationRecord, CliEnvironmentError> {
         let operation_id = &prepared.operation_id;
+        let started_at = self.ports.clock.now();
         let cancellation = self.ports.operations.cancellation(operation_id)?;
+        // Nothing has been applied yet, so everything up to the adapter is still cancellable.
+        self.ports
+            .operations
+            .report_phase(operation_id, CliOperationPhase::Preflight, true)?;
         let fingerprint = self.ports.discovery.environment_fingerprint()?;
         let now = self.ports.clock.now();
 
@@ -445,6 +481,11 @@ impl CliEnvironmentService {
                 agent_id: plan.agent_id.as_str().to_string(),
                 source_id: plan.source_id.as_str().to_string(),
             })?;
+        self.ports.operations.report_phase(
+            operation_id,
+            CliOperationPhase::ResolvingSource,
+            true,
+        )?;
         // Resolved from the plan's recorded source id. There is no other source this can reach.
         let adapter = self.ports.sources.adapter(&plan.source_id).ok_or_else(|| {
             CliEnvironmentError::SourceUnavailable {
@@ -472,9 +513,6 @@ impl CliEnvironmentService {
             })?;
 
         let spec = adapter.build_execution(&plan, distribution)?;
-        self.ports
-            .operations
-            .report_phase(operation_id, CliOperationPhase::Mutating, false)?;
         // Recorded before the external effect so a stuck mutation can be attributed to the tool
         // and the resource it holds, not just to an operation id.
         self.ports.diagnostics.record(
@@ -487,7 +525,15 @@ impl CliEnvironmentService {
             service: self,
             operation_id: operation_id.clone(),
         };
-        let process = adapter.execute(spec, &cancellation, &sink);
+        // The adapter announces `downloading` and `mutating` itself: only it knows where the
+        // download ends and the irreversible part begins.
+        let phases = OperationPhases {
+            service: self,
+            operation_id: operation_id.clone(),
+        };
+        let process = adapter.execute(spec, &cancellation, &sink, &phases);
+        // Exactly once on this path; `Drop` covers every other one, including a panic between here
+        // and the end of the function.
         lease.release();
 
         // Post-mutation detection runs whatever happened. The process may have changed the machine
@@ -497,11 +543,17 @@ impl CliEnvironmentService {
             CliOperationPhase::RefreshingEnvironment,
             false,
         )?;
-        let outcome = self.verify_and_persist(&plan, &process, operation_id, &fingerprint)?;
+        let verified = self.verify_and_persist(
+            &plan,
+            &process,
+            operation_id,
+            &fingerprint,
+            &adapter.mutation_key(&plan.agent_id),
+        )?;
 
         self.ports.repository.finish_action_plan(
             &plan.id,
-            match outcome {
+            match verified.outcome {
                 CliMutationOutcome::Verified | CliMutationOutcome::AppliedUnverified => {
                     CliActionPlanState::Completed
                 }
@@ -510,7 +562,30 @@ impl CliEnvironmentService {
             },
             self.ports.clock.now(),
         )?;
-        Ok(outcome)
+
+        Ok(CliOperationRecord {
+            operation_id: operation_id.clone(),
+            agent_id: Some(plan.agent_id.clone()),
+            source_id: Some(plan.source_id.clone()),
+            action: Some(plan.action),
+            target_version: plan
+                .target_version
+                .as_deref()
+                .map(NormalizedCliVersion::parse),
+            observed_version: verified
+                .observed_version
+                .as_deref()
+                .map(NormalizedCliVersion::parse),
+            phase: CliOperationPhase::Completed,
+            termination: termination_of(&process),
+            elapsed_ms: elapsed_ms(started_at, self.ports.clock.now()),
+            outcome: Some(verified.outcome),
+            warnings: verified.warnings,
+            output_truncated: process
+                .as_ref()
+                .map(|outcome| outcome.truncated)
+                .unwrap_or(false),
+        })
     }
 
     /// Detects the post-operation machine state and classifies the outcome.
@@ -525,35 +600,61 @@ impl CliEnvironmentService {
         process: &Result<super::environment_ports::CliProcessOutcome, CliEnvironmentError>,
         operation_id: &str,
         fingerprint: &str,
-    ) -> Result<CliMutationOutcome, CliEnvironmentError> {
+        mutation_key: &crate::contexts::tooling::cli::domain::source::CliMutationKey,
+    ) -> Result<VerifiedMutation, CliEnvironmentError> {
         let definition =
             crate::contexts::tooling::cli::domain::registry::definition(plan.agent_id.as_str())
                 .ok_or_else(|| CliEnvironmentError::UnknownTool {
                     agent_id: plan.agent_id.as_str().to_string(),
                 })?;
-        let cancellation = self.ports.operations.cancellation(operation_id)?;
+        // Deliberately not the operation's own cancellation. See `CliCancellation::uncancelled`:
+        // the user cancelled the mutation, not the observation of what it already did.
+        let cancellation = CliCancellation::uncancelled();
         let before = self.snapshot_or_never_scanned(&plan.agent_id, fingerprint)?;
         let before_version = active_version_string(&before);
+        let mut warnings = Vec::new();
 
-        let detected = self.refresh_one_for_verification(
-            &plan.agent_id,
-            definition,
-            fingerprint,
-            operation_id,
-            &cancellation,
-        );
+        // Best-effort *when safe*. Another operation may still hold this package manager's
+        // resource, and probing a tree it is halfway through writing reports a transient state as
+        // the machine's state -- which is worse than admitting the answer is not yet known.
+        let detected = if self.ports.coordinator.may_detect_now(mutation_key) {
+            self.refresh_one_for_verification(
+                &plan.agent_id,
+                definition,
+                fingerprint,
+                operation_id,
+                &cancellation,
+            )
+        } else {
+            self.ports.diagnostics.record(
+                operation_id,
+                Some(&plan.agent_id),
+                Some(plan.action),
+                &format!(
+                    "skipped post-mutation detection while {} is being written",
+                    mutation_key.as_str()
+                ),
+            );
+            warnings.push(CliVerificationWarning::DetectionSkippedWhileBusy);
+            Err(CliEnvironmentError::OperationConflict {
+                agent_id: plan.agent_id.as_str().to_string(),
+            })
+        };
 
         let (mut snapshot, detection_failed) = match detected {
             Ok(snapshot) => (snapshot, false),
             Err(error) => {
-                self.ports.diagnostics.record(
-                    operation_id,
-                    Some(&plan.agent_id),
-                    Some(plan.action),
-                    &error.to_string(),
-                );
-                // Detection itself failed. What is held describes the machine *before* the
-                // command, so it is kept as last-known and labelled stale -- never presented as
+                if warnings.is_empty() {
+                    self.ports.diagnostics.record(
+                        operation_id,
+                        Some(&plan.agent_id),
+                        Some(plan.action),
+                        &error.to_string(),
+                    );
+                    warnings.push(CliVerificationWarning::DetectionFailed);
+                }
+                // Detection did not produce an answer. What is held describes the machine *before*
+                // the command, so it is kept as last-known and labelled stale -- never presented as
                 // the current state.
                 let mut stale = before.clone();
                 stale.mark_stale();
@@ -562,8 +663,14 @@ impl CliEnvironmentService {
         };
 
         let after_version = active_version_string(&snapshot);
-        let machine_changed = before_version != after_version
-            || before.installations.len() != snapshot.installations.len();
+        // Only positive evidence counts as a change. A version that could not be re-read is not a
+        // version that vanished -- treating "not observed" as "changed" is the same silence-as-
+        // consent mistake the readiness probes exist to avoid, and here it would report a machine
+        // as modified on the strength of a probe that never ran.
+        let machine_changed = match (&before_version, &after_version) {
+            (Some(before_version), Some(after_version)) => before_version != after_version,
+            _ => !detection_failed && before.installations.len() != snapshot.installations.len(),
+        };
 
         let outcome = match process {
             Ok(process) if process.cancelled => {
@@ -578,6 +685,9 @@ impl CliEnvironmentService {
                     .target_version
                     .as_deref()
                     .is_none_or(|target| after_version.as_deref() == Some(target));
+                if !reached_target && !detection_failed {
+                    warnings.push(CliVerificationWarning::TargetVersionNotObserved);
+                }
                 if detection_failed || !reached_target {
                     // The command completed. Verification did not confirm it. This is not a
                     // failure that can be undone by restoring an older row.
@@ -600,7 +710,11 @@ impl CliEnvironmentService {
             completed_at: self.ports.clock.now(),
         });
         self.ports.repository.save_snapshot_atomic(&snapshot)?;
-        Ok(outcome)
+        Ok(VerifiedMutation {
+            outcome,
+            observed_version: after_version,
+            warnings,
+        })
     }
 
     fn refresh_one_for_verification(
@@ -670,6 +784,78 @@ fn preconditions_for(source_id: &CliSourceId, requires_elevation: &bool) -> Vec<
         preconditions.push(CliPrecondition::ElevatedPrivileges);
     }
     preconditions
+}
+
+/// What post-mutation verification established, beyond the outcome label.
+struct VerifiedMutation {
+    outcome: CliMutationOutcome,
+    observed_version: Option<String>,
+    warnings: Vec<CliVerificationWarning>,
+}
+
+/// Maps a process result onto how the operation ended.
+///
+/// An adapter error is `NotStarted` rather than a failed exit: nothing established that a process
+/// ran at all, and inventing an exit code for it would put a number in the record that no process
+/// ever reported.
+fn termination_of(
+    process: &Result<super::environment_ports::CliProcessOutcome, CliEnvironmentError>,
+) -> CliOperationTermination {
+    match process {
+        Err(_) => CliOperationTermination::NotStarted,
+        // Checked before the exit code: a cancelled process can still exit 0, and reporting that
+        // as a clean exit is how a partial change gets recorded as a completed one.
+        Ok(outcome) if outcome.cancelled => CliOperationTermination::Cancelled,
+        Ok(outcome) if outcome.timed_out => CliOperationTermination::TimedOut,
+        Ok(outcome) => match outcome.exit_code {
+            Some(code) => CliOperationTermination::Exited { code },
+            None => CliOperationTermination::ExitedWithoutCode,
+        },
+    }
+}
+
+/// Wall-clock duration, floored at zero.
+///
+/// A clock that moves backwards -- an NTP correction mid-operation -- yields zero rather than a
+/// wrapped value that would read as a multi-century operation.
+fn elapsed_ms(started_at: DateTime<Utc>, finished_at: DateTime<Utc>) -> u64 {
+    u64::try_from((finished_at - started_at).num_milliseconds().max(0)).unwrap_or(0)
+}
+
+/// The record as the operation store, the frontend DTO, and the log all see it.
+///
+/// One encoder for all three, so the three boundaries cannot drift into showing different fields.
+fn encode_operation_record(record: &CliOperationRecord) -> serde_json::Value {
+    serde_json::json!({
+        "operationId": record.operation_id,
+        "agentId": record.agent_id.as_ref().map(|id| id.as_str()),
+        "sourceId": record.source_id.as_ref().map(|id| id.as_str()),
+        "action": record.action.map(|action| action.as_str()),
+        "targetVersion": record.target_version.as_ref().map(|v| v.as_str()),
+        "observedVersion": record.observed_version.as_ref().map(|v| v.as_str()),
+        "phase": record.phase.as_str(),
+        "termination": record.termination.as_str(),
+        "exitCode": record.termination.exit_code(),
+        "elapsedMs": record.elapsed_ms,
+        "outcome": record.outcome.map(CliMutationOutcome::as_str),
+        "warnings": record
+            .warnings
+            .iter()
+            .map(|warning| warning.as_str())
+            .collect::<Vec<_>>(),
+        "outputTruncated": record.output_truncated,
+        "warning": record.warrants_attention(),
+    })
+}
+
+/// A one-line form of the record for the diagnostic log. Identifiers and enums only.
+fn describe_record(record: &CliOperationRecord) -> String {
+    format!(
+        "phase={} termination={} elapsedMs={}",
+        record.phase.as_str(),
+        record.termination.as_str(),
+        record.elapsed_ms
+    )
 }
 
 fn active_version_string(snapshot: &CliEnvironmentSnapshot) -> Option<String> {

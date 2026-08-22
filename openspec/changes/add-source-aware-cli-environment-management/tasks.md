@@ -105,17 +105,17 @@
 
 ## 8. Lifecycle execution, verification, and logging
 
-- [ ] 8.1 Add structured CLI phases to refresh, planning, execution, verification, Doctor, and bulk operations.
-- [ ] 8.2 Propagate operation cancellation into the process gateway and source adapters.
-- [ ] 8.3 Enforce output budgets of 16 KiB per version-probe stream, 128 KiB total for Doctor/auth probes, and 1 MiB retained output per lifecycle operation.
-- [ ] 8.4 Insert exactly one truncation marker while continuing safe child-process draining.
-- [ ] 8.5 Redact output before operation storage, frontend delivery, and unified-log persistence.
-- [ ] 8.6 Perform best-effort post-mutation detection after success, failure, timeout, or cancellation when safe.
-- [ ] 8.7 Implement `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`, and `cancelled` result semantics.
-- [ ] 8.8 Never restore the pre-operation snapshot as a claimed rollback after an external effect may have occurred.
-- [ ] 8.9 When post-detection fails, preserve last-known data only as stale and attach mutation/verification warnings.
-- [ ] 8.10 Persist redacted operation context including operation id, Agent id, source, action, safe version, phase, exit/timeout/cancel state, elapsed time, and outcome.
-- [ ] 8.11 Add tests for command success plus verification failure, command failure plus detected change, cancellation during download, cancellation during process execution, and log truncation/redaction.
+- [x] 8.1 Add structured CLI phases to refresh, planning, execution, verification, Doctor, and bulk operations.
+- [x] 8.2 Propagate operation cancellation into the process gateway and source adapters.
+- [x] 8.3 Enforce output budgets of 16 KiB per version-probe stream, 128 KiB total for Doctor/auth probes, and 1 MiB retained output per lifecycle operation.
+- [x] 8.4 Insert exactly one truncation marker while continuing safe child-process draining.
+- [x] 8.5 Redact output before operation storage, frontend delivery, and unified-log persistence.
+- [x] 8.6 Perform best-effort post-mutation detection after success, failure, timeout, or cancellation when safe.
+- [x] 8.7 Implement `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`, and `cancelled` result semantics.
+- [x] 8.8 Never restore the pre-operation snapshot as a claimed rollback after an external effect may have occurred.
+- [x] 8.9 When post-detection fails, preserve last-known data only as stale and attach mutation/verification warnings.
+- [x] 8.10 Persist redacted operation context including operation id, Agent id, source, action, safe version, phase, exit/timeout/cancel state, elapsed time, and outcome.
+- [x] 8.11 Add tests for command success plus verification failure, command failure plus detected change, cancellation during download, cancellation during process execution, and log truncation/redaction.
 
 ## 9. Tauri commands and bootstrap
 

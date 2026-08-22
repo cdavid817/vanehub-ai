@@ -582,3 +582,236 @@ fn a_completed_mutation_releases_its_reservation() {
     // Released exactly once, so the tool is not left permanently locked.
     assert!(harness.coordinator.currently_held().is_empty());
 }
+
+/// Runs one upgrade to 1.3.0 and returns the recorded operation.
+fn run_upgrade(
+    harness: &Harness,
+    prepare_operation: impl FnOnce(&Harness, &str),
+) -> crate::contexts::tooling::cli::application::environment_test_doubles::RecordedOperation {
+    let plan_id = prepare(harness, CliActionKind::Upgrade, Some("1.3.0")).expect("plan");
+    let prepared = harness
+        .service
+        .prepare_cli_action_execution(ExecuteCliActionInput {
+            plan_id,
+            expected_revision: 1,
+        })
+        .expect("prepare");
+    let operation_id = prepared.operation_id.clone();
+    prepare_operation(harness, &operation_id);
+    harness.service.execute_cli_action(prepared).expect("runs");
+    harness.operations.find(&operation_id).expect("operation")
+}
+
+fn result_field<'a>(
+    operation: &'a crate::contexts::tooling::cli::application::environment_test_doubles::RecordedOperation,
+    field: &str,
+) -> &'a serde_json::Value {
+    operation
+        .result
+        .as_ref()
+        .expect("result")
+        .get(field)
+        .unwrap_or(&serde_json::Value::Null)
+}
+
+#[test]
+fn cancelling_before_the_process_starts_reports_cancelled_and_changes_nothing() {
+    // Cancellation during the download phase: nothing has been applied, so the operation is simply
+    // cancelled -- not a failure, and not a change.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let operation = run_upgrade(&harness, |harness, operation_id| {
+        harness.operations.cancel(operation_id);
+    });
+
+    assert_eq!(result_field(&operation, "outcome"), "cancelled");
+    assert_eq!(result_field(&operation, "termination"), "cancelled");
+    // A cancelled process reports no exit code, and none is invented for it.
+    assert!(result_field(&operation, "exitCode").is_null());
+    assert_eq!(result_field(&operation, "warning"), true);
+
+    let snapshot = harness
+        .repository
+        .snapshot("claude-code")
+        .expect("snapshot");
+    assert_eq!(
+        snapshot.last_mutation.as_ref().map(|m| m.outcome),
+        Some(CliMutationOutcome::Cancelled)
+    );
+    // The reservation is released on the cancelled path too.
+    assert!(harness.coordinator.currently_held().is_empty());
+}
+
+#[test]
+fn cancelling_a_process_that_already_moved_the_machine_is_not_a_clean_cancellation() {
+    // Cancellation during process execution. npm was interrupted, but it had already replaced the
+    // binary -- reporting this as `cancelled` would tell the user nothing happened.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let operation = run_upgrade(&harness, |harness, operation_id| {
+        harness.operations.cancel(operation_id);
+        harness.probes.set_version("/path/claude", "1.3.0");
+    });
+
+    assert_eq!(result_field(&operation, "outcome"), "changed-but-failed");
+    assert_eq!(result_field(&operation, "termination"), "cancelled");
+    let snapshot = harness
+        .repository
+        .snapshot("claude-code")
+        .expect("snapshot");
+    // The snapshot describes 1.3.0, because that is what is on the machine.
+    assert_eq!(
+        snapshot.last_mutation.as_ref().map(|m| m.outcome),
+        Some(CliMutationOutcome::ChangedButFailed)
+    );
+}
+
+#[test]
+fn cancelling_the_mutation_does_not_cancel_the_look_at_what_it_did() {
+    // Sharing the operation's cancellation flag with post-mutation detection makes
+    // `changed-but-failed` unreachable after a cancellation: the probes stop before they observe
+    // the binary the package manager already replaced.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let probe_calls_before = harness.probes.invocations().len();
+    let operation = run_upgrade(&harness, |harness, operation_id| {
+        harness.operations.cancel(operation_id);
+    });
+
+    assert!(
+        harness.probes.invocations().len() > probe_calls_before,
+        "post-mutation detection did not probe after the cancellation"
+    );
+    assert_eq!(result_field(&operation, "observedVersion"), "1.2.0");
+}
+
+#[test]
+fn detection_is_skipped_rather_than_racing_a_package_manager_mid_write() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let operation = run_upgrade(&harness, |harness, _| {
+        // Another operation is writing the same npm resource.
+        harness.coordinator.block_detection();
+    });
+
+    assert_eq!(
+        result_field(&operation, "warnings")
+            .as_array()
+            .expect("warnings"),
+        &vec![serde_json::json!("detection-skipped-while-busy")]
+    );
+    // The command succeeded; verification could not run, so the change is presumed applied rather
+    // than claimed verified.
+    assert_eq!(result_field(&operation, "outcome"), "applied-unverified");
+
+    let snapshot = harness
+        .repository
+        .snapshot("claude-code")
+        .expect("snapshot");
+    // Last-known, labelled stale. Never a half-written tree presented as the machine's state.
+    assert_eq!(snapshot.freshness, CliFreshness::Stale);
+    assert!(harness
+        .diagnostics
+        .messages()
+        .iter()
+        .any(|entry| entry.contains("skipped post-mutation detection")));
+}
+
+#[test]
+fn a_verification_that_saw_a_different_version_says_which_one_it_saw() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    // The probe keeps reporting 1.2.0 after the upgrade to 1.3.0 "succeeded".
+    let operation = run_upgrade(&harness, |_, _| {});
+
+    assert_eq!(result_field(&operation, "targetVersion"), "1.3.0");
+    assert_eq!(result_field(&operation, "observedVersion"), "1.2.0");
+    assert_eq!(
+        result_field(&operation, "warnings")
+            .as_array()
+            .expect("warnings"),
+        &vec![serde_json::json!("target-version-not-observed")]
+    );
+}
+
+#[test]
+fn the_persisted_operation_context_carries_identity_phase_and_timing() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    harness.probes.set_version("/path/claude", "1.3.0");
+    let operation = run_upgrade(&harness, |_, _| {});
+
+    assert_eq!(result_field(&operation, "agentId"), "claude-code");
+    assert_eq!(result_field(&operation, "sourceId"), "npm");
+    assert_eq!(result_field(&operation, "action"), "upgrade");
+    assert_eq!(result_field(&operation, "phase"), "completed");
+    assert_eq!(result_field(&operation, "termination"), "exited");
+    assert_eq!(result_field(&operation, "exitCode"), 0);
+    assert_eq!(result_field(&operation, "outcome"), "verified");
+    assert_eq!(result_field(&operation, "outputTruncated"), false);
+    // A clean verified run is the one case that needs no warning.
+    assert_eq!(result_field(&operation, "warning"), false);
+    assert!(result_field(&operation, "elapsedMs").is_u64());
+}
+
+#[test]
+fn the_persisted_context_carries_no_path_credential_or_process_output() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let operation = run_upgrade(&harness, |_, _| {});
+
+    // The adapter emitted output onto the operation, which is where output belongs.
+    assert!(!operation.output.is_empty());
+    // The record itself carries none of it, and no path from the machine it ran on.
+    let serialized = operation.result.as_ref().expect("result").to_string();
+    assert!(!serialized.contains("/path/claude"), "{serialized}");
+    assert!(!serialized.contains("fixture output"), "{serialized}");
+    assert!(!serialized.contains('\\'), "{serialized}");
+}
+
+#[test]
+fn the_execution_phase_chain_stops_offering_cancel_once_writing_begins() {
+    let harness = Harness::new();
+    let source = installed_at(&harness, "1.2.0");
+    // A source that fetches an installer first, as the vendor source does.
+    source.set_downloads_first();
+    let operation = run_upgrade(&harness, |_, _| {});
+
+    let downloading = operation
+        .phases
+        .iter()
+        .position(|phase| phase == "downloading")
+        .expect("downloading phase");
+    let mutating = operation
+        .phases
+        .iter()
+        .position(|phase| phase == "mutating")
+        .expect("mutating phase");
+    assert!(operation
+        .phases
+        .starts_with(&["preflight".to_string(), "resolving-source".to_string()]));
+    assert!(downloading < mutating);
+    // Cancel is offered while fetching and withdrawn the moment the installer runs.
+    assert!(operation.cancellable[downloading]);
+    assert!(!operation.cancellable[mutating]);
+    // And verification follows, whatever the process did.
+    assert!(operation
+        .phases
+        .iter()
+        .any(|phase| phase == "refreshing-environment"));
+    assert!(operation
+        .phases
+        .iter()
+        .any(|phase| phase == "verifying-executable"));
+}
+
+#[test]
+fn elapsed_time_never_runs_backwards() {
+    use super::elapsed_ms;
+    use crate::contexts::tooling::cli::application::environment_test_doubles::timestamp;
+
+    assert_eq!(elapsed_ms(timestamp(1_000), timestamp(1_002)), 2_000);
+    assert_eq!(elapsed_ms(timestamp(1_000), timestamp(1_000)), 0);
+    // A clock correction mid-operation must not read as a multi-century run.
+    assert_eq!(elapsed_ms(timestamp(1_000), timestamp(900)), 0);
+}
