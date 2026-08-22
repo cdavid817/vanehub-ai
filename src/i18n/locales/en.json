@@ -1812,6 +1812,7 @@
   "evidence.reason.shell_attach_gap": "Some earlier output was dropped before reattaching.",
   "evidence.reason.log_index_repairing": "The log index is still being rebuilt.",
   "evidence.reason.evidence_persistence_unavailable": "Execution evidence could not be stored.",
+  "evidence.reason.evidence_start_not_observed": "The start of this work was never observed.",
   "evidence.reason.evidence_unavailable": "Execution evidence is not available in this runtime yet.",
   "evidence.action.openTrace": "Open trace",
   "evidence.action.openLogs": "Open logs",

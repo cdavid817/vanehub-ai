@@ -79,6 +79,19 @@ describe.each(runtimes)("evidence service conformance: $name", ({ create }) => {
     }
   });
 
+  // Both runtimes must express "we saw it finish but never saw it start" the same way.
+  it("keeps a completion-only record startless while preserving its terminal state", async () => {
+    const page = await create().service.listExecutionRecords({ scope: { sessionId } });
+    const startless = page.items.filter((record) => record.startedAt === undefined);
+    expect(startless.length).toBeGreaterThan(0);
+    for (const record of startless) {
+      // The outcome is still whatever was observed; a missing start says nothing about it.
+      expect(["succeeded", "failed", "cancelled", "incomplete"]).toContain(record.status);
+      expect(record.endedAt).toBeDefined();
+      expect(record.coverage.reasonCodes).toContain("evidence_start_not_observed");
+    }
+  });
+
   it("exposes a record detail with related counts and safe attributes only", async () => {
     const { service } = create();
     const page = await service.listExecutionRecords({ scope: { sessionId } });
@@ -160,8 +173,9 @@ describe("evidence transport bindings", () => {
     expect(transport.requests[0].payload).toMatchObject({ scope: { seatId: "seat-a" } });
   });
 
-  // This is the binding the application uses until 3.15 and 10.8 register the commands.
-  it("refuses every production evidence read with a stable reason code", async () => {
+  // No longer the application's binding — the evidence reads now reach registered commands — but
+  // the fallback still has to refuse in a shape a panel can localize rather than throw a string.
+  it("refuses every evidence read with a stable reason code when no runtime is bound", async () => {
     const service = createTauriSessionWorkspaceEvidenceClient(unavailableEvidenceTransport);
     const calls = [
       () => service.getWorkspaceEvidenceSummary({ sessionId }),
@@ -176,7 +190,7 @@ describe("evidence transport bindings", () => {
   });
 
   // A panel that subscribes on mount should render its empty state, not an error boundary.
-  it("lets a subscription resolve to a no-op while the capability is pending", async () => {
+  it("lets a subscription resolve to a no-op when no runtime is bound", async () => {
     const service = createTauriSessionWorkspaceEvidenceClient(unavailableEvidenceTransport);
     const unsubscribe = await service.subscribeExecutionEvidence({ sessionId }, () => undefined);
     expect(() => unsubscribe()).not.toThrow();

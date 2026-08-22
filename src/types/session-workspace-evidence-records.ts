@@ -24,7 +24,15 @@ export interface ExecutionRecordBase {
   operationId?: EvidenceOperationId;
   agentId?: EvidenceAgentId;
   seatId?: EvidenceSeatId;
-  startedAt: string;
+  /**
+   * Absent when the runtime observed a completion but never saw the work begin.
+   *
+   * Optional rather than filled in: `occurredAt`, `endedAt`, and `durationMs` are all things a
+   * consumer could subtract to manufacture a plausible start, and every one of them would be an
+   * observation nobody made. The record keeps its real terminal status and its coverage carries
+   * `evidence_start_not_observed` instead.
+   */
+  startedAt?: string;
   endedAt?: string;
   durationMs?: number;
   status: EvidenceStatus;

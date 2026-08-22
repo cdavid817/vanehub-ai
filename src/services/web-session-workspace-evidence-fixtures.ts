@@ -116,6 +116,25 @@ export function webExecutionRecords(): ExecutionRecord[] {
       failedCount: 2,
     },
     {
+      // Completion-only. The mock keeps the same rule the native runtime does: no start was
+      // observed, so `startedAt` is omitted rather than derived from `endedAt`.
+      id: evidenceRecordIdSchema.parse("web-record-6"),
+      kind: "command",
+      sessionId,
+      runId,
+      endedAt: at(55),
+      status: "incomplete",
+      fidelity: "proxied",
+      coverage: simulatedCoverage({
+        state: "partial",
+        reasonCodes: ["simulated", "evidence_start_not_observed"],
+      }),
+      commandId: evidenceCommandIdSchema.parse("web-command-2"),
+      runtimeKind: "process",
+      outputAvailability: "unavailable",
+      outputTruncated: false,
+    },
+    {
       id: evidenceRecordIdSchema.parse("web-record-5"),
       kind: "legacy",
       sessionId,

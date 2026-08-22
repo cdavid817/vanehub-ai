@@ -26,7 +26,9 @@ const executionRecordBaseShape = {
   operationId: evidenceOperationIdSchema.optional(),
   agentId: evidenceAgentIdSchema.optional(),
   seatId: evidenceSeatIdSchema.optional(),
-  startedAt: z.string(),
+  // Optional on the wire: a completion-only record omits it rather than sending a start the
+  // runtime never observed. See `ExecutionRecordBase.startedAt`.
+  startedAt: z.string().optional(),
   endedAt: z.string().optional(),
   durationMs: z.number().int().nonnegative().optional(),
   status: evidenceStatusSchema,

@@ -1812,6 +1812,7 @@
   "evidence.reason.shell_attach_gap": "다시 연결하기 전에 일부 이전 출력이 삭제되었습니다.",
   "evidence.reason.log_index_repairing": "로그 색인을 다시 만드는 중입니다.",
   "evidence.reason.evidence_persistence_unavailable": "실행 증거를 저장하지 못했습니다.",
+  "evidence.reason.evidence_start_not_observed": "이 작업의 시작은 관측되지 않았습니다.",
   "evidence.reason.evidence_unavailable": "이 런타임에서는 아직 실행 증거를 제공하지 않습니다.",
   "evidence.action.openTrace": "트레이스 열기",
   "evidence.action.openLogs": "로그 열기",

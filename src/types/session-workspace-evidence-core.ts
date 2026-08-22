@@ -38,6 +38,17 @@ export interface QueryCoverage {
   truncated: boolean;
 }
 
+/**
+ * What a subscriber needs before it applies live notices: the sequence the store has committed
+ * through. Without it a listener registered before the first page cannot tell a notice it already
+ * has from one describing work it has not seen — the two look identical.
+ */
+export interface EvidenceSubscriptionBootstrap {
+  sessionId: EvidenceSessionId;
+  watermarkSequence: number;
+  coverage: QueryCoverage;
+}
+
 export interface CursorPage<Item> {
   items: Item[];
   nextCursor?: EvidenceCursor;

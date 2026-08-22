@@ -1,5 +1,6 @@
 import type {
   CursorPage,
+  EvidenceSubscriptionBootstrap,
   ExecutionEvidenceNotice,
   ExecutionRecord,
   ExecutionRecordDetail,
@@ -9,6 +10,7 @@ import type {
 import type { ShellAttachSnapshot, ShellOutputFrame } from "../types/session-workspace-shell-frames";
 import {
   cursorPageSchema,
+  evidenceSubscriptionBootstrapSchema,
   executionEvidenceNoticeSchema,
   workspaceEvidenceSummarySchema,
 } from "./session-workspace-evidence-core";
@@ -56,6 +58,10 @@ export function parseExecutionRecordDetail(value: unknown): ExecutionRecordDetai
 
 export function parseExecutionEvidenceNotice(value: unknown): ExecutionEvidenceNotice {
   return executionEvidenceNoticeSchema.parse(value);
+}
+
+export function parseEvidenceSubscriptionBootstrap(value: unknown): EvidenceSubscriptionBootstrap {
+  return evidenceSubscriptionBootstrapSchema.parse(value);
 }
 
 export function parseSessionRunReport(value: unknown): SessionRunReport {

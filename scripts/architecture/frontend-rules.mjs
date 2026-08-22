@@ -46,8 +46,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 序列去重/gap 检测的共享订阅语义、Tauri 客户端、Web/mock 客户端与其确定性 fixture。没有任何一份
 // 是对既有分支的复制:两个适配器实现同一个接口,这是 React 不直接 invoke 的前提;共享订阅语义写在
 // 一处,正是为了让两个运行时不会在订阅行为上漂移。上限按实测值 19979 记录,不留余量。
+// 再次上调(同一 change,Task Group 3.15):证据读取从 typed-unavailable 切到真实原生命令,新增
+// 137 行全部在 `tauri-native-evidence-transport.ts`——真实 invoke/listen 绑定、只放行已注册命令的
+// 白名单、以及把原生错误压成 reasonCode 的映射。它不是 `native-evidence-transport.ts` 的副本:后者
+// 定义 seam 与 typed unavailable 绑定,前者是唯一接触 Tauri API 的实现,拆开正是为了让"哪些命令
+// 已注册"只有一处写法。`tauri-session-workspace-evidence-client.ts` 里订阅改成先挂监听再取
+// watermark,净增几行。上限按实测值 20116 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19979, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 20116, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

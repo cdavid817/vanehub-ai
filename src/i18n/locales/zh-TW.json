@@ -1812,6 +1812,7 @@
   "evidence.reason.shell_attach_gap": "重新連接前有部分較早的輸出被捨棄。",
   "evidence.reason.log_index_repairing": "日誌索引仍在重建。",
   "evidence.reason.evidence_persistence_unavailable": "執行證據未能儲存。",
+  "evidence.reason.evidence_start_not_observed": "未觀察到這項工作的開始。",
   "evidence.reason.evidence_unavailable": "目前的執行環境尚未提供執行證據。",
   "evidence.action.openTrace": "開啟鏈路",
   "evidence.action.openLogs": "開啟日誌",

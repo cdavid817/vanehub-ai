@@ -29,6 +29,7 @@ export type {
   EvidenceCoverageState,
   EvidenceFidelity,
   EvidenceStatus,
+  EvidenceSubscriptionBootstrap,
   ExecutionEvidenceNotice,
   ExecutionEvidenceNoticeKind,
   ExecutionEvidenceSubscription,

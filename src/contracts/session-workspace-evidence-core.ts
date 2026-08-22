@@ -115,6 +115,12 @@ export const workspaceEvidenceSummarySchema = z.object({
   }),
 });
 
+export const evidenceSubscriptionBootstrapSchema = z.object({
+  sessionId: evidenceSessionIdSchema,
+  watermarkSequence: z.number().int().nonnegative(),
+  coverage: queryCoverageSchema,
+});
+
 export const executionEvidenceNoticeSchema = z.object({
   kind: z.enum(["record-appended", "record-updated", "summary-changed", "coverage-gap"]),
   sequence: z.number().int().nonnegative(),

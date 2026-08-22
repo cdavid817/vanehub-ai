@@ -74,6 +74,26 @@ export const nativeEvidenceFixtures = {
         source: "native",
       },
       {
+        // Completion-only: the runtime saw this finish but never saw it begin, so `startedAt` is
+        // absent rather than back-derived from `endedAt` or `durationMs`.
+        id: "record-4",
+        kind: "command",
+        sessionId: "session-1",
+        runId: "run-124",
+        endedAt: "2026-08-22T10:39:02.000Z",
+        status: "incomplete",
+        fidelity: "proxied",
+        coverage: {
+          state: "partial",
+          reasonCodes: ["evidence_start_not_observed"],
+          truncated: false,
+        },
+        commandId: "command-2",
+        runtimeKind: "process",
+        outputAvailability: "unavailable",
+        outputTruncated: false,
+      },
+      {
         id: "record-3",
         kind: "legacy",
         sessionId: "session-1",
@@ -107,6 +127,14 @@ export const nativeEvidenceFixtures = {
     relatedCounts: { logs: 12, commands: 1, files: 3, findings: 2, usageObservations: 1 },
     safeAttributes: { "vanehub.runtime": "remote", "vanehub.exit": "1" },
     errorReasonCode: "command_failed",
+  },
+
+  subscriptionBootstrap: {
+    sessionId: "session-1",
+    // Zero: the fixture store has committed nothing, so a subscriber's own `fromSequence` decides
+    // the resume point. A non-zero watermark here would mask a client that ignores the caller's.
+    watermarkSequence: 0,
+    coverage: { state: "partial", reasonCodes: ["evidence_capture_not_initialized"], truncated: false },
   },
 
   report: {
@@ -167,6 +195,7 @@ export function createFixtureEvidenceTransport(
     get_workspace_evidence_summary: nativeEvidenceFixtures.summary,
     list_execution_records: nativeEvidenceFixtures.recordPage,
     get_execution_record: nativeEvidenceFixtures.recordDetail,
+    get_evidence_subscription_bootstrap: nativeEvidenceFixtures.subscriptionBootstrap,
     get_session_run_report: nativeEvidenceFixtures.report,
     ...overrides,
   };

@@ -1812,6 +1812,7 @@
   "evidence.reason.shell_attach_gap": "再接続前に一部の古い出力が破棄されました。",
   "evidence.reason.log_index_repairing": "ログインデックスを再構築しています。",
   "evidence.reason.evidence_persistence_unavailable": "実行証跡を保存できませんでした。",
+  "evidence.reason.evidence_start_not_observed": "この作業の開始は観測されていません。",
   "evidence.reason.evidence_unavailable": "このランタイムではまだ実行証跡を利用できません。",
   "evidence.action.openTrace": "トレースを開く",
   "evidence.action.openLogs": "ログを開く",

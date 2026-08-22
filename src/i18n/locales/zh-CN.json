@@ -1812,6 +1812,7 @@
   "evidence.reason.shell_attach_gap": "重新接入前有部分早期输出被丢弃。",
   "evidence.reason.log_index_repairing": "日志索引仍在重建。",
   "evidence.reason.evidence_persistence_unavailable": "执行证据未能存储。",
+  "evidence.reason.evidence_start_not_observed": "未观察到这项工作的开始。",
   "evidence.reason.evidence_unavailable": "当前运行时尚不提供执行证据。",
   "evidence.action.openTrace": "打开链路",
   "evidence.action.openLogs": "打开日志",

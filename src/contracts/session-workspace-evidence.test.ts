@@ -69,6 +69,48 @@ describe("evidence transport schemas", () => {
     }).fidelity).toBe("inferred");
   });
 
+  // A completion-only record: the runtime saw it finish but never saw it begin.
+  it("accepts a terminal record with no start rather than requiring one", () => {
+    const withoutStart: Record<string, unknown> = commandRecord({
+      status: "incomplete",
+      endedAt: "2026-08-22T10:39:02.000Z",
+      coverage: {
+        state: "partial",
+        reasonCodes: ["evidence_start_not_observed"],
+        truncated: false,
+      },
+    });
+    delete withoutStart.startedAt;
+
+    const parsed = parseExecutionRecord(withoutStart);
+
+    expect(parsed.startedAt).toBeUndefined();
+    // The terminal status is preserved: not observing the start says nothing about the outcome.
+    expect(parsed.status).toBe("incomplete");
+    expect(parsed.endedAt).toBe("2026-08-22T10:39:02.000Z");
+    expect(parsed.coverage.reasonCodes).toContain("evidence_start_not_observed");
+  });
+
+  // Nothing may reconstruct a start from a value that is not one.
+  it("does not invent a start from endedAt, durationMs, or occurrence time", () => {
+    const withoutStart: Record<string, unknown> = commandRecord({
+      status: "failed",
+      endedAt: "2026-08-22T10:39:02.000Z",
+      durationMs: 900,
+    });
+    delete withoutStart.startedAt;
+
+    const parsed = parseExecutionRecord(withoutStart);
+
+    expect(parsed).not.toHaveProperty("startedAt");
+    expect(parsed.durationMs).toBe(900);
+  });
+
+  it("still round-trips a record that did observe its start", () => {
+    const parsed = parseExecutionRecord(commandRecord({ startedAt: "2026-08-22T10:00:00.000Z" }));
+    expect(parsed.startedAt).toBe("2026-08-22T10:00:00.000Z");
+  });
+
   // Rendering an unknown kind as the nearest familiar one would attribute fields that may mean
   // something else, so the row is rejected and the caller reports reduced coverage instead.
   it("fails closed on an unknown record kind", () => {
