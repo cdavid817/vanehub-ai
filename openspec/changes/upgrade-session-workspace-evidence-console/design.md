@@ -435,6 +435,59 @@ Initial producers:
 - Review: review/hunk decisions and automated finding outcomes.
 - Sessions: normalized usage-observed references, not duplicate usage totals.
 
+### Why the Bridge Lands Before the Query Side Is Signed Off
+
+The query side (3.13-3.15) is built first because the panels depend on it, but a journal with no
+producer is not a half-finished capability -- it is an unreachable one. Nothing in the library
+build calls the recorder, so the whole write half is dead code: the recorder, its six ports, the
+notice publisher, the redaction gate, the canonical encoding, the projection writer, and the
+conflict path. `cargo clippy --workspace --all-targets -- -D warnings` reports every one of them.
+
+That report is correct. Silencing it with `#[allow(dead_code)]` would hide the one signal that
+distinguishes "the store is finished" from "the store has never been written to", and the two are
+indistinguishable from the query side: both answer an empty page. Recording a synthetic startup
+event would be worse -- once persisted, an event minted to satisfy a linter is indistinguishable
+from an observation of real work, which is the exact confusion this capability exists to remove.
+Making the recorder `pub` would assert that it is consumed outside the crate, which is false.
+
+So the bridge -- ports (4.1), bootstrap adapters (4.2), bounded queue (4.3) -- lands before
+3.13-3.15 are signed off, and all six are ticked together. The exception is scoped to those three
+tasks: 4.4-4.11 govern which events each producer records and how completely, which is a different
+question from whether a path exists at all.
+
+### Bridge Shape
+
+```text
+producer use case  --try_publish(semantic DTO)-->  sender-backed port  --try_send-->  bounded queue
+                                                                                          |
+bootstrap adapter  <--maps DTO to RecordEvidenceInput--  queue worker  <--recv------------+
+        |
+        +--> execution_observability::api::ExecutionEvidenceApi::record
+```
+
+Four properties are normative:
+
+- `try_publish` SHALL be synchronous and non-blocking. A producer never awaits the journal.
+- A full queue, an unavailable recorder, and a failed append SHALL all leave the owning operation's
+  result unchanged. Evidence describes work; it does not gate it.
+- A full queue SHALL update a bounded drop accumulator and one rate-limited diagnostic, and SHALL
+  NOT re-enter the evidence path to report itself.
+- Only allowlisted, bounded values SHALL enter the queue. A raw producer object crossing that
+  boundary would make the queue a second place where unredacted content lives.
+
+### Startup Projection Replay Is Repair-If-Needed
+
+A projection is a cache of the journal, so it can always be rebuilt -- but rebuilding one that
+already agrees with the journal produces the same rows at the cost of a full scan on every launch.
+Replay SHALL therefore run only when the projection cannot be trusted: the journal's lifecycle
+watermark is ahead of the projection's, the projection is missing, or a previous rebuild did not
+finish. While a replay runs, coverage SHALL report `indexing` with
+`evidence_projection_rebuilding`, and the watermark SHALL advance only on completion, so an
+interrupted rebuild is retried rather than recorded as done.
+
+A replay call SHALL NOT be introduced to give the replay code a caller. That is the same fake
+wiring the note above forbids, and it would put a full journal scan on the startup path to do it.
+
 ## Execution Record Projection
 
 ### Record Types

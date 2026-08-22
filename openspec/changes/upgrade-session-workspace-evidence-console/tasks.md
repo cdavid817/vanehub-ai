@@ -60,6 +60,36 @@ named below, and blocks only that task.
 - [ ] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
 - [ ] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
 - [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
+
+Tasks 3.13-3.15 are implemented and their focused tests pass, but their final verification depends
+on the recorder being reachable from a real production caller. Until a producer publishes, the
+whole write half of the journal -- the recorder, its ports, the notice publisher, the redaction
+gate, and the encoding that feeds them -- is syntactically unreachable in the library build, and
+`cargo clippy --workspace --all-targets -- -D warnings` fails on it. That is an accurate report of
+the code's state, not a lint artefact, so it must be resolved by connecting a caller rather than by
+silencing the lint.
+
+Tasks 4.1-4.3 may therefore be implemented before 3.13-3.15 are ticked, and all six ticked together
+once the bridge is live and clippy is clean. The exception covers 4.1-4.3 only: it does not permit
+starting 4.4-4.11, whose subject is which events each producer records and with what field
+coverage, not whether a path from producer to journal exists.
+
+While resolving this, the following remain prohibited:
+
+- `#[allow(dead_code)]`, `#[allow(unused)]`, or any other suppression of the unreachability report.
+- Synthetic evidence: a startup marker, a dummy event, or any record describing work that did not
+  happen. An event that exists to satisfy a linter is indistinguishable, once recorded, from an
+  observation of real work.
+- Widening the crate's public API to make an internal symbol appear reachable. `pub` would say the
+  recorder is consumed from outside the crate, which is false; it would be the same suppression in
+  a costlier form.
+- Constructing a value only to discard it, `if false`, or an unreachable call.
+
+Startup projection replay must be repair-if-needed rather than an unconditional full rebuild. A
+projection that already agrees with the journal is rebuilt into itself, so an unconditional replay
+buys nothing and costs a full journal scan on every launch -- and a scan whose only purpose is to
+give the replay code a caller is exactly the kind of fake wiring this note forbids.
+
 - [x] 3.16 Add domain tests that run without Tauri, SQLite, filesystem, network, or process dependencies.
 - [x] 3.17 Add SQLite infrastructure tests for migration from the current schema, transaction rollback, indexes, cursor stability, replay, and retention.
 
