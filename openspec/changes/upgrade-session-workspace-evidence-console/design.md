@@ -152,6 +152,34 @@ src/session-workspace/evidence-query-keys.ts
 
 `agent-service.ts` may extend or expose this interface, but React imports the interface, not the Tauri client. The Tauri client owns `invoke()` and native event listeners. The Web client owns deterministic in-memory fixtures and timers.
 
+### Staged Native Adapter Activation
+
+The frontend contract is defined before the commands it will eventually call exist. That ordering
+is deliberate — it lets the DTOs, schemas, and Web/mock behaviour be settled and tested while the
+native work is still ahead — but it creates one hazard: an adapter method that invokes a command
+the registry does not contain. Tauri answers an unregistered command with an opaque framework
+error, so the panel would show a generic failure that looks like a runtime fault rather than an
+unimplemented capability, and the conformance suite would be testing a call that cannot succeed.
+
+Activation is therefore staged, and the stage is a property of the binding rather than of the
+method signature:
+
+| Stage | Task | Evidence methods | Report methods |
+| --- | --- | --- | --- |
+| Contract | Group 2 | Implemented against an injected transport; the production binding returns a typed unavailable reason code. Conformance runs against the fixture transport and Web/mock. | Same. |
+| Evidence activation | 3.15 | Commands registered; the production binding invokes them and the existing conformance cases re-run against native results. | Still typed unavailable. |
+| Report activation | 10.8 | Already active. | Command registered; the production binding invokes it and the existing conformance cases re-run against native results. |
+
+The Tauri client takes a `NativeEvidenceTransport` by injection. Fixture transports supply
+recorded payloads, the production transport wraps `invoke()` and the native event API, and the
+unavailable binding answers with a stable reason code instead of a framework error. React depends
+on the service interface throughout and never observes which transport is bound.
+
+Two consequences are normative. A method SHALL NOT invoke a command before the task that registers
+it. Activation SHALL be proven by re-running the conformance cases written in Group 2, not by
+cases authored afterwards, so the wire shape the native side produces is checked against the shape
+the frontend already committed to.
+
 ### Contract Validation
 
 Add Zod schemas at the transport boundary for new discriminated unions and opaque cursors. Contract-conformance tests SHALL execute the same fixture suite against Tauri serialization fixtures and Web/mock results.

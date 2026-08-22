@@ -6,9 +6,14 @@
 - [x] 0.4 Record the current command names and serialized DTO shapes that must remain compatible during the migration.
 - [x] 0.5 Add or update architecture tests proving the change adds no Rust bounded-context directory and cross-context access uses published APIs or explicit ports.
 - [x] 0.6 Add failing frontend contract tests for the native `remote` Shell descriptor, effective seat query propagation, hunk-scoped decision mutation, and loaded-log preservation after a load-more failure.
-- [ ] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted.
-- [ ] 0.8 Add a controlled repository fixture in which a generated review patch can be checked with `git apply --check`.
-- [ ] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states.
+Tasks 0.7, 0.8, and 0.9 are deferred test gates. Each one is a test that can only pass once the
+group that owns its subject exists, so landing it here would leave the suite red for every
+intervening group rather than proving anything. Each is instead due immediately before the task
+named below, and blocks only that task.
+
+- [ ] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted. Deferred test gate, split by subject: the evidence pagination fixture is due before 3.9, and the log pagination fixture is due before Group 8. It does not block Groups 2-7. Tick 0.7 only once both fixtures exist and pass.
+- [ ] 0.8 Add a controlled repository fixture in which a generated review patch can be checked with `git apply --check`. Deferred test gate, due before 13.7, which is the task that first renders a patch to check. It does not block Groups 2-12.
+- [ ] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states. Deferred test gate, due before 3.1, which is the task that first defines the correlation and coverage types these builders construct.
 
 ## 1. Immediate Contract and Correctness Fixes
 
@@ -30,9 +35,9 @@
 - [ ] 2.1 Add `src/types/session-workspace-evidence.ts` with branded/validated ids, fidelity, status, coverage, cursor-page, evidence-scope, target, record, summary, and report DTOs.
 - [ ] 2.2 Add Zod transport schemas for new discriminated unions, opaque cursors, evidence notices, Shell frames, workspace capabilities, and report coverage.
 - [ ] 2.3 Add `SessionWorkspaceEvidenceService` as a focused frontend service interface and compose it through the existing application service injection path.
-- [ ] 2.4 Add Tauri adapter methods for evidence summary, record pages/details, evidence subscription, and session-run reports; keep all `invoke()` and native event APIs outside React.
+- [ ] 2.4 Add Tauri adapter methods for evidence summary, record pages/details, evidence subscription, and session-run reports; keep all `invoke()` and native event APIs outside React. Group 2 implements only the injectable Tauri transport client, its serialization, schemas, and fixture transport. No method may call a command that is not yet registered: the production binding returns a stable typed unavailable reason code until its command exists. Evidence native methods are activated in 3.15; report native methods are activated in 10.8.
 - [ ] 2.5 Add deterministic Web/mock implementations with seeded ids, monotonic sequences, bounded pages, and explicit simulated side-effect metadata.
-- [ ] 2.6 Add one shared contract-conformance suite and run it against both Tauri serialization fixtures and the Web/mock implementation.
+- [ ] 2.6 Add one shared contract-conformance suite and run it against both Tauri serialization fixtures and the Web/mock implementation. In Group 2 the suite runs against the Web/mock implementation and the Tauri fixture transport. The same suite is re-run against the native evidence cases in 3.15 and against the native report cases in 10.8, so activation is proven by the cases that already exist rather than by new ones written after the fact.
 - [ ] 2.7 Define centralized evidence query keys so session, seat, run, trace, span, operation, command, path, filters, and cursor cannot be omitted accidentally.
 - [ ] 2.8 Keep production service and adapter files within the project line-size rule by extracting evidence, Shell, log, and workspace-inspection clients as focused modules.
 - [ ] 2.9 Add synchronized locale keys for coverage states, fidelity, evidence record kinds, reason codes, and cross-panel actions in every registered locale.
@@ -53,7 +58,7 @@
 - [ ] 3.12 Add retention maintenance aligned with configured execution-timeline retention; delete expired projection rows consistently without per-event scans.
 - [ ] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
 - [ ] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
-- [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests.
+- [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
 - [ ] 3.16 Add domain tests that run without Tauri, SQLite, filesystem, network, or process dependencies.
 - [ ] 3.17 Add SQLite infrastructure tests for migration from the current schema, transaction rollback, indexes, cursor stability, replay, and retention.
 
@@ -167,7 +172,7 @@
 - [ ] 10.5 Preserve reported, reported-derived, and estimated usage separately and preserve internal-purpose versus user-response consumption.
 - [ ] 10.6 Return unknown/partial coverage rather than substituting zero for missing evidence.
 - [ ] 10.7 Omit monetary cost or mark it unavailable unless an explicitly versioned provider-pricing observation exists; do not introduce a pricing catalog in this change.
-- [ ] 10.8 Add Tauri and Web/mock report methods and contract tests.
+- [ ] 10.8 Add Tauri and Web/mock report methods and contract tests. This registers the session-run report command and activates the report native methods added in 2.4: the production Tauri binding stops returning unavailable, and the 2.6 conformance suite runs against those native report cases.
 - [ ] 10.9 Replace React message aggregation in Report with the backend service query; retain a legacy comparison test until parity behavior is understood.
 - [ ] 10.10 Build Report sections for Overview, Usage, Latency, Agents, Tools, Changes, Tests, Failures, and Evidence.
 - [ ] 10.11 Add scope controls for run, seat, time, and group-by, preserving previous report content while refresh is in flight.
