@@ -7361,6 +7361,7 @@ dependencies = [
  "rmcp",
  "rusqlite",
  "russh",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -7392,6 +7393,7 @@ dependencies = [
  "tree-sitter-typescript",
  "url",
  "uuid",
+ "vanehub-bounded-yaml",
  "wasmtime",
  "webpki-roots 1.0.9",
  "webview2-com",
@@ -7400,6 +7402,10 @@ dependencies = [
  "zeroize",
  "zip 8.6.0",
 ]
+
+[[package]]
+name = "vanehub-bounded-yaml"
+version = "1.0.0"
 
 [[package]]
 name = "vanehub-permission-hook"

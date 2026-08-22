@@ -1152,11 +1152,21 @@ Task 2.1 is therefore an **extraction**, not a reuse: the safe-archive, path-nor
 | Need | Repository state | Decision |
 | --- | --- | --- |
 | YAML | No general parser, deliberately. `skills/domain/config_document.rs` is a 435-line bounded subset scanner whose header records why. | Extract to `crates/vanehub-bounded-yaml`. No `serde_yaml`. |
-| SemVer | Absent. `ExtensionManifestV1` needs `Version` and `VersionReq`. | Add a maintained `semver` crate as a workspace dependency after license, NOTICE, and maintenance review. Version parsing is not hand-written — a subtly wrong precedence rule is worse than an audited dependency. |
+| SemVer | Absent as a direct dependency; already in the graph at 1.0.28. | Adopt `semver = "1"`. Review recorded below. Version parsing is not hand-written — a subtly wrong precedence rule is worse than an audited dependency. |
 | JSON Schema | No engine. `skill_tools` hand-wrote `BoundedSkillToolSchemaValidator`. | Follow that precedent. No full `jsonschema` engine, and an unknown keyword fails closed rather than being ignored. |
 | Property testing | No `proptest` or `quickcheck`. | Use invariant, table-driven, and bounded-combinatorial tests. Do not describe an example test as property-based. |
 | URL / origin | `url` present, already used by `skill_tools`. | Reuse. |
 | Hashing, archive, encoding | `sha2`, `zip`, `base64` present. | Reuse. |
+
+#### `semver` review (Task 1.C)
+
+* **Version** 1.0.28, already resolved in `Cargo.lock` through `cargo_metadata`, `rustc_version`, and `wasmparser`. Adopting it directly compiles no new code.
+* **License** `MIT OR Apache-2.0`. Both texts ship in the crate. No `NOTICE` file, so Apache-2.0 §4(d) attribution does not attach; MIT is available regardless.
+* **Dependencies** none with default features. `serde` is optional and stays off — the manifest decoder reads the AST explicitly rather than deserializing.
+* **Maintenance** dtolnay, whose `serde`, `thiserror`, and `syn` this repository already depends on. Minimum Rust 1.68, far below the toolchain in use.
+* **Advisories** monitored by Dependabot and GitHub dependency alerts per `software-supply-chain-security`. No RustSec query was run from this environment; that check belongs to CI, not to a local claim.
+
+Adding it exposed a gap in that monitoring. `establish-cargo-workspace-skeleton` moved every version pin into the root `[workspace.dependencies]` — `src-tauri/Cargo.toml` now carries 73 `workspace = true` inheritances against 2 concrete pins, while the root carries 72 — but `.github/dependabot.yml` still aimed its cargo scan at `/src-tauri`. Seventy-two of seventy-four Cargo pins were unmonitored, and `semver` would have landed among them. The scan now targets the workspace root.
 
 ### Portable package paths
 

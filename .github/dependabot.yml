@@ -23,7 +23,11 @@ updates:
           - patch
 
   - package-ecosystem: cargo
-    directory: /src-tauri
+    # The workspace root, not `/src-tauri`. `establish-cargo-workspace-skeleton` moved every
+    # version pin into the root `[workspace.dependencies]`; `src-tauri/Cargo.toml` now holds 73
+    # `workspace = true` inheritances and 2 concrete pins, so a scan aimed at that directory had
+    # almost nothing left to update. Pointing at the root covers every member.
+    directory: /
     schedule:
       interval: weekly
       day: monday

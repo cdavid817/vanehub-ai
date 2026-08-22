@@ -31,21 +31,21 @@ Implemented in this order. Manifest parsing stays two-stage throughout — `Boun
 
 ### 1.A Characterization tests before extraction
 
-- [ ] 1.A.1 Add characterization tests pinning the current accept and reject behavior of `skills/domain/config_document.rs`: every resource limit at and past its boundary, duplicate keys, each unsupported construct, indentation handling, and scalar/sequence/mapping shapes.
-- [ ] 1.A.2 Pin the exact diagnostic each rejection produces, so a relocation that changes what an operator is told is as visible as one that changes what is accepted.
+- [x] 1.A.1 Add characterization tests pinning the current accept and reject behavior of `skills/domain/config_document.rs`: every resource limit at and past its boundary, duplicate keys, each unsupported construct, indentation handling, and scalar/sequence/mapping shapes.
+- [x] 1.A.2 Pin the exact diagnostic each rejection produces, so a relocation that changes what an operator is told is as visible as one that changes what is accepted.
 
 ### 1.B Extract the shared bounded YAML crate
 
-- [ ] 1.B.1 Add workspace member `crates/vanehub-bounded-yaml` containing only the restricted lexer, grammar, caller-supplied resource limits, duplicate-key detection, and a generic `BoundedYamlValue` AST. No I/O, no domain semantics, no serde derives that imply a schema.
-- [ ] 1.B.2 Reject anchors, aliases, merge keys, tags, multi-document streams, and every construct not explicitly supported. Do not add `serde_yaml`.
-- [ ] 1.B.3 Make `BoundedYamlLimits` a caller-supplied profile and give Skills and Extension Manifest separate profiles; a manifest needing more nodes SHALL NOT widen the Skill bound.
-- [ ] 1.B.4 Move `SkillConfigDocument` onto the shared parser while its domain decoding and validation stay owned by Skills. Re-run 1.A unchanged and prove identical behavior.
-- [ ] 1.B.5 Keep the dependency direction clean: Skills does not depend on `extension_platform`, and `extension_platform` does not import `skills` internals. Confirm with `cargo test --manifest-path src-tauri/Cargo.toml --test architecture`.
+- [x] 1.B.1 Add workspace member `crates/vanehub-bounded-yaml` containing only the restricted lexer, grammar, caller-supplied resource limits, duplicate-key detection, and a generic `BoundedYamlValue` AST. No I/O, no domain semantics, no serde derives that imply a schema.
+- [x] 1.B.2 Reject anchors, aliases, merge keys, tags, multi-document streams, and every construct not explicitly supported. Do not add `serde_yaml`.
+- [x] 1.B.3 Make `BoundedYamlLimits` a caller-supplied profile and give Skills and Extension Manifest separate profiles; a manifest needing more nodes SHALL NOT widen the Skill bound.
+- [x] 1.B.4 Move `SkillConfigDocument` onto the shared parser while its domain decoding and validation stay owned by Skills. Re-run 1.A unchanged and prove identical behavior.
+- [x] 1.B.5 Keep the dependency direction clean: Skills does not depend on `extension_platform`, and `extension_platform` does not import `skills` internals. Confirm with `cargo test --manifest-path src-tauri/Cargo.toml --test architecture`.
 
 ### 1.C SemVer dependency review
 
-- [ ] 1.C.1 Review a maintained `semver` crate for license, NOTICE obligations, advisory history, and maintenance status before any code depends on it; record the outcome.
-- [ ] 1.C.2 Add it as a workspace dependency with an explicit version, inherited by `src-tauri`. Do not hand-write version or requirement parsing.
+- [x] 1.C.1 Review a maintained `semver` crate for license, NOTICE obligations, advisory history, and maintenance status before any code depends on it; record the outcome.
+- [x] 1.C.2 Add it as a workspace dependency with an explicit version, inherited by `src-tauri`. Do not hand-write version or requirement parsing.
 
 ### 1.D Manifest domain
 

@@ -1,0 +1,11 @@
+[package]
+name = "vanehub-bounded-yaml"
+version = "1.0.0"
+description = "Restricted YAML subset scanner with caller-supplied resource limits"
+authors = ["vanehub-ai"]
+edition = "2021"
+publish = false
+
+# No dependencies on purpose. This crate is a lexer and a grammar over a string; anything it
+# needed from outside would be a hint that domain semantics or I/O had leaked into it.
+[dependencies]

@@ -23,6 +23,8 @@ mod overlay_text_scanner;
 mod source;
 
 #[cfg(test)]
+mod config_document_characterization_tests;
+#[cfg(test)]
 mod config_document_tests;
 #[cfg(test)]
 mod config_schema_tests;

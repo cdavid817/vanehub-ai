@@ -13,13 +13,23 @@
 # runs platform -> contexts and must be inverted first.
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/vanehub-permission-hook"]
+members = [
+    "src-tauri",
+    "crates/vanehub-permission-hook",
+    "crates/vanehub-bounded-yaml",
+]
 
 # Every shared version declaration lives here; members inherit with `workspace = true` and add only
 # what is member-local (`optional`, or an extra feature such as opentelemetry_sdk's `testing` in
 # dev-dependencies).
 [workspace.dependencies]
+vanehub-bounded-yaml = { path = "crates/vanehub-bounded-yaml" }
 tauri-build = { version = "2", features = [] }
+# Reviewed for `add-unified-extension-platform` Task 1.C: MIT OR Apache-2.0, no NOTICE file, no
+# required dependencies with default features, and already present at this exact version through
+# cargo_metadata/rustc_version/wasmparser — so adopting it adds no new code to the build. Version
+# parsing is not hand-written; a subtly wrong precedence rule is worse than an audited dependency.
+semver = "1"
 rusqlite = { version = "0.40", features = ["bundled", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"
