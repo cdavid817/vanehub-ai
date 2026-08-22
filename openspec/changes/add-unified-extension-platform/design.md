@@ -1353,6 +1353,45 @@ The suite found three things:
 
 **Two items on the task's list are not covered here, and both are named rather than quietly dropped.** *Cancellation* has no machinery yet — operations, progress, and cancellation arrive in Task Group 4 — so there is nothing to cancel. *Rollback attempts*, read as version-rollback attacks, are a lifecycle policy rather than a package-security rule: the witness records the installed version alongside the offered one, so a downgrade is visible to whoever confirms, and whether to refuse one is Task Group 4's decision. Both belong to 4.10.
 
+### Schema coverage matrix (Task Group 3)
+
+Written before any of Task Group 3 is implemented, so that ownership, mutability, and concurrency are decided once rather than per table. Five tables already exist; thirteen are new, across four subdomains and four migrations (86–89, confirmed free across every branch).
+
+Three rules apply to every row and are stated once here rather than repeated eighteen times:
+
+* **No cross-subdomain foreign keys.** A hook, rule, or connector row carries `snapshot_id` as opaque text. A real foreign key would couple two subdomains' storage — the thing the ownership rule exists to prevent — and would make snapshot deletion cascade into evidence, which is separately forbidden. Foreign keys *within* one subdomain are used freely.
+* **No foreign key on `operation_id`.** Operations live in `InMemoryOperationRepository`; there is no operations table to reference and this change must not create one. The id is stored as opaque text because that is what it is.
+* **Immutable evidence is never cascade-deleted.** Packages, snapshots, witnesses, rule sets, and hook definitions are deleted only by an explicit uninstall path that Task Group 4 owns, never by a parent going away.
+
+| Aggregate | In 81–85 | Owner subdomain | Mutability | Revision / CAS | Foreign key | Unique constraint | Retention | Secret policy | Seed policy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Publisher keys | **Yes (83)** | `extension_platform` | Mutable | *See deviation below* | — | PK `fingerprint` | Permanent; revoke never deletes | Public key only; credential store not involved | None |
+| Packages | New (86) | `extension_platform` | **Immutable** | — | — | PK `package_hash` | Permanent evidence | None | None |
+| Snapshots | **Yes (85)** | `extension_platform` | **Immutable** | — | — | PK `snapshot_id`; **new** unique `(extension_id, version, package_hash)` | Permanent evidence | None | None |
+| Installations | **Yes (85)** | `extension_platform` | Mutable | `revision` + CAS | — | PK `installation_id`; unique `extension_id` | Permanent | None | None |
+| Snapshot dependencies | New (86) | `extension_platform` | **Immutable** | — | → snapshots | unique `(snapshot_id, kind, dependency_id)` | With its snapshot | None | None |
+| Snapshot contributions | New (86) | `extension_platform` | **Immutable** | — | → snapshots | unique `(snapshot_id, global_id)` | With its snapshot | None | None |
+| Runtime generations | New (86) | `extension_platform` | **Immutable** | — | → snapshots | PK `generation_id` | Bounded per installation | None | None |
+| Active generation pointer | New (86) | `extension_platform` | Mutable | `revision` + CAS | — | PK `installation_id` ⇒ one active row | Permanent | None | None |
+| Operation witnesses | New (86) | `extension_platform` | **Immutable** | — | none on `operation_id` | PK `witness_digest` | Bounded | None | None |
+| Hook definitions | New (87) | `lifecycle_hooks` | **Immutable** | — | none (`snapshot_id` opaque) | unique `(snapshot_id, hook_global_id)` | With its snapshot | None | Built-in seed, idempotent |
+| Hook bindings | New (87) | `lifecycle_hooks` | Mutable | `revision` + CAS | → hook definitions | unique `(hook_global_id, scope)` | Permanent | None | Never overwrites user enablement |
+| Hook executions | New (87) | `lifecycle_hooks` | **Append-only** | — | — | PK `execution_id` | **Bounded, N most recent per hook** | **Bounded and redacted before the repository** | None |
+| Authorization rule sets | New (88) | `permissions::rules` | **Immutable** | — | — | PK `rule_set_id`; unique content digest | Permanent evidence | None | None |
+| Authorization rules | New (88) | `permissions::rules` | **Immutable** | — | → rule sets | unique `(rule_set_id, source, rule_id)` | With its rule set | None | None |
+| Active rule-set pointer | New (88) | `permissions::rules` | Mutable | `revision` + CAS | — | single row, `CHECK (id = 1)` | Permanent | None | None |
+| Connector definitions | New (89) | `connectors` | **Immutable** | — | none (`snapshot_id` opaque) | unique `(snapshot_id, connector_global_id)` | With its snapshot | None | None |
+| Connector instances | New (89) | `connectors` | Mutable | `revision` + CAS | → connector definitions | PK `instance_id`; unique `(connector_global_id, label)` | Permanent | **Credential handle only**, following `im_credential_refs` | Never overwrites a handle |
+| Connector bindings | New (89) | `connectors` | Mutable | `revision` + CAS | → connector instances | unique `(instance_id, target)` | Permanent | None | Never overwrites user bindings |
+
+#### One deviation, stated rather than hidden
+
+**Publisher keys are mutable and carry no `revision`.** Every mutation on them is already either idempotent or monotonic: adding a key rewrites only `label`, `source`, and `last_seen_at`; revoking is a conditional `UPDATE … WHERE trust_state = 'trusted'`, which *is* a compare-and-swap and is what keeps the first revocation's timestamp. The dangerous interleaving — preview says "already trusted", another actor revokes, the commit lands — is already safe, because the upsert does not touch `trust_state`, and there is a test for exactly that. Adding a revision would introduce a spurious `StaleRevision` on a label edit without removing any failure mode. Every *new* mutable table below follows the revision + CAS rule.
+
+#### What is deliberately absent
+
+No operations table, no second generic operation registry, and no column anywhere holding a connector secret, a full environment, a raw prompt, a raw tool payload, or an unredacted header. Hook executions and runtime diagnostics are bounded and redacted by the application before a repository sees them, so the repository has no redaction responsibility and cannot be bypassed by a caller that skips it.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.
