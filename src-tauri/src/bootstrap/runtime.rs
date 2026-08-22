@@ -264,6 +264,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
+    let execution_evidence_api = super::assemble_execution_evidence_api(
+        database.clone(),
+        app.handle().clone(),
+        Arc::new(UnifiedLoggingAdapter::active(
+            fallback_log_directory.clone(),
+        )),
+    );
     let evaluation_api = super::assemble_evaluation_api(
         database.clone(),
         operations_api.clone(),
@@ -351,6 +358,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
+    super::start_evidence_maintenance_job(
+        execution_evidence_api.clone(),
+        fallback_log_directory.clone(),
+    );
+    app.manage(execution_evidence_api);
     app.manage(evaluation_api);
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);

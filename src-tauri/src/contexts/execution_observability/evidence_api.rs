@@ -1,10 +1,11 @@
 use super::application::evidence::{
     EvidenceApplicationError, EvidenceClockPort, EvidenceCorrelationCounts,
     EvidenceGapDiagnosticsPort, EvidenceIdGeneratorPort, EvidenceRecordPage,
-    EvidenceRedactionValidatorPort, EvidenceRepositoryPort, EvidenceSubscriptionBootstrap,
-    ExecutionEvidenceService, ExecutionRecordDetailQuery, ExecutionRecordDetailView,
-    ExecutionRecordQuery, PostCommitEvidenceNoticePublisherPort, RecordEvidenceInput,
-    RecordEvidenceOutcome, WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
+    EvidenceRedactionValidatorPort, EvidenceRepositoryPort, EvidenceRetentionSummary,
+    EvidenceSubscriptionBootstrap, ExecutionEvidenceService, ExecutionRecordDetailQuery,
+    ExecutionRecordDetailView, ExecutionRecordQuery, PostCommitEvidenceNoticePublisherPort,
+    RecordEvidenceInput, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
+    WorkspaceEvidenceSummaryQuery,
 };
 use super::domain::EvidenceSessionId;
 use std::sync::Arc;
@@ -91,6 +92,22 @@ impl ExecutionEvidenceApi {
         session_id: &EvidenceSessionId,
     ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError> {
         self.service.subscription_bootstrap(session_id)
+    }
+
+    /// Rebuilds every projection from the retained journal.
+    ///
+    /// Run at startup: a projection is a cache of the journal, and a process that died mid-write
+    /// can leave one that disagrees with it. Rebuilding is deterministic and appends nothing, so
+    /// it is always safe — which is the whole reason the projection is allowed to be disposable.
+    pub(crate) fn replay_projections(&self) -> Result<usize, EvidenceApplicationError> {
+        self.service.replay_projections(None)
+    }
+
+    pub(crate) fn maintain_retention(
+        &self,
+        cutoff: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+        self.service.maintain_retention(cutoff)
     }
 }
 
@@ -183,6 +200,21 @@ mod tests {
                 watermark_sequence: 0,
                 coverage: QueryCoverage::complete(),
             })
+        }
+
+        fn replay_projections(
+            &self,
+            _session_id: Option<&EvidenceSessionId>,
+        ) -> Result<usize, EvidenceApplicationError> {
+            Ok(0)
+        }
+
+        fn maintain_retention(
+            &self,
+            _cutoff: &str,
+            _now: &str,
+        ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+            Ok(EvidenceRetentionSummary::default())
         }
     }
 

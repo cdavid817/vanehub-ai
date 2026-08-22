@@ -9,7 +9,9 @@ use crate::contexts::execution_observability::domain::{
     ExecutionEvidenceEventInput, ExecutionRunId, RedactionReceipt, SafeReasonCode, SourceEventId,
     SpanId, TraceId,
 };
-use rusqlite::{params, Connection, Transaction};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{params, Transaction};
 
 /// How many journal rows one maintenance pass touches.
 ///

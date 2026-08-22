@@ -7,14 +7,13 @@ use super::models::{
 use super::ports::{
     EvidenceAppendOutcome, EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
     EvidenceIdGeneratorPort, EvidenceRedactionValidatorPort, EvidenceRepositoryPort,
-    PostCommitEvidenceNoticePublisherPort,
+    EvidenceRetentionSummary, PostCommitEvidenceNoticePublisherPort,
 };
 use crate::contexts::execution_observability::domain::{
     reason_codes, EvidenceCommandId, EvidenceCorrelation, EvidenceCoverageState, EvidenceEventId,
-    EvidenceOperationId, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
-    ExecutionEvidenceEvent, ExecutionEvidenceEventInput, ExecutionFidelity, ExecutionRunId,
-    ExecutionStatus, RedactionReceipt, SafeEvidencePayload, SourceEventId, SpanId, TraceId,
-    EVIDENCE_SCHEMA_VERSION,
+    EvidenceOperationId, EvidenceSessionId, EvidenceSourceContext, ExecutionEvidenceEvent,
+    ExecutionEvidenceEventInput, ExecutionFidelity, ExecutionRunId, ExecutionStatus,
+    RedactionReceipt, SafeEvidencePayload, SourceEventId, SpanId, TraceId, EVIDENCE_SCHEMA_VERSION,
 };
 use std::sync::Arc;
 
@@ -166,6 +165,28 @@ impl ExecutionEvidenceService {
     }
 }
 
+/// Maintenance the runtime runs on a schedule rather than on a request path.
+///
+/// Both live here rather than on the repository's inherent surface so a caller cannot reach past
+/// the port to a SQL statement, and so the batching contract — repeat until a pass clears less
+/// than a full batch — is stated once instead of at every call site.
+impl ExecutionEvidenceService {
+    pub(crate) fn replay_projections(
+        &self,
+        session_id: Option<&EvidenceSessionId>,
+    ) -> Result<usize, EvidenceApplicationError> {
+        self.repository.replay_projections(session_id)
+    }
+
+    pub(crate) fn maintain_retention(
+        &self,
+        cutoff: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+        self.repository
+            .maintain_retention(cutoff, &self.clock.now_rfc3339())
+    }
+}
+
 pub(crate) fn bounded_page_size(limit: usize) -> usize {
     if limit == 0 {
         return DEFAULT_EVIDENCE_PAGE_SIZE;
@@ -220,7 +241,7 @@ fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> Option<EvidenceN
             .as_ref()
             .map(EvidenceCommandId::as_str)
             .map(str::to_string),
-        seat_id: correlation.seat_id.as_ref().map(EvidenceSeatId::clone),
+        seat_id: correlation.seat_id.clone(),
         dropped_count: None,
     })
 }

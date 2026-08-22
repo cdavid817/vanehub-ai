@@ -461,7 +461,14 @@ interface ExecutionRecordBase {
   operationId?: string;
   agentId?: string;
   seatId?: string;
-  startedAt: string;
+  /**
+   * Optional, because a runtime can observe a completion without ever observing the start. The
+   * field is omitted in that case rather than derived: `endedAt`, `durationMs`, and the event's
+   * occurrence time are all available to subtract from, and every one of them would manufacture
+   * an observation nobody made. The record keeps its real terminal status and its coverage says
+   * `evidence_start_not_observed`.
+   */
+  startedAt?: string;
   endedAt?: string;
   durationMs?: number;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "incomplete";

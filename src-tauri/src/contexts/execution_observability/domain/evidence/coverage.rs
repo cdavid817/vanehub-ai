@@ -1,4 +1,6 @@
-use super::{EvidenceDomainError, SafeReasonCode};
+#[cfg(test)]
+use super::EvidenceDomainError;
+use super::SafeReasonCode;
 
 const MAX_COVERAGE_REASON_CODES: usize = 8;
 
@@ -57,6 +59,10 @@ pub(crate) struct QueryCoverage {
 }
 
 impl QueryCoverage {
+    /// The general constructor, reached only by the test coverage builder. Production paths start
+    /// from `complete()` and degrade, because that is the direction the rules allow: an answer can
+    /// lose completeness as sources are merged, never gain it.
+    #[cfg(test)]
     pub(crate) fn new(
         state: EvidenceCoverageState,
         reason_codes: impl IntoIterator<Item = SafeReasonCode>,

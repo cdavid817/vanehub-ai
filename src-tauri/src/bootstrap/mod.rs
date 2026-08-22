@@ -43,8 +43,8 @@ pub(crate) use desktop::{
     initialize_desktop_runtime,
 };
 pub(crate) use execution_observability::{
-    assemble_evaluation_api, assemble_execution_observability_api, relay_telemetry,
-    start_execution_retention_job,
+    assemble_evaluation_api, assemble_execution_evidence_api, assemble_execution_observability_api,
+    relay_telemetry, start_evidence_maintenance_job, start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;

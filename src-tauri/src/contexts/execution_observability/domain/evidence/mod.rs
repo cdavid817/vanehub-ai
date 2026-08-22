@@ -18,16 +18,14 @@ pub(crate) use error::EvidenceDomainError;
 pub(crate) use event::{fidelity_token, parse_fidelity_token, parse_status_token, status_token};
 pub(crate) use event::{ExecutionEvidenceEvent, ExecutionEvidenceEventInput, RedactionReceipt};
 pub(crate) use identity::{
-    BoundedLabel, EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
+    EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
     EvidenceOperationId, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
-    EvidenceToolCallId, SafeFingerprint, SafeReasonCode, SourceEventId,
+    EvidenceToolCallId, SafeReasonCode, SourceEventId,
 };
 pub(crate) use payload::{
-    CommandRuntimeKind, EvidenceKind, EvidenceOutcome, FileChangeKind, OutputAvailability,
-    ReviewDecisionScope, ReviewDecisionValue, SafeEvidencePayload, UsageQuality,
-    VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
+    CommandRuntimeKind, EvidenceKind, OutputAvailability, SafeEvidencePayload, VerificationOutcome,
+    EVIDENCE_SCHEMA_VERSION,
 };
-pub(crate) use safety::{RedactedCommandDisplay, RelativeDisplayPath, SafeBasename};
 
 #[cfg(test)]
 pub(crate) mod builders;

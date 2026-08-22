@@ -80,6 +80,30 @@ pub(crate) trait EvidenceRepositoryPort: Send + Sync {
         &self,
         session_id: &EvidenceSessionId,
     ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError>;
+
+    /// Rebuilds projections from the retained journal. Appends nothing and publishes nothing, so
+    /// it is safe to run at startup: the journal is the record of what happened and the projection
+    /// is a cache of it, which is what makes rebuilding cheaper than repairing.
+    fn replay_projections(
+        &self,
+        session_id: Option<&EvidenceSessionId>,
+    ) -> Result<usize, EvidenceApplicationError>;
+
+    /// Removes evidence older than the cutoff in bounded batches, returning how much went. The
+    /// caller repeats until a pass clears less than a full batch.
+    fn maintain_retention(
+        &self,
+        cutoff: &str,
+        now: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError>;
+}
+
+/// What one retention pass removed. The caller compares it against the batch size to decide
+/// whether a backlog remains, so the two counts are the whole contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct EvidenceRetentionSummary {
+    pub(crate) deleted_events: usize,
+    pub(crate) deleted_records: usize,
 }
 
 pub(crate) trait EvidenceClockPort: Send + Sync {

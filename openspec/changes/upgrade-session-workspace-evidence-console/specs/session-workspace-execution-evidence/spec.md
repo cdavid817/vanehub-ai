@@ -126,6 +126,15 @@ The system SHALL provide bounded execution-record pages for Commands, Tools, Del
 - **THEN** the record SHALL identify merged PTY output
 - **AND** it SHALL NOT label the output as separate stdout or stderr
 
+#### Scenario: Only the completion was observed
+
+- **WHEN** the runtime observes a command, tool, delegation, or verification completing but never observed it starting
+- **THEN** the record SHALL retain the terminal status that was actually observed
+- **AND** it SHALL report the observed completion time as its end boundary
+- **AND** it SHALL retain a duration only when its source supplied one explicitly
+- **AND** the start boundary SHALL be omitted rather than derived from the completion time, the duration, or the event occurrence time
+- **AND** coverage SHALL identify the unobserved start boundary with a safe reason code
+
 #### Scenario: Command boundary is opaque
 
 - **WHEN** the runtime knows a process or tool stage exists but cannot observe command text, exit data, or child details

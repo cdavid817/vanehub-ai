@@ -23,7 +23,9 @@ pub(crate) use evaluation_agent::{EvaluationDispatchRequest, NativeEvaluationAge
 pub(crate) use evaluation_repository::SqliteEvaluationRepository;
 pub(crate) use evaluation_verifier::{verify_static_acceptance, NativeEvaluationVerifierAdapter};
 pub(crate) use evidence::{
-    apply_evidence_schema, repair_missing_evidence_schema, SqliteEvidenceRepository,
+    apply_evidence_schema, repair_missing_evidence_schema, DomainEvidenceRedactionValidator,
+    RateLimitedEvidenceDiagnostics, SqliteEvidenceRepository, SystemEvidenceClock,
+    TauriEvidenceNoticePublisher, UuidEvidenceIdGenerator,
 };
 pub(crate) use random_identity::RandomExecutionIdentity;
 pub(crate) use schema::apply_schema;

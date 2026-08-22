@@ -394,12 +394,7 @@ fn review_decision_from(value: &str) -> Option<ReviewDecisionValue> {
 }
 
 pub(super) fn verification_token(outcome: VerificationOutcome) -> &'static str {
-    match outcome {
-        VerificationOutcome::Passed => "passed",
-        VerificationOutcome::Failed => "failed",
-        VerificationOutcome::Skipped => "skipped",
-        VerificationOutcome::Unknown => "unknown",
-    }
+    outcome.as_str()
 }
 
 pub(super) fn verification_from(value: &str) -> Option<VerificationOutcome> {

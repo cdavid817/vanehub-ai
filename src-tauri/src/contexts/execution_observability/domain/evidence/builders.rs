@@ -6,7 +6,7 @@ use super::{
     RedactionReceipt, SafeEvidencePayload, SafeReasonCode, SourceEventId, EVIDENCE_SCHEMA_VERSION,
 };
 use crate::contexts::execution_observability::domain::{
-    ExecutionFidelity, ExecutionRunId, ExecutionStatus, SpanId, TraceId,
+    ExecutionFidelity, ExecutionRunId, ExecutionStatus, TraceId,
 };
 
 /// Builders for evidence fixtures.
@@ -33,16 +33,6 @@ impl CorrelationBuilder {
     pub(crate) fn with_run(mut self, run_id: &str, trace_id: &str) -> Self {
         self.correlation.run_id = Some(ExecutionRunId::parse(run_id).expect("valid run id"));
         self.correlation.trace_id = Some(TraceId::parse(trace_id).expect("valid trace id"));
-        self
-    }
-
-    pub(crate) fn with_span(mut self, span_id: &str) -> Self {
-        self.correlation.span_id = Some(SpanId::parse(span_id).expect("valid span id"));
-        self
-    }
-
-    pub(crate) fn with_parent_span(mut self, span_id: &str) -> Self {
-        self.correlation.parent_span_id = Some(SpanId::parse(span_id).expect("valid span id"));
         self
     }
 

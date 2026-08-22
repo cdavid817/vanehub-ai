@@ -1,5 +1,5 @@
 use super::cursor::{filter_fingerprint, RecordCursor};
-use super::payload_row::{from_stored, to_stored, StoredPayload};
+use super::payload_row::to_stored;
 use super::projection::{project_event, ProjectionUpdate};
 use super::rows::{coverage_for_session, read_record_row, record_columns};
 use crate::contexts::execution_observability::application::evidence::models::{
@@ -9,7 +9,7 @@ use crate::contexts::execution_observability::application::evidence::models::{
     WorkspaceEvidenceSummaryQuery,
 };
 use crate::contexts::execution_observability::application::evidence::ports::{
-    EvidenceAppendOutcome, EvidenceRepositoryPort,
+    EvidenceAppendOutcome, EvidenceRepositoryPort, EvidenceRetentionSummary,
 };
 use crate::contexts::execution_observability::application::EvidenceApplicationError;
 use crate::contexts::execution_observability::domain::{
@@ -390,6 +390,25 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
             session_id: session_id.clone(),
             watermark_sequence: watermark,
             coverage: coverage_for_session(&connection, Some(session_id))?,
+        })
+    }
+
+    fn replay_projections(
+        &self,
+        session_id: Option<&EvidenceSessionId>,
+    ) -> Result<usize, EvidenceApplicationError> {
+        SqliteEvidenceRepository::replay_projections(self, session_id)
+    }
+
+    fn maintain_retention(
+        &self,
+        cutoff: &str,
+        now: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+        let outcome = SqliteEvidenceRepository::maintain_retention(self, cutoff, now)?;
+        Ok(EvidenceRetentionSummary {
+            deleted_events: outcome.deleted_events,
+            deleted_records: outcome.deleted_records,
         })
     }
 }

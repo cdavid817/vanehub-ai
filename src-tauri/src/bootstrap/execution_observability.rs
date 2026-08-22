@@ -1,12 +1,15 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::execution_observability::api::evidence::ExecutionEvidenceApi;
 use crate::contexts::execution_observability::api::{
     ExecutionObservabilityApi, ExecutionTelemetryPort,
 };
 use crate::contexts::execution_observability::application::EvaluationRepositoryPort;
 use crate::contexts::execution_observability::infrastructure::OsObservabilityCredentialAdapter;
 use crate::contexts::execution_observability::infrastructure::{
-    NativeEvaluationAgentAdapter, NativeEvaluationVerifierAdapter, SqliteEvaluationRepository,
-    SqliteExecutionTimelineRepository,
+    DomainEvidenceRedactionValidator, NativeEvaluationAgentAdapter,
+    NativeEvaluationVerifierAdapter, RateLimitedEvidenceDiagnostics, SqliteEvaluationRepository,
+    SqliteEvidenceRepository, SqliteExecutionTimelineRepository, SystemEvidenceClock,
+    TauriEvidenceNoticePublisher, UuidEvidenceIdGenerator,
 };
 use crate::contexts::execution_observability::EvaluationApi;
 use crate::contexts::operations::api::{AgentRunsApi, OperationsApi};
@@ -27,6 +30,103 @@ pub(crate) fn assemble_execution_observability_api(
         Arc::new(SqliteExecutionTimelineRepository::new(database)),
         Arc::new(OsObservabilityCredentialAdapter::new()),
     )
+}
+
+/// Assembles the execution evidence capability from the pieces the process already owns.
+///
+/// The shared database handle is reused rather than opened again: a second file would give the
+/// journal its own transaction boundary, and an evidence row that commits while the work it
+/// describes rolls back is worse than no row at all.
+///
+/// The returned API is the only handle anything outside the context receives. Commands take it
+/// from managed state, so no handler builds a repository, and none of them is rebuilt per request.
+pub(crate) fn assemble_execution_evidence_api(
+    database: NativeDatabase,
+    app: tauri::AppHandle,
+    logging: Arc<dyn DiagnosticLogPort>,
+) -> ExecutionEvidenceApi {
+    ExecutionEvidenceApi::new(
+        Arc::new(SqliteEvidenceRepository::new(database)),
+        Arc::new(SystemEvidenceClock),
+        Arc::new(UuidEvidenceIdGenerator),
+        Arc::new(DomainEvidenceRedactionValidator),
+        Arc::new(TauriEvidenceNoticePublisher::new(app)),
+        Arc::new(RateLimitedEvidenceDiagnostics::new(logging)),
+    )
+}
+
+/// How long evidence is retained. Longer than the timeline's default because evidence is
+/// metadata-only and cheap to keep, and a coverage window shorter than the work a user is still
+/// reviewing turns "we deleted it" into an answer indistinguishable from "it never happened".
+const EVIDENCE_RETENTION_DAYS: i64 = 30;
+
+/// Rebuilds projections once at startup, then prunes on a schedule.
+///
+/// Replay is first and unconditional: a process that died mid-write can leave a projection that
+/// disagrees with the journal, and every query answers from the projection. It appends nothing and
+/// publishes nothing, so running it on a clean store costs a pass over the journal and no more.
+pub(crate) fn start_evidence_maintenance_job(
+    evidence: ExecutionEvidenceApi,
+    fallback_log_directory: PathBuf,
+) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = evidence.replay_projections() {
+            write_evidence_maintenance_log(
+                &fallback_log_directory,
+                LogSeverity::Warn,
+                "Execution evidence projections could not be rebuilt at startup",
+                None,
+            );
+            // The reason code, never the storage message: it names tables and paths.
+            let _ = error;
+        }
+        loop {
+            run_evidence_retention_cycle(&evidence, &fallback_log_directory);
+            sleep(Duration::from_secs(6 * 60 * 60)).await;
+        }
+    });
+}
+
+fn run_evidence_retention_cycle(
+    evidence: &ExecutionEvidenceApi,
+    fallback_log_directory: &std::path::Path,
+) {
+    let cutoff =
+        (chrono::Utc::now() - chrono::Duration::days(EVIDENCE_RETENTION_DAYS)).to_rfc3339();
+    match evidence.maintain_retention(&cutoff) {
+        Ok(summary) if summary.deleted_events > 0 => write_evidence_maintenance_log(
+            fallback_log_directory,
+            LogSeverity::Info,
+            "Execution evidence retention removed expired events",
+            Some(summary.deleted_events),
+        ),
+        Ok(_) => {}
+        Err(_) => write_evidence_maintenance_log(
+            fallback_log_directory,
+            LogSeverity::Warn,
+            "Execution evidence retention was deferred after a storage error",
+            None,
+        ),
+    }
+}
+
+fn write_evidence_maintenance_log(
+    fallback_log_directory: &std::path::Path,
+    severity: LogSeverity,
+    message: &str,
+    deleted_events: Option<usize>,
+) {
+    let logging = UnifiedLoggingAdapter::active(fallback_log_directory.to_path_buf());
+    let mut context = BTreeMap::from([("source".to_string(), "scheduled-maintenance".to_string())]);
+    if let Some(deleted_events) = deleted_events {
+        context.insert("deletedEvents".to_string(), deleted_events.to_string());
+    }
+    let _ = logging.write_diagnostic(DiagnosticLog {
+        severity,
+        category: "execution.evidence.retention".to_string(),
+        message: message.to_string(),
+        context,
+    });
 }
 
 pub(crate) fn assemble_evaluation_api(

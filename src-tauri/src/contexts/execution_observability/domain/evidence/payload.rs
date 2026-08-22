@@ -176,6 +176,17 @@ pub(crate) enum VerificationOutcome {
     Unknown,
 }
 
+impl VerificationOutcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 /// Which accounting quality a usage observation had. Evidence keeps the classification and the
 /// reference; the token dimensions stay in the sessions usage read model that owns them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

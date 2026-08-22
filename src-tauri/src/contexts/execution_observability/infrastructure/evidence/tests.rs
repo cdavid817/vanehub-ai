@@ -9,10 +9,12 @@ use crate::contexts::execution_observability::application::evidence::ports::{
 };
 use crate::contexts::execution_observability::application::EvidenceApplicationError;
 use crate::contexts::execution_observability::domain::evidence::builders::{
-    label, reason, CorrelationBuilder, EvidenceEventBuilder,
+    label, CorrelationBuilder, EvidenceEventBuilder,
 };
+use crate::contexts::execution_observability::domain::evidence::payload::EvidenceOutcome;
+use crate::contexts::execution_observability::domain::evidence::safety::RedactedCommandDisplay;
 use crate::contexts::execution_observability::domain::{
-    reason_codes, CommandRuntimeKind, EvidenceCoverageState, EvidenceOutcome, EvidenceSessionId,
+    reason_codes, CommandRuntimeKind, EvidenceCoverageState, EvidenceSessionId,
     EvidenceSourceContext, ExecutionEvidenceEvent, ExecutionStatus, OutputAvailability,
     SafeEvidencePayload, SafeReasonCode,
 };
@@ -47,12 +49,7 @@ fn command_started(
             .build(),
         SafeEvidencePayload::CommandStarted {
             runtime_kind: CommandRuntimeKind::LocalShell,
-            redacted_display: Some(
-                crate::contexts::execution_observability::domain::RedactedCommandDisplay::parse(
-                    "npm test",
-                )
-                .expect("display"),
-            ),
+            redacted_display: Some(RedactedCommandDisplay::parse("npm test").expect("display")),
             cwd_display: None,
         },
     )

@@ -10,6 +10,37 @@ pub(crate) use super::domain::{
 };
 use std::sync::Arc;
 
+/// The published evidence surface.
+///
+/// Only the names below cross the context boundary. The SQLite rows, the repository, the
+/// projection SQL, the cursor's internals, the migration schema, and the replay/retention
+/// statements stay private: a consumer able to reach them could issue a query whose coverage
+/// nobody vouches for, and a page whose completeness nobody can attest to is exactly what this
+/// capability exists to eliminate.
+///
+/// The recorder is here for the in-process producer adapters Task Group 4 will add. It is
+/// deliberately not reachable from a Tauri command — evidence is written by the runtime observing
+/// its own work, never by a client asserting what happened.
+pub(crate) mod evidence {
+    pub(crate) use crate::contexts::execution_observability::application::evidence::models::{
+        EvidenceCorrelationCounts, EvidenceNotice, EvidenceQueryScope, EvidenceRecordPage,
+        EvidenceSubscriptionBootstrap, ExecutionRecordDetailFields, ExecutionRecordDetailQuery,
+        ExecutionRecordDetailView, ExecutionRecordFilters, ExecutionRecordKind,
+        ExecutionRecordProjection, ExecutionRecordQuery, WorkspaceEvidenceSummary,
+        WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
+    };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::ports::{
+        EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
+        EvidenceIdGeneratorPort, PostCommitEvidenceNoticePublisherPort,
+    };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::service::RecordEvidenceInput;
+    pub(crate) use crate::contexts::execution_observability::domain::{
+        fidelity_token, parse_fidelity_token, parse_status_token, status_token, EvidenceSeatId,
+        EvidenceSessionId, QueryCoverage,
+    };
+    pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
+}
+
 #[derive(Clone)]
 pub(crate) struct ExecutionObservabilityApi {
     repository: Arc<dyn ExecutionObservabilityRepositoryPort>,

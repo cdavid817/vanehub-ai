@@ -8,6 +8,7 @@ export type EvidenceCommandName =
   | "get_workspace_evidence_summary"
   | "list_execution_records"
   | "get_execution_record"
+  | "get_evidence_subscription_bootstrap"
   | "get_session_run_report";
 
 /**
@@ -44,10 +45,10 @@ export function isEvidenceUnavailableError(value: unknown): value is EvidenceUna
 }
 
 /**
- * The production binding until the commands are registered: evidence reads activate in 3.15 and
- * the session-run report in 10.8. It refuses uniformly instead of invoking a command that is not
- * in the registry, so a panel shows "not available in this runtime yet" rather than a framework
- * error that reads like a crash.
+ * The binding for a runtime with no native evidence at all — the Web/mock adapter's neighbour, and
+ * the fallback a test uses to drive the refusal path. The desktop client binds the real transport;
+ * this one refuses uniformly rather than invoking anything, so a panel shows "not available in
+ * this runtime" instead of a framework error that reads like a crash.
  */
 export const unavailableEvidenceTransport: NativeEvidenceTransport = {
   invokeEvidence(command) {

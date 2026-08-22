@@ -150,27 +150,44 @@ pub(super) fn coverage_for_session(
         )
         .map_err(storage)?;
 
-    let metadata: Option<(i64, i64, i64, Option<String>, Option<String>)> = connection
+    let metadata: CoverageMetadata = connection
         .query_row(
             "SELECT dropped_count, conflict_count, retention_trimmed, oldest_available_at, \
              newest_available_at FROM execution_evidence_coverage WHERE session_id = ?1",
             params![session_id.as_str()],
             |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
+                Ok(CoverageMetadata {
+                    dropped: row.get(0)?,
+                    conflicts: row.get(1)?,
+                    trimmed: row.get(2)?,
+                    oldest: row.get(3)?,
+                    newest: row.get(4)?,
+                })
             },
         )
         .optional_row()
-        .map_err(storage)?;
-
-    let (dropped, conflicts, trimmed, oldest, newest) = metadata.unwrap_or((0, 0, 0, None, None));
+        .map_err(storage)?
+        .unwrap_or_default();
+    let CoverageMetadata {
+        dropped,
+        conflicts,
+        trimmed,
+        oldest,
+        newest,
+    } = metadata;
 
     let mut coverage = QueryCoverage::complete().with_boundaries(oldest, newest);
+    if let Some(indexed_through) = projection_lag(connection, session_id)? {
+        // The journal holds a lifecycle event the projection has not applied. Every query answers
+        // from the projection, so the honest answer is "still indexing" with the point it has
+        // reached — reporting `complete` here would present a stale row set as the whole truth.
+        coverage = coverage
+            .degrade_to(
+                EvidenceCoverageState::Indexing,
+                reason_codes::PROJECTION_REBUILDING,
+            )
+            .with_indexed_through(indexed_through);
+    }
     if event_count == 0 {
         coverage = coverage.degrade_to(
             EvidenceCoverageState::Partial,
@@ -195,6 +212,55 @@ pub(super) fn coverage_for_session(
         );
     }
     Ok(coverage)
+}
+
+#[derive(Default)]
+struct CoverageMetadata {
+    dropped: i64,
+    conflicts: i64,
+    trimmed: i64,
+    oldest: Option<String>,
+    newest: Option<String>,
+}
+
+/// The kinds that produce a projection row. An event of any other kind is recorded in the journal
+/// and deliberately projects to nothing, so comparing raw sequence maxima would report a permanent
+/// lag; only these are the ones a record is expected to exist for.
+const PROJECTED_KINDS: &str = "'agent.delegated', 'agent.completed', 'tool.started', \
+     'tool.completed', 'command.started', 'command.completed', 'verification.completed'";
+
+/// How far the projection has caught up, or `None` when it is current.
+///
+/// Returns the newest occurrence the projection has applied, which is what a reader needs to know
+/// how stale the answer is. A lag is normally momentary — the projection is written inside the
+/// same transaction as the event — so this fires after an interrupted replay or a recovered crash.
+fn projection_lag(
+    connection: &Connection,
+    session_id: &EvidenceSessionId,
+) -> Result<Option<Option<String>>, EvidenceApplicationError> {
+    let storage = |error: rusqlite::Error| EvidenceApplicationError::Storage(error.to_string());
+    let journal_head: i64 = connection
+        .query_row(
+            &format!(
+                "SELECT COALESCE(MAX(sequence), 0) FROM execution_evidence_events \
+                 WHERE session_id = ?1 AND kind IN ({PROJECTED_KINDS})"
+            ),
+            params![session_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(storage)?;
+    let projected: (i64, Option<String>) = connection
+        .query_row(
+            "SELECT COALESCE(MAX(last_sequence), 0), MAX(occurred_at) \
+             FROM execution_evidence_records WHERE session_id = ?1",
+            params![session_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(storage)?;
+    if projected.0 >= journal_head {
+        return Ok(None);
+    }
+    Ok(Some(projected.1))
 }
 
 /// `query_row` returns `QueryReturnedNoRows` for an absent row; treating that as `None` keeps the

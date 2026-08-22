@@ -442,8 +442,11 @@ fn a_payload_that_serializes_past_the_bound_is_refused() {
         event.is_ok(),
         "2 KiB display is within the 16 KiB payload bound"
     );
-    assert!(MAX_SAFE_PAYLOAD_BYTES > MAX_REDACTED_DISPLAY_BYTES);
 }
+
+/// The display bound has to stay under the payload bound, or a display that passes its own check
+/// would still be refused by the payload check, and the rejection would name the wrong limit.
+const _: () = assert!(MAX_SAFE_PAYLOAD_BYTES > MAX_REDACTED_DISPLAY_BYTES);
 
 #[test]
 fn a_redaction_receipt_is_bounded_deduplicated_and_ordered() {

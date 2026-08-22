@@ -7,22 +7,16 @@ pub(crate) mod ports;
 pub(crate) mod service;
 
 pub(crate) use models::{
-    EvidenceCorrelationCounts, EvidenceNotice, EvidenceNoticeKind, EvidenceQueryScope,
-    EvidenceRecordPage, EvidenceSubscriptionBootstrap, ExecutionRecordDetailFields,
-    ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordFilters,
-    ExecutionRecordKind, ExecutionRecordProjection, ExecutionRecordQuery, RecordEvidenceOutcome,
-    UnownedSummarySource, WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
-    DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
+    EvidenceCorrelationCounts, EvidenceRecordPage, EvidenceSubscriptionBootstrap,
+    ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordQuery,
+    RecordEvidenceOutcome, WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
 };
 pub(crate) use ports::{
-    EvidenceAppendOutcome, EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
+    EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
     EvidenceIdGeneratorPort, EvidenceRedactionValidatorPort, EvidenceRepositoryPort,
-    PostCommitEvidenceNoticePublisherPort,
+    EvidenceRetentionSummary, PostCommitEvidenceNoticePublisherPort,
 };
-pub(crate) use service::{
-    bounded_page_size, capture_not_initialized_coverage, ExecutionEvidenceService,
-    RecordEvidenceInput,
-};
+pub(crate) use service::{ExecutionEvidenceService, RecordEvidenceInput};
 
 #[cfg(test)]
 mod tests;

@@ -59,6 +59,13 @@ pub(crate) fn invoke_handler(
         crate::commands::execution_observability::get_execution_run::get_execution_run,
         crate::commands::execution_observability::get_execution_timeline::get_execution_timeline,
         crate::commands::execution_observability::get_execution_observation_capabilities::get_execution_observation_capabilities,
+        // Execution Evidence: read-only. There is deliberately no command that appends evidence,
+        // resets a projection, or mutates a correlation — the journal is written by producers
+        // inside the process observing their own work, never by a client asserting what happened.
+        crate::commands::execution_observability::get_workspace_evidence_summary::get_workspace_evidence_summary,
+        crate::commands::execution_observability::list_execution_records::list_execution_records,
+        crate::commands::execution_observability::get_execution_record::get_execution_record,
+        crate::commands::execution_observability::get_evidence_subscription_bootstrap::get_evidence_subscription_bootstrap,
         crate::commands::evaluation::list_evaluation_tasks::list_evaluation_tasks,
         crate::commands::evaluation::start_evaluation::start_evaluation,
         crate::commands::evaluation::list_evaluation_arenas::list_evaluation_arenas,

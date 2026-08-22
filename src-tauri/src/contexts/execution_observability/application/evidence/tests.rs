@@ -121,6 +121,21 @@ impl EvidenceRepositoryPort for FakeRepository {
             coverage: QueryCoverage::complete(),
         })
     }
+
+    fn replay_projections(
+        &self,
+        _session_id: Option<&EvidenceSessionId>,
+    ) -> Result<usize, EvidenceApplicationError> {
+        Ok(0)
+    }
+
+    fn maintain_retention(
+        &self,
+        _cutoff: &str,
+        _now: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+        Ok(EvidenceRetentionSummary::default())
+    }
 }
 
 struct FixedClock;
