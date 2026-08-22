@@ -849,3 +849,189 @@ fn a_stored_payload_round_trips_through_the_journal() {
     // The reason code vocabulary is stable enough to be an i18n key, so it must survive storage.
     let _ = reason(reason_codes::DROPPED_EVENTS);
 }
+
+/// Replay is a pure function of the journal.
+///
+/// The projection is disposable by design: if it is ever wrong it can be discarded and rebuilt
+/// rather than patched, and the journal stays the only thing that has to be right. This is the
+/// controlled repair that proves it.
+#[test]
+fn replaying_the_journal_reproduces_the_same_projection() {
+    let (_directory, database, repository) = repository("evidence-replay");
+    append(
+        &repository,
+        &command_started("source-1", "command-1", "2026-01-01T00:00:00Z"),
+    );
+    append(
+        &repository,
+        &command_completed("source-2", "command-1", "2026-01-01T00:00:05Z", 1),
+    );
+    append(
+        &repository,
+        &EvidenceEventBuilder::new(
+            "source-tool",
+            CorrelationBuilder::for_session(SESSION)
+                .with_run(RUN, TRACE)
+                .with_tool_call("tool-1")
+                .build(),
+            SafeEvidencePayload::ToolCompleted {
+                tool_name: label("read_file"),
+                outcome: EvidenceOutcome::Succeeded,
+                duration_ms: Some(31),
+            },
+        )
+        .with_status(ExecutionStatus::Succeeded)
+        .with_occurred_at("2026-01-01T00:00:06Z")
+        .build(),
+    );
+
+    let before = repository.list_records(&query(10)).expect("page").items;
+
+    {
+        let connection = database.connection().expect("connection");
+        super::maintenance::reset_projections(&connection).expect("reset");
+    }
+    assert!(
+        repository
+            .list_records(&query(10))
+            .expect("page")
+            .items
+            .is_empty(),
+        "the reset removed the projection"
+    );
+
+    let replayed = repository.replay_projections(None).expect("replay");
+    assert_eq!(replayed, 3, "every projecting event is replayed");
+
+    let after = repository.list_records(&query(10)).expect("page").items;
+    assert_eq!(before, after, "replay reproduces the projection exactly");
+}
+
+#[test]
+fn replaying_twice_changes_nothing_and_appends_no_event() {
+    let (_directory, database, repository) = repository("evidence-replay-idempotent");
+    append(
+        &repository,
+        &command_completed("source-1", "command-1", "2026-01-01T00:00:05Z", 1),
+    );
+
+    let journal = |database: &NativeDatabase| -> i64 {
+        database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT COUNT(*) FROM execution_evidence_events",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count")
+    };
+    let before = journal(&database);
+
+    repository.replay_projections(None).expect("first replay");
+    let first = repository.list_records(&query(10)).expect("page").items;
+    repository.replay_projections(None).expect("second replay");
+    let second = repository.list_records(&query(10)).expect("page").items;
+
+    assert_eq!(first, second, "replay is deterministic");
+    assert_eq!(
+        before,
+        journal(&database),
+        "replay reads the journal and never writes to it"
+    );
+}
+
+#[test]
+fn retention_removes_expired_evidence_in_a_bounded_batch() {
+    let (_directory, database, repository) = repository("evidence-retention");
+    for index in 0..4 {
+        append(
+            &repository,
+            &command_started(
+                &format!("source-old-{index}"),
+                &format!("command-old-{index}"),
+                &format!("2025-01-0{}T00:00:00Z", index + 1),
+            ),
+        );
+    }
+    append(
+        &repository,
+        &command_started("source-new", "command-new", "2026-06-01T00:00:00Z"),
+    );
+
+    let outcome = repository
+        .maintain_retention("2026-01-01T00:00:00Z", "2026-06-02T00:00:00Z")
+        .expect("retention");
+    assert_eq!(outcome.deleted_events, 4);
+
+    let remaining: i64 = database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_events",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count");
+    assert_eq!(remaining, 1, "only evidence inside the window survives");
+
+    let page = repository.list_records(&query(10)).expect("page");
+    assert_eq!(
+        page.items.len(),
+        1,
+        "a projection whose backing events all expired goes with them"
+    );
+    assert_eq!(page.coverage.state(), EvidenceCoverageState::Partial);
+    assert!(page
+        .coverage
+        .reason_codes()
+        .iter()
+        .map(SafeReasonCode::as_str)
+        .any(|code| code == reason_codes::RETENTION_EXPIRED));
+    assert_eq!(
+        page.coverage.oldest_available_at(),
+        Some("2026-06-01T00:00:00Z"),
+        "the oldest available boundary moves with the cutoff"
+    );
+}
+
+/// A record whose lifecycle straddles the cutoff keeps its projection: its newest event is still
+/// inside the window, and dropping it would lose work the user can still act on.
+#[test]
+fn a_lifecycle_that_straddles_the_cutoff_is_retained() {
+    let (_directory, _database, repository) = repository("evidence-retention-straddle");
+    append(
+        &repository,
+        &command_started("source-start", "command-1", "2025-12-31T23:59:00Z"),
+    );
+    append(
+        &repository,
+        &command_completed("source-end", "command-1", "2026-01-02T00:00:00Z", 1),
+    );
+
+    repository
+        .maintain_retention("2026-01-01T00:00:00Z", "2026-01-03T00:00:00Z")
+        .expect("retention");
+
+    let page = repository.list_records(&query(10)).expect("page");
+    assert_eq!(page.items.len(), 1, "the straddling record survives");
+    assert_eq!(page.items[0].status, ExecutionStatus::Failed);
+}
+
+// Retention must never turn into a full scan on a write path.
+#[test]
+fn the_retention_sweep_uses_its_index() {
+    let (_directory, database, _repository) = repository("evidence-retention-plan");
+    let connection = database.connection().expect("connection");
+    let plan: String = connection
+        .query_row(
+            "EXPLAIN QUERY PLAN SELECT sequence FROM execution_evidence_events              WHERE occurred_at < '2026-01-01T00:00:00Z' ORDER BY occurred_at, sequence LIMIT 500",
+            [],
+            |row| row.get(3),
+        )
+        .expect("query plan");
+    assert!(
+        plan.contains("idx_execution_evidence_retention"),
+        "expected the retention index, got: {plan}"
+    );
+}

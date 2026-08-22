@@ -30,6 +30,10 @@ impl SqliteEvidenceRepository {
     }
 
     fn connection(&self) -> Result<PooledSqlite, EvidenceApplicationError> {
+        self.pooled_connection()
+    }
+
+    pub(super) fn pooled_connection(&self) -> Result<PooledSqlite, EvidenceApplicationError> {
         self.database
             .connection()
             .map_err(|error| EvidenceApplicationError::Storage(error.to_string()))
