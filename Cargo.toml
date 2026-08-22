@@ -30,6 +30,11 @@ tauri-build = { version = "2", features = [] }
 # cargo_metadata/rustc_version/wasmparser — so adopting it adds no new code to the build. Version
 # parsing is not hand-written; a subtly wrong precedence rule is worse than an audited dependency.
 semver = "1"
+# Reviewed for `add-unified-extension-platform` Task 1.G: MIT OR Apache-2.0, no NOTICE file, one
+# dependency (tinyvec), maintained by unicode-rs. Needed because two filenames that differ only in
+# Unicode composition are one file on macOS, and a hand-rolled approximation of NFC would give
+# false confidence exactly where a collision is being hunted.
+unicode-normalization = "0.1"
 rusqlite = { version = "0.40", features = ["bundled", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"

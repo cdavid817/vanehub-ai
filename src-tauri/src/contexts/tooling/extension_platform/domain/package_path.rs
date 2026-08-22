@@ -52,6 +52,18 @@ impl PortablePackagePath {
     pub(crate) fn case_folded(&self) -> String {
         self.0.to_lowercase()
     }
+
+    /// Canonically composed, for the same reason in a different alphabet.
+    ///
+    /// `é` as one code point and as `e` plus a combining accent are distinct byte sequences and
+    /// the same filename after normalization. macOS normalizes on write, so a package declaring
+    /// both forms has two manifest entries and one file. Real NFC rather than an approximation:
+    /// stripping combining marks would catch Latin accents and quietly miss Hangul, which is the
+    /// kind of gap that reads as coverage.
+    pub(crate) fn composition_folded(&self) -> String {
+        use unicode_normalization::UnicodeNormalization;
+        self.0.nfc().collect::<String>().to_lowercase()
+    }
 }
 
 fn reject_raw_string(value: &str) -> Result<(), ExtensionPathError> {

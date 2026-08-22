@@ -70,12 +70,12 @@ Pulled ahead of 1.E and 1.F: the manifest declarations in 1.D carry these paths 
 
 - [x] 1.G.1 Implement a `PortablePackagePath` value object that checks the raw string **before** `Path::components()` and rejects backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, `..`, and other non-portable forms. `Path::components()` treats a backslash as an ordinary filename character on Unix, so component analysis alone passes a Windows-shaped traversal on a Linux runner.
 - [x] 1.G.2 Reject an invalid path outright; never auto-normalize one into a valid-looking path.
-- [x] 1.G.3 Reject Windows reserved names, alternate data streams, case-fold collisions, and Unicode normalization collisions among declared paths.
+- [x] 1.G.3 Reject Windows reserved names, alternate data streams, case-fold collisions, and Unicode normalization collisions among declared paths. Reserved names and alternate streams belong to the path type; the two collision checks need every declared path at once and landed with 1.H, which is where this box became true.
 
 ### 1.H Contribution uniqueness and references
 
-- [ ] 1.H.1 Namespace every external contribution as `ext::<extension-id>::<kind>::<local-id>` and reject an attempt to claim a non-namespaced native id.
-- [ ] 1.H.2 Reject duplicate contribution ids within a manifest and prove every referenced path, schema, and handler resolves to a declared entry.
+- [x] 1.H.1 Namespace every external contribution as `ext::<extension-id>::<kind>::<local-id>` and reject an attempt to claim a non-namespaced native id.
+- [x] 1.H.2 Reject duplicate contribution ids within a manifest and prove every referenced path, schema, and handler resolves to a declared entry.
 
 ### 1.I Digest and fixtures
 

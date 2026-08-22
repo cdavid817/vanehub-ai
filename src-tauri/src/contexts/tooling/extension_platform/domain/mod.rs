@@ -15,6 +15,9 @@ mod manifest_decoder_contributions;
 #[cfg(test)]
 mod manifest_decoder_tests;
 mod manifest_error;
+mod manifest_integrity;
+#[cfg(test)]
+mod manifest_integrity_tests;
 #[cfg(test)]
 mod manifest_shape_tests;
 #[cfg(test)]
@@ -64,6 +67,10 @@ pub(crate) use manifest_decoder::{
 pub(crate) use manifest_error::{
     ExtensionDomainError, ExtensionOriginError, ExtensionPathError, IdentifierKind,
     ALL_IDENTIFIER_KINDS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use manifest_integrity::{
+    check_integrity, global_ids, IntegrityReason, IntegrityViolation,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use network_origin::{NetworkOrigin, OriginRejection, MAX_ORIGIN_CHARACTERS};
