@@ -7,6 +7,9 @@ mod activation;
 mod decode_error;
 mod decode_reader;
 mod error;
+mod error_catalog;
+#[cfg(test)]
+mod error_catalog_tests;
 mod feature;
 mod identity;
 mod manifest;
@@ -18,9 +21,12 @@ mod manifest_digest;
 #[cfg(test)]
 mod manifest_digest_tests;
 mod manifest_error;
+mod manifest_fields;
 mod manifest_integrity;
 #[cfg(test)]
 mod manifest_integrity_tests;
+#[cfg(test)]
+mod manifest_schema_tests;
 #[cfg(test)]
 mod manifest_shape_tests;
 #[cfg(test)]
@@ -33,6 +39,11 @@ mod package_path;
 mod package_path_tests;
 
 pub(crate) use error::FeatureGateError;
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use error_catalog::{
+    all_decode_reasons, all_gate_errors, all_integrity_reasons, registered_failures, ErrorArea,
+    RegisteredFailure, ALL_ORIGIN_REJECTIONS, ALL_PATH_REJECTIONS,
+};
 pub(crate) use feature::{
     evaluate_gate, ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateEvaluation,
     FeatureGateFreshness, FeatureGateStatus, PrerequisiteReason, ALL_FEATURES,
@@ -73,6 +84,8 @@ pub(crate) use manifest_error::{
     ExtensionDomainError, ExtensionOriginError, ExtensionPathError, IdentifierKind,
     ALL_IDENTIFIER_KINDS,
 };
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use manifest_fields::{field_set, FieldSet, MANIFEST_FIELDS};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use manifest_integrity::{
     check_integrity, global_ids, IntegrityReason, IntegrityViolation,

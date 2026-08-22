@@ -84,13 +84,13 @@ Pulled ahead of 1.E and 1.F: the manifest declarations in 1.D carry these paths 
 
 ### 1.J Bounded schema validator
 
-- [ ] 1.J.1 Add a checked-in schema fixture for `vanehub-extension.yaml` validated by a bounded validator following `BoundedSkillToolSchemaValidator`; do not introduce a full `jsonschema` engine.
-- [ ] 1.J.2 Fail closed on an unknown schema keyword rather than ignoring it, and test that Rust validation and the schema fixture accept and reject the same manifests.
+- [x] 1.J.1 Add a checked-in schema fixture for `vanehub-extension.yaml` validated by a bounded validator following `BoundedSkillToolSchemaValidator`; do not introduce a full `jsonschema` engine.
+- [x] 1.J.2 Fail closed on an unknown schema keyword rather than ignoring it, and test that Rust validation and the schema fixture accept and reject the same manifests.
 
 ### 1.K Invariant and failure tests
 
-- [ ] 1.K.1 Add invariant, table-driven, and bounded-combinatorial tests for identifier normalization, contribution namespacing, SemVer requirements, URL/origin validation, path constraints, duplicate detection, and digest determinism. Do not add `proptest` or `quickcheck`, and do not describe an example test as property-based.
-- [ ] 1.K.2 Define stable error codes/DTOs for manifest, compatibility, package, signature, dependency, lifecycle, runtime, contribution, Hook, rule, connector, and stale-witness failures, with a test proving every code is distinct.
+- [x] 1.K.1 Add invariant, table-driven, and bounded-combinatorial tests for identifier normalization, contribution namespacing, SemVer requirements, URL/origin validation, path constraints, duplicate detection, and digest determinism. Do not add `proptest` or `quickcheck`, and do not describe an example test as property-based.
+- [x] 1.K.2 Define stable error codes/DTOs for manifest, compatibility, package, signature, dependency, lifecycle, runtime, contribution, Hook, rule, connector, and stale-witness failures, with a test proving every code is distinct.
 
 ## 2. Package security, publisher trust, and immutable storage
 

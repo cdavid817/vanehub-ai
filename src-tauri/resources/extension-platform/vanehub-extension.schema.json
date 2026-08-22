@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vanehub.ai/schemas/vanehub-extension.schema.json",
+  "title": "VaneHub extension manifest",
+  "description": "Shipped for editor tooling. The decoder in tooling::extension_platform is what enforces installation; this file describes the same shape and is cross-checked against the decoder's field inventory by manifest_schema_tests.rs. Collections are keyed by id because the manifest parser's sequences hold scalars only, and because a duplicate id is then unrepresentable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "display_name",
+    "publisher",
+    "version",
+    "min_vanehub_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema this package targets. A build that does not implement it refuses the package rather than reading it partially.",
+      "const": 1
+    },
+    "id": {
+      "description": "<publisher>.<name>, lower-case ASCII.",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "display_name": { "type": "string", "minLength": 1 },
+    "publisher": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "maxLength": 64
+    },
+    "version": { "type": "string" },
+    "min_vanehub_version": { "type": "string" },
+    "description": { "type": "string" },
+    "license": { "type": "string" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "activation_events": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/activationEvent" }
+    },
+    "requires": { "$ref": "#/$defs/requires" },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "contributes": { "$ref": "#/$defs/contributes" }
+  },
+  "$defs": {
+    "localId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      "maxLength": 64
+    },
+    "extensionId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
+    "packagePath": {
+      "description": "Relative, forward-slash, inside the package. Backslashes, drive and UNC prefixes, `.`, `..`, and Windows device names are refused rather than normalized.",
+      "type": "string",
+      "pattern": "^[^\\\\/:\\u0000][^\\\\:\\u0000]*$",
+      "maxLength": 240
+    },
+    "networkOrigin": {
+      "description": "scheme://host[:port] only. A path, query, wildcard, or credential is refused, because the broker can only match an origin and would silently grant the whole host.",
+      "type": "string",
+      "pattern": "^https://[^*/?#@]+$|^http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?$",
+      "maxLength": 253
+    },
+    "activationEvent": {
+      "type": "string",
+      "pattern": "^(onStartupFinished|onSessionStart|manual|(onAgentMode|onTool|onHook|onConnector|onCommand):[^\\s:]+)$",
+      "maxLength": 160
+    },
+    "scalarList": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string" }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "`builtin` is reserved for reviewed code compiled into the application. `wasm-component` is reserved and refused: the pinned engine has no component-model support.",
+          "enum": ["wasm-module", "sidecar", "none"]
+        },
+        "entry": { "$ref": "#/$defs/packagePath" },
+        "trust_profile": {
+          "description": "Absent means strict. A looser default would grant authority nobody wrote down.",
+          "enum": ["strict", "standard", "trusted"]
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": { "type": "string" },
+        "optional": {
+          "description": "Absent means required, so a package cannot ship a missing piece by omission.",
+          "enum": ["true", "false"]
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extensions": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/extensionId" },
+          "additionalProperties": { "$ref": "#/$defs/dependency" }
+        },
+        "skills": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/dependency" }
+        }
+      }
+    },
+    "permissions": {
+      "description": "An upper bound on what may be requested, never a grant. Policy still decides each concrete operation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "$ref": "#/$defs/scalarList" },
+            "write": { "$ref": "#/$defs/scalarList" }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "origins": {
+              "type": "array",
+              "maxItems": 32,
+              "items": { "$ref": "#/$defs/networkOrigin" }
+            }
+          }
+        },
+        "process": { "$ref": "#/$defs/scalarList" },
+        "secrets": { "$ref": "#/$defs/scalarList" }
+      }
+    },
+    "matcher": {
+      "description": "Predicate names owned by the Hook or rule engine. Carried through rather than interpreted by the manifest layer.",
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/scalarList" }]
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": { "$ref": "#/$defs/toolCollection" },
+        "skills": { "$ref": "#/$defs/skillCollection" },
+        "mcp_definitions": { "$ref": "#/$defs/mcpCollection" },
+        "modes": { "$ref": "#/$defs/modeCollection" },
+        "hooks": { "$ref": "#/$defs/hookCollection" },
+        "authorization_rules": { "$ref": "#/$defs/ruleCollection" },
+        "connectors": { "$ref": "#/$defs/connectorCollection" },
+        "configuration": { "$ref": "#/$defs/configurationCollection" },
+        "transforms": { "$ref": "#/$defs/transformCollection" }
+      }
+    },
+    "toolCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["display_name", "handler"],
+        "properties": {
+          "display_name": { "type": "string" },
+          "handler": { "type": "string" },
+          "description": { "type": "string" },
+          "input_schema": { "$ref": "#/$defs/packagePath" },
+          "output_schema": { "$ref": "#/$defs/packagePath" }
+        }
+      }
+    },
+    "skillCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": { "path": { "$ref": "#/$defs/packagePath" } }
+      }
+    },
+    "mcpCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["display_name", "transport"],
+        "properties": {
+          "display_name": { "type": "string" },
+          "transport": {
+            "description": "Key names only. A secret value has no representation here and is supplied through MCP's own credential flow.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["stdio", "http"] },
+              "command": { "type": "string" },
+              "args": { "$ref": "#/$defs/scalarList" },
+              "env_keys": { "$ref": "#/$defs/scalarList" },
+              "url": { "type": "string" },
+              "header_keys": { "$ref": "#/$defs/scalarList" }
+            }
+          }
+        }
+      }
+    },
+    "modeCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["display_name", "strategy"],
+        "properties": {
+          "display_name": { "type": "string" },
+          "strategy": {
+            "description": "Must already exist in the application's registry. A package cannot supply orchestration code as a mode.",
+            "type": "string"
+          },
+          "default_policy_template": { "type": "string" },
+          "required_tool_groups": { "$ref": "#/$defs/scalarList" },
+          "required_skills": { "$ref": "#/$defs/scalarList" },
+          "required_hooks": { "$ref": "#/$defs/scalarList" }
+        }
+      }
+    },
+    "hookCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event", "handler"],
+        "properties": {
+          "event": { "type": "string" },
+          "matcher": { "$ref": "#/$defs/matcher" },
+          "handler": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind"],
+            "properties": {
+              "kind": {
+                "description": "Command, HTTP, prompt, and Agent handlers are configured locally by an operator and are not accepted from a package.",
+                "enum": ["extension-runtime", "mcp-tool"]
+              },
+              "entry": { "type": "string" },
+              "tool": { "type": "string" }
+            }
+          },
+          "failure_mode": {
+            "description": "Absent means fail_closed, so a broken handler cannot quietly stop enforcing what it was added to enforce.",
+            "enum": ["fail_closed", "fail_open"]
+          },
+          "priority": { "type": "string" }
+        }
+      }
+    },
+    "ruleCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation", "effect", "risk"],
+        "properties": {
+          "operation": { "type": "string" },
+          "matcher": { "$ref": "#/$defs/matcher" },
+          "effect": {
+            "description": "A downloaded package may tighten policy and never loosen it, so `allow` is absent.",
+            "enum": ["ask", "deny"]
+          },
+          "risk": { "type": "string" },
+          "allowed_scopes": { "$ref": "#/$defs/scalarList" }
+        }
+      }
+    },
+    "connectorCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["display_name", "type", "driver", "auth_strategy"],
+        "properties": {
+          "display_name": { "type": "string" },
+          "type": { "type": "string" },
+          "driver": { "type": "string" },
+          "auth_strategy": { "type": "string" },
+          "capabilities": { "$ref": "#/$defs/scalarList" }
+        }
+      }
+    },
+    "configurationCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema"],
+        "properties": { "schema": { "$ref": "#/$defs/packagePath" } }
+      }
+    },
+    "transformCollection": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/localId" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event", "handler"],
+        "properties": {
+          "event": { "type": "string" },
+          "handler": { "type": "string" }
+        }
+      }
+    }
+  }
+}
