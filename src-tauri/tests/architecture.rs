@@ -1087,6 +1087,73 @@ fn native_context_dependencies_point_inward() {
     );
 }
 
+/// Every bounded context that may exist. The context map is closed by project standard, so a new
+/// directory here is a design decision that has to be argued in a proposal rather than a side
+/// effect of needing somewhere to put a new type. Read projections that span existing owners —
+/// the execution-evidence journal, the log query index, the session-run report — belong to the
+/// context that already owns their lifecycle, not to a new one.
+const BOUNDED_CONTEXTS: &[&str] = &[
+    "agent_runtime",
+    "artifacts",
+    "browser_automation",
+    "cli_delegation",
+    "code_execution",
+    "code_intelligence",
+    "communications",
+    "desktop",
+    "execution_observability",
+    "goals",
+    "operations",
+    "permissions",
+    "retrieval",
+    "sessions",
+    "skill_evolution_evidence",
+    "ssh_connections",
+    "tooling",
+    "web_research",
+    "work_board",
+    "workspaces",
+];
+
+#[test]
+fn the_bounded_context_map_stays_closed() {
+    let contexts_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("contexts");
+    let mut present = BTreeSet::new();
+    for entry in fs::read_dir(&contexts_root).expect("read the contexts directory") {
+        let entry = entry.expect("read a contexts directory entry");
+        if entry
+            .file_type()
+            .expect("stat a contexts directory entry")
+            .is_dir()
+        {
+            present.insert(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+
+    let expected = BOUNDED_CONTEXTS
+        .iter()
+        .map(|context| (*context).to_string())
+        .collect::<BTreeSet<_>>();
+    let added = present.difference(&expected).cloned().collect::<Vec<_>>();
+    let removed = expected.difference(&present).cloned().collect::<Vec<_>>();
+
+    assert!(
+        added.is_empty(),
+        "new bounded context directories are not allowed without a proposal that argues the \
+         context map should grow: {}. Repair: put the behaviour in the context that already owns \
+         its lifecycle and reach it through that context's published `api` module.",
+        added.join(", ")
+    );
+    assert!(
+        removed.is_empty(),
+        "bounded contexts disappeared from the source tree but are still listed here: {}. \
+         Repair: update BOUNDED_CONTEXTS in the same commit that removes the context.",
+        removed.join(", ")
+    );
+}
+
 #[test]
 fn detector_reports_framework_and_private_context_dependencies_with_lines() {
     let source = r#"
