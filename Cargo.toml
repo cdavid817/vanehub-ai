@@ -42,7 +42,14 @@ unicode-normalization = "0.1"
 # verifies. Verification uses `verify_strict`, which refuses the small-order and non-canonical
 # signatures that plain `verify` accepts: a supply-chain signature that verifies here and nowhere
 # else is a bug, not a nicety.
-ed25519-dalek = { version = "3", default-features = false }
+#
+# Exact-pinned for the same reason as `zip` and `wasmtime`: this repository pins the version when a
+# test characterises the dependency's own behaviour rather than only its API. The RFC 8032 vector
+# in `signature_tests` asserts what *this* verifier accepts, so a minor bump that changed
+# `verify_strict` would be a silent change to what counts as an authorised package. The direct pin
+# does not reach `curve25519-dalek`; the committed `Cargo.lock` is what locks the rest of the
+# graph, and a Dependabot lockfile pull request is the upgrade-review boundary.
+ed25519-dalek = { version = "=3.0.0", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"

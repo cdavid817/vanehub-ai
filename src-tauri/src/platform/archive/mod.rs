@@ -16,8 +16,10 @@ mod tests;
 mod zip_reader;
 
 pub(crate) use entry_path::is_safe_archive_entry_path;
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use zip_reader::{
-    ends_at_the_central_directory_record, extract_zip_entries, inspect_zip_entries,
+    count_end_records, ends_at_the_central_directory_record, extract_zip_entries,
+    inspect_zip_entries,
 };
 
 use std::collections::BTreeSet;
@@ -62,6 +64,10 @@ pub(crate) enum ArchiveRejectionReason {
     EntryTooLarge,
     /// The bytes are not one well-formed archive, or they do not agree with what was declared.
     Format,
+    /// The bytes are readable in more than one way: more than one end-of-central-directory record,
+    /// or an entry that is not what inspection saw at that index. A signature cannot resolve this
+    /// — a publisher can sign an archive that is genuinely ambiguous — so it is refused outright.
+    Ambiguous,
     EncryptedEntry,
     UnsupportedCompression,
 }

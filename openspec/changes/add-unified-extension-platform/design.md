@@ -1179,13 +1179,21 @@ Four of the five needs were already answered by pins this repository carries; on
 | Need | Decision | Why |
 | --- | --- | --- |
 | ZIP | `zip = "=8.6.0"`, already pinned, `default-features = false`, only `deflate-flate2-zlib-rs` | MIT, MSRV 1.88, exact pin. The deflate backend resolves to `flate2` over `zlib-rs` 0.6.7, which is a pure-Rust port: no `libz-sys`, no `cc`, so no C toolchain on any of the three platforms. |
-| Ed25519 | `ed25519-dalek = { version = "3", default-features = false }`, new | BSD-3-Clause, MSRV 1.85, pure Rust. Already compiled in this build at exactly 3.0.0 through `russh` → `ssh-key`, so the whole addition is one edge in `Cargo.lock`. |
+| Ed25519 | `ed25519-dalek = { version = "=3.0.0", default-features = false }`, new | BSD-3-Clause, MSRV 1.85, pure Rust. Already compiled in this build at exactly 3.0.0 through `russh` → `ssh-key`, so the whole addition is one edge in `Cargo.lock`. |
 | Hashing | `sha2 = "0.11"`, already pinned | MIT OR Apache-2.0, RustCrypto. `ed25519-dalek` 3.0.0 resolves to the same 0.11.0, so package hashing and signature verification share one implementation rather than two. |
 | Canonicalization | No new dependency | The signed payload is the length-prefixed canonical encoding already written for `manifest_digest`, and Unicode canonicalization is the `unicode-normalization` reviewed at Task 1.G. A JCS-style JSON canonicalizer would only help if the payload were JSON, and it is not. |
 | SemVer | `semver = "1"` | Reviewed at Task 1.C above. |
 
 Three things this review turned up that the code has to account for rather than assume:
 
+* **The pin is exact, and the lockfile is the rest of the answer.** This repository has no
+  blanket exact-version rule for Cargo — `sha2`, `base64`, and `semver` are caret ranges — but it
+  does pin exactly where a test characterises the dependency's own behaviour rather than only its
+  API: `wasmtime = "=47.0.3"`, `zip = "=8.6.0"`, `russh = "=0.62.6"`. Both `zip` and
+  `ed25519-dalek` are characterised by tests in this change, so both are pinned the same way. A
+  direct pin does not reach a transitive dependency, so `curve25519-dalek 5.0.0` is locked by the
+  committed `Cargo.lock` rather than by the manifest; the lockfile is the precise lock for the
+  whole graph and a Dependabot lockfile pull request is the upgrade-review boundary.
 * **`default-features = false` is not a preference here.** It matches what `ssh-key` already requests, and it keeps signing, batch verification, randomness, `serde`, and PKCS#8 out of a build whose only operation is verification. A verify-only build cannot accidentally grow a signing path.
 * **Verification uses `verify_strict`, not `verify`.** Plain `verify` accepts small-order public keys and non-canonically encoded signatures, which means the same signature can verify under one library and fail under another. For a supply-chain check, "valid here, invalid there" is a defect; `verify_strict` performs both malleability checks and refuses those inputs.
 * **The pinned ZIP reader refuses encrypted entries and unreadable compression methods inside `by_index`**, before this repository's own checks for either are reached. Task 2.1 recorded that with tests asserting the answer that actually comes back. Those checks stay as a guard against a future reader that is more permissive; they are not what is doing the work today, and no diagnostic may claim otherwise.
@@ -1339,7 +1347,9 @@ The suite found three things:
 
 * **`PortablePackagePath` admitted Unicode bidirectional overrides.** `U+202E gnp.exe` renders as `exe.png` in every listing that honours bidirectional formatting, which is how an executable is made to look like an image on a review screen. They are *format* characters, not control characters, so `char::is_control` never saw them. Now refused as `direction_override`, across the whole UAX #9 set rather than the override pair alone — an isolate or an embedding reorders a name just as effectively.
 * **`create_owned_directory` failed under concurrency.** Two installs of the same package raced to create `packages/sha256/`, and the loser's `create_dir` returned `AlreadyExists`, which was reported as a filesystem error. It now re-checks that the component is a plain directory and continues, which is the answer that was always intended.
-* **An archive appended to itself is read as one archive.** Two byte-identical copies leave a final end record that genuinely is the last thing in the file, and whose central-directory offset happens to point at the first copy's — so the trailing-data and prefix checks have nothing to object to. Recorded as behavior rather than fixed, because what actually makes it useless to an attacker is the hash: the signature covers every byte, so appending anything produces a package no signature attests to. The test asserts exactly that.
+* **An archive appended to itself was read as one archive.** Two byte-identical copies leave a final end record that genuinely is the last thing in the file, and whose central-directory offset happens to point at the first copy's — so the trailing-data and prefix checks had nothing to object to. This is now refused outright, for a reason the hash does not cover: **a signature cannot resolve an ambiguity the publisher signed.** A hash over the whole file proves only that nobody appended *after* signing; a publisher can sign an archive that is genuinely readable two ways, and a backward-scanning reader and a forward-scanning one then disagree about which file they got. `count_end_records` refuses anything other than exactly one self-consistent end-of-central-directory record, before a reading is chosen. The hash remains the independent second answer and the test asserts both.
+
+**The probe and the extraction read the same entries.** Inspection and extraction each open the archive, which is the one place this code could have its own parser differential: every rule is applied to what inspection saw, and extraction writes what it sees. `extract_zip_entries` now takes the inspected list and refuses an index whose name or declared size differs from it, so "the archive is not supposed to change under us" becomes "it did not".
 
 **Two items on the task's list are not covered here, and both are named rather than quietly dropped.** *Cancellation* has no machinery yet — operations, progress, and cancellation arrive in Task Group 4 — so there is nothing to cancel. *Rollback attempts*, read as version-rollback attacks, are a lifecycle policy rather than a package-security rule: the witness records the installed version alongside the offered one, so a downgrade is visible to whoever confirms, and whether to refuse one is Task Group 4's decision. Both belong to 4.10.
 

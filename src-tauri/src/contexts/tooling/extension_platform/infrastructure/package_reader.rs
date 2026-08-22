@@ -64,6 +64,7 @@ impl PackageReadError {
                 ArchiveRejectionReason::LinkEntry => "package_link_entry",
                 ArchiveRejectionReason::EntryTooLarge => "package_entry_too_large",
                 ArchiveRejectionReason::Format => "package_archive_format",
+                ArchiveRejectionReason::Ambiguous => "package_archive_ambiguous",
                 ArchiveRejectionReason::EncryptedEntry => "package_encrypted_entry",
                 ArchiveRejectionReason::UnsupportedCompression => "package_unsupported_compression",
             },
@@ -127,7 +128,9 @@ pub(crate) fn read_extension_package(
     )?;
 
     crate::platform::archive::with_isolated_staging(staging, |root| {
-        extract_zip_entries(archive_bytes, root, |_| limits.maximum_entry_bytes)?;
+        extract_zip_entries(archive_bytes, &entries, root, |_| {
+            limits.maximum_entry_bytes
+        })?;
         let manifest = decode_manifest(root, application_version)?;
 
         let layout_violations = check_manifest_against_layout(&manifest, &layout);

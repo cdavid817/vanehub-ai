@@ -18,16 +18,20 @@ use crate::contexts::tooling::extension_platform::application::{
     SnapshotPointerRepository,
 };
 use crate::contexts::tooling::extension_platform::domain::{
-    parse_signature_envelope, signed_payload, ExtensionId, InstallationId, ManifestDigest,
-    PackageFacts, PackageHash, PackageSignature, PortablePackagePath, PublisherId,
-    PublisherKeyFingerprint, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
-    SignatureAlgorithm, SignatureEnvelope, SignatureRejection, SignatureState, SnapshotId,
-    SnapshotRecord, DEFAULT_EXTENSION_PACKAGE_LIMITS, PACKAGE_MANIFEST_ENTRY, PUBLISHER_KEY_BYTES,
-    SIGNATURE_BYTES,
+    inspect_package_layout, parse_signature_envelope, signed_payload, ExtensionId, InstallationId,
+    ManifestDigest, PackageArchiveEntry, PackageFacts, PackageHash, PackageLayoutRejection,
+    PackageSignature, PathRejection, PortablePackagePath, PublisherId, PublisherKeyFingerprint,
+    PublisherKeyRecord, PublisherPublicKey, PublisherTrustState, SignatureAlgorithm,
+    SignatureEnvelope, SignatureRejection, SignatureState, SnapshotId, SnapshotRecord,
+    DEFAULT_EXTENSION_PACKAGE_LIMITS, PACKAGE_MANIFEST_ENTRY, PUBLISHER_KEY_BYTES, SIGNATURE_BYTES,
 };
 use crate::contexts::tooling::extension_platform::infrastructure::{
     read_extension_package, ExtensionRoots, FilesystemSnapshotContentStore,
     SqliteSnapshotPointerRepository,
+};
+use crate::platform::archive::{
+    count_end_records, inspect_zip_entries, is_safe_archive_entry_path, ArchiveEntry,
+    ArchiveEntryKind, ArchiveRejection,
 };
 use crate::platform::content_address::sha256_hex;
 use crate::platform::database::NativeDatabase;
@@ -133,17 +137,22 @@ fn no_repeated_or_appended_structure_reaches_a_panic() {
 }
 
 #[test]
-fn an_archive_appended_to_itself_is_read_as_one_and_is_not_the_same_package() {
-    // Recorded as behavior, not as a guarantee. Two byte-identical archives concatenated leave a
-    // final end record that is genuinely the last thing in the file, and whose central-directory
-    // offset happens to point at the first copy's -- so the reader sees one valid archive and the
-    // trailing-data and prefix checks have nothing to object to.
+fn an_archive_that_can_be_read_two_ways_is_refused_before_a_reading_is_chosen() {
+    // Two byte-identical copies leave a final end record that genuinely is the last thing in the
+    // file, and whose central-directory offset happens to point at the first copy's -- so the
+    // trailing-data and prefix checks have nothing to object to. A backward-scanning reader takes
+    // the second record and a forward-scanning one takes the first, which is a parser
+    // differential, and a signature cannot resolve it: a publisher can sign an archive that is
+    // genuinely ambiguous. Counting end records is what refuses the ambiguity itself.
     let package = valid_package();
     let doubled = [package.clone(), package.clone()].concat();
-    assert!(read(&doubled, "corpus-doubled"));
 
-    // What actually stops this being useful to an attacker is the hash: the signature covers every
-    // byte of the file, so appending anything at all produces a package no signature attests to.
+    assert_eq!(count_end_records(&package), 1);
+    assert_eq!(count_end_records(&doubled), 2);
+    assert!(!read(&doubled, "corpus-doubled"));
+
+    // The hash is the independent second answer, and it covers the case the count cannot: an
+    // append that leaves only one end record still changes every byte the signature attests to.
     assert_ne!(sha256_hex(&doubled), sha256_hex(&package));
     let service = PackageVerificationService::new(Arc::new(FixedDirectory(Some(key(
         PublisherTrustState::Trusted,
@@ -154,6 +163,44 @@ fn an_archive_appended_to_itself_is_read_as_one_and_is_not_the_same_package() {
             .expect("lookup"),
         SignatureState::Rejected(SignatureRejection::PackageHashMismatch)
     );
+}
+
+#[test]
+fn the_probe_and_the_extraction_read_the_same_entries() {
+    // The reader inspects, applies every rule to what it inspected, and then re-opens the archive
+    // to extract. Those are two interpretations of the same bytes unless something ties them
+    // together, and every rule applied to the first would otherwise be applied to a file the
+    // second never wrote. `extract_zip_entries` takes the inspected list and checks each index
+    // against it; `platform::archive::tests` proves the check fires. This asserts the reader is
+    // actually wired that way, by reading a package whose entries are exactly what was inspected.
+    let package = valid_package();
+    let home = TempDirectory::new("security-same-view");
+    let read = read_extension_package(
+        &package,
+        &home.path().join("staging"),
+        &Version::parse("1.0.0").expect("version"),
+        DEFAULT_EXTENSION_PACKAGE_LIMITS,
+    )
+    .expect("package should read");
+
+    let inspected =
+        inspect_zip_entries(&package, |_: &ArchiveEntry| Ok::<(), ArchiveRejection>(()))
+            .expect("inspected");
+    let mut inspected_files: Vec<&str> = inspected
+        .iter()
+        .filter(|entry| entry.kind == ArchiveEntryKind::File)
+        .map(|entry| entry.path.as_str())
+        .collect();
+    inspected_files.sort_unstable();
+    let mut layout_files: Vec<&str> = read
+        .layout
+        .files()
+        .iter()
+        .map(PortablePackagePath::as_str)
+        .collect();
+    layout_files.sort_unstable();
+
+    assert_eq!(layout_files, inspected_files);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +247,122 @@ fn no_hostile_entry_name_is_admitted_by_the_declared_path_rule() {
             "{name:?} must not be a declared package path"
         );
     }
+}
+
+#[test]
+fn the_vhext_admission_layer_is_strictly_stricter_than_the_shared_archive_floor() {
+    // The shared floor exists for every archive consumer, and Overlay's compatibility boundary is
+    // what shaped it. That boundary must not become the `.vhext` boundary. Each name below is
+    // asserted twice -- the floor admits it, the package layer refuses it -- so the difference is
+    // demonstrated rather than claimed, and a future relaxation of either side fails here.
+    let refused_only_by_the_package_layer = [
+        ("nul\u{0}byte.wasm", PathRejection::NulByte),
+        ("CON", PathRejection::WindowsReservedName),
+        ("aux.wasm", PathRejection::WindowsReservedName),
+        ("trailing.", PathRejection::TrailingDotOrSpace),
+        ("trailing ", PathRejection::TrailingDotOrSpace),
+        ("\u{202e}gnp.exe", PathRejection::DirectionOverride),
+        ("\u{2066}isolate", PathRejection::DirectionOverride),
+        ("\u{200f}mark", PathRejection::DirectionOverride),
+    ];
+
+    for (name, expected) in refused_only_by_the_package_layer {
+        assert!(
+            is_safe_archive_entry_path(name),
+            "{name:?} is supposed to pass the shared floor; if it no longer does, this test has \
+             stopped measuring the difference it exists to measure"
+        );
+        assert_eq!(
+            PortablePackagePath::parse(name)
+                .map(|_| ())
+                .unwrap_err()
+                .reason,
+            expected,
+            "{name:?} must be refused by the package layer"
+        );
+    }
+
+    // A backslash is refused by *both*, which is worth stating rather than leaving to inference:
+    // it is the one hostile name in this family the floor already handles, and reading the list
+    // above as "the floor allows everything dangerous" would be wrong.
+    assert!(!is_safe_archive_entry_path("a\\b.wasm"));
+    assert_eq!(
+        PortablePackagePath::parse("a\\b.wasm")
+            .map(|_| ())
+            .unwrap_err()
+            .reason,
+        PathRejection::Backslash
+    );
+}
+
+#[test]
+fn collisions_are_invisible_to_the_floor_and_refused_by_the_package_layer() {
+    // The floor judges one name at a time, so it has no concept of two names being one file. Case
+    // folding and Unicode composition are relationships between entries, and only the layout pass
+    // sees the whole list.
+    let pairs = [
+        ("schemas/Tool.json", "schemas/tool.json"),
+        ("assets/caf\u{e9}.png", "assets/cafe\u{301}.png"),
+    ];
+
+    for (first, second) in pairs {
+        assert!(is_safe_archive_entry_path(first) && is_safe_archive_entry_path(second));
+        assert!(PortablePackagePath::parse(first).is_ok());
+        assert!(PortablePackagePath::parse(second).is_ok());
+
+        let entries = [
+            PackageArchiveEntry {
+                path: PACKAGE_MANIFEST_ENTRY.to_string(),
+                is_directory: false,
+                expanded_bytes: 16,
+                unix_mode: None,
+            },
+            PackageArchiveEntry {
+                path: first.to_string(),
+                is_directory: false,
+                expanded_bytes: 1,
+                unix_mode: None,
+            },
+            PackageArchiveEntry {
+                path: second.to_string(),
+                is_directory: false,
+                expanded_bytes: 1,
+                unix_mode: None,
+            },
+        ];
+        let violation = inspect_package_layout(&entries, 1_024, DEFAULT_EXTENSION_PACKAGE_LIMITS)
+            .expect_err("the pair must be refused");
+        assert!(
+            matches!(
+                violation.reason,
+                PackageLayoutRejection::CaseCollision { .. }
+                    | PackageLayoutRejection::UnicodeCollision { .. }
+            ),
+            "{first} and {second}: {:?}",
+            violation.reason
+        );
+    }
+}
+
+#[test]
+fn a_real_vhext_carrying_a_floor_admitted_name_is_refused_end_to_end() {
+    // The layer test above works on names. This one puts one of them in an actual archive and
+    // drives the real reader, so the delta is proven where a package is actually admitted rather
+    // than only where a rule is evaluated.
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, content) in [
+        (PACKAGE_MANIFEST_ENTRY, MANIFEST.as_bytes()),
+        ("runtime/guardian.wasm", b"\0asm\x01\0\0\0".as_slice()),
+        ("assets/\u{202e}gnp.exe", b"payload".as_slice()),
+    ] {
+        writer.start_file(name, options).expect("start ZIP entry");
+        writer.write_all(content).expect("write ZIP entry");
+    }
+    let package = writer.finish().expect("finish ZIP").into_inner();
+
+    assert!(is_safe_archive_entry_path("assets/\u{202e}gnp.exe"));
+    assert!(!read(&package, "security-floor-delta"));
 }
 
 // ---------------------------------------------------------------------------

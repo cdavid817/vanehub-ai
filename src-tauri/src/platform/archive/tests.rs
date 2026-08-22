@@ -381,7 +381,11 @@ fn extraction_writes_under_the_destination_and_stops_at_the_budget() {
     std::fs::create_dir_all(&destination).expect("destination");
 
     let archive = zip_of(&[("overlay.json", b"{}"), ("payloads/a.bin", b"12345")]);
-    assert_eq!(extract_zip_entries(&archive, &destination, |_| 8), Ok(()));
+    let entries = inspect(&archive).expect("inspected");
+    assert_eq!(
+        extract_zip_entries(&archive, &entries, &destination, |_| 8),
+        Ok(())
+    );
     assert_eq!(
         std::fs::read(destination.join("payloads/a.bin")).expect("payload"),
         b"12345"
@@ -390,10 +394,12 @@ fn extraction_writes_under_the_destination_and_stops_at_the_budget() {
     let tight = home.path().join("tight");
     std::fs::create_dir_all(&tight).expect("tight destination");
     assert_eq!(
-        extract_zip_entries(&archive, &tight, |name| if name == "overlay.json" {
-            8
-        } else {
-            4
+        extract_zip_entries(&archive, &entries, &tight, |name| {
+            if name == "overlay.json" {
+                8
+            } else {
+                4
+            }
         }),
         Err(ArchiveRejection::at(
             Reason::EntryTooLarge,
@@ -423,8 +429,9 @@ fn extraction_refuses_a_declared_size_the_stream_does_not_match() {
         "the offset must point at the uncompressed size the fixture was written with"
     );
 
+    let entries = inspect(&archive).expect("inspected");
     assert_eq!(
-        extract_zip_entries(&archive, &destination, |_| 64),
+        extract_zip_entries(&archive, &entries, &destination, |_| 64),
         Err(ArchiveRejection::new(Reason::Format))
     );
 }
@@ -461,8 +468,10 @@ fn extraction_refuses_to_overwrite_something_already_there() {
     std::fs::create_dir_all(&destination).expect("destination");
     std::fs::write(destination.join("a.bin"), b"existing").expect("pre-existing file");
 
+    let archive = zip_of(&[("a.bin", b"12345")]);
+    let entries = inspect(&archive).expect("inspected");
     assert_eq!(
-        extract_zip_entries(&zip_of(&[("a.bin", b"12345")]), &destination, |_| 64),
+        extract_zip_entries(&archive, &entries, &destination, |_| 64),
         Err(ArchiveRejection::at(Reason::DuplicatePath, "a.bin"))
     );
 }
@@ -502,5 +511,73 @@ fn staging_is_created_for_the_operation_and_removed_afterwards() {
         with_isolated_staging(&used, |_| -> Result<(), ProfileError> { Ok(()) }),
         Err(ProfileError::Unexpected("staging".to_string())),
         "an existing directory is refused rather than reused"
+    );
+}
+
+#[test]
+fn an_archive_with_more_than_one_end_record_is_refused_as_ambiguous() {
+    // Two end records mean two readings. A backward-scanning reader takes the last, a
+    // forward-scanning one takes the first, and the two can describe different files -- which is a
+    // parser differential a signature cannot resolve, because a publisher can sign an archive that
+    // is genuinely ambiguous.
+    let archive = zip_of(&[("a.md", b"content")]);
+    assert_eq!(count_end_records(&archive), 1);
+
+    let doubled = [archive.clone(), archive.clone()].concat();
+    assert_eq!(count_end_records(&doubled), 2);
+    assert_eq!(
+        inspect(&doubled),
+        Err(ArchiveRejection::new(Reason::Ambiguous))
+    );
+
+    // And an archive with none at all is refused too, rather than falling through to whatever the
+    // reader would make of it.
+    assert_eq!(count_end_records(b"not an archive"), 0);
+    assert_eq!(
+        inspect(b"not an archive"),
+        Err(ArchiveRejection::new(Reason::Ambiguous))
+    );
+}
+
+#[test]
+fn the_end_record_count_ignores_a_signature_that_is_not_a_record() {
+    // `PK\x05\x06` occurs inside compressed data by chance. A count that took the four signature
+    // bytes at face value would refuse ordinary archives, so the record has to be self-consistent:
+    // zero disk numbers, matching entry counts, and a central directory inside the buffer.
+    let mut planted = zip_of(&[("a.md", b"content")]);
+    let insert_at = 8;
+    // Disk numbers deliberately non-zero, which no real end record has.
+    let mut decoy = b"PK\x05\x06".to_vec();
+    decoy.extend_from_slice(&[0xff; 18]);
+    planted.splice(insert_at..insert_at, decoy);
+
+    assert_eq!(
+        count_end_records(&planted),
+        1,
+        "the decoy is not counted, so a real archive is not refused for containing one"
+    );
+}
+
+#[test]
+fn extraction_refuses_an_entry_that_is_not_what_inspection_saw() {
+    // The two passes re-open the archive independently, which is the one place this module could
+    // have its own parser differential. Handing extraction the inspected list and checking each
+    // index against it is what closes that.
+    let home = TempDirectory::new("platform-archive-view");
+    let destination = home.path().join("staging");
+    std::fs::create_dir_all(&destination).expect("destination");
+    let archive = zip_of(&[("a.md", b"content")]);
+    let mut entries = inspect(&archive).expect("inspected");
+
+    entries[0].path = "b.md".to_string();
+    assert_eq!(
+        extract_zip_entries(&archive, &entries, &destination, |_| 64),
+        Err(ArchiveRejection::at(Reason::Ambiguous, "a.md"))
+    );
+
+    let short = Vec::new();
+    assert_eq!(
+        extract_zip_entries(&archive, &short, &destination, |_| 64),
+        Err(ArchiveRejection::new(Reason::Ambiguous))
     );
 }

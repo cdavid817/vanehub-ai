@@ -76,7 +76,12 @@ impl From<ArchiveRejection> for OverlayImportValidationError {
                 Self::ExpandedSize
             }
             ArchiveRejectionReason::EntryTooLarge => Self::SupportingFileSize,
-            ArchiveRejectionReason::Format => Self::ArchiveFormat,
+            // Both mean "these bytes are not one readable archive", which is what Overlay's
+            // existing code says. Splitting the wording would change a diagnostic an operator
+            // already knows for a case that could not previously occur.
+            ArchiveRejectionReason::Format | ArchiveRejectionReason::Ambiguous => {
+                Self::ArchiveFormat
+            }
             ArchiveRejectionReason::EncryptedEntry => Self::EncryptedEntry,
             ArchiveRejectionReason::UnsupportedCompression => Self::UnsupportedCompression,
         }
@@ -255,7 +260,7 @@ pub(crate) fn parse_overlay_import_archive(
     )?;
     let staging = quarantine_root.join(format!("import-{}", Uuid::new_v4()));
     with_isolated_staging(&staging, |root| {
-        extract_zip_entries(archive_bytes, root, extraction_budget(limits))?;
+        extract_zip_entries(archive_bytes, &entries, root, extraction_budget(limits))?;
         parse_and_scan_staging(root, source_summary, &entries, limits)
     })
 }
