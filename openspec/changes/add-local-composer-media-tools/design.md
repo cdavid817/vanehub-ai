@@ -1664,3 +1664,39 @@ Rejected because the requested behavior is release-then-transcribe and partial r
 8. **What happens when the user changes sessions during inference?** The result is not inserted into another session.
 9. **Are models bundled?** No; only the bridge is bundled.
 10. **Can the feature fall back to cloud?** No.
+
+## 29. Verification record
+
+Two environments produced different results, and the difference is the environment rather than the code. Both are recorded because collapsing them would hide which claims rest on a clean machine.
+
+### Clean GitHub runners — PR #209, all 17 checks green
+
+| Job | Command | Result |
+| --- | --- | --- |
+| Rust | `cargo test --workspace` | PASSED |
+| Frontend | `npm run test:coverage` | PASSED |
+| Playwright E2E | `npx playwright test` | PASSED |
+| Desktop Smoke, Windows | `npm run test:desktop` | PASSED |
+| Desktop Smoke, macOS | `npm run test:desktop` | PASSED |
+| Desktop Smoke, Ubuntu | `xvfb-run -a npm run test:desktop` | PASSED |
+| Native Check, Windows and macOS | fmt, check, clippy, panic gate | PASSED |
+| Documentation | docs check, screenshots, read-only build | PASSED |
+| Native Coverage, Contracts, OpenSpec, CodeQL, Dependency Review | — | PASSED |
+
+`npm run test:desktop` on a runner executes the **smoke layer only** — `tests/desktop/specs/smoke.e2e.mjs`, one spec covering startup, IPC, and navigation — because `runFullSuite` is false when `CI` is set. It proves the desktop build starts and resolves its packaged resources on that operating system. It does not execute `domain-local-media.e2e.mjs`, and it proves nothing about real models or real audio hardware.
+
+### Local developer host — Windows 11, contended
+
+- `npm run test`: 1480/1482. Two async-render tests unrelated to this change time out under the 303-file parallel run and pass in isolation.
+- `cargo test --workspace`: a rotating handful of timing-sensitive tests fail per run in `relay_stdio`, `code_intelligence`, `browser_automation`, `platform_sandbox`, and `tauri_desktop_lifecycle`. All pass in isolation; `relay_stdio` passes 5/5 with `--test-threads=1`. The clean runner passes the same command.
+- `npm run test:desktop`: the full five-layer suite. `desktop-smoke` ran all 33 specs including `domain-local-media` and passed, as did `desktop-session-workspace`, `desktop-dialogs`, and `desktop-settings-persistence`. `desktop-cli-terminal` failed on three consecutive runs because `npm view` takes 18.3 s on this network and CLI detection issues roughly ten such calls inside the terminal's 30 s readiness window.
+
+`domain-local-media.e2e.mjs` has therefore been exercised only on the local Windows host.
+
+### Not evidenced anywhere
+
+Real PaddleOCR, faster-whisper, and sherpa-onnx models; real microphone and speaker hardware; microphone permission denial and recovery; Linux ALSA/PulseAudio/PipeWire classification against real devices; macOS audio hardware. Tasks 18.4, 18.5, 19.5, 19.6, and 19.7 remain unchecked for this reason. Task 20.2 remains unchecked because the Frontend job runs `npm run test:coverage`, which is a different command from the one that task names.
+
+### Known generated-artifact hazard
+
+`npm run test:desktop:build` enables the WDIO webdriver plugin, and the Tauri build regenerates the tracked `src-tauri/gen/schemas/*.json` with that plugin's ACL entries. Those entries are not produced by a normal build, so committing them makes the documentation job's read-only check fail. Until a follow-up task gives the test build an isolated output directory or restores the generated files afterwards, run `git status` after any desktop test build and discard changes to `gen/schemas`.

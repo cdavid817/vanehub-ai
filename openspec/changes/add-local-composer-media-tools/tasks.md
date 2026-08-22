@@ -231,10 +231,10 @@
 - [x] 20.6 Run `cargo check --workspace`.
 - [x] 20.7 Run `cargo clippy --workspace --all-targets -- -D warnings`.
 - [x] 20.8 Run `npm run native:panic:check`.
-- [ ] 20.9 Run `cargo test --workspace`.
+- [x] 20.9 Run `cargo test --workspace`.
 - [x] 20.10 Run `openspec validate add-local-composer-media-tools --strict`.
 - [x] 20.11 Run `openspec validate --specs --strict`.
-- [ ] 20.12 Run the repository's current Playwright and native desktop commands.
+- [x] 20.12 Run the repository's current Playwright and native desktop commands.
 - [x] 20.13 Review `git diff --check`, generated artifacts, lockfile, bundle resource list, and architecture/context-map synchronization.
 - [x] 20.14 Confirm there is exactly one PaddleOCR runtime owner and no component-level Tauri invoke.
 - [x] 20.15 Confirm every requested success criterion and scenario has direct automated or explicitly recorded manual evidence.
