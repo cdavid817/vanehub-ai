@@ -13,6 +13,9 @@ mod error_catalog;
 mod error_catalog_tests;
 mod feature;
 mod identity;
+mod install_witness;
+#[cfg(test)]
+mod install_witness_tests;
 mod manifest;
 mod manifest_decoder;
 mod manifest_decoder_contributions;
@@ -117,6 +120,12 @@ pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PA
 
 // Package provenance (Task 2.3). Verification is a pure function of bytes and lives here; finding
 // the key is a lookup against stored trust and lives behind an application port.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use install_witness::{
+    capability_diff, capability_lines, CapabilityDiff, CompatibilityOutcome, DependencySummary,
+    ExtensionInstallWitness, InstallWitnessSubject, InstalledSummary, SignatureSummary,
+    StaleWitness, WitnessField, ALL_WITNESS_FIELDS,
+};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_admission::{
     activation_eligibility, admit_package, all_developer_mode_errors, ActivationEligibility,

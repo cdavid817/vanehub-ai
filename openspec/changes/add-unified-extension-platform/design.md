@@ -1285,6 +1285,19 @@ Every path is built from validated identifiers, and each segment is re-checked a
 
 This also completes the deferral recorded in task 2.1: `create_safe_directory` moved out of the Overlay payload store into the shared primitive, and Skills now calls it. The Overlay-specific wording of each rejection is preserved, because it reaches an operator.
 
+### The install witness (Task 2.8)
+
+A user approves an install after reading a screen. Between reading it and pressing confirm, a publisher key can be revoked, a dependency can be uninstalled, and the file on disk can be swapped. The witness records what they were shown; confirming re-derives the same facts and refuses if any moved. Comparison rather than locking, because nothing here can hold a lock across a human decision.
+
+Four things the shape decides:
+
+* **The comparison reports which facts changed, not merely that something did.** "This preview is stale" tells a user to try again; "the publisher key was revoked" tells them not to. `WitnessField` is a closed set so a caller can branch on it.
+* **The signature is reduced to a code plus a fingerprint.** A decode error carries text derived from the package, and a witness is compared for equality, so a diagnostic that varies with wording would make two identical situations look different.
+* **The digest is derived, never stored alongside.** A caller can reconstruct the struct; it cannot reconstruct a digest that agrees with it, so `is_self_consistent` catches a witness whose subject was edited on the way back out of storage.
+* **Dependencies are a sequence; capabilities and contributions are sets.** Two resolution plans differing only in order are two different plans. Two identical capability sets written in different orders are the same authority.
+
+The capability diff is what turns "this update asks for more" into a fresh confirmation. Capabilities are rendered as canonical `kind:value` lines — `filesystem.read:`, `network:`, `process:`, `secret:` — so a filesystem glob and a process command that read the same do not compare equal. A first install has no previous grant, so everything requested counts as added: any other reading would let a first install present itself as asking for less than it does. Removals never count as broadening, because giving authority back is not something to re-approve.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.
