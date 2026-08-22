@@ -53,6 +53,9 @@ mod publisher_key;
 mod publisher_key_admission;
 #[cfg(test)]
 mod publisher_key_tests;
+mod reconciliation;
+#[cfg(test)]
+mod reconciliation_tests;
 mod signature_envelope;
 #[cfg(test)]
 mod signature_test_support;
@@ -60,6 +63,7 @@ mod signature_test_support;
 mod signature_tests;
 mod signature_verification;
 mod signed_payload;
+mod snapshot;
 
 pub(crate) use error::FeatureGateError;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -151,6 +155,11 @@ pub(crate) use publisher_key_admission::{
     all_publisher_key_errors, decide_admission, PublisherKeyAdmission, PublisherKeyError,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use reconciliation::{
+    judge_entry, ExtensionRootScope, ReconciliationReason, ReconciliationSummary,
+    ReconciliationVerdict, ALL_EXTENSION_ROOT_SCOPES, ALL_RECONCILIATION_REASONS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use signature_envelope::{
     parse_signature_envelope, PackageSignature, SignatureAlgorithm, SignatureEnvelope,
     ENVELOPE_YAML_LIMITS, SIGNATURE_BYTES, SUPPORTED_ENVELOPE_VERSION,
@@ -162,3 +171,8 @@ pub(crate) use signature_verification::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use signed_payload::signed_payload;
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use snapshot::{
+    all_snapshot_publication_errors, ContentPublication, SnapshotPointer, SnapshotPublicationError,
+    SnapshotRecord, StagedRecovery,
+};

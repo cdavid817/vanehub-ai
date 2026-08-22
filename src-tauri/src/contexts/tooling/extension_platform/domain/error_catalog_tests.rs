@@ -6,9 +6,9 @@
 
 use super::{
     all_decode_reasons, all_developer_mode_errors, all_gate_errors, all_integrity_reasons,
-    all_publisher_key_errors, registered_failures, ErrorArea, RegisteredFailure,
-    ALL_ADMISSION_REFUSALS, ALL_IDENTIFIER_KINDS, ALL_ORIGIN_REJECTIONS, ALL_PATH_REJECTIONS,
-    ALL_PUBLISHER_KEY_REJECTIONS, ALL_SIGNATURE_REJECTIONS,
+    all_publisher_key_errors, all_snapshot_publication_errors, registered_failures, ErrorArea,
+    RegisteredFailure, ALL_ADMISSION_REFUSALS, ALL_IDENTIFIER_KINDS, ALL_ORIGIN_REJECTIONS,
+    ALL_PATH_REJECTIONS, ALL_PUBLISHER_KEY_REJECTIONS, ALL_SIGNATURE_REJECTIONS,
 };
 
 #[test]
@@ -74,6 +74,7 @@ fn every_area_that_has_landed_contributes_at_least_one_failure() {
         ErrorArea::PackageSignature,
         ErrorArea::PublisherKeyManagement,
         ErrorArea::PackageAdmission,
+        ErrorArea::SnapshotPublication,
     ] {
         assert!(
             failures.iter().any(|failure| failure.area == area),
@@ -122,6 +123,10 @@ fn the_catalog_covers_every_variant_of_every_enum_it_registers() {
     assert_eq!(
         counted(ErrorArea::PackageAdmission),
         ALL_ADMISSION_REFUSALS.len() + all_developer_mode_errors().len()
+    );
+    assert_eq!(
+        counted(ErrorArea::SnapshotPublication),
+        all_snapshot_publication_errors().len()
     );
 }
 

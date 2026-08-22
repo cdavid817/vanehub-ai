@@ -22,7 +22,8 @@
 //! of confirming it here is one comparison against a rule that is written down.
 
 use crate::contexts::tooling::extension_platform::domain::{
-    InstallationId, OperationWitness, PackageHash, PortablePackagePath, RuntimeGenerationId,
+    ExtensionRootScope, InstallationId, OperationWitness, PackageHash, PortablePackagePath,
+    RuntimeGenerationId, ALL_EXTENSION_ROOT_SCOPES,
 };
 use crate::platform::filesystem::{
     create_owned_directory, ensure_owned_root, remove_owned_tree, verify_owned, OwnershipError,
@@ -59,33 +60,16 @@ impl From<OwnershipError> for RootError {
     }
 }
 
-/// Which of the four a path belongs to. Present so a caller cannot pass a package path where a
-/// scratch path is expected and have it silently work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExtensionRootKind {
-    Quarantine,
-    Packages,
-    Scratch,
-    Sidecars,
-}
-
-impl ExtensionRootKind {
-    const fn directory(self) -> &'static str {
-        match self {
-            Self::Quarantine => QUARANTINE,
-            Self::Packages => PACKAGES,
-            Self::Scratch => SCRATCH,
-            Self::Sidecars => SIDECARS,
-        }
+/// What each root is called on disk. The scope itself is a domain concept — which lifetimes live
+/// where — and only the names belong here.
+const fn directory(scope: ExtensionRootScope) -> &'static str {
+    match scope {
+        ExtensionRootScope::Quarantine => QUARANTINE,
+        ExtensionRootScope::Packages => PACKAGES,
+        ExtensionRootScope::Scratch => SCRATCH,
+        ExtensionRootScope::Sidecars => SIDECARS,
     }
 }
-
-pub(crate) const ALL_EXTENSION_ROOT_KINDS: [ExtensionRootKind; 4] = [
-    ExtensionRootKind::Quarantine,
-    ExtensionRootKind::Packages,
-    ExtensionRootKind::Scratch,
-    ExtensionRootKind::Sidecars,
-];
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionRoots {
@@ -102,16 +86,16 @@ impl ExtensionRoots {
         &self.base
     }
 
-    pub(crate) fn root(&self, kind: ExtensionRootKind) -> PathBuf {
-        self.base.join(kind.directory())
+    pub(crate) fn root(&self, scope: ExtensionRootScope) -> PathBuf {
+        self.base.join(directory(scope))
     }
 
     /// Creates the four roots. Called once at startup so that later operations fail on their own
     /// path rather than on a missing parent.
     pub(crate) fn prepare(&self) -> Result<(), RootError> {
         ensure_owned_root(&self.base)?;
-        for kind in ALL_EXTENSION_ROOT_KINDS {
-            create_owned_directory(&self.base, &self.root(kind))?;
+        for scope in ALL_EXTENSION_ROOT_SCOPES {
+            create_owned_directory(&self.base, &self.root(scope))?;
         }
         Ok(())
     }
@@ -122,13 +106,13 @@ impl ExtensionRoots {
     /// been established about which extension this is, and a directory named after a claim the
     /// package made would be named by the package.
     pub(crate) fn quarantine(&self, operation: &OperationWitness) -> Result<PathBuf, RootError> {
-        self.resolve(ExtensionRootKind::Quarantine, &[operation.as_str()])
+        self.resolve(ExtensionRootScope::Quarantine, &[operation.as_str()])
     }
 
     /// Where one immutable set of package bytes lives, named by its own digest.
     pub(crate) fn package(&self, hash: &PackageHash) -> Result<PathBuf, RootError> {
         self.resolve(
-            ExtensionRootKind::Packages,
+            ExtensionRootScope::Packages,
             &[PACKAGE_ALGORITHM, hash.as_str()],
         )
     }
@@ -139,7 +123,7 @@ impl ExtensionRoots {
         generation: &RuntimeGenerationId,
     ) -> Result<PathBuf, RootError> {
         self.resolve(
-            ExtensionRootKind::Scratch,
+            ExtensionRootScope::Scratch,
             &[installation.as_str(), generation.as_str()],
         )
     }
@@ -150,7 +134,7 @@ impl ExtensionRoots {
         generation: &RuntimeGenerationId,
     ) -> Result<PathBuf, RootError> {
         self.resolve(
-            ExtensionRootKind::Sidecars,
+            ExtensionRootScope::Sidecars,
             &[installation.as_str(), generation.as_str()],
         )
     }
@@ -171,8 +155,8 @@ impl ExtensionRoots {
         Ok(verify_owned(&self.base, path)?)
     }
 
-    fn resolve(&self, kind: ExtensionRootKind, segments: &[&str]) -> Result<PathBuf, RootError> {
-        let mut path = self.root(kind);
+    fn resolve(&self, scope: ExtensionRootScope, segments: &[&str]) -> Result<PathBuf, RootError> {
+        let mut path = self.root(scope);
         for segment in segments {
             // The portable-path rule, applied to one segment. It refuses separators, traversal,
             // control characters, Windows device names, and trailing dots — the last of which an

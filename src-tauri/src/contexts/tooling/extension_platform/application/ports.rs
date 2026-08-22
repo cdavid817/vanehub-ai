@@ -2,10 +2,12 @@
 
 use super::developer_mode::DeveloperModeView;
 use crate::contexts::tooling::extension_platform::domain::{
-    DeveloperMode, DeveloperModeError, ExtensionPlatformFeature, FeatureGateDegradation,
-    FeatureGateError, PrerequisiteReason, PublisherKeyFingerprint, PublisherKeyRecord,
-    TrustedPublisherKey,
+    ContentPublication, DeveloperMode, DeveloperModeError, ExtensionId, ExtensionPlatformFeature,
+    FeatureGateDegradation, FeatureGateError, PackageHash, PrerequisiteReason,
+    PublisherKeyFingerprint, PublisherKeyRecord, SnapshotPointer, SnapshotPublicationError,
+    SnapshotRecord, TrustedPublisherKey,
 };
+use std::path::Path;
 
 /// One gate's persisted desired state. Storage holds nothing derived: build availability comes
 /// from `cfg!` at evaluation time, so a database moved between builds can never claim a
@@ -152,6 +154,37 @@ pub(crate) trait DeveloperModeRepository: Send + Sync {
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) trait DeveloperModeAuditSink: Send + Sync {
     fn record(&self, entry: &DeveloperModeAuditEntry) -> Result<(), DeveloperModeError>;
+}
+
+/// Where immutable package content is kept, addressed by its own digest.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait SnapshotContentStore: Send + Sync {
+    /// Moves `staged` into the content-addressed store under `hash`.
+    ///
+    /// A destination that already exists is `AlreadyPresent` rather than an error: content is
+    /// addressed by its own digest, so what is there is what would have been written — including
+    /// when it is there because a concurrent install of the same package won the race.
+    fn publish(&self, staged: &Path, hash: &PackageHash) -> Result<ContentPublication, String>;
+
+    /// Removes staged content that will not be published.
+    fn discard_staged(&self, staged: &Path) -> Result<(), String>;
+}
+
+/// Which snapshot each installation is running.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait SnapshotPointerRepository: Send + Sync {
+    fn active(&self, extension: &ExtensionId) -> Result<Option<SnapshotPointer>, String>;
+
+    /// Records the snapshot and moves the pointer to it, in one guarded write.
+    ///
+    /// The previous active snapshot becomes the rollback target. On any failure the pointer is
+    /// left exactly where it was, because a half-moved pointer is an installation nobody can
+    /// describe.
+    fn point_at(
+        &self,
+        record: &SnapshotRecord,
+        expected_revision: i64,
+    ) -> Result<SnapshotPointer, SnapshotPublicationError>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing

@@ -1298,6 +1298,37 @@ Four things the shape decides:
 
 The capability diff is what turns "this update asks for more" into a fresh confirmation. Capabilities are rendered as canonical `kind:value` lines — `filesystem.read:`, `network:`, `process:`, `secret:` — so a filesystem glob and a process command that read the same do not compare equal. A first install has no previous grant, so everything requested counts as added: any other reading would let a first install present itself as asking for less than it does. Removals never count as broadening, because giving authority back is not something to re-approve.
 
+### Publishing a snapshot across two kinds of storage (Task 2.9)
+
+Content goes to a filesystem and a pointer goes to a database, and the two cannot share a transaction. What can be arranged is that every ordering leaves something recoverable, and the asymmetry decides which order:
+
+* **Content is published first.** Bytes that land and are never pointed at are garbage, which startup reconciliation collects. A pointer naming content that is not there is an installation that cannot run and cannot be repaired without reinstalling.
+* **The pointer moves last, in one guarded write** that also records the snapshot row, so a pointer can never name a snapshot nobody recorded.
+* **The previous snapshot is retained on every failure path** and recorded as `previous_snapshot_id` on the successful one, so a rollback target always exists.
+
+Publication is a rename within one volume, which is the only step that is atomic on both platforms this ships for. Copying would leave a window in which a partly written snapshot is visible under its final name — the one state a content-addressed store must never have.
+
+**A destination that already exists is a success, not a conflict.** Content is addressed by its own digest, so what is there is what would have been written. That covers the concurrent case directly: two installs of the same package race, one renames, the other finds the destination present and discards its staged copy. The check-then-rename window is handled the same way, by re-checking existence after a failed rename rather than by locking.
+
+**Losing the race at the pointer write leaves the content alone.** It is immutable, content-addressed, and unreferenced; deleting it would be deleting bytes the install that won may be about to point at. Reconciliation collects it if nothing ever does.
+
+The revision is checked twice: once before any content is moved, so a caller holding a stale preview does not leave bytes behind, and once inside the guarded write, where it is authoritative. The first is a courtesy that avoids pointless work; the second is the one that decides.
+
+`extension_platform_snapshots` and `extension_platform_installations` land here as migration 85 rather than in task 3.1, for the same reason as tasks 2.4 and 2.5: the required order puts this first and it needs somewhere to write.
+
+### What a restart may clean up (Task 2.10)
+
+A crash mid-install leaves bytes in places nothing points at. Some of those places are safe to empty on sight and some are not, and the difference is a lifetime:
+
+* **Quarantine, scratch, and sidecar space are collected unconditionally.** Each belongs to something that cannot survive a restart — an operation, a runtime generation, a process — so anything found there belongs to something that is over.
+* **Package content is kept when any snapshot *row* names it**, not when a pointer does. A snapshot that is no longer active is still the rollback target and still the record of what an installation ran; collecting its bytes because nothing points at it right now would delete exactly what a rollback needs.
+
+**Anything unrecognised is left alone and reported.** A file where a directory belongs, a name that is not an application-generated identifier, a directory nobody expected — reconciliation names them for an operator and never deletes them. A cleanup that deletes what it does not understand is one nobody can safely run at startup, and the identifier rule is *checked* rather than assumed for exactly that reason: the walk deletes what the rule admits.
+
+The walk is shallow and shaped. It descends exactly as far as each root's layout goes — one segment for quarantine, two for the rest — so an unexpected deep tree cannot turn startup into an unbounded traversal. A removal that fails is recorded and startup continues: the entry is unreferenced, the next start will try again, and refusing to start because one directory is locked would be the worse failure.
+
+**Incomplete transaction journals have no separate mechanism, and this says so rather than implying one.** There is no journal in this design. What a partly finished install leaves is content in quarantine and possibly unreferenced content in `packages/`, and both are covered above. If a later task introduces a journal, it gets its own reconciliation rule.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

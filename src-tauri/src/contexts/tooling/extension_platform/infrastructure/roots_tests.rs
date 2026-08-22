@@ -1,6 +1,9 @@
 //! The four roots: where each path lands, and what is refused before it is touched.
 
-use super::{ExtensionRootKind, ExtensionRoots, RootError, ALL_EXTENSION_ROOT_KINDS};
+use super::{ExtensionRoots, RootError};
+use crate::contexts::tooling::extension_platform::domain::{
+    ExtensionRootScope, ALL_EXTENSION_ROOT_SCOPES,
+};
 use crate::contexts::tooling::extension_platform::domain::{
     InstallationId, OperationWitness, PackageHash, RuntimeGenerationId,
 };
@@ -27,7 +30,7 @@ fn preparing_creates_all_four_roots_and_is_repeatable() {
     let roots = roots(&home);
 
     roots.prepare().expect("prepare");
-    for kind in ALL_EXTENSION_ROOT_KINDS {
+    for kind in ALL_EXTENSION_ROOT_SCOPES {
         assert!(roots.root(kind).is_dir(), "{kind:?}");
     }
 
@@ -73,9 +76,9 @@ fn the_four_roots_are_separate_directories() {
     let home = TempDirectory::new("roots-separate");
     let roots = roots(&home);
 
-    let mut paths: Vec<String> = ALL_EXTENSION_ROOT_KINDS
+    let mut paths: Vec<String> = ALL_EXTENSION_ROOT_SCOPES
         .iter()
-        .map(|kind: &ExtensionRootKind| roots.root(*kind).to_string_lossy().to_string())
+        .map(|kind: &ExtensionRootScope| roots.root(*kind).to_string_lossy().to_string())
         .collect();
     let total = paths.len();
     paths.sort();

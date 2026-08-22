@@ -77,6 +77,44 @@ pub(crate) fn apply_developer_mode_schema(conn: &Connection) -> Result<(), Datab
     Ok(())
 }
 
+/// Published snapshots and the pointer that says which one each installation runs.
+///
+/// The pointer keeps `previous_snapshot_id` as well as the active one, so a rollback target always
+/// exists after an update. A snapshot row is never deleted by publication: which bytes an
+/// installation ran, and when, is evidence, and reconciliation is what eventually collects rows
+/// nothing points at.
+///
+/// `extension_id` is unique on the installations table rather than the primary key. One extension
+/// is installed at most once, and saying that in the schema means a second installation row cannot
+/// be created by a caller that forgot.
+pub(crate) fn apply_snapshot_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS extension_platform_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            extension_id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            package_hash TEXT NOT NULL,
+            manifest_digest TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_extension_platform_snapshots_extension
+            ON extension_platform_snapshots (extension_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS extension_platform_installations (
+            installation_id TEXT PRIMARY KEY,
+            extension_id TEXT NOT NULL UNIQUE,
+            active_snapshot_id TEXT NOT NULL,
+            previous_snapshot_id TEXT,
+            revision INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )?;
+    Ok(())
+}
+
 /// Trusted publisher keys and their provenance.
 ///
 /// Public key bytes, not secrets: a publisher key verifies signatures and cannot make them, so

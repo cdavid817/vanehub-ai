@@ -2479,10 +2479,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    //
+    // Raised from 2,965 by `add-unified-extension-platform`, which registers five migrations here:
+    // 81 and 82 for the capability gates and their degradation record, 83 for trusted publisher
+    // keys, 84 for the Developer Mode switch, and 85 for snapshots and installation pointers. Each
+    // is 6 lines of `apply_transactional_migration` plus 1 line in `EXPECTED_MIGRATIONS`, so 35
+    // lines against 29 lines of remaining slack. Every migration *body* lives in the context that
+    // owns the tables; what is here is the registration, which is the whole point of the file.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_965,
-        owner: "split-database-migrations",
+        budget: 2_971,
+        owner: "add-unified-extension-platform",
     },
 ];
 

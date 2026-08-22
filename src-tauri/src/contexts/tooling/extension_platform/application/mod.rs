@@ -11,6 +11,9 @@ mod ports;
 mod publisher_keys;
 #[cfg(test)]
 mod publisher_keys_tests;
+mod snapshot_publication;
+#[cfg(test)]
+mod snapshot_publication_tests;
 #[cfg(test)]
 mod tests;
 
@@ -24,10 +27,13 @@ pub(crate) use ports::{
     DefaultPrerequisites, DeveloperModeAuditEntry, DeveloperModeAuditSink, DeveloperModeRepository,
     FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock, FeatureGateDegradationEntry,
     FeatureGateRepository, FeatureGateWrite, NoForcedDisables, PersistedFeatureGate,
-    PublisherKeyDirectory, TrustedPublisherKeyRepository,
+    PublisherKeyDirectory, SnapshotContentStore, SnapshotPointerRepository,
+    TrustedPublisherKeyRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_keys::{
     PublisherKeyClock, PublisherKeyPreview, PublisherKeyRequest, RepositoryPublisherKeyDirectory,
     TrustedPublisherKeyService,
 };
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use snapshot_publication::{PublishedSnapshot, SnapshotPublicationService};

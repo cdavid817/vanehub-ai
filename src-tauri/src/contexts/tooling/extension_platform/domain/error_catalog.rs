@@ -19,10 +19,10 @@
 //! collision check is never retrofitted onto a codebase that already has one.
 
 use super::{
-    all_developer_mode_errors, all_publisher_key_errors, DecodeReason, ExtensionPlatformFeature,
-    FeatureGateError, IdentifierKind, IntegrityReason, OriginRejection, PathRejection,
-    ALL_ADMISSION_REFUSALS, ALL_IDENTIFIER_KINDS, ALL_PUBLISHER_KEY_REJECTIONS,
-    ALL_SIGNATURE_REJECTIONS,
+    all_developer_mode_errors, all_publisher_key_errors, all_snapshot_publication_errors,
+    DecodeReason, ExtensionPlatformFeature, FeatureGateError, IdentifierKind, IntegrityReason,
+    OriginRejection, PathRejection, ALL_ADMISSION_REFUSALS, ALL_IDENTIFIER_KINDS,
+    ALL_PUBLISHER_KEY_REJECTIONS, ALL_SIGNATURE_REJECTIONS,
 };
 
 /// Which subsystem a failure belongs to. Present so a reader can see which groups have landed and
@@ -38,6 +38,7 @@ pub(crate) enum ErrorArea {
     PackageSignature,
     PublisherKeyManagement,
     PackageAdmission,
+    SnapshotPublication,
 }
 
 impl ErrorArea {
@@ -52,6 +53,7 @@ impl ErrorArea {
             Self::PackageSignature => "package_signature",
             Self::PublisherKeyManagement => "publisher_key_management",
             Self::PackageAdmission => "package_admission",
+            Self::SnapshotPublication => "snapshot_publication",
         }
     }
 }
@@ -115,6 +117,9 @@ pub(crate) fn registered_failures() -> Vec<RegisteredFailure> {
     }
     for error in all_developer_mode_errors() {
         push(ErrorArea::PackageAdmission, error.code().to_string());
+    }
+    for error in all_snapshot_publication_errors() {
+        push(ErrorArea::SnapshotPublication, error.code().to_string());
     }
 
     failures
