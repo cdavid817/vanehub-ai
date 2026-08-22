@@ -4,6 +4,9 @@
 //! Runtime repositories or provider infrastructure. It coordinates interactive execution, Agent
 //! terminals, loop engineering, and durable Multi-Agent runs.
 
+pub(crate) use super::application::{
+    AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+};
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
     ContextManifestQueryService, ContextQualityQueryService, ExpertRoleApplicationService,

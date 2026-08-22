@@ -57,9 +57,9 @@ named below, and blocks only that task.
 - [x] 3.10 Reject a cursor reused with different filters as `cursor_filter_mismatch` without returning an unstable page.
 - [x] 3.11 Implement deterministic projection replay from journal events and a test-only projection reset/rebuild path.
 - [x] 3.12 Add retention maintenance aligned with configured execution-timeline retention; delete expired projection rows consistently without per-event scans.
-- [ ] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
-- [ ] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
-- [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
+- [x] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
+- [x] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
+- [x] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
 
 Tasks 3.13-3.15 are implemented and their focused tests pass, but their final verification depends
 on the recorder being reachable from a real production caller. Until a producer publishes, the
@@ -95,9 +95,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 4. Evidence Producer Integration and Coverage Gaps
 
-- [ ] 4.1 Define producer-owned semantic evidence output ports in Agent runtime, workspaces, operations/review, and sessions use cases that need them.
-- [ ] 4.2 Add bootstrap adapters that map producer semantic events to `execution_observability::api` inputs without exposing the evidence aggregate to producer domains.
-- [ ] 4.3 Add a bounded non-blocking publication queue and make evidence failure non-blocking to the owning Agent, Shell, log, review, or usage operation.
+- [x] 4.1 Define producer-owned semantic evidence output ports in Agent runtime, workspaces, operations/review, and sessions use cases that need them.
+- [x] 4.2 Add bootstrap adapters that map producer semantic events to `execution_observability::api` inputs without exposing the evidence aggregate to producer domains.
+- [x] 4.3 Add a bounded non-blocking publication queue and make evidence failure non-blocking to the owning Agent, Shell, log, review, or usage operation.
 - [ ] 4.4 Record safe run start/completion and observable tool/delegation lifecycle references from the existing canonical execution path.
 - [ ] 4.5 Record Session Shell opened/closed and structured command start/completion references when boundaries are observable.
 - [ ] 4.6 Record safe file-mutation observations after trusted workspace mutations or witnessed snapshot comparison; do not persist file content or full paths.

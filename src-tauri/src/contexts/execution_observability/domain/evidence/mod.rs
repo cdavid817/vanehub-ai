@@ -23,8 +23,8 @@ pub(crate) use identity::{
     EvidenceToolCallId, SafeReasonCode, SourceEventId,
 };
 pub(crate) use payload::{
-    CommandRuntimeKind, EvidenceKind, OutputAvailability, SafeEvidencePayload, VerificationOutcome,
-    EVIDENCE_SCHEMA_VERSION,
+    CommandRuntimeKind, EvidenceKind, EvidenceOutcome, OutputAvailability, SafeEvidencePayload,
+    UsageQuality, VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
 };
 
 #[cfg(test)]

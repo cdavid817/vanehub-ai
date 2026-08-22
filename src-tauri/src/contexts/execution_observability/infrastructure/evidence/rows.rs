@@ -226,7 +226,7 @@ struct CoverageMetadata {
 /// The kinds that produce a projection row. An event of any other kind is recorded in the journal
 /// and deliberately projects to nothing, so comparing raw sequence maxima would report a permanent
 /// lag; only these are the ones a record is expected to exist for.
-const PROJECTED_KINDS: &str = "'agent.delegated', 'agent.completed', 'tool.started', \
+pub(super) const PROJECTED_KINDS: &str = "'agent.delegated', 'agent.completed', 'tool.started', \
      'tool.completed', 'command.started', 'command.completed', 'verification.completed'";
 
 /// How far the projection has caught up, or `None` when it is current.

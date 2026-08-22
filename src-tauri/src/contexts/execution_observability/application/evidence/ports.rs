@@ -20,8 +20,6 @@ pub(crate) enum EvidenceApplicationError {
     InvalidCursor,
     #[error("evidence record was not found")]
     RecordNotFound,
-    #[error("a different event is already recorded for this source id")]
-    ConflictingSourceEvent,
 }
 
 /// One ingestion attempt's result at the storage boundary.
@@ -80,6 +78,14 @@ pub(crate) trait EvidenceRepositoryPort: Send + Sync {
         &self,
         session_id: &EvidenceSessionId,
     ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError>;
+
+    /// Whether the projection still agrees with the journal.
+    ///
+    /// Two indexed aggregates, not a scan: the newest lifecycle event's sequence against the
+    /// newest sequence any projection row has applied. A projection that is missing, empty, or
+    /// behind reads as stale; one that is current reads as current without the journal being
+    /// touched beyond its index.
+    fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError>;
 
     /// Rebuilds projections from the retained journal. Appends nothing and publishes nothing, so
     /// it is safe to run at startup: the journal is the record of what happened and the projection

@@ -8,6 +8,7 @@ mod context_reinjection;
 #[cfg(test)]
 mod context_reinjection_tests;
 mod error;
+mod evidence;
 mod execution_policy;
 mod existing_tool_registry;
 mod expert_role;
@@ -62,6 +63,9 @@ pub(crate) use context_reinjection::{
     ContextReinjectionService, ReinjectedContextValue,
 };
 pub(crate) use error::AgentRuntimeApplicationError;
+pub(crate) use evidence::{
+    AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome, NoAgentEvidence,
+};
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
 pub(crate) use expert_role::{

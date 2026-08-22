@@ -1,4 +1,5 @@
 mod error;
+mod evidence;
 mod models;
 mod ports;
 mod query_service;
@@ -7,6 +8,9 @@ mod service;
 mod shell_service;
 
 pub(crate) use error::WorkspaceApplicationError;
+pub(crate) use evidence::{
+    NoWorkspaceEvidence, WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellRuntimeKind,
+};
 pub(crate) use models::{
     CreateShellRequest, CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing,
     FileContent, FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk,

@@ -1,4 +1,5 @@
 mod error;
+mod evidence;
 mod models;
 mod ports;
 mod recovery_coordinator;
@@ -8,6 +9,9 @@ mod usage_accounting;
 mod usage_accounting_ports;
 
 pub(crate) use error::SessionsApplicationError;
+pub(crate) use evidence::{
+    NoSessionEvidence, SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
+};
 pub(crate) use models::{
     AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, ArchivalPolicy, CategoryRecord,
     ChatConfigurationValues, ClaimRecoveryCandidateRequest, CompleteMessageRequest,

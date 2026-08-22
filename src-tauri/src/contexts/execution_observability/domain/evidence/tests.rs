@@ -203,13 +203,17 @@ fn every_declared_kind_has_a_constructible_payload() {
     }
 }
 
+/// Every payload names a distinct kind.
+///
+/// The token is what the journal stores and what the projection filters on, so two payloads
+/// sharing one would make a query silently return the other's rows.
 #[test]
-fn every_kind_token_round_trips() {
+fn every_payload_maps_to_a_distinct_kind_token() {
+    let mut seen = std::collections::BTreeSet::new();
     for (payload, _, _) in every_payload() {
-        let kind = payload.kind();
-        assert_eq!(EvidenceKind::parse(kind.as_str()), Some(kind));
+        let token = payload.kind().as_str();
+        assert!(seen.insert(token), "two payloads share the kind {token}");
     }
-    assert_eq!(EvidenceKind::parse("run.teleported"), None);
 }
 
 #[test]

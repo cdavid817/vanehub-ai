@@ -24,9 +24,12 @@ pub(crate) fn assemble_agent_runs_api(database: NativeDatabase) -> AgentRunsApi 
 pub(crate) fn assemble_agent_runs_api_with_recovery(
     database: NativeDatabase,
     recovery: Arc<dyn RunOwnerRecoveryPort>,
+    evidence: Arc<dyn crate::contexts::operations::api::OperationsEvidencePort>,
 ) -> AgentRunsApi {
     AgentRunsApi::new(
-        persistent_run_service(database.clone()).with_recovery_port(recovery),
+        persistent_run_service(database.clone())
+            .with_recovery_port(recovery)
+            .with_evidence(evidence),
         MissionControlService::new(Arc::new(SqliteMissionControlRepository::new(database))),
     )
 }

@@ -393,6 +393,37 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         })
     }
 
+    /// Two indexed aggregates over the whole store, deliberately not a scan.
+    ///
+    /// `MAX(sequence)` is served by the primary key and the projected-kind filter narrows it;
+    /// `MAX(last_sequence)` reads one column of the projection. A current projection therefore
+    /// costs two index lookups at startup rather than a pass over every event ever recorded.
+    fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
+        let connection = self.connection()?;
+        let journal_head: i64 = connection
+            .query_row(
+                &format!(
+                    "SELECT COALESCE(MAX(sequence), 0) FROM execution_evidence_events \
+                     WHERE kind IN ({})",
+                    super::rows::PROJECTED_KINDS
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        let projected_head: i64 = connection
+            .query_row(
+                "SELECT COALESCE(MAX(last_sequence), 0) FROM execution_evidence_records",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        // A missing or emptied projection reads as 0, so "projection absent behind a non-empty
+        // journal" needs no separate check — and a projection-shape change ships as a migration
+        // that clears the table, which lands the same way rather than needing a stored revision.
+        Ok(projected_head < journal_head)
+    }
+
     fn replay_projections(
         &self,
         session_id: Option<&EvidenceSessionId>,

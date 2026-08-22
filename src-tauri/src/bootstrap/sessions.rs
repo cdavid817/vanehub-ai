@@ -42,6 +42,7 @@ pub(crate) fn assemble_sessions_api(
     native_config: Arc<dyn NativeConfigPort>,
     agent_registry: Arc<dyn AgentRegistryRepository>,
     fallback_log_directory: PathBuf,
+    evidence: Arc<dyn crate::contexts::sessions::api::SessionEvidencePort>,
 ) -> (
     SessionsApi,
     AgentSessionRuntimeAdapter,
@@ -94,7 +95,8 @@ pub(crate) fn assemble_sessions_api(
         )),
         eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
         runtime: Arc::new(runtime_adapter.clone()),
-    });
+    })
+    .with_evidence(evidence);
     let review = ReviewApplicationService::new(
         Arc::new(SqliteReviewRepository::new(database)),
         Arc::new(SystemReviewClock),

@@ -29,6 +29,9 @@ struct FakeRepository {
     appended: Mutex<Vec<String>>,
     listed_limits: Mutex<Vec<usize>>,
     fail_append: Mutex<bool>,
+    projection_stale: Mutex<bool>,
+    fail_replay: Mutex<bool>,
+    replay_calls: Mutex<usize>,
 }
 
 impl FakeRepository {
@@ -122,11 +125,19 @@ impl EvidenceRepositoryPort for FakeRepository {
         })
     }
 
+    fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
+        Ok(*self.projection_stale.lock().expect("stale flag"))
+    }
+
     fn replay_projections(
         &self,
         _session_id: Option<&EvidenceSessionId>,
     ) -> Result<usize, EvidenceApplicationError> {
-        Ok(0)
+        *self.replay_calls.lock().expect("replay calls") += 1;
+        if *self.fail_replay.lock().expect("fail flag") {
+            return Err(EvidenceApplicationError::Storage("disk".to_string()));
+        }
+        Ok(7)
     }
 
     fn maintain_retention(
@@ -417,7 +428,9 @@ fn a_command_event_publishes_a_record_notice_carrying_only_identifiers() {
 
     let published = harness.notices.published.lock().expect("notices");
     let notice = &published[0];
-    assert_eq!(notice.kind, EvidenceNoticeKind::RecordAppended);
+    // A completion lands on the record its start created, so the notice says the row changed
+    // rather than that a new one appeared. A subscriber told "appended" would insert a duplicate.
+    assert_eq!(notice.kind, EvidenceNoticeKind::RecordUpdated);
     assert_eq!(notice.command_id.as_deref(), Some("command-1"));
     assert_eq!(notice.run_id.as_deref(), Some(RUN));
     assert!(notice.dropped_count.is_none());
@@ -578,4 +591,155 @@ fn record_kind_tokens_round_trip() {
     }
     assert_eq!(ExecutionRecordKind::parse("legacy"), None);
     let _ = reason("unused_helper_guard");
+}
+
+/// A projection that already agrees with the journal must not be rebuilt.
+///
+/// The cost of getting this wrong is invisible in a test suite and obvious on a large store: every
+/// launch would read every event ever recorded, to produce rows byte-identical to the ones it just
+/// deleted. Asserting on the replay call count rather than on the result is what catches it, since
+/// both branches return successfully.
+#[test]
+fn a_current_projection_is_not_rebuilt_at_startup() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+    *harness.repository.projection_stale.lock().expect("flag") = false;
+
+    let outcome = harness
+        .service
+        .repair_projections_if_needed()
+        .expect("repair");
+
+    assert_eq!(outcome, ProjectionRepair::AlreadyCurrent);
+    assert_eq!(*harness.repository.replay_calls.lock().expect("calls"), 0);
+}
+
+#[test]
+fn a_lagging_projection_is_rebuilt_at_startup() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+    *harness.repository.projection_stale.lock().expect("flag") = true;
+
+    let outcome = harness
+        .service
+        .repair_projections_if_needed()
+        .expect("repair");
+
+    assert_eq!(outcome, ProjectionRepair::Rebuilt { records: 7 });
+    assert_eq!(*harness.repository.replay_calls.lock().expect("calls"), 1);
+}
+
+/// A failed rebuild leaves the stale projection in place and says so by failing. What it must not
+/// do is report success: the coverage rules read the projection's own lag to choose between
+/// `indexing` and `complete`, so a swallowed failure would leave a lagging projection answering as
+/// though it were whole.
+#[test]
+fn a_failed_rebuild_reports_the_failure_rather_than_claiming_success() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+    *harness.repository.projection_stale.lock().expect("flag") = true;
+    *harness.repository.fail_replay.lock().expect("flag") = true;
+
+    let error = harness
+        .service
+        .repair_projections_if_needed()
+        .expect_err("storage failure");
+
+    assert!(matches!(error, EvidenceApplicationError::Storage(_)));
+}
+
+/// Startup repair reads and rewrites the projection. It must never append to the journal: an event
+/// minted at startup is, once persisted, indistinguishable from an observation of real work.
+#[test]
+fn startup_repair_appends_no_evidence_and_publishes_no_notice() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+    *harness.repository.projection_stale.lock().expect("flag") = true;
+
+    harness
+        .service
+        .repair_projections_if_needed()
+        .expect("repair");
+
+    assert!(harness
+        .repository
+        .appended
+        .lock()
+        .expect("appended")
+        .is_empty());
+    assert!(harness
+        .notices
+        .published
+        .lock()
+        .expect("notices")
+        .is_empty());
+    assert_eq!(*harness.validator.seen.lock().expect("validated"), 0);
+}
+
+/// A start and a completion describe the same record, and a subscriber has to be able to tell
+/// which one it is holding: the first creates a row, the second changes one that is already on
+/// screen. Collapsing both into `record-appended` is what produces duplicate rows in a live list.
+#[test]
+fn a_start_appends_and_a_completion_updates() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+    let correlation = || {
+        CorrelationBuilder::for_session(SESSION)
+            .with_run(RUN, TRACE)
+            .with_command("command-1")
+            .build()
+    };
+
+    harness
+        .service
+        .record(RecordEvidenceInput {
+            source_context: EvidenceSourceContext::Workspaces,
+            source_event_id: SourceEventId::parse("start").expect("source id"),
+            occurred_at: "2026-01-01T00:00:00.000Z".to_string(),
+            correlation: correlation(),
+            status: Some(ExecutionStatus::Running),
+            fidelity: ExecutionFidelity::Native,
+            payload: SafeEvidencePayload::CommandStarted {
+                runtime_kind: crate::contexts::execution_observability::domain::CommandRuntimeKind::LocalShell,
+                redacted_display: None,
+                cwd_display: None,
+            },
+            redaction: RedactionReceipt::none(),
+        })
+        .expect("start");
+    harness
+        .service
+        .record(RecordEvidenceInput {
+            source_context: EvidenceSourceContext::Workspaces,
+            source_event_id: SourceEventId::parse("done").expect("source id"),
+            occurred_at: "2026-01-01T00:00:05.000Z".to_string(),
+            correlation: correlation(),
+            status: Some(ExecutionStatus::Succeeded),
+            fidelity: ExecutionFidelity::Native,
+            payload: SafeEvidencePayload::CommandCompleted {
+                outcome: EvidenceOutcome::Succeeded,
+                duration_ms: None,
+                exit_code: Some(0),
+                signal: None,
+                output_availability:
+                    crate::contexts::execution_observability::domain::OutputAvailability::Merged,
+                output_truncated: false,
+            },
+            redaction: RedactionReceipt::none(),
+        })
+        .expect("completion");
+
+    let published = harness.notices.published.lock().expect("notices");
+    assert_eq!(published[0].kind, EvidenceNoticeKind::RecordAppended);
+    assert_eq!(published[1].kind, EvidenceNoticeKind::RecordUpdated);
+}
+
+/// A non-lifecycle event changes counts without producing a row, so it is neither an append nor an
+/// update. Reporting it as either would make a subscriber look for a record that does not exist.
+#[test]
+fn a_non_lifecycle_event_reports_a_summary_change() {
+    let harness = harness(EvidenceAppendOutcome::Appended { sequence: 1 });
+
+    harness
+        .service
+        .record(run_completed_input("source-run"))
+        .expect("recorded");
+
+    let published = harness.notices.published.lock().expect("notices");
+    assert_eq!(published[0].kind, EvidenceNoticeKind::SummaryChanged);
 }

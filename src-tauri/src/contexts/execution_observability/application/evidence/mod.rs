@@ -6,17 +6,19 @@ pub(crate) mod models;
 pub(crate) mod ports;
 pub(crate) mod service;
 
+#[cfg(test)]
+pub(crate) use models::EvidenceCorrelationCounts;
 pub(crate) use models::{
-    EvidenceCorrelationCounts, EvidenceRecordPage, EvidenceSubscriptionBootstrap,
-    ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordQuery,
-    RecordEvidenceOutcome, WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
+    EvidenceRecordPage, EvidenceSubscriptionBootstrap, ExecutionRecordDetailQuery,
+    ExecutionRecordDetailView, ExecutionRecordQuery, RecordEvidenceOutcome,
+    WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
 };
 pub(crate) use ports::{
     EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
     EvidenceIdGeneratorPort, EvidenceRedactionValidatorPort, EvidenceRepositoryPort,
     EvidenceRetentionSummary, PostCommitEvidenceNoticePublisherPort,
 };
-pub(crate) use service::{ExecutionEvidenceService, RecordEvidenceInput};
+pub(crate) use service::{ExecutionEvidenceService, ProjectionRepair, RecordEvidenceInput};
 
 #[cfg(test)]
 mod tests;

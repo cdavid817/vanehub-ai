@@ -23,20 +23,26 @@ use std::sync::Arc;
 /// its own work, never by a client asserting what happened.
 pub(crate) mod evidence {
     pub(crate) use crate::contexts::execution_observability::application::evidence::models::{
-        EvidenceCorrelationCounts, EvidenceNotice, EvidenceQueryScope, EvidenceRecordPage,
+        EvidenceCorrelationCounts, EvidenceQueryScope, EvidenceRecordPage,
         EvidenceSubscriptionBootstrap, ExecutionRecordDetailFields, ExecutionRecordDetailQuery,
         ExecutionRecordDetailView, ExecutionRecordFilters, ExecutionRecordKind,
         ExecutionRecordProjection, ExecutionRecordQuery, WorkspaceEvidenceSummary,
         WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
     };
-    pub(crate) use crate::contexts::execution_observability::application::evidence::ports::{
-        EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
-        EvidenceIdGeneratorPort, PostCommitEvidenceNoticePublisherPort,
+    pub(crate) use crate::contexts::execution_observability::application::evidence::ports::EvidenceApplicationError;
+    pub(crate) use crate::contexts::execution_observability::application::evidence::service::{
+        ProjectionRepair, RecordEvidenceInput,
     };
-    pub(crate) use crate::contexts::execution_observability::application::evidence::service::RecordEvidenceInput;
+    /// The vocabulary a producer adapter needs to build one `RecordEvidenceInput`, and no more.
+    ///
+    /// These are the value types the payload enum is made of, so an adapter can construct a
+    /// correlation and a safe payload without ever naming an event, a row, or the repository.
     pub(crate) use crate::contexts::execution_observability::domain::{
-        fidelity_token, parse_fidelity_token, parse_status_token, status_token, EvidenceSeatId,
-        EvidenceSessionId, QueryCoverage,
+        fidelity_token, parse_fidelity_token, parse_status_token, status_token, CommandRuntimeKind,
+        EvidenceAgentId, EvidenceCorrelation, EvidenceOperationId, EvidenceOutcome, EvidenceSeatId,
+        EvidenceSessionId, EvidenceSourceContext, ExecutionFidelity, ExecutionStatus,
+        QueryCoverage, RedactionReceipt, SafeEvidencePayload, SafeReasonCode, SourceEventId,
+        UsageQuality,
     };
     pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
 }

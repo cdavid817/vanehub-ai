@@ -1,10 +1,12 @@
 mod error;
+mod evidence;
 mod logging;
 mod mission_control;
 mod operation_service;
 mod run_service;
 
 pub(crate) use error::ApplicationError;
+pub(crate) use evidence::{NoOperationsEvidence, OperationsEvidencePort, OperationsEvidenceSignal};
 pub(crate) use logging::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
     OperationLogPort,

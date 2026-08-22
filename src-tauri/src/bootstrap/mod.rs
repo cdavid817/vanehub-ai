@@ -8,6 +8,9 @@ mod cli_parameters;
 mod code_intelligence;
 mod communications;
 mod desktop;
+mod evidence_bridge;
+#[cfg(test)]
+mod evidence_bridge_tests;
 mod execution_observability;
 mod extensions;
 mod managed_mcp_relay;
@@ -42,6 +45,7 @@ pub(crate) use desktop::{
     assemble_desktop_lifecycle_api, assemble_desktop_settings_api, assemble_floating_assistant_api,
     initialize_desktop_runtime,
 };
+pub(crate) use evidence_bridge::{start_evidence_bridge, EvidenceBridgeShutdown};
 pub(crate) use execution_observability::{
     assemble_evaluation_api, assemble_execution_evidence_api, assemble_execution_observability_api,
     relay_telemetry, start_evidence_maintenance_job, start_execution_retention_job,

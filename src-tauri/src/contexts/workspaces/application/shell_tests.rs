@@ -419,3 +419,144 @@ fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
     // The seat travels with the record so a seat-filtered Logs query can find it.
     assert_eq!(log.seat_id.as_deref(), Some("seat-verifier"));
 }
+
+/// An evidence publisher that behaves the way a full queue and an unavailable recorder both do
+/// from the producer's side: it accepts the call, keeps the signal, and reports nothing back.
+#[derive(Clone, Default)]
+struct RefusingEvidence {
+    seen: Arc<Mutex<Vec<WorkspaceEvidenceSignal>>>,
+}
+
+impl WorkspaceEvidencePort for RefusingEvidence {
+    fn try_publish(&self, signal: WorkspaceEvidenceSignal) {
+        self.seen.lock().expect("seen").push(signal);
+    }
+}
+
+/// Fails if consulted before the shell is open.
+///
+/// The ordering matters: an observation published first would exist for a shell that then failed
+/// to open, and a reader cannot tell that record from one that succeeded.
+struct EvidenceAfterOpenOnly {
+    opened: Arc<Mutex<Vec<String>>>,
+}
+
+impl WorkspaceEvidencePort for EvidenceAfterOpenOnly {
+    fn try_publish(&self, _signal: WorkspaceEvidenceSignal) {
+        assert!(
+            self.opened
+                .lock()
+                .expect("calls")
+                .iter()
+                .any(|call| call.starts_with("runtime:open:")),
+            "evidence was published before the shell opened"
+        );
+    }
+}
+
+fn open_shell_workspace() -> ShellWorkspace {
+    ShellWorkspace {
+        agent_id: "codex-cli".to_string(),
+        root: Some("C:\\code\\app".to_string()),
+        remote: false,
+        remote_endpoint: None,
+        ssh_binding: None,
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
+        read_only: false,
+    }
+}
+
+fn open_request() -> CreateShellRequest {
+    CreateShellRequest {
+        session_id: "session-1".to_string(),
+        seat_id: Some("seat-builder".to_string()),
+        rows: 24,
+        cols: 80,
+    }
+}
+
+/// The owning operation's result is identical whether or not the journal took the observation.
+///
+/// Both halves run the same request against the same doubles; only the publisher differs. A
+/// refused publish that changed the returned session, or failed the call, would make observation a
+/// precondition of the work being observed.
+#[test]
+fn a_refused_evidence_publish_does_not_change_the_shell_result() {
+    let (baseline, ..) = shell_service(open_shell_workspace());
+    let expected = baseline.create_shell(&open_request()).expect("baseline");
+
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+    let observed = service
+        .with_evidence(Arc::new(refusing.clone()))
+        .create_shell(&open_request())
+        .expect("shell opens while evidence is refused");
+
+    assert_eq!(observed.shell_id, expected.shell_id);
+    assert_eq!(observed.session_id, expected.session_id);
+    assert_eq!(observed.state, expected.state);
+    assert_eq!(refusing.seen.lock().expect("seen").len(), 1);
+}
+
+#[test]
+fn evidence_is_published_only_after_the_shell_is_open() {
+    let (service, _runtime, _events, _logs, calls) = shell_service(open_shell_workspace());
+    service
+        .with_evidence(Arc::new(EvidenceAfterOpenOnly {
+            opened: calls.clone(),
+        }))
+        .create_shell(&open_request())
+        .expect("shell");
+}
+
+/// A denied request opens no shell, so it files no observation. A record of a shell that never
+/// opened is worse than none: it reads as one that opened and then vanished.
+#[test]
+fn a_denied_shell_publishes_no_evidence() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(ShellWorkspace {
+        read_only: true,
+        ..open_shell_workspace()
+    });
+
+    let denied = service
+        .with_evidence(Arc::new(refusing.clone()))
+        .create_shell(&open_request());
+
+    assert!(denied.is_err());
+    assert!(refusing.seen.lock().expect("seen").is_empty());
+}
+
+/// The signal carries the shell's identity and which runtime opened it, never where it opened. A
+/// path or a hostname would turn an identity record into a location record.
+#[test]
+fn a_shell_signal_carries_identifiers_and_a_runtime_kind_only() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+    service
+        .with_evidence(Arc::new(refusing.clone()))
+        .create_shell(&open_request())
+        .expect("shell");
+
+    let seen = refusing.seen.lock().expect("seen");
+    let WorkspaceEvidenceSignal::ShellOpened {
+        session_id,
+        seat_id,
+        runtime,
+        ..
+    } = &seen[0];
+    assert_eq!(session_id, "session-1");
+    assert_eq!(seat_id.as_deref(), Some("seat-builder"));
+    assert_eq!(*runtime, WorkspaceShellRuntimeKind::Local);
+    let rendered = format!("{:?}", seen[0]);
+    assert!(
+        !rendered.contains("C:"),
+        "the workspace root reached the signal"
+    );
+    assert!(
+        !rendered.contains("codex-cli"),
+        "the agent id is not this signal's subject"
+    );
+}

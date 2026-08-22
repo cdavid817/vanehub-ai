@@ -19,6 +19,7 @@ pub(crate) fn assemble_workspace_api(
     database: NativeDatabase,
     app: AppHandle,
     fallback_log_directory: PathBuf,
+    evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
 ) -> WorkspaceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
@@ -38,7 +39,8 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(UuidWorkspaceShellId),
         shell_events,
         shell_logging,
-    );
+    )
+    .with_evidence(evidence);
     let service = WorkspaceApplicationService::new(
         Arc::new(SqliteWorkspaceHistoryRepository::new(database)),
         Arc::new(WorkspaceFilesystemAdapter::new(logging.clone())),

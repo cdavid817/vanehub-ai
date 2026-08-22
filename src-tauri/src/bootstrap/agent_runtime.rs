@@ -140,6 +140,9 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     pub(crate) desktop_settings: DesktopSettingsApi,
     pub(crate) evidence: RuntimeEvidenceProjector,
+    /// The execution-evidence bridge. Distinct from `evidence` above, which projects skill
+    /// evolution: this one carries run lifecycle references to the execution journal.
+    pub(crate) execution_evidence: Arc<dyn crate::contexts::agent_runtime::api::AgentEvidencePort>,
 }
 
 #[derive(Clone)]
@@ -557,6 +560,7 @@ pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> Result<AgentRuntimeAssembly, String> {
     let shared = dependencies.shared_registry;
+    let execution_evidence = dependencies.execution_evidence;
     let unified_logging = shared.unified_logging;
     let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
     let logging = shared.logging;
@@ -855,7 +859,8 @@ pub(crate) fn assemble_agent_runtime_api(
         memory_extraction: agent_memory_extraction,
         personalization: agent_personalization,
         runner_discovery: dependencies.runner_discovery,
-    });
+    })
+    .with_evidence(execution_evidence);
     let local_discovery = LocalModelDiscoveryService::new(
         Arc::new(HttpLocalModelDiscoveryAdapter),
         operations.clone(),

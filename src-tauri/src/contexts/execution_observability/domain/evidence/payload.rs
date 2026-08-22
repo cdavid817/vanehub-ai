@@ -52,28 +52,6 @@ impl EvidenceKind {
             Self::CoverageGapRecorded => "coverage.gap.recorded",
         }
     }
-
-    pub(crate) fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "run.started" => Self::RunStarted,
-            "run.completed" => Self::RunCompleted,
-            "agent.delegated" => Self::AgentDelegated,
-            "agent.completed" => Self::AgentCompleted,
-            "tool.started" => Self::ToolStarted,
-            "tool.completed" => Self::ToolCompleted,
-            "command.started" => Self::CommandStarted,
-            "command.completed" => Self::CommandCompleted,
-            "shell.opened" => Self::ShellOpened,
-            "shell.closed" => Self::ShellClosed,
-            "file.mutation.observed" => Self::FileMutationObserved,
-            "review.decision.recorded" => Self::ReviewDecisionRecorded,
-            "verification.completed" => Self::VerificationCompleted,
-            "usage.observed" => Self::UsageObserved,
-            "operation.failed" => Self::OperationFailed,
-            "coverage.gap.recorded" => Self::CoverageGapRecorded,
-            _ => return None,
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

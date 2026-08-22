@@ -1,5 +1,7 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
-use crate::contexts::execution_observability::api::evidence::ExecutionEvidenceApi;
+use crate::contexts::execution_observability::api::evidence::{
+    ExecutionEvidenceApi, ProjectionRepair,
+};
 use crate::contexts::execution_observability::api::{
     ExecutionObservabilityApi, ExecutionTelemetryPort,
 };
@@ -60,25 +62,35 @@ pub(crate) fn assemble_execution_evidence_api(
 /// reviewing turns "we deleted it" into an answer indistinguishable from "it never happened".
 const EVIDENCE_RETENTION_DAYS: i64 = 30;
 
-/// Rebuilds projections once at startup, then prunes on a schedule.
+/// Repairs the projection if it needs it, then prunes on a schedule.
 ///
-/// Replay is first and unconditional: a process that died mid-write can leave a projection that
-/// disagrees with the journal, and every query answers from the projection. It appends nothing and
-/// publishes nothing, so running it on a clean store costs a pass over the journal and no more.
+/// The repair is conditional. Every query answers from the projection, so one that disagrees with
+/// the journal has to be rebuilt — but one that agrees would be rebuilt into itself, at the cost
+/// of reading every event ever recorded, on every launch. The staleness check is two index
+/// lookups, so the normal path pays almost nothing.
+///
+/// A failed repair is logged and the loop continues. The projection is left as it was, which the
+/// coverage rules already report as `indexing`, so queries answer honestly rather than not at all.
 pub(crate) fn start_evidence_maintenance_job(
     evidence: ExecutionEvidenceApi,
     fallback_log_directory: PathBuf,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = evidence.replay_projections() {
-            write_evidence_maintenance_log(
+        match evidence.repair_projections_if_needed() {
+            Ok(ProjectionRepair::Rebuilt { records }) => write_evidence_maintenance_log(
+                &fallback_log_directory,
+                LogSeverity::Info,
+                "Execution evidence projections were rebuilt from the journal",
+                Some(records),
+            ),
+            Ok(ProjectionRepair::AlreadyCurrent) => {}
+            // The message is dropped rather than logged: it names tables and paths.
+            Err(_) => write_evidence_maintenance_log(
                 &fallback_log_directory,
                 LogSeverity::Warn,
                 "Execution evidence projections could not be rebuilt at startup",
                 None,
-            );
-            // The reason code, never the storage message: it names tables and paths.
-            let _ = error;
+            ),
         }
         loop {
             run_evidence_retention_cycle(&evidence, &fallback_log_directory);

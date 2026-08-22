@@ -1030,3 +1030,42 @@ fn the_retention_sweep_uses_its_index() {
         "expected the retention index, got: {plan}"
     );
 }
+
+/// The staleness check against a real store, not a flag.
+///
+/// It has to distinguish three states that all look alike from outside: an empty store, a store
+/// whose projection is current, and one whose projection is behind. Only the third may trigger a
+/// rebuild — and a store holding only non-projecting events (a run start, a usage observation)
+/// must read as current, or every launch would rebuild forever chasing a row that never appears.
+#[test]
+fn projection_staleness_distinguishes_current_from_behind() {
+    let (_directory, _database, repository) = repository("evidence-projection-staleness");
+
+    assert!(
+        !repository.projection_is_stale().expect("empty store"),
+        "an empty store has nothing to rebuild"
+    );
+
+    repository
+        .append(
+            &command_started("source-1", "command-1", "2026-08-22T10:00:00Z"),
+            "fingerprint-1",
+            "2026-08-22T10:00:00Z",
+        )
+        .expect("append");
+    assert!(
+        !repository.projection_is_stale().expect("after append"),
+        "the projection is written in the same transaction, so it is never behind after an append"
+    );
+
+    super::maintenance::reset_projections(&repository.pooled_connection().expect("connection"))
+        .expect("reset");
+    assert!(
+        repository.projection_is_stale().expect("after reset"),
+        "a projection cleared behind a non-empty journal is exactly the case a rebuild repairs"
+    );
+
+    let replayed = repository.replay_projections(None).expect("replay");
+    assert_eq!(replayed, 1);
+    assert!(!repository.projection_is_stale().expect("after replay"));
+}

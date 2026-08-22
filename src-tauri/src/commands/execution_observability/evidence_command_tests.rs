@@ -10,8 +10,13 @@ use super::evidence_dto::{
 };
 use super::evidence_mapper;
 use crate::contexts::execution_observability::api::evidence::{
-    EvidenceApplicationError, EvidenceIdGeneratorPort, EvidenceNotice, EvidenceSessionId,
-    ExecutionEvidenceApi, PostCommitEvidenceNoticePublisherPort, RecordEvidenceInput,
+    EvidenceApplicationError, EvidenceSessionId, ExecutionEvidenceApi, RecordEvidenceInput,
+};
+// The ports are implemented inside the context, so a test double names them where they are
+// declared rather than through the published surface, which carries only what crosses it.
+use crate::contexts::execution_observability::application::evidence::models::EvidenceNotice;
+use crate::contexts::execution_observability::application::evidence::ports::{
+    EvidenceIdGeneratorPort, PostCommitEvidenceNoticePublisherPort,
 };
 use crate::contexts::execution_observability::domain::evidence::builders::CorrelationBuilder;
 use crate::contexts::execution_observability::domain::evidence::payload::EvidenceOutcome;
@@ -46,7 +51,7 @@ impl PostCommitEvidenceNoticePublisherPort for CollectingPublisher {
 #[derive(Default)]
 struct SilentDiagnostics;
 
-impl crate::contexts::execution_observability::api::evidence::EvidenceGapDiagnosticsPort
+impl crate::contexts::execution_observability::application::evidence::ports::EvidenceGapDiagnosticsPort
     for SilentDiagnostics
 {
     fn record_conflict(
@@ -460,7 +465,6 @@ fn every_command_error_is_a_bare_reason_code() {
         evidence_mapper::command_error(EvidenceApplicationError::Storage(
             "no such table: evidence_events; SELECT * FROM /home/user/private".to_string(),
         )),
-        evidence_mapper::command_error(EvidenceApplicationError::ConflictingSourceEvent),
     ];
 
     for error in &errors {
@@ -751,7 +755,7 @@ fn a_detail_view_never_serializes_a_raw_payload_field() {
 /// recorded now must carry a timestamp that parses.
 #[test]
 fn the_system_clock_produces_a_parseable_timestamp() {
-    use crate::contexts::execution_observability::api::evidence::EvidenceClockPort;
+    use crate::contexts::execution_observability::application::evidence::ports::EvidenceClockPort;
     let now = SystemEvidenceClock.now_rfc3339();
     assert!(chrono::DateTime::parse_from_rfc3339(&now).is_ok(), "{now}");
 }

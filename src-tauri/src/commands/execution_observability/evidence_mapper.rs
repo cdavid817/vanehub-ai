@@ -24,7 +24,6 @@ pub(crate) mod error_codes {
     pub(crate) const CURSOR_FILTER_MISMATCH: &str = "cursor_filter_mismatch";
     pub(crate) const INVALID_CURSOR: &str = "evidence_invalid_cursor";
     pub(crate) const UNAVAILABLE: &str = "evidence_unavailable";
-    pub(crate) const INTERNAL: &str = "evidence_internal_error";
 }
 
 pub(crate) fn invalid_request() -> EvidenceCommandErrorDto {
@@ -45,7 +44,6 @@ pub(crate) fn command_error(error: EvidenceApplicationError) -> EvidenceCommandE
         EvidenceApplicationError::InvalidCursor => error_codes::INVALID_CURSOR,
         EvidenceApplicationError::Storage(_) => error_codes::UNAVAILABLE,
         EvidenceApplicationError::Domain(_) => error_codes::INVALID_REQUEST,
-        EvidenceApplicationError::ConflictingSourceEvent => error_codes::INTERNAL,
     };
     EvidenceCommandErrorDto {
         reason_code: reason_code.to_string(),

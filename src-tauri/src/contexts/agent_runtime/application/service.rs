@@ -343,6 +343,9 @@ pub(crate) struct AgentRuntimeApplicationPorts {
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
     pub(super) ports: AgentRuntimeApplicationPorts,
+    /// Separate from `ports` so adding it does not touch the dozens of sites that build that
+    /// struct, and so a build with no evidence bridge assembled keeps the no-op.
+    pub(super) evidence: Arc<dyn super::AgentEvidencePort>,
 }
 
 /// Whether the human who triggered this turn is positioned to answer a question it asks
@@ -426,7 +429,17 @@ fn normalize_api_provider_config(
 
 impl AgentRuntimeApplicationService {
     pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
-        Self { ports }
+        Self {
+            ports,
+            evidence: Arc::new(super::NoAgentEvidence),
+        }
+    }
+
+    /// Bootstrap swaps in the real publisher. Nothing else may: a producer that could choose its
+    /// own evidence sink could also choose one that drops everything.
+    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn super::AgentEvidencePort>) -> Self {
+        self.evidence = evidence;
+        self
     }
 
     pub(crate) fn take_seat_turn_completion(
@@ -2330,6 +2343,18 @@ impl AgentRuntimeApplicationService {
             "start_run",
             self.ports.telemetry.start_run(&run),
         );
+        // Identifiers and a timestamp. The prompt that started this run, the agent's instructions,
+        // and every attribute assembled above stay where they are; none of them is reachable from
+        // the signal's shape.
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunStarted {
+                session_id: session.id.clone(),
+                run_id: root_context.run_id.as_str().to_string(),
+                trace_id: root_context.trace_id.as_str().to_string(),
+                agent_id: Some(agent.id().as_str().to_string()),
+                seat_id: None,
+                occurred_at: started_at.clone(),
+            });
         record_telemetry_result(
             &self.ports,
             &root_context,
@@ -2380,6 +2405,7 @@ impl AgentRuntimeApplicationService {
                         ),
                     );
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("prompt_compose_failed"),
@@ -2439,6 +2465,7 @@ impl AgentRuntimeApplicationService {
                 Ok(messages) => messages,
                 Err(error) => {
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("generation_start_persistence_failed"),
@@ -2457,6 +2484,7 @@ impl AgentRuntimeApplicationService {
                     "Generation control reservation failed.",
                 );
                 self.finish_execution_root(
+                    &session.id,
                     &root_context,
                     ExecutionStatus::Failed,
                     Some("generation_control_reservation_failed"),
@@ -2472,6 +2500,7 @@ impl AgentRuntimeApplicationService {
             );
             let _ = self.ports.generations.release(&lease);
             self.finish_execution_root(
+                &session.id,
                 &root_context,
                 ExecutionStatus::Failed,
                 Some("generation_correlation_failed"),
@@ -3022,6 +3051,7 @@ impl AgentRuntimeApplicationService {
         failure: GenerationFailure,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
         self.finish_execution_root(
+            &session.id,
             execution_context,
             ExecutionStatus::Failed,
             Some("agent_generation_failed"),
@@ -3072,8 +3102,15 @@ impl AgentRuntimeApplicationService {
         Ok(failed)
     }
 
+    /// Takes the session explicitly rather than deriving it from the context.
+    ///
+    /// `ExecutionContext` carries a run and a trace but no session, and a run recorded without one
+    /// cannot be joined to the work a user is looking at. Threading it here is what lets the
+    /// journal close the lifecycle it opened at `start_run` instead of leaving every run
+    /// permanently `incomplete`.
     fn finish_execution_root(
         &self,
+        session_id: &str,
         context: &ExecutionContext,
         status: ExecutionStatus,
         error_classification: Option<&str>,
@@ -3112,6 +3149,23 @@ impl AgentRuntimeApplicationService {
                 error_classification,
             ),
         );
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunFinished {
+                session_id: session_id.to_string(),
+                run_id: context.run_id.as_str().to_string(),
+                trace_id: context.trace_id.as_str().to_string(),
+                agent_id: None,
+                seat_id: None,
+                occurred_at: ended_at,
+                outcome: match status {
+                    ExecutionStatus::Succeeded => super::AgentRunEvidenceOutcome::Succeeded,
+                    ExecutionStatus::Cancelled => super::AgentRunEvidenceOutcome::Cancelled,
+                    _ => super::AgentRunEvidenceOutcome::Failed,
+                },
+                // The runtime does not measure a wall-clock duration here, so none is reported.
+                // Subtracting the two timestamps would invent one.
+                duration_ms: None,
+            });
     }
 
     pub(crate) fn stop_generation(
@@ -3182,6 +3236,7 @@ impl AgentRuntimeApplicationService {
             .and_then(|outcome| outcome.execution_context.as_ref())
         {
             self.finish_execution_root(
+                session_id,
                 execution_context,
                 ExecutionStatus::Cancelled,
                 Some("user_cancelled"),

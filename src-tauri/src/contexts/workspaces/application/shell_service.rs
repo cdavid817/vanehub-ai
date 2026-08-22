@@ -1,8 +1,8 @@
 use super::{
-    CreateShellRequest, ResizeShellRequest, ShellEvent, ShellLaunch, ShellLog, ShellSession,
-    WorkspaceApplicationError, WorkspaceLogLevel, WorkspaceShellContextPort,
-    WorkspaceShellEventPort, WorkspaceShellIdPort, WorkspaceShellLogPort,
-    WorkspaceShellRuntimePort,
+    CreateShellRequest, NoWorkspaceEvidence, ResizeShellRequest, ShellEvent, ShellLaunch, ShellLog,
+    ShellSession, WorkspaceApplicationError, WorkspaceEvidencePort, WorkspaceEvidenceSignal,
+    WorkspaceLogLevel, WorkspaceShellContextPort, WorkspaceShellEventPort, WorkspaceShellIdPort,
+    WorkspaceShellLogPort, WorkspaceShellRuntimeKind, WorkspaceShellRuntimePort,
 };
 use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};
 use std::sync::Arc;
@@ -14,6 +14,7 @@ pub(crate) struct WorkspaceShellApplicationService {
     ids: Arc<dyn WorkspaceShellIdPort>,
     events: Arc<dyn WorkspaceShellEventPort>,
     logging: Arc<dyn WorkspaceShellLogPort>,
+    evidence: Arc<dyn WorkspaceEvidencePort>,
 }
 
 impl WorkspaceShellApplicationService {
@@ -30,7 +31,15 @@ impl WorkspaceShellApplicationService {
             ids,
             events,
             logging,
+            // A build with no bridge assembled still opens shells. Bootstrap swaps this for the
+            // real publisher; nothing else may.
+            evidence: Arc::new(NoWorkspaceEvidence),
         }
+    }
+
+    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn WorkspaceEvidencePort>) -> Self {
+        self.evidence = evidence;
+        self
     }
 
     pub(crate) fn create_shell(
@@ -101,6 +110,21 @@ impl WorkspaceShellApplicationService {
                 format!("Shell connected for agent {}.", workspace.agent_id)
             },
         });
+        // After the shell is open and logged, never before: this reports what happened, and a
+        // report that could change the outcome would be a precondition rather than an observation.
+        // `try_publish` cannot fail, so there is nothing here to handle.
+        self.evidence
+            .try_publish(WorkspaceEvidenceSignal::ShellOpened {
+                session_id: request.session_id.clone(),
+                shell_id: shell_id.clone(),
+                seat_id: request.seat_id.clone(),
+                runtime: if workspace.remote {
+                    WorkspaceShellRuntimeKind::Remote
+                } else {
+                    WorkspaceShellRuntimeKind::Local
+                },
+                occurred_at: chrono::Utc::now().to_rfc3339(),
+            });
         Ok(ShellSession {
             shell_id,
             session_id: request.session_id.clone(),

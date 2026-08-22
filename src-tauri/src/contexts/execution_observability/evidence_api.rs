@@ -1,9 +1,11 @@
+#[cfg(test)]
+use super::application::evidence::EvidenceCorrelationCounts;
 use super::application::evidence::{
-    EvidenceApplicationError, EvidenceClockPort, EvidenceCorrelationCounts,
-    EvidenceGapDiagnosticsPort, EvidenceIdGeneratorPort, EvidenceRecordPage,
-    EvidenceRedactionValidatorPort, EvidenceRepositoryPort, EvidenceRetentionSummary,
-    EvidenceSubscriptionBootstrap, ExecutionEvidenceService, ExecutionRecordDetailQuery,
-    ExecutionRecordDetailView, ExecutionRecordQuery, PostCommitEvidenceNoticePublisherPort,
+    EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
+    EvidenceIdGeneratorPort, EvidenceRecordPage, EvidenceRedactionValidatorPort,
+    EvidenceRepositoryPort, EvidenceRetentionSummary, EvidenceSubscriptionBootstrap,
+    ExecutionEvidenceService, ExecutionRecordDetailQuery, ExecutionRecordDetailView,
+    ExecutionRecordQuery, PostCommitEvidenceNoticePublisherPort, ProjectionRepair,
     RecordEvidenceInput, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
     WorkspaceEvidenceSummaryQuery,
 };
@@ -79,14 +81,6 @@ impl ExecutionEvidenceApi {
         self.service.record_detail(query)
     }
 
-    pub(crate) fn correlation_counts(
-        &self,
-        session_id: &EvidenceSessionId,
-        run_id: Option<&str>,
-    ) -> Result<EvidenceCorrelationCounts, EvidenceApplicationError> {
-        self.service.correlation_counts(session_id, run_id)
-    }
-
     pub(crate) fn subscription_bootstrap(
         &self,
         session_id: &EvidenceSessionId,
@@ -94,13 +88,15 @@ impl ExecutionEvidenceApi {
         self.service.subscription_bootstrap(session_id)
     }
 
-    /// Rebuilds every projection from the retained journal.
+    /// Repairs the projection at startup if, and only if, it disagrees with the journal.
     ///
-    /// Run at startup: a projection is a cache of the journal, and a process that died mid-write
-    /// can leave one that disagrees with it. Rebuilding is deterministic and appends nothing, so
-    /// it is always safe — which is the whole reason the projection is allowed to be disposable.
-    pub(crate) fn replay_projections(&self) -> Result<usize, EvidenceApplicationError> {
-        self.service.replay_projections(None)
+    /// A projection is a cache of the journal, and a process that died mid-write can leave one
+    /// that lags it. Detecting that costs two index lookups; rebuilding when nothing is wrong
+    /// costs a full scan and changes nothing.
+    pub(crate) fn repair_projections_if_needed(
+        &self,
+    ) -> Result<ProjectionRepair, EvidenceApplicationError> {
+        self.service.repair_projections_if_needed()
     }
 
     pub(crate) fn maintain_retention(
@@ -202,10 +198,16 @@ mod tests {
             })
         }
 
+        fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("stale?");
+            Ok(false)
+        }
+
         fn replay_projections(
             &self,
             _session_id: Option<&EvidenceSessionId>,
         ) -> Result<usize, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("replay");
             Ok(0)
         }
 
@@ -297,12 +299,11 @@ mod tests {
             record_id: "record-1".to_string(),
         })
         .expect_err("record is absent in the stub");
-        api.correlation_counts(&session, None).expect("counts");
         api.subscription_bootstrap(&session).expect("bootstrap");
 
         assert_eq!(
             *repository.calls.lock().expect("calls"),
-            vec!["summary", "list", "detail", "counts", "bootstrap"]
+            vec!["summary", "list", "detail", "bootstrap"]
         );
     }
 }

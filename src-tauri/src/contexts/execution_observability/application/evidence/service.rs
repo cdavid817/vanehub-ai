@@ -1,7 +1,7 @@
 use super::models::{
-    EvidenceCorrelationCounts, EvidenceNotice, EvidenceNoticeKind, EvidenceRecordPage,
-    EvidenceSubscriptionBootstrap, ExecutionRecordDetailQuery, ExecutionRecordDetailView,
-    ExecutionRecordKind, ExecutionRecordQuery, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
+    EvidenceNotice, EvidenceNoticeKind, EvidenceRecordPage, EvidenceSubscriptionBootstrap,
+    ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordKind,
+    ExecutionRecordQuery, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
     WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
 };
 use super::ports::{
@@ -9,11 +9,13 @@ use super::ports::{
     EvidenceIdGeneratorPort, EvidenceRedactionValidatorPort, EvidenceRepositoryPort,
     EvidenceRetentionSummary, PostCommitEvidenceNoticePublisherPort,
 };
+#[cfg(test)]
+use crate::contexts::execution_observability::domain::{reason_codes, EvidenceCoverageState};
 use crate::contexts::execution_observability::domain::{
-    reason_codes, EvidenceCommandId, EvidenceCorrelation, EvidenceCoverageState, EvidenceEventId,
-    EvidenceOperationId, EvidenceSessionId, EvidenceSourceContext, ExecutionEvidenceEvent,
-    ExecutionEvidenceEventInput, ExecutionFidelity, ExecutionRunId, ExecutionStatus,
-    RedactionReceipt, SafeEvidencePayload, SourceEventId, SpanId, TraceId, EVIDENCE_SCHEMA_VERSION,
+    EvidenceCommandId, EvidenceCorrelation, EvidenceEventId, EvidenceKind, EvidenceOperationId,
+    EvidenceSessionId, EvidenceSourceContext, ExecutionEvidenceEvent, ExecutionEvidenceEventInput,
+    ExecutionFidelity, ExecutionRunId, ExecutionStatus, RedactionReceipt, SafeEvidencePayload,
+    SourceEventId, SpanId, TraceId, EVIDENCE_SCHEMA_VERSION,
 };
 use std::sync::Arc;
 
@@ -126,14 +128,6 @@ impl ExecutionEvidenceService {
         self.repository.summary(&query)
     }
 
-    pub(crate) fn correlation_counts(
-        &self,
-        session_id: &EvidenceSessionId,
-        run_id: Option<&str>,
-    ) -> Result<EvidenceCorrelationCounts, EvidenceApplicationError> {
-        self.repository.correlation_counts(session_id, run_id)
-    }
-
     pub(crate) fn subscription_bootstrap(
         &self,
         session_id: &EvidenceSessionId,
@@ -165,17 +159,38 @@ impl ExecutionEvidenceService {
     }
 }
 
+/// What one startup repair did. `AlreadyCurrent` is the normal outcome and the one that must not
+/// touch the journal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectionRepair {
+    AlreadyCurrent,
+    Rebuilt { records: usize },
+}
+
 /// Maintenance the runtime runs on a schedule rather than on a request path.
 ///
 /// Both live here rather than on the repository's inherent surface so a caller cannot reach past
 /// the port to a SQL statement, and so the batching contract — repeat until a pass clears less
 /// than a full batch — is stated once instead of at every call site.
 impl ExecutionEvidenceService {
-    pub(crate) fn replay_projections(
+    /// Rebuilds the projection only when it no longer agrees with the journal.
+    ///
+    /// An unconditional rebuild produces the same rows it deleted and pays a full journal scan to
+    /// do it, on every launch. Worse, a rebuild that exists to give the replay code a caller is
+    /// indistinguishable from one that repairs something — so the check comes first and the
+    /// outcome says which of the two happened.
+    pub(crate) fn repair_projections_if_needed(
         &self,
-        session_id: Option<&EvidenceSessionId>,
-    ) -> Result<usize, EvidenceApplicationError> {
-        self.repository.replay_projections(session_id)
+    ) -> Result<ProjectionRepair, EvidenceApplicationError> {
+        if !self.repository.projection_is_stale()? {
+            return Ok(ProjectionRepair::AlreadyCurrent);
+        }
+        // One transaction covers the delete and every re-insert, so an interrupted rebuild rolls
+        // back to the state that was already there rather than leaving a half-built projection.
+        // The next startup sees the same staleness and retries; there is no partial state to
+        // represent, which is why no in-progress flag is stored.
+        let records = self.repository.replay_projections(None)?;
+        Ok(ProjectionRepair::Rebuilt { records })
     }
 
     pub(crate) fn maintain_retention(
@@ -201,10 +216,13 @@ pub(crate) fn bounded_page_size(limit: usize) -> usize {
 /// channel by accident.
 fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> Option<EvidenceNotice> {
     let correlation = event.correlation();
-    let kind = if ExecutionRecordKind::for_kind(event.kind()).is_some() {
-        EvidenceNoticeKind::RecordAppended
-    } else {
-        EvidenceNoticeKind::SummaryChanged
+    // A completion lands on a record a start already created, so it updates rather than appends.
+    // A subscriber that treated both as appends would insert a duplicate row and then have to
+    // reconcile it against the page it already has.
+    let kind = match ExecutionRecordKind::for_kind(event.kind()) {
+        Some(_) if is_lifecycle_completion(event.kind()) => EvidenceNoticeKind::RecordUpdated,
+        Some(_) => EvidenceNoticeKind::RecordAppended,
+        None => EvidenceNoticeKind::SummaryChanged,
     };
     // A session is a domain invariant, so this is unreachable for a constructed event. Skipping
     // is still the right failure: a notice routed to a placeholder session would be delivered to
@@ -246,11 +264,21 @@ fn notice_for(event: &ExecutionEvidenceEvent, sequence: i64) -> Option<EvidenceN
     })
 }
 
+fn is_lifecycle_completion(kind: EvidenceKind) -> bool {
+    matches!(
+        kind,
+        EvidenceKind::CommandCompleted
+            | EvidenceKind::ToolCompleted
+            | EvidenceKind::AgentCompleted
+            | EvidenceKind::VerificationCompleted
+    )
+}
+
 /// The coverage a store reports before any producer is connected.
 ///
-/// Group 3 builds the store; Group 4 wires the producers. Until then an empty result means "no
-/// capture", not "no work", and reporting `complete` would turn an unwired system into a
-/// confident claim that nothing ever ran.
+/// Reached only by tests now that producers publish; the repository builds this state from the
+/// store's own row counts rather than from a constant.
+#[cfg(test)]
 pub(crate) fn capture_not_initialized_coverage(
 ) -> crate::contexts::execution_observability::domain::QueryCoverage {
     crate::contexts::execution_observability::domain::QueryCoverage::complete().degrade_to(

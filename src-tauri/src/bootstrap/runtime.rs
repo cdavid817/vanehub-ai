@@ -50,6 +50,13 @@ pub(crate) fn run() {
                 let _ = write_desktop_e2e_process_marker("exited");
             }
             // 判断事件为程序退出事件，且存在遥测生命周期管理实例
+            // The evidence bridge drains on a bounded deadline. Evidence describes work that has
+            // already happened, so losing its tail is strictly better than refusing to close.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(bridge) = app.try_state::<super::EvidenceBridgeShutdown>() {
+                    bridge.shutdown();
+                }
+            }
             if matches!(event, tauri::RunEvent::Exit)
                 && app
                 .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
@@ -96,8 +103,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let skill_evolution_evidence_api =
         crate::contexts::skill_evolution_evidence::api::SkillEvolutionEvidenceApi::new(
             database.clone(),
-            evidence_logging,
+            evidence_logging.clone(),
         );
+    // Assembled before the producers so each one can be handed the sender it publishes through.
+    // The worker owns the only handle that calls the recorder; producers reach it through their own
+    // port and never learn that a journal is on the other side.
+    let execution_evidence_api = super::assemble_execution_evidence_api(
+        database.clone(),
+        app.handle().clone(),
+        evidence_logging,
+    );
+    let (evidence_bridge, evidence_bridge_worker) =
+        super::start_evidence_bridge(execution_evidence_api.clone());
     crate::contexts::desktop::infrastructure::install_main_webview_recovery(
         app.handle(),
         fallback_log_directory.clone(),
@@ -191,6 +208,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         database.clone(),
         app.handle().clone(),
         fallback_log_directory.clone(),
+        Arc::new(evidence_bridge.clone()),
     );
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
@@ -206,6 +224,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         native_config_reader,
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
+        Arc::new(evidence_bridge.clone()),
     );
     let permissions_api = super::assemble_permissions_api(
         database.clone(),
@@ -225,8 +244,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             runners.clone(),
         ),
     );
-    let agent_runs_api =
-        super::assemble_agent_runs_api_with_recovery(database.clone(), runner_recovery);
+    let agent_runs_api = super::assemble_agent_runs_api_with_recovery(
+        database.clone(),
+        runner_recovery,
+        Arc::new(evidence_bridge.clone()),
+    );
     agent_runs_api
         .reconcile_after_restart()
         .map_err(boxed_error)?;
@@ -260,17 +282,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         workspace_mutations: workspace_mutations.clone(),
         desktop_settings: desktop_settings_api.clone(),
         evidence: skill_evolution_evidence_api.projector(),
+        execution_evidence: Arc::new(evidence_bridge),
     })
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
-    let execution_evidence_api = super::assemble_execution_evidence_api(
-        database.clone(),
-        app.handle().clone(),
-        Arc::new(UnifiedLoggingAdapter::active(
-            fallback_log_directory.clone(),
-        )),
-    );
     let evaluation_api = super::assemble_evaluation_api(
         database.clone(),
         operations_api.clone(),
@@ -358,6 +374,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
+    app.manage(super::EvidenceBridgeShutdown::new(evidence_bridge_worker));
     super::start_evidence_maintenance_job(
         execution_evidence_api.clone(),
         fallback_log_directory.clone(),
