@@ -44,14 +44,14 @@
 
 ## 4. Discovery and environment fingerprint
 
-- [ ] 4.1 Preserve real PATH order and bounded known-location enumeration; do not recursively scan arbitrary disks.
-- [ ] 4.2 Canonicalize and deduplicate candidates while retaining safe diagnostics for canonicalization failure.
-- [ ] 4.3 Select the first runnable PATH candidate as active, or the first PATH candidate as active-but-broken when none are runnable.
-- [ ] 4.4 Add source confidence and stop treating a path heuristic as verified ownership.
-- [ ] 4.5 Correct version-bearing directory ordering, including NVM-style paths, with normalized version ordering rather than lexical ordering.
-- [ ] 4.6 Add bounded version probes with timeout, cancellation, per-stream output budget, and redaction.
-- [ ] 4.7 Compute the documented non-secret local-desktop environment fingerprint.
-- [ ] 4.8 Add discovery tests for duplicate symlinks, PATH shadowing, broken first entries, permission failure, timeout, Windows shims, NVM ordering, and source confidence.
+- [x] 4.1 Preserve real PATH order and bounded known-location enumeration; do not recursively scan arbitrary disks.
+- [x] 4.2 Canonicalize and deduplicate candidates while retaining safe diagnostics for canonicalization failure.
+- [x] 4.3 Select the first runnable PATH candidate as active, or the first PATH candidate as active-but-broken when none are runnable.
+- [x] 4.4 Add source confidence and stop treating a path heuristic as verified ownership.
+- [x] 4.5 Correct version-bearing directory ordering, including NVM-style paths, with normalized version ordering rather than lexical ordering.
+- [x] 4.6 Add bounded version probes with timeout, cancellation, per-stream output budget, and redaction.
+- [x] 4.7 Compute the documented non-secret local-desktop environment fingerprint.
+- [ ] 4.8 Add discovery tests for duplicate symlinks, PATH shadowing, broken first entries, permission failure, timeout, Windows shims, NVM ordering, and source confidence. (Pure-logic half done in domain and adapter unit tests; the PATH-shaped cases need the temporary-PATH desktop fixtures from task 12.10.)
 
 ## 5. Source adapters
 

@@ -1,5 +1,23 @@
 mod candidates;
 mod detection_adapter;
+// Source-aware discovery, built alongside the detection adapter it replaces. Task group 9 wires it
+// into bootstrap; task group 13 deletes the old one.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod environment_discovery;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod environment_probe;
 mod executable_locator;
 mod native_config_reader;
 mod package_adapter;

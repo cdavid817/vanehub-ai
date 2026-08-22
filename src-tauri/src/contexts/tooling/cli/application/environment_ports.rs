@@ -46,6 +46,12 @@ impl CliCancellation {
         self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// The shared flag, so a process adapter can hand it to the platform layer rather than polling
+    /// it from a second place that could drift out of sync.
+    pub(crate) fn signal(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
+    }
+
     #[cfg(test)]
     pub(crate) fn never() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
