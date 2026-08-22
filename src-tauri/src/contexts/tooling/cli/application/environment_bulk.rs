@@ -178,6 +178,11 @@ impl CliEnvironmentService {
         if !snapshot.discovery.is_installed() {
             return Err(CliBulkSkipReason::NotInstalled);
         }
+        // A conflict that makes the target ambiguous excludes the tool from the batch entirely.
+        // Upgrading "whichever installation we guess" is exactly what the conflict says not to do.
+        if snapshot.blocks_mutation() {
+            return Err(CliBulkSkipReason::InstallationConflict);
+        }
         match snapshot.overall_state {
             CliOverallState::Broken => return Err(CliBulkSkipReason::Broken),
             CliOverallState::NeedsAuth => return Err(CliBulkSkipReason::NeedsAuth),
@@ -196,7 +201,7 @@ impl CliEnvironmentService {
         }
 
         let installation = snapshot
-            .active_installation()
+            .recommended_installation()
             .ok_or(CliBulkSkipReason::NotInstalled)?;
         let source_id = installation
             .source_id
@@ -410,7 +415,7 @@ impl CliEnvironmentService {
             .operations
             .report_phase(operation_id, CliOperationPhase::RunningDoctor, true)?;
 
-        let Some(installation) = snapshot.active_installation() else {
+        let Some(installation) = snapshot.recommended_installation() else {
             return Ok(serde_json::json!({
                 "agentId": prepared.agent_id.as_str(),
                 "doctor": "unknown",

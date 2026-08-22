@@ -76,6 +76,33 @@ mod tests {
         assert_eq!(resolved, Some(expected.to_string_lossy().to_string()));
     }
 
+    /// Agent Runtime launches CLIs through `CliApi::resolve_executable`, which is this adapter.
+    /// If it ever returned a bare command name, the launch would go back through PATH and could
+    /// reach a different installation than the one the CLI Management page reports -- exactly the
+    /// PATH-precedence problem the conflict contract exists to surface.
+    #[test]
+    fn the_resolver_never_hands_the_runtime_a_bare_command_name() {
+        let expected = if cfg!(target_os = "windows") {
+            PathBuf::from(r"C:\fixture\bin\codex.exe")
+        } else {
+            PathBuf::from("/fixture/bin/codex")
+        };
+        let adapter = CliExecutableLocatorAdapter::with_candidates(Arc::new(FakeCandidates {
+            paths: vec![expected.clone()],
+        }));
+
+        let resolved = adapter
+            .resolve(definition("codex-cli").expect("definition"), None)
+            .expect("a candidate resolves");
+
+        assert_ne!(
+            resolved, "codex",
+            "a bare name would re-enter PATH resolution"
+        );
+        assert!(Path::new(&resolved).is_absolute());
+        assert!(resolved.contains("fixture"));
+    }
+
     #[test]
     fn resolver_returns_none_when_cache_and_candidates_are_empty() {
         let adapter = CliExecutableLocatorAdapter::with_candidates(Arc::new(FakeCandidates {

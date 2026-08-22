@@ -1,8 +1,9 @@
 // Included through `#[path]` from environment_discovery.rs.
 //
 // These exercise the pure parts -- classification, identity, filename expansion, fingerprinting.
-// PATH enumeration itself is covered by the desktop suite against a temporary PATH, because
-// asserting it here would mean depending on whatever the developer happens to have installed.
+// The platform conflict contracts live in `environment_platform_tests.rs`; PATH *enumeration* is
+// covered by the desktop suite against a temporary PATH, because asserting it here would mean
+// depending on whatever the developer happens to have installed.
 use super::*;
 
 #[test]

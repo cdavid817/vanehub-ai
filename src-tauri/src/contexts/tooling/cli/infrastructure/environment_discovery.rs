@@ -215,7 +215,7 @@ fn version_managed_bin_paths(home: &Path, executable_name: &str) -> Vec<PathBuf>
         .collect()
 }
 
-fn build_installation(
+pub(super) fn build_installation(
     path: &Path,
     origin: CliEnvironmentOrigin,
     priority: Option<u32>,
@@ -223,7 +223,14 @@ fn build_installation(
     let display = path.to_string_lossy().to_string();
     // Canonicalization failure is a diagnostic, not a reason to drop a real installation: a
     // permission-denied symlink still names a binary the user has on their machine.
-    let canonical = std::fs::canonicalize(path)
+    let resolved = std::fs::canonicalize(path);
+    // A launcher that exists while its target does not is a dangling shim, not an installation.
+    // `NotFound` from canonicalize on a path we just saw means the link resolved to nothing.
+    let target_missing = matches!(
+        resolved.as_ref().map_err(std::io::Error::kind),
+        Err(std::io::ErrorKind::NotFound)
+    );
+    let canonical = resolved
         .ok()
         .map(|resolved| resolved.to_string_lossy().to_string());
     let (kind, confidence) = classify_source(&display);
@@ -231,6 +238,9 @@ fn build_installation(
         id: installation_id(&display),
         executable_path: display,
         canonical_path: canonical,
+        // Populated by `group_launcher_families` once the whole candidate set is known.
+        alias_paths: Vec::new(),
+        target_missing,
         reported_version: None,
         source_id: source_id_for(kind),
         source_kind: kind,
@@ -272,7 +282,7 @@ fn installation_id(path: &str) -> CliInstallationId {
 ///
 /// Every answer here is `Inferred` at best. A path shape is evidence, not proof of ownership, and
 /// treating it as proof is what let "this looks npm-ish" authorize an npm mutation.
-fn classify_source(path: &str) -> (CliSourceKind, CliSourceConfidence) {
+pub(super) fn classify_source(path: &str) -> (CliSourceKind, CliSourceConfidence) {
     let value = path.replace('\\', "/").to_ascii_lowercase();
     let kind = if value.contains("/microsoft/winget/packages/")
         || value.contains("/microsoft/winget/links/")

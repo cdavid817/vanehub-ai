@@ -173,7 +173,7 @@ impl CliEnvironmentService {
         let fingerprint = self.ports.discovery.environment_fingerprint()?;
         let snapshot = self.snapshot_or_never_scanned(&agent_id, &fingerprint)?;
         let active_version = snapshot
-            .active_installation()
+            .recommended_installation()
             .and_then(|installation| installation.reported_version.clone());
 
         self.ports
@@ -230,7 +230,7 @@ impl CliEnvironmentService {
             agent_id: agent_id.clone(),
             action: input.action,
             source_id: source_id.clone(),
-            installation_id: snapshot.active_installation_id.clone(),
+            installation_id: snapshot.recommended_installation_id.clone(),
             current_version: active_version.map(|version| version.as_str().to_string()),
             target_version: target.map(|version| version.as_str().to_string()),
             // The resolved channel, so the plan states which one it was built against rather than
@@ -674,7 +674,7 @@ fn preconditions_for(source_id: &CliSourceId, requires_elevation: &bool) -> Vec<
 
 fn active_version_string(snapshot: &CliEnvironmentSnapshot) -> Option<String> {
     snapshot
-        .active_installation()
+        .recommended_installation()
         .and_then(|installation| installation.reported_version.as_ref())
         .map(|version| version.as_str().to_string())
 }

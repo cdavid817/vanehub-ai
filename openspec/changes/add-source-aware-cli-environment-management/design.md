@@ -185,6 +185,63 @@ pub(crate) struct CliInstallation {
 }
 ```
 
+### PATH-selected versus recommended
+
+One `active_installation_id` cannot answer both "what does the user's terminal run" and "which
+installation should VaneHub act on". When the first launcher on PATH is broken and a healthy copy
+sits behind it, collapsing the two hides exactly the problem the user needs to see -- and naming
+the healthy one "active" is a false statement about their machine.
+
+```rust
+pub(crate) struct ActiveSelection {
+    /// First PATH-resolved launcher, however healthy. `None` when nothing is on PATH.
+    pub path_selected: Option<usize>,
+    /// Best probed installation. Equal to `path_selected` in the ordinary case.
+    pub recommended: Option<usize>,
+}
+```
+
+`path_selected` is decided by PATH order alone and never by health. `recommended` is decided by
+probe results. When they differ, that difference *is* the conflict.
+
+### Structured conflicts
+
+A conflict is a typed value, not a sentence, so the UI can localize it and a test can assert it:
+
+```rust
+pub(crate) struct CliConflict {
+    pub kind: CliConflictKind,
+    pub severity: CliConflictSeverity,
+    pub installations: Vec<CliInstallationId>,
+    /// Whether the target of a mutation is ambiguous or unsafe.
+    pub blocks_mutation: bool,
+    /// Whether launching the tool would run something other than the recommended installation.
+    pub blocks_launch: bool,
+    pub reason_code: &'static str,
+}
+```
+
+| Kind | Meaning | Blocks mutation | Blocks launch |
+| --- | --- | --- | --- |
+| `DuplicateLauncherAlias` | Several launcher aliases for one logical install | no | no |
+| `PathShadowing` | An earlier PATH entry hides a later installation | no | yes |
+| `BrokenPathPrecedence` | The PATH-selected launcher is broken, a healthy one exists | yes | yes |
+| `MultipleInstallationSources` | Distinct installations owned by different sources | yes | no |
+| `VersionDivergence` | Installations report different versions | no | yes |
+| `AmbiguousSourceOwnership` | No source can be established for the target | yes | no |
+| `EnvironmentPathDivergence` | Reachable from a login shell but not this process's PATH | no | yes |
+| `ArchitectureMismatch` | Executable architecture does not match the host | yes | yes |
+| `StaleLauncherTarget` | A launcher resolves to a target that no longer exists | yes | yes |
+
+### Launcher families
+
+On Windows one npm global install produces `tool`, `tool.cmd`, and `tool.ps1` in one directory.
+They are one installation with three aliases, not three installations. Discovery groups candidates
+into a *launcher family* keyed by canonical target when available and by directory plus stem
+otherwise, and reports the family's preferred launcher as the installation with the rest as
+aliases. Reporting three competing installations would raise a conflict where none exists and
+would make every Windows npm install look broken.
+
 Rules:
 
 - Enumerate all PATH results in their real order, then bounded known locations.
@@ -206,7 +263,10 @@ pub(crate) struct CliEnvironmentSnapshot {
     pub freshness: CliFreshness,
     pub environment_fingerprint: String,
     pub installations: Vec<CliInstallation>,
-    pub active_installation_id: Option<CliInstallationId>,
+    /// What this process's PATH would actually run. `None` when nothing is on PATH.
+    pub path_selected_installation_id: Option<CliInstallationId>,
+    /// What the backend recommends after probing. May differ from the PATH-selected one.
+    pub recommended_installation_id: Option<CliInstallationId>,
     pub discovery: CliDiscoveryStatus,
     pub executable: CliExecutableStatus,
     pub authentication: CliAuthenticationStatus,

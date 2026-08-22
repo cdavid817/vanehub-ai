@@ -37,6 +37,82 @@ The system SHALL discover supported CLI installations from ordered PATH results 
 - **WHEN** two discovered paths resolve to the same canonical executable
 - **THEN** the system SHALL store one installation identity while retaining safe alias information needed for diagnostics
 
+### Requirement: PATH-selected and recommended installations are distinct
+
+The system SHALL report which installation the host would run and which installation it recommends as two separate identities, and SHALL NOT present the recommended one as the PATH-selected one.
+
+#### Scenario: A broken launcher precedes a healthy installation
+
+- **WHEN** the first PATH-resolved launcher fails its bounded probe and a later discovered installation is healthy
+- **THEN** the snapshot SHALL report the broken launcher as PATH-selected and the healthy installation as recommended
+- **AND** it SHALL raise a conflict rather than silently reporting the healthy installation as what the host runs
+
+#### Scenario: The PATH-selected installation is healthy
+
+- **WHEN** the first PATH-resolved launcher completes its probe successfully
+- **THEN** PATH-selected and recommended SHALL be the same installation
+- **AND** no precedence conflict SHALL be raised
+
+#### Scenario: Nothing is on PATH
+
+- **WHEN** every discovered installation was found in a bounded known location and none is PATH-resolved
+- **THEN** the snapshot SHALL report no PATH-selected installation
+- **AND** it MAY report a recommended installation, marked as not what the host would run
+
+### Requirement: Structured installation conflicts
+
+The system SHALL report installation conflicts as typed values carrying severity, the installations involved, whether mutation is blocked, whether launch is blocked, and a stable reason code, rather than free text.
+
+#### Scenario: One npm install produces several launcher aliases
+
+- **WHEN** a single logical installation is exposed through several platform launcher aliases such as an extension-less shim, a `.cmd`, and a `.ps1`
+- **THEN** the system SHALL treat them as one logical installation with alias information
+- **AND** it SHALL NOT report them as several competing installations
+
+#### Scenario: Two sources own separate installations
+
+- **WHEN** two distinct installations of one tool come from different sources
+- **THEN** the system SHALL raise a multiple-installation-sources conflict identifying both installations
+- **AND** the conflict SHALL state whether it blocks mutation
+
+#### Scenario: A conflict blocks a machine change
+
+- **WHEN** a conflict makes the target of a mutation ambiguous
+- **THEN** the conflict SHALL report that mutation is blocked
+- **AND** action derivation SHALL withhold mutating actions for that tool
+
+#### Scenario: A conflict is diagnostic only
+
+- **WHEN** a conflict describes duplicate discovery that does not change which executable runs
+- **THEN** the conflict SHALL report that neither mutation nor launch is blocked
+
+### Requirement: Platform-specific installation discovery semantics
+
+Discovery SHALL classify installations using platform-specific launcher, path, and architecture rules, and SHALL record what it could not determine rather than guessing.
+
+#### Scenario: Windows launcher resolution
+
+- **WHEN** a tool is discovered on Windows through PATH entries that differ only by launcher extension or by case
+- **THEN** discovery SHALL resolve them to one logical installation using the platform's executable extension and case-insensitivity rules
+
+#### Scenario: A launcher points at a missing target
+
+- **WHEN** a discovered launcher, symlink, or junction resolves to a target that no longer exists
+- **THEN** discovery SHALL record a stale-launcher-target conflict
+- **AND** it SHALL NOT report the launcher as a healthy installation
+
+#### Scenario: Architecture mismatch
+
+- **WHEN** a discovered executable's architecture is known and does not match the host architecture
+- **THEN** the system SHALL record an architecture-mismatch conflict
+- **AND** compatibility SHALL report unsupported-architecture rather than unknown
+
+#### Scenario: The desktop process PATH differs from the login shell PATH
+
+- **WHEN** an installation is reachable from a login shell but is absent from the PATH this process inherited
+- **THEN** the system SHALL record an environment-path-divergence conflict
+- **AND** it SHALL NOT claim the installation is missing
+
 ### Requirement: Orthogonal CLI environment state
 
 The system SHALL represent discovery, executable health, authentication, readiness, compatibility, update, freshness, source manageability, and conflicts as separate facts.

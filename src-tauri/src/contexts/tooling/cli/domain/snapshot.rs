@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 
 use super::action::CliAllowedAction;
 use super::ids::{CliInstallationId, CliSourceId, CliToolId};
-use super::installation::{select_active, CliConflict, CliInstallation};
+use super::installation::{conflicts_block_mutation, select_active, CliConflict, CliInstallation};
 use super::source::CliSourceSummary;
 use super::status::{
     derive_overall_state, derive_readiness, CliAuthenticationStatus, CliCompatibilityStatus,
@@ -103,7 +103,12 @@ pub(crate) struct CliEnvironmentSnapshot {
     pub(crate) freshness: CliFreshness,
     pub(crate) environment_fingerprint: String,
     pub(crate) installations: Vec<CliInstallation>,
-    pub(crate) active_installation_id: Option<CliInstallationId>,
+    /// What this process's PATH would actually run. `None` when nothing is on PATH -- a real
+    /// answer, not a missing one.
+    pub(crate) path_selected_installation_id: Option<CliInstallationId>,
+    /// What the backend recommends after probing. Differs from the PATH-selected one exactly when
+    /// there is something wrong worth showing.
+    pub(crate) recommended_installation_id: Option<CliInstallationId>,
     pub(crate) discovery: CliDiscoveryStatus,
     pub(crate) executable: CliExecutableStatus,
     pub(crate) authentication: CliAuthenticationStatus,
@@ -130,7 +135,8 @@ impl CliEnvironmentSnapshot {
             freshness: CliFreshness::Never,
             environment_fingerprint: fingerprint,
             installations: Vec::new(),
-            active_installation_id: None,
+            path_selected_installation_id: None,
+            recommended_installation_id: None,
             discovery: CliDiscoveryStatus::NotScanned,
             executable: CliExecutableStatus::Unknown,
             authentication: CliAuthenticationStatus::Unknown,
@@ -157,8 +163,8 @@ impl CliEnvironmentSnapshot {
         }
     }
 
-    /// Recomputes `active_installation_id`, `executable`, `readiness`, and `overall_state` from
-    /// the installations and probe results actually held.
+    /// Recomputes both installation identities, `executable`, `readiness`, and `overall_state`
+    /// from the installations and probe results actually held.
     ///
     /// Derived fields are never assigned directly, so a caller cannot leave `overall_state` saying
     /// Ready while the executable axis says Broken.
@@ -172,11 +178,18 @@ impl CliEnvironmentSnapshot {
         missing_dependency: bool,
         doctor_reported_problem: bool,
     ) -> Self {
-        let active = select_active(&self.installations);
-        self.active_installation_id =
-            active.map(|selection| self.installations[selection.index].id.clone());
-        self.executable = match active {
-            Some(selection) => self.installations[selection.index].executable_status,
+        let selection = select_active(&self.installations);
+        self.path_selected_installation_id = selection
+            .path_selected
+            .map(|index| self.installations[index].id.clone());
+        self.recommended_installation_id = selection
+            .recommended
+            .map(|index| self.installations[index].id.clone());
+        // The executable axis describes what the host would run, so it follows the PATH-selected
+        // launcher. Following the recommended one instead would report Healthy for a machine whose
+        // terminal runs a broken binary.
+        self.executable = match selection.path_selected.or(selection.recommended) {
+            Some(index) => self.installations[index].executable_status,
             None if self.discovery == CliDiscoveryStatus::NotScanned => {
                 CliExecutableStatus::Unknown
             }
@@ -216,11 +229,30 @@ impl CliEnvironmentSnapshot {
         self.last_mutation = Some(summary);
     }
 
-    pub(crate) fn active_installation(&self) -> Option<&CliInstallation> {
-        let id = self.active_installation_id.as_ref()?;
+    /// The installation a mutation would target.
+    ///
+    /// Deliberately the *recommended* one: acting on a broken launcher that PATH happens to reach
+    /// first would install over the copy the user is not using. The conflict list is what tells
+    /// them the two differ, and `blocks_mutation` is what stops the action entirely when the
+    /// difference makes the target ambiguous.
+    pub(crate) fn recommended_installation(&self) -> Option<&CliInstallation> {
+        let id = self.recommended_installation_id.as_ref()?;
         self.installations
             .iter()
             .find(|installation| &installation.id == id)
+    }
+
+    /// The installation the host would actually run.
+    pub(crate) fn path_selected_installation(&self) -> Option<&CliInstallation> {
+        let id = self.path_selected_installation_id.as_ref()?;
+        self.installations
+            .iter()
+            .find(|installation| &installation.id == id)
+    }
+
+    /// Whether any conflict makes a machine change unsafe.
+    pub(crate) fn blocks_mutation(&self) -> bool {
+        conflicts_block_mutation(&self.conflicts)
     }
 
     pub(crate) fn violations(&self) -> Vec<CliSnapshotViolation> {
@@ -228,10 +260,17 @@ impl CliEnvironmentSnapshot {
         if self.schema_version != SNAPSHOT_SCHEMA_VERSION {
             violations.push(CliSnapshotViolation::UnknownSchemaVersion);
         }
-        if self.active_installation_id.is_some() && self.active_installation().is_none() {
+        let dangling = (self.recommended_installation_id.is_some()
+            && self.recommended_installation().is_none())
+            || (self.path_selected_installation_id.is_some()
+                && self.path_selected_installation().is_none());
+        if dangling {
             violations.push(CliSnapshotViolation::DanglingActiveInstallation);
         }
-        if !self.installations.is_empty() && self.active_installation_id.is_none() {
+        // Installations exist but none is recommended: the page would show a version it cannot
+        // attribute to anything. A missing *PATH* selection is legitimate -- it means nothing is
+        // on PATH.
+        if !self.installations.is_empty() && self.recommended_installation_id.is_none() {
             violations.push(CliSnapshotViolation::InstallationsWithoutActive);
         }
         if self.overall_state != derive_overall_state(self.axes()) {
@@ -272,6 +311,8 @@ mod tests {
             id: CliInstallationId::new(id).expect("installation id"),
             executable_path: format!("/path/{id}"),
             canonical_path: None,
+            alias_paths: Vec::new(),
+            target_missing: false,
             reported_version: Some(NormalizedCliVersion::parse(version)),
             source_id: Some(CliSourceId::new("npm").expect("source id")),
             source_kind: CliSourceKind::Npm,
@@ -315,7 +356,7 @@ mod tests {
         let mut snapshot = healthy_snapshot();
         // A caller assigns something inconsistent.
         snapshot.overall_state = CliOverallState::Broken;
-        snapshot.active_installation_id = None;
+        snapshot.recommended_installation_id = None;
         assert!(snapshot
             .violations()
             .contains(&CliSnapshotViolation::OverallStateDisagreesWithAxes));
@@ -324,7 +365,7 @@ mod tests {
         assert_eq!(snapshot.overall_state, CliOverallState::Ready);
         assert_eq!(
             snapshot
-                .active_installation_id
+                .recommended_installation_id
                 .as_ref()
                 .map(CliInstallationId::as_str),
             Some("a")
@@ -333,21 +374,48 @@ mod tests {
     }
 
     #[test]
-    fn the_executable_axis_follows_the_active_installation() {
+    fn the_executable_axis_follows_the_path_selected_launcher_not_the_recommended_one() {
         let mut snapshot = healthy_snapshot();
         snapshot.installations = vec![
             installation("broken", "1.0.0", CliExecutableStatus::Broken),
             installation("working", "1.2.0", CliExecutableStatus::Healthy),
         ];
         snapshot.discovery = CliDiscoveryStatus::from_count(snapshot.installations.len());
-        // Both are on PATH; the first runnable one wins, so the axis is Healthy.
+
         let snapshot = snapshot.recompute_derived(false, false);
-        assert_eq!(snapshot.executable, CliExecutableStatus::Healthy);
+
+        // Both are on PATH. The broken one is first, so that is what the user's terminal runs and
+        // that is what the executable axis reports. Reporting Healthy here -- because a working
+        // copy exists further down -- would describe a machine the user does not have.
+        assert_eq!(snapshot.executable, CliExecutableStatus::Broken);
         assert_eq!(
-            snapshot.active_installation().map(|i| i.id.as_str()),
+            snapshot.path_selected_installation().map(|i| i.id.as_str()),
+            Some("broken")
+        );
+        // The recommendation still points at the copy that works, so an action has a sane target.
+        assert_eq!(
+            snapshot.recommended_installation().map(|i| i.id.as_str()),
             Some("working")
         );
         assert_eq!(snapshot.discovery, CliDiscoveryStatus::FoundMultiple);
+    }
+
+    #[test]
+    fn a_healthy_first_launcher_makes_both_identities_the_same() {
+        let mut snapshot = healthy_snapshot();
+        snapshot.installations = vec![
+            installation("first", "1.2.0", CliExecutableStatus::Healthy),
+            installation("second", "1.2.0", CliExecutableStatus::Healthy),
+        ];
+        snapshot.discovery = CliDiscoveryStatus::from_count(snapshot.installations.len());
+
+        let snapshot = snapshot.recompute_derived(false, false);
+
+        assert_eq!(snapshot.executable, CliExecutableStatus::Healthy);
+        assert_eq!(
+            snapshot.path_selected_installation_id,
+            snapshot.recommended_installation_id
+        );
     }
 
     #[test]
@@ -359,7 +427,7 @@ mod tests {
 
         assert_eq!(snapshot.executable, CliExecutableStatus::NotApplicable);
         assert_eq!(snapshot.overall_state, CliOverallState::Missing);
-        assert_eq!(snapshot.active_installation_id, None);
+        assert_eq!(snapshot.recommended_installation_id, None);
         assert!(snapshot.violations().is_empty());
     }
 
@@ -503,14 +571,14 @@ mod tests {
     #[test]
     fn a_dangling_active_installation_is_a_violation() {
         let mut snapshot = healthy_snapshot();
-        snapshot.active_installation_id =
+        snapshot.recommended_installation_id =
             Some(CliInstallationId::new("does-not-exist").expect("id"));
         assert!(snapshot
             .violations()
             .contains(&CliSnapshotViolation::DanglingActiveInstallation));
-        assert_eq!(snapshot.active_installation(), None);
+        assert_eq!(snapshot.recommended_installation(), None);
 
-        snapshot.active_installation_id = None;
+        snapshot.recommended_installation_id = None;
         assert!(snapshot
             .violations()
             .contains(&CliSnapshotViolation::InstallationsWithoutActive));

@@ -426,7 +426,7 @@ fn a_failed_command_that_moved_the_machine_reports_changed_but_failed() {
     // The persisted snapshot describes the machine as it now is, not as it was.
     assert_eq!(
         snapshot
-            .active_installation()
+            .recommended_installation()
             .and_then(|i| i.reported_version.as_ref())
             .map(|v| v.as_str()),
         Some("1.3.0")

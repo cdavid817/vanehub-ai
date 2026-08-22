@@ -102,6 +102,8 @@ pub(super) fn healthy_npm_installation(id: &str, path: &str) -> CliInstallation 
         id: CliInstallationId::new(id).expect("installation id"),
         executable_path: path.to_string(),
         canonical_path: None,
+        alias_paths: Vec::new(),
+        target_missing: false,
         reported_version: None,
         source_id: Some(source_id("npm")),
         source_kind: CliSourceKind::Npm,

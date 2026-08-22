@@ -34,6 +34,8 @@ pub(crate) enum CliBulkSkipReason {
     PlanStale,
     /// Another operation already holds this tool.
     OperationConflict,
+    /// A structured installation conflict makes the mutation target ambiguous or unsafe.
+    InstallationConflict,
 }
 
 impl CliBulkSkipReason {
@@ -50,6 +52,7 @@ impl CliBulkSkipReason {
             Self::SourceOwnershipUnproven => "source-ownership-unproven",
             Self::PlanStale => "plan-stale",
             Self::OperationConflict => "operation-conflict",
+            Self::InstallationConflict => "installation-conflict",
         }
     }
 
@@ -338,6 +341,10 @@ mod tests {
             ),
             (CliBulkSkipReason::PlanStale, "plan-stale"),
             (CliBulkSkipReason::OperationConflict, "operation-conflict"),
+            (
+                CliBulkSkipReason::InstallationConflict,
+                "installation-conflict",
+            ),
         ] {
             assert_eq!(reason.as_str(), wire);
             // Everything except "already current" is worth showing.

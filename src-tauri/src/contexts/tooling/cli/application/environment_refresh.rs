@@ -18,7 +18,8 @@ use crate::contexts::tooling::cli::domain::catalog::{
 use crate::contexts::tooling::cli::domain::definition::CliToolDefinition;
 use crate::contexts::tooling::cli::domain::ids::CliToolId;
 use crate::contexts::tooling::cli::domain::installation::{
-    deduplicate, derive_conflicts, select_active, CliInstallation,
+    conflicts_block_mutation, deduplicate, derive_conflicts, group_launcher_families,
+    select_active, ActiveSelection, CliInstallation,
 };
 use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
 use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
@@ -181,8 +182,10 @@ impl CliEnvironmentService {
             CliOperationPhase::ResolvingSource,
             true,
         )?;
-        let active = select_active(&installations);
-        let active_installation = active.map(|selection| &installations[selection.index]);
+        let selection = select_active(&installations);
+        // Update state, catalogs, and actions all describe the installation VaneHub would act on,
+        // which is the recommended one -- not necessarily the one PATH reaches first.
+        let active_installation = selection.recommended.map(|index| &installations[index]);
         // Owned rather than borrowed: `installations` moves into the snapshot below, and the
         // compatibility check still needs the version afterwards.
         let active_version = active_installation.and_then(|i| i.reported_version.clone());
@@ -221,13 +224,22 @@ impl CliEnvironmentService {
             (None, Some(_)) => CliUpdateStatus::CatalogUnavailable,
         };
 
-        let allowed_actions =
-            self.derive_actions(definition, &installations, active, &catalogs, update);
+        // Conflicts are derived before actions, because a conflict that makes the mutation target
+        // ambiguous withholds every mutating action regardless of what the source can do.
+        let conflicts = derive_conflicts(&installations, selection);
+        let blocks_mutation = conflicts_block_mutation(&conflicts);
+        let allowed_actions = self.derive_actions(
+            definition,
+            &installations,
+            selection,
+            &catalogs,
+            blocks_mutation,
+        );
         let sources = self.summarize_sources(definition, &catalogs);
 
         let mut snapshot = self.snapshot_or_never_scanned(tool_id, fingerprint)?;
         snapshot.environment_fingerprint = fingerprint.to_string();
-        snapshot.conflicts = derive_conflicts(&installations, active);
+        snapshot.conflicts = conflicts;
         // A scan just ran, so an empty list now means not-found rather than never-looked.
         snapshot.discovery = CliDiscoveryStatus::from_count(installations.len());
         snapshot.installations = installations;
@@ -257,7 +269,9 @@ impl CliEnvironmentService {
             CliProbeBudget::default(),
             cancellation,
         )?;
-        let mut installations = deduplicate(discovered);
+        // Deduplicate identical binaries first, then fold platform launcher aliases. Without the
+        // second step one npm global install on Windows reports as three competing installations.
+        let mut installations = group_launcher_families(deduplicate(discovered));
 
         for installation in &mut installations {
             if cancellation.is_cancelled() {
@@ -353,14 +367,14 @@ impl CliEnvironmentService {
         &self,
         definition: &'static CliToolDefinition,
         installations: &[CliInstallation],
-        active: Option<crate::contexts::tooling::cli::domain::installation::ActiveSelection>,
+        selection: ActiveSelection,
         catalogs: &[CliVersionCatalog],
-        _update: CliUpdateStatus,
+        conflict_blocks_mutation: bool,
     ) -> Vec<CliAllowedAction> {
         let Some(platform) = CliPlatform::current() else {
             return Vec::new();
         };
-        let active_installation = active.map(|selection| &installations[selection.index]);
+        let active_installation = selection.recommended.map(|index| &installations[index]);
         let active_version = active_installation.and_then(|i| i.reported_version.as_ref());
 
         definition
@@ -380,11 +394,13 @@ impl CliEnvironmentService {
                     active_source_confidence: active_installation
                         .map(|i| i.source_confidence)
                         .unwrap_or(CliSourceConfidence::Unknown),
-                    active_executable_healthy: active.is_some_and(|selection| !selection.is_broken),
+                    active_executable_healthy: active_installation
+                        .is_some_and(CliInstallation::is_runnable),
                     catalog_latest: catalog.and_then(|catalog| catalog.latest.as_ref()),
                     catalog_available: catalog.is_some_and(CliVersionCatalog::is_available),
                     // Dynamic capabilities are confirmed during planning, not during a refresh.
                     repair_preflight_passed: false,
+                    conflict_blocks_mutation,
                 }))
             })
             .flatten()

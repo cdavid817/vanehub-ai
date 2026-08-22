@@ -67,6 +67,8 @@ pub(crate) enum CliActionReasonCode {
     ActionUnsupportedBySource,
     /// The active executable does not run, so an action that assumes a working install is unsafe.
     ActiveInstallationBroken,
+    /// A structured conflict makes the target of a machine change ambiguous or unsafe.
+    ConflictBlocksMutation,
 }
 
 impl CliActionReasonCode {
@@ -80,6 +82,7 @@ impl CliActionReasonCode {
             Self::SourceOwnershipUnproven => "source-ownership-unproven",
             Self::ActionUnsupportedBySource => "action-unsupported-by-source",
             Self::ActiveInstallationBroken => "active-installation-broken",
+            Self::ConflictBlocksMutation => "conflict-blocks-mutation",
         }
     }
 }
@@ -169,6 +172,8 @@ pub(crate) struct CliActionContext<'a> {
     /// Result of the source's dynamic preflight, where it has one. `false` until preflight says
     /// otherwise -- a dynamic capability is never assumed.
     pub(crate) repair_preflight_passed: bool,
+    /// A structured conflict reports that the target of a machine change is ambiguous or unsafe.
+    pub(crate) conflict_blocks_mutation: bool,
 }
 
 impl CliActionContext<'_> {
@@ -202,6 +207,15 @@ pub(crate) fn derive_allowed_actions(context: CliActionContext<'_>) -> Vec<CliAl
             source_id,
             first_relevant_action(context.is_installed),
             CliActionReasonCode::SourceUnavailableOnPlatform,
+        )];
+    }
+    // A conflict that makes the target ambiguous withholds every mutating action, whatever the
+    // source is capable of. Offering one would act on an installation nobody could name.
+    if context.conflict_blocks_mutation {
+        return vec![blocked(
+            source_id,
+            first_relevant_action(context.is_installed),
+            CliActionReasonCode::ConflictBlocksMutation,
         )];
     }
     if !context.distribution.capabilities.manages_anything() {
@@ -390,6 +404,7 @@ mod tests {
             catalog_latest: latest,
             catalog_available: true,
             repair_preflight_passed: false,
+            conflict_blocks_mutation: false,
         }
     }
 

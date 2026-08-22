@@ -127,3 +127,52 @@ Each of the seven regressions named in the implementation brief exists in the cu
 7. **Bash installer selected on Windows** — `domain/mod.rs:47-54` falls through to
    `ScriptInstaller::Shell` when no PowerShell URL exists, so `claude-code` yields a `bash -lc`
    plan on Windows (`package_adapter.rs:389-396`), and defect 5 then switches it to npm.
+
+## Re-audit of the 45 previously checked tasks
+
+Re-run of the baseline showed 7 commits present, a clean working tree, and strict validation
+passing. Spot-checking every checked task against `impl` sites found **five checked without
+satisfying all four conditions** (production code, matching test, test evidence, no dependency on an
+unfinished stub). All five were reverted to `[ ]` with the reason inline in `tasks.md`.
+
+| Task | Why it was not done |
+| --- | --- |
+| 3.5 | `run_bulk` discarded the real five-state outcome and recorded the literal string `"ran"`. The bulk tests asserted operation status and unit counts, never item outcomes, so the placeholder was never caught. |
+| 3.8 | The one-per-tool, one-per-key, cap-two policy existed only inside `FakeCoordinator`, which is `#[cfg(test)]`. No production coordinator existed. |
+| 3.9 | Only `a_completed_mutation_releases_its_reservation` existed -- the happy path. Nothing covered duplicate cancellation, release on the error path, or the plan being left in `Executing` when an early `?` skips `finish_action_plan`. |
+| 5.7 | The only `impl CliInstallerDownloader` was in the test file. Bounded download, redirect policy, and checksum verification did not exist in production at all. |
+| 5.11 | No source matrix test existed. Each adapter asserted its own catalog stamp separately, which does not establish the cross-adapter property. |
+
+Evidence: `grep "impl <Port> for"` across `src-tauri/src` returns production implementations for
+only `CliProbePort` (`SystemCliProbe`) and `CliDiscoveryPort` (`SystemCliDiscovery`). Every other
+port is satisfied solely by a double in `environment_test_doubles.rs`.
+
+Corrected baseline: **40 done, 115 open** before this round's work.
+
+## Duplicate-installation conflict contract (section 2 audit)
+
+The contract was **not** expressible before this round, so `design.md`, the
+`cli-environment-management` delta spec, and `tasks.md` were updated first and re-validated under
+`--strict` before any code changed.
+
+- `active_installation_id` is replaced by `path_selected_installation_id` and
+  `recommended_installation_id`. PATH order alone decides the first; probe results decide the
+  second. The executable axis follows the **PATH-selected** launcher, because it describes what the
+  host runs -- reporting Healthy because a working copy sits further down would describe a machine
+  the user does not have.
+- Conflicts are typed values carrying `severity`, `installations`, `blocks_mutation`,
+  `blocks_launch`, and a stable `reason_code`. All nine kinds are implemented and covered.
+- Launcher families group `tool` / `tool.cmd` / `tool.ps1` into one logical installation on Windows
+  only; folding stems on Unix would merge genuinely different programs.
+- `blocks_mutation` now withholds every mutating action in `derive_allowed_actions` and excludes the
+  tool from a bulk batch as `installation-conflict`.
+
+**Agent Runtime (task 4b.9): already correct.** `CliProfileSnapshot` launches through
+`CliApi::resolve_executable`, which returns a resolved path from the bounded candidate list, not a
+bare command name. A contract test now pins that (`the_resolver_never_hands_the_runtime_a_bare_command_name`).
+No widening of this change into Agent Runtime was needed.
+
+**Deliberately out of scope this round**, per the instruction: PATH repair, duplicate removal,
+source migration, user-preferred-installation persistence, Homebrew/Bun/Volta lifecycle, and
+WSL/SSH/container scopes. The platform tests assert classification and grouping only; enumeration
+order, the executable bit, and `noexec` need the temporary-PATH desktop fixtures from task 12.10.

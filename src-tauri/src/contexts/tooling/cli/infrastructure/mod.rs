@@ -18,6 +18,9 @@ pub(crate) mod environment_discovery;
     )
 )]
 pub(crate) mod environment_gateway;
+#[cfg(test)]
+#[path = "environment_platform_tests.rs"]
+mod environment_platform_tests;
 #[cfg_attr(
     not(test),
     expect(

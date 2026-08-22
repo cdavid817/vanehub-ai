@@ -35,11 +35,11 @@
 - [x] 3.2 Implement bounded cached `list_cli_environments`.
 - [x] 3.3 Implement async all-tool and targeted `refresh_cli_environments`, preserving unrelated snapshots on targeted refresh.
 - [x] 3.4 Implement async `prepare_cli_action`, bounded `get_cli_action_plan`, and async `execute_cli_action`.
-- [x] 3.5 Implement async `prepare_cli_bulk_upgrade`, bounded `get_cli_bulk_action_plan`, and async `execute_cli_bulk_action`.
+- [ ] 3.5 Implement async `prepare_cli_bulk_upgrade`, bounded `get_cli_bulk_action_plan`, and async `execute_cli_bulk_action`. (Bulk item outcomes are a placeholder: `run_bulk` discards the real five-state result and records the literal string "ran".)
 - [x] 3.6 Implement async `run_cli_doctor`.
 - [x] 3.7 Add typed application errors for unknown tool, unsupported source/action, invalid version, catalog unavailable, expired/stale/consumed plan, missing dependency, elevation, conflict, source unavailable, process, storage, and validation.
-- [x] 3.8 Implement per-tool and mutation-key coordination with at most two concurrent mutations and deterministic queuing.
-- [x] 3.9 Ensure cancellation releases every operation, plan, tool, and mutation-key reservation exactly once.
+- [ ] 3.8 Implement per-tool and mutation-key coordination with at most two concurrent mutations and deterministic queuing. (The one-per-tool, one-per-key, cap-two policy exists only in `FakeCoordinator` under `#[cfg(test)]`; no production coordinator exists.)
+- [ ] 3.9 Ensure cancellation releases every operation, plan, tool, and mutation-key reservation exactly once. (Only the happy path is covered. No test for duplicate cancellation, release on the error path, or plan state when an early `?` skips `finish_action_plan`.)
 - [x] 3.10 Add deterministic application tests using port doubles; do not use SQLite, filesystem, network, Tauri, or live processes in these tests.
 
 ## 4. Discovery and environment fingerprint
@@ -53,6 +53,18 @@
 - [x] 4.7 Compute the documented non-secret local-desktop environment fingerprint.
 - [ ] 4.8 Add discovery tests for duplicate symlinks, PATH shadowing, broken first entries, permission failure, timeout, Windows shims, NVM ordering, and source confidence. (Pure-logic half done in domain and adapter unit tests; the PATH-shaped cases need the temporary-PATH desktop fixtures from task 12.10.)
 
+## 4b. Duplicate-installation conflict contract
+
+- [x] 4b.1 Split `active_installation_id` into `path_selected_installation_id` and `recommended_installation_id`; PATH order alone decides the first, probe results decide the second.
+- [x] 4b.2 Add `severity`, `installation_ids`, `blocks_mutation`, `blocks_launch`, and a stable `reason_code` to every conflict.
+- [x] 4b.3 Add the nine conflict kinds: duplicate launcher alias, PATH shadowing, broken PATH precedence, multiple installation sources, version divergence, ambiguous source ownership, environment PATH divergence, architecture mismatch, and stale launcher target.
+- [x] 4b.4 Group platform launcher aliases into one logical installation so a single npm global install is not reported as several competing ones.
+- [x] 4b.5 Withhold mutating actions when a conflict reports `blocks_mutation`.
+- [x] 4b.6 Add Windows discovery tests for PATHEXT, case insensitivity, junction/symlink targets, user vs machine PATH, NVM symlinks, npm plus WinGet coexistence, and a broken first shim.
+- [x] 4b.7 Add macOS discovery tests for `/opt/homebrew/bin` vs `/usr/local/bin`, arm64 vs x86_64, Finder vs login-shell PATH, and a changed Homebrew Cellar symlink target.
+- [x] 4b.8 Add Linux discovery tests for system, local, user, and version-manager locations, update-alternatives, missing executable bit, noexec mounts, and desktop vs login-shell PATH.
+- [x] 4b.9 Record whether the Agent Runtime launches CLIs by resolved absolute path or by bare command name; add a contract test if it already resolves, otherwise record a follow-up without widening this change.
+
 ## 5. Source adapters
 
 - [ ] 5.1 Add a source registry assembled in bootstrap; the application layer must not select concrete adapters.
@@ -61,11 +73,11 @@
 - [x] 5.4 Implement the Windows-only WinGet source adapter with WinGet-native version lookup, exact target arguments when supported, install, upgrade, uninstall, and dynamic repair preflight.
 - [x] 5.5 Keep WinGet downgrade and reinstall disabled until a separate verified capability is added.
 - [x] 5.6 Add WinGet fixture tests for exact ids, exact target versions, localized/unparseable output, missing WinGet, unsupported repair, elevation reporting, and source errors.
-- [x] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback.
+- [ ] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback. (`CliInstallerDownloader` has no production implementation, so bounded download, redirect policy, and checksum verification exist only in the test double.)
 - [x] 5.8 On Windows, reject Bash-only vendor definitions unless a future explicitly approved definition and preflight support it.
 - [ ] 5.9 Remove pipe-to-shell and `irm | iex` execution paths.
 - [ ] 5.10 Implement detect-only source summaries and guidance for Homebrew, Bun, Volta, desktop, system, manual, and unknown sources.
-- [x] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities.
+- [ ] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities. (No source matrix test exists; each adapter separately asserts its own catalog stamp, which does not prove the cross-adapter property.)
 - [x] 5.12 Add a regression test proving vendor failure does not start npm.
 
 ## 6. Provider probes and readiness
