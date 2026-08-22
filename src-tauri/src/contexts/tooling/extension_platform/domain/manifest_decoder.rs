@@ -37,6 +37,8 @@ pub(crate) const EXTENSION_MANIFEST_YAML_LIMITS: BoundedYamlLimits = BoundedYaml
     max_key_bytes: 128,
     max_scalar_characters: 1_024,
     max_sequence_items: 64,
+    // `requires.extensions` is keyed by extension id, and an extension id is `<publisher>.<name>`.
+    allow_dotted_keys: true,
 };
 
 pub(crate) const MAX_ACTIVATION_EVENTS: usize = 32;

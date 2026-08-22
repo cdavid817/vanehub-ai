@@ -15,6 +15,7 @@ const TIGHT: BoundedYamlLimits = BoundedYamlLimits {
     max_key_bytes: 8,
     max_scalar_characters: 16,
     max_sequence_items: 3,
+    allow_dotted_keys: false,
 };
 
 const ROOMY: BoundedYamlLimits = BoundedYamlLimits {
@@ -24,6 +25,7 @@ const ROOMY: BoundedYamlLimits = BoundedYamlLimits {
     max_key_bytes: 64,
     max_scalar_characters: 512,
     max_sequence_items: 32,
+    allow_dotted_keys: false,
 };
 
 fn parse(block: &str, limits: BoundedYamlLimits) -> BoundedYamlValue {
@@ -159,6 +161,47 @@ fn depth_is_bounded_by_the_supplied_profile() {
     );
     // The same document a tight profile rejects for depth is fine under a roomier one.
     parse(&nested(TIGHT.max_depth + 1), ROOMY);
+}
+
+#[test]
+fn a_dotted_key_follows_the_profile_rather_than_the_grammar() {
+    // A consumer whose keys are plain names does not want one, and its diagnostics address fields
+    // as `a.b.c`. A consumer whose keys are themselves dotted identifiers needs one. Neither
+    // choice is imposed on the other.
+    const DOTTED: BoundedYamlLimits = BoundedYamlLimits {
+        allow_dotted_keys: true,
+        ..ROOMY
+    };
+
+    assert!(matches!(
+        error("acme.base:\n  version: 1", ROOMY),
+        BoundedYamlError::InvalidKey { .. }
+    ));
+    assert!(parse("acme.base:\n  version: 1", DOTTED)
+        .get("acme.base")
+        .is_some());
+
+    // Everything else about a key is unchanged by the flag: the dot joins the permitted set, and
+    // nothing else does.
+    for key in ["a b", "a/b", "a+b", "a@b"] {
+        assert!(
+            matches!(
+                error(&format!("{key}: v"), DOTTED),
+                BoundedYamlError::InvalidKey { .. }
+            ),
+            "{key} should still be rejected"
+        );
+    }
+    // Case is not this crate's business — the key charset is deliberately broader than any one
+    // consumer's identifier rule, and a consumer rejects what it does not accept.
+    assert!(parse("Acme.Base: v", DOTTED).get("Acme.Base").is_some());
+    assert_eq!(
+        error("a.b: 1\na.b: 2", DOTTED),
+        BoundedYamlError::DuplicateKey {
+            line: 2,
+            key: "a.b".to_string(),
+        }
+    );
 }
 
 #[test]

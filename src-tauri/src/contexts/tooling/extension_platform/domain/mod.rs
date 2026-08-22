@@ -14,6 +14,9 @@ mod manifest_decoder;
 mod manifest_decoder_contributions;
 #[cfg(test)]
 mod manifest_decoder_tests;
+mod manifest_digest;
+#[cfg(test)]
+mod manifest_digest_tests;
 mod manifest_error;
 mod manifest_integrity;
 #[cfg(test)]
@@ -63,6 +66,8 @@ pub(crate) use manifest_decoder::{
     ExtensionManifestV1Decoder, EXTENSION_MANIFEST_YAML_LIMITS, MAX_ACTIVATION_EVENTS,
     MAX_CONTRIBUTIONS_PER_KIND,
 };
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use manifest_digest::{manifest_digest, ManifestDigest};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use manifest_error::{
     ExtensionDomainError, ExtensionOriginError, ExtensionPathError, IdentifierKind,

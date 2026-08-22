@@ -34,6 +34,9 @@ const SKILL_CONFIG_LIMITS: BoundedYamlLimits = BoundedYamlLimits {
     max_key_bytes: MAX_CONFIG_KEY_CHARACTERS,
     max_scalar_characters: MAX_CONFIG_SCALAR_CHARACTERS,
     max_sequence_items: MAX_CONFIG_SEQUENCE_ITEMS,
+    // Skill config keys are plain names. Unchanged from before the extraction, and the
+    // characterization suite is what proves it stayed that way.
+    allow_dotted_keys: false,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -79,8 +79,8 @@ Pulled ahead of 1.E and 1.F: the manifest declarations in 1.D carry these paths 
 
 ### 1.I Digest and fixtures
 
-- [ ] 1.I.1 Implement a deterministic canonical manifest digest that does not depend on source key order or insignificant whitespace.
-- [ ] 1.I.2 Add canonical valid and invalid manifest fixtures covering every contribution kind, minimum and maximum bounds, forward-version rejection, and deterministic serialization/digest.
+- [x] 1.I.1 Implement a deterministic canonical manifest digest that does not depend on source key order or insignificant whitespace.
+- [x] 1.I.2 Add canonical valid and invalid manifest fixtures covering every contribution kind, minimum and maximum bounds, forward-version rejection, and deterministic serialization/digest.
 
 ### 1.J Bounded schema validator
 

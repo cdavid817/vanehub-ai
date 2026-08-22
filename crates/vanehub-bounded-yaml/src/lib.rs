@@ -38,6 +38,12 @@ pub struct BoundedYamlLimits {
     pub max_scalar_characters: usize,
     /// Maximum items in one sequence, block or flow.
     pub max_sequence_items: usize,
+    /// Whether a key may contain `.`.
+    ///
+    /// Off by default in spirit: a consumer whose keys are plain names does not want a dotted key,
+    /// and diagnostics that address fields as `a.b.c` become ambiguous once a key can contain the
+    /// separator. On for a consumer whose keys are themselves dotted identifiers.
+    pub allow_dotted_keys: bool,
 }
 
 /// The parsed document.
@@ -264,7 +270,7 @@ impl Scanner<'_> {
             let Some((raw_key, remainder)) = split_key(line.content) else {
                 return Err(BoundedYamlError::ExpectedMapping(line.number));
             };
-            let key = normalize_key(raw_key, line.number, self.limits.max_key_bytes)?;
+            let key = normalize_key(raw_key, line.number, self.limits)?;
             if entries.iter().any(|(existing, _)| existing == &key) {
                 return Err(BoundedYamlError::DuplicateKey {
                     line: line.number,
@@ -430,19 +436,24 @@ fn split_key(content: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn normalize_key(raw: &str, line: usize, max_key_bytes: usize) -> Result<String, BoundedYamlError> {
+fn normalize_key(
+    raw: &str,
+    line: usize,
+    limits: BoundedYamlLimits,
+) -> Result<String, BoundedYamlError> {
     let key = raw.trim().trim_matches('"').trim_matches('\'').trim();
-    let valid = !key.is_empty()
-        && key.len() <= max_key_bytes
-        && key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+    let permitted = |character: char| {
+        character.is_ascii_alphanumeric()
+            || matches!(character, '_' | '-')
+            || (limits.allow_dotted_keys && character == '.')
+    };
+    let valid = !key.is_empty() && key.len() <= limits.max_key_bytes && key.chars().all(permitted);
     if valid {
         Ok(key.to_string())
     } else {
         Err(BoundedYamlError::InvalidKey {
             line,
-            key: key.chars().take(max_key_bytes).collect(),
+            key: key.chars().take(limits.max_key_bytes).collect(),
         })
     }
 }
