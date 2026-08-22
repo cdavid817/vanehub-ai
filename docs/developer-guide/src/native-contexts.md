@@ -94,6 +94,7 @@ The diagram only draws **call direction** between contexts, not specific command
 | `web_research` | Guarded URL admission, public-URL resolution, fetching, extraction, binary artifact handling, and search | [Extended tool contexts](extended-tool-contexts.md) |
 | `browser_automation` | Browser sidecar protocol, session and action policy, operation lifecycle, and artifact handoff | [Extended tool contexts](extended-tool-contexts.md) |
 | `artifacts` | Content-addressed artifact blobs: media type and size validation, deduplication, and store capacity policy | [Extended tool contexts](extended-tool-contexts.md) |
+| `local_media` | Local OCR, microphone capture and whole-utterance transcription, speech synthesis/playback, engine profiles and readiness, Python worker supervision, and ephemeral media lifecycle | [Local media runtime](local-media-runtime.md) |
 
 ### Policy, observability, and evidence
 

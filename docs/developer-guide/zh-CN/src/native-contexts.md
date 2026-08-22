@@ -94,6 +94,7 @@ flowchart TB
 | `web_research` | 受控的 URL 准入、公网 URL 解析、抓取、抽取、二进制产物处理与搜索 | [扩展工具上下文](extended-tool-contexts.md) |
 | `browser_automation` | 浏览器 sidecar 协议、会话与动作策略、操作生命周期与产物移交 | [扩展工具上下文](extended-tool-contexts.md) |
 | `artifacts` | 内容寻址的产物 blob：媒体类型与体积校验、去重、存储容量策略 | [扩展工具上下文](extended-tool-contexts.md) |
+| `local_media` | 本地 OCR、麦克风采集与整句转写、语音合成与播放、引擎档案与就绪状态、Python worker 监督，以及临时媒体生命周期 | [本地媒体运行时](local-media-runtime.md) |
 
 ### 策略、可观测与证据
 

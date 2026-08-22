@@ -33,6 +33,22 @@ pub(super) fn invoke_handler(
         crate::commands::goals::accept_goal::accept_goal,
         crate::commands::goals::reopen_goal::reopen_goal,
         crate::commands::goals::abandon_goal::abandon_goal,
+        crate::commands::local_media::profile::get_local_media_profile,
+        crate::commands::local_media::profile::save_local_media_profile,
+        crate::commands::local_media::profile::validate_local_media_profile,
+        crate::commands::local_media::profile::get_local_media_status,
+        crate::commands::local_media::profile::list_local_media_audio_devices,
+        crate::commands::local_media::operations::start_local_media_probe,
+        crate::commands::local_media::operations::stage_local_media_ocr_source,
+        crate::commands::local_media::operations::start_local_media_ocr,
+        crate::commands::local_media::operations::cleanup_local_media_staged_source,
+        crate::commands::local_media::operations::start_microphone_recording,
+        crate::commands::local_media::operations::stop_recording_and_transcribe,
+        crate::commands::local_media::operations::cancel_microphone_recording,
+        crate::commands::local_media::operations::start_local_media_tts,
+        crate::commands::local_media::operations::stop_local_media_playback,
+        crate::commands::local_media::operations::cancel_local_media_operation,
+        crate::commands::local_media::operations::get_local_media_operation_result,
     ]
 }
 
@@ -71,6 +87,22 @@ pub(super) fn is_command(command: &str) -> bool {
             | "accept_goal"
             | "reopen_goal"
             | "abandon_goal"
+            | "get_local_media_profile"
+            | "save_local_media_profile"
+            | "validate_local_media_profile"
+            | "get_local_media_status"
+            | "list_local_media_audio_devices"
+            | "start_local_media_probe"
+            | "stage_local_media_ocr_source"
+            | "start_local_media_ocr"
+            | "cleanup_local_media_staged_source"
+            | "start_microphone_recording"
+            | "stop_recording_and_transcribe"
+            | "cancel_microphone_recording"
+            | "start_local_media_tts"
+            | "stop_local_media_playback"
+            | "cancel_local_media_operation"
+            | "get_local_media_operation_result"
     )
 }
 

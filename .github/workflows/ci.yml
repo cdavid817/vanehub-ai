@@ -209,6 +209,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -258,6 +259,12 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # The local-media bridge is the only Python in the product and has no build step that would
+      # catch a syntax error. Standard library only, so it needs no install of its own; the runner
+      # reports NOT RUN rather than passing if the image ever ships without an interpreter.
+      - name: Local media Python bridge tests
+        run: npm run local-media:python:test
+
   native-coverage:
     name: Native Coverage
     runs-on: ubuntu-latest
@@ -274,6 +281,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -420,6 +428,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \

@@ -10,6 +10,7 @@ mod communications;
 mod desktop;
 mod execution_observability;
 mod extensions;
+mod local_media;
 mod managed_mcp_relay;
 mod mcp;
 mod operations;
@@ -47,6 +48,7 @@ pub(crate) use execution_observability::{
     start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
+pub(crate) use local_media::{assemble_local_media_api, worker_bridge_candidates};
 pub(crate) use mcp::assemble_mcp_api;
 #[cfg(test)]
 pub(crate) use operations::assemble_agent_runs_api;
