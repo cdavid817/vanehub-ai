@@ -245,3 +245,41 @@ never offered while a package manager may be writing.
 
 Reported from the caller instead, this would have to either label a download `mutating` or keep
 offering cancel during an install. Both are false statements about the machine.
+
+## Verification-suite findings (task groups 7-9)
+
+**`native:panic:check` had not been run in the earlier round.** It rejects `expect()` in
+`--lib --bins`, and seven identifier constructions were failing it -- five that landed with the
+source adapters and discovery, two in the new id factory. All are values this repository produces
+itself, so `CliIdentifier::trusted` replaces the panic with a debug assertion. Recorded here
+because the earlier round's report did not mention this command.
+
+**Architecture line budget.** `src-tauri/src/platform/database` exceeded its recorded aggregate by
+64 lines and the budget was raised in the same commit, with the reason stated inline: three
+migration registrations, plus `migration_versions_are_unique_and_dense`, which is what turns a
+cross-branch version collision into a failing test instead of an opaque `no such table` at a user's
+next launch.
+
+**One workspace test is nondeterministic and is not attributed to this change.**
+`code_intelligence::infrastructure::server_test_tests::initialize_timeout_forces_bounded_process_tree_cleanup_without_cancellation`
+failed once in `cargo test --workspace` (3991 passed, 1 failed). Evidence gathered rather than
+assumed:
+
+- `git diff --name-only main..HEAD` lists no file under `contexts/code_intelligence` or
+  `platform/process`. The only `platform/` files this branch touches are the three under
+  `platform/database`.
+- The test spawns `node tests/fixtures/lsp_stdio_server.cjs lsp-hang` and shares one 2-second
+  deadline between the initialize phase (which must time out, by design) and the forced
+  process-tree cleanup that follows it. The cleanup therefore starts with the budget already spent.
+- Re-run three times against **identical binaries** with no code change between runs: pass, pass,
+  fail. A deterministic regression cannot produce that sequence.
+
+Not claimed: that it also fails on clean `main`. Verifying that needs a checkout this
+worktree-isolated session must not make, so the honest statement is "nondeterministic, and this
+change cannot reach it", not "pre-existing".
+
+**The two frontend regression tests remain red on purpose.**
+`src/settings/pages/cli-lifecycle-regression.test.tsx` still fails its two assertions, because the
+Settings page still calls the old `install_cli_version` path. They go green when task group 10
+moves the frontend onto the new commands. Weakening or skipping them was explicitly out of bounds
+and was not done.
