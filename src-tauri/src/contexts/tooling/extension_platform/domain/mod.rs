@@ -19,6 +19,9 @@ mod manifest_error;
 mod manifest_shape_tests;
 #[cfg(test)]
 mod manifest_tests;
+mod network_origin;
+#[cfg(test)]
+mod network_origin_tests;
 mod package_path;
 #[cfg(test)]
 mod package_path_tests;
@@ -34,7 +37,9 @@ pub(crate) use feature::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use activation::{ActivationEvent, ActivationTarget};
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use decode_error::{identifier_at, path_at, DecodeReason, ManifestDecodeError};
+pub(crate) use decode_error::{
+    identifier_at, origin_at, path_at, DecodeReason, ManifestDecodeError,
+};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use identity::{
     is_external_contribution_id, ContributionGlobalId, ContributionKind, ContributionLocalId,
@@ -57,7 +62,10 @@ pub(crate) use manifest_decoder::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use manifest_error::{
-    ExtensionDomainError, ExtensionPathError, IdentifierKind, ALL_IDENTIFIER_KINDS,
+    ExtensionDomainError, ExtensionOriginError, ExtensionPathError, IdentifierKind,
+    ALL_IDENTIFIER_KINDS,
 };
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use network_origin::{NetworkOrigin, OriginRejection, MAX_ORIGIN_CHARACTERS};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PATH_CHARACTERS};

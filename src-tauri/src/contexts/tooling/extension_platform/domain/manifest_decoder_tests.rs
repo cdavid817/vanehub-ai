@@ -6,7 +6,7 @@
 
 use super::{
     ContributedRuleEffect, DecodeReason, ExtensionManifestV1Decoder, HookFailureMode,
-    HookHandlerDeclaration, McpTransportDeclaration, RuntimeKind, TrustProfile,
+    HookHandlerDeclaration, McpTransportDeclaration, NetworkOrigin, RuntimeKind, TrustProfile,
     VersionedExtensionManifest, EXTENSION_MANIFEST_YAML_LIMITS, MAX_ACTIVATION_EVENTS,
     MAX_CONTRIBUTIONS_PER_KIND,
 };
@@ -129,10 +129,13 @@ contributes:
     // Silence means required, so an author cannot ship a missing piece by omission.
     assert!(!decoded.requires.skills[0].optional);
 
-    assert_eq!(
-        decoded.permissions.network_origins,
-        ["https://api.github.com"]
-    );
+    let origins: Vec<&str> = decoded
+        .permissions
+        .network_origins
+        .iter()
+        .map(NetworkOrigin::as_str)
+        .collect();
+    assert_eq!(origins, ["https://api.github.com"]);
     assert_eq!(decoded.permissions.secret_ids, ["github.token"]);
     assert!(decoded.permissions.process_commands.is_empty());
 
@@ -382,6 +385,33 @@ fn a_contribution_path_is_validated_where_it_appears() {
 
     assert_eq!(field, "contributes.skills.s.path");
     assert_eq!(code, "invalid_package_path");
+}
+
+#[test]
+fn a_requested_origin_is_validated_and_canonicalized_at_decode() {
+    let manifest =
+        with("permissions:\n  network:\n    origins:\n      - \"HTTPS://API.GitHub.com:443\"\n");
+    let VersionedExtensionManifest::V1(decoded) = decode(&manifest).expect("should decode");
+    // Stored as the canonical origin, so the value the broker matches on cannot differ from the
+    // one a reviewer approved by case or by a default port.
+    assert_eq!(
+        decoded.permissions.network_origins[0].as_str(),
+        "https://api.github.com"
+    );
+
+    for (origins, why) in [
+        ("      - \"https://*.github.com\"", "wildcard"),
+        ("      - \"https://api.github.com/repos\"", "path"),
+        ("      - \"https://user:token@api.github.com\"", "userinfo"),
+        ("      - \"http://api.github.com\"", "plaintext remote"),
+        ("      - \"file:///etc/passwd\"", "unsupported scheme"),
+    ] {
+        let (field, code) = rejection(&with(&format!(
+            "permissions:\n  network:\n    origins:\n{origins}\n"
+        )));
+        assert_eq!(field, "permissions.network.origins", "for {why}");
+        assert_eq!(code, "invalid_network_origin", "for {why}");
+    }
 }
 
 #[test]

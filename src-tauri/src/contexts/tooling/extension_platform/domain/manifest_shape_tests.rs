@@ -9,10 +9,10 @@ use super::{
     ConnectorContribution, ContributedRuleEffect, ContributionKind, ContributionLocalId,
     ContributionManifest, ExtensionDependency, ExtensionId, ExtensionManifestV1,
     ExtensionRequirements, HookContribution, HookFailureMode, HookHandlerDeclaration,
-    McpContribution, McpTransportDeclaration, ModePresetContribution, PortablePackagePath,
-    PublisherId, RuntimeDeclaration, RuntimeKind, SkillContribution, SkillDependency,
-    ToolContribution, TransformContribution, TrustProfile, VersionedExtensionManifest,
-    ALL_CONTRIBUTION_KINDS, SUPPORTED_SCHEMA_VERSIONS,
+    McpContribution, McpTransportDeclaration, ModePresetContribution, NetworkOrigin,
+    PortablePackagePath, PublisherId, RuntimeDeclaration, RuntimeKind, SkillContribution,
+    SkillDependency, ToolContribution, TransformContribution, TrustProfile,
+    VersionedExtensionManifest, ALL_CONTRIBUTION_KINDS, SUPPORTED_SCHEMA_VERSIONS,
 };
 use semver::{Version, VersionReq};
 
@@ -22,6 +22,10 @@ fn local(value: &str) -> ContributionLocalId {
 
 fn path(value: &str) -> PortablePackagePath {
     PortablePackagePath::parse(value).expect("valid path")
+}
+
+fn origin(value: &str) -> NetworkOrigin {
+    NetworkOrigin::parse(value).expect("valid origin")
 }
 
 /// One contribution of every kind, so a change that forgets a kind fails here rather than in an
@@ -251,7 +255,7 @@ fn a_capability_request_reports_whether_it_asks_for_anything() {
     assert!(CapabilityRequest::default().is_empty());
 
     let request = CapabilityRequest {
-        network_origins: vec!["https://api.github.com".to_string()],
+        network_origins: vec![origin("https://api.github.com")],
         ..CapabilityRequest::default()
     };
     assert!(!request.is_empty());
@@ -313,7 +317,7 @@ fn a_complete_manifest_assembles_from_domain_types_alone() {
             }],
         },
         permissions: CapabilityRequest {
-            network_origins: vec!["https://api.github.com".to_string()],
+            network_origins: vec![origin("https://api.github.com")],
             secret_ids: vec!["github.token".to_string()],
             ..CapabilityRequest::default()
         },

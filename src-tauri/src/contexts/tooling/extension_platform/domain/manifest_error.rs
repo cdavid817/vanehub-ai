@@ -8,6 +8,7 @@
 //! Untrusted text is truncated by the constructor that builds the error, so a hostile manifest
 //! cannot make a diagnostic unbounded.
 
+use super::network_origin::OriginRejection;
 use super::package_path::PathRejection;
 use std::fmt;
 
@@ -124,3 +125,34 @@ impl fmt::Display for ExtensionPathError {
 }
 
 impl std::error::Error for ExtensionPathError {}
+
+/// A requested network origin that is not one, and which rule it broke.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExtensionOriginError {
+    pub(crate) origin: String,
+    pub(crate) reason: OriginRejection,
+}
+
+impl ExtensionOriginError {
+    pub(crate) const fn code(&self) -> &'static str {
+        "invalid_network_origin"
+    }
+
+    pub(crate) const fn reason_code(&self) -> &'static str {
+        self.reason.as_str()
+    }
+}
+
+impl fmt::Display for ExtensionOriginError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: {} ({})",
+            self.code(),
+            self.origin,
+            self.reason_code()
+        )
+    }
+}
+
+impl std::error::Error for ExtensionOriginError {}

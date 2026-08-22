@@ -12,8 +12,8 @@
 //! semantics of fields added later is how a package gets more authority than its author declared.
 
 use super::{
-    ActivationEvent, ContributionKind, ContributionLocalId, ExtensionId, PortablePackagePath,
-    PublisherId,
+    ActivationEvent, ContributionKind, ContributionLocalId, ExtensionId, NetworkOrigin,
+    PortablePackagePath, PublisherId,
 };
 use semver::{Version, VersionReq};
 
@@ -192,7 +192,9 @@ pub(crate) struct SkillDependency {
 pub(crate) struct CapabilityRequest {
     pub(crate) filesystem_read: Vec<String>,
     pub(crate) filesystem_write: Vec<String>,
-    pub(crate) network_origins: Vec<String>,
+    /// Canonical `scheme://host[:port]`. Validated at decode so the text a reviewer approves and
+    /// the value the broker matches on are the same thing.
+    pub(crate) network_origins: Vec<NetworkOrigin>,
     pub(crate) process_commands: Vec<String>,
     pub(crate) secret_ids: Vec<String>,
 }

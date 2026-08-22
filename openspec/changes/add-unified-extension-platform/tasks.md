@@ -62,7 +62,7 @@ Implemented in this order. Manifest parsing stays two-stage throughout — `Boun
 
 ### 1.F URL and origin validation
 
-- [ ] 1.F.1 Validate requested network origins through `url`, requiring an explicit scheme and host and rejecting wildcards, userinfo, and non-origin forms.
+- [x] 1.F.1 Validate requested network origins through `url`, requiring an explicit scheme and host and rejecting wildcards, userinfo, and non-origin forms.
 
 ### 1.G Portable package paths
 

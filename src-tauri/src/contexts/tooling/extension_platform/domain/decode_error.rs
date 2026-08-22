@@ -7,7 +7,10 @@
 //! a dotted field path rather than "invalid manifest". Field paths are built from known field
 //! names plus ids the parser already bounded, so the diagnostic cannot grow with the input.
 
-use super::{ExtensionDomainError, ExtensionPathError, IdentifierKind, PathRejection};
+use super::{
+    ExtensionDomainError, ExtensionOriginError, ExtensionPathError, IdentifierKind,
+    OriginRejection, PathRejection,
+};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +67,7 @@ pub(crate) enum DecodeReason {
     /// A value that should have been an identifier was not.
     InvalidIdentifier(IdentifierKind),
     InvalidPath(PathRejection),
+    InvalidOrigin(OriginRejection),
     /// Not parseable as a semantic version, or as a version requirement.
     InvalidVersion,
     InvalidVersionRequirement,
@@ -107,6 +111,7 @@ impl DecodeReason {
             Self::ListOfRecords => "list_of_records",
             Self::InvalidIdentifier(_) => "invalid_identifier",
             Self::InvalidPath(_) => "invalid_package_path",
+            Self::InvalidOrigin(_) => "invalid_network_origin",
             Self::InvalidVersion => "invalid_version",
             Self::InvalidVersionRequirement => "invalid_version_requirement",
             Self::UnsupportedSchemaVersion { .. } => "unsupported_schema_version",
@@ -135,6 +140,11 @@ impl fmt::Display for DecodeReason {
             Self::InvalidPath(reason) => {
                 write!(formatter, "is not a portable path ({})", reason.as_str())
             }
+            Self::InvalidOrigin(reason) => write!(
+                formatter,
+                "is not a scheme://host origin ({})",
+                reason.as_str()
+            ),
             Self::InvalidVersion => formatter.write_str("is not a semantic version"),
             Self::InvalidVersionRequirement => {
                 formatter.write_str("is not a semantic version requirement")
@@ -166,4 +176,11 @@ pub(crate) fn identifier_at(
 
 pub(crate) fn path_at(field: impl Into<String>, error: &ExtensionPathError) -> ManifestDecodeError {
     ManifestDecodeError::new(field, DecodeReason::InvalidPath(error.reason))
+}
+
+pub(crate) fn origin_at(
+    field: impl Into<String>,
+    error: &ExtensionOriginError,
+) -> ManifestDecodeError {
+    ManifestDecodeError::new(field, DecodeReason::InvalidOrigin(error.reason))
 }

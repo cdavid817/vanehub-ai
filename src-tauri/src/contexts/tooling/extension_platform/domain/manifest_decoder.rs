@@ -16,10 +16,11 @@
 
 use super::decode_reader::{bound, MappingReader};
 use super::{
-    identifier_at, path_at, ActivationEvent, CapabilityRequest, DecodeReason, ExtensionDependency,
-    ExtensionId, ExtensionManifestV1, ExtensionRequirements, ManifestDecodeError,
-    PortablePackagePath, PublisherId, RuntimeDeclaration, RuntimeKind, SkillDependency,
-    TrustProfile, VersionedExtensionManifest, SUPPORTED_SCHEMA_VERSIONS,
+    identifier_at, origin_at, path_at, ActivationEvent, CapabilityRequest, DecodeReason,
+    ExtensionDependency, ExtensionId, ExtensionManifestV1, ExtensionRequirements,
+    ManifestDecodeError, NetworkOrigin, PortablePackagePath, PublisherId, RuntimeDeclaration,
+    RuntimeKind, SkillDependency, TrustProfile, VersionedExtensionManifest,
+    SUPPORTED_SCHEMA_VERSIONS,
 };
 use semver::{Version, VersionReq};
 use vanehub_bounded_yaml::{BoundedYamlLimits, BoundedYamlValue};
@@ -348,13 +349,17 @@ fn decode_permissions(
             let network_path = reader.child_path("network");
             let mut network_reader = MappingReader::open(network_path, network)?;
             let origins_path = network_reader.child_path("origins");
-            let origins = bound(
+            let raw = bound(
                 &origins_path,
                 network_reader.scalar_sequence("origins")?,
                 MAX_CAPABILITY_ENTRIES,
             )?;
             network_reader.finish()?;
-            owned(origins)
+            raw.into_iter()
+                .map(|text| {
+                    NetworkOrigin::parse(text).map_err(|error| origin_at(&origins_path, &error))
+                })
+                .collect::<Result<Vec<_>, _>>()?
         }
         None => Vec::new(),
     };
