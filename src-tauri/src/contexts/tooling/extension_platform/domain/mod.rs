@@ -31,6 +31,8 @@ mod manifest_schema_tests;
 #[cfg(test)]
 mod manifest_shape_tests;
 #[cfg(test)]
+mod manifest_test_support;
+#[cfg(test)]
 mod manifest_tests;
 mod network_origin;
 #[cfg(test)]
@@ -38,6 +40,9 @@ mod network_origin_tests;
 mod package_admission;
 #[cfg(test)]
 mod package_admission_tests;
+mod package_layout;
+#[cfg(test)]
+mod package_layout_tests;
 mod package_path;
 #[cfg(test)]
 mod package_path_tests;
@@ -117,6 +122,13 @@ pub(crate) use package_admission::{
     activation_eligibility, admit_package, all_developer_mode_errors, ActivationEligibility,
     AdmissionRefusal, AdmittedPackage, DeveloperMode, DeveloperModeError, PackageAdmission,
     PersistentWarning, ALL_ADMISSION_REFUSALS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use package_layout::{
+    all_package_layout_rejections, check_manifest_against_layout, inspect_package_layout,
+    ExtensionPackageLimits, PackageArchiveEntry, PackageLayout, PackageLayoutRejection,
+    PackageLayoutViolation, DEFAULT_EXTENSION_PACKAGE_LIMITS, PACKAGE_DIRECTORIES,
+    PACKAGE_MANIFEST_ENTRY, PACKAGE_ROOT_FILES,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_key::{

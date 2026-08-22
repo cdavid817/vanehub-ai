@@ -1,5 +1,8 @@
 //! SQLite adapters and schema for the Extension Platform.
 
+mod package_reader;
+#[cfg(test)]
+mod package_reader_tests;
 mod schema;
 mod sqlite_developer_mode;
 #[cfg(test)]
@@ -11,6 +14,8 @@ mod sqlite_repository;
 #[cfg(test)]
 mod tests;
 
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use package_reader::{read_extension_package, PackageReadError, ReadPackage};
 pub(crate) use schema::{
     apply_developer_mode_schema, apply_feature_gate_degradation_schema, apply_feature_gate_schema,
     apply_publisher_key_schema,

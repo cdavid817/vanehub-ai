@@ -36,6 +36,7 @@ fn entry(path: &str, kind: ArchiveEntryKind, expanded_bytes: u64) -> ArchiveEntr
         path: path.to_string(),
         kind,
         expanded_bytes,
+        unix_mode: None,
     }
 }
 

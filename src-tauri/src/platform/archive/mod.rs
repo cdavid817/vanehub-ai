@@ -37,6 +37,9 @@ pub(crate) struct ArchiveEntry {
     pub(crate) kind: ArchiveEntryKind,
     /// The size the archive *declares*. Believed only for budgeting; extraction re-checks it.
     pub(crate) expanded_bytes: u64,
+    /// Unix permission bits, when the archive recorded any. `None` for an archive written on a
+    /// platform that does not store them, which is not the same as "not executable".
+    pub(crate) unix_mode: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -469,6 +469,7 @@ mod tests {
             path: path.to_string(),
             kind: ArchiveEntryKind::File,
             expanded_bytes,
+            unix_mode: None,
         }
     }
 
@@ -585,6 +586,7 @@ mod tests {
             path: "references".to_string(),
             kind: ArchiveEntryKind::Directory,
             expanded_bytes: 0,
+            unix_mode: None,
         };
         assert_eq!(validate(&[directory], 1, 0, OVERLAY_SCHEMA_VERSION), Ok(()));
         let entries = (0..=DEFAULT_OVERLAY_LIMITS.maximum_archive_entries)
@@ -612,6 +614,7 @@ mod tests {
                 path: "references/link.md".to_string(),
                 kind,
                 expanded_bytes: 0,
+                unix_mode: None,
             };
             assert_eq!(
                 validate(&[entry], 1, 0, OVERLAY_SCHEMA_VERSION),

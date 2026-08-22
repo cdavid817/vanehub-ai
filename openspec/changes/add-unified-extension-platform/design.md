@@ -1254,6 +1254,22 @@ What an admitted unsigned package gets is fixed: installed disabled, the Strict 
 
 Two fail-closed properties on the switch itself. A read that cannot be answered — no row, a storage failure, an unparseable value — is `Off`, because the alternative is a database problem quietly admitting content with no provenance. And a change nobody can see did not happen: the audit write is part of the change, so a switch that flipped without a record is reported as a failure.
 
+### Reading a `.vhext` (Task 2.6)
+
+**Two passes, and the split is the security property.** The first looks only at what the archive *says* about itself — names, kinds, declared sizes — and runs before extraction, so a package that would be refused is never unpacked. The second runs once the manifest has been decoded and answers what needs both halves in view: does every declared path exist, and is every executable one the runtime the manifest actually declared.
+
+**Entry names are held to `PortablePackagePath`, not to the archive floor.** `crate::platform::archive::is_safe_archive_entry_path` refuses separators, traversal, and hidden segments on every platform, and deliberately admits NUL bytes, Windows device names, and trailing dots — it is a mechanical floor for any consumer. A package is written out to a real filesystem, so it gets the strict rule as well. The layout test names four inputs that pass the floor and are refused here, so the difference is not a claim.
+
+**The top level is an allowlist**: `vanehub-extension.yaml`, the directories `runtime`, `schemas`, `skills`, `assets`, and the root files `LICENSE`, `LICENSE.md`, `README.md`, `NOTICE`. A package that puts files somewhere else is either built by a tool this build does not understand or reaching somewhere it should not, and both are better answered with "not a place packages put things" than with a guess.
+
+**Devices, sockets, and FIFOs are refused through the Unix mode.** ZIP has no entry kind for them; what it has is the mode an archiver copied out of `stat`, and an extractor that ignores the file-type bits will create whatever the entry names. The shared `ArchiveEntry` gained `unix_mode` for this. A mode of `None` — ordinary for anything written on Windows — is not a claim about the type and is not treated as one.
+
+**A package may carry at most one thing that runs, and only if it said so.** An entry is executable if its mode has any execute bit or its name ends in a suffix that is executable somewhere this application runs. Both are checked, because a ZIP written on Windows records no mode and `.exe` is every bit as executable for having arrived without one. Anything executable that is not the declared runtime entry is refused: a `.dll` beside a declared `.wasm` is not cargo, it is a second program nobody reviewed sitting inside a snapshot the runtime can reach.
+
+**The compression ratio is a pre-filter, not the enforcement.** It is computed over what the central directory *declares*, which is written by whoever produced the file. What actually bounds an expansion is the extraction budget from task 2.1, which reads one byte past the limit and refuses if that byte arrives. An empty archive is exempt: zero expanded bytes is not a bomb.
+
+**"Oversized schemas" is a package rule; "oversized results" is not.** A declared JSON Schema is a description, and gets its own 256 KiB ceiling under `schemas/`. Result and log ceilings bound what an extension *produces* rather than what it ships, so they belong to the runtime trust profile in Task Group 5 and are deliberately absent here.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

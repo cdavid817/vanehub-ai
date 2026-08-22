@@ -88,6 +88,7 @@ where
             path: name.to_string(),
             kind,
             expanded_bytes: file.size(),
+            unix_mode: file.unix_mode(),
         };
         accept(&entry)?;
         entries.push(entry);

@@ -17,6 +17,7 @@ fn entry(path: &str, kind: ArchiveEntryKind, expanded_bytes: u64) -> ArchiveEntr
         path: path.to_string(),
         kind,
         expanded_bytes,
+        unix_mode: None,
     }
 }
 
@@ -159,9 +160,16 @@ fn the_end_record_must_be_the_last_thing_in_the_buffer() {
 #[test]
 fn inspection_classifies_entries_and_reports_the_declared_size() {
     let archive = zip_of(&[("overlay.json", b"{}"), ("payloads/a.bin", b"12345")]);
+    let entries = inspect(&archive).expect("inspected");
     assert_eq!(
-        inspect(&archive),
-        Ok(vec![file("overlay.json", 2), file("payloads/a.bin", 5),])
+        entries
+            .iter()
+            .map(|entry| (entry.path.as_str(), entry.kind, entry.expanded_bytes))
+            .collect::<Vec<_>>(),
+        vec![
+            ("overlay.json", ArchiveEntryKind::File, 2),
+            ("payloads/a.bin", ArchiveEntryKind::File, 5),
+        ]
     );
 }
 
