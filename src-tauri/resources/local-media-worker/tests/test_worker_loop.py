@@ -229,6 +229,32 @@ class ArgumentTest(unittest.TestCase):
         self.assertEqual(worker.main(["--engine", "paddleocr", "--protocol", "2"]), 2)
 
 
+class EngineModuleResolutionTest(unittest.TestCase):
+    def test_resolves_the_package_when_launched_as_a_module(self):
+        # The host launches this as `python -u -m vane_local_media_worker`, and in that form
+        # `__name__` is "__main__". Deriving the package from it produced `__main__.<engine>` and
+        # every engine failed to load with `engine_module_load_failed` -- invisible until an engine
+        # was actually installed, because nothing else reaches this function.
+        for engine, expected in (
+            ("paddleocr", "paddle_ocr_engine"),
+            ("faster-whisper", "faster_whisper_engine"),
+            ("sherpa-onnx", "sherpa_onnx_tts_engine"),
+        ):
+            with self.subTest(engine=engine):
+                module = worker._load_engine_module(engine)
+                self.assertTrue(module.__name__.endswith(expected))
+                self.assertTrue(module.__name__.startswith("vane_local_media_worker."))
+
+    def test_derives_the_package_from_package_not_from_name(self):
+        source = read_source(worker.__file__)
+        self.assertIn("__package__ or __name__", source)
+
+
+def read_source(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
 class HelloFrameTest(unittest.TestCase):
     def test_carries_the_engine_capabilities_and_package_version(self):
         frame = protocol.hello_frame("paddleocr", ["probe", "ocr"], "3.0.0")

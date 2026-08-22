@@ -152,7 +152,11 @@ class WorkerRuntime:
 
 def _load_engine_module(engine: str) -> Any:
     module_name = _ENGINE_MODULES[engine]
-    package = __name__.rsplit(".", 1)[0]
+    # `__package__`, not `__name__`. Under `python -m vane_local_media_worker` -- which is exactly
+    # how the host launches this -- `__name__` is `"__main__"`, so deriving the package from it
+    # produced `__main__.paddle_ocr_engine` and every engine failed to load. `__package__` is the
+    # package in both the `-m` and the imported case.
+    package = __package__ or __name__.rsplit(".", 1)[0]
     return __import__(f"{package}.{module_name}", fromlist=[module_name])
 
 
