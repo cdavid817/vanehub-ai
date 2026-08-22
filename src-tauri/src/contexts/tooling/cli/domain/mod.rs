@@ -1,3 +1,87 @@
+// The source-aware environment model is being built alongside the flat `CliToolStatus` model it
+// replaces. Task group 3 moves the application layer onto these modules and task group 13 deletes
+// what is left below; until then they have no production caller.
+//
+// Consumers name the module (`domain::ids::CliToolId`) rather than a re-export, so one attribute
+// per module covers everything inside it. A re-export list would need a second attribute for
+// `unused_imports` and an edit for every type added during the migration.
+//
+// `expect` rather than `allow`, so it errors once task group 3 lands instead of silently outliving
+// the migration -- and `not(test)`, because the domain tests below *do* use these items. That
+// makes the attribute double as a coverage gate: an item no test touches fails the test build.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod definition;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod ids;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod installation;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod probe;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod registry;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod source;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod status;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod trust;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod version;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 

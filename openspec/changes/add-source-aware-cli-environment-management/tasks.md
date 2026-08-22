@@ -18,11 +18,11 @@
 ## 2. CLI domain model
 
 - [ ] 2.1 Split the CLI domain into focused files that keep each production Rust file within the project size and dependency rules.
-- [ ] 2.2 Add validated value objects for tool, source, installation, action-plan, and bulk-plan ids while preserving existing wire `agentId` values.
-- [ ] 2.3 Replace flat distribution fields with `CliDistributionDefinition`, source capabilities, platform support, channel metadata, package references, and trust policy.
+- [x] 2.2 Add validated value objects for tool, source, installation, action-plan, and bulk-plan ids while preserving existing wire `agentId` values.
+- [x] 2.3 Replace flat distribution fields with `CliDistributionDefinition`, source capabilities, platform support, channel metadata, package references, and trust policy.
 - [ ] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources.
-- [ ] 2.5 Add normalized installation, source confidence, PATH priority, executable status, and active-installation invariants.
-- [ ] 2.6 Add orthogonal discovery, authentication, readiness, compatibility, update, freshness, conflict, and overall-state values.
+- [x] 2.5 Add normalized installation, source confidence, PATH priority, executable status, and active-installation invariants.
+- [x] 2.6 Add orthogonal discovery, authentication, readiness, compatibility, update, freshness, conflict, and overall-state values.
 - [ ] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React.
 - [ ] 2.8 Add backend derivation of allowed actions, including the rule that current equals target produces no mutation.
 - [ ] 2.9 Add `CliActionPlan` invariants for exact source, target mode, revision, ten-minute expiry, snapshot fingerprint, single use, structured preview, and no fallback.
