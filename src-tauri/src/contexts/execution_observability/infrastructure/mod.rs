@@ -5,6 +5,7 @@ mod credential_adapter;
 mod evaluation_agent;
 mod evaluation_repository;
 mod evaluation_verifier;
+mod evidence;
 mod lifecycle;
 mod observability_repository;
 mod otel_telemetry;
@@ -21,6 +22,9 @@ mod storage_mapping;
 pub(crate) use evaluation_agent::{EvaluationDispatchRequest, NativeEvaluationAgentAdapter};
 pub(crate) use evaluation_repository::SqliteEvaluationRepository;
 pub(crate) use evaluation_verifier::{verify_static_acceptance, NativeEvaluationVerifierAdapter};
+pub(crate) use evidence::{
+    apply_evidence_schema, repair_missing_evidence_schema, SqliteEvidenceRepository,
+};
 pub(crate) use random_identity::RandomExecutionIdentity;
 pub(crate) use schema::apply_schema;
 pub(crate) use sqlite_repository::SqliteExecutionTimelineRepository;

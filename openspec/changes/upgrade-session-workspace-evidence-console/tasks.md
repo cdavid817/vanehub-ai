@@ -49,19 +49,19 @@ named below, and blocks only that task.
 - [x] 3.2 Enforce maximum safe-payload size, allowlisted fields, valid status/kind combinations, required session id, and fidelity invariants in domain constructors.
 - [x] 3.3 Add an application `RecordExecutionEvidence` use case and query use cases for summary, record page, record detail, and correlation counts.
 - [x] 3.4 Add narrow application ports for evidence repository, clock, id generation, redaction validation, post-commit notice publication, and gap diagnostics.
-- [ ] 3.5 Add an additive SQLite migration for `execution_evidence_events`, projection tables, coverage/gap metadata, and required indexes.
-- [ ] 3.6 Implement atomic event insert plus monotonic projection update; publish notices only after the transaction commits.
-- [ ] 3.7 Enforce idempotency through `(source_context, source_event_id)` and treat identical duplicates as success.
-- [ ] 3.8 Reject conflicting duplicate source ids, preserve the original row, mark affected coverage partial, and emit one rate-limited redacted diagnostic.
-- [ ] 3.9 Implement opaque query-bound keyset cursors using timestamp, sequence, id, version, and filter fingerprint.
-- [ ] 3.10 Reject a cursor reused with different filters as `cursor_filter_mismatch` without returning an unstable page.
+- [x] 3.5 Add an additive SQLite migration for `execution_evidence_events`, projection tables, coverage/gap metadata, and required indexes.
+- [x] 3.6 Implement atomic event insert plus monotonic projection update; publish notices only after the transaction commits.
+- [x] 3.7 Enforce idempotency through `(source_context, source_event_id)` and treat identical duplicates as success.
+- [x] 3.8 Reject conflicting duplicate source ids, preserve the original row, mark affected coverage partial, and emit one rate-limited redacted diagnostic.
+- [x] 3.9 Implement opaque query-bound keyset cursors using timestamp, sequence, id, version, and filter fingerprint.
+- [x] 3.10 Reject a cursor reused with different filters as `cursor_filter_mismatch` without returning an unstable page.
 - [ ] 3.11 Implement deterministic projection replay from journal events and a test-only projection reset/rebuild path.
 - [ ] 3.12 Add retention maintenance aligned with configured execution-timeline retention; delete expired projection rows consistently without per-event scans.
 - [ ] 3.13 Publish the narrow evidence recorder/query contract through `execution_observability::api` and keep repository/infrastructure modules private.
 - [ ] 3.14 Add Tauri commands and command-safe error mapping for evidence summary, record list, record detail, and subscription bootstrap data.
 - [ ] 3.15 Register new commands in the grouped command registry and add serialized DTO compatibility tests. This activates the evidence native methods added in 2.4: the production Tauri binding stops returning unavailable and invokes the registered commands, and the 2.6 conformance suite runs against those native cases. Report native methods stay typed unavailable until 10.8.
 - [x] 3.16 Add domain tests that run without Tauri, SQLite, filesystem, network, or process dependencies.
-- [ ] 3.17 Add SQLite infrastructure tests for migration from the current schema, transaction rollback, indexes, cursor stability, replay, and retention.
+- [x] 3.17 Add SQLite infrastructure tests for migration from the current schema, transaction rollback, indexes, cursor stability, replay, and retention.
 
 ## 4. Evidence Producer Integration and Coverage Gaps
 

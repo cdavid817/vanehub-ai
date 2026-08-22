@@ -504,7 +504,19 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "retire-plan-execution",
         crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration,
     )?;
+    // 81 is dense behind main's 80, but three other open branches also claim 81-84. Whichever
+    // runs first against a shared application database wins the version gate and this one is
+    // silently skipped, so the repair below re-asserts the schema instead of leaving a database
+    // whose history looks complete while `execution_evidence_events` is missing. Renumber on
+    // merge if one of those lands first.
+    apply_migration(
+        conn,
+        81,
+        "execution-evidence-journal",
+        crate::contexts::execution_observability::infrastructure::apply_evidence_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
+    crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -602,6 +614,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
+    (81, "execution-evidence-journal"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

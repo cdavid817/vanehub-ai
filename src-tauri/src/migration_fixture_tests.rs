@@ -20,9 +20,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
-/// nullable Agent Runner projections, and migration 80 retires standalone Plan execution.
+/// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
+/// migration 81 adds the execution evidence journal, its record projection, and coverage metadata.
 fn expected_versions() -> Vec<i64> {
-    (1..=80).collect()
+    (1..=81).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
