@@ -17,14 +17,46 @@ pub(crate) mod environment_discovery;
         reason = "assembled in bootstrap by task group 9; remove with that group"
     )
 )]
+pub(crate) mod environment_gateway;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
 pub(crate) mod environment_probe;
 mod executable_locator;
 mod native_config_reader;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod npm_source;
 mod package_adapter;
 mod process_adapter;
 mod runtime_adapters;
 mod sqlite_repository;
 mod support;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod vendor_source;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod winget_source;
 
 pub(crate) use detection_adapter::CliDetectionAdapter;
 pub(crate) use executable_locator::CliExecutableLocatorAdapter;

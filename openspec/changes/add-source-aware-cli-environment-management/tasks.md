@@ -56,17 +56,17 @@
 ## 5. Source adapters
 
 - [ ] 5.1 Add a source registry assembled in bootstrap; the application layer must not select concrete adapters.
-- [ ] 5.2 Implement the npm source adapter with source-native catalog lookup, exact target propagation, install/upgrade/downgrade/reinstall/uninstall capability checks, explicit arguments, cancellation, and bounded output.
-- [ ] 5.3 Add npm fixture tests proving the selected target version reaches the exact process arguments and that package names come only from the backend catalog.
-- [ ] 5.4 Implement the Windows-only WinGet source adapter with WinGet-native version lookup, exact target arguments when supported, install, upgrade, uninstall, and dynamic repair preflight.
-- [ ] 5.5 Keep WinGet downgrade and reinstall disabled until a separate verified capability is added.
-- [ ] 5.6 Add WinGet fixture tests for exact ids, exact target versions, localized/unparseable output, missing WinGet, unsupported repair, elevation reporting, and source errors.
-- [ ] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback.
-- [ ] 5.8 On Windows, reject Bash-only vendor definitions unless a future explicitly approved definition and preflight support it.
+- [x] 5.2 Implement the npm source adapter with source-native catalog lookup, exact target propagation, install/upgrade/downgrade/reinstall/uninstall capability checks, explicit arguments, cancellation, and bounded output.
+- [x] 5.3 Add npm fixture tests proving the selected target version reaches the exact process arguments and that package names come only from the backend catalog.
+- [x] 5.4 Implement the Windows-only WinGet source adapter with WinGet-native version lookup, exact target arguments when supported, install, upgrade, uninstall, and dynamic repair preflight.
+- [x] 5.5 Keep WinGet downgrade and reinstall disabled until a separate verified capability is added.
+- [x] 5.6 Add WinGet fixture tests for exact ids, exact target versions, localized/unparseable output, missing WinGet, unsupported repair, elevation reporting, and source errors.
+- [x] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback.
+- [x] 5.8 On Windows, reject Bash-only vendor definitions unless a future explicitly approved definition and preflight support it.
 - [ ] 5.9 Remove pipe-to-shell and `irm | iex` execution paths.
 - [ ] 5.10 Implement detect-only source summaries and guidance for Homebrew, Bun, Volta, desktop, system, manual, and unknown sources.
-- [ ] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities.
-- [ ] 5.12 Add a regression test proving vendor failure does not start npm.
+- [x] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities.
+- [x] 5.12 Add a regression test proving vendor failure does not start npm.
 
 ## 6. Provider probes and readiness
 
