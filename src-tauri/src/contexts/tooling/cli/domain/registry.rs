@@ -8,6 +8,7 @@ use super::definition::{
     NPM_CAPABILITIES, STABLE_CHANNEL_ONLY, VENDOR_CAPABILITIES, WINGET_CAPABILITIES,
 };
 use super::probe::{CliProbeAvailability, CliProbeCommand, CliProbeDefinition};
+use super::probe_interpretation::{CliAuthParser, CliDoctorParser};
 use super::source::{CliPlatform, CliSourceKind, CliTargetVersionMode, PlatformSet};
 use super::trust::{
     CliInstallerIntegrity, CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust,
@@ -134,11 +135,15 @@ const CLAUDE_CODE_PROBES: CliProbeDefinition = CliProbeDefinition {
     version: CliProbeCommand::version(&["--version"]),
     doctor: CliProbeAvailability::Supported(CliProbeCommand::diagnostic(&["doctor"], 30)),
     authentication: CliProbeAvailability::Undocumented,
+    authentication_parser: CliAuthParser::Undocumented,
+    doctor_parser: CliDoctorParser::ClaudeCodeDoctor,
 };
 
 const CODEX_PROBES: CliProbeDefinition = CliProbeDefinition {
     version: CliProbeCommand::version(&["--version"]),
     doctor: CliProbeAvailability::Undocumented,
+    doctor_parser: CliDoctorParser::Undocumented,
+    authentication_parser: CliAuthParser::CodexLoginStatus,
     authentication: CliProbeAvailability::Supported(CliProbeCommand::diagnostic(
         &["login", "status"],
         20,
@@ -148,6 +153,8 @@ const CODEX_PROBES: CliProbeDefinition = CliProbeDefinition {
 const OPENCODE_PROBES: CliProbeDefinition = CliProbeDefinition {
     version: CliProbeCommand::version(&["--version"]),
     doctor: CliProbeAvailability::Undocumented,
+    doctor_parser: CliDoctorParser::Undocumented,
+    authentication_parser: CliAuthParser::OpenCodeAuthList,
     // Parsed only into a normalized summary; the raw account list never reaches storage or the UI.
     authentication: CliProbeAvailability::Supported(CliProbeCommand::diagnostic(
         &["auth", "list"],

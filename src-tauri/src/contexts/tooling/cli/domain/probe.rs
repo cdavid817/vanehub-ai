@@ -7,6 +7,8 @@
 //! `authenticated` or `ready`. Reporting a CLI as logged in because no probe contradicted it is
 //! worse than admitting VaneHub cannot tell.
 
+use super::probe_interpretation::{CliAuthParser, CliDoctorParser};
+
 /// A bounded, read-only invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliProbeCommand {
@@ -72,6 +74,10 @@ pub(crate) struct CliProbeDefinition {
     pub(crate) version: CliProbeCommand,
     pub(crate) doctor: CliProbeAvailability,
     pub(crate) authentication: CliProbeAvailability,
+    /// How this tool's authentication output is read. Data, not an adapter conditional: a new
+    /// provider adds a row here rather than a branch inside a probe adapter.
+    pub(crate) authentication_parser: CliAuthParser,
+    pub(crate) doctor_parser: CliDoctorParser,
 }
 
 impl CliProbeDefinition {
@@ -81,6 +87,8 @@ impl CliProbeDefinition {
             version: CliProbeCommand::version(&["--version"]),
             doctor: CliProbeAvailability::Undocumented,
             authentication: CliProbeAvailability::Undocumented,
+            authentication_parser: CliAuthParser::Undocumented,
+            doctor_parser: CliDoctorParser::Undocumented,
         }
     }
 }

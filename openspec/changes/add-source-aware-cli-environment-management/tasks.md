@@ -82,13 +82,13 @@
 
 ## 6. Provider probes and readiness
 
-- [ ] 6.1 Move version, Doctor, and authentication probe definitions into the backend tool registry.
-- [ ] 6.2 Implement bounded Claude Code Doctor probing without persisting raw credential-like output.
-- [ ] 6.3 Implement bounded Codex login-status probing.
-- [ ] 6.4 Implement bounded OpenCode auth-list probing that returns only normalized authentication summary.
-- [ ] 6.5 Return explicit `unknown` Doctor/authentication state for Gemini CLI and Antigravity CLI until a safe documented non-interactive probe is implemented.
-- [ ] 6.6 Derive readiness from executable, authentication, compatibility, dependency, and Doctor results in the backend.
-- [ ] 6.7 Add parser fixtures for success, authentication required, expired/invalid state, unsupported command, timeout, malformed output, and secret redaction.
+- [x] 6.1 Move version, Doctor, and authentication probe definitions into the backend tool registry.
+- [x] 6.2 Implement bounded Claude Code Doctor probing without persisting raw credential-like output.
+- [x] 6.3 Implement bounded Codex login-status probing.
+- [x] 6.4 Implement bounded OpenCode auth-list probing that returns only normalized authentication summary.
+- [x] 6.5 Return explicit `unknown` Doctor/authentication state for Gemini CLI and Antigravity CLI until a safe documented non-interactive probe is implemented.
+- [x] 6.6 Derive readiness from executable, authentication, compatibility, dependency, and Doctor results in the backend.
+- [x] 6.7 Add parser fixtures for success, authentication required, expired/invalid state, unsupported command, timeout, malformed output, and secret redaction.
 
 ## 7. SQLite migration and repositories
 

@@ -7,7 +7,7 @@
 //! is re-derived, re-saved, or invalidated, so a single card refreshing cannot blank the page.
 
 use super::environment_error::CliEnvironmentError;
-use super::environment_ports::{CliCancellation, CliProbeBudget};
+use super::environment_ports::{CliCancellation, CliProbeBudget, CliProbeOutcome};
 use super::environment_service::CliEnvironmentService;
 use crate::contexts::tooling::cli::domain::action::{
     derive_allowed_actions, CliActionContext, CliAllowedAction,
@@ -22,6 +22,9 @@ use crate::contexts::tooling::cli::domain::installation::{
     select_active, ActiveSelection, CliInstallation,
 };
 use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
+use crate::contexts::tooling::cli::domain::probe_interpretation::{
+    interpret_authentication, interpret_doctor, CliDoctorVerdict, CliProbeReading,
+};
 use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
 use crate::contexts::tooling::cli::domain::source::{
     CliPlatform, CliSourceConfidence, CliSourceSummary,
@@ -191,6 +194,12 @@ impl CliEnvironmentService {
         let active_version = active_installation.and_then(|i| i.reported_version.clone());
         let active_source = active_installation.and_then(|i| i.source_id.clone());
 
+        // Readiness probes run against the installation VaneHub would act on, before the catalog
+        // work, so an unauthenticated tool is known to be unauthenticated even if the source is
+        // unreachable.
+        let readiness_probes =
+            self.run_readiness_probes(definition, active_installation, operation_id, cancellation)?;
+
         self.ports.operations.report_phase(
             operation_id,
             CliOperationPhase::QueryingCatalog,
@@ -247,13 +256,16 @@ impl CliEnvironmentService {
         snapshot.sources = sources;
         snapshot.allowed_actions = allowed_actions;
         snapshot.compatibility = compatibility_for(definition, active_version.as_ref());
-        // Authentication needs its own probe (task group 6); until one runs, unknown is the
-        // truthful answer rather than an assumption either way.
-        snapshot.authentication = CliAuthenticationStatus::Unknown;
+        snapshot.authentication = readiness_probes.authentication;
         snapshot.freshness = CliFreshness::Fresh;
         snapshot.checked_at = Some(self.ports.clock.now());
         snapshot.last_operation_id = Some(operation_id.to_string());
-        Ok(snapshot.recompute_derived(false, false))
+        // Readiness is derived in the backend from the executable, authentication, compatibility,
+        // and Doctor results together -- never assembled by the frontend from separate fields.
+        Ok(snapshot.recompute_derived(
+            readiness_probes.missing_dependency,
+            readiness_probes.doctor.reports_problem(),
+        ))
     }
 
     fn discover_and_probe(
@@ -303,6 +315,57 @@ impl CliEnvironmentService {
             }
         }
         Ok(installations)
+    }
+
+    /// Runs the read-only Doctor and authentication probes a tool declares, and normalizes them.
+    ///
+    /// Nothing here concludes anything from silence: a tool with no declared probe, a timeout, or a
+    /// cancellation all leave the state `Unknown`. The probe adapter has already bounded and
+    /// redacted the output, and the interpretation returns an enum, so no fragment of what a
+    /// provider printed reaches the snapshot.
+    fn run_readiness_probes(
+        &self,
+        definition: &'static CliToolDefinition,
+        active: Option<&CliInstallation>,
+        operation_id: &str,
+        cancellation: &CliCancellation,
+    ) -> Result<ReadinessProbes, CliEnvironmentError> {
+        let Some(installation) = active.filter(|installation| installation.is_runnable()) else {
+            // Nothing runnable to ask. A missing dependency is equally unknowable here.
+            return Ok(ReadinessProbes::unknown());
+        };
+
+        let mut probes = ReadinessProbes::unknown();
+        if let Some(command) = definition.probes.authentication.command() {
+            self.ports.operations.report_phase(
+                operation_id,
+                CliOperationPhase::RunningDoctor,
+                true,
+            )?;
+            let outcome = self.ports.probes.run_probe(
+                &installation.executable_path,
+                command,
+                cancellation,
+            )?;
+            probes.authentication = interpret_authentication(
+                definition.probes.authentication_parser,
+                reading_of(&outcome),
+            );
+        }
+        if let Some(command) = definition.probes.doctor.command() {
+            self.ports.operations.report_phase(
+                operation_id,
+                CliOperationPhase::RunningDoctor,
+                true,
+            )?;
+            let outcome = self.ports.probes.run_probe(
+                &installation.executable_path,
+                command,
+                cancellation,
+            )?;
+            probes.doctor = interpret_doctor(definition.probes.doctor_parser, reading_of(&outcome));
+        }
+        Ok(probes)
     }
 
     /// One catalog per actionable distribution, cached until it expires.
@@ -452,6 +515,40 @@ impl CliEnvironmentService {
             .iter()
             .map(|agent_id| self.resolve_tool(agent_id))
             .collect()
+    }
+}
+
+/// Normalized results of the read-only readiness probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReadinessProbes {
+    authentication: CliAuthenticationStatus,
+    doctor: CliDoctorVerdict,
+    missing_dependency: bool,
+}
+
+impl ReadinessProbes {
+    /// Nothing was asked, so nothing is known. Never a claim of readiness.
+    fn unknown() -> Self {
+        Self {
+            authentication: CliAuthenticationStatus::Unknown,
+            doctor: CliDoctorVerdict::Unknown,
+            // No dependency probe exists yet; asserting one is missing would be a finding VaneHub
+            // has not made.
+            missing_dependency: false,
+        }
+    }
+}
+
+/// Narrows a probe outcome to the bounded facts a parser may see.
+fn reading_of(outcome: &CliProbeOutcome) -> CliProbeReading<'_> {
+    CliProbeReading {
+        exit_code: outcome.exit_code,
+        timed_out: outcome.timed_out,
+        // The probe adapter reports a cancelled probe as an unstartable one, so there is no
+        // separate flag to forward here.
+        cancelled: false,
+        stdout: &outcome.stdout,
+        stderr: &outcome.stderr,
     }
 }
 

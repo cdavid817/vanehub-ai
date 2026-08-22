@@ -35,6 +35,9 @@ pub(crate) mod environment_planning;
     )
 )]
 pub(crate) mod environment_ports;
+#[cfg(test)]
+#[path = "environment_readiness_tests.rs"]
+mod environment_readiness_tests;
 #[cfg_attr(
     not(test),
     expect(

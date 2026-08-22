@@ -88,6 +88,14 @@ pub(crate) mod probe;
         reason = "consumed by the CLI application service in task group 3; remove with that group"
     )
 )]
+pub(crate) mod probe_interpretation;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
 pub(crate) mod registry;
 #[cfg_attr(
     not(test),

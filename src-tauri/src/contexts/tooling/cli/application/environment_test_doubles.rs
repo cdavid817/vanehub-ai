@@ -198,6 +198,35 @@ impl FakeProbes {
     pub(super) fn invocations(&self) -> Vec<(String, Vec<String>)> {
         self.calls.lock().expect("calls").clone()
     }
+
+    /// Response for one specific command against one path.
+    ///
+    /// Needed because a refresh now runs several probes against the same executable -- `--version`
+    /// and then `login status` -- and keying only by path would hand the auth parser the version
+    /// output.
+    pub(super) fn set_command_output(
+        &self,
+        path: &str,
+        args: &[&str],
+        exit_code: Option<i32>,
+        stdout: &str,
+    ) {
+        self.outcomes.lock().expect("outcomes").insert(
+            command_key(path, args),
+            CliProbeOutcome {
+                exit_code,
+                timed_out: false,
+                stdout: stdout.to_string(),
+                stderr: String::new(),
+                truncated: false,
+            },
+        );
+    }
+}
+
+/// Keys a configured response to an exact command, distinct from the bare-path fallback.
+fn command_key(path: &str, args: &[&str]) -> String {
+    format!("{path}\u{1}{}", args.join(" "))
 }
 
 impl CliProbePort for FakeProbes {
@@ -211,11 +240,11 @@ impl CliProbePort for FakeProbes {
             executable_path.to_string(),
             command.args.iter().map(|arg| (*arg).to_string()).collect(),
         ));
-        Ok(self
-            .outcomes
-            .lock()
-            .expect("outcomes")
-            .get(executable_path)
+        let outcomes = self.outcomes.lock().expect("outcomes");
+        // An exact command match wins; the bare path is the fallback the version probe uses.
+        Ok(outcomes
+            .get(&command_key(executable_path, command.args))
+            .or_else(|| outcomes.get(executable_path))
             .cloned()
             .unwrap_or(CliProbeOutcome {
                 exit_code: Some(1),
