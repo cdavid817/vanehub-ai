@@ -35,8 +35,31 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 由 `add-local-composer-media-tools` 从 19234 上调 351 行,全部是新增服务边界的固定开销,没有一行
+// 是复制既有分支:
+//   +60  `local-media-service.ts`——接口本身,15 个方法加注释;
+//   +114 `tauri-local-media-client.ts`——每个方法一次 `invoke`,外加原生文件选择器那一处
+//        (它必须留在服务层:React 层禁止 import `@tauri-apps/*`,而 OCR 需要一个文件选择器,
+//        仓库此前只有目录选择器);
+//   +154 `web-local-media-client.ts`——比其他 Web mock 长,因为它不能模拟成功。三个引擎的
+//        disabled profile 与 unavailable status 必须逐字段写全,页面才能在浏览器里渲染出真实布局
+//        并如实说明"仅桌面端可用";
+//   +13   `runtime-local-media-client.ts`——与 `runtime-ssh-connection-client.ts` 同构的绑定层;
+//   +10   `local-media-service.contract.test.ts` 不计入(测试文件不在 productionFiles 内)。
+// 上限取实测值,不预留余量。
+// 同一变更再上调 20 行:设置页需要为模型路径字段调起原生选择器,而 React 层不得 import
+// `@tauri-apps/*`,于是 `selectProfilePath` 只能落在服务边界上——接口 8 行(含说明为何设置页持有
+// 真实路径仍不算越界)、Tauri 侧 4 行、Web 侧 8 行(浏览器给不出宿主路径,返回 null 并写明理由,
+// 而不是让用户手填一条注定不可达的路径)。
+// 再上调 8 行:E2E fake 的接线落在 `runtime-local-media-client.ts`。fake 本体在 `src/testing/`
+// 不计入本预算,这里只有一个构建期常量分支加解释它为何是构建期而非运行时的注释——运行时开关会在
+// 已发布的构建里留下一个可以被打开的入口,而构建期常量在产物中根本不存在。
+// 再上调 25 行:桌面 fixture 需要替换「文件选择器返回了哪个文件」这一个边界,于是
+// `tauri-local-media-client.ts` 多出一个 `chooseOcrSource`——4 行逻辑加 17 行注释,说明为什么
+// 只替换选择结果、为什么 fail-closed 在原生侧而不在这里,以及为什么普通 Desktop Smoke 用同一个
+// 构建却必须仍然走真实对话框。选择之后的嗅探、限额、staging、one-time claim 与清理一行未改。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19234, owner: "improve-workspace-ui-ergonomics" },
+  { root: "src/services", budget: 19638, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([

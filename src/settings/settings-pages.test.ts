@@ -14,6 +14,7 @@ describe("settingsPages", () => {
       "personalization",
       "prompt-hooks",
       "expert-roles",
+      "local-media",
       "providers",
       "extensions",
       "plugins",
@@ -26,7 +27,7 @@ describe("settingsPages", () => {
     ]);
   });
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(19);
+    expect(settingsPages).toHaveLength(20);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });

@@ -8,7 +8,7 @@ describe("frontend feature module boundaries", () => {
     const loaders = read("settings/settings-page-loaders.ts");
     const pages = read("settings/settings-pages.ts");
     const pageModules = loaders.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
-    expect(pageModules).toHaveLength(19);
+    expect(pageModules).toHaveLength(20);
     expect(loaders).not.toMatch(/from "\.\/pages\//);
     expect(pages).not.toMatch(/from "\.\/pages\//);
   });

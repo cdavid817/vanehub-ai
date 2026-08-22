@@ -30,6 +30,7 @@ mod events;
 mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
+mod local_media_ocr_adapter;
 mod local_model_discovery;
 mod local_runner;
 mod loop_execution_coordinator;
@@ -121,6 +122,7 @@ pub(crate) use expert_role_repository::{
     BuiltinAwareExpertRoleRepository, SqliteExpertRoleRepository,
 };
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
+pub(crate) use local_media_ocr_adapter::LocalMediaOcrAdapter;
 pub(crate) use local_model_discovery::HttpLocalModelDiscoveryAdapter;
 pub(crate) use local_runner::LocalRunner;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;

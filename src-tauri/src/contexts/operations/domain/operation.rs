@@ -9,6 +9,12 @@ pub enum OperationKind {
     Agent,
     Workspace,
     Extension,
+    /// Local OCR, transcription, synthesis, and engine probes. The finer distinction between them
+    /// is `local_media`'s own `local-media.*` kind, which travels in the operation message key
+    /// rather than here: this enum is the coarse routing category every generic operation consumer
+    /// switches on, and widening it per media action would make every one of them care.
+    #[serde(rename = "local-media")]
+    LocalMedia,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

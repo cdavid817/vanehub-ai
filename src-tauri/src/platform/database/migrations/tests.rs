@@ -316,7 +316,7 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (79, 80));
+    assert_eq!(migration_state, (80, 81));
 
     migrate(&connection).expect("upgrade migration");
 

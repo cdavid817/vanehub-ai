@@ -32,8 +32,12 @@
     "targets": ["nsis", "app", "dmg", "deb", "appimage"],
     "resources": [
       "resources/skills/system/**/*",
+      "resources/local-media-worker/vane_local_media_worker/**/*",
       "../scripts/onepiece-playwright-sidecar.mjs"
     ],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "icon": [
       "icons/generated/32x32.png",
       "icons/generated/128x128.png",

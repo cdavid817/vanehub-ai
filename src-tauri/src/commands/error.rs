@@ -63,6 +63,18 @@ impl CommandError {
         }
     }
 
+    /// For errors whose entire user-facing content is a stable code the frontend localizes.
+    ///
+    /// The message is the code and nothing else -- no prefix, no punctuation -- because the
+    /// frontend matches it exactly. `validation()` and `storage()` both decorate their input, which
+    /// would turn `MODEL_NOT_FOUND` into a string no locale table has a key for.
+    pub(crate) fn stable_code(category: CommandErrorCategory, code: &str) -> Self {
+        Self {
+            category,
+            message: code.to_string(),
+        }
+    }
+
     /// For lower-layer messages forwarded verbatim that may carry absolute filesystem paths
     /// or provider diagnostics (e.g. `CliError::Internal`, `SdkError::Package`,
     /// `SessionsError::Repository`). Applied at the `From` boundary rather than at the
@@ -787,6 +799,62 @@ impl From<PromptHookError> for CommandError {
                 message: format!("database error: {message}"),
             },
         }
+    }
+}
+
+impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandError {
+    /// The message is the stable code verbatim.
+    ///
+    /// Local media localizes every user-facing string from that code, so decorating it -- as
+    /// `validation()` and `storage()` do for their own callers -- would produce a value no locale
+    /// catalog has a key for. The `safeDetails` the domain error carries stop here: this contract
+    /// serializes to a bare string, and field-level settings feedback is served by the separate
+    /// profile-validation command instead of being smuggled through an error message.
+    fn from(error: crate::contexts::local_media::domain::LocalMediaError) -> Self {
+        use crate::contexts::local_media::domain::LocalMediaErrorCode as Code;
+        let category = match error.code() {
+            Code::EngineUnconfigured
+            | Code::ModelNotConfigured
+            | Code::DeviceConfigurationInvalid
+            | Code::TtsTextTooLong
+            | Code::UnsupportedMediaType
+            | Code::InputTooLarge
+            | Code::PdfPageLimitExceeded
+            | Code::ImagePixelLimitExceeded
+            | Code::RecordingTooShort => CommandErrorCategory::Validation,
+            Code::InputNotFound
+            | Code::RecordingNotFound
+            | Code::ModelNotFound
+            | Code::PythonNotFound
+            | Code::OperationResultExpired => CommandErrorCategory::NotFound,
+            Code::ProfileRevisionConflict
+            | Code::RecordingAlreadyActive
+            | Code::EngineBusy
+            | Code::OperationCancelled => CommandErrorCategory::Conflict,
+            Code::LocalMediaNativeOnly | Code::LocalMediaDisabled | Code::EngineDisabled => {
+                CommandErrorCategory::Unsupported
+            }
+            Code::EngineUnavailable
+            | Code::EngineImportFailed
+            | Code::EngineVersionUnsupported
+            | Code::ModelIncompatible
+            | Code::ModelDownloadBlocked
+            | Code::MicPermissionDenied
+            | Code::MicDeviceUnavailable
+            | Code::PlaybackDeviceUnavailable
+            | Code::PythonExecutionDenied
+            | Code::WorkerStartFailed
+            | Code::AudioCaptureStartFailed
+            | Code::AudioCaptureOverrun => CommandErrorCategory::Unavailable,
+            Code::TempStorageFailed
+            | Code::TempCleanupFailed
+            | Code::WorkerCrashed
+            | Code::WorkerProtocolError => CommandErrorCategory::Infrastructure,
+            Code::NoTextDetected | Code::NoSpeechDetected | Code::RecordingLimitReached => {
+                CommandErrorCategory::Internal
+            }
+        };
+        Self::stable_code(category, error.code().as_str())
     }
 }
 
