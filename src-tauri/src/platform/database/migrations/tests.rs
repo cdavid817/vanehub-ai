@@ -316,7 +316,18 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (79, 80));
+    // The fixture is built one migration short of the full history, so the count trails the list
+    // by one while the maximum version matches it. Both are derived, because hardcoding either
+    // makes every future migration fail this test for an unrelated reason.
+    let full_history = super::expected_migration_versions();
+    let latest = *full_history.last().expect("at least one migration");
+    assert_eq!(
+        migration_state,
+        (
+            i64::try_from(full_history.len()).expect("count fits") - 1,
+            latest
+        )
+    );
 
     migrate(&connection).expect("upgrade migration");
 
@@ -618,6 +629,42 @@ fn session_seat_migration_adds_the_column_and_leaves_existing_rows_readable() {
 /// those (version, name) rows — this guards against both drift in the constant and a
 /// silent version-number collision (the second migration claiming a number is skipped, so
 /// the recorded name would be the first's, not the expected one).
+#[test]
+fn migration_versions_are_unique_and_dense() {
+    // A duplicate number is the failure mode this guards. `apply_migration` is version-gated, so
+    // the *second* claimant is silently skipped -- its table is simply never created, and the
+    // symptom arrives much later as an opaque "no such table" at runtime. Two branches each adding
+    // "the next migration" is all it takes, and every worktree here shares one database file.
+    let versions = expected_migration_versions();
+
+    let mut sorted = versions.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        versions.len(),
+        "two migrations claim the same version; the second would never run"
+    );
+
+    assert_eq!(
+        versions, sorted,
+        "EXPECTED_MIGRATIONS is not in ascending order"
+    );
+    for (index, version) in versions.iter().enumerate() {
+        let expected = i64::try_from(index).expect("index fits") + 1;
+        assert_eq!(
+            *version, expected,
+            "migration history has a gap at position {index}"
+        );
+    }
+
+    let mut names: Vec<&str> = EXPECTED_MIGRATIONS.iter().map(|(_, name)| *name).collect();
+    let total = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), total, "two migrations share a name");
+}
+
 #[test]
 fn migration_sequence_matches_expected() {
     let connection = Connection::open_in_memory().expect("database");

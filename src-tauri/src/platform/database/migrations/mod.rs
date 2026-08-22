@@ -504,6 +504,24 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "retire-plan-execution",
         crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration,
     )?;
+    apply_transactional_migration(
+        conn,
+        81,
+        "cli-environment-snapshots",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_environment_snapshot_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        82,
+        "cli-version-catalogs",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_version_catalog_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        83,
+        "cli-action-plans",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_action_plan_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -521,6 +539,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
 /// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
 /// calls in `migrate` — the `migration_sequence_matches_expected` test guards against drift,
 /// and `assert_migration_history_is_dense` rejects a gapped history at startup.
+/// Every migration version, in order.
+///
+/// Exposed so tests can derive their expectations instead of hardcoding an upper bound that every
+/// new migration invalidates. Test-only: production reads `EXPECTED_MIGRATIONS` directly.
+#[cfg(test)]
+pub(crate) fn expected_migration_versions() -> Vec<i64> {
+    EXPECTED_MIGRATIONS
+        .iter()
+        .map(|(version, _)| *version)
+        .collect()
+}
+
 const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
@@ -602,6 +632,9 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
+    (81, "cli-environment-snapshots"),
+    (82, "cli-version-catalogs"),
+    (83, "cli-action-plans"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

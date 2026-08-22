@@ -92,16 +92,16 @@
 
 ## 7. SQLite migration and repositories
 
-- [ ] 7.1 Add versioned, additive migrations for `cli_environment_snapshots`, `cli_version_catalogs`, and `cli_action_plans` using the repository's next migration numbers.
-- [ ] 7.2 Add indexes for plan expiry/state and any bounded snapshot/catalog query paths.
-- [ ] 7.3 Store versioned JSON documents through explicit fallible row-to-domain mapping.
-- [ ] 7.4 Implement atomic snapshot writes and atomic bulk-plan plus item-plan creation.
-- [ ] 7.5 Implement atomic `draft -> executing` plan consumption before external execution admission.
-- [ ] 7.6 Implement plan terminal-state persistence and bounded expired-plan maintenance.
-- [ ] 7.7 Map a legacy `cli_tool_status` row to a stale new snapshot only when no authoritative snapshot exists.
-- [ ] 7.8 Preserve the legacy table and unrelated data; stop writing legacy rows after cutover.
-- [ ] 7.9 Add migration tests from an empty database, a representative old database, malformed legacy JSON, malformed new JSON, and interrupted plan states.
-- [ ] 7.10 Add failure-injection tests proving atomic writes roll back fully.
+- [x] 7.1 Add versioned, additive migrations for `cli_environment_snapshots`, `cli_version_catalogs`, and `cli_action_plans` using the repository's next migration numbers.
+- [x] 7.2 Add indexes for plan expiry/state and any bounded snapshot/catalog query paths.
+- [x] 7.3 Store versioned JSON documents through explicit fallible row-to-domain mapping.
+- [x] 7.4 Implement atomic snapshot writes and atomic bulk-plan plus item-plan creation.
+- [x] 7.5 Implement atomic `draft -> executing` plan consumption before external execution admission.
+- [x] 7.6 Implement plan terminal-state persistence and bounded expired-plan maintenance.
+- [x] 7.7 Map a legacy `cli_tool_status` row to a stale new snapshot only when no authoritative snapshot exists.
+- [ ] 7.8 Preserve the legacy table and unrelated data; stop writing legacy rows after cutover. — first half done and tested (`the_legacy_table_is_left_intact_alongside_the_new_ones`; the new repository never writes `cli_tool_status`). The second half cannot be true yet: the old commands are still wired and still write legacy rows, and removing them is task group 13. Ticking this now would claim a cutover that has not happened.
+- [x] 7.9 Add migration tests from an empty database, a representative old database, malformed legacy JSON, malformed new JSON, and interrupted plan states.
+- [x] 7.10 Add failure-injection tests proving atomic writes roll back fully.
 
 ## 8. Lifecycle execution, verification, and logging
 

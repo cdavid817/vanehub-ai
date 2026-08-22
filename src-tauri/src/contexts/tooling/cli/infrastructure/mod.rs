@@ -29,6 +29,24 @@ mod environment_platform_tests;
     )
 )]
 pub(crate) mod environment_probe;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+pub(crate) mod environment_repository;
+// Referenced by `platform::database::migrations`, so it has a production caller already.
+pub(crate) mod environment_schema;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
+mod environment_serde;
 mod executable_locator;
 mod native_config_reader;
 #[cfg_attr(

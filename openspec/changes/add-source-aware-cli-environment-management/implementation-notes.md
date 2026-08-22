@@ -104,6 +104,43 @@ Two known hazards, both previously observed in this repository:
 2. Adding a migration breaks hard-coded version-count assertions that neither the compiler nor
    clippy catches. Re-scan for those when the migrations land.
 
+### Re-verification of 81/82/83 (task group 7)
+
+Not taken on trust. `EXPECTED_MIGRATIONS` was parsed and checked mechanically: 83 entries, minimum
+1, maximum 83, dense, no duplicate version, no duplicate name — so before this change the table ran
+1..=80 with nothing free below 81.
+
+All 84 local and remote refs were then scanned for migrations at 81 or above:
+
+| Branch | Claims |
+| --- | --- |
+| `worktree-ocr`, `origin/worktree-ocr` | 81 `local-media-profiles` |
+| `worktree-workspace` | 81 `execution-evidence-journal` |
+| `worktree-skill-plugin-mcp` | 81–85 `extension-platform-*` |
+
+Three unmerged branches already claim 81, and one claims through 85. **The higher free range 86–88
+is nevertheless not usable**: `assert_migration_history_is_dense` (`migrations/mod.rs:639`) runs at
+every startup and rejects any gap in the recorded history, so a database at 1..=83 that then
+recorded 86 would refuse to boot. Density is a runtime invariant here, not a convention. 81/82/83 is
+therefore the only genuinely free contiguous range for this branch, and whichever of the four
+branches merges second must renumber — the collision is inherent to the shared-database design, not
+to this choice. Leaving 84/85 empty for `worktree-skill-plugin-mcp` would have been strictly worse:
+it would have broken both branches instead of one.
+
+`migration_versions_are_unique_and_dense` (`migrations/tests.rs:637`) asserts uniqueness, ascending
+order, density and name uniqueness over `EXPECTED_MIGRATIONS`, so a future collision fails a test
+rather than a user's startup.
+
+Four hard-coded assertions had to move to derived values, one more than the three found in the
+earlier round:
+
+| Location | Was | Now |
+| --- | --- | --- |
+| `migrations/tests.rs` `expected_versions()` | `(1..=80).collect()` | `expected_migration_versions()` |
+| `migrations/tests.rs` migration-count assertion | `assert_eq!(migration_count, 80)` | derived from the list |
+| `migrations/tests.rs` state assertion | `assert_eq!(migration_state, (79, 80))` | derived from the list |
+| `platform/database/mod.rs:330` | `assert_eq!(migration_count, 80)` | derived from the list |
+
 ## Confirmed defects, with source locations
 
 Each of the seven regressions named in the implementation brief exists in the current code:

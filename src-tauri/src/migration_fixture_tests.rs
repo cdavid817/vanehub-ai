@@ -21,8 +21,13 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
 /// nullable Agent Runner projections, and migration 80 retires standalone Plan execution.
+/// Derived from the migration list rather than hardcoded.
+///
+/// A literal upper bound here means every new migration breaks this file for a reason that has
+/// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --
+/// the failure only shows up as a mismatched vector at test time.
 fn expected_versions() -> Vec<i64> {
-    (1..=80).collect()
+    crate::platform::database::expected_migration_versions()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
