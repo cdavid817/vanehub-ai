@@ -41,8 +41,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 的带原因码拒绝。同一批改动里 `agent-service.ts` 是净减的——评审方法搬进了新的
 // `code-review-service.ts`,它因此退出 eslint 技术债清单,由全局 300 行规则接管。
 // 上限按实测值 19287 记录,不留余量。
+// 再次上调(同一 change,Task Group 2):证据服务是一条全新能力,不是把既有代码挪个位置。新增的
+// 692 行分成五个聚焦模块——service 接口、可注入的 native transport(含 typed unavailable 绑定)、
+// 序列去重/gap 检测的共享订阅语义、Tauri 客户端、Web/mock 客户端与其确定性 fixture。没有任何一份
+// 是对既有分支的复制:两个适配器实现同一个接口,这是 React 不直接 invoke 的前提;共享订阅语义写在
+// 一处,正是为了让两个运行时不会在订阅行为上漂移。上限按实测值 19979 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19287, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 19979, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

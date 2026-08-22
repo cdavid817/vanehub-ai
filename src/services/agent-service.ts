@@ -146,11 +146,13 @@ import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
 import type { CodeReviewService } from "./code-review-service";
+import type { SessionWorkspaceEvidenceService } from "./session-workspace-evidence-service";
 
 export interface AgentService extends
   ApiAgentService,
   BuiltinToolService,
   CodeReviewService,
+  SessionWorkspaceEvidenceService,
   CliConfigService,
   CliParameterService,
   CliToolService,

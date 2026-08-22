@@ -6,6 +6,7 @@
 - [x] 0.4 Record the current command names and serialized DTO shapes that must remain compatible during the migration.
 - [x] 0.5 Add or update architecture tests proving the change adds no Rust bounded-context directory and cross-context access uses published APIs or explicit ports.
 - [x] 0.6 Add failing frontend contract tests for the native `remote` Shell descriptor, effective seat query propagation, hunk-scoped decision mutation, and loaded-log preservation after a load-more failure.
+
 Tasks 0.7, 0.8, and 0.9 are deferred test gates. Each one is a test that can only pass once the
 group that owns its subject exists, so landing it here would leave the suite red for every
 intervening group rather than proving anything. Each is instead due immediately before the task
@@ -34,12 +35,12 @@ named below, and blocks only that task.
 
 - [x] 2.1 Add `src/types/session-workspace-evidence.ts` with branded/validated ids, fidelity, status, coverage, cursor-page, evidence-scope, target, record, summary, and report DTOs.
 - [x] 2.2 Add Zod transport schemas for new discriminated unions, opaque cursors, evidence notices, Shell frames, workspace capabilities, and report coverage.
-- [ ] 2.3 Add `SessionWorkspaceEvidenceService` as a focused frontend service interface and compose it through the existing application service injection path.
-- [ ] 2.4 Add Tauri adapter methods for evidence summary, record pages/details, evidence subscription, and session-run reports; keep all `invoke()` and native event APIs outside React. Group 2 implements only the injectable Tauri transport client, its serialization, schemas, and fixture transport. No method may call a command that is not yet registered: the production binding returns a stable typed unavailable reason code until its command exists. Evidence native methods are activated in 3.15; report native methods are activated in 10.8.
-- [ ] 2.5 Add deterministic Web/mock implementations with seeded ids, monotonic sequences, bounded pages, and explicit simulated side-effect metadata.
-- [ ] 2.6 Add one shared contract-conformance suite and run it against both Tauri serialization fixtures and the Web/mock implementation. In Group 2 the suite runs against the Web/mock implementation and the Tauri fixture transport. The same suite is re-run against the native evidence cases in 3.15 and against the native report cases in 10.8, so activation is proven by the cases that already exist rather than by new ones written after the fact.
+- [x] 2.3 Add `SessionWorkspaceEvidenceService` as a focused frontend service interface and compose it through the existing application service injection path.
+- [x] 2.4 Add Tauri adapter methods for evidence summary, record pages/details, evidence subscription, and session-run reports; keep all `invoke()` and native event APIs outside React. Group 2 implements only the injectable Tauri transport client, its serialization, schemas, and fixture transport. No method may call a command that is not yet registered: the production binding returns a stable typed unavailable reason code until its command exists. Evidence native methods are activated in 3.15; report native methods are activated in 10.8.
+- [x] 2.5 Add deterministic Web/mock implementations with seeded ids, monotonic sequences, bounded pages, and explicit simulated side-effect metadata.
+- [x] 2.6 Add one shared contract-conformance suite and run it against both Tauri serialization fixtures and the Web/mock implementation. In Group 2 the suite runs against the Web/mock implementation and the Tauri fixture transport. The same suite is re-run against the native evidence cases in 3.15 and against the native report cases in 10.8, so activation is proven by the cases that already exist rather than by new ones written after the fact.
 - [x] 2.7 Define centralized evidence query keys so session, seat, run, trace, span, operation, command, path, filters, and cursor cannot be omitted accidentally.
-- [ ] 2.8 Keep production service and adapter files within the project line-size rule by extracting evidence, Shell, log, and workspace-inspection clients as focused modules.
+- [x] 2.8 Keep production service and adapter files within the project line-size rule by extracting evidence, Shell, log, and workspace-inspection clients as focused modules.
 - [x] 2.9 Add synchronized locale keys for coverage states, fidelity, evidence record kinds, reason codes, and cross-panel actions in every registered locale.
 
 ## 3. Execution Evidence Domain, Schema, Repository, and API

@@ -136,6 +136,7 @@ import type {
 import type { SkillOverlayReconciliationPreview } from "../types/skill-overlay-reconciliation";
 import { normalizeSkillOverlayError } from "./skill-overlay-error";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
+import { tauriSessionWorkspaceEvidenceClient } from "./tauri-session-workspace-evidence-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
 import type {
@@ -961,6 +962,7 @@ export const tauriAgentClient: AgentService = {
 
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
+  ...tauriSessionWorkspaceEvidenceClient,
   async subscribeSessionEvents(handler) {
     return listen<unknown>("session:event", (event) => {
       if (isSessionStateEvent(event.payload)) handler(event.payload);
