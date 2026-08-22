@@ -16,6 +16,8 @@ pub(super) fn audio_host_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
+#[cfg(feature = "desktop-e2e")]
+pub(crate) mod fixtures;
 mod persistence;
 mod staging;
 mod support;
@@ -32,3 +34,5 @@ pub(crate) use support::{
 pub(crate) use workers::build_supervisor;
 #[cfg(test)]
 pub(crate) use workers::LOCAL_MEDIA_WORKER_PROTOCOL;
+#[cfg(feature = "desktop-e2e")]
+pub(crate) use workers::{build_supervisor_with_overlay, WorkerEnvironmentOverlay};

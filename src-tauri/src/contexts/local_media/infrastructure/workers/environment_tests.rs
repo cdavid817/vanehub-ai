@@ -1,4 +1,9 @@
 use super::*;
+use std::path::PathBuf;
+
+fn no_overlay() -> WorkerEnvironmentOverlay {
+    WorkerEnvironmentOverlay::default()
+}
 
 fn inherited() -> BTreeMap<String, String> {
     [
@@ -28,6 +33,7 @@ fn built() -> BTreeMap<String, String> {
         Path::new("/opt/vanehub/resources/local-media-worker"),
         Path::new("/tmp/local-media"),
         &inherited(),
+        &no_overlay(),
     )
 }
 
@@ -140,10 +146,57 @@ fn a_parent_with_no_variables_still_produces_a_usable_environment() {
         Path::new("/bridge"),
         Path::new("/tmp/local-media"),
         &BTreeMap::new(),
+        &no_overlay(),
     );
     assert_eq!(
         environment.get("HF_HUB_OFFLINE").map(String::as_str),
         Some("1")
     );
     assert!(!environment.contains_key("PATH"));
+}
+
+#[test]
+fn an_overlay_appends_after_the_bridge_and_never_displaces_it() {
+    let overlay = WorkerEnvironmentOverlay {
+        python_path_suffix: vec![PathBuf::from("/fixtures/python")],
+        variables: BTreeMap::from([("VANEHUB_FIXTURE".to_string(), "1".to_string())]),
+    };
+    let environment = worker_environment(
+        Path::new("/bridge"),
+        Path::new("/tmp/local-media"),
+        &inherited(),
+        &overlay,
+    );
+
+    let python_path = environment
+        .get("PYTHONPATH")
+        .map(String::as_str)
+        .unwrap_or_default();
+    // The real worker package must still win: a fixture root ahead of the bridge could shadow
+    // `vane_local_media_worker` itself, which would replace the very code under test.
+    assert!(python_path.starts_with("/bridge"));
+    assert!(python_path.contains("/fixtures/python"));
+    assert_eq!(
+        environment.get("VANEHUB_FIXTURE").map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
+fn an_overlay_cannot_widen_what_is_inherited_from_the_parent() {
+    let overlay = WorkerEnvironmentOverlay {
+        python_path_suffix: vec![PathBuf::from("/fixtures/python")],
+        variables: BTreeMap::new(),
+    };
+    let environment = worker_environment(
+        Path::new("/bridge"),
+        Path::new("/tmp/local-media"),
+        &inherited(),
+        &overlay,
+    );
+
+    // The allowlist still decides. An overlay adds names; it does not open the parent environment.
+    for leaked in ["ANTHROPIC_API_KEY", "AWS_SECRET_ACCESS_KEY", "all_proxy"] {
+        assert!(!environment.contains_key(leaked), "{leaked} leaked");
+    }
 }

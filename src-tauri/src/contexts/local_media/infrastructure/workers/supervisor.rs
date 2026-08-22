@@ -319,6 +319,9 @@ pub(crate) struct PythonWorkerLauncher {
     media_root: PathBuf,
     working_directory: PathBuf,
     handshake_timeout: Duration,
+    /// Empty in production. A test build appends its Python fixture root and scenario variable
+    /// here rather than anywhere in the launch logic, so the launch path itself stays identical.
+    overlay: super::environment::WorkerEnvironmentOverlay,
 }
 
 impl PythonWorkerLauncher {
@@ -332,7 +335,18 @@ impl PythonWorkerLauncher {
             media_root,
             working_directory,
             handshake_timeout: Duration::from_secs(30),
+            overlay: super::environment::WorkerEnvironmentOverlay::default(),
         }
+    }
+
+    /// Extend the worker environment. Only a `desktop-e2e` assembly calls this.
+    #[cfg(feature = "desktop-e2e")]
+    pub(crate) fn with_environment_overlay(
+        mut self,
+        overlay: super::environment::WorkerEnvironmentOverlay,
+    ) -> Self {
+        self.overlay = overlay;
+        self
     }
 }
 
@@ -352,6 +366,7 @@ impl WorkerLauncher for PythonWorkerLauncher {
             &self.media_root,
             &self.working_directory,
             &super::environment::current_environment(),
+            &self.overlay,
         )?);
         let session = WorkerSession::establish(
             engine,
@@ -375,6 +390,26 @@ pub(crate) fn build_supervisor(
             media_root,
             working_directory,
         )),
+        SupervisorPolicy::default(),
+    )
+}
+
+/// Assemble the supervisor with an extended worker environment.
+///
+/// Lives here rather than in bootstrap so that `SupervisorPolicy` and the supervisor constructor
+/// keep their production visibility: a test assembly should not be a reason to widen either.
+#[cfg(feature = "desktop-e2e")]
+pub(crate) fn build_supervisor_with_overlay(
+    bridge_root: PathBuf,
+    media_root: PathBuf,
+    working_directory: PathBuf,
+    overlay: super::environment::WorkerEnvironmentOverlay,
+) -> LocalMediaWorkerSupervisor {
+    LocalMediaWorkerSupervisor::new(
+        Arc::new(
+            PythonWorkerLauncher::new(bridge_root, media_root, working_directory)
+                .with_environment_overlay(overlay),
+        ),
         SupervisorPolicy::default(),
     )
 }

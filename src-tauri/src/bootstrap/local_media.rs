@@ -43,6 +43,28 @@ pub(crate) fn assemble_local_media_api(
         AdmissionLimits::HARD_CEILING,
     ));
 
+    // Only the hardware and interaction boundaries a headless runner cannot provide are swapped,
+    // and only when a `desktop-e2e` build is additionally asked at runtime. Everything between the
+    // command and the engine -- service, operations, temp store, supervisor, launcher, transport,
+    // protocol, cancellation -- is the same code in both assemblies.
+    #[cfg(feature = "desktop-e2e")]
+    if let Some(activation) =
+        crate::contexts::local_media::infrastructure::fixtures::fixture_activation()
+    {
+        return assemble_with_fixtures(
+            database,
+            operations_api,
+            diagnostics,
+            clock,
+            ids,
+            temp,
+            bridge_root,
+            media_root,
+            worker_cwd,
+            activation,
+        );
+    }
+
     LocalMediaApi::new(LocalMediaDependencies {
         repository: Arc::new(SqliteLocalMediaProfileRepository::new(
             database,
@@ -55,6 +77,61 @@ pub(crate) fn assemble_local_media_api(
         capture: Arc::new(CpalAudioCapture::new()),
         playback: Arc::new(RodioPlayback::new()),
         devices: Arc::new(CpalDeviceCatalog),
+        operations: Arc::new(OperationsApiBridge::new(operations_api)),
+        diagnostics: Arc::new(UnifiedLocalMediaDiagnostics::new(diagnostics)),
+    })
+}
+
+/// The `desktop-e2e` assembly: real everything, except the microphone, the speaker, and the device
+/// list. The supervisor is the production one, given an environment overlay that puts the test-only
+/// Python packages behind the real bridge on `PYTHONPATH`.
+#[cfg(feature = "desktop-e2e")]
+#[allow(clippy::too_many_arguments)]
+fn assemble_with_fixtures(
+    database: NativeDatabase,
+    operations_api: OperationsApi,
+    diagnostics: Arc<dyn DiagnosticLogPort>,
+    clock: Arc<SystemLocalMediaClock>,
+    ids: Arc<RandomIdFactory>,
+    temp: Arc<FilesystemMediaTempStore>,
+    bridge_root: PathBuf,
+    media_root: PathBuf,
+    worker_cwd: PathBuf,
+    activation: crate::contexts::local_media::infrastructure::fixtures::FixtureActivation,
+) -> LocalMediaApi {
+    use crate::contexts::local_media::infrastructure::fixtures::{
+        FixtureAudioCapture, FixtureAudioDeviceCatalog, FixtureAudioPlayback,
+    };
+    use crate::contexts::local_media::infrastructure::{
+        build_supervisor_with_overlay, WorkerEnvironmentOverlay,
+    };
+
+    let overlay = WorkerEnvironmentOverlay {
+        python_path_suffix: activation
+            .python_path_suffix()
+            .map(|path| vec![path.to_path_buf()])
+            .unwrap_or_default(),
+        variables: activation.worker_environment(),
+    };
+    let scenario = activation.scenario_file.clone();
+
+    LocalMediaApi::new(LocalMediaDependencies {
+        repository: Arc::new(SqliteLocalMediaProfileRepository::new(
+            database,
+            clock.clone(),
+        )),
+        clock,
+        ids,
+        temp,
+        workers: Arc::new(build_supervisor_with_overlay(
+            bridge_root,
+            media_root,
+            worker_cwd,
+            overlay,
+        )),
+        capture: Arc::new(FixtureAudioCapture::new(scenario.clone())),
+        playback: Arc::new(FixtureAudioPlayback::new(scenario.clone())),
+        devices: Arc::new(FixtureAudioDeviceCatalog::new(scenario)),
         operations: Arc::new(OperationsApiBridge::new(operations_api)),
         diagnostics: Arc::new(UnifiedLocalMediaDiagnostics::new(diagnostics)),
     })
@@ -85,3 +162,7 @@ pub(crate) fn worker_bridge_candidates(resource_dir: Option<PathBuf>) -> Vec<Pat
 #[cfg(test)]
 #[path = "local_media_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "local_media_fixture_boundary_tests.rs"]
+mod fixture_boundary_tests;

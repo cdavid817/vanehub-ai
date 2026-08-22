@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::environment::worker_environment;
+use super::environment::{worker_environment, WorkerEnvironmentOverlay};
 use super::protocol::{
     encode_control, encode_request, parse_response, request_params, validate_hello,
     MAX_REQUEST_FRAME_BYTES, MAX_RESPONSE_FRAME_BYTES,
@@ -212,6 +212,7 @@ impl ChildProcessTransport {
         media_root: &Path,
         working_directory: &Path,
         parent_environment: &BTreeMap<String, String>,
+        overlay: &WorkerEnvironmentOverlay,
     ) -> Result<Self, LocalMediaError> {
         let start_failed = || {
             LocalMediaError::new(LocalMediaErrorCode::WorkerStartFailed)
@@ -230,7 +231,7 @@ impl ChildProcessTransport {
             "--protocol".to_string(),
             "1".to_string(),
         ];
-        let environment = worker_environment(bridge_root, media_root, parent_environment);
+        let environment = worker_environment(bridge_root, media_root, parent_environment, overlay);
         let mut child = ManagedChild::spawn_isolated(
             python_executable,
             &args,

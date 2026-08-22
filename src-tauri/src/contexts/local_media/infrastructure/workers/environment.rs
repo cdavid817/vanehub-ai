@@ -6,7 +6,7 @@
 //! reach the network.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Names carried through from the parent. Everything here is needed to *start* an interpreter or to
 /// let it find its own standard library and temporary directory; none of it is application state.
@@ -45,6 +45,7 @@ pub(super) fn worker_environment(
     bridge_root: &Path,
     media_root: &Path,
     parent: &BTreeMap<String, String>,
+    overlay: &WorkerEnvironmentOverlay,
 ) -> BTreeMap<String, String> {
     let mut environment = BTreeMap::new();
     for name in INHERITED {
@@ -57,12 +58,15 @@ pub(super) fn worker_environment(
     environment.insert("HF_HUB_OFFLINE".to_string(), "1".to_string());
     environment.insert("TRANSFORMERS_OFFLINE".to_string(), "1".to_string());
 
-    // The bridge is the only thing on the path. Extending the parent's `PYTHONPATH` would let an
-    // unrelated entry shadow `vane_local_media_worker`.
-    environment.insert(
-        "PYTHONPATH".to_string(),
-        bridge_root.to_string_lossy().to_string(),
-    );
+    // The bridge comes first on the path. Extending the *parent's* `PYTHONPATH` would let an
+    // unrelated entry shadow `vane_local_media_worker`; the overlay is appended after the bridge,
+    // so a test build can substitute third-party packages without ever displacing the real worker.
+    let mut python_path = bridge_root.to_string_lossy().to_string();
+    for extra in &overlay.python_path_suffix {
+        python_path.push(SEPARATOR);
+        python_path.push_str(&extra.to_string_lossy());
+    }
+    environment.insert("PYTHONPATH".to_string(), python_path);
     environment.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
     environment.insert("PYTHONNOUSERSITE".to_string(), "1".to_string());
     environment.insert("PYTHONDONTWRITEBYTECODE".to_string(), "1".to_string());
@@ -73,7 +77,26 @@ pub(super) fn worker_environment(
         media_root.to_string_lossy().to_string(),
     );
 
+    for (name, value) in &overlay.variables {
+        environment.insert(name.clone(), value.clone());
+    }
+
     environment
+}
+
+#[cfg(windows)]
+const SEPARATOR: char = ';';
+#[cfg(not(windows))]
+const SEPARATOR: char = ':';
+
+/// Additions a test build may make to the worker environment.
+///
+/// Empty in every production assembly, and the allowlist above still decides what is inherited --
+/// this only adds, it cannot widen inheritance.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct WorkerEnvironmentOverlay {
+    pub(crate) python_path_suffix: Vec<PathBuf>,
+    pub(crate) variables: BTreeMap<String, String>,
 }
 
 /// Snapshot the current process environment in the shape `worker_environment` expects.
