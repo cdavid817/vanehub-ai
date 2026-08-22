@@ -16,6 +16,30 @@
         reason = "consumed by the CLI application service in task group 3; remove with that group"
     )
 )]
+pub(crate) mod action;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod bulk;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod catalog;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
 pub(crate) mod definition;
 #[cfg_attr(
     not(test),
@@ -33,6 +57,14 @@ pub(crate) mod ids;
     )
 )]
 pub(crate) mod installation;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the CLI application service in task group 3; remove with that group"
+    )
+)]
+pub(crate) mod plan;
 #[cfg_attr(
     not(test),
     expect(

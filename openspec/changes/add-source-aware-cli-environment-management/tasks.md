@@ -23,11 +23,11 @@
 - [ ] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources.
 - [x] 2.5 Add normalized installation, source confidence, PATH priority, executable status, and active-installation invariants.
 - [x] 2.6 Add orthogonal discovery, authentication, readiness, compatibility, update, freshness, conflict, and overall-state values.
-- [ ] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React.
-- [ ] 2.8 Add backend derivation of allowed actions, including the rule that current equals target produces no mutation.
-- [ ] 2.9 Add `CliActionPlan` invariants for exact source, target mode, revision, ten-minute expiry, snapshot fingerprint, single use, structured preview, and no fallback.
-- [ ] 2.10 Add `CliBulkActionPlan` and stable skipped-reason codes.
-- [ ] 2.11 Add pure domain tests for every status precedence, source capability, ordered/unordered version, action derivation, plan expiry, plan reuse, stale fingerprint, and bulk skip rule.
+- [ ] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React. (Rust half done: `domain/catalog.rs` binds every catalog to its tool and source, and `domain/version.rs` is the one comparison path. The React removal is task 10.8.)
+- [x] 2.8 Add backend derivation of allowed actions, including the rule that current equals target produces no mutation.
+- [x] 2.9 Add `CliActionPlan` invariants for exact source, target mode, revision, ten-minute expiry, snapshot fingerprint, single use, structured preview, and no fallback.
+- [x] 2.10 Add `CliBulkActionPlan` and stable skipped-reason codes.
+- [x] 2.11 Add pure domain tests for every status precedence, source capability, ordered/unordered version, action derivation, plan expiry, plan reuse, stale fingerprint, and bulk skip rule.
 
 ## 3. Application ports and use cases
 
