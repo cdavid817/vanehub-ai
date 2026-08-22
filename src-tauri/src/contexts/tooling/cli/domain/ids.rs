@@ -73,6 +73,22 @@ macro_rules! cli_identifier {
                 Ok(Self(value))
             }
 
+            /// Builds an identifier from a value this codebase produced itself.
+            ///
+            /// Validation exists to reject what came from outside -- a wire field, a stored row, a
+            /// user entry. A literal in this repository, or a string assembled here from ASCII
+            /// pieces, is not one of those. `expect`ing on such a value would put a panic in a
+            /// release binary to guard against a typo the test suite already catches, so the check
+            /// is a debug assertion instead: it fires in every test run and costs a user nothing.
+            pub(crate) fn trusted(value: impl Into<String>) -> Self {
+                let value = value.into();
+                debug_assert!(
+                    validate(&value, $label).is_ok(),
+                    concat!($label, " built in-tree is invalid")
+                );
+                Self(value)
+            }
+
             pub(crate) fn as_str(&self) -> &str {
                 &self.0
             }
@@ -105,6 +121,31 @@ cli_identifier!(CliBulkPlanId, "CLI bulk plan id");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_in_tree_identifier_would_also_pass_validation() {
+        // `trusted` skips the check in release builds, so the values this repository actually
+        // passes to it are asserted here instead. A literal that stopped being valid would
+        // otherwise only fail as a debug assertion on whoever ran the app next.
+        for source in ["npm", "winget", "vendor"] {
+            assert_eq!(
+                CliSourceId::trusted(source),
+                CliSourceId::new(source).expect("valid")
+            );
+        }
+        for installation in ["i-unknown", "legacy"] {
+            assert_eq!(
+                CliInstallationId::trusted(installation),
+                CliInstallationId::new(installation).expect("valid")
+            );
+        }
+        // The generated shape the id factory produces.
+        let generated = format!("cli-plan-1-{}", uuid::Uuid::nil());
+        assert_eq!(
+            CliActionPlanId::trusted(generated.clone()),
+            CliActionPlanId::new(generated).expect("valid")
+        );
+    }
 
     #[test]
     fn stable_agent_ids_are_accepted_unchanged() {

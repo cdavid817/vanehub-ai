@@ -988,7 +988,7 @@ pub(super) fn legacy_row_to_stale_snapshot(
     let mut snapshot = CliEnvironmentSnapshot::never_scanned(agent_id, fingerprint.to_string());
     if let Some(path) = detected_path.filter(|path| !path.trim().is_empty()) {
         let id = CliInstallationId::new(format!("legacy-{}", path.len()))
-            .unwrap_or_else(|_| CliInstallationId::new("legacy").expect("static id"));
+            .unwrap_or_else(|_| CliInstallationId::trusted("legacy"));
         snapshot.installations = vec![CliInstallation {
             id: id.clone(),
             executable_path: path,

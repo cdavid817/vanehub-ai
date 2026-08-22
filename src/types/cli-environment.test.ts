@@ -117,7 +117,9 @@ describe("CLI environment contract", () => {
       warning: true,
     };
 
-    expect(result.outcome satisfies CliMutationOutcome).toBe("applied-unverified");
+    // Nullable now: an operation that never reached a process has no outcome, and inventing one
+    // would claim something about a machine nothing touched.
+    expect(result.outcome satisfies CliMutationOutcome | null).toBe("applied-unverified");
     expect(CLI_MUTATION_OUTCOMES).toContain(result.outcome);
     // A result records the source that ran, so a UI can state it without inferring one.
     expect(result.sourceId).toBe("npm");

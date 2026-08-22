@@ -83,7 +83,7 @@ impl VendorSource {
     }
 
     fn source_id_value() -> CliSourceId {
-        CliSourceId::new("vendor").expect("static source id")
+        CliSourceId::trusted("vendor")
     }
 
     /// The template for this host, or an error naming the platform.

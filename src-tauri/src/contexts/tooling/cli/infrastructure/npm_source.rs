@@ -44,7 +44,7 @@ impl NpmSource {
     }
 
     fn source_id_value() -> CliSourceId {
-        CliSourceId::new("npm").expect("static source id")
+        CliSourceId::trusted("npm")
     }
 
     /// npm is invoked by name so the platform layer resolves it, rather than by a path this module

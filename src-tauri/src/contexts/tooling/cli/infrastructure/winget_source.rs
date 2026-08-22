@@ -52,7 +52,7 @@ impl WingetSource {
     }
 
     fn source_id_value() -> CliSourceId {
-        CliSourceId::new("winget").expect("static source id")
+        CliSourceId::trusted("winget")
     }
 
     fn package_id(

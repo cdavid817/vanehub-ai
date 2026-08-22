@@ -69,11 +69,14 @@ impl UuidCliIdFactory {
 
 impl CliIdFactory for UuidCliIdFactory {
     fn next_plan_id(&self) -> CliActionPlanId {
-        CliActionPlanId::new(self.next("cli-plan")).expect("generated plan id is well formed")
+        // Built here from an ASCII prefix, a counter, and a UUID, so it cannot violate the id
+        // invariant. Falling back to a fixed literal on a validation failure would be worse than
+        // trusting it: two plans sharing an id break the single-use guarantee.
+        CliActionPlanId::trusted(self.next("cli-plan"))
     }
 
     fn next_bulk_plan_id(&self) -> CliBulkPlanId {
-        CliBulkPlanId::new(self.next("cli-bulk")).expect("generated bulk plan id is well formed")
+        CliBulkPlanId::trusted(self.next("cli-bulk"))
     }
 }
 

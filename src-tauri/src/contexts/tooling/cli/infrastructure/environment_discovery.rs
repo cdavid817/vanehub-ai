@@ -275,7 +275,7 @@ fn installation_id(path: &str) -> CliInstallationId {
         sanitized
     };
     CliInstallationId::new(format!("i-{trimmed}"))
-        .unwrap_or_else(|_| CliInstallationId::new("i-unknown").expect("static id"))
+        .unwrap_or_else(|_| CliInstallationId::trusted("i-unknown"))
 }
 
 /// Classifies a path into a source and how much that classification is worth.
