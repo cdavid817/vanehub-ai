@@ -1240,6 +1240,20 @@ A row that no longer parses — key material that is not 32 bytes, an unknown so
 
 The publisher-key table (`extension_platform_publisher_keys`, migration 83) lands here rather than in task 3.1, because 2.4 comes first in the required order and needs somewhere to write. Task 3.1 covers the remaining tables and must not add a second one for keys.
 
+### Unsigned content and Developer Mode (Task 2.5)
+
+**Developer Mode is not an eighth capability gate.** The seven gates say which parts of the Extension Platform are compiled and switched on; this says whether content with no provenance may be installed at all. Filing an admission policy behind a rollout switch would conflate two different questions, and the gate enum is deliberately closed. It gets its own single-row table and audit trail (migration 84).
+
+Three rules the code encodes rather than documents:
+
+* **Unsigned is refused, not warned about.** A default that admits and warns is a default that admits.
+* **Developer Mode admits unsigned, never forged.** A package whose signature is present and wrong is not unsigned content; it is content someone tried to make look signed. `admit_package` refuses `Unreadable` and `Rejected` under either mode, so the switch is exactly as dangerous as it reads and no more.
+* **Developer Mode changes admission and nothing else.** `AdmittedPackage` has no field that could carry a limit, a permission, or a ceiling. Archive, path, compatibility, Permissions, Hook, rule, connector, logging, and runtime limits are decided elsewhere and are unreachable from this decision — which is a property of the type, not a promise in a comment.
+
+What an admitted unsigned package gets is fixed: installed disabled, the Strict profile, a persistent `unsigned_content` warning, no automatic updates, and no activation at startup. Turning Developer Mode off later uninstalls nothing and deletes no evidence; `activation_eligibility` reports the extension ineligible for *new* activation until it is signed and trusted or the switch is explicitly turned on again.
+
+Two fail-closed properties on the switch itself. A read that cannot be answered — no row, a storage failure, an unparseable value — is `Off`, because the alternative is a database problem quietly admitting content with no provenance. And a change nobody can see did not happen: the audit write is part of the change, so a switch that flipped without a record is reported as a failure.
+
 ### Portable package paths
 
 Manifest paths are validated as a `PortablePackagePath` value object before any filesystem type sees them. The raw string is checked *first*, because `Path::components()` silently treats a backslash as an ordinary filename character on Unix — a traversal spelled `..\..\etc` passes component analysis on a Linux CI runner while failing on Windows. Backslashes, NUL, absolute paths, drive prefixes, UNC prefixes, empty segments, `.`, and `..` are rejected on the raw string. An invalid path is refused, never silently normalized into a valid-looking one.

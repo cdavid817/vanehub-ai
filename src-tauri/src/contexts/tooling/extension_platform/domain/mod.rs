@@ -35,6 +35,9 @@ mod manifest_tests;
 mod network_origin;
 #[cfg(test)]
 mod network_origin_tests;
+mod package_admission;
+#[cfg(test)]
+mod package_admission_tests;
 mod package_path;
 #[cfg(test)]
 mod package_path_tests;
@@ -43,6 +46,8 @@ mod publisher_key_admission;
 #[cfg(test)]
 mod publisher_key_tests;
 mod signature_envelope;
+#[cfg(test)]
+mod signature_test_support;
 #[cfg(test)]
 mod signature_tests;
 mod signature_verification;
@@ -107,6 +112,12 @@ pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PA
 
 // Package provenance (Task 2.3). Verification is a pure function of bytes and lives here; finding
 // the key is a lookup against stored trust and lives behind an application port.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use package_admission::{
+    activation_eligibility, admit_package, all_developer_mode_errors, ActivationEligibility,
+    AdmissionRefusal, AdmittedPackage, DeveloperMode, DeveloperModeError, PackageAdmission,
+    PersistentWarning, ALL_ADMISSION_REFUSALS,
+};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_key::{
     parse_publisher_key_material, PublisherKeyFingerprint, PublisherKeyLabel, PublisherKeyRecord,

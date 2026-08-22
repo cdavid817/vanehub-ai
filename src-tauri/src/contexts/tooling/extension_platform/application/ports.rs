@@ -1,8 +1,10 @@
 //! Consuming-side contracts for capability-gate state and publisher trust.
 
+use super::developer_mode::DeveloperModeView;
 use crate::contexts::tooling::extension_platform::domain::{
-    ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError, PrerequisiteReason,
-    PublisherKeyFingerprint, PublisherKeyRecord, TrustedPublisherKey,
+    DeveloperMode, DeveloperModeError, ExtensionPlatformFeature, FeatureGateDegradation,
+    FeatureGateError, PrerequisiteReason, PublisherKeyFingerprint, PublisherKeyRecord,
+    TrustedPublisherKey,
 };
 
 /// One gate's persisted desired state. Storage holds nothing derived: build availability comes
@@ -117,6 +119,39 @@ pub(crate) trait TrustedPublisherKeyRepository: Send + Sync {
         revoked_at: &str,
         reason: Option<&str>,
     ) -> Result<(), String>;
+}
+
+/// An append-only record of one Developer Mode change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeveloperModeAuditEntry {
+    pub(crate) previous_enabled: bool,
+    pub(crate) new_enabled: bool,
+    pub(crate) revision: i64,
+    pub(crate) recorded_at: String,
+    pub(crate) actor: String,
+    pub(crate) reason: Option<String>,
+}
+
+/// Where the Developer Mode switch is kept.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait DeveloperModeRepository: Send + Sync {
+    /// The stored switch. A build with nothing stored reports `Off` at revision 0, which is also
+    /// what a fresh install must have.
+    fn load(&self) -> Result<DeveloperModeView, DeveloperModeError>;
+
+    fn store(
+        &self,
+        mode: DeveloperMode,
+        revision: i64,
+        updated_at: &str,
+        updated_by: &str,
+        reason: Option<&str>,
+    ) -> Result<DeveloperModeView, DeveloperModeError>;
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait DeveloperModeAuditSink: Send + Sync {
+    fn record(&self, entry: &DeveloperModeAuditEntry) -> Result<(), DeveloperModeError>;
 }
 
 /// Process-level overrides that outrank operator intent — a safety kill applied without editing

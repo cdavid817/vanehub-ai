@@ -522,6 +522,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "extension-platform-publisher-keys",
         crate::contexts::tooling::extension_platform::infrastructure::apply_publisher_key_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        84,
+        "extension-platform-developer-mode",
+        crate::contexts::tooling::extension_platform::infrastructure::apply_developer_mode_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -623,6 +629,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (81, "extension-platform-feature-gates"),
     (82, "extension-platform-gate-degradations"),
     (83, "extension-platform-publisher-keys"),
+    (84, "extension-platform-developer-mode"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

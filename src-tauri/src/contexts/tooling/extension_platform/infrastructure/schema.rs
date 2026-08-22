@@ -39,6 +39,44 @@ pub(crate) fn apply_feature_gate_schema(conn: &Connection) -> Result<(), Databas
     Ok(())
 }
 
+/// The Developer Mode switch, and every change to it.
+///
+/// One row, enforced by the primary-key check rather than by convention: a second row would be a
+/// second answer to "is unsigned content admitted?", and whichever one a query happened to return
+/// would decide it.
+///
+/// Deliberately not an eighth capability gate. The seven gates say which parts of the Extension
+/// Platform are built and switched on; this says whether content with no provenance may be
+/// installed at all. Filing it with them would put an admission policy behind a rollout switch.
+pub(crate) fn apply_developer_mode_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS extension_platform_developer_mode (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            reason TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS extension_platform_developer_mode_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            previous_enabled INTEGER NOT NULL,
+            new_enabled INTEGER NOT NULL,
+            revision INTEGER NOT NULL,
+            recorded_at TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            reason TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_extension_platform_developer_mode_audit_recorded
+            ON extension_platform_developer_mode_audit (id DESC);
+        "#,
+    )?;
+    Ok(())
+}
+
 /// Trusted publisher keys and their provenance.
 ///
 /// Public key bytes, not secrets: a publisher key verifies signatures and cannot make them, so

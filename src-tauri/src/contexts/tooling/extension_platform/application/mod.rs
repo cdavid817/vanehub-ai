@@ -1,5 +1,8 @@
 //! Extension Platform use cases.
 
+mod developer_mode;
+#[cfg(test)]
+mod developer_mode_tests;
 mod feature_gates;
 mod package_verification;
 #[cfg(test)]
@@ -11,14 +14,17 @@ mod publisher_keys_tests;
 #[cfg(test)]
 mod tests;
 
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use developer_mode::{DeveloperModeClock, DeveloperModeService, DeveloperModeView};
 pub(crate) use feature_gates::{FeatureGateService, FeatureGateSnapshot, FeatureGateView};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_verification::{PackageVerificationService, PublisherLookupUnavailable};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use ports::{
-    DefaultPrerequisites, FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock,
-    FeatureGateDegradationEntry, FeatureGateRepository, FeatureGateWrite, NoForcedDisables,
-    PersistedFeatureGate, PublisherKeyDirectory, TrustedPublisherKeyRepository,
+    DefaultPrerequisites, DeveloperModeAuditEntry, DeveloperModeAuditSink, DeveloperModeRepository,
+    FeatureGateAuditEntry, FeatureGateAuditSink, FeatureGateClock, FeatureGateDegradationEntry,
+    FeatureGateRepository, FeatureGateWrite, NoForcedDisables, PersistedFeatureGate,
+    PublisherKeyDirectory, TrustedPublisherKeyRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use publisher_keys::{
