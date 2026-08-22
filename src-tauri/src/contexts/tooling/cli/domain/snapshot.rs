@@ -157,23 +157,21 @@ impl CliEnvironmentSnapshot {
         }
     }
 
-    /// Recomputes `discovery`, `executable`, `active_installation_id`, `readiness`, and
-    /// `overall_state` from the installations and probe results actually held.
+    /// Recomputes `active_installation_id`, `executable`, `readiness`, and `overall_state` from
+    /// the installations and probe results actually held.
     ///
     /// Derived fields are never assigned directly, so a caller cannot leave `overall_state` saying
     /// Ready while the executable axis says Broken.
+    ///
+    /// `discovery` is deliberately *not* derived. An empty installation list means "scanned and
+    /// found nothing" after a refresh and "never looked" before one, and only the caller that ran
+    /// the scan knows which. Deriving it would turn a tool nobody has checked into one reported as
+    /// missing.
     pub(crate) fn recompute_derived(
         mut self,
         missing_dependency: bool,
         doctor_reported_problem: bool,
     ) -> Self {
-        self.discovery =
-            if self.discovery == CliDiscoveryStatus::NotScanned && self.installations.is_empty() {
-                CliDiscoveryStatus::NotScanned
-            } else {
-                CliDiscoveryStatus::from_count(self.installations.len())
-            };
-
         let active = select_active(&self.installations);
         self.active_installation_id =
             active.map(|selection| self.installations[selection.index].id.clone());
@@ -288,6 +286,8 @@ mod tests {
         let mut snapshot =
             CliEnvironmentSnapshot::never_scanned(tool(), "fingerprint-a".to_string());
         snapshot.installations = vec![installation("a", "1.2.0", CliExecutableStatus::Healthy)];
+        // Set by whoever ran the scan; `recompute_derived` does not infer it.
+        snapshot.discovery = CliDiscoveryStatus::FoundOne;
         snapshot.authentication = CliAuthenticationStatus::Authenticated;
         snapshot.compatibility = CliCompatibilityStatus::Supported;
         snapshot.update = CliUpdateStatus::UpToDate;
@@ -339,6 +339,7 @@ mod tests {
             installation("broken", "1.0.0", CliExecutableStatus::Broken),
             installation("working", "1.2.0", CliExecutableStatus::Healthy),
         ];
+        snapshot.discovery = CliDiscoveryStatus::from_count(snapshot.installations.len());
         // Both are on PATH; the first runnable one wins, so the axis is Healthy.
         let snapshot = snapshot.recompute_derived(false, false);
         assert_eq!(snapshot.executable, CliExecutableStatus::Healthy);

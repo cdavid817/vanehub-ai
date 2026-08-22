@@ -40,6 +40,24 @@ impl NormalizedCliVersion {
         Self { raw, parsed }
     }
 
+    /// Extracts the version from `--version` output.
+    ///
+    /// CLIs disagree about the shape: bare `1.2.3`, `v1.2.3`, `claude-code 1.2.3`, or a banner
+    /// line followed by detail. The first token that parses as an ordered version wins; failing
+    /// that, the first non-empty line is kept whole as an opaque version rather than discarded --
+    /// an unrecognised format still tells the user *something* ran and reported it.
+    pub(crate) fn from_probe_output(output: &str) -> Option<Self> {
+        let first_line = output
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())?;
+        let ordered = first_line
+            .split_whitespace()
+            .map(Self::parse)
+            .find(Self::is_ordered);
+        Some(ordered.unwrap_or_else(|| Self::parse(first_line)))
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         &self.raw
     }
@@ -311,6 +329,37 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["canary", "nightly", "1.9.9", "1.10.0-rc.1", "1.10.0"]
         );
+    }
+
+    #[test]
+    fn probe_output_yields_the_version_whatever_shape_the_cli_prints_it_in() {
+        let cases = [
+            ("1.2.3", "1.2.3"),
+            ("v1.2.3\n", "v1.2.3"),
+            ("claude-code 1.2.3", "1.2.3"),
+            ("codex-cli version 0.44.0 (build abc)", "0.44.0"),
+            ("  1.2.3-rc.1  ", "1.2.3-rc.1"),
+            // Blank leading lines are skipped rather than treated as the answer.
+            ("\n\n2.0.0", "2.0.0"),
+        ];
+        for (output, expected) in cases {
+            let version = NormalizedCliVersion::from_probe_output(output)
+                .unwrap_or_else(|| panic!("parsed {output:?}"));
+            assert_eq!(version.as_str(), expected, "output {output:?}");
+            assert!(version.is_ordered(), "output {output:?}");
+        }
+    }
+
+    #[test]
+    fn unrecognised_probe_output_is_kept_opaque_rather_than_discarded() {
+        // Something ran and answered; the answer is just not a version we can order. Dropping it
+        // would render as "version unknown" when the user can plainly see output.
+        let opaque = NormalizedCliVersion::from_probe_output("nightly build").expect("kept");
+        assert_eq!(opaque.as_str(), "nightly build");
+        assert!(!opaque.is_ordered());
+
+        assert_eq!(NormalizedCliVersion::from_probe_output(""), None);
+        assert_eq!(NormalizedCliVersion::from_probe_output("   \n  "), None);
     }
 
     #[test]
