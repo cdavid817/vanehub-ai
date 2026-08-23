@@ -199,6 +199,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["dialogs", "dialogsDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
+    ["cli-management", "cliManagementDesktop"],
   ];
 
   for (const [mode, factory] of layers) {
@@ -224,4 +225,41 @@ test("the settings persistence layer orders its specs so the relaunch is real", 
   // Browser storage is the Web adapter's persistence, not the desktop client's.
   assert.doesNotMatch(relaunch, /localStorage/);
   assert.match(relaunch, /core\.invoke\("get_settings"\)/);
+});
+
+test("the CLI management layer runs against a fixture PATH and orders its restart", async () => {
+  const config = await readFile("tests/desktop/wdio.cli-management.conf.mjs", "utf8");
+  const lifecycle = await readFile("tests/desktop/specs-cli-management/cli-lifecycle.e2e.mjs", "utf8");
+  const persistence = await readFile("tests/desktop/specs-cli-management/cli-persistence.e2e.mjs", "utf8");
+
+  // The fixture goes on the front of PATH before the application starts. Without that the layer
+  // would drive the machine's real npm against the user's real global prefix and still pass.
+  assert.match(config, /createCliManagementFixture/);
+  assert.match(config, /PATH: fixture\.pathValue/);
+  assert.match(config, /PATHEXT/);
+  assert.match(config, /specFiles: \["cli-lifecycle\.e2e\.mjs", "cli-persistence\.e2e\.mjs"\]/);
+
+  // Real IPC, not the Web/mock adapter: the mock answers from invented data and can prove nothing
+  // about discovery, process execution, verification, or SQLite.
+  for (const command of [
+    "refresh_cli_environment",
+    "list_cli_environments",
+    "prepare_cli_action",
+    "get_cli_action_plan",
+    "execute_cli_action",
+    "prepare_cli_bulk_action",
+    "get_cli_bulk_action_plan",
+    "cancel_operation",
+  ]) {
+    assert.ok(lifecycle.includes(command), `the lifecycle spec never exercises ${command}`);
+  }
+  // The side-effect audit is part of the layer, not an optional extra.
+  assert.match(lifecycle, /auditCliSideEffects/);
+  assert.match(lifecycle, /describeCliSideEffects\(violations\), null/);
+
+  // The restart spec must not refresh before reading, or it would prove detection rather than
+  // persistence.
+  assert.doesNotMatch(persistence, /refreshEnvironments\(/);
+  assert.match(persistence, /list_cli_environments/);
+  assert.doesNotMatch(persistence, /localStorage/);
 });

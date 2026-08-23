@@ -182,6 +182,15 @@ function dialogsDesktop(artifact) {
   });
 }
 
+function cliManagementDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-cli-management",
+    config: "tests/desktop/wdio.cli-management.conf.mjs",
+    label: "Desktop CLI management",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -199,9 +208,10 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "cli-management") await cliManagementDesktop();
   else if (mode === "all") {
     const artifact = await buildDesktop();
-    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
+    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, cliManagementDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
     const layers = runFullSuite ? fullSuiteLayers : [smokeDesktop];
     if (!runFullSuite) {
       process.stdout.write("Desktop verification: CI gate runs smoke only; set VANEHUB_DESKTOP_FULL_SUITE=1 for all layers.\n");

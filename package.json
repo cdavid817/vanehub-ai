@@ -28,6 +28,7 @@
     "test:desktop:build": "node scripts/test-desktop.mjs build",
     "test:desktop:smoke": "node scripts/test-desktop.mjs smoke",
     "test:desktop:cli-terminal": "node scripts/test-desktop.mjs cli-terminal",
+    "test:desktop:cli-management": "node scripts/test-desktop.mjs cli-management",
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
