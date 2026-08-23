@@ -14,9 +14,9 @@ use crate::contexts::execution_observability::domain::evidence::builders::{
 use crate::contexts::execution_observability::domain::evidence::payload::EvidenceOutcome;
 use crate::contexts::execution_observability::domain::evidence::safety::RedactedCommandDisplay;
 use crate::contexts::execution_observability::domain::{
-    reason_codes, CommandRuntimeKind, EvidenceCoverageState, EvidenceSessionId,
-    EvidenceSourceContext, ExecutionEvidenceEvent, ExecutionStatus, OutputAvailability,
-    SafeEvidencePayload, SafeReasonCode,
+    reason_codes, CommandRuntimeKind, EvidenceCoverageState, EvidenceSeatId, EvidenceSessionId,
+    EvidenceSourceContext, ExecutionEvidenceEvent, ExecutionFidelity, ExecutionStatus,
+    OutputAvailability, SafeEvidencePayload, SafeReasonCode, VerificationOutcome,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -1068,4 +1068,256 @@ fn projection_staleness_distinguishes_current_from_behind() {
     let replayed = repository.replay_projections(None).expect("replay");
     assert_eq!(replayed, 1);
     assert!(!repository.projection_is_stale().expect("after replay"));
+}
+
+/// One tool invocation, on a named seat, with a chosen fidelity.
+fn tool_started(
+    source_event_id: &str,
+    tool_call_id: &str,
+    tool_name: &str,
+    seat_id: &str,
+    fidelity: ExecutionFidelity,
+    occurred_at: &str,
+) -> ExecutionEvidenceEvent {
+    EvidenceEventBuilder::new(
+        source_event_id,
+        CorrelationBuilder::for_session(SESSION)
+            .with_run(RUN, TRACE)
+            .with_seat(seat_id)
+            .with_tool_call(tool_call_id)
+            .build(),
+        SafeEvidencePayload::ToolStarted {
+            tool_name: label(tool_name),
+        },
+    )
+    .with_status(ExecutionStatus::Running)
+    .with_fidelity(fidelity)
+    .with_occurred_at(occurred_at)
+    .build()
+}
+
+fn delegation_started(
+    source_event_id: &str,
+    agent_id: &str,
+    run_id: &str,
+    occurred_at: &str,
+) -> ExecutionEvidenceEvent {
+    EvidenceEventBuilder::new(
+        source_event_id,
+        CorrelationBuilder::for_session(SESSION)
+            .with_run(run_id, TRACE)
+            .with_agent(agent_id)
+            .build(),
+        SafeEvidencePayload::AgentDelegated { attempt: Some(1) },
+    )
+    .with_status(ExecutionStatus::Running)
+    .with_occurred_at(occurred_at)
+    .build()
+}
+
+fn verification_completed(
+    source_event_id: &str,
+    name: &str,
+    occurred_at: &str,
+) -> ExecutionEvidenceEvent {
+    EvidenceEventBuilder::new(
+        source_event_id,
+        CorrelationBuilder::for_session(SESSION)
+            .with_run(RUN, TRACE)
+            .build(),
+        SafeEvidencePayload::VerificationCompleted {
+            name: label(name),
+            outcome: VerificationOutcome::Passed,
+            passed_count: Some(138),
+            failed_count: Some(0),
+        },
+    )
+    .with_status(ExecutionStatus::Succeeded)
+    .with_occurred_at(occurred_at)
+    .build()
+}
+
+/// One of each record kind, so a filter that selected the wrong rows would show it.
+fn seed_every_kind(repository: &SqliteEvidenceRepository) {
+    append(
+        repository,
+        &command_started("command-1", "cmd-1", "2026-08-22T10:00:00Z"),
+    );
+    append(
+        repository,
+        &tool_started(
+            "tool-1",
+            "call-1",
+            "read_file",
+            "seat-1",
+            ExecutionFidelity::Proxied,
+            "2026-08-22T10:01:00Z",
+        ),
+    );
+    append(
+        repository,
+        &delegation_started("delegation-1", "agent-1", RUN, "2026-08-22T10:02:00Z"),
+    );
+    append(
+        repository,
+        &verification_completed("verification-1", "cargo test", "2026-08-22T10:03:00Z"),
+    );
+}
+
+fn kinds_in(repository: &SqliteEvidenceRepository, query: ExecutionRecordQuery) -> Vec<String> {
+    repository
+        .list_records(&query)
+        .expect("page")
+        .items
+        .iter()
+        .map(|item| item.kind.as_str().to_string())
+        .collect()
+}
+
+/// Terminal History reads the record query the journal already exposes.
+///
+/// Every dimension the console filters by is asserted against stored rows here, because the
+/// alternative to proving it is building a second query beside this one — and two queries over one
+/// projection disagree the first time a filter is added to only one of them.
+#[test]
+fn one_record_query_answers_every_kind_status_scope_and_search() {
+    let (_directory, _database, repository) = repository("evidence-record-query");
+    seed_every_kind(&repository);
+
+    // Every kind is reachable, and each filter selects only its own.
+    assert_eq!(kinds_in(&repository, query(50)).len(), 4);
+    for kind in [
+        ExecutionRecordKind::Command,
+        ExecutionRecordKind::Tool,
+        ExecutionRecordKind::Delegation,
+        ExecutionRecordKind::Verification,
+    ] {
+        let mut scoped = query(50);
+        scoped.filters.kinds = vec![kind];
+        assert_eq!(
+            kinds_in(&repository, scoped),
+            vec![kind.as_str().to_string()],
+            "the {} filter selected other kinds",
+            kind.as_str()
+        );
+    }
+}
+
+#[test]
+fn a_status_filter_selects_only_the_records_in_that_state() {
+    let (_directory, _database, repository) = repository("evidence-record-status");
+    seed_every_kind(&repository);
+
+    let mut running = query(50);
+    running.filters.statuses = vec![ExecutionStatus::Running];
+    assert_eq!(kinds_in(&repository, running).len(), 3);
+
+    let mut succeeded = query(50);
+    succeeded.filters.statuses = vec![ExecutionStatus::Succeeded];
+    assert_eq!(kinds_in(&repository, succeeded), vec!["verification"]);
+}
+
+/// Fidelity is how directly the runtime observed the work, and it is never upgraded by a reader.
+/// A filter that ignored it would let a proxied row answer a question about native evidence.
+#[test]
+fn a_fidelity_filter_selects_only_records_observed_that_way() {
+    let (_directory, _database, repository) = repository("evidence-record-fidelity");
+    seed_every_kind(&repository);
+
+    let mut proxied = query(50);
+    proxied.filters.fidelities = vec![ExecutionFidelity::Proxied];
+    assert_eq!(kinds_in(&repository, proxied), vec!["tool"]);
+
+    let mut native = query(50);
+    native.filters.fidelities = vec![ExecutionFidelity::Native];
+    assert_eq!(kinds_in(&repository, native).len(), 3);
+}
+
+#[test]
+fn a_seat_scope_narrows_to_one_participant_and_a_run_scope_to_one_run() {
+    let (_directory, _database, repository) = repository("evidence-record-scope");
+    seed_every_kind(&repository);
+    let other_run = "7a2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
+    append(
+        &repository,
+        &delegation_started("delegation-2", "agent-2", other_run, "2026-08-22T10:04:00Z"),
+    );
+
+    let mut seated = query(50);
+    seated.scope.seat_id = Some(EvidenceSeatId::parse("seat-1").expect("seat"));
+    assert_eq!(kinds_in(&repository, seated), vec!["tool"]);
+
+    let mut in_run = query(50);
+    in_run.scope.run_id = Some(other_run.to_string());
+    assert_eq!(kinds_in(&repository, in_run), vec!["delegation"]);
+}
+
+/// Search reads the redacted display fields the projection already holds and nothing else.
+///
+/// Scanning the journal payload would put raw producer content back into a query path that the
+/// whole design exists to keep it out of.
+#[test]
+fn a_bounded_search_matches_only_redacted_projection_fields() {
+    let (_directory, _database, repository) = repository("evidence-record-search");
+    seed_every_kind(&repository);
+
+    for (term, expected) in [
+        ("npm", vec!["command"]),
+        ("read_file", vec!["tool"]),
+        ("cargo", vec!["verification"]),
+        ("nothing-matches-this", Vec::new()),
+    ] {
+        let mut searched = query(50);
+        searched.filters.search = Some(term.to_string());
+        assert_eq!(
+            kinds_in(&repository, searched),
+            expected,
+            "search for {term}"
+        );
+    }
+
+    // A delegation carries no display text, so it is never a search hit — rather than matching
+    // everything because the query had nothing to compare against.
+    let mut blank = query(50);
+    blank.filters.search = Some("   ".to_string());
+    assert_eq!(kinds_in(&repository, blank).len(), 4);
+}
+
+/// A page stays newest-first and stable across a cursor, with each row appearing exactly once.
+#[test]
+fn record_pages_are_newest_first_and_never_repeat_a_row() {
+    let (_directory, _database, repository) = repository("evidence-record-paging");
+    seed_every_kind(&repository);
+
+    let first = repository.list_records(&query(2)).expect("first page");
+    assert_eq!(first.items.len(), 2);
+    assert_eq!(
+        first
+            .items
+            .iter()
+            .map(|item| item.occurred_at.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            "2026-08-22T10:03:00Z".to_string(),
+            "2026-08-22T10:02:00Z".to_string()
+        ]
+    );
+
+    let mut next = query(2);
+    next.cursor = first.next_cursor.clone();
+    let second = repository.list_records(&next).expect("second page");
+
+    let ids = first
+        .items
+        .iter()
+        .chain(second.items.iter())
+        .map(|item| item.record_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 4);
+    assert_eq!(
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        4,
+        "a row appeared on two pages"
+    );
+    assert_eq!(second.coverage.state(), EvidenceCoverageState::Complete);
 }

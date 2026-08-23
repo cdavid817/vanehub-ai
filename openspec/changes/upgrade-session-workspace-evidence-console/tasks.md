@@ -125,9 +125,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 6. Terminal History as Execution Records
 
-- [ ] 6.1 Add backend execution-record queries over command/tool/delegation/verification projections with stable cursors and coverage.
-- [ ] 6.2 Add a legacy message-history activity adapter without inserting historical `toolUse` rows into the native evidence journal.
-- [ ] 6.3 Mark legacy activity `inferred`, identify its message-history source, and expose coverage limitations.
+- [x] 6.1 Add backend execution-record queries over command/tool/delegation/verification projections with stable cursors and coverage.
+- [x] 6.2 Add a legacy message-history activity adapter without inserting historical `toolUse` rows into the native evidence journal.
+- [x] 6.3 Mark legacy activity `inferred`, identify its message-history source, and expose coverage limitations.
 - [ ] 6.4 Refactor `terminal-tab.tsx` into a thin composition component plus record toolbar, virtualized list, row, detail drawer, and legacy-source notice components.
 - [ ] 6.5 Add filters for kind, status, seat, run, fidelity, and bounded text search.
 - [ ] 6.6 Render command runtime, redacted display, duration, status, exit code/signal, working-directory display, output availability, truncation, fidelity, and coverage without fabricating unavailable fields.
