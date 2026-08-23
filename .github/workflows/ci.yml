@@ -366,13 +366,6 @@ jobs:
           - ubuntu-latest
           - macos-latest
           - windows-latest
-    env:
-      # The fixtures write a SQLite file into a temporary directory and read no user configuration,
-      # but the runtime's own directory resolution is pinned anyway so a leak into a real profile
-      # fails here instead of quietly succeeding.
-      VANEHUB_APP_DATA_DIR: ${{ runner.temp }}/vanehub-cli-parameter-fixtures
-      XDG_CONFIG_HOME: ${{ runner.temp }}/vanehub-cli-parameter-fixtures/config
-      XDG_DATA_HOME: ${{ runner.temp }}/vanehub-cli-parameter-fixtures/data
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -397,9 +390,23 @@ jobs:
           restore-keys: |
             cli-parameter-fixtures-${{ runner.os }}-
 
-      - name: Create the isolated fixture directories
+      # The fixtures write a SQLite file into a temporary directory and read no user configuration,
+      # but the runtime's own directory resolution is pinned anyway so a leak into a real profile
+      # fails here instead of quietly succeeding.
+      #
+      # Written through $GITHUB_ENV rather than a job-level `env:` block: the `runner` context is
+      # not available at job level, and a workflow that references it there is rejected outright —
+      # no jobs run and there is nothing to read but "workflow file issue".
+      - name: Pin the isolated fixture directories
         shell: bash
-        run: mkdir -p "$VANEHUB_APP_DATA_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+        run: |
+          root="$RUNNER_TEMP/vanehub-cli-parameter-fixtures"
+          mkdir -p "$root/config" "$root/data"
+          {
+            echo "VANEHUB_APP_DATA_DIR=$root"
+            echo "XDG_CONFIG_HOME=$root/config"
+            echo "XDG_DATA_HOME=$root/data"
+          } >> "$GITHUB_ENV"
 
       - name: Mark the deterministic CLI stub executable
         if: runner.os != 'Windows'
