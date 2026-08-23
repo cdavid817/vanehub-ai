@@ -2,11 +2,12 @@
 //!
 //! Two facades, deliberately separate:
 //!
-//! * [`CliParameterRuntimeApi`] is the launch-facing contract. It exposes resolution and read-only
-//!   projections only — no save, no reset, no repository, no catalog loader, no private domain
-//!   module.
-//! * [`CliParameterSettingsApi`] is the settings-facing facade. Neither is reachable from a command
-//!   yet; the cutover wires them up.
+//! * [`CliParameterRuntimeApi`] is the launch-facing contract re-exported through
+//!   `contexts::tooling::api`. It exposes resolution and read-only projections only — no save, no
+//!   reset, no repository, no catalog loader, no private domain module.
+//! * [`CliParameterSettingsApi`] is the settings-facing facade, held as Tauri state and reached
+//!   only by the four CLI-parameter commands. It is not re-exported through `tooling::api`, so no
+//!   launch path can write.
 //!
 //! Both wrap the same application service, so the page and the launch cannot disagree about a
 //! profile.

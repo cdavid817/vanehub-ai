@@ -8,16 +8,20 @@ import { Button } from "../../components/ui/button";
 import { useConfirmation } from "../../components/ui/use-confirmation";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 import { orderByAgentPriority } from "../../lib/agent-display-order";
-import { buildCliParameterPreviewFromDefinitions } from "../../services/cli-parameter-catalog";
 import { agentService } from "../../services/runtime-agent-client";
+import type { ManagedCliAgentId } from "../../types/agent";
+import type { CliParameterSelection, CliParameterSelections } from "../../types/cli-parameter";
 import type {
   CliParameterProfile,
-  CliParameterSelections,
-  CliParameterValue,
-  ManagedCliAgentId,
   SaveCliParameterProfileInput,
-} from "../../types/agent";
+} from "../../types/cli-parameter-profile";
 import { CliParameterControl } from "./cli-parameter-control";
+import {
+  asCliParameterServiceError,
+  cliParameterDisplayFlag,
+  cliParameterErrorMessageKey,
+  cliParameterSearchText,
+} from "./cli-parameter-view-model";
 import { OnePieceParametersPanel } from "./onepiece-parameters-panel";
 import { PageHeader, SectionPanel } from "./page-parts";
 
@@ -38,7 +42,7 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
     queryKey: profilesQueryKey,
     queryFn: () => agentService.listCliParameterProfiles(),
   });
-  const profiles = useMemo(
+  const profiles = useMemo<readonly CliParameterProfile[]>(
     () => orderByAgentPriority(profilesQuery.data ?? emptyProfiles, (profile) => profile.agentId),
     [profilesQuery.data],
   );
@@ -61,7 +65,12 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
     },
   });
   const resetMutation = useMutation({
-    mutationFn: (agentId: ManagedCliAgentId) => agentService.resetCliParameterProfile(agentId),
+    mutationFn: (profile: CliParameterProfile) =>
+      agentService.resetCliParameterProfile({
+        agentId: profile.agentId,
+        expectedRevision: profile.revision,
+        catalogVersion: profile.catalogVersion,
+      }),
     onSuccess: async (profile) => {
       setDrafts((current) => ({ ...current, [profile.agentId]: profile.selections }));
       setNotice(t("cliParameters.notice.reset"));
@@ -72,21 +81,35 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
   const activeProfile = profiles.find((profile) => profile.agentId === activeAgentId);
   const activeDraft = activeProfile ? (drafts[activeProfile.agentId] ?? activeProfile.selections) : {};
   const query = searchTerm.trim().toLocaleLowerCase();
-  const visibleDefinitions = useMemo(() => {
-    if (!activeProfile || !query) return activeProfile?.definitions ?? [];
-    return activeProfile.definitions.filter((definition) =>
-      [definition.flag, t(definition.labelKey), t(definition.descriptionKey), ...definition.options.flatMap((option) => [t(option.labelKey), t(option.descriptionKey)])]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(query),
-    );
+  const visibleFields = useMemo(() => {
+    const fields = activeProfile?.fields ?? [];
+    if (!query) return fields;
+    return fields.filter((field) => cliParameterSearchText(field.definition, t).includes(query));
   }, [activeProfile, query, t]);
-  const previewArgs = activeProfile
-    ? buildCliParameterPreviewFromDefinitions(activeProfile.definitions, activeDraft)
-    : [];
-  const dirty = activeProfile ? JSON.stringify(activeDraft) !== JSON.stringify(activeProfile.selections) : false;
 
-  function updateParameter(id: string, value: CliParameterValue) {
+  // Read-only, and keyed by the draft itself: a response for an older draft belongs to an older
+  // key, so react-query discards it rather than the page racing to.
+  const previewQuery = useQuery({
+    enabled: Boolean(activeProfile),
+    queryKey: ["cli-parameter-preview", activeAgentId, JSON.stringify(activeDraft)],
+    queryFn: () =>
+      agentService.previewCliParameterProfile({
+        agentId: activeProfile!.agentId,
+        catalogVersion: activeProfile!.catalogVersion,
+        scope: "chat",
+        selections: activeDraft,
+      }),
+  });
+  const previewArgs = previewQuery.data
+    ? [...previewQuery.data.segments.global, ...previewQuery.data.segments.invocation].map(
+        (token) => token.value,
+      )
+    : [];
+  const dirty = activeProfile
+    ? JSON.stringify(activeDraft) !== JSON.stringify(activeProfile.selections)
+    : false;
+
+  function updateParameter(id: string, value: CliParameterSelection) {
     if (!activeProfile) return;
     setNotice(null);
     setDrafts((current) => ({
@@ -98,22 +121,19 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
   async function resetActiveProfile() {
     if (!activeProfile) return;
     if (!(await confirm({ title: t("cliParameters.confirmReset"), tone: "danger" }))) return;
-    resetMutation.mutate(activeProfile.agentId);
+    resetMutation.mutate(activeProfile);
   }
 
-  const error = profilesQuery.error ?? saveMutation.error ?? resetMutation.error;
-  const rawError = error ? String(error) : null;
-  const invalidValueMatch = rawError?.match(/Invalid value for CLI parameter: ([\w-]+)/i)
-    ?? rawError?.match(/invalid value for CLI parameter '([^']+)'/i);
-  const unknownParameterMatch = rawError?.match(/Unknown CLI parameter: ([\w-]+)/i)
-    ?? rawError?.match(/unknown CLI parameter '([^']+)'/i);
-  const errorMessage = invalidValueMatch
-    ? t("cliParameters.error.invalidValue", { parameter: invalidValueMatch[1] })
-    : unknownParameterMatch
-      ? t("cliParameters.error.unknownParameter", { parameter: unknownParameterMatch[1] })
-      : rawError
-        ? t("cliParameters.error.requestFailed", { message: rawError })
-        : null;
+  const error = profilesQuery.error ?? saveMutation.error ?? resetMutation.error ?? previewQuery.error;
+  const structured = asCliParameterServiceError(error);
+  const errorMessage = structured
+    ? t(cliParameterErrorMessageKey(structured.code), {
+        parameter: structured.parameterId ?? "",
+        ...structured.details,
+      })
+    : error
+      ? t("cliParameters.error.requestFailed", { message: String(error) })
+      : null;
   return (
     <div className="space-y-4">
       {confirmationDialog}
@@ -128,7 +148,15 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
             </> : null}
             <Button
               disabled={!activeProfile || !dirty || saveMutation.isPending}
-              onClick={() => activeProfile && saveMutation.mutate({ agentId: activeProfile.agentId, selections: activeDraft })}
+              onClick={() =>
+                activeProfile &&
+                saveMutation.mutate({
+                  agentId: activeProfile.agentId,
+                  expectedRevision: activeProfile.revision,
+                  catalogVersion: activeProfile.catalogVersion,
+                  selections: activeDraft,
+                })
+              }
             >
               <Save aria-hidden="true" /> {t(saveMutation.isPending ? "cliParameters.actions.saving" : "cliParameters.actions.save")}
             </Button>
@@ -167,13 +195,13 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
           {errorMessage ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{errorMessage}</div> : null}
           {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
           {activeProfile ? <p className="text-xs leading-5 text-muted-foreground">{t("cliParameters.policyPrecedenceNotice")}</p> : null}
-          {visibleDefinitions.map((definition) => (
+          {visibleFields.map(({ definition }) => (
             <section className="ucd-panel ucd-interactive rounded-lg p-4" key={definition.id}>
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] md:items-start">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-sm font-semibold">{t(definition.labelKey)}</h3>
-                    <Badge tone="muted">{definition.flag}</Badge>
+                    <Badge tone="muted">{cliParameterDisplayFlag(definition)}</Badge>
                     {definition.risk === "warning" ? (
                       <Badge tone="warning"><TriangleAlert aria-hidden="true" className="mr-1 h-3 w-3" />{t("cliParameters.common.warning")}</Badge>
                     ) : null}
@@ -183,11 +211,11 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
                     {t("cliParameters.common.scope", { scope: definition.launchScopes.map((scope) => t(`cliParameters.scope.${scope}`)).join(" / ") })}
                   </p>
                 </div>
-                <CliParameterControl definition={definition} onChange={(value) => updateParameter(definition.id, value)} value={activeDraft[definition.id] ?? definition.defaultValue} />
+                <CliParameterControl definition={definition} onChange={(value) => updateParameter(definition.id, value)} value={activeDraft[definition.id] ?? definition.defaultSelection} />
               </div>
             </section>
           ))}
-          {activeProfile && visibleDefinitions.length === 0 ? <div className="ucd-panel rounded-lg p-6 text-sm text-muted-foreground">{t("cliParameters.empty")}</div> : null}
+          {activeProfile && visibleFields.length === 0 ? <div className="ucd-panel rounded-lg p-6 text-sm text-muted-foreground">{t("cliParameters.empty")}</div> : null}
           <SectionPanel description={t("cliParameters.preview.description")} title={t("cliParameters.preview.title")}>
             <code className="block break-all rounded-md border border-border bg-muted p-3 text-xs leading-6 text-foreground">
               {previewArgs.length ? previewArgs.join(" ") : t("cliParameters.preview.empty")}

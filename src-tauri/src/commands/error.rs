@@ -8,7 +8,6 @@ use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
 use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_config::domain::CliConfigError;
-use crate::contexts::tooling::cli_parameters::CliParametersError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
 use crate::contexts::tooling::plugin_integrations::api::PluginIntegrationError;
@@ -156,18 +155,6 @@ impl From<CommunicationsApplicationError> for CommandError {
         Self {
             category,
             message: error.safe_code().to_string(),
-        }
-    }
-}
-
-impl From<CliParametersError> for CommandError {
-    fn from(error: CliParametersError) -> Self {
-        match error {
-            CliParametersError::Validation(message) => Self::validation(message),
-            CliParametersError::Repository(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
         }
     }
 }

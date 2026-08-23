@@ -713,14 +713,12 @@ impl AgentCliProfileGateway for FakeWorld {
         &self,
         agent_id: &str,
         _configuration: &AgentChatConfiguration,
+        _operation_id: Option<&str>,
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError> {
         Ok(CliProfileSnapshot {
             executable: format!("C:/bin/{agent_id}.exe"),
-            selections: BTreeMap::from([(
-                "model".to_string(),
-                Value::String("gpt-5.5".to_string()),
-            )]),
-            managed_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
+            global_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
+            invocation_args: Vec::new(),
             env: BTreeMap::new(),
         })
     }

@@ -173,6 +173,80 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
     );
 }
 
+/// Ratchet for the native runtime read cutover: every real managed-CLI launch resolves its
+/// user-profile argv through `tooling::api`. Production code in `agent_runtime` and `sessions` may
+/// not reach back into the CLI-parameter subdomain's private modules, nor re-acquire the legacy
+/// reader that the cutover removed. Test sources are exempt: the dual-read suites deliberately seed
+/// `cli_parameter_settings` rows and transcribe the pre-cutover renderer to prove equivalence.
+#[test]
+fn cli_parameter_consumers_only_reach_the_published_tooling_api() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let roots = [
+        source_root.join("contexts/agent_runtime"),
+        source_root.join("contexts/sessions"),
+    ];
+    // `tooling::api` is the only permitted path into the subdomain. Everything else here is either
+    // a private module of it or a symbol of the launch reader the cutover deleted.
+    let forbidden = [
+        (
+            "crate::contexts::tooling::cli_parameters::",
+            "imports a private CLI-parameter module",
+        ),
+        (
+            "tooling::cli_parameters::domain",
+            "imports the CLI-parameter domain",
+        ),
+        (
+            "tooling::cli_parameters::application",
+            "imports the CLI-parameter application layer",
+        ),
+        (
+            "tooling::cli_parameters::infrastructure",
+            "imports CLI-parameter persistence",
+        ),
+        (
+            "cli_parameter_settings",
+            "reads the CLI-parameter table directly",
+        ),
+        ("preview_args", "calls the removed legacy renderer"),
+        (
+            "load_selections",
+            "calls the removed legacy selection reader",
+        ),
+        (
+            "normalize_selections",
+            "calls the removed legacy normalizer",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for root in roots {
+        for path in rust_files(&root).expect("enumerate CLI-parameter consumer sources") {
+            let relative = path
+                .strip_prefix(&source_root)
+                .expect("relative source path")
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if is_test_source(&relative) {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read CLI-parameter consumer source");
+            let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+            for (needle, reason) in forbidden {
+                if production.contains(needle) {
+                    violations.push(format!("{relative}: {reason} (`{needle}`)"));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "CLI parameters must be consumed through contexts::tooling::api:\n{}",
+        violations.join("\n")
+    );
+}
+
 #[test]
 fn token_accounting_keeps_parsing_policy_storage_and_ui_at_their_boundaries() {
     let native_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

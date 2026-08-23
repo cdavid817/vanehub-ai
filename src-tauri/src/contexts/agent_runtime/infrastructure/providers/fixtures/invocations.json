@@ -4,10 +4,11 @@
     "executable": "claude",
     "prompt": "fixture prompt for claude",
     "runtimeSessionId": "claude-session",
-    "managedArgs": [
+    "globalArgs": [
       "--model",
       "sonnet"
     ],
+    "invocationArgs": [],
     "expectedArgs": [
       "--model",
       "sonnet",
@@ -26,9 +27,11 @@
     "executable": "codex",
     "prompt": "fixture prompt for codex",
     "runtimeSessionId": "codex-session",
-    "managedArgs": [
+    "globalArgs": [
       "--model",
-      "gpt-5.5",
+      "gpt-5.5"
+    ],
+    "invocationArgs": [
       "--ephemeral"
     ],
     "expectedArgs": [
@@ -48,10 +51,11 @@
     "executable": "gemini",
     "prompt": "fixture prompt for gemini",
     "runtimeSessionId": "gemini-session",
-    "managedArgs": [
+    "globalArgs": [
       "--model",
       "gemini-2.5-flash"
     ],
+    "invocationArgs": [],
     "expectedArgs": [
       "--model",
       "gemini-2.5-flash",
@@ -67,7 +71,8 @@
     "executable": "opencode",
     "prompt": "fixture prompt for opencode",
     "runtimeSessionId": "opencode-session",
-    "managedArgs": [
+    "globalArgs": [],
+    "invocationArgs": [
       "--agent",
       "build"
     ],
@@ -88,12 +93,13 @@
     "executable": "agy",
     "prompt": "fixture prompt for antigravity",
     "runtimeSessionId": "antigravity-conversation",
-    "managedArgs": [
+    "globalArgs": [
       "--model",
       "gemini-3-pro",
       "--effort",
       "high"
     ],
+    "invocationArgs": [],
     "expectedArgs": [
       "--model",
       "gemini-3-pro",
