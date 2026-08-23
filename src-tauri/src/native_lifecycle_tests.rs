@@ -58,26 +58,27 @@ impl LifecycleHarness {
             Arc::new(LifecycleOperationClock),
             Arc::new(LifecycleOperationIds),
         ));
-        let service = SessionsApplicationService::new(SessionApplicationPorts {
-            sessions: repository.clone(),
-            messages: repository.clone(),
-            categories: repository.clone(),
-            configurations: repository.clone(),
-            usage: repository.clone(),
-            accounting: repository.clone(),
-            transactions: repository.clone(),
-            recovery_reports: repository,
-            recovery_events: doubles.clone(),
-            clock: doubles.clone(),
-            identities: doubles.clone(),
-            files: doubles.clone(),
-            operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
-            logging: doubles.clone(),
-            chat_profiles: doubles.clone(),
-            creation: doubles.clone(),
-            eligibility: doubles.clone(),
-            runtime: doubles.clone(),
-        });
+        let service =
+            SessionsApplicationService::new_for_test_without_evidence(SessionApplicationPorts {
+                sessions: repository.clone(),
+                messages: repository.clone(),
+                categories: repository.clone(),
+                configurations: repository.clone(),
+                usage: repository.clone(),
+                accounting: repository.clone(),
+                transactions: repository.clone(),
+                recovery_reports: repository,
+                recovery_events: doubles.clone(),
+                clock: doubles.clone(),
+                identities: doubles.clone(),
+                files: doubles.clone(),
+                operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
+                logging: doubles.clone(),
+                chat_profiles: doubles.clone(),
+                creation: doubles.clone(),
+                eligibility: doubles.clone(),
+                runtime: doubles.clone(),
+            });
         let sessions = SessionsApi::new(service);
         let session_gateway: Arc<dyn AgentSessionGateway> =
             Arc::new(SessionsAgentRuntimeAdapter::new(sessions.clone()));

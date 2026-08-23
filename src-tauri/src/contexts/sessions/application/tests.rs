@@ -1056,26 +1056,27 @@ fn fixture() -> Fixture {
     let logging = Arc::new(FakeLogging::default());
     let creation = Arc::new(FakeCreationContext::default());
     let runtime = Arc::new(FakeRuntime::default());
-    let service = SessionsApplicationService::new(SessionApplicationPorts {
-        sessions: store.clone(),
-        messages: store.clone(),
-        categories: store.clone(),
-        configurations: store.clone(),
-        usage: store.clone(),
-        accounting: store.clone(),
-        transactions: store.clone(),
-        recovery_reports: store.clone(),
-        recovery_events: store.clone(),
-        clock: clock.clone(),
-        identities: Arc::new(FakeIdentities::default()),
-        files: files.clone(),
-        operations: operations.clone(),
-        logging: logging.clone(),
-        chat_profiles: Arc::new(FakeChatProfiles),
-        creation: creation.clone(),
-        eligibility: creation.clone(),
-        runtime: runtime.clone(),
-    });
+    let service =
+        SessionsApplicationService::new_for_test_without_evidence(SessionApplicationPorts {
+            sessions: store.clone(),
+            messages: store.clone(),
+            categories: store.clone(),
+            configurations: store.clone(),
+            usage: store.clone(),
+            accounting: store.clone(),
+            transactions: store.clone(),
+            recovery_reports: store.clone(),
+            recovery_events: store.clone(),
+            clock: clock.clone(),
+            identities: Arc::new(FakeIdentities::default()),
+            files: files.clone(),
+            operations: operations.clone(),
+            logging: logging.clone(),
+            chat_profiles: Arc::new(FakeChatProfiles),
+            creation: creation.clone(),
+            eligibility: creation.clone(),
+            runtime: runtime.clone(),
+        });
     Fixture {
         service,
         store,

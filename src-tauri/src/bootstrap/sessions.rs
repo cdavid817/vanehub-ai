@@ -69,34 +69,36 @@ pub(crate) fn assemble_sessions_api(
         session_logging.clone(),
     )
     .with_events(recovery_events.clone());
-    let service = SessionsApplicationService::new(SessionApplicationPorts {
-        sessions: repository.clone(),
-        messages: repository.clone(),
-        categories: repository.clone(),
-        configurations: repository.clone(),
-        usage: repository.clone(),
-        accounting: repository.clone(),
-        transactions: repository.clone(),
-        recovery_reports: repository,
-        recovery_events,
-        clock,
-        identities: Arc::new(UuidSessionIdentities),
-        files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
-        operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
-        logging: session_logging,
-        chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
-            database.clone(),
-            cli_parameters,
-            native_config,
-        )),
-        creation: Arc::new(SessionCreationContextAdapter::new(
-            database.clone(),
-            workspaces.clone(),
-        )),
-        eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
-        runtime: Arc::new(runtime_adapter.clone()),
-    })
-    .with_evidence(evidence.clone());
+    let service = SessionsApplicationService::new(
+        SessionApplicationPorts {
+            sessions: repository.clone(),
+            messages: repository.clone(),
+            categories: repository.clone(),
+            configurations: repository.clone(),
+            usage: repository.clone(),
+            accounting: repository.clone(),
+            transactions: repository.clone(),
+            recovery_reports: repository,
+            recovery_events,
+            clock,
+            identities: Arc::new(UuidSessionIdentities),
+            files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
+            operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
+            logging: session_logging,
+            chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
+                database.clone(),
+                cli_parameters,
+                native_config,
+            )),
+            creation: Arc::new(SessionCreationContextAdapter::new(
+                database.clone(),
+                workspaces.clone(),
+            )),
+            eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
+            runtime: Arc::new(runtime_adapter.clone()),
+        },
+        evidence.clone(),
+    );
     let review = ReviewApplicationService::new(
         Arc::new(SqliteReviewRepository::new(database)),
         Arc::new(SystemReviewClock),
@@ -105,8 +107,8 @@ pub(crate) fn assemble_sessions_api(
         Arc::new(WorkspaceReviewSnapshotAdapter(workspaces.clone())),
         Arc::new(SessionReviewOperationAdapter(operations.clone())),
         Arc::new(SessionReviewLoggingAdapter(logging)),
-    )
-    .with_evidence(evidence.clone());
+        evidence.clone(),
+    );
     (
         SessionsApi::new(service).with_review(review),
         runtime_adapter,

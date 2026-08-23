@@ -3,6 +3,8 @@
 mod mission_control_repository;
 mod operation_registry;
 mod run_repository;
+#[cfg(test)]
+pub(crate) use run_repository::persistent_run_service_for_test;
 mod unified_logging;
 
 pub(crate) use mission_control_repository::SqliteMissionControlRepository;

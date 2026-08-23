@@ -39,8 +39,8 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(UuidWorkspaceShellId),
         shell_events,
         shell_logging,
-    )
-    .with_evidence(evidence);
+        evidence,
+    );
     let service = WorkspaceApplicationService::new(
         Arc::new(SqliteWorkspaceHistoryRepository::new(database)),
         Arc::new(WorkspaceFilesystemAdapter::new(logging.clone())),

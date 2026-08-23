@@ -117,6 +117,9 @@ pub(crate) struct ReviewApplicationService {
 }
 
 impl ReviewApplicationService {
+    // The publisher is the eighth port rather than a builder step on purpose: a review service
+    // assembled without one would compile, run, and record nothing.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         repository: Arc<dyn ReviewRepository>,
         clock: Arc<dyn ReviewClockPort>,
@@ -125,6 +128,7 @@ impl ReviewApplicationService {
         snapshots: Arc<dyn ReviewSnapshotPort>,
         operations: Arc<dyn ReviewOperationPort>,
         logging: Arc<dyn ReviewLoggingPort>,
+        evidence: Arc<dyn super::SessionEvidencePort>,
     ) -> Self {
         Self {
             repository,
@@ -134,14 +138,32 @@ impl ReviewApplicationService {
             snapshots,
             operations,
             logging,
-            evidence: Arc::new(super::NoSessionEvidence),
+            evidence,
         }
     }
 
-    /// Bootstrap swaps in the real publisher; the default keeps a build with no bridge running.
-    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn super::SessionEvidencePort>) -> Self {
-        self.evidence = evidence;
-        self
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_for_test_without_evidence(
+        repository: Arc<dyn ReviewRepository>,
+        clock: Arc<dyn ReviewClockPort>,
+        ids: Arc<dyn ReviewIdPort>,
+        feedback: Arc<dyn ReviewFeedbackPort>,
+        snapshots: Arc<dyn ReviewSnapshotPort>,
+        operations: Arc<dyn ReviewOperationPort>,
+        logging: Arc<dyn ReviewLoggingPort>,
+    ) -> Self {
+        Self::new(
+            repository,
+            clock,
+            ids,
+            feedback,
+            snapshots,
+            operations,
+            logging,
+            Arc::new(super::NoSessionEvidence),
+        )
     }
 
     pub(crate) fn start_action(
@@ -560,7 +582,7 @@ mod tests {
     }
 
     fn service() -> ReviewApplicationService {
-        ReviewApplicationService::new(
+        ReviewApplicationService::new_for_test_without_evidence(
             Arc::new(MemoryRepository::default()),
             Arc::new(Fixed),
             Arc::new(Fixed),

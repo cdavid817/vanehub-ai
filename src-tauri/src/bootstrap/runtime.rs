@@ -156,10 +156,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let code_intelligence_responder = Arc::new(super::NativeCodeIntelligenceResponder::new(
         code_intelligence_api.clone(),
     ));
-    let workspace_mutations = Arc::new(
-        super::WorkspaceMutationFanout::new(code_intelligence_api.clone())
-            .with_evidence(Arc::new(evidence_bridge.clone())),
-    );
+    let workspace_mutations = Arc::new(super::WorkspaceMutationFanout::new(
+        code_intelligence_api.clone(),
+        Arc::new(evidence_bridge.clone()),
+    ));
     let cli_parameters_api =
         super::assemble_cli_parameters_api(database.clone(), fallback_log_directory.clone());
     let cli_config_api =

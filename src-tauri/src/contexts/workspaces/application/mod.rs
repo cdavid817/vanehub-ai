@@ -8,8 +8,10 @@ mod service;
 mod shell_service;
 
 pub(crate) use error::WorkspaceApplicationError;
+#[cfg(test)]
+pub(crate) use evidence::NoWorkspaceEvidence;
 pub(crate) use evidence::{
-    NoWorkspaceEvidence, WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use models::{

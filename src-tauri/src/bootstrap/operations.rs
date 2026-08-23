@@ -12,9 +12,12 @@ pub(crate) fn assemble_operations_api(database: NativeDatabase) -> OperationsApi
 }
 
 #[cfg(test)]
-pub(crate) fn assemble_agent_runs_api(database: NativeDatabase) -> AgentRunsApi {
+pub(crate) fn assemble_agent_runs_api(
+    database: NativeDatabase,
+    evidence: Arc<dyn crate::contexts::operations::api::OperationsEvidencePort>,
+) -> AgentRunsApi {
     AgentRunsApi::new(
-        persistent_run_service(database.clone()),
+        persistent_run_service(database.clone(), evidence),
         MissionControlService::new(std::sync::Arc::new(SqliteMissionControlRepository::new(
             database,
         ))),
@@ -27,9 +30,7 @@ pub(crate) fn assemble_agent_runs_api_with_recovery(
     evidence: Arc<dyn crate::contexts::operations::api::OperationsEvidencePort>,
 ) -> AgentRunsApi {
     AgentRunsApi::new(
-        persistent_run_service(database.clone())
-            .with_recovery_port(recovery)
-            .with_evidence(evidence),
+        persistent_run_service(database.clone(), evidence).with_recovery_port(recovery),
         MissionControlService::new(Arc::new(SqliteMissionControlRepository::new(database))),
     )
 }

@@ -125,6 +125,7 @@ impl AgentRunService {
         repository: Arc<dyn AgentRunRepository>,
         clock: Arc<dyn RunClockPort>,
         ids: Arc<dyn OperationIdGenerator>,
+        evidence: Arc<dyn super::OperationsEvidencePort>,
     ) -> Self {
         let defaults = Arc::new(DefaultRunRuntimePorts);
         Self {
@@ -134,18 +135,27 @@ impl AgentRunService {
             recovery: defaults.clone(),
             cancellation: defaults.clone(),
             lifecycle: defaults.clone(),
-            evidence: Arc::new(super::NoOperationsEvidence),
+            evidence,
         }
         .with_runtime_ports(defaults.clone(), defaults.clone(), defaults)
     }
 
-    /// Bootstrap swaps in the real publisher; the default keeps a build with no bridge running.
-    pub(crate) fn with_evidence(
-        mut self,
-        evidence: Arc<dyn super::OperationsEvidencePort>,
+    /// A service that records nothing, for tests whose subject is not evidence.
+    ///
+    /// Test-only on purpose. A production assembly that forgot the publisher used to compile, run,
+    /// and record nothing, and the only symptom was a panel reporting that a session did no work.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(
+        repository: Arc<dyn AgentRunRepository>,
+        clock: Arc<dyn RunClockPort>,
+        ids: Arc<dyn OperationIdGenerator>,
     ) -> Self {
-        self.evidence = evidence;
-        self
+        Self::new(
+            repository,
+            clock,
+            ids,
+            Arc::new(super::NoOperationsEvidence),
+        )
     }
 
     pub(crate) fn with_runtime_ports(

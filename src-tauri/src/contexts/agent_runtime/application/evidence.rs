@@ -121,8 +121,15 @@ pub(crate) trait AgentEvidencePort: Send + Sync {
     fn try_publish(&self, signal: AgentEvidenceSignal);
 }
 
+/// A publisher that records nothing.
+///
+/// Test-only. Production takes its publisher as a constructor argument, so an assembly that
+/// forgets one fails to compile rather than running and quietly recording nothing — which used to
+/// surface as a panel reporting that a session did no work.
+#[cfg(test)]
 pub(crate) struct NoAgentEvidence;
 
+#[cfg(test)]
 impl AgentEvidencePort for NoAgentEvidence {
     fn try_publish(&self, _signal: AgentEvidenceSignal) {}
 }

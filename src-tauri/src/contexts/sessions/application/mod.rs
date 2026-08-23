@@ -9,9 +9,11 @@ mod usage_accounting;
 mod usage_accounting_ports;
 
 pub(crate) use error::SessionsApplicationError;
+#[cfg(test)]
+pub(crate) use evidence::NoSessionEvidence;
 pub(crate) use evidence::{
-    NoSessionEvidence, SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision,
-    SessionUsageEvidenceQuality, SessionVerificationOutcome,
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
 };
 pub(crate) use models::{
     AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, ArchivalPolicy, CategoryRecord,

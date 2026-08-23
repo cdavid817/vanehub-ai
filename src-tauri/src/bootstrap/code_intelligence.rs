@@ -268,23 +268,19 @@ pub(crate) struct WorkspaceMutationFanout {
 }
 
 impl WorkspaceMutationFanout {
-    pub(crate) fn new(code_intelligence: CodeIntelligenceApi) -> Self {
+    /// The fanout is already the single point every successful mutation passes through, so
+    /// evidence joins the existing targets rather than adding a second observation path that
+    /// could disagree with them. The publisher is required rather than defaulted: a fanout
+    /// assembled without one would compile, run, and record nothing.
+    pub(crate) fn new(
+        code_intelligence: CodeIntelligenceApi,
+        evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    ) -> Self {
         Self {
             code_intelligence,
             code_index: OnceLock::new(),
-            evidence: Arc::new(crate::contexts::workspaces::application::NoWorkspaceEvidence),
+            evidence,
         }
-    }
-
-    /// Bootstrap swaps in the real publisher. The fanout is already the single point every
-    /// successful mutation passes through, so evidence joins the existing targets rather than
-    /// adding a second observation path that could disagree with them.
-    pub(crate) fn with_evidence(
-        mut self,
-        evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
-    ) -> Self {
-        self.evidence = evidence;
-        self
     }
 
     pub(crate) fn bind_code_index(&self, code_index: CodeIndexApi) -> Result<(), String> {

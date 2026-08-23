@@ -232,17 +232,17 @@ impl SessionsApplicationService {
         Ok(result)
     }
 
-    pub(crate) fn new(ports: SessionApplicationPorts) -> Self {
-        Self {
-            ports,
-            evidence: Arc::new(super::NoSessionEvidence),
-        }
+    pub(crate) fn new(
+        ports: SessionApplicationPorts,
+        evidence: Arc<dyn super::SessionEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
     }
 
-    /// Bootstrap swaps in the real publisher; the default keeps a build with no bridge running.
-    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn super::SessionEvidencePort>) -> Self {
-        self.evidence = evidence;
-        self
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: SessionApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoSessionEvidence))
     }
 
     pub(crate) fn prepare_new_session_creation(

@@ -164,39 +164,151 @@ fn the_evidence_bridge_imports_only_the_published_api() {
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
-/// Every producer assembled in bootstrap gets the real publisher.
+/// No production path can build a producer that records nothing.
 ///
-/// Each service defaults to a no-op so tests and the Web adapter run without a journal. That
-/// default is also the failure mode: an assembly site that forgets `with_evidence` compiles, runs,
-/// and records nothing, and the only symptom is a panel reporting that a session did no work.
+/// The publisher used to be a default a builder overrode, so an assembly that forgot the builder
+/// compiled, ran, and recorded nothing — and the only symptom was a panel reporting that a session
+/// did no work. It is now a constructor argument, which makes that a compile error. This rule
+/// guards the other half: the no-op publisher stays out of production reach, so nobody satisfies
+/// the argument by passing one.
 #[test]
-fn every_bootstrap_producer_receives_the_real_evidence_port() {
-    let bootstrap = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bootstrap");
-    let required = [
-        ("workspaces.rs", "WorkspaceShellApplicationService::new("),
-        ("operations.rs", "persistent_run_service("),
-        ("sessions.rs", "SessionsApplicationService::new("),
-        ("agent_runtime.rs", "AgentRuntimeApplicationService::new("),
+fn production_never_constructs_a_no_op_evidence_publisher() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let no_ops = [
+        "NoAgentEvidence",
+        "NoWorkspaceEvidence",
+        "NoOperationsEvidence",
+        "NoSessionEvidence",
     ];
 
     let mut violations = Vec::new();
-    for (file, constructor) in required {
-        let source = fs::read_to_string(bootstrap.join(file))
-            .unwrap_or_else(|_| panic!("bootstrap assembles this producer: {file}"));
-        let code = strip_comments(&source);
-        assert!(
-            code.contains(constructor),
-            "{file} no longer calls {constructor}; update this rule with what replaced it"
-        );
-        if !code.contains(".with_evidence(") {
+    for path in rust_sources(&source_root) {
+        let relative = relative_path(&source_root, &path);
+        if relative.ends_with("_tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read native Rust source");
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || !no_ops.iter().any(|name| trimmed.contains(name)) {
+                continue;
+            }
+            // A declaration, an impl, or an import is fine. A construction is what matters, and
+            // only outside a test.
+            if trimmed.starts_with("pub(crate) struct")
+                || trimmed.starts_with("impl ")
+                || trimmed.starts_with("pub(crate) use")
+                || trimmed.starts_with("use ")
+                || guarded_by_cfg_test(&source, index)
+            {
+                continue;
+            }
             violations.push(format!(
-                "[ARCH-EVIDENCE-005] bootstrap/{file}: assembles a producer without \
-                 `.with_evidence(...)`, so production would silently record nothing. Repair: \
-                 inject the evidence bridge at the assembly site"
+                "[ARCH-EVIDENCE-005] {relative}:{}: constructs a no-op evidence publisher outside \
+                 a test. Repair: pass the real publisher, or move this behind cfg(test)",
+                index + 1
             ));
         }
     }
     assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Every producer's production constructor takes its publisher.
+///
+/// A default can be silently wrong; an argument cannot. The rule reads the signature rather than
+/// the call sites, because a re-introduced default would make every call site look correct again.
+#[test]
+fn every_producer_constructor_requires_an_evidence_publisher() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/contexts");
+    let constructors = [
+        (
+            "workspaces/application/shell_service.rs",
+            "evidence: Arc<dyn WorkspaceEvidencePort>",
+        ),
+        (
+            "agent_runtime/application/service.rs",
+            "evidence: Arc<dyn super::AgentEvidencePort>",
+        ),
+        (
+            "operations/application/run_service.rs",
+            "evidence: Arc<dyn super::OperationsEvidencePort>",
+        ),
+        (
+            "sessions/application/service.rs",
+            "evidence: Arc<dyn super::SessionEvidencePort>",
+        ),
+        (
+            "sessions/application/review.rs",
+            "evidence: Arc<dyn super::SessionEvidencePort>",
+        ),
+    ];
+
+    for (relative, parameter) in constructors {
+        let source = fs::read_to_string(source_root.join(relative))
+            .unwrap_or_else(|_| panic!("this producer has an application service: {relative}"));
+        let code = strip_comments(&source);
+        assert!(
+            code.contains(parameter),
+            "[ARCH-EVIDENCE-006] {relative}: the production constructor no longer takes \
+             `{parameter}`. Repair: keep the publisher a required argument, so an assembly that \
+             forgets it fails to compile rather than recording nothing"
+        );
+        // The escape hatch is allowed, but only behind cfg(test).
+        assert!(
+            !code.contains("new_for_test_without_evidence") || source.contains("#[cfg(test)]"),
+            "[ARCH-EVIDENCE-006] {relative}: the evidence-free constructor is reachable from \
+             production"
+        );
+    }
+}
+
+/// Whether the line sits inside an item marked `#[cfg(test)]`.
+///
+/// Walks the file tracking brace depth. When a `#[cfg(test)]` appears, the item that follows it is
+/// a test region until its braces return to the depth the attribute sat at; every line inside
+/// counts. Doc comments and blank lines between the attribute and the item are skipped, and the
+/// attribute is recognised at any depth because it marks free functions and `impl` methods alike.
+///
+/// Braces inside string literals would fool this, which no evidence source has and which would
+/// only ever make the rule stricter.
+fn cfg_test_regions(source: &str) -> Vec<std::ops::Range<usize>> {
+    let mut regions = Vec::new();
+    let mut depth = 0usize;
+    let mut pending: Option<usize> = None;
+    let mut region_start: Option<(usize, usize)> = None;
+
+    for (index, line) in source.lines().enumerate() {
+        // Any depth: the attribute sits on a free function at the top level and on a method
+        // inside an `impl`, and both need to count.
+        if line.trim_start().starts_with("#[cfg(test)]") && region_start.is_none() {
+            pending = Some(index);
+        }
+        let opens = line.matches('{').count();
+        let closes = line.matches('}').count();
+        if let Some(start) = pending {
+            if opens > 0 {
+                region_start = Some((start, depth));
+                pending = None;
+            }
+        }
+        depth = depth.saturating_add(opens).saturating_sub(closes);
+        if let Some((start, base)) = region_start {
+            if depth <= base {
+                regions.push(start..index + 1);
+                region_start = None;
+            }
+        }
+    }
+    if let Some((start, _)) = region_start {
+        regions.push(start..source.lines().count());
+    }
+    regions
+}
+
+fn guarded_by_cfg_test(source: &str, line_index: usize) -> bool {
+    cfg_test_regions(source)
+        .into_iter()
+        .any(|region| region.contains(&line_index))
 }
 
 /// Publishing runs on the producer's thread, so it must do no storage work there.

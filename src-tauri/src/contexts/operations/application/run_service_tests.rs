@@ -156,7 +156,11 @@ impl OperationIdGenerator for Ids {
     }
 }
 fn service(repo: Arc<Memory>) -> AgentRunService {
-    AgentRunService::new(repo, Arc::new(Clock), Arc::new(Ids(Mutex::new(0))))
+    AgentRunService::new_for_test_without_evidence(
+        repo,
+        Arc::new(Clock),
+        Arc::new(Ids(Mutex::new(0))),
+    )
 }
 fn input(parent: Option<String>) -> CreateAgentRun {
     CreateAgentRun {

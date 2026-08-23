@@ -1,9 +1,11 @@
+#[cfg(test)]
+use super::NoWorkspaceEvidence;
 use super::{
-    CreateShellRequest, NoWorkspaceEvidence, ResizeShellRequest, ShellEvent, ShellLaunch, ShellLog,
-    ShellSession, WorkspaceApplicationError, WorkspaceEvidencePort, WorkspaceEvidenceSignal,
-    WorkspaceLogLevel, WorkspaceShellCloseReason, WorkspaceShellContextPort,
-    WorkspaceShellEventPort, WorkspaceShellIdPort, WorkspaceShellLogPort,
-    WorkspaceShellRuntimeKind, WorkspaceShellRuntimePort,
+    CreateShellRequest, ResizeShellRequest, ShellEvent, ShellLaunch, ShellLog, ShellSession,
+    WorkspaceApplicationError, WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceLogLevel,
+    WorkspaceShellCloseReason, WorkspaceShellContextPort, WorkspaceShellEventPort,
+    WorkspaceShellIdPort, WorkspaceShellLogPort, WorkspaceShellRuntimeKind,
+    WorkspaceShellRuntimePort,
 };
 use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};
 use std::sync::Arc;
@@ -25,6 +27,7 @@ impl WorkspaceShellApplicationService {
         ids: Arc<dyn WorkspaceShellIdPort>,
         events: Arc<dyn WorkspaceShellEventPort>,
         logging: Arc<dyn WorkspaceShellLogPort>,
+        evidence: Arc<dyn WorkspaceEvidencePort>,
     ) -> Self {
         Self {
             contexts,
@@ -32,15 +35,40 @@ impl WorkspaceShellApplicationService {
             ids,
             events,
             logging,
-            // A build with no bridge assembled still opens shells. Bootstrap swaps this for the
-            // real publisher; nothing else may.
-            evidence: Arc::new(NoWorkspaceEvidence),
+            evidence,
         }
     }
 
-    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn WorkspaceEvidencePort>) -> Self {
+    /// Swaps the publisher on an already-built service. Test-only: production decides its
+    /// publisher once, at assembly, where the architecture rules can see it.
+    #[cfg(test)]
+    pub(crate) fn with_test_evidence(mut self, evidence: Arc<dyn WorkspaceEvidencePort>) -> Self {
         self.evidence = evidence;
         self
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    ///
+    /// Test-only on purpose. A production assembly that forgot the publisher used to compile,
+    /// run, and record nothing, and the only symptom was a panel reporting that a session did no
+    /// work. Making the publisher a constructor argument turns that into a compile error, and
+    /// keeping this behind `cfg(test)` keeps the escape hatch out of production reach.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(
+        contexts: Arc<dyn WorkspaceShellContextPort>,
+        runtime: Arc<dyn WorkspaceShellRuntimePort>,
+        ids: Arc<dyn WorkspaceShellIdPort>,
+        events: Arc<dyn WorkspaceShellEventPort>,
+        logging: Arc<dyn WorkspaceShellLogPort>,
+    ) -> Self {
+        Self::new(
+            contexts,
+            runtime,
+            ids,
+            events,
+            logging,
+            Arc::new(NoWorkspaceEvidence),
+        )
     }
 
     pub(crate) fn create_shell(

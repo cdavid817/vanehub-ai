@@ -438,18 +438,17 @@ fn normalize_api_provider_config(
 }
 
 impl AgentRuntimeApplicationService {
-    pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
-        Self {
-            ports,
-            evidence: Arc::new(super::NoAgentEvidence),
-        }
+    pub(crate) fn new(
+        ports: AgentRuntimeApplicationPorts,
+        evidence: Arc<dyn super::AgentEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
     }
 
-    /// Bootstrap swaps in the real publisher. Nothing else may: a producer that could choose its
-    /// own evidence sink could also choose one that drops everything.
-    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn super::AgentEvidencePort>) -> Self {
-        self.evidence = evidence;
-        self
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: AgentRuntimeApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoAgentEvidence))
     }
 
     pub(crate) fn take_seat_turn_completion(

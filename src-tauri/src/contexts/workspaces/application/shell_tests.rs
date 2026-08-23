@@ -134,7 +134,7 @@ fn shell_service(
     let events = CapturingShellEvents::default();
     let logs = CapturingShellLogs::default();
     (
-        WorkspaceShellApplicationService::new(
+        WorkspaceShellApplicationService::new_for_test_without_evidence(
             Arc::new(FakeShellContext {
                 workspace,
                 calls: calls.clone(),
@@ -490,7 +490,7 @@ fn a_refused_evidence_publish_does_not_change_the_shell_result() {
     let refusing = RefusingEvidence::default();
     let (service, ..) = shell_service(open_shell_workspace());
     let observed = service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .create_shell(&open_request())
         .expect("shell opens while evidence is refused");
 
@@ -504,7 +504,7 @@ fn a_refused_evidence_publish_does_not_change_the_shell_result() {
 fn evidence_is_published_only_after_the_shell_is_open() {
     let (service, _runtime, _events, _logs, calls) = shell_service(open_shell_workspace());
     service
-        .with_evidence(Arc::new(EvidenceAfterOpenOnly {
+        .with_test_evidence(Arc::new(EvidenceAfterOpenOnly {
             opened: calls.clone(),
         }))
         .create_shell(&open_request())
@@ -522,7 +522,7 @@ fn a_denied_shell_publishes_no_evidence() {
     });
 
     let denied = service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .create_shell(&open_request());
 
     assert!(denied.is_err());
@@ -536,7 +536,7 @@ fn a_shell_signal_carries_identifiers_and_a_runtime_kind_only() {
     let refusing = RefusingEvidence::default();
     let (service, ..) = shell_service(open_shell_workspace());
     service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .create_shell(&open_request())
         .expect("shell");
 
@@ -572,7 +572,7 @@ fn a_shell_signal_carries_identifiers_and_a_runtime_kind_only() {
 fn killing_a_shell_publishes_one_explicit_close() {
     let refusing = RefusingEvidence::default();
     let (service, ..) = shell_service(open_shell_workspace());
-    let service = service.with_evidence(Arc::new(refusing.clone()));
+    let service = service.with_test_evidence(Arc::new(refusing.clone()));
 
     service.kill_shell("shell-fixture").expect("kill");
 
@@ -592,7 +592,7 @@ fn killing_an_absent_shell_publishes_nothing() {
     let (service, ..) = shell_service(open_shell_workspace());
 
     service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .kill_shell("missing")
         .expect("kill");
 
@@ -607,7 +607,7 @@ fn tearing_down_a_session_reports_shutdown() {
     let (service, ..) = shell_service(open_shell_workspace());
 
     service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .kill_for_session("session-1")
         .expect("kill for session");
 
@@ -628,7 +628,7 @@ fn tearing_down_a_session_reports_shutdown() {
 fn non_lifecycle_shell_operations_publish_nothing() {
     let refusing = RefusingEvidence::default();
     let (service, ..) = shell_service(open_shell_workspace());
-    let service = service.with_evidence(Arc::new(refusing.clone()));
+    let service = service.with_test_evidence(Arc::new(refusing.clone()));
 
     service.write_input("shell-fixture", "ls\n").expect("input");
     service.reset_directory("shell-fixture").expect("reset");
@@ -650,7 +650,7 @@ fn a_close_signal_carries_no_terminal_content() {
     let (service, ..) = shell_service(open_shell_workspace());
 
     service
-        .with_evidence(Arc::new(refusing.clone()))
+        .with_test_evidence(Arc::new(refusing.clone()))
         .kill_shell("shell-fixture")
         .expect("kill");
 
