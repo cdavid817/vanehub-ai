@@ -4,121 +4,225 @@ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
-import { tauriAgentClient } from "./tauri-agent-client";
-import { webCliToolClient } from "./web-cli-tool-client";
+import { tauriCliEnvironmentClient } from "./tauri-cli-environment-client";
+import { webCliEnvironmentClient } from "./web-cli-environment-client";
 import { webOperationClient } from "./web-operation-client";
-import type { OperationStatus, OperationTask } from "../types/operation";
+import {
+  WEB_CLI_FIXED_PLAN_IDS,
+  WEB_CLI_OUTCOME_TARGETS,
+} from "./web-cli-environment-fixtures";
+import type { OperationStatus } from "../types/operation";
 
 // The lifecycle both runtimes must agree on. Adding a status here without adding it to the Rust
 // `OperationStatus` enum is exactly the drift this file exists to catch.
 const LIFECYCLE: OperationStatus[] = ["queued", "running", "succeeded", "failed", "cancelled"];
 
-function nativeOperation(status: OperationStatus): OperationTask {
-  return {
-    id: `op-${status}`,
-    kind: "cli",
-    status,
-    relatedEntityId: "claude-code",
-    message: null,
-    logs: [],
-    result: null,
-    error: status === "failed" ? "npm exited with code 1" : null,
-    createdAt: "1",
-    updatedAt: "2",
-  };
-}
-
-async function waitForStatus(operationId: string, predicate: (task: OperationTask) => boolean) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+async function waitForTerminal(operationId: string) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     const task = await webOperationClient.getOperationStatus(operationId);
-    if (predicate(task)) return task;
+    if (["succeeded", "failed", "cancelled"].includes(task.status)) return task;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`operation ${operationId} never reached the expected status`);
+  throw new Error(`operation ${operationId} never reached a terminal status`);
 }
 
-describe("CLI operation contract conformance across runtimes", () => {
+/** Drives one mutation end to end through the Web runtime and returns its terminal result. */
+async function webMutation(targetVersion: string) {
+  const planning = await webCliEnvironmentClient.prepareCliAction({
+    agentId: "claude-code",
+    action: null,
+    sourceId: "npm",
+    targetVersion,
+    channel: null,
+  });
+  const planned = await waitForTerminal(planning.id);
+  const planId = (planned.result as { planId: string }).planId;
+  const execution = await webCliEnvironmentClient.executeCliAction({ planId, expectedRevision: 1 });
+  return waitForTerminal(execution.id);
+}
+
+describe("CLI environment adapter conformance across runtimes", () => {
   beforeEach(() => invokeMock.mockReset());
 
-  it("marks Web/mock CLI work with the cli operation kind", async () => {
-    const refresh = await webCliToolClient.refreshCliDetections("claude-code");
-    expect(refresh.kind).toBe("cli");
-    expect(refresh.relatedEntityId).toBe("claude-code");
-
-    const install = await webCliToolClient.installCliVersion({
+  it("relays every method to exactly one command with the caller's own arguments", async () => {
+    invokeMock.mockResolvedValue({ operationId: "op-1" });
+    invokeMock.mockResolvedValueOnce([]);
+    await tauriCliEnvironmentClient.listCliEnvironments();
+    await tauriCliEnvironmentClient.refreshCliEnvironments(["claude-code"], true);
+    await tauriCliEnvironmentClient.prepareCliAction({
       agentId: "claude-code",
-      targetVersion: "1.2.3",
+      action: null,
+      sourceId: "npm",
+      targetVersion: "1.1.0",
+      channel: "stable",
     });
-    expect(install.kind).toBe("cli");
+    invokeMock.mockResolvedValueOnce({ id: "plan-1" });
+    await tauriCliEnvironmentClient.getCliActionPlan("plan-1");
+    await tauriCliEnvironmentClient.executeCliAction({ planId: "plan-1", expectedRevision: 3 });
+    await tauriCliEnvironmentClient.prepareCliBulkUpgrade(["claude-code"]);
+    invokeMock.mockResolvedValueOnce({ id: "bulk-1" });
+    await tauriCliEnvironmentClient.getCliBulkActionPlan("bulk-1");
+    await tauriCliEnvironmentClient.executeCliBulkAction({ planId: "bulk-1", expectedRevision: 1 });
+    await tauriCliEnvironmentClient.runCliDoctor("claude-code");
 
-    const bulk = await webCliToolClient.upgradeAllCliVersions();
-    expect(bulk.kind).toBe("cli");
+    expect(invokeMock.mock.calls.map(([command]) => command)).toEqual([
+      "list_cli_environments",
+      "refresh_cli_environment",
+      "prepare_cli_action",
+      "get_cli_action_plan",
+      "execute_cli_action",
+      "prepare_cli_bulk_action",
+      "get_cli_bulk_action_plan",
+      "execute_cli_bulk_action",
+      "run_cli_doctor",
+    ]);
   });
 
-  it("moves a Web/mock CLI operation through queued, running, and a terminal status", async () => {
-    const started = await webCliToolClient.refreshCliDetections();
-    expect(started.status).toBe("queued");
-
-    const running = await waitForStatus(started.id, (task) => task.status !== "queued");
-    // Deterministic simulation, not a host inspection: the fixture never claims to have read PATH.
-    expect(["running", "failed", "succeeded"]).toContain(running.status);
-
-    const terminal = await waitForStatus(started.id, (task) =>
-      ["succeeded", "failed", "cancelled"].includes(task.status),
-    );
-    expect(LIFECYCLE).toContain(terminal.status);
-    expect(terminal.kind).toBe("cli");
-  });
-
-  it("supports Web/mock CLI cancellation as a distinct terminal status", async () => {
-    const started = await webCliToolClient.installCliVersion({
-      agentId: "codex-cli",
-      targetVersion: "1.0.0",
+  it("sends the chosen source, channel, and target through untouched", async () => {
+    invokeMock.mockResolvedValue({ operationId: "op-1" });
+    await tauriCliEnvironmentClient.prepareCliAction({
+      agentId: "claude-code",
+      action: null,
+      sourceId: "npm",
+      targetVersion: "1.1.0",
+      channel: "stable",
     });
 
+    // The older version the user picked, not the newest one. No substitution, and no action:
+    // the backend derives the direction so this side never compares two versions.
+    expect(invokeMock).toHaveBeenCalledWith("prepare_cli_action", {
+      agentId: "claude-code",
+      action: null,
+      sourceId: "npm",
+      targetVersion: "1.1.0",
+      channel: "stable",
+    });
+  });
+
+  it("sends only a plan id and revision to execute", async () => {
+    invokeMock.mockResolvedValue({ operationId: "op-1" });
+    await tauriCliEnvironmentClient.executeCliAction({ planId: "plan-9", expectedRevision: 4 });
+
+    const [, payload] = invokeMock.mock.calls[0];
+    // Nothing else crosses, so nothing else can be substituted between review and execution.
+    expect(Object.keys(payload as object).sort()).toEqual(["expectedRevision", "planId"]);
+  });
+
+  it("returns a watchable operation from every variable-duration method", async () => {
+    invokeMock.mockResolvedValue({ operationId: "op-7" });
+    for (const started of [
+      await tauriCliEnvironmentClient.refreshCliEnvironments([], false),
+      await tauriCliEnvironmentClient.prepareCliBulkUpgrade([]),
+      await tauriCliEnvironmentClient.runCliDoctor("claude-code"),
+    ]) {
+      expect(started.id).toBe("op-7");
+      expect(started.kind).toBe("cli");
+      // Queued, not running: the backend accepted the work and has started nothing observable.
+      expect(started.status).toBe("queued");
+      expect(LIFECYCLE).toContain(started.status);
+    }
+  });
+
+  it("does not invent progress metadata the backend did not send", async () => {
+    invokeMock.mockResolvedValue({ operationId: "op-8" });
+    const started = await tauriCliEnvironmentClient.runCliDoctor("claude-code");
+
+    expect(started.phase ?? null).toBeNull();
+    expect(started.cancellable ?? null).toBeNull();
+    expect(started.completedUnits ?? null).toBeNull();
+  });
+
+  it("serves deterministic Web snapshots that never claim to have read the host", async () => {
+    const snapshots = await webCliEnvironmentClient.listCliEnvironments();
+
+    expect(snapshots.length).toBeGreaterThan(0);
+    for (const snapshot of snapshots) {
+      expect(snapshot.displayName).not.toBe("");
+      for (const installation of snapshot.installations) {
+        // Obvious placeholders. A realistic home directory would read as a real finding on a page
+        // that cannot have looked at one.
+        expect(installation.executablePath.startsWith("/mock/")).toBe(true);
+      }
+    }
+    // Every distinct case the UI has to render is present.
+    expect(snapshots.some((snapshot) => snapshot.conflicts.length > 0)).toBe(true);
+    expect(snapshots.some((snapshot) => snapshot.installations.length === 0)).toBe(true);
+    expect(snapshots.some((snapshot) => snapshot.update === "not-applicable")).toBe(true);
+  });
+
+  it("reaches every terminal mutation outcome deterministically on the Web runtime", async () => {
+    const cases: Array<[string, string, OperationStatus]> = [
+      [WEB_CLI_OUTCOME_TARGETS.verified, "verified", "succeeded"],
+      [WEB_CLI_OUTCOME_TARGETS.appliedUnverified, "applied-unverified", "succeeded"],
+      [WEB_CLI_OUTCOME_TARGETS.changedButFailed, "changed-but-failed", "failed"],
+      [WEB_CLI_OUTCOME_TARGETS.noChangeFailed, "no-change-failed", "failed"],
+      [WEB_CLI_OUTCOME_TARGETS.cancelled, "cancelled", "failed"],
+    ];
+
+    for (const [target, outcome, status] of cases) {
+      const terminal = await webMutation(target);
+      expect(terminal.status).toBe(status);
+      expect((terminal.result as { outcome: string }).outcome).toBe(outcome);
+      // The version the plan aimed at survives to the result, whatever the outcome was.
+      expect((terminal.result as { targetVersion: string }).targetVersion).toBe(target);
+    }
+  });
+
+  it("refuses an expired, consumed, or superseded plan before anything runs", async () => {
+    await expect(
+      webCliEnvironmentClient.executeCliAction({ planId: WEB_CLI_FIXED_PLAN_IDS.expired, expectedRevision: 1 }),
+    ).rejects.toThrow("plan-expired");
+    await expect(
+      webCliEnvironmentClient.executeCliAction({ planId: WEB_CLI_FIXED_PLAN_IDS.consumed, expectedRevision: 1 }),
+    ).rejects.toThrow("plan-consumed");
+    // The environment moved, so the revision the caller saw is no longer the current one.
+    await expect(
+      webCliEnvironmentClient.executeCliAction({ planId: WEB_CLI_FIXED_PLAN_IDS.stale, expectedRevision: 1 }),
+    ).rejects.toThrow("plan-revision-mismatch");
+  });
+
+  it("reports bulk eligibility and skips with a reason on the Web runtime", async () => {
+    const started = await webCliEnvironmentClient.prepareCliBulkUpgrade([
+      "claude-code",
+      "gemini-cli",
+      "opencode",
+    ]);
+    const terminal = await waitForTerminal(started.id);
+    const result = terminal.result as { items: number; skipped: Array<{ agentId: string; reason: string }> };
+
+    expect(result.items).toBe(1);
+    // A silently shorter item list would read as "everything else is already up to date".
+    expect(result.skipped.map((skip) => skip.agentId).sort()).toEqual(["gemini-cli", "opencode"]);
+    expect(result.skipped.find((skip) => skip.agentId === "opencode")?.reason).toBe("installation-conflict");
+  });
+
+  it("reports a per-item outcome for a bulk execution", async () => {
+    const started = await webCliEnvironmentClient.executeCliBulkAction({
+      planId: "web-bulk-plan",
+      expectedRevision: 1,
+    });
+    const terminal = await waitForTerminal(started.id);
+    const items = (terminal.result as { items: Array<{ outcome: string }> }).items;
+
+    // A batch that half-succeeded is not a batch that succeeded.
+    expect(items.map((item) => item.outcome)).toEqual(["verified", "no-change-failed"]);
+  });
+
+  it("supports Web cancellation as a distinct terminal status with no invented result", async () => {
+    const started = await webCliEnvironmentClient.runCliDoctor("claude-code");
     const cancelled = await webOperationClient.cancelOperation(started.id);
 
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.kind).toBe("cli");
-    // Cancelling is not a rollback claim: no result is fabricated for work that never ran.
+    // Cancelling is not a rollback claim: nothing is fabricated for work that never finished.
     expect(cancelled.result).toBeNull();
   });
 
-  it("passes every native CLI lifecycle status through the Tauri adapter unchanged", async () => {
-    for (const status of LIFECYCLE) {
-      invokeMock.mockResolvedValueOnce(nativeOperation(status));
-      const task = await tauriAgentClient.refreshCliDetections("claude-code");
-      expect(task.status).toBe(status);
-      expect(task.kind).toBe("cli");
-    }
-    expect(invokeMock).toHaveBeenCalledTimes(LIFECYCLE.length);
-  });
+  it("answers a doctor probe with unknown rather than a fabricated verdict", async () => {
+    const started = await webCliEnvironmentClient.runCliDoctor("claude-code");
+    const terminal = await waitForTerminal(started.id);
 
-  it("keeps optional progress metadata optional on both runtimes", async () => {
-    // Native payload without progress: the adapter must not invent phase or cancellability.
-    invokeMock.mockResolvedValueOnce(nativeOperation("running"));
-    const withoutProgress = await tauriAgentClient.refreshCliDetections();
-    expect(withoutProgress.phase ?? null).toBeNull();
-    expect(withoutProgress.completedUnits ?? null).toBeNull();
-    expect(withoutProgress.totalUnits ?? null).toBeNull();
-    expect(withoutProgress.cancellable ?? null).toBeNull();
-
-    // Native payload with progress: the adapter must pass it through verbatim.
-    invokeMock.mockResolvedValueOnce({
-      ...nativeOperation("running"),
-      phase: "querying-catalog",
-      completedUnits: 1,
-      totalUnits: 3,
-      cancellable: true,
-    });
-    const withProgress = await tauriAgentClient.refreshCliDetections();
-    expect(withProgress.phase).toBe("querying-catalog");
-    expect(withProgress.completedUnits).toBe(1);
-    expect(withProgress.totalUnits).toBe(3);
-    expect(withProgress.cancellable).toBe(true);
-
-    const webTask = await webCliToolClient.refreshCliDetections();
-    expect(webTask.phase ?? null).toBeNull();
-    expect(webTask.cancellable ?? null).toBeNull();
+    // A browser cannot run the tool's own diagnostics; `unknown` is the honest answer.
+    expect((terminal.result as { doctor: string }).doctor).toBe("unknown");
   });
 });

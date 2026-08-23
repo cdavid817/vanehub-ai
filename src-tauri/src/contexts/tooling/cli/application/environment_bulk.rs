@@ -123,7 +123,8 @@ impl CliEnvironmentService {
                     // so the preview and the execution cannot disagree.
                     let planning = self.prepare_cli_action(PrepareCliActionInput {
                         agent_id: agent_id.clone(),
-                        action: CliActionKind::Upgrade,
+                        // A bulk batch is upgrades by construction; nothing is derived here.
+                        action: Some(CliActionKind::Upgrade),
                         source_id: source_id.clone(),
                         target_version: Some(target.clone()),
                         channel: None,

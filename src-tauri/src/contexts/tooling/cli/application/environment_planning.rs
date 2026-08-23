@@ -41,7 +41,14 @@ use crate::contexts::tooling::cli::domain::version::NormalizedCliVersion;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrepareCliActionInput {
     pub(crate) agent_id: String,
-    pub(crate) action: CliActionKind,
+    /// `None` means "move this tool to the chosen version, whichever direction that is".
+    ///
+    /// The backend then derives install versus upgrade versus downgrade from the target and what
+    /// is installed. That derivation lives here rather than in the caller because a caller that
+    /// decides direction has to compare versions, and two comparison implementations disagree the
+    /// first time a prerelease shows up. `Some` is for the actions that carry no version --
+    /// uninstall and repair -- and for a caller naming a direction on purpose.
+    pub(crate) action: Option<CliActionKind>,
     pub(crate) source_id: String,
     pub(crate) target_version: Option<String>,
     pub(crate) channel: Option<String>,
@@ -112,7 +119,15 @@ impl CliEnvironmentService {
         let (agent_id, _) = self.resolve_tool(&input.agent_id)?;
         let operation_id = self.ports.operations.start(
             Some(&agent_id),
-            format!("Preparing {} for {}", input.action.as_str(), agent_id),
+            format!(
+                "Preparing {} for {agent_id}",
+                // The direction may not be decided yet; naming the target is what the user asked
+                // for anyway, and inventing an action label here would predate the decision.
+                input
+                    .action
+                    .map(CliActionKind::as_str)
+                    .unwrap_or("a version change")
+            ),
         )?;
         Ok(PreparedCliActionPlanning {
             operation_id,
@@ -138,12 +153,9 @@ impl CliEnvironmentService {
             ),
             Err(error) => {
                 let message = error.to_string();
-                self.ports.diagnostics.record(
-                    &operation_id,
-                    None,
-                    Some(prepared.input.action),
-                    &message,
-                );
+                self.ports
+                    .diagnostics
+                    .record(&operation_id, None, prepared.input.action, &message);
                 self.ports.operations.fail(&operation_id, message)
             }
         }
@@ -209,9 +221,16 @@ impl CliEnvironmentService {
                 .default_channel()
                 .map(|channel| channel.id.to_string())
         });
+        // Resolved before the action, because the action may depend on it: a caller that did not
+        // name a direction gets one derived from the target and what is installed.
+        let requested =
+            self.resolve_requested_version(input, channel.as_deref(), &agent_id, distribution)?;
+        let action =
+            resolve_plan_action(input.action, active_version.as_ref(), requested.as_ref())?;
         let target = self.resolve_plan_target(
             input,
-            channel.as_deref(),
+            action,
+            requested,
             &agent_id,
             distribution,
             platform,
@@ -219,7 +238,7 @@ impl CliEnvironmentService {
         )?;
 
         let mut warnings = Vec::new();
-        let target_mode = version_mode(distribution, input.action, platform);
+        let target_mode = version_mode(distribution, action, platform);
         if target_mode == CliTargetVersionMode::LatestOnly && target.is_some() {
             // The source runs at whatever it considers latest. Saying so is what stops the result
             // being labelled with a version the source never honoured.
@@ -228,14 +247,14 @@ impl CliEnvironmentService {
         if target_mode.accepts_exact_target() && !preflight.supports_exact_version {
             warnings.push(CliPlanWarning::ExactVersionNotConfirmed);
         }
-        if input.action == CliActionKind::Downgrade {
+        if action == CliActionKind::Downgrade {
             warnings.push(CliPlanWarning::DowngradeMayLoseState);
         }
 
         let preview = adapter.build_command_preview(
             &CliPlanRequest {
                 agent_id: &agent_id,
-                action: input.action,
+                action,
                 target_version: target.as_ref(),
                 channel: channel.as_deref(),
                 package_reference: distribution
@@ -251,7 +270,7 @@ impl CliEnvironmentService {
             id: self.ports.ids.next_plan_id(),
             revision: 1,
             agent_id: agent_id.clone(),
-            action: input.action,
+            action,
             source_id: source_id.clone(),
             installation_id: snapshot.recommended_installation_id.clone(),
             current_version: active_version.map(|version| version.as_str().to_string()),
@@ -282,14 +301,64 @@ impl CliEnvironmentService {
         Ok(plan)
     }
 
-    /// Validates the target the user chose against the source that will run.
+    /// The version the user is aiming at, resolved against the source's own catalog.
+    ///
+    /// Runs before the action is known, because the action may be derived from it. `None` means
+    /// the caller named an action that carries no version, or the source publishes no catalog.
+    fn resolve_requested_version(
+        &self,
+        input: &PrepareCliActionInput,
+        channel: Option<&str>,
+        agent_id: &CliToolId,
+        distribution: &CliDistributionDefinition,
+    ) -> Result<Option<NormalizedCliVersion>, CliEnvironmentError> {
+        if matches!(
+            input.action,
+            Some(CliActionKind::Uninstall | CliActionKind::Repair)
+        ) {
+            return Ok(None);
+        }
+        let source_id = distribution
+            .source_id()
+            .map_err(|error| CliEnvironmentError::Validation(error.to_string()))?;
+        let catalog = self
+            .ports
+            .repository
+            .load_catalog(agent_id, &source_id, channel)?;
+
+        match input
+            .target_version
+            .as_deref()
+            .map(NormalizedCliVersion::parse)
+        {
+            // Offered by *this* source's catalog, or refused. A version another source publishes
+            // is not a version this one can install.
+            Some(requested) => {
+                if catalog
+                    .as_ref()
+                    .is_some_and(|catalog| catalog.offers(&requested))
+                {
+                    Ok(Some(requested))
+                } else {
+                    Err(CliEnvironmentError::InvalidVersion {
+                        source_id: source_id.as_str().to_string(),
+                        value: requested.as_str().to_string(),
+                    })
+                }
+            }
+            None => Ok(catalog.as_ref().and_then(|catalog| catalog.latest.clone())),
+        }
+    }
+
+    /// Validates the resolved target against what the source can actually aim at.
     ///
     /// Returns `None` for a latest-only action, which carries no target at all. Returns an error
     /// when the target is already active -- the redundant-mutation case.
     fn resolve_plan_target(
         &self,
         input: &PrepareCliActionInput,
-        channel: Option<&str>,
+        action: CliActionKind,
+        requested: Option<NormalizedCliVersion>,
         agent_id: &CliToolId,
         distribution: &CliDistributionDefinition,
         platform: CliPlatform,
@@ -299,64 +368,37 @@ impl CliEnvironmentService {
             .source_id()
             .map_err(|error| CliEnvironmentError::Validation(error.to_string()))?;
         let source_id = &source_id;
-        let mode = version_mode(distribution, input.action, platform);
+        let mode = version_mode(distribution, action, platform);
         if !mode.is_supported() {
             return Err(CliEnvironmentError::UnsupportedAction {
                 agent_id: agent_id.as_str().to_string(),
                 source_id: source_id.as_str().to_string(),
-                action: input.action.as_str(),
+                action: action.as_str(),
             });
         }
         if !matches!(
-            input.action,
+            action,
             CliActionKind::Install | CliActionKind::Upgrade | CliActionKind::Downgrade
         ) {
             // Uninstall and repair carry no version.
             return Ok(None);
         }
+        if input.target_version.is_some() && !mode.accepts_exact_target() {
+            // Asked for an exact version from a source that cannot aim. Running latest and calling
+            // it the requested version is exactly what must not happen.
+            return Err(CliEnvironmentError::UnsupportedAction {
+                agent_id: agent_id.as_str().to_string(),
+                source_id: source_id.as_str().to_string(),
+                action: action.as_str(),
+            });
+        }
 
-        let requested = input
-            .target_version
-            .as_deref()
-            .map(NormalizedCliVersion::parse);
-        let catalog = self
-            .ports
-            .repository
-            .load_catalog(agent_id, source_id, channel)?;
-
-        let target = match requested {
-            Some(requested) => {
-                if !mode.accepts_exact_target() {
-                    // Asked for an exact version from a source that cannot aim. Running latest and
-                    // calling it the requested version is exactly what must not happen.
-                    return Err(CliEnvironmentError::UnsupportedAction {
-                        agent_id: agent_id.as_str().to_string(),
-                        source_id: source_id.as_str().to_string(),
-                        action: input.action.as_str(),
-                    });
-                }
-                let offered = catalog
-                    .as_ref()
-                    .is_some_and(|catalog| catalog.offers(&requested));
-                if !offered {
-                    return Err(CliEnvironmentError::InvalidVersion {
-                        source_id: source_id.as_str().to_string(),
-                        value: requested.as_str().to_string(),
-                    });
-                }
-                requested
-            }
-            None => {
-                let Some(latest) = catalog.as_ref().and_then(|catalog| catalog.latest.clone())
-                else {
-                    return Err(CliEnvironmentError::CatalogUnavailable {
-                        source_id: source_id.as_str().to_string(),
-                        reason:
-                            crate::contexts::tooling::cli::domain::catalog::CliCatalogUnavailableReason::QueryFailed,
-                    });
-                };
-                latest
-            }
+        let Some(target) = requested else {
+            return Err(CliEnvironmentError::CatalogUnavailable {
+                source_id: source_id.as_str().to_string(),
+                reason:
+                    crate::contexts::tooling::cli::domain::catalog::CliCatalogUnavailableReason::QueryFailed,
+            });
         };
 
         // The redundant-mutation gate. Equality has no mutation, so there is nothing to plan.
@@ -784,6 +826,43 @@ fn preconditions_for(source_id: &CliSourceId, requires_elevation: &bool) -> Vec<
         preconditions.push(CliPrecondition::ElevatedPrivileges);
     }
     preconditions
+}
+
+/// Which lifecycle action moving to `requested` actually is.
+///
+/// A caller that names one gets it. A caller that names none gets the direction derived here, from
+/// the same `resolve_target` every other caller uses. That is the point: deriving direction on the
+/// frontend means a second version comparison, and two comparisons disagree the first time a
+/// prerelease or a four-segment build number shows up -- which is how a UI came to offer an
+/// "upgrade" to the version already installed.
+fn resolve_plan_action(
+    requested_action: Option<CliActionKind>,
+    active_version: Option<&NormalizedCliVersion>,
+    requested: Option<&NormalizedCliVersion>,
+) -> Result<CliActionKind, CliEnvironmentError> {
+    if let Some(action) = requested_action {
+        return Ok(action);
+    }
+    let Some(target) = requested else {
+        // Nothing installed and no catalog to aim at. `install` is the only honest reading, and
+        // the target check downstream refuses it for the right reason.
+        return Ok(CliActionKind::Install);
+    };
+    match resolve_target(active_version, target) {
+        CliTargetResolution::Install => Ok(CliActionKind::Install),
+        CliTargetResolution::Upgrade => Ok(CliActionKind::Upgrade),
+        CliTargetResolution::Downgrade => Ok(CliActionKind::Downgrade),
+        CliTargetResolution::Current => Err(CliEnvironmentError::Validation(format!(
+            "{} is already the active version",
+            target.as_str()
+        ))),
+        // Two versions that cannot be ordered. Guessing a direction here would put one of
+        // `upgrade` or `downgrade` on screen with nothing behind it.
+        CliTargetResolution::Indeterminate => Err(CliEnvironmentError::InvalidVersion {
+            source_id: String::new(),
+            value: target.as_str().to_string(),
+        }),
+    }
 }
 
 /// What post-mutation verification established, beyond the outcome label.

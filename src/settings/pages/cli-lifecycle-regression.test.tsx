@@ -1,26 +1,32 @@
 // @vitest-environment jsdom
 
-// Failing regression coverage for the two defects this change exists to remove. Both are currently
-// asserted *as correct* by the existing suite (`cli-management-utils.test.ts` expects "upgrade" when
-// the target equals the active version), so these tests are deliberately written against the
-// intended behavior and fail until the source-aware backend contract lands.
+// Regression coverage for the two defects this change exists to remove.
+//
+// Both were written against the *intended* behavior while the page still called the flat
+// `installCliVersion` path, and both failed for the whole time that path was in place. They now
+// assert the same two things against the action-plan surface that replaced it, because that is
+// where "the selected version reaches the backend" and "equality creates no mutation" are now
+// decided. The assertions are unchanged in substance: an exact version passthrough, and no
+// mutation at all when the target is already installed.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../../i18n";
-import type { CliToolStatus } from "../../types/agent";
+import type { CliEnvironmentSnapshot } from "../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../types/operation";
 
-const installCliVersion = vi.fn<(input: unknown) => Promise<OperationTask>>();
-const listCliTools = vi.fn<() => Promise<CliToolStatus[]>>();
+const prepareCliAction = vi.fn<(input: unknown) => Promise<OperationTask>>();
+const executeCliAction = vi.fn<(input: unknown) => Promise<OperationTask>>();
+const listCliEnvironments = vi.fn<() => Promise<CliEnvironmentSnapshot[]>>();
 
 vi.mock("../../services/runtime-agent-client", () => ({
   agentService: {
-    listCliTools: () => listCliTools(),
-    installCliVersion: (input: unknown) => installCliVersion(input),
-    refreshCliDetections: () => Promise.resolve(startedOperation("op-refresh")),
-    upgradeAllCliVersions: () => Promise.resolve(startedOperation("op-bulk")),
+    listCliEnvironments: () => listCliEnvironments(),
+    prepareCliAction: (input: unknown) => prepareCliAction(input),
+    executeCliAction: (input: unknown) => executeCliAction(input),
+    refreshCliEnvironments: () => Promise.resolve(startedOperation("op-refresh")),
+    prepareCliBulkUpgrade: () => Promise.resolve(startedOperation("op-bulk")),
   },
 }));
 
@@ -37,7 +43,7 @@ vi.mock("../../services/runtime-settings-client", () => ({
 function startedOperation(id: string): OperationTask {
   return {
     id,
-    kind: "agent",
+    kind: "cli",
     status: "running",
     relatedEntityId: "claude-code",
     message: null,
@@ -49,40 +55,70 @@ function startedOperation(id: string): OperationTask {
   };
 }
 
-const cliTool: CliToolStatus = {
-  agentId: "claude-code",
-  displayName: "Anthropic Claude Code CLI",
-  provider: "Anthropic",
-  executableName: "claude",
-  packageName: "@anthropic-ai/claude-code",
-  installed: true,
-  currentVersion: "1.2.0",
-  latestVersion: "1.3.0",
+const npmSource = {
+  sourceId: "npm",
+  kind: "npm",
+  supportedOnThisPlatform: true,
+  availableVersionCount: 3,
   availableVersions: ["1.3.0", "1.2.0", "1.1.0"],
-  detectedPath: "C:\\Users\\dev\\claude.cmd",
-  installCommand: "npm install -g @anthropic-ai/claude-code@latest",
-  lastCheckedAt: "123",
-  lastError: null,
-  lastOperationId: null,
-  versionCheckStatus: "succeeded",
-  environmentType: "windows",
-  installations: [{
-    path: "C:\\Users\\dev\\claude.cmd",
-    version: "1.2.0",
-    runnable: true,
-    error: null,
-    source: "npm",
-    environmentType: "windows",
-    isActive: true,
-  }],
-  activeInstallationPath: "C:\\Users\\dev\\claude.cmd",
-  conflictState: "none",
-  lifecycleEligibility: "npm",
+  capabilities: {
+    install: "exact",
+    upgrade: "exact",
+    downgrade: "exact",
+    reinstall: "exact",
+    uninstall: true,
+    repair: "unsupported",
+  },
 };
 
-async function renderPage(tool: CliToolStatus) {
+function snapshotAt(installedVersion: string): CliEnvironmentSnapshot {
+  return {
+    schemaVersion: 1,
+    agentId: "claude-code",
+    displayName: "Anthropic Claude Code CLI",
+    provider: "Anthropic",
+    executableNames: ["claude"],
+    scope: "local-desktop",
+    overallState: "update-available",
+    freshness: "fresh",
+    environmentFingerprint: "fingerprint-a",
+    installations: [{
+      id: "claude",
+      executablePath: "/mock/bin/claude",
+      canonicalPath: null,
+      aliasPaths: [],
+      targetMissing: false,
+      reportedVersion: installedVersion,
+      sourceId: "npm",
+      sourceKind: "npm",
+      sourceConfidence: "inferred",
+      pathPriority: 0,
+      environmentOrigin: "path",
+      executableStatus: "healthy",
+    }],
+    pathSelectedInstallationId: "claude",
+    recommendedInstallationId: "claude",
+    discovery: "found-one",
+    executable: "healthy",
+    authentication: "unknown",
+    readiness: "unknown",
+    compatibility: "unknown",
+    update: "available",
+    conflicts: [],
+    sources: [npmSource],
+    allowedActions: [
+      { action: "upgrade", sourceId: "npm", targetMode: "exact", defaultTarget: "1.3.0", requiresTargetSelection: false, reasonCode: null },
+      { action: "downgrade", sourceId: "npm", targetMode: "exact", defaultTarget: null, requiresTargetSelection: true, reasonCode: null },
+    ],
+    lastMutation: null,
+    lastOperationId: null,
+    checkedAt: "2026-01-01T00:00:00+00:00",
+  };
+}
+
+async function renderPage(snapshot: CliEnvironmentSnapshot) {
   const { ProvidersPage } = await import("./providers-page");
-  listCliTools.mockResolvedValue([tool]);
+  listCliEnvironments.mockResolvedValue([snapshot]);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -91,48 +127,50 @@ async function renderPage(tool: CliToolStatus) {
       <ProvidersPage searchTerm="" />
     </QueryClientProvider>,
   );
-  await screen.findByText(tool.displayName);
+  await screen.findByText(snapshot.displayName);
 }
 
 describe("CLI lifecycle regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    installCliVersion.mockResolvedValue(startedOperation("op-install"));
+    prepareCliAction.mockResolvedValue(startedOperation("op-plan"));
+    executeCliAction.mockResolvedValue(startedOperation("op-execute"));
   });
 
   it("sends the version the user selected, not the latest version", async () => {
-    await renderPage(cliTool);
+    await renderPage(snapshotAt("1.2.0"));
 
-    const select = await screen.findByLabelText(`${cliTool.displayName} 目标版本`);
+    const select = await screen.findByLabelText("Anthropic Claude Code CLI 目标版本");
     fireEvent.change(select, { target: { value: "1.1.0" } });
     expect((select as HTMLSelectElement).value).toBe("1.1.0");
 
-    // Scoped to the card: the page toolbar also carries a bulk "全部升级 1" button.
+    // Scoped to the card: the page toolbar also carries a bulk upgrade button.
     const card = document.querySelector<HTMLElement>('[data-cli-agent="claude-code"]');
     if (!card) throw new Error("CLI card not rendered");
-    fireEvent.click(within(card).getByRole("button", { name: /^(升级|降级|安装)$/ }));
+    fireEvent.click(within(card).getByRole("button", { name: "更改版本" }));
 
-    await waitFor(() => expect(installCliVersion).toHaveBeenCalledTimes(1));
-    // Defect: `resolveCliPackageActionTargetVersion` returns `tool.latestVersion ?? "latest"`, so the
-    // selected 1.1.0 never reaches the request and 1.3.0 is installed instead.
-    expect(installCliVersion).toHaveBeenCalledWith(
+    await waitFor(() => expect(prepareCliAction).toHaveBeenCalledTimes(1));
+    // The old defect: `resolveCliPackageActionTargetVersion` returned `latestVersion ?? "latest"`,
+    // so the selected 1.1.0 never reached the request and 1.3.0 was installed instead.
+    expect(prepareCliAction).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "claude-code", targetVersion: "1.1.0" }),
     );
   });
 
   it("creates no mutation when the selected target equals the active version", async () => {
-    const current = { ...cliTool, currentVersion: "1.3.0", installations: [{ ...cliTool.installations[0], version: "1.3.0" }] };
-    await renderPage(current);
+    await renderPage(snapshotAt("1.3.0"));
 
-    const select = await screen.findByLabelText(`${current.displayName} 目标版本`);
+    const select = await screen.findByLabelText("Anthropic Claude Code CLI 目标版本");
     fireEvent.change(select, { target: { value: "1.3.0" } });
 
-    // Defect: equality is derived as "upgrade", so an enabled upgrade button is rendered and a
-    // redundant npm install is dispatched for a version that is already active.
-    const upgradeButton = screen.queryByRole("button", { name: "升级" });
-    expect(upgradeButton === null || (upgradeButton as HTMLButtonElement).disabled).toBe(true);
+    // The old defect: equality was derived as "upgrade", so an enabled upgrade button rendered and
+    // a redundant npm install was dispatched for a version that was already active.
+    const changeButton = screen.queryByRole("button", { name: "更改版本" });
+    expect(changeButton === null || (changeButton as HTMLButtonElement).disabled).toBe(true);
 
-    if (upgradeButton && !(upgradeButton as HTMLButtonElement).disabled) fireEvent.click(upgradeButton);
-    await waitFor(() => expect(installCliVersion).not.toHaveBeenCalled());
+    if (changeButton && !(changeButton as HTMLButtonElement).disabled) fireEvent.click(changeButton);
+    await waitFor(() => expect(prepareCliAction).not.toHaveBeenCalled());
+    // And nothing is executed either: no plan was created, so there is none to run.
+    expect(executeCliAction).not.toHaveBeenCalled();
   });
 });

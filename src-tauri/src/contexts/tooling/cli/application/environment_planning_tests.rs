@@ -44,7 +44,7 @@ fn prepare(
 > {
     let prepared = harness.service.prepare_cli_action(PrepareCliActionInput {
         agent_id: "claude-code".to_string(),
-        action,
+        action: Some(action),
         source_id: "npm".to_string(),
         target_version: target.map(str::to_string),
         channel: Some("stable".to_string()),
@@ -509,7 +509,7 @@ fn preparing_an_action_for_an_unsupported_source_fails_without_an_operation() {
         .service
         .prepare_cli_action(PrepareCliActionInput {
             agent_id: "codex-cli".to_string(),
-            action: CliActionKind::Upgrade,
+            action: Some(CliActionKind::Upgrade),
             // codex-cli has no WinGet distribution.
             source_id: "winget".to_string(),
             target_version: Some("1.0.0".to_string()),

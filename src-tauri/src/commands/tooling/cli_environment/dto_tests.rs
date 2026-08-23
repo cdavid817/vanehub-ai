@@ -9,6 +9,9 @@ fn snapshot() -> CliEnvironmentSnapshotDto {
     CliEnvironmentSnapshotDto {
         schema_version: 1,
         agent_id: "claude-code".to_string(),
+        display_name: "Anthropic Claude Code CLI".to_string(),
+        provider: "Anthropic".to_string(),
+        executable_names: vec!["claude".to_string()],
         scope: "local-desktop".to_string(),
         overall_state: "ready".to_string(),
         freshness: "fresh".to_string(),

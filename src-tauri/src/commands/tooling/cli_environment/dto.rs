@@ -15,6 +15,12 @@ use serde::Serialize;
 pub(crate) struct CliEnvironmentSnapshotDto {
     pub(crate) schema_version: u16,
     pub(crate) agent_id: String,
+    /// Identity from the backend registry, carried so no UI has to keep a second copy of the
+    /// catalog. A frontend list of display names drifts the first time a tool is renamed here.
+    pub(crate) display_name: String,
+    pub(crate) provider: String,
+    /// Every name this executable may carry. Windows shims mean one CLI appears under several.
+    pub(crate) executable_names: Vec<String>,
     pub(crate) scope: String,
     pub(crate) overall_state: String,
     pub(crate) freshness: String,
@@ -77,6 +83,9 @@ pub(crate) struct CliSourceSummaryDto {
     pub(crate) kind: String,
     pub(crate) supported_on_this_platform: bool,
     pub(crate) available_version_count: Option<usize>,
+    /// This source's own list, newest first. A target selector reads it rather than rebuilding one,
+    /// and two sources' lists are never merged.
+    pub(crate) available_versions: Vec<String>,
     pub(crate) capabilities: CliSourceCapabilitiesDto,
 }
 

@@ -7,14 +7,13 @@ import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { agentService } from "../../services/runtime-agent-client";
 import { operationService } from "../../services/runtime-operation-client";
 import { settingsService } from "../../services/runtime-settings-client";
-import type { CliToolStatus } from "../../types/agent";
+import type { CliEnvironmentSnapshot } from "../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../types/operation";
-import { deriveCliVersionAction, isBulkCliUpgradeEligible } from "./cli-management-utils";
-import { CliConflictDialog } from "./cli-conflict-dialog";
+import { bulkUpgradeEligible, recommendedSourceId, targetVersionOptions } from "./cli-action-selection";
 import { CliEnvironmentCard } from "./cli-environment-card";
 import { PageHeader, StatCard } from "./page-parts";
 
-const cliToolsQueryKey = ["cli-tools"] as const;
+const cliEnvironmentsQueryKey = ["cli-environments"] as const;
 
 export function isOperationRunning(operation?: OperationTask) {
   return operation?.status === "running" || operation?.status === "queued";
@@ -29,15 +28,6 @@ export function refreshButtonState(isPending: boolean, operation?: OperationTask
   };
 }
 
-export function resolveCliPackageActionTargetVersion(tool: CliToolStatus) {
-  return tool.latestVersion ?? "latest";
-}
-
-type PendingPackageAction = {
-  tool: CliToolStatus;
-  targetVersion: string;
-};
-
 export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -45,34 +35,44 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   const [expandedDiagnostics, setExpandedDiagnostics] = useState<Record<string, boolean>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [activeOperationIds, setActiveOperationIds] = useState<Record<string, string>>({});
-  const [packageOperationIds, setPackageOperationIds] = useState<Record<string, string>>({});
+  const [mutatingAgentIds, setMutatingAgentIds] = useState<Record<string, string>>({});
   const [refreshOperationId, setRefreshOperationId] = useState<string | null>(null);
-  const [pendingPackageAction, setPendingPackageAction] = useState<PendingPackageAction | null>(null);
 
-  const toolsQuery = useQuery({ queryKey: cliToolsQueryKey, queryFn: () => agentService.listCliTools() });
-  const tools = useMemo(
-    () => orderByAgentPriority(toolsQuery.data ?? [], (tool) => tool.agentId),
-    [toolsQuery.data],
+  const snapshotsQuery = useQuery({
+    queryKey: cliEnvironmentsQueryKey,
+    queryFn: () => agentService.listCliEnvironments(),
+    // Cached data stays on screen while a background refresh runs; a blank card would read as
+    // "nothing is installed" for as long as the probe takes.
+    placeholderData: (previous) => previous,
+  });
+  const snapshots = useMemo(
+    () => orderByAgentPriority(snapshotsQuery.data ?? [], (snapshot) => snapshot.agentId),
+    [snapshotsQuery.data],
   );
 
   useEffect(() => {
     setSelectedVersions((current) => {
       const next = { ...current };
-      for (const tool of tools) {
-        if (!next[tool.agentId]) next[tool.agentId] = tool.latestVersion ?? tool.availableVersions[0] ?? tool.currentVersion ?? "";
+      for (const snapshot of snapshots) {
+        // The backend's own default for the offered action. Never a version this page picked.
+        if (!next[snapshot.agentId]) {
+          next[snapshot.agentId] = snapshot.allowedActions[0]?.defaultTarget
+            ?? targetVersionOptions(snapshot)[0]
+            ?? "";
+        }
       }
       return next;
     });
-  }, [tools]);
+  }, [snapshots]);
 
   const operationIds = useMemo(
     () => [...new Set([
-      ...tools.flatMap((tool) => tool.lastOperationId ? [tool.lastOperationId] : []),
+      ...snapshots.flatMap((snapshot) => snapshot.lastOperationId ? [snapshot.lastOperationId] : []),
       ...Object.values(activeOperationIds),
-      ...Object.values(packageOperationIds),
+      ...Object.values(mutatingAgentIds),
       ...(refreshOperationId ? [refreshOperationId] : []),
     ])],
-    [activeOperationIds, packageOperationIds, refreshOperationId, tools],
+    [activeOperationIds, mutatingAgentIds, refreshOperationId, snapshots],
   );
   const operationQueries = useQueries({
     queries: operationIds.map((operationId) => ({
@@ -95,9 +95,11 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
     );
     if (finishedIds.size === 0) return;
     setActiveOperationIds((current) => Object.fromEntries(Object.entries(current).filter(([, id]) => !finishedIds.has(id))));
-    setPackageOperationIds((current) => Object.fromEntries(Object.entries(current).filter(([, id]) => !finishedIds.has(id))));
+    setMutatingAgentIds((current) => Object.fromEntries(Object.entries(current).filter(([, id]) => !finishedIds.has(id))));
     if (refreshOperationId && finishedIds.has(refreshOperationId)) setRefreshOperationId(null);
-    void queryClient.invalidateQueries({ queryKey: cliToolsQueryKey });
+    // Only the CLI environment list; an unrelated query has no reason to refetch because a CLI
+    // operation ended.
+    void queryClient.invalidateQueries({ queryKey: cliEnvironmentsQueryKey });
   }, [operationIds, operationsById, queryClient, refreshOperationId]);
 
   function reportCliStartFailure(source: string, error: unknown, details?: Record<string, string>) {
@@ -105,70 +107,63 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   }
 
   const refreshMutation = useMutation({
-    mutationFn: (agentId: string | null) => agentService.refreshCliDetections(agentId ?? undefined),
+    mutationFn: (agentId: string | null) =>
+      agentService.refreshCliEnvironments(agentId ? [agentId] : [], false),
     onSuccess: (operation, agentId) => {
       if (agentId) {
         setActiveOperationIds((current) => ({ ...current, [agentId]: operation.id }));
       } else {
         setRefreshOperationId(operation.id);
-        setActiveOperationIds(Object.fromEntries(tools.map((tool) => [tool.agentId, operation.id])));
+        setActiveOperationIds(Object.fromEntries(snapshots.map((snapshot) => [snapshot.agentId, operation.id])));
       }
     },
-    onError: (error, agentId) => reportCliStartFailure("ProvidersPage.refreshCliDetections", error, agentId ? { agentId } : undefined),
+    onError: (error, agentId) => reportCliStartFailure("ProvidersPage.refreshCliEnvironments", error, agentId ? { agentId } : undefined),
   });
 
-  const installMutation = useMutation({
-    mutationFn: ({ tool, targetVersion, confirmedActivePath }: PendingPackageAction & { confirmedActivePath?: string | null }) =>
-      agentService.installCliVersion({ agentId: tool.agentId, targetVersion, confirmedActivePath }),
+  const prepareActionMutation = useMutation({
+    mutationFn: ({ snapshot, targetVersion }: { snapshot: CliEnvironmentSnapshot; targetVersion: string }) =>
+      agentService.prepareCliAction({
+        agentId: snapshot.agentId,
+        // No action: the backend derives install/upgrade/downgrade from the target and what is
+        // installed, so this page never compares two versions.
+        action: null,
+        sourceId: recommendedSourceId(snapshot) ?? "",
+        // Exactly what the user selected. Substituting a "latest" here is the defect this replaces.
+        targetVersion,
+        channel: null,
+      }),
     onSuccess: (operation, variables) => {
-      setActiveOperationIds((current) => ({ ...current, [variables.tool.agentId]: operation.id }));
-      setPackageOperationIds((current) => ({ ...current, [variables.tool.agentId]: operation.id }));
+      setActiveOperationIds((current) => ({ ...current, [variables.snapshot.agentId]: operation.id }));
+      setMutatingAgentIds((current) => ({ ...current, [variables.snapshot.agentId]: operation.id }));
     },
-    onError: (error, variables) => reportCliStartFailure("ProvidersPage.installCliVersion", error, {
-      agentId: variables.tool.agentId,
+    onError: (error, variables) => reportCliStartFailure("ProvidersPage.prepareCliAction", error, {
+      agentId: variables.snapshot.agentId,
       targetVersion: variables.targetVersion,
     }),
   });
 
-  const upgradeAllMutation = useMutation({
-    mutationFn: () => agentService.upgradeAllCliVersions(),
-    onSuccess: (operation) => {
-      setActiveOperationIds(Object.fromEntries(tools.map((tool) => [tool.agentId, operation.id])));
-      setPackageOperationIds(Object.fromEntries(tools.map((tool) => [tool.agentId, operation.id])));
+  const bulkUpgradeMutation = useMutation({
+    mutationFn: (agentIds: string[]) => agentService.prepareCliBulkUpgrade(agentIds),
+    onSuccess: (operation, agentIds) => {
+      setActiveOperationIds(Object.fromEntries(agentIds.map((agentId) => [agentId, operation.id])));
+      setMutatingAgentIds(Object.fromEntries(agentIds.map((agentId) => [agentId, operation.id])));
     },
-    onError: (error) => reportCliStartFailure("ProvidersPage.upgradeAllCliVersions", error),
+    onError: (error) => reportCliStartFailure("ProvidersPage.prepareCliBulkUpgrade", error),
   });
 
-  const filteredTools = useMemo(() => {
+  const filtered = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    if (!query) return tools;
-    return tools.filter((tool) => [tool.displayName, tool.provider, tool.executableName, tool.packageName].some((value) => value?.toLowerCase().includes(query)));
-  }, [searchTerm, tools]);
-  const installedCount = tools.filter((tool) => tool.installed === true).length;
-  const bulkEligibleCount = tools.filter(isBulkCliUpgradeEligible).length;
+    if (!query) return snapshots;
+    return snapshots.filter((snapshot) => [snapshot.displayName, snapshot.provider, ...snapshot.executableNames]
+      .some((value) => value?.toLowerCase().includes(query)));
+  }, [searchTerm, snapshots]);
+  const installedCount = snapshots.filter((snapshot) => snapshot.installations.length > 0).length;
+  const bulkEligible = snapshots.filter(bulkUpgradeEligible);
   const refreshOperation = refreshOperationId ? operationsById[refreshOperationId] : undefined;
   const refreshState = refreshButtonState(refreshMutation.isPending && refreshMutation.variables === null, refreshOperation);
 
   function diagnoseInstallConflicts() {
-    setExpandedDiagnostics(Object.fromEntries(tools.map((tool) => [tool.agentId, true])));
-  }
-
-  function requestPackageAction(tool: CliToolStatus, targetVersion: string) {
-    const effectiveTargetVersion = targetVersion || tool.latestVersion || "latest";
-    if (tool.installations.length > 1) {
-      setPendingPackageAction({ tool, targetVersion: effectiveTargetVersion });
-      return;
-    }
-    installMutation.mutate({ tool, targetVersion: effectiveTargetVersion });
-  }
-
-  function confirmPackageAction() {
-    if (!pendingPackageAction) return;
-    installMutation.mutate({
-      ...pendingPackageAction,
-      confirmedActivePath: pendingPackageAction.tool.activeInstallationPath,
-    });
-    setPendingPackageAction(null);
+    setExpandedDiagnostics(Object.fromEntries(snapshots.map((snapshot) => [snapshot.agentId, true])));
   }
 
   return (
@@ -181,9 +176,12 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
           <Button disabled={refreshState.disabled} variant="outline" onClick={() => refreshMutation.mutate(null)}>
             <RefreshCw className={refreshState.iconClassName} aria-hidden="true" />{t(refreshState.labelKey)}
           </Button>
-          <Button disabled={upgradeAllMutation.isPending || bulkEligibleCount === 0} onClick={() => upgradeAllMutation.mutate()}>
-            <ArrowUpCircle className={upgradeAllMutation.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
-            {t("cli.upgradeAll", { count: bulkEligibleCount })}
+          <Button
+            disabled={bulkUpgradeMutation.isPending || bulkEligible.length === 0}
+            onClick={() => bulkUpgradeMutation.mutate(bulkEligible.map((snapshot) => snapshot.agentId))}
+          >
+            <ArrowUpCircle className={bulkUpgradeMutation.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
+            {t("cli.upgradeAll", { count: bulkEligible.length })}
           </Button>
         </div>}
         description={t("cli.description")}
@@ -195,37 +193,34 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
         <p className="mt-1 text-xs text-muted-foreground">{t("cli.localEnvironmentHint")}</p>
       </section>
       <div data-testid="cli-installation-summary">
-        <StatCard icon={CheckCircle2} label={t("cli.stats.installed")} value={`${installedCount} / ${tools.length}`} hint={t("cli.stats.installedHint")} />
+        <StatCard icon={CheckCircle2} label={t("cli.stats.installed")} value={`${installedCount} / ${snapshots.length}`} hint={t("cli.stats.installedHint")} />
       </div>
-      {toolsQuery.error ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{String(toolsQuery.error)}</div> : null}
+      {snapshotsQuery.error ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{String(snapshotsQuery.error)}</div> : null}
       <div className="grid gap-4 xl:grid-cols-2">
-        {filteredTools.map((tool) => {
-          const selectedVersion = selectedVersions[tool.agentId] ?? "";
-          const packageActionTargetVersion = tool.installed === true ? tool.latestVersion ?? null : tool.latestVersion ?? "latest";
-          const packageMutationTargetVersion = resolveCliPackageActionTargetVersion(tool);
-          const operationId = activeOperationIds[tool.agentId] ?? tool.lastOperationId;
+        {filtered.map((snapshot) => {
+          const operationId = activeOperationIds[snapshot.agentId] ?? snapshot.lastOperationId;
           const operation = operationId ? operationsById[operationId] : undefined;
-          const refreshing = refreshMutation.isPending && refreshMutation.variables === tool.agentId || Boolean(operation && isOperationRunning(operation) && !packageOperationIds[tool.agentId]);
-          const packageBusy = installMutation.isPending || upgradeAllMutation.isPending || Boolean(packageOperationIds[tool.agentId] && (!operation || isOperationRunning(operation)));
+          const mutating = Boolean(mutatingAgentIds[snapshot.agentId] && (!operation || isOperationRunning(operation)));
+          const refreshing = refreshMutation.isPending && refreshMutation.variables === snapshot.agentId
+            || Boolean(operation && isOperationRunning(operation) && !mutatingAgentIds[snapshot.agentId]);
           return <CliEnvironmentCard
-            key={tool.agentId}
-            tool={tool}
-            selectedVersion={selectedVersion}
-            action={deriveCliVersionAction(tool, packageActionTargetVersion)}
+            key={snapshot.agentId}
+            snapshot={snapshot}
+            selectedVersion={selectedVersions[snapshot.agentId] ?? ""}
             operation={operation}
-            diagnosticsExpanded={Boolean(expandedDiagnostics[tool.agentId])}
-            operationExpanded={Boolean(expandedLogs[tool.agentId])}
+            diagnosticsExpanded={Boolean(expandedDiagnostics[snapshot.agentId])}
+            operationExpanded={Boolean(expandedLogs[snapshot.agentId])}
             refreshing={refreshing}
-            packageBusy={packageBusy}
-            onSelectedVersionChange={(version) => setSelectedVersions((current) => ({ ...current, [tool.agentId]: version }))}
-            onRefresh={() => refreshMutation.mutate(tool.agentId)}
-            onRunAction={() => requestPackageAction(tool, packageMutationTargetVersion)}
-            onToggleDiagnostics={() => setExpandedDiagnostics((current) => ({ ...current, [tool.agentId]: !current[tool.agentId] }))}
-            onToggleOperation={() => setExpandedLogs((current) => ({ ...current, [tool.agentId]: !current[tool.agentId] }))}
+            // Per tool, not global: one tool's mutation has no bearing on another's buttons.
+            mutating={mutating || prepareActionMutation.isPending}
+            onSelectedVersionChange={(version) => setSelectedVersions((current) => ({ ...current, [snapshot.agentId]: version }))}
+            onRefresh={() => refreshMutation.mutate(snapshot.agentId)}
+            onRequestChange={(targetVersion) => prepareActionMutation.mutate({ snapshot, targetVersion })}
+            onToggleDiagnostics={() => setExpandedDiagnostics((current) => ({ ...current, [snapshot.agentId]: !current[snapshot.agentId] }))}
+            onToggleOperation={() => setExpandedLogs((current) => ({ ...current, [snapshot.agentId]: !current[snapshot.agentId] }))}
           />;
         })}
       </div>
-      <CliConflictDialog tool={pendingPackageAction?.tool ?? null} onCancel={() => setPendingPackageAction(null)} onConfirm={confirmPackageAction} />
     </div>
   );
 }

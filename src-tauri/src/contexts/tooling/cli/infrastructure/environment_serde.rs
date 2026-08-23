@@ -477,6 +477,11 @@ fn encode_source_summary(summary: &CliSourceSummary) -> Value {
         "capabilities": encode_capabilities(&summary.capabilities),
         "supportedOnThisPlatform": summary.supported_on_this_platform,
         "availableVersionCount": summary.available_version_count,
+        "availableVersions": summary
+            .available_versions
+            .iter()
+            .map(NormalizedCliVersion::as_str)
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -506,6 +511,15 @@ fn decode_source_summary(value: &Value) -> Decoded<CliSourceSummary> {
             .get("availableVersionCount")
             .and_then(Value::as_u64)
             .map(|count| count as usize),
+        available_versions: array(value, "availableVersions")?
+            .iter()
+            .map(|entry| {
+                entry
+                    .as_str()
+                    .map(NormalizedCliVersion::parse)
+                    .ok_or_else(|| "availableVersions entry is not a string".to_string())
+            })
+            .collect::<Decoded<Vec<_>>>()?,
     })
 }
 

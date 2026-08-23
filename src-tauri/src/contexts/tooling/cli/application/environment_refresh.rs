@@ -491,6 +491,12 @@ impl CliEnvironmentService {
                     available_version_count: catalog
                         .filter(|catalog| catalog.is_available())
                         .map(|catalog| catalog.versions.len()),
+                    // The source's own list, unmodified. Merging two sources' versions here is the
+                    // borrowed-catalog defect this change removes.
+                    available_versions: catalog
+                        .filter(|catalog| catalog.is_available())
+                        .map(|catalog| catalog.versions.clone())
+                        .unwrap_or_default(),
                 })
             })
             .collect()

@@ -11,16 +11,24 @@ use crate::contexts::tooling::cli::domain::action::CliActionKind;
 ///
 /// The plan is what carries the selected version forward. Nothing downstream reconstructs a command
 /// from these arguments, which is why execution takes only a plan id.
+/// `action` is optional on purpose.
+///
+/// Omitting it says "move this tool to the chosen version", and the backend derives whether that is
+/// an install, an upgrade, or a downgrade from the same comparison every other caller uses. A
+/// caller that decided the direction itself would need a second version comparison, and two
+/// implementations disagree the first time a prerelease appears -- which is how a page came to
+/// offer an "upgrade" to the version already installed. Name it only for `uninstall` and `repair`,
+/// which carry no version at all.
 #[tauri::command]
 pub(crate) fn prepare_cli_action(
     api: State<'_, CliEnvironmentApi>,
     agent_id: String,
-    action: String,
+    action: Option<String>,
     source_id: String,
     target_version: Option<String>,
     channel: Option<String>,
 ) -> Result<CliOperationHandleDto, CliEnvironmentCommandError> {
-    let action = parse_action(&action)?;
+    let action = action.as_deref().map(parse_action).transpose()?;
     let prepared = api
         .prepare_action(PrepareCliActionInput {
             agent_id,

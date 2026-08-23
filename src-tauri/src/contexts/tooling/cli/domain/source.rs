@@ -9,6 +9,7 @@
 //! Capabilities here are data carried by the source definition, never a UI conditional.
 
 use super::ids::CliSourceId;
+use super::version::NormalizedCliVersion;
 
 /// The distribution mechanism that owns, or most likely owns, an installation.
 ///
@@ -295,6 +296,12 @@ pub(crate) struct CliSourceSummary {
     pub(crate) supported_on_this_platform: bool,
     /// Present only when the source itself was reachable and reported one.
     pub(crate) available_version_count: Option<usize>,
+    /// The versions this source offers, newest first, as its own catalog reported them.
+    ///
+    /// Carried on the summary so a target selector reads the source's list rather than a frontend
+    /// reconstruction. Empty when the catalog was unavailable, which is distinct from a source
+    /// that genuinely offers nothing -- `available_version_count` tells the two apart.
+    pub(crate) available_versions: Vec<NormalizedCliVersion>,
 }
 
 #[cfg(test)]
@@ -464,6 +471,7 @@ mod tests {
             },
             supported_on_this_platform: true,
             available_version_count: Some(42),
+            available_versions: Vec::new(),
         };
         assert!(summary.capabilities.manages_anything());
         assert_eq!(summary.available_version_count, Some(42));

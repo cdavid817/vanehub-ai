@@ -7,6 +7,7 @@ use crate::contexts::tooling::cli::domain::action::CliAllowedAction;
 use crate::contexts::tooling::cli::domain::bulk::CliBulkActionPlan;
 use crate::contexts::tooling::cli::domain::installation::{CliConflict, CliInstallation};
 use crate::contexts::tooling::cli::domain::plan::CliActionPlan;
+use crate::contexts::tooling::cli::domain::registry;
 use crate::contexts::tooling::cli::domain::snapshot::{CliEnvironmentSnapshot, CliMutationSummary};
 use crate::contexts::tooling::cli::domain::source::{CliSourceCapabilities, CliSourceSummary};
 
@@ -17,8 +18,25 @@ use super::dto::{
 };
 
 pub(super) fn snapshot_to_dto(snapshot: CliEnvironmentSnapshot) -> CliEnvironmentSnapshotDto {
+    // The registry is the one place tool identity lives. An unregistered agent id cannot reach a
+    // snapshot, but if one ever did, echoing its id is truthful where inventing a name is not.
+    let definition = registry::definition(snapshot.agent_id.as_str());
     CliEnvironmentSnapshotDto {
         schema_version: snapshot.schema_version,
+        display_name: definition
+            .map(|tool| tool.display_name.to_string())
+            .unwrap_or_else(|| snapshot.agent_id.as_str().to_string()),
+        provider: definition
+            .map(|tool| tool.provider.to_string())
+            .unwrap_or_default(),
+        executable_names: definition
+            .map(|tool| {
+                tool.executable_names
+                    .iter()
+                    .map(|name| (*name).to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
         agent_id: snapshot.agent_id.as_str().to_string(),
         scope: snapshot.scope.as_str().to_string(),
         overall_state: snapshot.overall_state.as_str().to_string(),
@@ -95,6 +113,11 @@ fn source_to_dto(source: &CliSourceSummary) -> CliSourceSummaryDto {
         kind: source.kind.as_str().to_string(),
         supported_on_this_platform: source.supported_on_this_platform,
         available_version_count: source.available_version_count,
+        available_versions: source
+            .available_versions
+            .iter()
+            .map(|version| version.as_str().to_string())
+            .collect(),
         capabilities: capabilities_to_dto(&source.capabilities),
     }
 }
