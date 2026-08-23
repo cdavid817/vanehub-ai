@@ -11,7 +11,7 @@ import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
 import { SessionConversationHeader } from "./session-conversation-header";
 import { SessionTabs } from "./session-tabs";
-import { TerminalTab, toolUseCount } from "./terminal-tab";
+import { toolUseCount } from "./terminal-tab";
 
 const message: ChatMessage = {
   id: "message-1",
@@ -57,7 +57,9 @@ describe("session workspace components", () => {
 
   it("renders tool execution cards and report values", () => {
     expect(toolUseCount([message])).toBe(1);
-    expect(renderToStaticMarkup(<TerminalTab messages={[message]} partial={false} />)).toContain("read_file");
+    // Terminal History is no longer server-renderable on its own: it reads the workspace evidence
+    // scope and needs a session id. The tool row it produces is asserted in terminal-tab.test.tsx,
+    // which mounts it with both and switches to the legacy view.
     const report = renderToStaticMarkup(<ReportTab messages={[message]} partial={false} />);
     expect(report).toContain("12");
     expect(report).toContain("read_file");
