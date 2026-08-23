@@ -392,3 +392,91 @@ What was done rather than raising it:
 the budget by 251 with the reason stated in the same commit, which is what the previous entry in
 that list did for its own new capability, or delete unrelated code from `src/services` to pay for
 it. The overage is reported rather than absorbed.
+
+## Round 4: Playwright, the legacy cutover, the native desktop layer, and documentation
+
+Tasks 12.9-12.13, Group 13, and 2.1 / 2.4 / 7.8. The ledger stands at 144 / 164, with only Group
+14's twenty validation items open.
+
+### Ledger corrections
+
+Two claims from the previous round's report were bookkeeping errors, corrected here rather than
+repeated:
+
+- **99 to 105 was two commits, not one.** `90152282` ticked 3.5, 3.8, 3.9 and `8d10231f` ticked 4.8,
+  5.10, 5.11. The six tasks are right; they did not land together.
+- **105 to 113 to 129 never happened as two steps.** Group 11 and 12.1-12.8 were both ticked in a
+  single commit, `7499011b`, taking the ledger from 105 straight to 129. The *work* landed in
+  separate commits (`eb7505ef` for the module, `95b0a653` for the tests); only the ledger update was
+  deferred to the end.
+
+Nothing was ticked without implementation behind it. Five tasks were ticked and then un-ticked at
+`306e6faa` when an earlier round found the claims premature, and re-ticked later with evidence.
+
+### The legacy cutover made the launch path a single authority
+
+The Agent Runtime resolved which executable to launch from the pre-change `cli_tool_status` row
+while the CLI Management page reported the source-aware snapshot. On a host with two installations
+those are different answers. `CliApi` is now a one-method facade over `CliEnvironmentApi` that reads
+the same snapshot the page renders.
+
+**No `LegacyLifecycleEligibility` compatibility type was needed.** The read-only legacy reader
+selects `detected_path`, `current_version`, and `last_checked_at` and never decoded an eligibility
+column, so `LifecycleEligibility` was deleted outright rather than surviving in a decoder.
+
+`the_legacy_cli_table_has_exactly_one_reader_and_no_writer` fails the build if a second reader or
+any writer appears.
+
+### The native layer found four defects nothing else could
+
+`npm run test:desktop:cli-management` is a new sixth layer. Building it, and running it, surfaced:
+
+1. **Bulk preparation inserted every item plan twice** and died on the primary key. The in-memory
+   double overwrote by key and hid it; it now refuses duplicates the way the table does.
+2. **Discovery stopped at the first launcher per directory**, so the launcher family was never fully
+   seen and the alias list the details drawer promises was always empty.
+3. **An expired, consumed, or superseded plan returned an operation id** and reported the refusal as
+   a failed operation, which closed the review dialog as though the change had started. Refusals
+   that are already decided now come back from preparation.
+4. **A completed operation with a `no-change-failed` outcome rendered a green success badge.**
+
+Two more were in the fixture harness itself: the wdio config is re-imported per worker and its
+rebuild wiped the tree out from under a running spec, and appending the inherited PATH let discovery
+walk past the fixture into the developer's real npm global directory and report it as a finding.
+
+### Side-effect safety is audited, not assumed
+
+`scripts/desktop/cli-side-effect-guard.mjs` checks a finished run and fails closed on a missing
+invocation log, a binary that answered from outside the fixture, a record without the fixture
+marker, a command naming a real registry or vendor host, a pipeline into a shell, a credential in
+the environment, or a data directory inside the user's profile. Its own tests feed it each violation
+and check that it refuses.
+
+The fixture owns `PATH`, `PATHEXT`, `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, and `HOME`. All of
+those turned up a real installation on the machine this was first run on.
+
+### `src/services` line budget: resolved
+
+Raised 19234 to 19516 in `af031088`, the exact measured value with no headroom and the reason stated
+in the source. This round kept the subtree inside it by moving more mock data to JSON rather than
+raising it again.
+
+### Localization
+
+234 keys were added across this change. Round 3 shipped them with `zh-TW` copying `zh-CN` and
+`ja`/`ko` copying `en`, which passed key parity and still shipped an untranslated page. All 234 are
+now translated in all three, and `i18n-resource-parity.test.ts` asserts that representative
+sentences differ from both reference locales and that every CLI placeholder survives.
+
+### Still provisional
+
+- **Migrations 81-83.** Re-scanned at the start and end of this round; still the only dense range,
+  and still provisional because three unmerged branches also claim 81. Renumbering is a merge-time
+  decision, and `assert_migration_history_is_dense` refuses a gap, so a higher free range cannot be
+  reserved in advance.
+- **Screenshots.** `assets/screenshots/cli-en.png` and `cli-zh-CN.png` predate the page rebuild and
+  show the old summary counters. Regenerating them needs a clean `npm ci` worktree, which this round
+  did not have.
+- **Two error variants and two request fields are declared and unraised.** `MissingDependency`,
+  `ElevationRequired`, `CliPlanRequest::channel`, and `CliPlanRequest::package_reference` carry
+  `expect(dead_code)` with the reason on each; no shipped adapter reaches them yet.

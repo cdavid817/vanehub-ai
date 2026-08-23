@@ -171,21 +171,21 @@
 - [x] 12.6 Test action-plan and bulk-plan review, expiry, stale-plan rejection, skipped reasons, and retry through a new plan.
 - [x] 12.7 Test drawer tabs, path truncation/copy, accessibility attributes, focus restoration, and keyboard use.
 - [x] 12.8 Keep i18n parity and hard-coded visible text guardrails passing.
-- [ ] 12.9 Add Playwright coverage for filtering, details, plan review, bulk preview, operation progress, and Web/mock cancellation.
-- [ ] 12.10 Add deterministic fake CLI and fake package-manager fixtures under the existing desktop fixture hierarchy for Windows, macOS, and Linux.
-- [ ] 12.11 Add native desktop coverage for real Tauri IPC, temporary PATH discovery, duplicate/broken candidates, plan creation, fake mutation, verification, cancellation, and SQLite persistence across restart.
-- [ ] 12.12 Ensure automated tests never invoke a real global npm, WinGet, vendor URL, provider login, credential store, or model API.
-- [ ] 12.13 Report desktop results separately as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` for Windows, macOS, and Linux.
+- [x] 12.9 Add Playwright coverage for filtering, details, plan review, bulk preview, operation progress, and Web/mock cancellation.
+- [x] 12.10 Add deterministic fake CLI and fake package-manager fixtures under the existing desktop fixture hierarchy for Windows, macOS, and Linux. — Windows is exercised by a real runner; the macOS and Linux layouts are built and asserted by `desktop:unit:test` and are reported NOT RUN, never PASSED.
+- [x] 12.11 Add native desktop coverage for real Tauri IPC, temporary PATH discovery, duplicate/broken candidates, plan creation, fake mutation, verification, cancellation, and SQLite persistence across restart.
+- [x] 12.12 Ensure automated tests never invoke a real global npm, WinGet, vendor URL, provider login, credential store, or model API. — `scripts/desktop/cli-side-effect-guard.mjs` audits the run afterwards and fails closed on every rule; its own tests feed it each violation and check it refuses.
+- [x] 12.13 Report desktop results separately as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` for Windows, macOS, and Linux.
 
 ## 13. Documentation and cleanup
 
-- [ ] 13.1 Update the English and Chinese user guides to describe source-aware management, action review, supported source capabilities, detect-only sources, Doctor, bulk preview, and partial-completion states.
-- [ ] 13.2 Remove or correct statements that VaneHub only uses npm when the implementation supports another disclosed source.
-- [ ] 13.3 Document that VaneHub never captures provider credentials and that login remains provider-owned.
-- [ ] 13.4 Document vendor installer trust, no silent fallback, and platform limitations.
-- [ ] 13.5 Remove obsolete CLI UI utilities, types, commands, source eligibility code, tests, and dead imports.
-- [ ] 13.6 Keep every new production TS/TSX file at or below 300 physical lines and avoid adding lint exemptions.
-- [ ] 13.7 Confirm no feature-local log file, direct React `invoke()`, raw shell interpolation, `irm | iex`, or silent source fallback remains.
+- [x] 13.1 Update the English and Chinese user guides to describe source-aware management, action review, supported source capabilities, detect-only sources, Doctor, bulk preview, and partial-completion states.
+- [x] 13.2 Remove or correct statements that VaneHub only uses npm when the implementation supports another disclosed source.
+- [x] 13.3 Document that VaneHub never captures provider credentials and that login remains provider-owned.
+- [x] 13.4 Document vendor installer trust, no silent fallback, and platform limitations.
+- [x] 13.5 Remove obsolete CLI UI utilities, types, commands, source eligibility code, tests, and dead imports.
+- [x] 13.6 Keep every new production TS/TSX file at or below 300 physical lines and avoid adding lint exemptions.
+- [x] 13.7 Confirm no feature-local log file, direct React `invoke()`, raw shell interpolation, `irm | iex`, or silent source fallback remains.
 
 ## 14. Validation and completion evidence
 
