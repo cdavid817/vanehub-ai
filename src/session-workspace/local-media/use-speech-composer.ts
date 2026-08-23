@@ -13,6 +13,16 @@ import { useMicrophoneHold, type MicrophoneHoldBindings } from "./use-microphone
 
 const ELAPSED_TICK_MS = 200;
 
+/**
+ * What the user asked for while `startRecording` was still in flight.
+ *
+ * A hold can be released, cancelled, or abandoned before the native side has answered, and none of
+ * those instructions can be carried out yet because there is no recording handle to act on. They
+ * are recorded here and applied the moment the handle arrives. `abort` outranks `finish`: a user
+ * who released and then pressed Escape has withdrawn the release.
+ */
+type PendingOpeningAction = null | "finish" | "abort";
+
 export interface SpeechComposer {
   microphonePhase: MicrophonePhase;
   speechPhase: SpeechPhase;
@@ -37,6 +47,14 @@ export function useSpeechComposer(options: SpeechComposerOptions): SpeechCompose
   const [recordingLimitReached, setRecordingLimitReached] = useState(false);
   const recordingRef = useRef<string | null>(null);
   const playbackRef = useRef<string | null>(null);
+  /** Bumped per hold. A continuation whose attempt is no longer current owns nothing. */
+  const attemptRef = useRef(0);
+  const pendingRef = useRef<PendingOpeningAction>(null);
+  /** True from the moment a hold begins until its `startRecording` has been settled. */
+  const openingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const scopeRef = useRef(context.composerScopeId);
+  scopeRef.current = context.composerScopeId;
 
   const transcription = useLocalMediaOperation(context.service, (outcome, operationId) => {
     const owned = context.ownsResult(operationId);
@@ -67,31 +85,16 @@ export function useSpeechComposer(options: SpeechComposerOptions): SpeechCompose
     context.restoreCaret();
   });
 
-  const beginRecording = useCallback(() => {
-    const { composerScopeId, service } = context;
-    if (!composerScopeId || microphonePhase !== "idle") return;
-    context.clearFailure();
-    setRecordingLimitReached(false);
-    setMicrophonePhase("opening");
-    void (async () => {
-      try {
-        const handle = await service.startRecording({ composerScopeId });
-        recordingRef.current = handle.recordingId;
-        setRecordingElapsedMs(0);
-        setMicrophonePhase("recording");
-      } catch (error) {
-        // A denied microphone surfaces here, before any recording visual appeared.
-        setMicrophonePhase("idle");
-        recordingRef.current = null;
-        context.reportFailure("stt", error);
-      }
-    })();
-  }, [context, microphonePhase]);
-
   const finishRecording = useCallback(() => {
     const recordingId = recordingRef.current;
     const { composerScopeId, service } = context;
-    if (!recordingId || !composerScopeId) return;
+    if (!composerScopeId) return;
+    if (!recordingId) {
+      // Released before the native side answered. Recorded rather than dropped: silently
+      // returning here is what used to leave the microphone open after the user let go.
+      if (openingRef.current && pendingRef.current === null) pendingRef.current = "finish";
+      return;
+    }
     recordingRef.current = null;
     setMicrophonePhase("finalizing");
     void (async () => {
@@ -109,17 +112,97 @@ export function useSpeechComposer(options: SpeechComposerOptions): SpeechCompose
       }
     })();
   }, [context, transcription]);
+  // Read by the opening continuation, which must not depend on this callback's identity.
+  const finishRef = useRef(finishRecording);
+  finishRef.current = finishRecording;
 
   const abortRecording = useCallback(() => {
     const recordingId = recordingRef.current;
     const { composerScopeId, service } = context;
+    // Abort outranks a release recorded a moment earlier: the user withdrew it.
+    pendingRef.current = "abort";
+    if (!recordingId) {
+      // Still opening. The phase stays `opening` until the handle arrives and is cancelled --
+      // going idle here would re-arm the control while a native recording is still on its way,
+      // and the two would collide on the application-wide single-recording slot.
+      return;
+    }
     recordingRef.current = null;
     setMicrophonePhase("idle");
     setRecordingElapsedMs(0);
-    if (recordingId && composerScopeId) {
+    if (composerScopeId) {
       void service.cancelRecording({ recordingId, composerScopeId }).catch(() => undefined);
     }
   }, [context]);
+
+  const beginRecording = useCallback(() => {
+    const { composerScopeId, service } = context;
+    if (!composerScopeId || microphonePhase !== "idle" || openingRef.current) return;
+    context.clearFailure();
+    setRecordingLimitReached(false);
+    setMicrophonePhase("opening");
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
+    const startedScope = composerScopeId;
+    pendingRef.current = null;
+    openingRef.current = true;
+
+    /** Whether this attempt still owns the control. A newer hold, an unmount, or a session
+     * switch all mean the answer that just arrived belongs to nobody. */
+    const stillOurs = () =>
+      attempt === attemptRef.current && mountedRef.current && scopeRef.current === startedScope;
+    const release = () => {
+      if (attempt === attemptRef.current) {
+        openingRef.current = false;
+        pendingRef.current = null;
+      }
+    };
+
+    void (async () => {
+      let handle;
+      try {
+        handle = await service.startRecording({ composerScopeId: startedScope });
+      } catch (error) {
+        const withdrawn = pendingRef.current === "abort";
+        const owned = stillOurs();
+        release();
+        if (!owned) return;
+        recordingRef.current = null;
+        setMicrophonePhase("idle");
+        // A hold the user already cancelled must not raise a banner about it.
+        if (!withdrawn) context.reportFailure("stt", error);
+        return;
+      }
+
+      const wanted = attempt === attemptRef.current ? pendingRef.current : "abort";
+      const owned = stillOurs();
+      release();
+
+      if (!owned || wanted === "abort") {
+        // The recording exists natively whether or not anyone still wants it, and the slot only
+        // frees up when it is released.
+        void service
+          .cancelRecording({ recordingId: handle.recordingId, composerScopeId: startedScope })
+          .catch(() => undefined);
+        if (owned) {
+          recordingRef.current = null;
+          setMicrophonePhase("idle");
+          setRecordingElapsedMs(0);
+        }
+        return;
+      }
+
+      recordingRef.current = handle.recordingId;
+      setRecordingElapsedMs(0);
+      if (wanted === "finish") {
+        // Straight into the ordinary finalizing/transcribing chain, exactly as a release that
+        // arrived a moment later would have done.
+        finishRef.current();
+        return;
+      }
+      setMicrophonePhase("recording");
+    })();
+  }, [context, microphonePhase]);
 
   useEffect(() => {
     if (microphonePhase !== "recording") return undefined;
@@ -138,6 +221,22 @@ export function useSpeechComposer(options: SpeechComposerOptions): SpeechCompose
     onFinish: finishRecording,
     onAbort: abortRecording,
   });
+
+  // Declared after the hold machine so its own unmount cleanup runs first: that cleanup aborts a
+  // hold in progress, and it has to see a still-mounted controller to record the intent.
+  //
+  // The flag is set on every run rather than only cleared on teardown, because StrictMode mounts,
+  // tears down, and remounts. Clearing without restoring left the controller permanently marked
+  // unmounted in development, and every recording it started was then cancelled on arrival.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Any handle still on its way is nobody's now. The continuation reads this and cancels it
+      // instead of leaving a recording open behind a composer that no longer exists.
+      attemptRef.current += 1;
+    };
+  }, []);
 
   const playback = useLocalMediaOperation(context.service, (outcome, operationId) => {
     const owned = context.ownsResult(operationId);

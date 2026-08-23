@@ -175,6 +175,45 @@ test.describe("local media driven by the deterministic fake", () => {
     await expect(page.getByTestId("composer-toolbar").getByRole("button", { name: "发送" })).toBeVisible();
   });
 
+  test("transcribes a tap released before the device finished opening", async ({ page }) => {
+    await openComposer(page);
+    await control(page, "holdStartRecording");
+    const microphone = page.getByTestId("composer-media-microphone");
+
+    // Deliberately no wait for the recording indicator. Opening a real capture device takes
+    // hundreds of milliseconds, and a tap that lands inside that window used to leave the
+    // microphone running with nobody holding the control.
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    // Only that the press registered. The device has not opened -- the fake is still holding
+    // `startRecording` -- so the release below lands squarely inside the opening window.
+    await expect(microphone).toHaveAttribute("aria-pressed", "true");
+    await microphone.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+    await control(page, "releaseStartRecording");
+
+    await expect(composer(page)).toHaveValue("fixture transcript");
+    await expect(page.getByTestId("composer-media-recording")).toHaveCount(0);
+    const observed = await calls(page);
+    expect(observed.stopRecordingAndTranscribe).toBe(1);
+    expect(observed.cancelRecording).toBeUndefined();
+  });
+
+  test("cancels a tap that was withdrawn before the device finished opening", async ({ page }) => {
+    await openComposer(page);
+    await control(page, "holdStartRecording");
+    const microphone = page.getByTestId("composer-media-microphone");
+
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(microphone).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+    await control(page, "releaseStartRecording");
+
+    await expect(page.getByTestId("composer-media-recording")).toHaveCount(0);
+    await expect(composer(page)).toHaveValue("");
+    const observed = await calls(page);
+    expect(observed.cancelRecording).toBe(1);
+    expect(observed.stopRecordingAndTranscribe).toBeUndefined();
+  });
+
   test("cancels a hold on Escape without transcribing", async ({ page }) => {
     await openComposer(page);
     const microphone = page.getByTestId("composer-media-microphone");

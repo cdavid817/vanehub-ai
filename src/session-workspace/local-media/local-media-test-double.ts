@@ -29,11 +29,25 @@ export interface LocalMediaDouble {
     cancelRecording: string[];
     discardStaged: string[];
     startOcr: string[];
+    startRecording: string[];
     startTts: string[];
+    stopRecordingAndTranscribe: string[];
     stopPlayback: number;
   };
   setStaged: (staged: StagedOcrSource | null) => void;
   setStatus: (status: LocalMediaRuntimeStatus) => void;
+  /**
+   * Hold `startRecording` open until the test releases it.
+   *
+   * The window between pressing the microphone and the native side answering is where the hold
+   * machine has a handle it cannot act on yet. A double that resolves immediately closes that
+   * window, so every ordering question inside it can only be asked with an explicit deferral.
+   */
+  deferStartRecording: () => void;
+  /** Answer the deferred `startRecording`. */
+  resolveStartRecording: () => void;
+  /** Reject the deferred `startRecording` with a stable code. */
+  rejectStartRecording: (code: string) => void;
 }
 
 export function readyStatus(
@@ -118,9 +132,15 @@ export function createLocalMediaDouble(
     cancelRecording: [],
     discardStaged: [],
     startOcr: [],
+    startRecording: [],
     startTts: [],
+    stopRecordingAndTranscribe: [],
     stopPlayback: 0,
   };
+
+  let deferStart = false;
+  let pendingStart: { resolve: () => void; reject: (error: unknown) => void } | null = null;
+  let recordingSequence = 0;
 
   const handle = (kind: LocalMediaOperationResult["kind"]) => {
     nextOperation += 1;
@@ -148,12 +168,23 @@ export function createLocalMediaDouble(
       calls.startOcr.push(input.stagedInputId);
       return handle("ocr");
     }),
-    startRecording: vi.fn(async () => ({
-      recordingId: "rec-1",
-      startedAt: "2026-08-22T00:00:00Z",
-      maxDurationMs: 120_000,
-    })),
-    stopRecordingAndTranscribe: vi.fn(async () => handle("stt")),
+    startRecording: vi.fn(async (input: { composerScopeId: string }) => {
+      calls.startRecording.push(input.composerScopeId);
+      recordingSequence += 1;
+      const started = {
+        recordingId: `rec-${recordingSequence}`,
+        startedAt: "2026-08-22T00:00:00Z",
+        maxDurationMs: 120_000,
+      };
+      if (!deferStart) return started;
+      return new Promise<typeof started>((resolve, reject) => {
+        pendingStart = { resolve: () => resolve(started), reject };
+      });
+    }),
+    stopRecordingAndTranscribe: vi.fn(async (input: { recordingId: string }) => {
+      calls.stopRecordingAndTranscribe.push(input.recordingId);
+      return handle("stt");
+    }),
     cancelRecording: vi.fn(async (input: { recordingId: string }) => {
       calls.cancelRecording.push(input.recordingId);
     }),
@@ -187,6 +218,19 @@ export function createLocalMediaDouble(
     },
     setStatus: (next) => {
       status = next;
+    },
+    deferStartRecording: () => {
+      deferStart = true;
+    },
+    resolveStartRecording: () => {
+      const pending = pendingStart;
+      pendingStart = null;
+      pending?.resolve();
+    },
+    rejectStartRecording: (code) => {
+      const pending = pendingStart;
+      pendingStart = null;
+      pending?.reject(new Error(code));
     },
   };
 }

@@ -46,6 +46,15 @@ export interface LocalMediaFakeControl {
   expireResults(): void;
   /** Make the next result arrive for a scope the composer has already left. */
   setStaleScope(stale: boolean): void;
+  /**
+   * Hold `startRecording` open, reproducing the window in which a real device is still opening.
+   *
+   * A tap released inside that window is the ordinary way a user misuses a hold control, and a
+   * fake that answers instantly cannot express it.
+   */
+  holdStartRecording(): void;
+  /** Answer a held `startRecording`. */
+  releaseStartRecording(): void;
   scriptOcr(outcome: OcrOutcome, text?: string): void;
   scriptStt(outcome: SttOutcome, text?: string): void;
   scriptTts(outcome: TtsOutcome): void;
@@ -62,6 +71,7 @@ declare global {
 
 export function createDeterministicFakeLocalMediaService(): LocalMediaService {
   const state = initialFakeState();
+  let heldStart: { held: boolean; release: (() => void) | null } | null = null;
   let nextId = 0;
   let lastTtsText: string | null = null;
   const count = (name: string) => {
@@ -86,6 +96,10 @@ export function createDeterministicFakeLocalMediaService(): LocalMediaService {
     reset: () => {
       Object.assign(state, initialFakeState());
       lastTtsText = null;
+      // Release rather than drop: a spec that reset while a start was held would otherwise leave
+      // the previous page's promise pending forever.
+      heldStart?.release?.();
+      heldStart = null;
     },
     setNativeAvailable: (available) => {
       state.nativeAvailable = available;
@@ -107,6 +121,14 @@ export function createDeterministicFakeLocalMediaService(): LocalMediaService {
     },
     setStaleScope: (stale) => {
       state.staleScope = stale;
+    },
+    holdStartRecording: () => {
+      heldStart = { held: true, release: null };
+    },
+    releaseStartRecording: () => {
+      const release = heldStart?.release;
+      heldStart = null;
+      release?.();
     },
     scriptOcr: (outcome, text) => {
       state.ocr = { outcome, text: text ?? state.ocr.text };
@@ -161,6 +183,12 @@ export function createDeterministicFakeLocalMediaService(): LocalMediaService {
     startRecording: async () => {
       count("startRecording");
       if (state.stt.outcome === "start-failure") reject("MIC_PERMISSION_DENIED");
+      if (heldStart?.held) {
+        await new Promise<void>((resolve) => {
+          if (heldStart) heldStart.release = resolve;
+          else resolve();
+        });
+      }
       return {
         recordingId: "fixture-recording",
         startedAt: "2026-08-22T00:00:00Z",
