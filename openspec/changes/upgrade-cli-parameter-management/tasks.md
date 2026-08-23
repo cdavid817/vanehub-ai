@@ -163,7 +163,7 @@
 - [x] 14.6 Run `npm run desktop:unit:test` and `npm run test:desktop:desktop-settings-persistence` using fixed CLI fixtures and no real model calls.
 - [x] 14.7 Run `npm run test:desktop:desktop-cli-terminal` to verify interactive profile projection and provider token placement through a real desktop test client.
 - [x] 14.8 Run the full desktop suite with `npm run test:desktop` when the local platform supports it; report other platforms as `NOT RUN` rather than extrapolating.
-- [ ] 14.9 Add or update Windows, macOS, and Linux CI fixture coverage for path-list normalization, executable status, argv tokens, and persistence; report each platform as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`.
+- [x] 14.9 Add or update Windows, macOS, and Linux CI fixture coverage for path-list normalization, executable status, argv tokens, and persistence; report each platform as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`.
 - [x] 14.10 Run accessibility checks for keyboard operation, focus behavior, labels, live regions, contrast under both themes, and narrow-width reflow.
 - [x] 14.11 Run legacy migration fixtures against a copy of representative existing SQLite rows; verify no destructive loss and one-time rewrite on successful save/reset.
 - [x] 14.12 Verify that no test, log, preview, snapshot, or persisted diagnostic contains prompts, credentials, API tokens, session ids, or unredacted secret-bearing environment values.
@@ -1299,8 +1299,48 @@ versions installed.
 Locally, on Windows: `cargo test --workspace platform_fixture_tests` → 17 passed;
 `cargo test --workspace cli_parameters` → 158 passed; `npm run contracts:check` → passed.
 
-**macOS: NOT RUN. Linux: NOT RUN.** The workflow file existing is not a result. Task 14.9 stays
-unchecked until the three remote jobs have actually executed.
+#### Remote result
+
+Run `32638707290` on `06e135ca`, all three jobs `success`, none skipped and none
+`continue-on-error`:
+
+| Platform | Job | Fixtures | Subdomain | Contracts | Result |
+| --- | --- | --- | --- | --- | --- |
+| `ubuntu-latest` | `97192312774` | 17 passed | 158 passed | 3 files / 16 passed, no drift | `PASSED` |
+| `windows-latest` | `97192312803` | 17 passed | 158 passed | 3 files / 16 passed, no drift | `PASSED` |
+| `macos-latest` | `97192312839` | 17 passed | 158 passed | 3 files / 16 passed, no drift | `PASSED` |
+
+17 on every platform is 16 shared fixtures plus the one that platform owns, and the logs name it:
+Linux and macOS ran `a_symlink_is_judged_by_its_target_not_by_being_a_link`, Windows ran
+`a_trailing_separator_and_a_drive_root_are_still_directories`. All three ran
+`the_repository_fixture_can_produce_the_form_this_platform_resolves`, which is the fixture that
+would have caught a stub shape only one platform can resolve.
+
+Two of the three platforms failed first, and both failures were real rather than flakes — which is
+the argument for the matrix existing at all, since neither could be reproduced on the authoring
+machine:
+
+- Run `32636959800` (`3c94c8e5`) never started a job: the matrix read `runner.os` from a job-level
+  `env:`, and that context is not available there. Fixed in `af4f96c3` by writing the paths from a
+  step through `$GITHUB_ENV` and `RUNNER_TEMP`.
+- Run `32637250033` (`af4f96c3`): `ubuntu-latest` failed on
+  `clang: error: invalid linker name in argument '-fuse-ld=mold'` — `.cargo/config.toml` pins mold
+  for the GNU target and the job had not installed it. Fixed in `06e135ca` with the same apt list
+  the repository's other Linux cargo jobs use. `windows-latest` failed on
+  `src/generated/cli-parameter-catalog.json is stale`: the blob is LF, the runner checks out with
+  `core.autocrlf=true`, and the generator writes LF, so the drift check compared CRLF against LF.
+  Invisible locally, because the local file is the one the generator wrote. Fixed in `44eadb70` by
+  pinning `eol=lf` in `.gitattributes`. Its native fixtures had already passed, so the defect was in
+  the checkout contract, not in the fixtures.
+  `macos-latest` was `success` on that run and again on `06e135ca`.
+
+Not part of this task, recorded because it shares the run: `Desktop Smoke (ubuntu-latest)`
+(`97192312844`) failed on `06e135ca`. Every assertion in `smoke.e2e.mjs` completed — the last one,
+`data-vanehub-fatal-error`, returned `null` — the application then exited cleanly with no panic in
+`vanehub.log`, and WDIO's `deleteSession()` 125 ms later got `ECONNREFUSED`. That is the Linux
+teardown race the spec's own closing comment describes. It passed on `af4f96c3`, one commit earlier
+on this branch, and passed on `windows-latest` and `macos-latest` on this very commit. Classified as
+runner-harness infrastructure, not a defect of this change; nothing was weakened to accommodate it.
 
 ### Audit metadata now records evidence kinds, not one verdict
 
