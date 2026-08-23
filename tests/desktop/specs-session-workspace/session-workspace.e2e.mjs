@@ -33,7 +33,10 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
 
     const rendered = [];
     for (const name of TABS) {
-      const tab = await globalThis.$(`//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab"][normalize-space(.)="${name}"]`);
+      // Matched on `title`, not on the button's text. The text also carries the evidence badge —
+      // a count, a floor, or a placeholder glyph — so an equality match on it finds nothing the
+      // moment a session has work to report, and a `contains` match would find the wrong tab.
+      const tab = await globalThis.$(`//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="${name}"]`);
       await tab.waitForClickable({ timeout: 20000 });
       await tab.click();
       await globalThis.browser.waitUntil(async () => await tab.getAttribute("aria-selected") === "true", {
