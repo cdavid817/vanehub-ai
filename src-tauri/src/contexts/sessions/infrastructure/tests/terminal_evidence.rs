@@ -316,3 +316,92 @@ fn malformed_persisted_message_evidence_is_quarantined_without_exposing_payload(
         .all(|entry| !entry.message.contains("malformed-status")
             && !entry.message.contains("private malformed payload")));
 }
+
+/// A reader holding a snapshot sees one whole generation across a concurrent commit.
+///
+/// This is the property `read_terminal_evidence` rests on. It reads a session's lifecycle and
+/// revisions, then that session's messages, then whether another run has an unfinished message,
+/// and it compares them against each other. A session row from before a recovery transition beside
+/// messages from after it would describe a state that never existed -- each half individually
+/// consistent, which is what makes the bug survive review.
+///
+/// Two independent pooled connections and a channel rendezvous. No sleep, and no assertion about
+/// elapsed time.
+#[test]
+fn a_reader_sees_one_whole_generation_while_a_writer_commits_the_next() {
+    use crate::platform::database::{begin_read_transaction, begin_write_transaction};
+    use std::sync::mpsc;
+
+    let fixture = fixture("sessions-evidence-snapshot-generations");
+    let session = session_record(
+        "session-snapshot",
+        SessionLifecycle::Running,
+        "Snapshot",
+        "2026-08-24T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+
+    let connection = fixture.database.connection().expect("reader connection");
+    let transaction = begin_read_transaction(&connection).expect("read transaction");
+    let (lifecycle, revision): (String, i64) = transaction
+        .query_row(
+            "SELECT lifecycle_state, state_revision FROM sessions WHERE id = ?1",
+            [session.id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read the session");
+
+    // A second connection advances the session while the reader's snapshot is open.
+    let writing_database = fixture.database.clone();
+    let session_id = session.id().to_string();
+    let (committed, done) = mpsc::channel();
+    let writing = std::thread::spawn(move || {
+        let writer = writing_database.connection().expect("writer connection");
+        let transaction = begin_write_transaction(&writer).expect("write transaction");
+        transaction
+            .execute(
+                "UPDATE sessions SET lifecycle_state = 'idle', \
+                 state_revision = state_revision + 1 WHERE id = ?1",
+                [session_id.as_str()],
+            )
+            .expect("advance the session");
+        transaction.commit().expect("commit");
+        committed.send(()).expect("signal");
+    });
+    done.recv().expect("the writer committed");
+
+    // The reader's second statement must still belong to the generation it started in.
+    let (still_lifecycle, still_revision): (String, i64) = transaction
+        .query_row(
+            "SELECT lifecycle_state, state_revision FROM sessions WHERE id = ?1",
+            [session.id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read again inside the same snapshot");
+
+    assert_eq!(
+        (still_lifecycle.as_str(), still_revision),
+        (lifecycle.as_str(), revision),
+        "both statements must see one generation; a mixture is a state that never existed"
+    );
+
+    drop(transaction);
+    writing.join().expect("writer thread");
+
+    // A reader that starts after the commit sees the new generation whole -- so this proved
+    // isolation rather than that the write never landed.
+    let after = begin_read_transaction(&connection).expect("read transaction");
+    let (moved_lifecycle, moved_revision): (String, i64) = after
+        .query_row(
+            "SELECT lifecycle_state, state_revision FROM sessions WHERE id = ?1",
+            [session.id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read after the transaction closed");
+
+    assert_eq!(moved_lifecycle, "idle");
+    assert_eq!(moved_revision, revision + 1);
+}

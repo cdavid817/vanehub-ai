@@ -23,7 +23,9 @@ use crate::contexts::sessions::domain::recovery::{
 use crate::contexts::sessions::domain::{
     encode_seats, CategoryId, ChatPreferences, MessageId, SessionId,
 };
-use crate::platform::database::{NativeDatabase, PooledSqlite};
+use crate::platform::database::{
+    begin_read_transaction, NativeDatabase, PooledSqlite, WriteTransactionError,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
@@ -56,10 +58,22 @@ impl SessionTerminalEvidencePort for SqliteSessionsRepository {
         session_id: &SessionId,
         execution_run_id: Option<&str>,
     ) -> Result<SessionTerminalEvidence, SessionsApplicationError> {
-        let mut connection = self.recovery_connection()?;
-        let transaction = connection
-            .transaction()
-            .map_err(recovery_repository_error)?;
+        let connection = self.recovery_connection()?;
+        // One snapshot for all three reads. They are compared against each other -- the session's
+        // lifecycle and revisions, the messages of the run, and whether another run has an
+        // unfinished message -- and recovery decisions are made from the result. A session row
+        // from before a recovery transition beside messages from after it would describe a state
+        // that never existed, with each half individually consistent.
+        let transaction = begin_read_transaction(&connection).map_err(|error| {
+            // Contention stays retryable, matching the distinction `recovery_repository_error`
+            // already makes for rusqlite: a caller that retries a busy database must not retry a
+            // broken one.
+            if matches!(error, WriteTransactionError::Busy) {
+                SessionsApplicationError::RetryableStorage(error.to_string())
+            } else {
+                SessionsApplicationError::Repository(error.to_string())
+            }
+        })?;
         let session = transaction
             .query_row(
                 &format!("{SESSION_SELECT} WHERE id = ?1"),

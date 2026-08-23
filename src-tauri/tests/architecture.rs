@@ -1140,51 +1140,521 @@ const RAW_TRANSACTION_CONSTRUCTORS: &[&str] = &[
 /// is where the helpers are defined and tested.
 const RAW_TRANSACTION_EXEMPT_PREFIXES: &[&str] = &["platform/database"];
 
-/// Files that still open a raw transaction, recorded so the rule can bite on new code today.
+/// Raw-transaction call sites that predate the rule, each bound to its enclosing function *and*
+/// the shape its body has.
 ///
-/// Every entry was classified before it was listed. They are **write-first** transactions: the
-/// first statement is a write, so the write lock is taken there and `busy_timeout` covers the
-/// wait. They are not the defect this rule is named for, which is a *read* before the first write
-/// -- SQLite refuses that lock upgrade outright and does not consult the timeout.
+/// A per-file allowance would have been useless. It cannot tell a deleted call from a new one, so
+/// removing an old transaction and adding a fresh raw one in the same file would pass; and it says
+/// nothing about shape, so a write-first transaction quietly growing a read before its first write
+/// -- which is exactly the defect -- would pass too. Binding to `(file, function, shape)` makes all
+/// three of those fail: a new function is not in the list, a removed one is stale, and a changed
+/// shape does not match.
 ///
-/// A baseline rather than a mechanical sweep. Converting fifty correct transactions to prove a
-/// point would churn code that works, and for any of them with computation between the opening and
-/// the first statement it would *extend* the window in which every other writer is blocked. The
-/// list may only shrink: adding a file to it is a review conversation, not a formality.
-const RAW_TRANSACTION_BASELINE: &[&str] = &[
-    "contexts/agent_runtime/infrastructure/context_manifest_repository.rs",
-    "contexts/agent_runtime/infrastructure/context_quality_repository.rs",
-    "contexts/agent_runtime/infrastructure/native_tool_repository.rs",
-    "contexts/agent_runtime/infrastructure/sqlite_repository.rs",
-    "contexts/artifacts/infrastructure/sqlite_catalog.rs",
-    "contexts/code_intelligence/infrastructure/configuration_repository.rs",
-    "contexts/desktop/infrastructure/sqlite_settings_repository.rs",
-    "contexts/execution_observability/infrastructure/evaluation_repository.rs",
-    "contexts/execution_observability/infrastructure/settings_repository.rs",
-    "contexts/execution_observability/infrastructure/sqlite_repository.rs",
-    "contexts/operations/infrastructure/run_repository.rs",
-    "contexts/retrieval/infrastructure/code_index_repository.rs",
-    "contexts/retrieval/infrastructure/sqlite_repository.rs",
-    "contexts/sessions/infrastructure/review_repository.rs",
-    "contexts/sessions/infrastructure/sqlite_repository.rs",
-    "contexts/sessions/infrastructure/tests.rs",
-    "contexts/sessions/infrastructure/transactions.rs",
-    "contexts/sessions/infrastructure/usage_accounting.rs",
-    "contexts/skill_evolution_evidence/infrastructure/feedback.rs",
-    "contexts/skill_evolution_evidence/infrastructure/governance.rs",
-    "contexts/skill_evolution_evidence/infrastructure/purge.rs",
-    "contexts/skill_evolution_evidence/infrastructure/seed_repository.rs",
-    "contexts/skill_evolution_evidence/infrastructure/sqlite_repository.rs",
-    "contexts/skill_evolution_evidence/infrastructure/tests.rs",
-    "contexts/ssh_connections/infrastructure/sqlite_repository.rs",
-    "contexts/tooling/cli_parameters.rs",
-    "contexts/tooling/extensions/infrastructure/sqlite_repository.rs",
-    "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
-    "contexts/tooling/skills/infrastructure/configuration_repository.rs",
-    "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
-    "contexts/work_board/infrastructure.rs",
-    "contexts/workspaces/infrastructure/capture_maintenance.rs",
+/// Every entry is `write-first`: the first statement is a write, so the write lock is taken there
+/// and `busy_timeout` covers the wait. None of them is the read-before-write shape this rule is
+/// named for. The list may only shrink.
+const RAW_TRANSACTION_BASELINE: &[(&str, &str, TransactionShape, bool)] = &[
+    (
+        "contexts/agent_runtime/infrastructure/context_manifest_repository.rs",
+        "save",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/agent_runtime/infrastructure/context_quality_repository.rs",
+        "append_and_prune",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/agent_runtime/infrastructure/native_tool_repository.rs",
+        "insert_artifact",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/agent_runtime/infrastructure/native_tool_repository.rs",
+        "insert_change_set",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/agent_runtime/infrastructure/sqlite_repository.rs",
+        "replace_hybrid_routing_rules",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/artifacts/infrastructure/sqlite_catalog.rs",
+        "insert_immutable",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/code_intelligence/infrastructure/configuration_repository.rs",
+        "save_configuration",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/desktop/infrastructure/sqlite_settings_repository.rs",
+        "save_automatic_archival",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/desktop/infrastructure/sqlite_settings_repository.rs",
+        "save_folder_opener_preferences",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/execution_observability/infrastructure/evaluation_repository.rs",
+        "save_terminal",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/execution_observability/infrastructure/settings_repository.rs",
+        "update_settings",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/execution_observability/infrastructure/sqlite_repository.rs",
+        "insert_run",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/execution_observability/infrastructure/sqlite_repository.rs",
+        "insert_span",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "confirm_embedding",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "invalidate_stale_version",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "rebuild_workspace",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "record_audit",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "replace_file",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/code_index_repository.rs",
+        "save_configuration",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/retrieval/infrastructure/sqlite_repository.rs",
+        "reconcile_apply",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/review_repository.rs",
+        "save",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "acknowledge_recovery",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "activate_session",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "archive_session",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "cancel_messages",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "complete_message",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "create_session",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "delete_category",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "delete_session",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "publish_recovery",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "save_runtime_session",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "start_generation",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/transactions.rs",
+        "terminalize_generation",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/sessions/infrastructure/usage_accounting.rs",
+        "advance_cursor",
+        TransactionShape::Opaque,
+        false,
+    ),
+    (
+        "contexts/sessions/infrastructure/usage_accounting.rs",
+        "record_observation",
+        TransactionShape::Opaque,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/feedback.rs",
+        "save_feedback",
+        TransactionShape::Opaque,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/governance.rs",
+        "maintain",
+        TransactionShape::Opaque,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/purge.rs",
+        "purge",
+        TransactionShape::WriteFirst,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/seed_repository.rs",
+        "rebuild_dirty_seeds",
+        TransactionShape::ReadThenWrite,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/seed_repository.rs",
+        "supersede_signal",
+        TransactionShape::WriteFirst,
+        false,
+    ),
+    (
+        "contexts/skill_evolution_evidence/infrastructure/sqlite_repository.rs",
+        "persist_signal",
+        TransactionShape::Opaque,
+        false,
+    ),
+    (
+        "contexts/ssh_connections/infrastructure/sqlite_repository.rs",
+        "insert",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/ssh_connections/infrastructure/sqlite_repository.rs",
+        "update",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/cli_parameters.rs",
+        "save_profile_to_conn",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/extensions/infrastructure/sqlite_repository.rs",
+        "apply_enablement",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+        "create_user_draft",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+        "delete_user_hook",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+        "publish_rollback",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+        "save_execution_observations",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+        "save_traces",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/configuration_repository.rs",
+        "save",
+        TransactionShape::WriteFirst,
+        false,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "complete_builtin_cleanup",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "delete_skill",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "save_builtin_reconciliation",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "save_mount_path",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "save_skills",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+        "save_synchronization",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/work_board/infrastructure.rs",
+        "reconcile",
+        TransactionShape::Opaque,
+        true,
+    ),
+    (
+        "contexts/workspaces/infrastructure/capture_maintenance.rs",
+        "purge_before",
+        TransactionShape::WriteFirst,
+        true,
+    ),
+    (
+        "contexts/workspaces/infrastructure/capture_maintenance.rs",
+        "purge_session",
+        TransactionShape::WriteFirst,
+        true,
+    ),
 ];
+
+/// What a transaction's body does between opening and commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransactionShape {
+    /// A read before the first write. The defect: SQLite refuses the lock upgrade outright.
+    ReadThenWrite,
+    /// The first statement writes, so the write lock is taken at that statement.
+    WriteFirst,
+    /// Reads only.
+    ReadOnly,
+    /// Neither visible in the body, usually because it is handed to a callee.
+    Opaque,
+}
+
+impl TransactionShape {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadThenWrite => "read-then-write",
+            Self::WriteFirst => "write-first",
+            Self::ReadOnly => "read-only",
+            Self::Opaque => "opaque",
+        }
+    }
+}
+
+/// One raw transaction construction, and enough about it to hold a baseline steady.
+struct RawTransactionSite {
+    function: String,
+    shape: TransactionShape,
+    /// Whether the constructor takes no lock until the first statement. `transaction()` and
+    /// `unchecked_transaction()` are both deferred, which is the whole trap: neither name says so.
+    deferred: bool,
+    line: usize,
+}
+
+/// Constructors that defer the lock. The pairing of one of these with `ReadThenWrite` is the
+/// defect, and it is refused outright rather than being baselineable.
+const DEFERRED_CONSTRUCTORS: &[&str] = &[".transaction()", ".unchecked_transaction()"];
+
+/// `query_row` around a mutation with `RETURNING` is a write, not a read.
+///
+/// Missing this classified a single-statement compare-and-swap as a read-then-write and would have
+/// failed a transaction that is already correct.
+fn statement_mutates(window: &str) -> bool {
+    let upper = window.to_uppercase();
+    upper.contains("UPDATE ") || upper.contains("INSERT ") || upper.contains("DELETE ")
+}
+
+/// Every raw transaction construction in one source file, outside its test module.
+fn raw_transaction_sites(source: &str) -> Vec<RawTransactionSite> {
+    let lines: Vec<&str> = source.lines().collect();
+    let test_module = lines
+        .iter()
+        .position(|line| line.trim() == "#[cfg(test)]")
+        .unwrap_or(usize::MAX);
+
+    let mut sites = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index >= test_module || line.trim_start().starts_with("//") {
+            continue;
+        }
+        if !RAW_TRANSACTION_CONSTRUCTORS
+            .iter()
+            .any(|constructor| line.contains(constructor))
+        {
+            continue;
+        }
+
+        // The enclosing function, so the baseline survives edits above it.
+        let function = lines[..index]
+            .iter()
+            .rev()
+            .find_map(|candidate| {
+                candidate
+                    .trim_start()
+                    .strip_prefix("pub(crate) fn ")
+                    .or_else(|| candidate.trim_start().strip_prefix("pub(super) fn "))
+                    .or_else(|| candidate.trim_start().strip_prefix("pub fn "))
+                    .or_else(|| candidate.trim_start().strip_prefix("fn "))
+            })
+            .and_then(|rest| rest.split(['(', '<', ' ']).next())
+            .unwrap_or("<unknown>")
+            .to_string();
+
+        // The body, to the commit or a bounded window.
+        let mut body = Vec::new();
+        for follow in lines.iter().skip(index + 1).take(80) {
+            body.push(*follow);
+            if follow.contains(".commit()") {
+                break;
+            }
+        }
+        // Only the statement being examined, not the twelve lines after it. A wider window reached
+        // into the *next* statement and read a following `UPDATE` as part of the preceding
+        // `SELECT`, which classified a genuine read-then-write as write-first -- the rule failing
+        // open on precisely the shape it exists to catch.
+        let window = |from: usize| {
+            let mut collected = Vec::new();
+            for line in body.iter().skip(from).take(12) {
+                collected.push(*line);
+                if line.contains(")?;") || line.contains(");") || line.trim_end().ends_with(")?") {
+                    break;
+                }
+            }
+            collected.join("\n")
+        };
+        let is_read = |position: usize| {
+            let line = body[position];
+            (line.contains(".query_row")
+                || line.contains(".query_map")
+                || line.contains(".query_and_then"))
+                && !statement_mutates(&window(position))
+        };
+        let is_write = |position: usize| {
+            let line = body[position];
+            line.contains(".execute")
+                || line.contains(".execute_batch")
+                || ((line.contains(".query_row") || line.contains(".query_map"))
+                    && statement_mutates(&window(position)))
+        };
+        let first_read = (0..body.len()).find(|position| is_read(*position));
+        let first_write = (0..body.len()).find(|position| is_write(*position));
+
+        let shape = match (first_read, first_write) {
+            (Some(read), Some(write)) if read < write => TransactionShape::ReadThenWrite,
+            (_, Some(_)) => TransactionShape::WriteFirst,
+            (Some(_), None) => TransactionShape::ReadOnly,
+            (None, None) => TransactionShape::Opaque,
+        };
+        sites.push(RawTransactionSite {
+            function,
+            shape,
+            deferred: DEFERRED_CONSTRUCTORS
+                .iter()
+                .any(|constructor| line.contains(constructor)),
+            line: index + 1,
+        });
+    }
+    sites
+}
 
 /// Repositories go through the two published entry points rather than choosing a lock behaviour.
 ///
@@ -1196,6 +1666,7 @@ const RAW_TRANSACTION_BASELINE: &[&str] = &[
 fn repositories_do_not_construct_raw_sqlite_transactions() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut messages = Vec::new();
+    let mut matched: Vec<(String, String)> = Vec::new();
 
     for path in rust_files(&source_root).expect("enumerate native Rust sources") {
         let relative = path
@@ -1205,43 +1676,87 @@ fn repositories_do_not_construct_raw_sqlite_transactions() {
         if RAW_TRANSACTION_EXEMPT_PREFIXES
             .iter()
             .any(|prefix| printable.starts_with(prefix))
-            || RAW_TRANSACTION_BASELINE.contains(&printable.as_str())
+        {
+            continue;
+        }
+
+        // A file that is nothing but tests carries no inline `#[cfg(test)]` marker: the attribute
+        // is on the `mod` declaration in its parent. Judging by content alone read a whole test
+        // file as production.
+        if printable.ends_with("/tests.rs")
+            || printable.ends_with("_tests.rs")
+            || printable.contains("/tests/")
         {
             continue;
         }
 
         let source = fs::read_to_string(&path).expect("read native Rust source");
-        // Test modules may open a transaction directly: a test that constructs the exact shape it
-        // is asserting about is not the failure mode this rule exists for.
-        let test_module = source
-            .lines()
-            .position(|line| line.trim() == "#[cfg(test)]")
-            .unwrap_or(usize::MAX);
-
-        for (index, line) in source.lines().enumerate() {
-            if index >= test_module || line.trim_start().starts_with("//") {
+        for site in raw_transaction_sites(&source) {
+            // The defect itself is never baselineable. A deferred transaction that reads before it
+            // writes cannot upgrade to the write lock, and no amount of prior existence makes that
+            // acceptable.
+            if site.deferred && site.shape == TransactionShape::ReadThenWrite {
+                messages.push(format!(
+                    "[ARCH-NATIVE-008] {}:{}: `{}` reads before it writes inside a *deferred* \
+                     transaction. SQLite refuses that lock upgrade without consulting \
+                     `busy_timeout`, so this fails under concurrency however long the timeout is. \
+                     Repair: `begin_write_transaction`",
+                    printable, site.line, site.function
+                ));
                 continue;
             }
-            for constructor in RAW_TRANSACTION_CONSTRUCTORS {
-                if line.contains(constructor) {
+            let baseline = RAW_TRANSACTION_BASELINE
+                .iter()
+                .find(|(file, function, _, _)| {
+                    *file == printable.as_str() && *function == site.function.as_str()
+                });
+            match baseline {
+                None => messages.push(format!(
+                    "[ARCH-NATIVE-008] {}:{}: `{}` opens a raw SQLite transaction. Repair: use \
+                     `begin_read_transaction` for a multi-statement read or \
+                     `begin_write_transaction` for read-then-write and compare-and-swap",
+                    printable, site.line, site.function
+                )),
+                Some((_, _, _, recorded_deferred)) if *recorded_deferred != site.deferred => {
                     messages.push(format!(
-                        "[ARCH-NATIVE-008] {}:{}: repository opens a raw SQLite transaction                          (`{constructor}`). Repair: use `begin_read_transaction` for a                          multi-statement read or `begin_write_transaction` for read-then-write                          and compare-and-swap",
-                        printable,
-                        index + 1
-                    ));
+                        "[ARCH-NATIVE-008] {}:{}: `{}` changed its transaction behaviour. A \
+                         baselined site may not move between deferred and immediate without \
+                         re-deciding its shape. Repair: use the helper that states the decision",
+                        printable, site.line, site.function
+                    ))
                 }
+                Some((_, _, recorded, _)) if *recorded != site.shape => messages.push(format!(
+                    "[ARCH-NATIVE-008] {}:{}: `{}` was baselined as {} and is now {}. A baselined \
+                     transaction that grows a read before its first write is the defect this rule \
+                     exists for. Repair: use `begin_write_transaction` and remove the baseline \
+                     entry",
+                    printable,
+                    site.line,
+                    site.function,
+                    recorded.as_str(),
+                    site.shape.as_str()
+                )),
+                Some(_) => matched.push((printable.clone(), site.function.clone())),
             }
+        }
+    }
+
+    for (file, function, _, _) in RAW_TRANSACTION_BASELINE {
+        if !matched
+            .iter()
+            .any(|(seen_file, seen_function)| seen_file == file && seen_function == function)
+        {
+            messages.push(format!(
+                "[ARCH-NATIVE-008] {file}: `{function}` is in the raw-transaction baseline but no \
+                 longer opens one. Repair: delete the baseline entry -- the list may only shrink"
+            ));
         }
     }
 
     assert!(
         messages.is_empty(),
-        "raw SQLite transaction constructions outside the migration runner:
-{}",
-        messages.join(
-            "
-"
-        )
+        "raw SQLite transaction findings:\n{}",
+        messages.join("\n")
     );
 }
 
@@ -1267,12 +1782,163 @@ fn the_raw_transaction_baseline_only_lists_files_that_still_exist() {
     // renamed or deleted leaves a line nobody notices, and the next raw transaction added under
     // that path is waved through.
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for entry in RAW_TRANSACTION_BASELINE {
+    for (file, function, shape, deferred) in RAW_TRANSACTION_BASELINE {
         assert!(
-            source_root.join(entry).is_file(),
-            "{entry} is in the raw-transaction baseline but no longer exists; remove the line"
+            source_root.join(file).is_file(),
+            "{file} is in the raw-transaction baseline but no longer exists; remove the line"
+        );
+        assert!(
+            !(*deferred && *shape == TransactionShape::ReadThenWrite),
+            "{file}::{function} baselines the defect itself -- a deferred read-then-write. That              combination is refused outright and can never be recorded here"
         );
     }
+}
+
+/// The classifier the rule rests on, exercised against sources written to be misread.
+///
+/// Fixtures rather than a temporary edit to the repository: a rule proved by breaking the codebase
+/// is a rule proved once, by whoever happened to try it.
+#[test]
+fn the_raw_transaction_classifier_distinguishes_the_shapes_the_rule_turns_on() {
+    let read_then_write = r#"
+        fn touches_then_writes(&self) {
+            let transaction = connection.transaction()?;
+            let held: i64 = transaction.query_row("SELECT revision FROM t", [], get)?;
+            transaction.execute("UPDATE t SET revision = ?1", [held + 1])?;
+            transaction.commit()?;
+        }
+    "#;
+    let sites = raw_transaction_sites(read_then_write);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].function, "touches_then_writes");
+    assert_eq!(sites[0].shape, TransactionShape::ReadThenWrite);
+    assert!(
+        sites[0].deferred,
+        "`transaction()` is deferred despite its name"
+    );
+
+    let write_first = r#"
+        fn writes_first(&self) {
+            let transaction = connection.transaction()?;
+            transaction.execute("INSERT INTO t VALUES (?1)", [1])?;
+            let held: i64 = transaction.query_row("SELECT revision FROM t", [], get)?;
+            transaction.commit()?;
+        }
+    "#;
+    let sites = raw_transaction_sites(write_first);
+    assert_eq!(sites[0].shape, TransactionShape::WriteFirst);
+
+    // `prepare` takes no lock, so a prepared write is still write-first. Counting it as a read
+    // classified two correct transactions as the defect.
+    let prepared_write = r#"
+        fn prepares_then_writes(&self) {
+            let transaction = connection.transaction()?;
+            let mut statement = transaction.prepare("INSERT INTO t VALUES (?1)")?;
+            statement.execute([1])?;
+            transaction.commit()?;
+        }
+    "#;
+    assert_eq!(
+        raw_transaction_sites(prepared_write)[0].shape,
+        TransactionShape::WriteFirst
+    );
+
+    // `query_row` around a mutation with RETURNING is a write. Reading it as a read classified a
+    // single-statement compare-and-swap as a multi-read.
+    let returning_cas = r#"
+        fn claims_by_returning(&self) {
+            let transaction = connection.transaction()?;
+            let first: i64 = transaction.query_row(
+                "UPDATE sessions SET revision = revision + 1 WHERE id = ?1 RETURNING revision",
+                [id],
+                get,
+            )?;
+            transaction.execute("INSERT INTO messages VALUES (?1)", [first])?;
+            transaction.commit()?;
+        }
+    "#;
+    assert_eq!(
+        raw_transaction_sites(returning_cas)[0].shape,
+        TransactionShape::WriteFirst,
+        "an UPDATE ... RETURNING takes the write lock at that statement"
+    );
+
+    let immediate = r#"
+        fn reads_then_writes_safely(&self) {
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let held: i64 = transaction.query_row("SELECT revision FROM t", [], get)?;
+            transaction.execute("UPDATE t SET revision = ?1", [held + 1])?;
+            transaction.commit()?;
+        }
+    "#;
+    let sites = raw_transaction_sites(immediate);
+    assert_eq!(sites[0].shape, TransactionShape::ReadThenWrite);
+    assert!(
+        !sites[0].deferred,
+        "read-then-write is only a defect when the constructor defers the lock"
+    );
+
+    // An inline test module is not production.
+    let inline_test = r#"
+        fn production(&self) {}
+
+        #[cfg(test)]
+        mod tests {
+            #[test]
+            fn opens_one() {
+                let transaction = connection.transaction().unwrap();
+            }
+        }
+    "#;
+    assert!(
+        raw_transaction_sites(inline_test).is_empty(),
+        "a transaction inside `#[cfg(test)] mod tests` is test code"
+    );
+}
+
+/// The four ways the baseline must fail, each stated as the situation it catches.
+#[test]
+fn the_raw_transaction_baseline_binds_call_sites_rather_than_counting_them() {
+    let baseline = |file: &str, function: &str| {
+        RAW_TRANSACTION_BASELINE
+            .iter()
+            .find(|(held_file, held_function, _, _)| {
+                *held_file == file && *held_function == function
+            })
+            .copied()
+    };
+
+    // Bound to a function, not to a per-file count. Deleting one call and adding another in the
+    // same file changes which function is listed, so the new one is unlisted and the old one is
+    // stale -- both failures, where a count would have balanced out.
+    let (file, function, _, _) = RAW_TRANSACTION_BASELINE
+        .first()
+        .expect("the baseline is not empty");
+    assert!(
+        baseline(file, function).is_some(),
+        "an entry is found by (file, function)"
+    );
+    assert!(
+        baseline(file, "a_function_that_does_not_exist").is_none(),
+        "a different function in the same file is not covered by the file's entry"
+    );
+
+    // The shape is recorded, so a write-first transaction that grows a read before its first write
+    // no longer matches what was baselined.
+    assert!(
+        RAW_TRANSACTION_BASELINE
+            .iter()
+            .any(|(_, _, shape, _)| *shape == TransactionShape::WriteFirst),
+        "the baseline records shapes rather than mere presence"
+    );
+
+    // And the defect can never be recorded at all.
+    assert!(
+        !RAW_TRANSACTION_BASELINE
+            .iter()
+            .any(|(_, _, shape, deferred)| *deferred && *shape == TransactionShape::ReadThenWrite),
+        "a deferred read-then-write is refused outright, never baselined"
+    );
 }
 
 #[test]

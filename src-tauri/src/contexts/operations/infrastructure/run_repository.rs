@@ -4,7 +4,7 @@ use crate::contexts::operations::application::{
 };
 use crate::contexts::operations::domain::{AgentRun, RunEvent};
 use crate::platform::clock::SystemClock;
-use crate::platform::database::{DatabaseError, NativeDatabase};
+use crate::platform::database::{begin_write_transaction, DatabaseError, NativeDatabase};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::Arc;
 
@@ -80,11 +80,16 @@ impl SqliteRunRepository {
 
 impl AgentRunRepository for SqliteRunRepository {
     fn insert(&self, run: &AgentRun, event: &RunEvent) -> Result<(), ApplicationError> {
-        let mut connection = self.database.connection().map_err(storage)?;
-        let transaction = connection.transaction().map_err(storage)?;
+        // Serialised before the transaction opens. The write lock is held for the whole
+        // transaction, and a snapshot serialisation inside it blocks every other writer for as
+        // long as it takes -- on a run with a large snapshot that is not a short time.
+        let state = enum_text(&run.state)?;
+        let snapshot = json(run)?;
+        let connection = self.database.connection().map_err(storage)?;
+        let transaction = begin_write_transaction(&connection).map_err(storage)?;
         transaction.execute(
             "INSERT INTO agent_runs (run_id, owner_type, owner_id, parent_run_id, state, version, updated_at, snapshot_json, runner_kind, runner_target_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![run.id, run.owner.owner_type, run.owner.owner_id, run.parent_run_id, enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run)],
+            params![run.id, run.owner.owner_type, run.owner.owner_id, run.parent_run_id, state, run.version as i64, run.updated_at, snapshot, runner_kind(run), runner_target_id(run)],
         ).map_err(storage)?;
         for link in &run.links {
             transaction
@@ -119,11 +124,17 @@ impl AgentRunRepository for SqliteRunRepository {
         run: &AgentRun,
         event: Option<&RunEvent>,
     ) -> Result<(), ApplicationError> {
-        let mut connection = self.database.connection().map_err(storage)?;
-        let transaction = connection.transaction().map_err(storage)?;
+        // Same reason as `insert`: the snapshot is serialised before the lock is taken.
+        let state = enum_text(&run.state)?;
+        let snapshot = json(run)?;
+        let connection = self.database.connection().map_err(storage)?;
+        // A compare-and-swap: the `version` predicate is the compare, and `changed != 1` is the
+        // loss. One statement makes it atomic on its own, so this is not the deferred-upgrade
+        // defect -- it goes through the helper because the helper's name states the decision.
+        let transaction = begin_write_transaction(&connection).map_err(storage)?;
         let changed = transaction.execute(
             "UPDATE agent_runs SET state = ?1, version = ?2, updated_at = ?3, snapshot_json = ?4, runner_kind = ?5, runner_target_id = ?6 WHERE run_id = ?7 AND version = ?8",
-            params![enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run), run.id, expected as i64],
+            params![state, run.version as i64, run.updated_at, snapshot, runner_kind(run), runner_target_id(run), run.id, expected as i64],
         ).map_err(storage)?;
         if changed != 1 {
             return Err(ApplicationError::Conflict);
@@ -274,6 +285,112 @@ mod tests {
         RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind, RunRunnerRecovery, RunState,
     };
     use crate::test_support::TempDirectory;
+
+    /// A reader holding a snapshot sees one whole generation across a concurrent commit.
+    ///
+    /// Two independent pooled connections and a channel rendezvous -- no sleep, and no assertion
+    /// about elapsed time. A run's row and its events are read together and compared against each
+    /// other; a row from before a state transition beside events from after it would describe a
+    /// run that never existed, with each half individually consistent.
+    #[test]
+    fn a_reader_sees_one_whole_generation_while_a_writer_commits_the_next() {
+        use crate::platform::database::begin_read_transaction;
+        use std::sync::mpsc;
+
+        let directory = TempDirectory::new("run-snapshot-generations");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        // `NativeDatabase::new` has already migrated; creating the schema again would fail.
+        let connection = database.connection().expect("reader connection");
+        connection
+            .execute(
+                "INSERT INTO agent_runs (run_id, owner_type, owner_id, parent_run_id, state, \
+                 version, updated_at, snapshot_json) \
+                 VALUES ('run-1', 'cli_generation', 'generation-1', NULL, 'running', 1, \
+                 '2026-08-24T00:00:00Z', '{}')",
+                [],
+            )
+            .expect("seed the first generation");
+        connection
+            .execute(
+                "INSERT INTO agent_run_events (run_id, sequence, state, timestamp, event_json) \
+                 VALUES ('run-1', 1, 'running', '2026-08-24T00:00:00Z', '{}')",
+                [],
+            )
+            .expect("seed its event");
+
+        // The reader fixes its snapshot on the run row.
+        let transaction = begin_read_transaction(&connection).expect("read transaction");
+        let (version, state): (i64, String) = transaction
+            .query_row(
+                "SELECT version, state FROM agent_runs WHERE run_id = 'run-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read the run");
+
+        // A second connection moves the run on and appends the event that goes with it.
+        let writing_database = database.clone();
+        let (committed, done) = mpsc::channel();
+        let writing = std::thread::spawn(move || {
+            let writer = writing_database.connection().expect("writer connection");
+            let transaction = begin_write_transaction(&writer).expect("write transaction");
+            transaction
+                .execute(
+                    "UPDATE agent_runs SET state = 'completed', version = 2 WHERE run_id = 'run-1'",
+                    [],
+                )
+                .expect("advance the run");
+            transaction
+                .execute(
+                    "INSERT INTO agent_run_events \
+                         (run_id, sequence, state, timestamp, event_json) \
+                     VALUES ('run-1', 2, 'completed', '2026-08-24T00:00:01Z', '{}')",
+                    [],
+                )
+                .expect("append the event");
+            transaction.commit().expect("commit");
+            committed.send(()).expect("signal");
+        });
+        done.recv().expect("the writer committed");
+
+        // The reader's second statement must still belong to the generation it started in.
+        let events: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM agent_run_events WHERE run_id = 'run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read the events");
+
+        assert_eq!((version, state.as_str()), (1, "running"));
+        assert_eq!(
+            events, 1,
+            "the reader must not see the event belonging to the generation it did not read"
+        );
+
+        drop(transaction);
+        writing.join().expect("writer thread");
+
+        // A reader that starts after the commit sees the new generation whole -- so this proved
+        // isolation rather than that the write never landed.
+        let after = begin_read_transaction(&connection).expect("read transaction");
+        let (version, state): (i64, String) = after
+            .query_row(
+                "SELECT version, state FROM agent_runs WHERE run_id = 'run-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read the run");
+        let events: i64 = after
+            .query_row(
+                "SELECT COUNT(*) FROM agent_run_events WHERE run_id = 'run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read the events");
+
+        assert_eq!((version, state.as_str(), events), (2, "completed", 2));
+    }
 
     #[test]
     fn snapshots_events_and_restart_reconciliation_survive_reopen() {

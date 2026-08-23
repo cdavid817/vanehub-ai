@@ -15,8 +15,10 @@
 ## 3. Convert what the classification says to convert
 
 - [x] 3.1 Convert the eleven deferred read-then-write sites to `begin_write_transaction`, one context at a time, reading each first. Where the read turns out to be incidental, move the read out instead of taking the lock earlier — a conversion is only correct when the write depends on what was read.
-- [ ] 3.2 Convert multi-statement consistent reads to `begin_read_transaction`, and drop the transaction from single-statement reads. Three deferred multi-read sites remain (`operations/.../run_repository.rs:394`, `sessions/.../sqlite_repository.rs:61`, and one in `sessions/.../transactions.rs`); each needs its computation examined before conversion, which is a separate reading pass.
-- [ ] 3.3 Move long computation out of transaction bodies. Deferred with 3.2: the sites the scanner flags for computation are the same ones.
+- [x] 3.2 Convert multi-statement consistent reads to `begin_read_transaction`, and drop the transaction from single-statement reads.
+  Three candidates, and reading them left **one** conversion. `sessions/.../sqlite_repository.rs::read_terminal_evidence` is a genuine consistent read -- a session's lifecycle and revisions, that session's messages, and whether another run has an unfinished message, all compared against each other -- so it now holds one snapshot. `sessions/.../transactions.rs` opens with `UPDATE ... RETURNING`, which is a *write*: it is a single-statement compare-and-swap, already correct, and converting it would have been the mechanical replacement this change refuses. `operations/.../run_repository.rs:394` was test code that a stale scanner run had reported as production.
+- [x] 3.3 Move long computation out of transaction bodies.
+  `operations::run_repository::insert` and `save` serialised a run's snapshot to JSON *inside* the transaction. Both now serialise first and open the transaction afterwards, and both moved to `begin_write_transaction` -- `save` is a compare-and-swap on `version`, and the helper's name states that decision. `read_terminal_evidence` already committed before building its evidence bundle, which is the shape the rule asks for.
 - [x] 3.4 Move external I/O out of every writer reservation, and restructure the flow rather than shortening the I/O.
   **Nothing to move.** After correcting an over-broad scanner pattern -- it matched `keyring` inside a string literal naming a keyring entry, and matched the helpers' own doc comments describing this rule -- no production transaction performs filesystem, network, credential-store, MCP, Hook, WASM, sidecar, process, or approval work. Recorded as a finding rather than ticked as work.
 - [x] 3.5 Repair `sessions/infrastructure/review_repository.rs:538`, which opens its transaction with `unwrap()`.
@@ -38,17 +40,27 @@
 ## 5. Enforcement
 
 - [x] 5.1 Add a fitness rule: no file under `contexts/*/infrastructure/` constructs a raw transaction; repositories use the two helpers. Exempt `platform/database/migrations/` by path, because the migration runner owns a different protocol.
+  Bound to `(file, function, shape, deferred)` rather than to a per-file count. A count cannot tell a deleted call from a new one, so removing an old transaction and adding a raw one in the same file would have passed; and it says nothing about shape, so a write-first transaction growing a read before its first write -- the defect -- would have passed too. A deferred read-then-write is refused outright and can never be recorded in the baseline at all. The baseline shrank from 62 to 60 in this change.
 - [x] 5.2 Add fixtures for the rule in both directions, including the migration exemption.
 
 ## 6. Verification
 
-- [ ] 6.1 Focused concurrency suite green.
-- [ ] 6.2 `cargo test --workspace` green.
-- [ ] 6.3 `clippy`, `fmt`, `architecture:check`, `contracts:check`, `docs:check`, and `openspec validate --strict` green.
+- [x] 6.1 Focused concurrency suite green (Windows).
+- [x] 6.2 `cargo test --workspace` green (Windows).
+- [x] 6.3 `clippy`, `fmt`, `architecture:check`, `contracts:check`, `docs:check`, and `openspec validate --strict` green (Windows).
 - [ ] 6.4 Report the concurrency suite separately for Windows, Linux, and macOS as PASSED / FAILED / BLOCKED / NOT RUN. A result on one platform is never reported for another.
-- [ ] 6.5 Report the Desktop Smoke scenario, including that the recorded failure is Windows and is not this defect.
-- [ ] 6.6 Working tree clean.
+- [x] 6.5 Report the Desktop Smoke scenario. **NOT APPLICABLE** to this change: the recorded `database is locked` is Windows, and its cause -- specs sharing one data directory with one app instance after another -- involves no concurrent transactions. Tracked by 4.5.1. Not a completion gate here.
+- [x] 6.6 Working tree clean.
 - [ ] 6.7 Only then unblock `add-unified-extension-platform` Task Group 4.
+
+## Status
+
+- Implementation: **COMPLETE**
+- Windows: **PASSED** — focused concurrency suite and `cargo test --workspace`
+- Linux: **NOT RUN**
+- macOS: **NOT RUN**
+- Archive: **BLOCKED** on 6.4
+- `add-unified-extension-platform` Task Group 4: **BLOCKED** on this change's archive
 
 ## Forbidden
 

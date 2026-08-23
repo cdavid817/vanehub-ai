@@ -23,6 +23,10 @@ OPENERS = [
 # needed -- which is the mechanical replacement this whole exercise refuses.
 READ = re.compile(r'\.(query_row|query_map|query_and_then|query\()')
 WRITE = re.compile(r'\.(execute|execute_batch|insert)\b')
+# `query_row` around an UPDATE/INSERT/DELETE ... RETURNING is a *write*. Reading it as a
+# read classified a single-statement compare-and-swap as a multi-read, which would have
+# turned a correct write-first transaction into one that never writes.
+RETURNING_WRITE = re.compile(r'\b(UPDATE|INSERT|DELETE)\b', re.IGNORECASE)
 # Deliberately narrow. An earlier version matched `keyring` anywhere, which fired
 # on a *string literal* naming a keyring entry -- a reference being written to a
 # column, not a call. A flag that fires on data rather than on a call is a flag a
@@ -59,10 +63,21 @@ for base, _, names in os.walk(ROOT):
                     if '.commit()' in follow:
                         break
                 text = '\n'.join(body)
+                def mutates(position):
+                    return bool(RETURNING_WRITE.search(
+                        '\n'.join(body[position:position + 12])))
+
+                # A read is only a read if the statement it runs is not a mutation.
                 first_read = next(
-                    (n for n, l in enumerate(body) if READ.search(l)), None)
+                    (n for n, l in enumerate(body)
+                     if READ.search(l) and not mutates(n)),
+                    None,
+                )
                 first_write = next(
-                    (n for n, l in enumerate(body) if WRITE.search(l)), None)
+                    (n for n, l in enumerate(body)
+                     if WRITE.search(l) or (READ.search(l) and mutates(n))),
+                    None,
+                )
                 if first_read is None and first_write is None:
                     shape = 'empty-or-unclear'
                 elif first_write is None:
@@ -87,6 +102,8 @@ for base, _, names in os.walk(ROOT):
                     'test': (
                         '_tests.rs' in path
                         or '/tests.rs' in path
+                        # A whole directory of tests carries no marker either.
+                        or '/tests/' in path
                         or (test_mod_line is not None and index > test_mod_line)
                     ),
                 })
