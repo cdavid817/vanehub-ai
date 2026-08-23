@@ -370,6 +370,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # `.cargo/config.toml` pins clang plus mold for x86_64-unknown-linux-gnu, so a Linux runner
+      # without them fails at link time with `invalid linker name in argument '-fuse-ld=mold'`
+      # before a single test runs. This is the same list the repository's other Linux cargo jobs
+      # install; the workspace lib pulls in Tauri, so the webkit and appindicator development
+      # packages are needed to compile it, not only to package it.
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            mold \
+            patchelf \
+            wget
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
