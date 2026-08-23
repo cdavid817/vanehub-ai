@@ -1456,10 +1456,20 @@ Every step may only make the answer stricter than the one before it, except `Tem
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `extension_connector_subjects` | **Immutable identity** | — | — | PK `connector_global_id` | Permanent | None | None |
-| `extension_connector_definition_revisions` | **Immutable** | — | → connector subjects, RESTRICT | PK `(connector_global_id, snapshot_id)` | With its snapshot | None | None |
-| `extension_connector_instances` | Mutable | `revision` + CAS | → connector subjects, RESTRICT | PK `instance_id`; unique `(connector_global_id, label)` | Permanent | **Opaque credential handle only** | **Never overwrites a handle** |
-| `extension_connector_bindings` | Mutable | `revision` + CAS | → connector instances, RESTRICT | PK `binding_id`; unique `(instance_id, target)` | Permanent | None | **Never overwrites user bindings** |
+| `connector_subjects` | **Immutable identity** | — | — | PK `connector_global_id`; records `owner_extension_id` | Permanent | None | None |
+| `connector_definition_revisions` | **Immutable** | — | → connector subjects, RESTRICT | PK `(snapshot_id, connector_global_id)` | With its snapshot | None | None |
+| `connector_instances` | Mutable | `revision` + CAS | → connector subjects, RESTRICT | PK `instance_id`; unique `(connector_global_id, label_key)` | Permanent | **Opaque credential handle only** | **Never overwrites a handle** |
+| `connector_bindings` | Mutable | `revision` + CAS | → connector instances, RESTRICT | PK `binding_id`; unique `(instance_id, target_kind, target_key)` | Permanent | None | **Never overwrites user bindings** |
+
+**The label a person typed and the key uniqueness is decided on are different columns.** `display_label` keeps their casing and spacing; `label_key` is the case-folded, whitespace-collapsed form, derived rather than accepted from a caller so the two cannot disagree. Neither is identity — that is `instance_id`, so renaming an instance keeps its bindings and its credential. `Acme Prod` and `acme  prod` in one list is how a credential gets attached to the wrong instance, and the collision is refused naming the instance already holding the key.
+
+**No column holds live connection state.** No `connected`, no `connecting`, no `last_error`. Those are properties of a socket: writing them down means every crash leaves a row claiming a connection that does not exist, and every reader has to decide whether to believe it. Storage holds `desired_enabled`, which is what the user asked for.
+
+**A definition that is unavailable removes nothing.** Instances, bindings, and credential handles stay exactly where they are; the only consequence is that new connect and execute attempts are refused. Deleting on absence would mean an extension that failed to activate for thirty seconds during an upgrade cost the user every credential configured for it. Readiness gates dialling, never storage.
+
+**`public_configuration` refuses secret-shaped keys.** Not a value scanner — a name check at the one boundary where the name is reliable, because a field a definition declared *public* is by construction never the one called `api_key`. It catches the specific mistake the column invites: pasting a token into the visible settings form.
+
+**Migration 89 does not migrate or dual-write the existing IM connectors, MCP servers, GitHub readiness, or the local OCR/ASR/TTS capabilities.** Their projections onto this model land with the task groups that own them; moving live user state now would be rewriting it to fit a model nothing reads yet.
 
 #### Stable subject, versioned definition
 
@@ -1494,15 +1504,23 @@ Given the running snapshot, the revision consulted is the one recorded for exact
 
 **Not being able to ask is not the same as being ready.** When the port cannot answer, the verdict is `unavailable`. A subdomain that cannot reach the authority does not get to conclude a contribution is live.
 
+For connectors the same four verdicts and the same authority chain apply, and the reads are ordered **platform first, everything else keyed on the snapshot it named**. That ordering is what makes the verdict internally consistent without a snapshot shared across two subdomains — which is not available, because sharing one would mean handing a live `rusqlite::Transaction` across a published context API and holding a read snapshot open across another context's work. It is sound because definition revisions are immutable and keyed by snapshot: an activation committing between the two reads leaves the verdict describing one whole generation, at worst one activation stale, never a mixture. Reading the revision first and the platform second is what would produce a mixture.
+
 None of the four verdicts deletes a row, rebinds anything, or activates anything.
 
 #### Publisher keys are a monotonic state machine, not an exception
 
 Every mutation is idempotent or one-way: adding a key rewrites only `label`, `source`, and `last_seen_at` and never `trust_state`; revoking is `UPDATE … WHERE trust_state = 'trusted'`, which is a compare-and-swap on the state itself and is what preserves the first `revoked_at`; `revoked` is terminal, with no un-revoke in V1. A `revision` column would add a spurious conflict on a label edit without removing a failure mode. Every table above that is *not* a monotonic state machine uses revision + CAS.
 
-#### Credentials
+#### Credentials, and the transition record that is deliberately not here yet
 
-`tooling::connectors` stores an opaque handle and nothing else. There is no `credentials` bounded context in this repository; the established seam — used by `communications`, `agent_runtime`, `ssh_connections`, `cli_config`, and `execution_observability` — is a **port owned by the consuming subdomain**, implemented in that subdomain's infrastructure over `platform::credentials::OsCredentialStore` and assembled in bootstrap. `connectors` follows it with its own `ConnectorCredentialPort`. It does not depend on `communications`' port, its `im_credential_refs` table, or its schema, and there is no cross-context foreign key. No secret is returned to a repository, stored in SQLite, or written to a log.
+`tooling::connectors` stores an opaque handle and nothing else. There is no `credentials` bounded context in this repository; the established seam — used by `communications`, `agent_runtime`, `ssh_connections`, `cli_config`, and `execution_observability` — is a **port owned by the consuming subdomain**, implemented in that subdomain's infrastructure over `platform::credentials::OsCredentialStore` and assembled in bootstrap. `connectors` follows it with its own `ConnectorCredentialPort`. It does not depend on `communications`' port, its `im_credential_refs` table, or its schema, and there is no cross-context foreign key. No secret is returned to a repository, stored in SQLite, or written to a log — the port has `exists`, deliberately not `read`, because a method that returned the secret would be the one someone reached for while building a DTO.
+
+**No credential-store call may happen inside a SQLite transaction.** A keychain read can block on a user prompt, a locked keyring, or a DBus round trip, and a write transaction holding the database lock while that happens stalls every other writer for as long as the dialog goes unanswered. The repository methods take handles precisely so the two never interleave.
+
+**Crash-safe replacement is an open task, not something migration 89 implements.** `write-new -> CAS -> delete-old` survives an error return and nothing more: a process killed between the credential-store write and the database commit leaves an orphaned secret and an instance pointing at the old handle, and nothing on the next launch knows to look. Making it durable needs a `connector_credential_transitions` table that records the *predictable new handle before the secret is written*, then `prepared -> new_stored -> switched -> cleanup_pending/completed`, with every non-terminal transition reconciled at startup.
+
+Task Group 3 has no connect or execute path, so there is no real replacement to make safe. Building the state machine now would ship recovery code no code path reaches and no test exercises honestly, which is worse than not having it: it would read as solved. It belongs to the **Connector Lifecycle task group** and is recorded there as an explicit open task rather than implied to exist. What migration 89 does provide is the property the state machine will rest on — `allocate` returns a fresh handle every time, so a new secret never overwrites the old one in place and the previous one stays readable until something deliberately deletes it.
 
 #### What is deliberately absent
 

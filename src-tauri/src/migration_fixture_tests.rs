@@ -30,9 +30,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// the installations table with the references SQLite cannot add after the fact, and migration 87
 /// adds lifecycle Hook subjects, their versioned definitions, user bindings, and bounded
 /// execution evidence, and migration 88 adds the canonical authorization rule sets, their rules,
-/// and the single active-rule-set pointer.
+/// and the single active-rule-set pointer, and migration 89 adds connector subjects, their
+/// versioned definitions, configured instances, and their bindings.
 fn expected_versions() -> Vec<i64> {
-    (1..=88).collect()
+    (1..=89).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

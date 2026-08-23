@@ -2523,9 +2523,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // statement takes its own snapshot, so a multi-statement read can straddle a commit and return
     // a state that never existed; the doc comment is most of the 28 because the failure looks like
     // nothing at all until it is described. Migration 89 will add 7 lines.
+    //
+    // Raised a final time from 3,193 by +7 to register migration 89 (connector persistence), whose
+    // schema and tests live in `contexts/tooling/connectors`. That closes Task Group 3: migrations
+    // 86-89 are registered, and this is the measured total rather than a projection.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_193,
+        budget: 3_200,
         owner: "add-unified-extension-platform",
     },
 ];
