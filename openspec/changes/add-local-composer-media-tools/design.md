@@ -1711,6 +1711,7 @@ Two environments produced different results, and the difference is the environme
 | Frontend | `npm run test:coverage` | PASSED |
 | Playwright E2E | `npx playwright test` | PASSED |
 | Desktop Smoke, Windows | `npm run test:desktop` | PASSED |
+| Desktop Smoke, Windows | `npm run test:desktop:local-media` | PASSED |
 | Desktop Smoke, macOS | `npm run test:desktop` | PASSED |
 | Desktop Smoke, Ubuntu | `xvfb-run -a npm run test:desktop` | PASSED |
 | Native Check, Windows and macOS | fmt, check, clippy, panic gate | PASSED |
@@ -1729,8 +1730,13 @@ Two environments produced different results, and the difference is the environme
 
 ### Deterministic local-media desktop layer — `desktop-local-media-fixture`
 
-`npm run test:desktop:local-media`, Windows 11, Python 3.12.10, against the artifact
-`npm run test:desktop:build` produced: **PASSED**, 10 of 10 specs, 24.4 s.
+| Where | Command | Result |
+| --- | --- | --- |
+| Local, Windows 11, Python 3.12.10 | `npm run test:desktop:local-media` | PASSED, 10 of 10, 24.4 s |
+| `windows-latest` runner, PR #209 head `c856fb85` | Desktop Smoke job, step "Run deterministic local-media desktop layer" | PASSED, 10 of 10, 22.1 s |
+
+The runner reuses the artifact the smoke step built rather than building a second one, and the step
+is Windows-only. macOS and Linux runners do not execute this layer at all.
 
 | Spec | What ran |
 | --- | --- |
