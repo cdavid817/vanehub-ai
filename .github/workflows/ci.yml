@@ -318,7 +318,9 @@ jobs:
   native-platform-check:
     name: Native Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Raised from 45 for the macOS workspace test run below, which compiles the test targets
+    # on top of an already-cold build.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -332,6 +334,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
+      # A handful of integration tests spawn `node`. Pinned rather than relying on whatever
+      # the runner image ships, so a runner image bump cannot change what these tests execute.
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Verify Windows LLD
         if: runner.os == 'Windows'
         shell: pwsh
@@ -344,6 +357,26 @@ jobs:
 
       - name: Native cargo build
         run: cargo build --manifest-path src-tauri/Cargo.toml
+
+      # Which lock a transaction takes, and whether SQLite will wait for it, is decided by the
+      # VFS layer -- and that layer is a different implementation on every OS. A passing
+      # snapshot-isolation result therefore says nothing about the platforms it did not run on.
+      # Named as its own step so each platform's result is readable from the job list rather
+      # than only from inside the full test log.
+      - name: SQLite transaction concurrency suite
+        run: >-
+          cargo test --workspace --lib --
+          platform::database::tests::
+          a_reader_sees_one_whole_generation_while_a_writer_commits_the_next
+
+      # Scoped to macOS on purpose, and the scope is the whole point of the comment: Linux
+      # already runs this in the `rust` job above, and Windows runs the two fixture steps
+      # below alongside local full-suite runs. macOS ran nothing -- it built the tree and
+      # reported success without executing a single test. Extending the workspace run to
+      # Windows as well is a standing runner-cost decision, not a gap this step is hiding.
+      - name: Rust tests
+        if: runner.os == 'macOS'
+        run: cargo test --workspace
 
       - name: Windows Skill Tool hostile fixtures (declarative-only)
         if: runner.os == 'Windows'
