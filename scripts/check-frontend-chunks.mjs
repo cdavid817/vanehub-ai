@@ -10,19 +10,19 @@ const requiredDynamicEntries = [
   "src/loop-center/loop-center.tsx",
   "src/session-workspace/logs-tab.tsx",
   "src/settings/pages/about-page.tsx",
+  "src/settings/pages/agent-configurations-page.tsx",
   "src/settings/pages/basic-settings-page.tsx",
+  "src/settings/pages/cli-management/cli-management-page.tsx",
   "src/settings/pages/cli-parameters-page.tsx",
   "src/settings/pages/extensions-page.tsx",
   "src/settings/pages/im-page.tsx",
   "src/settings/pages/mcp-page.tsx",
   "src/settings/pages/observability-settings-page.tsx",
   "src/settings/pages/plugin-integrations-page.tsx",
-  "src/settings/pages/providers-page.tsx",
+  "src/settings/pages/prompt-hooks-page.tsx",
   "src/settings/pages/skills-page.tsx",
   "src/settings/pages/ssh-connections-page.tsx",
   "src/settings/pages/usage-statistics-page.tsx",
-  "src/settings/pages/agent-configurations-page.tsx",
-  "src/settings/pages/prompt-hooks-page.tsx",
 ];
 const maxStaticEntryGzipBytes = 350 * 1024;
 const maxRawJavaScriptChunkBytes = 700 * 1024;
