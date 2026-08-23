@@ -1263,7 +1263,14 @@ fn a_bounded_search_matches_only_redacted_projection_fields() {
 
     for (term, expected) in [
         ("npm", vec!["command"]),
+        // Snake case on purpose: the pattern escapes `_` so a term cannot smuggle in a wildcard,
+        // and an escape that the query never declares turns every tool name into a non-match.
         ("read_file", vec!["tool"]),
+        // A wildcard supplied by the reader stays a literal. Both of these would match
+        // `read_file` if `_` and `%` were still wildcards, and neither occurs in it verbatim.
+        ("rea_", Vec::new()),
+        ("read%file", Vec::new()),
+        ("%", Vec::new()),
         ("cargo", vec!["verification"]),
         ("nothing-matches-this", Vec::new()),
     ] {

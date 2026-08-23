@@ -553,10 +553,15 @@ fn push_filters(sql: &mut String, binds: &mut Vec<Box<dyn ToSql>>, query: &Execu
     {
         // Matches only the already-redacted display fields the projection holds; the journal
         // payload is never scanned for a page.
+        //
+        // `ESCAPE` is not decoration. The pattern below escapes `%` and `_` so a term cannot smuggle
+        // a wildcard in, and without declaring the escape character SQLite reads the backslash as a
+        // literal — so `read_file` searched for `read\_file` and matched nothing. Tool names are
+        // overwhelmingly snake_case, which made that the common case rather than the edge one.
         sql.push_str(
-            " AND (COALESCE(redacted_display, '') LIKE ? \
-             OR COALESCE(tool_name, '') LIKE ? \
-             OR COALESCE(verification_name, '') LIKE ?)",
+            " AND (COALESCE(redacted_display, '') LIKE ? ESCAPE '\\' \
+             OR COALESCE(tool_name, '') LIKE ? ESCAPE '\\' \
+             OR COALESCE(verification_name, '') LIKE ? ESCAPE '\\')",
         );
         let pattern = format!("%{}%", search.replace('%', "\\%").replace('_', "\\_"));
         for _ in 0..3 {
