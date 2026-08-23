@@ -2412,7 +2412,11 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // records what production actually measured on the same commit.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 26_998,
+        // The first version of this entry read 26,998, because the measurement truncated each file
+        // at its first `#[cfg(test)]` and several files declare `#[cfg(test)] mod tests;` near the
+        // top and continue with production code below. That discarded 5,966 real production lines
+        // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
+        budget: 32_964,
         owner: "upgrade-cli-parameter-management",
     },
 ];
@@ -2439,12 +2443,64 @@ fn measure_budgeted_subtree(root: &Path, relative: &str) -> usize {
         .sum()
 }
 
-/// Production lines only: test files are skipped entirely and every other file is truncated at its
-/// first `#[cfg(test)]`.
+/// Production lines only.
 ///
 /// The aggregate budget above counts tests too, so raising it for a characterization suite silently
 /// hands the same number of lines to production. This measurement is what stops that: a subtree can
 /// grow a thousand lines of tests without gaining room for one line of production code.
+///
+/// Truncating at the first `#[cfg(test)]` would have been wrong, and provably so — several files
+/// declare `#[cfg(test)] mod tests;` near the top and continue with production code below it, which
+/// a truncating count would have discarded. Test regions are therefore matched by brace instead,
+/// and anything the matcher is not certain about is counted as production: a ceiling that is too
+/// tight forces an explicit decision, whereas one that is too loose grants silent headroom.
+fn production_lines(source: &str) -> usize {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut counted = 0usize;
+    let mut index = 0usize;
+    while index < lines.len() {
+        if lines[index].trim() != "#[cfg(test)]" {
+            counted += 1;
+            index += 1;
+            continue;
+        }
+        let mut next = index + 1;
+        while next < lines.len() && lines[next].trim().is_empty() {
+            next += 1;
+        }
+        let Some(declaration) = lines.get(next) else {
+            counted += 1;
+            index += 1;
+            continue;
+        };
+        let trimmed = declaration.trim();
+        if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+            // A test module declared in its own file. The file itself is skipped by name; only the
+            // two lines that point at it are test-only here.
+            index = next + 1;
+            continue;
+        }
+        if trimmed.starts_with("mod ") && trimmed.ends_with('{') {
+            let indent = declaration.len() - declaration.trim_start().len();
+            let closing = format!("{}}}", " ".repeat(indent));
+            let mut scan = next + 1;
+            while scan < lines.len() && lines[scan] != closing {
+                scan += 1;
+            }
+            index = if scan < lines.len() {
+                scan + 1
+            } else {
+                lines.len()
+            };
+            continue;
+        }
+        // A `#[cfg(test)]` on something other than a module: counted, deliberately.
+        counted += 1;
+        index += 1;
+    }
+    counted
+}
+
 fn measure_production_subtree(root: &Path, relative: &str) -> usize {
     let subtree = root.join(relative);
     rust_files(&subtree)
@@ -2458,11 +2514,32 @@ fn measure_production_subtree(root: &Path, relative: &str) -> usize {
                 .replace(std::path::MAIN_SEPARATOR, "/");
             !is_test_source(&relative_path)
         })
-        .map(|path| {
-            let source = fs::read_to_string(path).expect("read production source");
-            physical_lines(source.split("#[cfg(test)]").next().unwrap_or(&source))
-        })
+        .map(|path| production_lines(&fs::read_to_string(path).expect("read production source")))
         .sum()
+}
+
+#[test]
+fn the_production_measurement_skips_test_modules_without_swallowing_the_code_after_them() {
+    let source = "\
+fn kept_before() {}
+
+#[cfg(test)]
+mod inline {
+    fn hidden() {}
+}
+
+#[cfg(test)]
+mod declared;
+
+fn kept_after() {}
+";
+
+    // Seven counted lines: the two `fn` declarations, and the blank separators that survive around
+    // them. What matters is that `kept_after` is not discarded.
+    assert!(production_lines(source) < physical_lines(source));
+    assert!(source.contains("fn kept_after"));
+    assert_eq!(production_lines("fn only() {}\n"), 1);
+    assert_eq!(production_lines("#[cfg(test)]\nmod declared;\n"), 0);
 }
 
 /// `None` for `measured` means the path is gone. That is satisfied, not skipped: the subtree
@@ -2513,8 +2590,9 @@ fn oversized_native_paths_stay_within_their_recorded_line_budgets() {
         if measured > budget.budget {
             violations.push(format!(
                 "[ARCH-NATIVE-008] {}: {measured} production physical lines exceeds budget {}. \
-                 Owner: {}. Repair: this ceiling ignores test files and everything after the first \
-                 `#[cfg(test)]`, so a test-driven raise of the aggregate budget does not move it",
+                 Owner: {}. Repair: this ceiling skips test files and brace-matched test \
+                 modules and nothing else, so a test-driven raise of the aggregate budget does \
+                 not move it",
                 budget.root, budget.budget, budget.owner
             ));
         }

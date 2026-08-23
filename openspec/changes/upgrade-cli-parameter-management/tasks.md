@@ -151,7 +151,7 @@
 - [x] 13.4 Update the user guide to explain scope, Inherit versus explicit value, precedence, safe token preview, policy ownership, version compatibility, legacy repair, Web/mock limitations, and when changes affect processes.
 - [x] 13.5 Generate or update the documented provider parameter matrix from the canonical registry where practical; do not maintain another manual parameter table that can drift.
 - [x] 13.6 Document the registry update/audit workflow for future CLI releases, including official-source review, compatibility changes, generation, smoke fixtures, and contract checks.
-- [ ] 13.7 Update any screenshots or help anchors affected by the settings-page information architecture.
+- [x] 13.7 Update any screenshots or help anchors affected by the settings-page information architecture.
 
 ## 14. Automated verification
 
@@ -1204,3 +1204,169 @@ Whoever merges second must renumber. **Do not pre-allocate**: `worktree-cli-mana
 Renumbering touches five hard-coded assertions no compiler or linter checks: `EXPECTED_MIGRATIONS`,
 `assert_migration_history_is_dense`, the two counts in `platform/database/migrations/tests.rs`, and
 `migration_fixture_tests.rs::expected_versions`'s `(1..=N)`.
+
+
+## Implementation evidence — round 5: screenshots, cross-platform fixtures, audit granularity
+
+Host OS: Windows 11 (`win32`). Nothing was pushed, merged, archived, or opened as a PR.
+
+### 13.7 — screenshots regenerated in a clean worktree
+
+A temporary worktree was created from `0d6376d2` at a short path (`D:/vh-shots`, chosen so Windows
+path limits could not block its removal), `npm ci` installed from the lockfile, and
+`npm run docs:screenshots:check` ran **before** updating anything. That check is the control:
+**43 of 44 reached tests passed against the committed baselines**, and the one failure was
+`settings-cli-parameters-zh-CN` at 64,099 differing pixels — far above the 1,000-pixel tolerance, so
+genuinely stale rather than noise. The remaining four were skipped because the spec runs in serial
+mode and a failure ends the run.
+
+That control matters: it establishes the clean worktree reproduces every unrelated page
+byte-for-byte, which is the only way to tell a stale baseline from a contaminated environment.
+
+`docs:screenshots:update` rewrites all 48 images. Each run brought back a **rotating** handful of
+unrelated images as byte-different — `im-*` on one run, `session-logs-*` and `create-session-*` on
+the next, `session-traces-*` on a third — while `check` had just passed those same baselines in the
+same worktree minutes earlier. That is run-to-run rasterization noise, and every one of them was
+restored rather than committed. Only the two expected images are in the commit.
+
+Recapturing found two problems the unit and e2e suites could not:
+
+1. The capture froze on the preview panel's "refreshing" badge, documenting a transient state as
+   the resting one. The scenario now waits for the debounced preview to settle.
+2. The bottom-sticky preview panel floated over the field list, so the image showed it wedged
+   between two category groups. It is now a sticky **side** column, gated at `2xl`: at 1440 the
+   field rows already split into label and control, and carving out a third column there squeezed
+   the descriptions into a vertical ribbon. Below `2xl` the preview simply follows the controls.
+
+Help anchors: `tooling.md#cli-parameters` and `tooling.md#cli-参数` still resolve, but two sentences
+claiming OnePiece's equivalent configuration is collected on this page were corrected in both
+locales, along with the "OnePiece's equivalent configuration" subsection, which now names the
+retrieval, compaction and context-health parameters that moved to Agent configurations.
+
+The temporary worktree and its branch were removed; `git worktree list` no longer contains it.
+
+### 14.9 — cross-platform fixture matrix
+
+`src-tauri/src/contexts/tooling/cli_parameters/platform_fixture_tests.rs` holds 17 fixtures. Each is
+either platform-independent by design and says why, or explicitly `#[cfg]`-conditional.
+
+| Area | Fixture | Platform |
+| --- | --- | --- |
+| path-list normalization | both `/` and `\` trimmed from path ends | all |
+| | spaces and Unicode survive as one entry | all |
+| | drive-qualified, UNC and `\\?\` forms pass through verbatim | all |
+| | a newline or NUL inside a path is rejected | all |
+| directory probe | directory yes, file no, missing no, empty no | all |
+| | a symlink is judged by its target, not by being a link | unix |
+| | trailing separator and a drive root are still directories | windows |
+| executable status | the tracked POSIX stub carries its mode bit | unix |
+| | the stub source compiles to the `.exe` PATHEXT needs | windows |
+| | every installation shape maps to the same support verdict | all |
+| argv tokens | whitespace and Unicode stay exactly one token | all |
+| | a repeated flag keeps one flag per value, in order | all |
+| | global and invocation tokens land in their declared segments | all |
+| | a config key/value token is encoded once and joined once | all |
+| persistence | a profile survives reopening the database | all |
+| | a stale revision is refused and does not move the revision | all |
+| | a reset clears the rows and advances the revision once | all |
+| | a stale catalog version is refused by the use case that owns it | all |
+| | a legacy profile is rewritten on the first save and not before | all |
+
+Two of those were written wrong first and are worth recording. The catalog-version check was
+initially asserted against `reset_if_revision`, which **writes** the version it is handed rather
+than checking it — the assertion would have passed for the wrong reason had the repository behaved
+differently. Catalog CAS lives in the use case, because only it knows which catalog it just loaded,
+and that is where the fixture now asserts it. And the Windows executable assertion first required a
+committed `opencode.exe`; that file is excluded from the repository and compiled on demand, so on a
+clean CI checkout the assertion would have failed for a reason unrelated to what it tests.
+
+The `cli-parameter-fixtures` job in `.github/workflows/ci.yml` runs them on
+`ubuntu-latest`, `macos-latest` and `windows-latest` with `fail-fast: false`, so a Windows separator
+rule and a POSIX executable bit cannot hide each other. It reuses the repository's existing
+`setup-node` with npm cache, `dtolnay/rust-toolchain`, and `actions/cache` for the cargo registry
+and target directory; no installation logic is duplicated. Each platform pins
+`VANEHUB_APP_DATA_DIR`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` into `runner.temp`, reports its own
+status, and uploads failure artifacts under a platform-qualified name.
+
+**No provider is launched, no credential is read, and nothing reaches a model.** The only process
+any fixture spawns is `rustc`, to build the stub on Windows; a search for
+`Command::new("claude"|"codex"|"gemini"|"opencode"|"agy")` across the native sources returns
+nothing, and the only mention of a managed CLI name in the workflow is `chmod +x` on the
+repository's own deterministic stub. The audit's binary versions live in a static fixture and are
+asserted for shape, never compared against the host, so ordinary CI never needs the audited CLI
+versions installed.
+
+Locally, on Windows: `cargo test --workspace platform_fixture_tests` → 17 passed;
+`cargo test --workspace cli_parameters` → 158 passed; `npm run contracts:check` → passed.
+
+**macOS: NOT RUN. Linux: NOT RUN.** The workflow file existing is not a result. Task 14.9 stays
+unchecked until the three remote jobs have actually executed.
+
+### Audit metadata now records evidence kinds, not one verdict
+
+A single `verified` conflated "the vendor documents this" with "the binary's parser accepted it when
+probed", and those two came apart during the audit — `claude --help` hides `--advisor` while the
+parser accepts it. `CliParameterVerification` is replaced by
+`evidence: Vec<CliParameterEvidence>`:
+
+| Kind | Meaning | Count |
+| --- | --- | --- |
+| `official-reviewed` | the vendor's published reference, or the `--help` it ships in the binary | 43 |
+| `binary-parser-accepted` | the installed binary's parser was probed and behaved as expected | 3 |
+| `live-runtime-verified` | the CLI was actually run and its behaviour observed | 0 |
+| `repository-verified` | only something in this repository confirms it | 0 |
+| `pending-review` | nothing settles it; stands alone | 0 |
+
+`live-runtime-verified` is deliberately zero and a contract test asserts it stays that way: the
+audit probed argument *parsing*, and parsing is not running. The three parser-probed entries are
+`claude-code.advisor`, `claude-code.effort` and `codex-cli.approvalPolicy` — the three where the
+published text and the installed binary disagreed.
+
+Registry validation now rejects an empty evidence list, a repeated kind, and `pending-review`
+alongside real evidence, so a laundered verdict cannot be spelled at all.
+
+Fixing this exposed that the previous audit contract test was **passing vacuously**: it looped over
+the generated frontend catalog, which deliberately drops audit prose, found no `audit` on any
+definition, and asserted nothing. It now reads the canonical registry and requires more than 40
+audited parameters and at least one parser-probed one.
+
+### ARCH-NATIVE-008 no longer truncates
+
+The first version measured production lines by cutting each file at its first `#[cfg(test)]`. An
+invariant written to close the resulting hole immediately found the hole was real and common:
+`api_process_adapter/mod.rs` and others declare `#[cfg(test)] mod tests;` near the top and continue
+with production code below, all of which the truncating count discarded.
+
+The measurement is now brace-matched — `#[cfg(test)] mod x;` skips two lines, `#[cfg(test)] mod x {`
+skips to its matching close, and a `#[cfg(test)]` on anything else is **counted**, because a ceiling
+that is too tight forces an explicit decision while one that is too loose grants silent headroom.
+`production_lines` has its own unit test.
+
+The correction moved the measurement from 26,998 to **32,964**: the old pin had been leaving this
+subtree 5,966 lines of invisible production headroom, which is the opposite of what the ceiling is
+for. The invariant test was removed once its premise was gone, rather than left to re-report files
+it had just shown to be legitimate.
+
+### Round 5 command results
+
+| Command | Result |
+| --- | --- |
+| `npm run docs:check` | PASSED |
+| `npm run contracts:check` | PASSED — 16 tests |
+| `npm run architecture:check` | PASSED — 44 native fitness tests |
+| `npm run lint:ci` | PASSED |
+| `npx tsc --noEmit` | PASSED |
+| `npm run test` | PASSED — 302 files, 1,402 tests |
+| `npm run build` | PASSED |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | PASSED |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASSED |
+| `cargo test --workspace` | PASSED — exit 0 |
+| workflow schema parse (`yaml.safe_load` over `ci.yml`) | PASSED — 10 jobs, `fail-fast: false`, 3-OS matrix |
+| `openspec validate --specs --strict` | PASSED |
+| `openspec validate upgrade-cli-parameter-management --strict` | PASSED |
+| `git diff --check` | PASSED |
+
+One native run failed before the passing one, on `relay_stdio::child_exit_does_not_wait_for_open_parent_input`,
+with `Blocking waiting for file lock on build directory` in the same log — two cargo invocations
+were competing. The same contention produced a `rust-lld.exe` link failure in a parallel run.
+Neither is reported as a pass; the results above are from exclusive runs.
