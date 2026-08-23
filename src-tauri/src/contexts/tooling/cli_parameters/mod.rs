@@ -56,3 +56,8 @@ pub(crate) use legacy_baseline::{baseline_preview_args, CliParameterLaunchScope}
 
 #[cfg(test)]
 mod cutover_regression_tests;
+
+/// Fixtures that must behave identically on Windows, macOS and Linux. The CI matrix runs them on
+/// all three; a developer's own machine can only ever prove one.
+#[cfg(test)]
+mod platform_fixture_tests;
