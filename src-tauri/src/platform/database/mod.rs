@@ -517,6 +517,280 @@ mod tests {
         begin_write_transaction(&waiter).expect("and the lock is available again");
     }
 
+    /// The defect this whole exercise is about, demonstrated and then shown fixed.
+    ///
+    /// A deferred transaction that reads before it writes cannot upgrade to the write lock. SQLite
+    /// refuses with `SQLITE_BUSY` and **does not consult `busy_timeout`**, so no amount of waiting
+    /// helps. The two halves below run the identical interleaving -- reader-then-writer, with a
+    /// deterministic rendezvous -- and differ only in how the second transaction was opened.
+    #[test]
+    fn a_deferred_read_then_write_cannot_upgrade_but_an_immediate_one_waits_and_wins() {
+        use std::sync::mpsc;
+
+        let directory = TempDirectory::new("deferred-upgrade");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let holder = database.connection().expect("holder");
+        let contender = database.connection().expect("contender");
+
+        // Both halves wait on the same shortened timeout, so neither can pass by being fast.
+        contender
+            .busy_timeout(Duration::from_millis(250))
+            .expect("shorten the timeout");
+
+        // --- the defect ---
+        {
+            let held = begin_write_transaction(&holder).expect("holder takes the write lock");
+            held.execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('deferred', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("write inside the held transaction");
+
+            // A deferred transaction, read first, then write -- the shape every converted site had.
+            let deferred = rusqlite::Transaction::new_unchecked(
+                &contender,
+                rusqlite::TransactionBehavior::Deferred,
+            )
+            .expect("a deferred transaction opens without taking any lock");
+            let _: i64 = deferred
+                .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+                .expect("the read succeeds and takes a shared lock");
+            let upgrade = deferred.execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('upgrade', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            );
+
+            assert!(
+                upgrade.is_err(),
+                "the read-to-write upgrade must fail while another writer holds the lock"
+            );
+            let refusal = upgrade.expect_err("upgrade refused");
+            assert!(
+                matches!(
+                    &refusal,
+                    rusqlite::Error::SqliteFailure(failure, _)
+                        if matches!(
+                            failure.code,
+                            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                        )
+                ),
+                "and it must fail as busy rather than as something else: {refusal}"
+            );
+        }
+
+        // --- the fix, same interleaving ---
+        let (holder_ready, ready) = mpsc::channel();
+        let (release_holder, released) = mpsc::channel();
+        let holding = std::thread::spawn(move || {
+            let held = begin_write_transaction(&holder).expect("holder takes the write lock");
+            held.execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('immediate-holder', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("write inside the held transaction");
+            holder_ready.send(()).expect("signal");
+            released.recv().expect("wait to be released");
+            held.commit().expect("commit");
+        });
+
+        ready.recv().expect("the holder has the lock");
+        // Released only once the contender is about to try, so the wait is real rather than a race
+        // the contender happened to win.
+        let releasing = std::thread::spawn(move || {
+            std::thread::yield_now();
+            release_holder.send(()).expect("release");
+        });
+
+        let transaction =
+            begin_write_transaction(&contender).expect("an immediate transaction waits and wins");
+        let count: i64 = transaction
+            .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+            .expect("read inside the write transaction");
+        transaction
+            .execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('immediate-writer', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("the write that a deferred transaction could not reach");
+        transaction.commit().expect("commit");
+
+        holding.join().expect("holder thread");
+        releasing.join().expect("releasing thread");
+        assert!(
+            count >= 1,
+            "the winner read the committed state rather than a snapshot from before it"
+        );
+        contender
+            .busy_timeout(BUSY_TIMEOUT)
+            .expect("restore the timeout");
+    }
+
+    /// A read transaction sees one WAL generation for its whole life.
+    ///
+    /// Without one, each statement takes its own snapshot, so a sequence of reads can straddle a
+    /// commit and return a state that never existed -- each half individually consistent, which is
+    /// exactly what makes the bug survive review.
+    #[test]
+    fn a_read_transaction_does_not_mix_wal_generations() {
+        use std::sync::mpsc;
+
+        let directory = TempDirectory::new("read-snapshot-generations");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let reader = database.connection().expect("reader");
+        let writer = database.connection().expect("writer");
+
+        writer
+            .execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('generation', 'one', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("seed generation one");
+
+        let transaction = begin_read_transaction(&reader).expect("read transaction");
+        let first: String = transaction
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'generation'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the snapshot is fixed here");
+
+        // A second connection moves the world on, and commits, while the reader is still open.
+        let (committed, done) = mpsc::channel();
+        let writing = std::thread::spawn(move || {
+            writer
+                .execute(
+                    "UPDATE settings SET value = 'two' WHERE key = 'generation'",
+                    [],
+                )
+                .expect("generation two");
+            committed.send(()).expect("signal");
+        });
+        done.recv().expect("the writer committed");
+
+        let second: String = transaction
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'generation'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("second read");
+
+        assert_eq!(first, "one");
+        assert_eq!(
+            second, first,
+            "both statements must see one generation; a mixture is a state that never existed"
+        );
+
+        drop(transaction);
+        writing.join().expect("writer thread");
+
+        // And the commit really landed, so this proved isolation rather than that nothing happened.
+        let after: String = reader
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'generation'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read after the transaction closed");
+        assert_eq!(after, "two");
+    }
+
+    /// A read transaction takes no write lock, so it does not serialise writers.
+    ///
+    /// The reason `begin_read_transaction` exists as a separate entry point: using the write
+    /// helper for a read would turn every multi-statement read into a writer reservation.
+    #[test]
+    fn a_read_transaction_does_not_reserve_the_writer() {
+        let directory = TempDirectory::new("read-transaction-no-reservation");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let reader = database.connection().expect("reader");
+        let writer = database.connection().expect("writer");
+
+        let held = begin_read_transaction(&reader).expect("read transaction");
+        let _: i64 = held
+            .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+            .expect("establish the snapshot");
+
+        // Another connection takes the write lock while the read is open.
+        writer
+            .busy_timeout(Duration::from_millis(250))
+            .expect("shorten the timeout");
+        let writing =
+            begin_write_transaction(&writer).expect("a reader must not block a writer under WAL");
+        writing
+            .execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('during-read', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("write while the read is open");
+        writing.commit().expect("commit");
+        writer
+            .busy_timeout(BUSY_TIMEOUT)
+            .expect("restore the timeout");
+    }
+
+    /// Every way out of a write transaction releases the lock.
+    ///
+    /// Commit, rollback, a constraint violation, and dropping the guard. A path that leaked the
+    /// lock would turn one bad write into a stalled application, and it would only show up under
+    /// concurrency.
+    #[test]
+    fn the_write_lock_is_released_by_every_exit_including_a_constraint_violation() {
+        let directory = TempDirectory::new("write-lock-release-paths");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let first = database.connection().expect("first");
+        let second = database.connection().expect("second");
+        second
+            .busy_timeout(Duration::from_millis(250))
+            .expect("shorten the timeout");
+
+        // Committed.
+        let committed = begin_write_transaction(&first).expect("transaction");
+        committed
+            .execute(
+                "INSERT INTO settings (key, value, created_at, updated_at) \
+                 VALUES ('release', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("write");
+        committed.commit().expect("commit");
+        drop(begin_write_transaction(&second).expect("released after commit"));
+
+        // Rolled back explicitly.
+        let rolled_back = begin_write_transaction(&first).expect("transaction");
+        rolled_back.rollback().expect("rollback");
+        drop(begin_write_transaction(&second).expect("released after rollback"));
+
+        // A constraint violation inside the transaction.
+        let violating = begin_write_transaction(&first).expect("transaction");
+        let refused = violating.execute(
+            "INSERT INTO settings (key, value, created_at, updated_at) \
+             VALUES ('release', 'again', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+            [],
+        );
+        assert!(
+            refused.is_err(),
+            "the primary key must refuse the duplicate"
+        );
+        drop(violating);
+        drop(begin_write_transaction(&second).expect("released after a constraint violation"));
+
+        // Dropped without commit or rollback.
+        drop(begin_write_transaction(&first).expect("transaction"));
+        drop(begin_write_transaction(&second).expect("released after a bare drop"));
+
+        second
+            .busy_timeout(BUSY_TIMEOUT)
+            .expect("restore the timeout");
+    }
+
     #[test]
     fn pooled_connections_serve_concurrent_readers_and_writers() {
         use std::thread;

@@ -1,4 +1,4 @@
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{begin_write_transaction, NativeDatabase};
 use rusqlite::params;
 
 #[derive(Clone)]
@@ -48,13 +48,12 @@ impl TerminalCaptureMaintenance {
     }
 
     pub(crate) fn enforce_capacity(&self, capacity_bytes: i64) -> Result<usize, String> {
-        let mut connection = self
+        let connection = self
             .database
             .connection()
             .map_err(|error| error.to_string())?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction =
+            begin_write_transaction(&connection).map_err(|error| error.to_string())?;
         let mut removed = 0usize;
         loop {
             let total: i64 = transaction

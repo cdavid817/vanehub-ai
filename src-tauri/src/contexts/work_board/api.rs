@@ -6,7 +6,7 @@ use super::models::{
     CreateWorkItemInput, LinkWorkItemSourceInput, MoveWorkItemInput, UpdateWorkItemInput, WorkItem,
     WorkItemFilters,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{begin_write_transaction, NativeDatabase};
 
 const STAGES: [&str; 5] = ["inbox", "planned", "in_progress", "review", "done"];
 const PRIORITIES: [&str; 5] = ["none", "low", "medium", "high", "urgent"];
@@ -74,8 +74,8 @@ pub(crate) fn move_item(
 ) -> Result<WorkItem, String> {
     valid(&input.stage, &STAGES, "stage")?;
     load(database, &input.work_item_id)?;
-    let mut connection = database.connection().map_err(error)?;
-    let transaction = connection.transaction().map_err(error)?;
+    let connection = database.connection().map_err(error)?;
+    let transaction = begin_write_transaction(&connection).map_err(error)?;
     let rank: i64 = if let Some(before) = input.before_work_item_id.as_deref() {
         normalize_stage(&transaction, &input.stage, &input.work_item_id)?;
         let target: i64 = transaction

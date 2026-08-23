@@ -7,7 +7,7 @@ use crate::contexts::tooling::skill_tools::domain::{
     SkillToolLifecycle, SkillToolOwnerId, SkillToolQuarantine, SkillToolRevision, SkillToolScope,
     SkillToolSourceScope, SkillToolTrustDecision, SkillToolTrustRecord, SkillToolValidationState,
 };
-use crate::platform::database::{NativeDatabase, PooledSqlite};
+use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use std::sync::Arc;
 
@@ -194,11 +194,12 @@ impl SkillToolStateRepository for SqliteSkillToolRepository {
         record: &SkillToolTrustRecord,
         decision: SkillToolTrustDecision,
     ) -> Result<(), SkillToolApplicationError> {
-        let mut connection = self
+        let connection = self
             .database
             .connection()
             .map_err(|error| SkillToolApplicationError::Storage(error.to_string()))?;
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = begin_write_transaction(&connection)
+            .map_err(|error| SkillToolApplicationError::Storage(error.to_string()))?;
         // The trust row and the revision row it authorizes move together; a decision persisted
         // without its revision row would be trust for content nothing can observe.
         let owner: Option<(String, String, String, String)> = transaction

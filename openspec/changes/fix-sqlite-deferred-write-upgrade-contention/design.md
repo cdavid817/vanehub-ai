@@ -16,54 +16,56 @@ That third point is why this change classifies before it edits. The obvious reme
 
 ## Inventory
 
-Produced by walking every `.transaction()`, `unchecked_transaction()`, `transaction_with_behavior(...)`, `begin_write_transaction(...)`, `begin_read_transaction(...)`, raw `BEGIN`, `SAVEPOINT`, and `execute_batch` in `src-tauri/src`, and classifying each by what its body does between opening and commit. There are no `SAVEPOINT` uses in the repository.
+Produced by `scripts/audit-sqlite-transactions.py`, which walks every `.transaction()`, `unchecked_transaction()`, `transaction_with_behavior(...)`, `begin_write_transaction(...)`, `begin_read_transaction(...)`, raw `BEGIN`, `SAVEPOINT`, and `execute_batch` in `src-tauri/src` and classifies each by what its body does between opening and commit. It is checked in so a reviewer can re-run it rather than trust a table. There are no `SAVEPOINT` uses in the repository.
 
-**113 production sites.** Counts by shape, as the scanner sees them:
+**The scanner was wrong four times, and each was found by reading a site it flagged.** They are recorded because a scanner nobody distrusts is a scanner that decides the work:
 
-| Shape | Sites | Of which deferred |
+* It counted `prepare` as a read. Preparing a statement takes no lock, so `prepare` before `execute` is still write-first. Two sites — `retrieval/infrastructure/sqlite_repository.rs:75` and `workspaces/infrastructure/output_search.rs:90` — would have been converted for nothing.
+* It judged test code by filename, so an inline `#[cfg(test)] mod tests` inside a production file read as production. That reported a test's `unwrap()` in `sessions/infrastructure/review_repository.rs:538` as a forbidden production `unwrap`. It is test code, where `unwrap` is permitted. Fixing this moved twelve sites out of the production count.
+* Its external-I/O pattern matched `keyring` anywhere, and fired on a *string literal* naming a keyring entry in `execution_observability/infrastructure/settings_repository.rs:57` — a reference being written to a column, not a call.
+* The same pattern fired on the two helpers' own doc comments in `platform/database/mod.rs`, which describe the external-I/O rule in prose.
+
+After those corrections: **101 production sites.**
+
+| Shape | Sites | Of which deferred, before this change |
 | --- | --- | --- |
-| read-then-write | 26 | **13** |
-| multi-read | 6 | 4 |
-| write-first | 53 | 44 |
-| write-then-read | 6 | 3 |
-| no read or write in body | 22 | 16 |
+| read-then-write | 24 | **11** |
+| multi-read consistent snapshot | 5 | 3 |
+| write-first | 50 | 41 |
+| write-then-read | 1 | 0 |
+| body not visible to the scanner | 21 | 16 |
 
-Only the **deferred read-then-write** column is the defect. The rest is context needed to avoid converting things that are already correct.
+Only the deferred read-then-write column was the defect.
 
-### Deferred read-then-write — the defect class
+### The defect class, and what was done to each
 
-Each of these reads, then writes, inside a deferred transaction, and therefore fails under concurrency with an error no timeout affects.
+Eleven sites read, then wrote, inside a deferred transaction, and therefore failed under concurrency with an error no timeout affects. Each was read before conversion, and each turned out to have a write that genuinely depends on the read — a guard, a revision check, or a rank computed from what was there:
 
-| Site | Shape |
+| Site | What the write depends on |
 | --- | --- |
-| `agent_runtime/infrastructure/sqlite_repository.rs:389` | read-then-write, long body |
-| `agent_runtime/infrastructure/sqlite_repository.rs:585` | read-then-write |
-| `agent_runtime/infrastructure/sqlite_repository.rs:628` | read-then-write |
-| `agent_runtime/infrastructure/sqlite_repository.rs:663` | read-then-write |
-| `communications/infrastructure/sqlite_repository.rs:309` | read-then-write, long body |
-| `execution_observability/infrastructure/retention.rs:27` | read-then-write, long body |
-| `retrieval/infrastructure/sqlite_repository.rs:75` | read-then-write, long body |
-| `tooling/prompt_hooks/infrastructure/sqlite_repository.rs:348` | read-then-write |
-| `tooling/skills/infrastructure/sqlite_repository.rs:1321` | read-then-write, long body |
-| `tooling/skill_tools/infrastructure/sqlite_repository.rs:201` | read-then-write, long body |
-| `workspaces/infrastructure/capture_maintenance.rs:56` | read-then-write |
-| `workspaces/infrastructure/output_search.rs:90` | read-then-write |
-| `work_board/api.rs:78` | read-then-write |
+| `agent_runtime/.../sqlite_repository.rs:389` | the stored `agent_origin`, which decides whether the delete is permitted |
+| `agent_runtime/.../sqlite_repository.rs:585` | a count proving the built-in agent exists |
+| `agent_runtime/.../sqlite_repository.rs:628` | the profile row being activated |
+| `agent_runtime/.../sqlite_repository.rs:663` | whether the profile being deleted was the active one |
+| `communications/.../sqlite_repository.rs:309` | the pairing intent's connector, session, and expiry |
+| `execution_observability/.../retention.rs:27` | the last retention timestamp, which decides whether to run at all |
+| `tooling/prompt_hooks/.../sqlite_repository.rs:348` | the current published version and the draft revision |
+| `tooling/skills/.../sqlite_repository.rs:1321` | a duplicate-alias count |
+| `tooling/skill_tools/.../sqlite_repository.rs:201` | the revision row the trust decision authorises |
+| `workspaces/.../capture_maintenance.rs:56` | the running total of captured bytes |
+| `work_board/api.rs:78` | the rank of the item being inserted before |
 
-Every one is read individually before conversion. Where the read turns out to be incidental — a lookup whose result the write does not depend on — the fix is to move the read out, not to take a write lock earlier. A conversion is only correct when the write genuinely depends on what was read.
+All eleven now use `begin_write_transaction`. The scanner reports zero deferred read-then-write sites remaining.
 
-### Already correct
+### Already correct, and left alone
 
-Thirteen read-then-write sites already use `BEGIN IMMEDIATE`, through `transaction_with_behavior` in `sessions`, `skill_evolution_evidence`, and `tooling::skills`, or through `begin_write_transaction` in the four subdomains Task Group 3 added. These are evidence that the pattern is understood in places; they are not touched.
+Thirteen read-then-write sites already used `BEGIN IMMEDIATE` — through `transaction_with_behavior` in `sessions`, `skill_evolution_evidence`, and `tooling::skills`, or through `begin_write_transaction` in the four subdomains Task Group 3 added.
 
-Forty-four deferred write-first sites are correct as they stand. Their first statement takes the write lock and `busy_timeout` covers them. Converting them would be a no-op at best and, for the longer ones, would extend the window in which every other writer is blocked.
+Forty-one deferred **write-first** sites are correct as they stand: their first statement takes the write lock and `busy_timeout` covers them. Converting them would be a no-op at best and, for the longer ones, would extend the window in which every other writer is blocked. They are listed here so a later reader does not "finish the job".
 
-### Sites that need something other than a behaviour change
+### External I/O inside a transaction: none found
 
-* **`execution_observability/infrastructure/settings_repository.rs:57`** — the scanner flags external I/O inside the transaction body. Read it and, if confirmed, move the I/O out.
-* **`sessions/infrastructure/review_repository.rs:538`** — a deferred transaction opened with `.unwrap()`. `unwrap` is forbidden in production Rust in this repository, so this is a second, separate defect at the same site.
-* **The 22 "no read or write in body" sites** — the scanner could not see a statement within its window. Most are helper wrappers that hand the transaction to another function. Each is read; a transaction whose body is in a callee is classified by what the callee does.
-* **`operations/infrastructure/run_repository.rs:394`, `sessions/infrastructure/sqlite_repository.rs:61`, `permissions/.../sqlite_rules.rs:172`** — multi-statement reads with computation in the body. These want `begin_read_transaction` for snapshot consistency, and the computation examined for whether it belongs inside at all.
+After correcting the pattern, no production transaction performs filesystem, network, credential-store, MCP, Hook, WASM, sidecar, process, or approval work. The rule is still written down and still enforced by review, because the next transaction someone writes is the one it is for — but this change moves nothing, and says so rather than claiming work it did not do.
 
 ## Governance rules
 
@@ -94,7 +96,7 @@ Two independent pooled connections, and a deterministic rendezvous — channels,
 * **A read snapshot does not mix WAL generations**: a reader pauses mid-transaction, a writer commits, and the reader's remaining statements still see one whole generation.
 * **The write lock is released** after commit, after rollback, after a constraint violation, after a lost CAS, and after the guard is dropped without either.
 * **No writer reservation is held across external I/O**: a second connection acquires the write lock while the first is doing the outside work.
-* **Linux Desktop Smoke**: the reported `database is locked` gets a reproduction that fails before the fix and passes after it.
+The desktop smoke suite is deliberately not among them. Its recorded `database is locked` is on Windows, and its cause is already written down: the specs share one data directory and run one app instance after another, so a fresh instance opens a database the previous one has not released. Two sequential processes have no concurrent transactions, so the upgrade defect cannot be what fails there. Building a "regression" for it here would attach this change to a symptom it does not cause, and the suite's real fix — per-spec data directories — would then look already done.
 
 A test that needs a `sleep` to pass is a test that will fail on a loaded runner and be silenced by lengthening the sleep. None are used.
 

@@ -1119,6 +1119,162 @@ fn composition_root_uses(source: &str) -> Result<Vec<CompositionRootUse>, String
     Ok(visitor.uses)
 }
 
+/// Constructors that open a SQLite transaction with a behaviour the caller chose.
+///
+/// Each one is a decision about lock behaviour, and the decision is easy to get wrong in the
+/// direction that only fails under concurrency: `transaction()` and `unchecked_transaction()` are
+/// both *deferred*, and a deferred transaction that reads before it writes cannot upgrade to the
+/// write lock -- SQLite refuses with `SQLITE_BUSY` and does not consult `busy_timeout`, so the
+/// failure is unaffected by any amount of waiting.
+const RAW_TRANSACTION_CONSTRUCTORS: &[&str] = &[
+    ".transaction()",
+    ".unchecked_transaction()",
+    ".transaction_with_behavior(",
+    "Transaction::new_unchecked(",
+];
+
+/// Where a raw constructor is still the right thing.
+///
+/// The migration runner owns a different protocol: it wraps schema changes, runs before the pool
+/// is shared, and has atomicity requirements neither helper expresses. `platform/database` itself
+/// is where the helpers are defined and tested.
+const RAW_TRANSACTION_EXEMPT_PREFIXES: &[&str] = &["platform/database"];
+
+/// Files that still open a raw transaction, recorded so the rule can bite on new code today.
+///
+/// Every entry was classified before it was listed. They are **write-first** transactions: the
+/// first statement is a write, so the write lock is taken there and `busy_timeout` covers the
+/// wait. They are not the defect this rule is named for, which is a *read* before the first write
+/// -- SQLite refuses that lock upgrade outright and does not consult the timeout.
+///
+/// A baseline rather than a mechanical sweep. Converting fifty correct transactions to prove a
+/// point would churn code that works, and for any of them with computation between the opening and
+/// the first statement it would *extend* the window in which every other writer is blocked. The
+/// list may only shrink: adding a file to it is a review conversation, not a formality.
+const RAW_TRANSACTION_BASELINE: &[&str] = &[
+    "contexts/agent_runtime/infrastructure/context_manifest_repository.rs",
+    "contexts/agent_runtime/infrastructure/context_quality_repository.rs",
+    "contexts/agent_runtime/infrastructure/native_tool_repository.rs",
+    "contexts/agent_runtime/infrastructure/sqlite_repository.rs",
+    "contexts/artifacts/infrastructure/sqlite_catalog.rs",
+    "contexts/code_intelligence/infrastructure/configuration_repository.rs",
+    "contexts/desktop/infrastructure/sqlite_settings_repository.rs",
+    "contexts/execution_observability/infrastructure/evaluation_repository.rs",
+    "contexts/execution_observability/infrastructure/settings_repository.rs",
+    "contexts/execution_observability/infrastructure/sqlite_repository.rs",
+    "contexts/operations/infrastructure/run_repository.rs",
+    "contexts/retrieval/infrastructure/code_index_repository.rs",
+    "contexts/retrieval/infrastructure/sqlite_repository.rs",
+    "contexts/sessions/infrastructure/review_repository.rs",
+    "contexts/sessions/infrastructure/sqlite_repository.rs",
+    "contexts/sessions/infrastructure/tests.rs",
+    "contexts/sessions/infrastructure/transactions.rs",
+    "contexts/sessions/infrastructure/usage_accounting.rs",
+    "contexts/skill_evolution_evidence/infrastructure/feedback.rs",
+    "contexts/skill_evolution_evidence/infrastructure/governance.rs",
+    "contexts/skill_evolution_evidence/infrastructure/purge.rs",
+    "contexts/skill_evolution_evidence/infrastructure/seed_repository.rs",
+    "contexts/skill_evolution_evidence/infrastructure/sqlite_repository.rs",
+    "contexts/skill_evolution_evidence/infrastructure/tests.rs",
+    "contexts/ssh_connections/infrastructure/sqlite_repository.rs",
+    "contexts/tooling/cli_parameters.rs",
+    "contexts/tooling/extensions/infrastructure/sqlite_repository.rs",
+    "contexts/tooling/prompt_hooks/infrastructure/sqlite_repository.rs",
+    "contexts/tooling/skills/infrastructure/configuration_repository.rs",
+    "contexts/tooling/skills/infrastructure/sqlite_repository.rs",
+    "contexts/work_board/infrastructure.rs",
+    "contexts/workspaces/infrastructure/capture_maintenance.rs",
+];
+
+/// Repositories go through the two published entry points rather than choosing a lock behaviour.
+///
+/// This is the rule that keeps the classification from being undone one repository at a time. The
+/// helper names say which decision was made -- `begin_read_transaction` for a multi-statement read,
+/// `begin_write_transaction` for read-then-write and compare-and-swap -- and their documentation
+/// says why the other one would be wrong.
+#[test]
+fn repositories_do_not_construct_raw_sqlite_transactions() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut messages = Vec::new();
+
+    for path in rust_files(&source_root).expect("enumerate native Rust sources") {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path");
+        let printable = relative.display().to_string().replace('\\', "/");
+        if RAW_TRANSACTION_EXEMPT_PREFIXES
+            .iter()
+            .any(|prefix| printable.starts_with(prefix))
+            || RAW_TRANSACTION_BASELINE.contains(&printable.as_str())
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).expect("read native Rust source");
+        // Test modules may open a transaction directly: a test that constructs the exact shape it
+        // is asserting about is not the failure mode this rule exists for.
+        let test_module = source
+            .lines()
+            .position(|line| line.trim() == "#[cfg(test)]")
+            .unwrap_or(usize::MAX);
+
+        for (index, line) in source.lines().enumerate() {
+            if index >= test_module || line.trim_start().starts_with("//") {
+                continue;
+            }
+            for constructor in RAW_TRANSACTION_CONSTRUCTORS {
+                if line.contains(constructor) {
+                    messages.push(format!(
+                        "[ARCH-NATIVE-008] {}:{}: repository opens a raw SQLite transaction                          (`{constructor}`). Repair: use `begin_read_transaction` for a                          multi-statement read or `begin_write_transaction` for read-then-write                          and compare-and-swap",
+                        printable,
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        messages.is_empty(),
+        "raw SQLite transaction constructions outside the migration runner:
+{}",
+        messages.join(
+            "
+"
+        )
+    );
+}
+
+#[test]
+fn the_raw_transaction_rule_names_every_deferred_constructor() {
+    // The two that matter most are the ones whose names do not say "deferred": both
+    // `transaction()` and `unchecked_transaction()` are, and that is the whole defect.
+    for constructor in [".transaction()", ".unchecked_transaction()"] {
+        assert!(
+            RAW_TRANSACTION_CONSTRUCTORS.contains(&constructor),
+            "{constructor} must be covered"
+        );
+    }
+    assert!(
+        RAW_TRANSACTION_EXEMPT_PREFIXES.contains(&"platform/database"),
+        "the migration runner and the helpers themselves are the one exemption"
+    );
+}
+
+#[test]
+fn the_raw_transaction_baseline_only_lists_files_that_still_exist() {
+    // A baseline that outlives its entries is a baseline that silently stops shrinking: a file
+    // renamed or deleted leaves a line nobody notices, and the next raw transaction added under
+    // that path is waved through.
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for entry in RAW_TRANSACTION_BASELINE {
+        assert!(
+            source_root.join(entry).is_file(),
+            "{entry} is in the raw-transaction baseline but no longer exists; remove the line"
+        );
+    }
+}
+
 #[test]
 fn native_context_dependencies_point_inward() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -2529,10 +2685,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // 90, which records which schema version wrote each operation witness so retention never prunes
     // a row a newer build left. Every migration body and its tests live in the context that owns
     // the tables; what is here is the registration.
+    //
+    // Raised from 3,207 by +274 by `fix-sqlite-deferred-write-upgrade-contention`, and the owner
+    // moves with it. All of it is the concurrency evidence the change turns on: a test that opens a
+    // Deferred transaction, reads, and demonstrates the write cannot upgrade -- then runs the same
+    // interleaving through `begin_write_transaction` and shows it waits and wins; a test that a read
+    // transaction sees one WAL generation across a concurrent commit; a test that a reader does not
+    // reserve the writer; and a test that the write lock is released by commit, rollback, a
+    // constraint violation, and a bare drop. Each needs two pooled connections, a shortened busy
+    // timeout so the wait is proved rather than outrun, and a deterministic rendezvous instead of a
+    // sleep -- which is why none of them is short.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_207,
-        owner: "add-unified-extension-platform",
+        budget: 3_481,
+        owner: "fix-sqlite-deferred-write-upgrade-contention",
     },
 ];
 

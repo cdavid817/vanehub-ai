@@ -8,7 +8,7 @@ use crate::contexts::tooling::prompt_hooks::domain::{
     ManagedCliAgentId, PromptHookBindings, PromptHookCategory, PromptHookId, PromptHookManifest,
     PromptHookSource, PromptHookStage,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{begin_write_transaction, NativeDatabase};
 use rusqlite::{params, Connection, ErrorCode, Row, Transaction};
 use serde::{Deserialize, Serialize};
 
@@ -344,8 +344,9 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         expected_draft_revision: i64,
         expected_published_version: Option<i64>,
     ) -> Result<(), PromptHookApplicationError> {
-        let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let connection = self.database.connection().map_err(app_error)?;
+        let transaction = begin_write_transaction(&connection)
+            .map_err(|error| PromptHookApplicationError::Repository(error.to_string()))?;
         verify_current_version(&transaction, &version.hook_id, expected_published_version)?;
         let draft_revision: i64 = transaction
             .query_row(

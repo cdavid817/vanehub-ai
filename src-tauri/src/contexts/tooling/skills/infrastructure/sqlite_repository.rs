@@ -10,7 +10,7 @@ use crate::contexts::tooling::skills::domain::{
     SkillScope, SkillSource,
 };
 use crate::platform::clock::SystemClock;
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{begin_write_transaction, NativeDatabase};
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -1317,8 +1317,9 @@ fn reconcile_workspace_aliases(
         return Ok(());
     }
     aliases.sort();
-    let mut connection = connection;
-    let transaction = connection.transaction().map_err(repository_error)?;
+    let connection = connection;
+    let transaction = begin_write_transaction(&connection)
+        .map_err(|error| SkillApplicationError::Repository(error.to_string()))?;
     for alias in &aliases {
         let duplicate_ids: i64 = transaction
             .query_row(

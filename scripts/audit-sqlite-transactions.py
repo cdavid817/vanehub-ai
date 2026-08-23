@@ -17,11 +17,20 @@ OPENERS = [
     ('begin_write_transaction(', 'immediate-helper'),
     ('begin_read_transaction(', 'deferred-helper'),
 ]
-READ = re.compile(r'\.(query_row|query_map|prepare|query_and_then|query\()')
+#  is deliberately absent: preparing a statement takes no lock, so a
+#  before an  is still a write-first transaction. Counting it
+# as a read misclassified sites and would have caused conversions that are not
+# needed -- which is the mechanical replacement this whole exercise refuses.
+READ = re.compile(r'\.(query_row|query_map|query_and_then|query\()')
 WRITE = re.compile(r'\.(execute|execute_batch|insert)\b')
+# Deliberately narrow. An earlier version matched `keyring` anywhere, which fired
+# on a *string literal* naming a keyring entry -- a reference being written to a
+# column, not a call. A flag that fires on data rather than on a call is a flag a
+# reviewer learns to ignore.
 EXTERNAL = re.compile(
-    r'(std::fs|tokio::fs|reqwest|keyring|Command::new|\.send\(\)|read_to_string|'
-    r'write_all|create_dir|remove_file|remove_dir|OsCredentialStore|\.await)'
+    r'(std::fs::|tokio::fs::|reqwest::|keyring::|Command::new|\.send\(\)\.|'
+    r'fs::read_to_string|fs::write|create_dir_all|remove_file|remove_dir_all|'
+    r'OsCredentialStore::|\.await)'
 )
 COMPUTE = re.compile(r'(Sha256|sha256|serde_json::to_string|serde_json::from_str|\.sort|collect::<)')
 
@@ -33,6 +42,12 @@ for base, _, names in os.walk(ROOT):
         path = os.path.join(base, name).replace('\\', '/')
         source = io.open(path, encoding='utf-8').read()
         lines = source.splitlines()
+        test_mod_line = next(
+            (n for n, l in enumerate(lines)
+             if l.strip() == '#[cfg(test)]'
+             and n + 1 < len(lines) and 'mod ' in lines[n + 1]),
+            None,
+        )
         for index, line in enumerate(lines):
             for token, kind in OPENERS:
                 if token not in line:
@@ -66,7 +81,14 @@ for base, _, names in os.walk(ROOT):
                     'body_lines': len(body),
                     'external': bool(EXTERNAL.search(text)),
                     'compute': bool(COMPUTE.search(text)),
-                    'test': '_tests.rs' in path or '/tests.rs' in path,
+                    # A production file can hold an inline `#[cfg(test)] mod tests`.
+                    # Judging by filename alone reported a test's `unwrap()` as a
+                    # production defect.
+                    'test': (
+                        '_tests.rs' in path
+                        or '/tests.rs' in path
+                        or (test_mod_line is not None and index > test_mod_line)
+                    ),
                 })
 
 production = [r for r in rows if not r['test']]

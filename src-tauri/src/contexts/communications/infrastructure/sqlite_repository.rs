@@ -5,7 +5,7 @@ use crate::contexts::communications::domain::{
     BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
     ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings, SessionBinding,
 };
-use crate::platform::database::{NativeDatabase, PooledSqlite};
+use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use sha2::{Digest, Sha256};
 
@@ -305,8 +305,12 @@ impl SqliteCommunicationsRepository {
         replace: bool,
         delivery_credential_ref: &str,
     ) -> Result<SessionBinding, CommunicationsApplicationError> {
-        let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let connection = self.connection()?;
+        // `sqlite_error` erases the detail by design for this repository; keeping that
+        // contract here rather than widening it as a side effect of the transaction fix.
+        let transaction = begin_write_transaction(&connection).map_err(|_| {
+            CommunicationsApplicationError::failure("communications-repository-failed")
+        })?;
         let intent = transaction
             .query_row(
                 "SELECT connector, session_id, expires_at FROM im_pairing_intents WHERE id = ?1",
