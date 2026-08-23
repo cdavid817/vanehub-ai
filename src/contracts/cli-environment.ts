@@ -57,6 +57,20 @@ export const CLI_PLAN_REJECTION_CODES: readonly CliPlanRejectionCode[] = [
 ] as const;
 
 /**
+ * A refusal from the CLI environment boundary.
+ *
+ * Mirrors `CliEnvironmentCommandError` in `src-tauri/src/commands/tooling/cli_environment/error.rs`
+ * field for field. `category` is the stable value a UI localizes from; `message` is already
+ * redacted and is never parsed.
+ */
+export interface CliRejection {
+  category: string;
+  message: string;
+  retryableWithANewPlan: boolean;
+  diagnosticId: string | null;
+}
+
+/**
  * Why an operation could not be verified after the fact.
  *
  * "We did not look" and "we looked and could not tell" both leave a stale snapshot, but they lead

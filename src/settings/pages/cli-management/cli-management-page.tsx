@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import { agentService } from "../../../services/runtime-agent-client";
 import { settingsService } from "../../../services/runtime-settings-client";
+import { readCliRejection, type CliRejection } from "../../../types/cli-environment";
 import type { CliBulkItemResult } from "../../../types/cli-environment";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
@@ -48,6 +49,7 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
   const [planId, setPlanId] = useState<string | null>(null);
   const [bulkPlanId, setBulkPlanId] = useState<string | null>(null);
   const [bulkResults, setBulkResults] = useState<readonly CliBulkItemResult[] | null>(null);
+  const [planRejection, setPlanRejection] = useState<CliRejection | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const detailsPanelId = `${useId()}-cli-details`;
 
@@ -127,9 +129,15 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
       agentService.executeCliAction(input),
     onSuccess: (operation) => {
       tracking.trackMutation(operation, operation.relatedEntityId ?? null);
+      setPlanRejection(null);
       setPlanId(null);
     },
-    onError: (error) => reportFailure("CliManagementPage.executeCliAction", error),
+    onError: (error) => {
+      // A refusal stays on screen. Closing the dialog silently would leave the user believing the
+      // change ran, which is the one thing a refusal guarantees did not happen.
+      setPlanRejection(readCliRejection(error));
+      reportFailure("CliManagementPage.executeCliAction", error);
+    },
   });
 
   const bulkPrepareMutation = useMutation({
@@ -252,11 +260,18 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
             ?? planQuery.data.agentId
           }
           plan={planQuery.data}
+          rejection={planRejection}
           returnFocus={triggerRef.current}
           submitting={executeMutation.isPending}
-          onCancel={() => setPlanId(null)}
+          onCancel={() => {
+            setPlanRejection(null);
+            setPlanId(null);
+          }}
           onConfirm={(input) => executeMutation.mutate(input)}
-          onPrepareAgain={() => setPlanId(null)}
+          onPrepareAgain={() => {
+            setPlanRejection(null);
+            setPlanId(null);
+          }}
         />
       ) : null}
 

@@ -244,6 +244,7 @@ type OperationAssertions = [
 type CliEnvironmentAssertions = [
   Assert<Equal<CliEnvironmentContracts.CliMutationOutcome, CliEnvironmentTypes.CliMutationOutcome>>,
   Assert<Equal<CliEnvironmentContracts.CliPlanRejectionCode, CliEnvironmentTypes.CliPlanRejectionCode>>,
+  Assert<Equal<CliEnvironmentContracts.CliRejection, CliEnvironmentTypes.CliRejection>>,
   Assert<Equal<CliEnvironmentContracts.CliMutationResult, CliEnvironmentTypes.CliMutationResult>>,
   Assert<Equal<CliEnvironmentContracts.CliOperationPhase, CliEnvironmentTypes.CliOperationPhase>>,
   Assert<

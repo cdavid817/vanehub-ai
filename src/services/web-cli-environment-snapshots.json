@@ -40,11 +40,17 @@
         "sourceId": "npm",
         "kind": "npm",
         "supportedOnThisPlatform": true,
-        "availableVersionCount": 3,
+        "availableVersionCount": 9,
         "availableVersions": [
           "1.3.0",
           "1.2.0",
-          "1.1.0"
+          "1.1.0",
+          "1.3.0-unverified",
+          "1.3.0-changed",
+          "1.3.0-fails",
+          "1.3.0-cancels",
+          "1.3.0-expired",
+          "1.3.0-stale"
         ],
         "capabilities": {
           "install": "exact",
@@ -165,7 +171,7 @@
     ],
     "scope": "local-desktop",
     "overallState": "ready",
-    "freshness": "fresh",
+    "freshness": "stale",
     "environmentFingerprint": "web-mock-fingerprint",
     "installations": [
       {
@@ -257,13 +263,13 @@
         "id": "opencode-a"
       },
       {
-        "executablePath": "/mock/bin/opencode-b",
+        "executablePath": "/mock/homebrew/bin/opencode",
         "canonicalPath": null,
         "aliasPaths": [],
         "targetMissing": false,
         "reportedVersion": "1.0.0",
-        "sourceId": "npm",
-        "sourceKind": "npm",
+        "sourceId": "homebrew",
+        "sourceKind": "homebrew",
         "sourceConfidence": "inferred",
         "pathPriority": 4,
         "environmentOrigin": "path",
@@ -313,6 +319,23 @@
         },
         "management": "managed",
         "guidanceCode": null
+      },
+      {
+        "sourceId": "homebrew",
+        "kind": "homebrew",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "unsupported",
+          "upgrade": "unsupported",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "detect-only",
+        "guidanceCode": "cli.guidance.homebrew"
       }
     ],
     "allowedActions": [],

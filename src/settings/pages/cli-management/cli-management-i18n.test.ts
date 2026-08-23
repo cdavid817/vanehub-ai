@@ -47,6 +47,27 @@ const DYNAMIC_FAMILIES: Array<[prefix: string, values: readonly string[]]> = [
     "stale-launcher-target",
   ]],
   ["cli.discovery", ["not-scanned", "not-found", "found-one", "found-multiple"]],
+  // Every `CliEnvironmentError::category`. A refusal the UI cannot name renders its own key.
+  ["cli.error", [
+    "unknown-tool",
+    "unsupported-source",
+    "unsupported-action",
+    "invalid-version",
+    "catalog-unavailable",
+    "plan-expired",
+    "plan-stale",
+    "plan-consumed",
+    "plan-revision-mismatch",
+    "plan-not-found",
+    "missing-dependency",
+    "elevation-required",
+    "operation-conflict",
+    "runtime-unsupported",
+    "source-unavailable",
+    "validation",
+    "storage",
+    "process",
+  ]],
   ["cli.executable", [
     "not-applicable",
     "healthy",
@@ -166,6 +187,21 @@ describe("CLI management page localization", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("has a message for every refusal category the backend can return", () => {
+    // Read from the Rust source rather than a second list here: a category added on that side with
+    // no key on this side renders as `cli.error.<category>` on screen, and nothing else catches it.
+    const source = readFileSync(
+      "src-tauri/src/contexts/tooling/cli/application/environment_error.rs",
+      "utf8",
+    );
+    const body = source.slice(source.indexOf("pub(crate) fn category"));
+    const categories = [...body.slice(0, body.indexOf("\n    }")).matchAll(/=> "([a-z-]+)"/g)]
+      .map((match) => match[1]);
+    expect(categories.length).toBeGreaterThan(10);
+    const declared = DYNAMIC_FAMILIES.find(([prefix]) => prefix === "cli.error")?.[1] ?? [];
+    expect([...categories].sort()).toEqual([...declared].sort());
   });
 
   it("keeps no visible copy hard-coded in the module", () => {

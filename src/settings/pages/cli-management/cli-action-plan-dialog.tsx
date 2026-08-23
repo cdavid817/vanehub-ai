@@ -4,12 +4,21 @@ import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { formatAppDateTime } from "../../../i18n/format";
+import type { CliRejection } from "../../../types/cli-environment";
 import type { CliActionPlan } from "../../../types/cli-environment-snapshot";
 
 const DATE_TIME: Intl.DateTimeFormatOptions = { timeStyle: "short" };
 
-/** States in which a plan can no longer be run. Confirming one would be refused by the backend. */
-function unusableReason(plan: CliActionPlan): string | null {
+/**
+ * Why this plan cannot be run, as a localization key.
+ *
+ * Two sources, because there are two moments it can become unusable. The plan's own state covers
+ * what was already true when it was fetched; a rejection covers what the backend discovered at
+ * execution -- a revision that moved underneath it, most often. Showing only the first left the
+ * dialog sitting there with no message after a refusal.
+ */
+function unusableReason(plan: CliActionPlan, rejection: CliRejection | null): string | null {
+  if (rejection) return `cli.error.${rejection.category}`;
   if (plan.state === "expired") return "cli.error.plan-expired";
   if (plan.state !== "draft") return "cli.error.plan-consumed";
   return null;
@@ -25,6 +34,7 @@ function unusableReason(plan: CliActionPlan): string | null {
 export function CliActionPlanDialog({
   plan,
   displayName,
+  rejection,
   submitting,
   onConfirm,
   onCancel,
@@ -34,6 +44,8 @@ export function CliActionPlanDialog({
   plan: CliActionPlan;
   /** The registry name, from the snapshot. The locale files hold no copy of the tool catalog. */
   displayName: string;
+  /** What the backend said when this plan was last submitted, if it refused it. */
+  rejection: CliRejection | null;
   submitting: boolean;
   onConfirm: (input: { planId: string; expectedRevision: number }) => void;
   onCancel: () => void;
@@ -41,7 +53,7 @@ export function CliActionPlanDialog({
   returnFocus?: HTMLElement | null;
 }) {
   const { t, i18n } = useTranslation();
-  const unusable = unusableReason(plan);
+  const unusable = unusableReason(plan, rejection);
 
   return (
     <ApplicationDialog
@@ -71,9 +83,9 @@ export function CliActionPlanDialog({
     >
       <div className="space-y-4 text-sm">
         {unusable ? (
-          <div className="flex gap-2 rounded-md border p-3 text-xs ucd-status-warning">
+          <div className="flex gap-2 rounded-md border p-3 text-xs ucd-status-warning" role="alert">
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{t(unusable)}</span>
+            <span data-cli-plan-rejection={rejection?.category ?? plan.state}>{t(unusable)}</span>
           </div>
         ) : null}
 

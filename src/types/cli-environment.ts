@@ -57,6 +57,50 @@ export const CLI_PLAN_REJECTION_CODES: readonly CliPlanRejectionCode[] = [
 ] as const;
 
 /**
+ * A refusal from the CLI environment boundary, in the shape both runtimes reject with.
+ *
+ * The desktop command layer rejects with a plain serialized object; the Web/mock adapter throws
+ * this. `readCliRejection` reads either, because a caller that only understood one of them would
+ * silently swallow the other -- which is how a refused plan left a dialog sitting there with no
+ * message at all.
+ */
+export interface CliRejection {
+  /** Matches `CliEnvironmentError::category` on the Rust side. Localized, never parsed. */
+  category: string;
+  message: string;
+  /** Whether preparing a fresh plan is the sensible next step. */
+  retryableWithANewPlan: boolean;
+  diagnosticId: string | null;
+}
+
+export class CliEnvironmentRejection extends Error implements CliRejection {
+  readonly category: string;
+  readonly retryableWithANewPlan: boolean;
+  readonly diagnosticId: string | null;
+
+  constructor(category: string, retryableWithANewPlan: boolean, message = category) {
+    super(message);
+    this.name = "CliEnvironmentRejection";
+    this.category = category;
+    this.retryableWithANewPlan = retryableWithANewPlan;
+    this.diagnosticId = null;
+  }
+}
+
+/** Reads a boundary refusal off whatever was thrown, or `null` when it was something else. */
+export function readCliRejection(error: unknown): CliRejection | null {
+  if (typeof error !== "object" || error === null) return null;
+  const candidate = error as Partial<CliRejection>;
+  if (typeof candidate.category !== "string" || candidate.category.length === 0) return null;
+  return {
+    category: candidate.category,
+    message: typeof candidate.message === "string" ? candidate.message : candidate.category,
+    retryableWithANewPlan: candidate.retryableWithANewPlan === true,
+    diagnosticId: typeof candidate.diagnosticId === "string" ? candidate.diagnosticId : null,
+  };
+}
+
+/**
  * Why an operation could not be verified after the fact.
  *
  * "We did not look" and "we looked and could not tell" both leave a stale snapshot, but they lead

@@ -4,9 +4,13 @@ import { nowIso } from "./web-mock-clock";
 import {
   WEB_CLI_FIXED_PLAN_IDS,
   WEB_CLI_OUTCOME_TARGETS,
+  WEB_CLI_REFUSAL_TARGETS,
   webCliActionPlan,
+  webCliBulkActionPlan,
+  webCliBulkItemResults,
   webCliEnvironmentSnapshots,
 } from "./web-cli-environment-fixtures";
+import { CliEnvironmentRejection } from "../types/cli-environment";
 import type {
   CliActionPlan,
   CliBulkActionPlan,
@@ -72,6 +76,13 @@ function mutationResult(
   };
 }
 
+/** Which already-unusable plan a sentinel target asks for, if any. */
+function refusalPlanId(targetVersion: string | null): string | null {
+  if (targetVersion === WEB_CLI_REFUSAL_TARGETS.expired) return WEB_CLI_FIXED_PLAN_IDS.expired;
+  if (targetVersion === WEB_CLI_REFUSAL_TARGETS.stale) return WEB_CLI_FIXED_PLAN_IDS.stale;
+  return null;
+}
+
 /** Plans the mock always answers for, one per refusal the desktop runtime can produce. */
 function fixedPlan(planId: string): CliActionPlan | null {
   switch (planId) {
@@ -106,6 +117,10 @@ export const webCliEnvironmentClient: CliToolService = {
       terminalStatus: "succeeded",
       error: null,
       result: { agentIds: requested, forceCatalog },
+      cancellable: true,
+      // A real refresh probes several CLIs with bounded timeouts and takes seconds. Settling in
+      // under a second would make the refreshing state, and the chance to cancel it, invisible.
+      settleAfterMs: 2600,
     });
   },
 
@@ -113,7 +128,7 @@ export const webCliEnvironmentClient: CliToolService = {
     // The chosen source, channel, and target land on the plan unchanged. Substituting any of them
     // here would reproduce, in the mock, the defect the action plan exists to prevent.
     preparedPlan = webCliActionPlan({
-      id: `web-plan-${input.agentId}-${nowIso()}`,
+      id: refusalPlanId(input.targetVersion) ?? `web-plan-${input.agentId}-${nowIso()}`,
       agentId: input.agentId,
       // No action named: the desktop backend derives the direction, and the mock says `upgrade` so
       // a plan always has one rather than leaving the field empty and calling that a decision.
@@ -142,12 +157,13 @@ export const webCliEnvironmentClient: CliToolService = {
 
   async executeCliAction(input: ExecuteCliActionInput): Promise<OperationTask> {
     const plan = await this.getCliActionPlan(input.planId);
+    // Refused before anything runs, in the same shape and with the same categories the desktop
+    // command layer rejects with, so a caller cannot handle one runtime and drop the other.
     if (plan.revision !== input.expectedRevision) {
-      // Refused before anything runs, exactly as the desktop repository refuses it.
-      throw new Error("cli.error.plan-revision-mismatch");
+      throw new CliEnvironmentRejection("plan-revision-mismatch", true);
     }
     if (plan.state !== "draft") {
-      throw new Error(plan.state === "expired" ? "cli.error.plan-expired" : "cli.error.plan-consumed");
+      throw new CliEnvironmentRejection(plan.state === "expired" ? "plan-expired" : "plan-consumed", true);
     }
     const outcome = outcomeFor(plan.targetVersion);
     const operationId = `web-cli-execute-${plan.id}`;
@@ -158,6 +174,7 @@ export const webCliEnvironmentClient: CliToolService = {
       message: "cli.operation.execute",
       terminalStatus: outcome.status,
       error: outcome.error,
+      cancellable: true,
       result: mutationResult(operationId, {
         agentId: plan.agentId,
         action: plan.action,
@@ -193,19 +210,7 @@ export const webCliEnvironmentClient: CliToolService = {
   },
 
   async getCliBulkActionPlan(planId: string): Promise<CliBulkActionPlan> {
-    return {
-      id: planId,
-      revision: 1,
-      items: [
-        { agentId: "claude-code", planId: "web-plan-claude", sourceId: "npm", currentVersion: "1.2.0", targetVersion: "1.3.0" },
-      ],
-      skipped: [
-        { agentId: "opencode", reason: "installation-conflict" },
-        { agentId: "gemini-cli", reason: "already-current" },
-      ],
-      createdAt: "2026-01-01T00:00:00+00:00",
-      expiresAt: "2026-01-01T00:10:00+00:00",
-    };
+    return webCliBulkActionPlan(planId);
   },
 
   async executeCliBulkAction(input: ExecuteCliActionInput): Promise<OperationTask> {
@@ -216,39 +221,10 @@ export const webCliEnvironmentClient: CliToolService = {
       message: "cli.operation.bulk-execute",
       terminalStatus: "succeeded",
       error: null,
-      // Per item, because a batch that half-succeeded is not a batch that succeeded. Both arms
-      // of the discriminated union are exercised so a UI can be built against each.
-      result: {
-        items: [
-          {
-            status: "completed",
-            agentId: "claude-code",
-            planId: "web-plan-claude",
-            sourceId: "npm",
-            targetVersion: "1.3.0",
-            outcome: "verified",
-            reason: null,
-          },
-          {
-            status: "completed",
-            agentId: "codex-cli",
-            planId: "web-plan-codex",
-            sourceId: "npm",
-            targetVersion: "2.0.0",
-            outcome: "no-change-failed",
-            reason: null,
-          },
-          {
-            status: "skipped",
-            agentId: "opencode",
-            planId: null,
-            sourceId: null,
-            targetVersion: null,
-            outcome: null,
-            reason: "installation-conflict",
-          },
-        ],
-      },
+      cancellable: true,
+      // Per item, because a batch that half-succeeded is not a batch that succeeded. Both arms of
+      // the discriminated union are exercised so a UI can be built against each.
+      result: { items: webCliBulkItemResults() },
     });
   },
 

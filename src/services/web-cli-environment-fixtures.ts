@@ -1,5 +1,15 @@
+import bulk from "./web-cli-bulk-fixtures.json";
 import snapshots from "./web-cli-environment-snapshots.json";
-import type { CliActionPlan, CliEnvironmentSnapshot } from "../types/cli-environment-snapshot";
+import {
+  CLI_BULK_SKIP_REASONS,
+  CLI_MUTATION_OUTCOMES,
+  type CliBulkItemResult,
+} from "../types/cli-environment";
+import type {
+  CliActionPlan,
+  CliBulkActionPlan,
+  CliEnvironmentSnapshot,
+} from "../types/cli-environment-snapshot";
 
 /**
  * Deterministic CLI environment data for the Web/mock runtime.
@@ -20,21 +30,19 @@ import type { CliActionPlan, CliEnvironmentSnapshot } from "../types/cli-environ
  */
 
 /** Selecting one of these as the target drives the mock to that terminal outcome. */
-export const WEB_CLI_OUTCOME_TARGETS = Object.freeze({
-  verified: "1.3.0",
-  appliedUnverified: "1.3.0-unverified",
-  changedButFailed: "1.3.0-changed",
-  noChangeFailed: "1.3.0-fails",
-  cancelled: "1.3.0-cancels",
-});
+export const WEB_CLI_OUTCOME_TARGETS = Object.freeze(bulk.outcomeTargets);
+
+/**
+ * Targets that make `prepareCliAction` hand back an already-unusable plan.
+ *
+ * A refusal is otherwise unreachable from a browser: a freshly prepared plan is always a usable
+ * draft, and no amount of clicking produces one that expired or was revised underneath. Selecting
+ * these is how the review dialog's refusal path gets exercised at all.
+ */
+export const WEB_CLI_REFUSAL_TARGETS = Object.freeze(bulk.refusalTargets);
 
 /** Plan ids the mock always answers for, one per refusal the real backend can produce. */
-export const WEB_CLI_FIXED_PLAN_IDS = Object.freeze({
-  draft: "web-plan-draft",
-  expired: "web-plan-expired",
-  consumed: "web-plan-consumed",
-  stale: "web-plan-stale",
-});
+export const WEB_CLI_FIXED_PLAN_IDS = Object.freeze(bulk.fixedPlanIds);
 
 export function webCliEnvironmentSnapshots(): CliEnvironmentSnapshot[] {
   // Copied per call: a caller that mutated what it was handed would change every later call's
@@ -53,27 +61,32 @@ export function webCliEnvironmentSnapshots(): CliEnvironmentSnapshot[] {
   }));
 }
 
+/** The batch preview, and the per-item results running it produces. Data, so it lives in JSON. */
+export function webCliBulkActionPlan(planId: string): CliBulkActionPlan {
+  return { ...bulk.plan, id: planId };
+}
+
+export function webCliBulkItemResults(): CliBulkItemResult[] {
+  // JSON widens every literal to `string`. Each arm is rebuilt against the union rather than cast,
+  // so a typo in the fixture fails here instead of reaching a UI as a code nothing can localize.
+  return bulk.items.map((item): CliBulkItemResult => {
+    const base = {
+      agentId: item.agentId,
+      planId: item.planId,
+      sourceId: item.sourceId,
+      targetVersion: item.targetVersion,
+    };
+    if (item.status === "completed") {
+      const outcome = CLI_MUTATION_OUTCOMES.find((value) => value === item.outcome);
+      if (!outcome) throw new Error(`unknown bulk outcome: ${item.outcome}`);
+      return { ...base, status: "completed", outcome, reason: null };
+    }
+    const reason = CLI_BULK_SKIP_REASONS.find((value) => value === item.reason);
+    if (!reason) throw new Error(`unknown bulk skip reason: ${item.reason}`);
+    return { ...base, status: "skipped", outcome: null, reason };
+  });
+}
+
 export function webCliActionPlan(overrides: Partial<CliActionPlan> & { id: string }): CliActionPlan {
-  return {
-    revision: 1,
-    agentId: "claude-code",
-    action: "upgrade",
-    sourceId: "npm",
-    installationId: "claude",
-    currentVersion: "1.2.0",
-    targetVersion: "1.3.0",
-    channel: "stable",
-    commandPreview: {
-      program: "npm",
-      args: ["install", "--global", "@anthropic-ai/claude-code@1.3.0"],
-    },
-    preconditions: ["source-executable-available"],
-    warnings: [],
-    requiresElevation: false,
-    requiresNetwork: true,
-    state: "draft",
-    createdAt: "2026-01-01T00:00:00+00:00",
-    expiresAt: "2026-01-01T00:10:00+00:00",
-    ...overrides,
-  };
+  return { ...bulk.actionPlan, ...overrides };
 }
