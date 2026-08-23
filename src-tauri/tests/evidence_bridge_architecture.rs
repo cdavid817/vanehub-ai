@@ -219,11 +219,26 @@ fn the_producer_facing_half_of_the_bridge_never_touches_storage() {
             "the producer-facing half reaches `{forbidden}`; it may only map and try_send"
         );
     }
-    // The recorder is named once in the whole file, by the worker.
+    // Every recorder call is on the worker side. Counting call sites would break as soon as the
+    // worker grew a second one, so the check is which half each call lives in: the sender half is
+    // the producer's thread, and a recorder call there is a database write inside their operation.
+    let worker_side = code
+        .split("impl EvidenceBridge {")
+        .next()
+        .map(str::to_string)
+        .unwrap_or_default()
+        + code
+            .split("\n}\n")
+            .skip_while(|part| !part.contains("fn run_worker("))
+            .collect::<Vec<_>>()
+            .join("\n}\n")
+            .as_str();
+    let recorder_calls = code.matches("evidence.record(").count();
+    assert!(recorder_calls >= 1, "the worker must call the recorder");
     assert_eq!(
-        code.matches("evidence.record(").count(),
-        1,
-        "only the worker may call the recorder"
+        worker_side.matches("evidence.record(").count(),
+        recorder_calls,
+        "a recorder call escaped the worker side"
     );
 }
 

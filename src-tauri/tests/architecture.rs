@@ -2207,10 +2207,17 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
     // Every other module the split produced is small enough for the subtree budget alone.
+    //
+    // Raised from 1,478 by `upgrade-session-workspace-evidence-console` (4.6). A workspace
+    // mutation now carries the session that made it and whether the write created or modified the
+    // file, because the evidence fanout cannot recover either afterwards: a path does not name a
+    // session, and "did this file exist" is only answerable before the write. The three call sites
+    // each gained the two arguments and one of them the existence check. No branch was duplicated;
+    // the growth is the two facts themselves.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_478,
+        budget: 1_507,
         owner: "split-api-adapter-modules",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject

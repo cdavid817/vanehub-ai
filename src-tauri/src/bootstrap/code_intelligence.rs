@@ -320,10 +320,10 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
                 basename: basename.to_string(),
                 path_fingerprint: path_fingerprint(&mutation.relative_path),
                 change_kind: match mutation.change_kind {
-                    crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Created => {
+                    crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created => {
                         crate::contexts::workspaces::api::WorkspaceFileChangeKind::Created
                     }
-                    crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Modified => {
+                    crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified => {
                         crate::contexts::workspaces::api::WorkspaceFileChangeKind::Modified
                     }
                 },
@@ -360,8 +360,10 @@ fn mutation_witness(mutation: &AgentWorkspaceMutation) -> String {
         "{}:{}",
         path_fingerprint(&mutation.relative_path),
         match mutation.change_kind {
-            crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Created => "created",
-            crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Modified => "modified",
+            crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created =>
+                "created",
+            crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified =>
+                "modified",
         }
     )
 }
