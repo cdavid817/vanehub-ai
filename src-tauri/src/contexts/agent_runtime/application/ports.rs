@@ -1175,6 +1175,20 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// (OnePiece and all CLI-wrapped agents) — `agent_id`/`folder` on `save` remain provenance-only,
 /// no longer a filter, which is why `list`/`list_all_for_agent`/`delete_all_for_agent` collapsed
 /// into unscoped `list_all`/`delete_all`.
+///
+/// Boundary under `add-unified-personalization-governance`: ownership of long-term memory identity,
+/// scope, lifecycle, review, and persistence moves to the `personalization` context behind
+/// `PersonalizationApi`, because "which memories may this generation see" is an authorization
+/// question and `list_all` cannot express one. What stays in `agent_runtime` is timing and
+/// model-shaped work: when OnePiece compaction extracts, when a CLI turn completes, and which
+/// bodies relevance selection asks for. The unscoped reads below are therefore migration-era call
+/// sites, not the intended long-term contract — a new caller must resolve a policy snapshot rather
+/// than add a second unscoped read.
+///
+/// What this boundary deliberately does *not* claim: each CLI-wrapped agent keeps owning its own
+/// internal conversation compaction and its native memory/instruction files (`CLAUDE.md`,
+/// `AGENTS.md`, OpenCode configuration, and equivalents). VaneHub governs the personalization it
+/// injects; it does not read, write, or take responsibility for a CLI's own context machinery.
 pub(crate) trait AgentMemoryPort: Send + Sync {
     /// Writes one memory. Saving under a name that already exists replaces that memory rather than
     /// creating a second one for the same name — the update path the row store could not express.
@@ -1239,6 +1253,13 @@ pub(crate) trait AgentMemorySelectionPort: Send + Sync {
 /// same way `tooling::skills` owns Skill content — so this port exists purely to bridge across
 /// that context boundary, mirroring `AgentSkillPort`'s existing cross-context pattern rather than
 /// `AgentMemoryPort`'s directly-owned one.
+///
+/// Boundary under `add-unified-personalization-governance`: the source of truth moves from
+/// `desktop`'s generic `AppSettings` aggregate to the `personalization` context, and the shape
+/// changes from flat host-level values to a per-generation snapshot resolved from stable Agent id,
+/// workspace identity, and session personalization mode. Generic settings stay too coarse for this
+/// job in two ways that matter: a whole-object save lets one field's write clobber an unrelated
+/// field, and a host-level boolean cannot express "this workspace, this Agent, this session".
 pub(crate) trait AgentPersonalizationPort: Send + Sync {
     fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
 }
