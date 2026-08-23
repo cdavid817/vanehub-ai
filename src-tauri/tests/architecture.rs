@@ -2634,6 +2634,78 @@ fn the_trusted_argument_scanner_stops_at_the_closing_paren() {
     assert_eq!(trusted_argument("\"legacy\"));"), "\"legacy\"");
 }
 
+/// The one file allowed to name the pre-change CLI table, and the one that creates it.
+///
+/// `cli_tool_status` survives so an upgrading install still sees its tools before the first
+/// refresh. It is read-only and it is *not* authoritative: a legacy row becomes a stale snapshot
+/// only when no real one exists. A second reader would put the old table back in the running as a
+/// source of truth, which is exactly how the Agent Runtime and the CLI Management page came to
+/// disagree about which installation a tool has.
+const LEGACY_CLI_TABLE_READERS: &[&str] = &[
+    "contexts/tooling/cli/infrastructure/environment_repository.rs",
+    "contexts/tooling/cli/infrastructure/environment_schema.rs",
+    "contexts/tooling/cli/infrastructure/environment_serde.rs",
+    // Creates the table and registers that migration. Neither is a read of a live row.
+    "platform/database/migrations/inline_schema.rs",
+    "platform/database/migrations/mod.rs",
+];
+
+#[test]
+fn the_legacy_cli_table_has_exactly_one_reader_and_no_writer() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    let mut writers = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // Tests seed a legacy row on purpose: proving the compatibility reader works means writing
+        // one first, and proving nothing else reads it means the assertion is about production.
+        if display.ends_with("_tests.rs") || display.ends_with("/tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            if !line.contains("cli_tool_status") {
+                continue;
+            }
+            // A comment naming the table is history, not a dependency on it.
+            let code = line.trim_start();
+            if code.starts_with("//") || code.starts_with("///") || code.starts_with("*") {
+                continue;
+            }
+            let allowed = LEGACY_CLI_TABLE_READERS
+                .iter()
+                .any(|suffix| display.ends_with(suffix));
+            if !allowed {
+                unexpected.push(format!("{display}:{}", index + 1));
+            }
+            let upper = line.to_ascii_uppercase();
+            if (upper.contains("INSERT INTO")
+                || upper.contains("UPDATE ")
+                || upper.contains("DELETE FROM"))
+                && !display.ends_with("inline_schema.rs")
+            {
+                writers.push(format!("{display}:{}", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "the legacy `cli_tool_status` table is read-only compatibility, not a second source of \
+         truth. These files reach for it outside the one reader that maps a leftover row to a \
+         stale snapshot: {}",
+        unexpected.join(", ")
+    );
+    assert!(
+        writers.is_empty(),
+        "nothing may write `cli_tool_status` after the cutover; a write would revive a model the \
+         CLI Management page does not read: {}",
+        writers.join(", ")
+    );
+}
+
 #[test]
 fn no_external_input_reaches_the_trusted_identifier_constructor() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

@@ -17,10 +17,10 @@
 
 ## 2. CLI domain model
 
-- [ ] 2.1 Split the CLI domain into focused files that keep each production Rust file within the project size and dependency rules.
+- [x] 2.1 Split the CLI domain into focused files that keep each production Rust file within the project size and dependency rules.
 - [x] 2.2 Add validated value objects for tool, source, installation, action-plan, and bulk-plan ids while preserving existing wire `agentId` values.
 - [x] 2.3 Replace flat distribution fields with `CliDistributionDefinition`, source capabilities, platform support, channel metadata, package references, and trust policy.
-- [ ] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources. (The new model does this: `CliSourceKind` names sources and `CliInstallerRuntime` names interpreters, with no transport variant. The old enum still exists because the legacy `cli_tool_status` reader Agent Runtime depends on still decodes it; it goes with that reader in task group 13.)
+- [x] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources. — `CliSourceKind` names sources and `CliInstallerRuntime` names interpreters, with no transport variant. The old enum is deleted outright: no `LegacyLifecycleEligibility` compatibility type was needed, because the read-only legacy reader selects only `detected_path`, `current_version`, and `last_checked_at` and never decoded an eligibility column.
 - [x] 2.5 Add normalized installation, source confidence, PATH priority, executable status, and active-installation invariants.
 - [x] 2.6 Add orthogonal discovery, authentication, readiness, compatibility, update, freshness, conflict, and overall-state values.
 - [x] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React.
@@ -99,7 +99,7 @@
 - [x] 7.5 Implement atomic `draft -> executing` plan consumption before external execution admission.
 - [x] 7.6 Implement plan terminal-state persistence and bounded expired-plan maintenance.
 - [x] 7.7 Map a legacy `cli_tool_status` row to a stale new snapshot only when no authoritative snapshot exists.
-- [ ] 7.8 Preserve the legacy table and unrelated data; stop writing legacy rows after cutover. — first half done and tested (`the_legacy_table_is_left_intact_alongside_the_new_ones`; the new repository never writes `cli_tool_status`). The second half cannot be true yet: the old commands are still wired and still write legacy rows, and removing them is task group 13. Ticking this now would claim a cutover that has not happened.
+- [x] 7.8 Preserve the legacy table and unrelated data; stop writing legacy rows after cutover. — the table and its migration stay; the only remaining reader maps a leftover row to a stale snapshot when no authoritative one exists. Nothing writes it: the flat lifecycle service that did is deleted, and `the_legacy_cli_table_has_exactly_one_reader_and_no_writer` fails the build if a second reader or any writer appears.
 - [x] 7.9 Add migration tests from an empty database, a representative old database, malformed legacy JSON, malformed new JSON, and interrupted plan states.
 - [x] 7.10 Add failure-injection tests proving atomic writes roll back fully.
 
