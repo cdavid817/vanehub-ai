@@ -7,7 +7,7 @@
 //! failure mode most worth catching.
 
 use super::evidence_bridge::{
-    start_evidence_bridge, DropAccumulator, DropSnapshot, EvidenceDropReason,
+    start_evidence_bridge, BridgeInstanceId, DropAccumulator, DropSnapshot, EvidenceDropReason,
     EVIDENCE_QUEUE_CAPACITY, MAX_TRACKED_DROP_REASONS, MAX_TRACKED_DROP_SESSIONS,
 };
 use crate::contexts::agent_runtime::api::{
@@ -2187,4 +2187,117 @@ fn two_writes_to_one_file_record_separately() {
 
     assert!(wait_until(|| journal_event_count(&harness) >= 2));
     worker.shutdown();
+}
+
+/// Two runtimes each open their first batch, and the two are different events.
+///
+/// The generation alone is a process counter, so both runs call their first batch generation one.
+/// Without a namespace the two source ids are byte-identical, and the journal — whose fingerprint
+/// includes the occurrence time — files the second as a conflict and keeps the first.
+#[test]
+fn two_runtime_instances_can_each_persist_generation_one() {
+    let first = DropAccumulator::new(BridgeInstanceId::new());
+    let second = DropAccumulator::new(BridgeInstanceId::new());
+
+    first.record(SESSION, EvidenceDropReason::QueueFull);
+    second.record(SESSION, EvidenceDropReason::QueueFull);
+
+    let first_key = first.take().batches.keys().next().expect("first").clone();
+    let second_key = second.take().batches.keys().next().expect("second").clone();
+
+    assert_eq!(first_key.2.generation, 1);
+    assert_eq!(second_key.2.generation, 1);
+    assert_ne!(
+        first_key.2.bridge_instance_id, second_key.2.bridge_instance_id,
+        "two runtimes shared one namespace"
+    );
+    assert_ne!(
+        first_key.2.as_source_fragment(),
+        second_key.2.as_source_fragment(),
+        "two runtimes produced one source event id"
+    );
+}
+
+/// The namespace and the generation both survive a retry, so the retry is a replay.
+///
+/// Re-minting either one would turn one loss into as many markers as attempts, and a reader
+/// counting gaps would multiply them by however many times the write was ambiguous.
+#[test]
+fn a_retry_reuses_the_same_runtime_namespace_and_generation() {
+    let accumulator = DropAccumulator::new(BridgeInstanceId::new());
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+
+    let attempt = accumulator.take();
+    let identity = attempt.batches.keys().next().expect("batch").2.clone();
+    accumulator.restore(attempt);
+    let retry = accumulator.take();
+    let retried = retry.batches.keys().next().expect("batch").2.clone();
+
+    assert_eq!(retried, identity);
+    assert_eq!(retried.as_source_fragment(), identity.as_source_fragment());
+}
+
+/// A namespace is never reused, so no batch a restarted runtime opens can collide with one the
+/// journal already holds from the run before it.
+#[test]
+fn a_restart_never_conflicts_with_a_previous_gap_batch() {
+    let before = DropAccumulator::new(BridgeInstanceId::new());
+    for _ in 0..3 {
+        before.record(SESSION, EvidenceDropReason::QueueFull);
+        let _ = before.take();
+    }
+    let after = DropAccumulator::new(BridgeInstanceId::new());
+
+    let mut seen = std::collections::BTreeSet::new();
+    for accumulator in [&before, &after] {
+        for _ in 0..3 {
+            accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+            for key in accumulator.take().batches.keys() {
+                assert!(
+                    seen.insert(format!(
+                        "coverage-gap:{}:{}:{}",
+                        SESSION,
+                        EvidenceDropReason::QueueFull.as_str(),
+                        key.2.as_source_fragment()
+                    )),
+                    "a restarted runtime reused a source event id"
+                );
+            }
+        }
+    }
+    assert_eq!(seen.len(), 6);
+}
+
+/// End to end across a bridge restart: two gaps of the same size, on one journal, are two markers.
+///
+/// The journal outlives the process, which is what makes this the case that matters — the count is
+/// equal, the session is equal, the reason is equal, and only the runtime namespace differs.
+#[test]
+fn two_equal_batches_across_restarts_are_distinct_events() {
+    let harness = harness("bridge-gap-across-restarts");
+
+    for _ in 0..2 {
+        let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+        // One unmappable run is one drop, so each runtime reports a gap of exactly one.
+        AgentEvidencePort::try_publish(
+            &bridge,
+            AgentEvidenceSignal::RunStarted {
+                session_id: SESSION.to_string(),
+                run_id: "not-a-uuid".to_string(),
+                trace_id: TRACE.to_string(),
+                agent_id: None,
+                seat_id: None,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+        // The shutdown flush is what discharges the batch, so the marker lands before the next
+        // runtime starts — exactly the ordering a restart produces.
+        worker.shutdown();
+    }
+
+    assert_eq!(
+        gap_marker_count(&harness),
+        2,
+        "a session that lost evidence in two runs reported losing it once"
+    );
 }

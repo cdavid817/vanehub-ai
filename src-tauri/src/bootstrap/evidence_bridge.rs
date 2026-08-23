@@ -94,33 +94,89 @@ pub(crate) const MAX_TRACKED_DROP_REASONS: usize = 8;
 /// the memory.
 pub(crate) const MAX_TRACKED_GAP_BATCHES: usize = MAX_TRACKED_DROP_SESSIONS * 2;
 
-/// Identifies one accumulation of drops across a retry.
+/// Names one run of the bridge, so a counter that restarts does not reuse an identity.
 ///
-/// A marker keyed by its count would collide with any later gap of the same size, and because the
-/// content fingerprint includes the occurrence time the journal would see a conflicting duplicate
-/// rather than a second gap. The id is what makes a retry idempotent and two same-sized gaps
-/// distinct. It is a process counter rather than a clock, because a marker written after a clock
-/// adjustment still has to be the same batch.
-pub(crate) type GapBatchId = u64;
+/// The generation below is a process counter: after a restart the first batch is generation one
+/// again, and it collides with the first batch of the previous run. That collision is not a
+/// harmless replay — the content fingerprint includes the occurrence time, so the journal records
+/// a conflict and keeps the older row. A session that lost evidence in two separate runs would
+/// report losing it once.
+///
+/// Sixty-four random bits rendered as fixed-width hex, and nothing else. Not a hostname, not a
+/// user, not a path, not a start time: this value is written into a durable journal, and its only
+/// job is to differ from every other run's. Not the whole UUID either — the source event id has a
+/// 128-character bound that the session, the reason code, and the generation already share.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct BridgeInstanceId(String);
+
+impl BridgeInstanceId {
+    pub(crate) fn new() -> Self {
+        let (high, _) = uuid::Uuid::new_v4().as_u64_pair();
+        Self(format!("{high:016x}"))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Identifies one accumulation of drops, across a retry and across a restart.
+///
+/// A marker keyed by its count would collide with any later gap of the same size, and the journal
+/// would report that as a conflicting duplicate rather than storing a second gap. The generation
+/// is what makes a retry idempotent and two same-sized gaps distinct within a run; the instance is
+/// what keeps a run's generation one from colliding with the previous run's. It counts rather than
+/// reads a clock, because a marker written after a clock adjustment still has to be the same batch.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct GapBatchIdentity {
+    pub(crate) bridge_instance_id: BridgeInstanceId,
+    pub(crate) generation: u64,
+}
+
+impl GapBatchIdentity {
+    /// The identity as it appears inside a source event id. Deliberately not `Display`: this is a
+    /// journal key, and it must change only when the journal contract changes.
+    pub(crate) fn as_source_fragment(&self) -> String {
+        format!("{}:{}", self.bridge_instance_id.as_str(), self.generation)
+    }
+}
 
 /// The full identity of one batch: whose gap, why, and which accumulation.
-pub(crate) type GapBatchKey = (String, EvidenceDropReason, GapBatchId);
+pub(crate) type GapBatchKey = (String, EvidenceDropReason, GapBatchIdentity);
 
 /// What never reached the journal, keyed by session, reason, and batch.
 ///
 /// Counted rather than queued: a drop that had to be queued to be reported would be dropped by the
 /// same full queue that caused it. The worker flushes these once it has room.
-#[derive(Default)]
 pub(crate) struct DropAccumulator {
     batches: Mutex<BTreeMap<GapBatchKey, u32>>,
-    next_batch_id: Mutex<GapBatchId>,
+    /// This run's namespace, minted once at bootstrap and never persisted.
+    instance: BridgeInstanceId,
+    next_generation: Mutex<u64>,
     /// Drops from sessions the accumulator has no slot for at all. There is no attribution to key
     /// a marker on, so these are reported to the context instead, which stops every session from
     /// claiming complete for as long as the count stands.
     unattributed: Mutex<u32>,
 }
 
+/// A default accumulator is a new runtime: it gets its own namespace, which is what a fresh
+/// process would get. Sharing one across two accumulators is the collision this exists to prevent.
+impl Default for DropAccumulator {
+    fn default() -> Self {
+        Self::new(BridgeInstanceId::new())
+    }
+}
+
 impl DropAccumulator {
+    pub(crate) fn new(instance: BridgeInstanceId) -> Self {
+        Self {
+            batches: Mutex::new(BTreeMap::new()),
+            instance,
+            next_generation: Mutex::new(0),
+            unattributed: Mutex::new(0),
+        }
+    }
+
     pub(crate) fn record(&self, session_id: &str, reason: EvidenceDropReason) {
         let mut batches = lock(&self.batches);
         // The newest open batch for this session and reason. A batch being retried has a lower id,
@@ -129,8 +185,11 @@ impl DropAccumulator {
         if let Some(newest) = batches
             .keys()
             .filter(|(session, key_reason, _)| session == session_id && *key_reason == reason)
-            .map(|(_, _, batch_id)| *batch_id)
-            .max()
+            .map(|(_, _, identity)| identity.clone())
+            // By generation rather than by the whole identity: a restored batch keeps whatever
+            // namespace it was written under, and ordering on the namespace first would make the
+            // newest batch depend on a random string.
+            .max_by_key(|identity| identity.generation)
         {
             let entry = batches
                 .entry((session_id.to_string(), reason, newest))
@@ -172,14 +231,17 @@ impl DropAccumulator {
             self.record(session_id, EvidenceDropReason::AttributionOverflow);
             return;
         }
-        let batch_id = self.next_id();
-        batches.insert((session_id.to_string(), reason, batch_id), 1);
+        let identity = self.next_identity();
+        batches.insert((session_id.to_string(), reason, identity), 1);
     }
 
-    fn next_id(&self) -> GapBatchId {
-        let mut next = lock(&self.next_batch_id);
+    fn next_identity(&self) -> GapBatchIdentity {
+        let mut next = lock(&self.next_generation);
         *next = next.saturating_add(1);
-        *next
+        GapBatchIdentity {
+            bridge_instance_id: self.instance.clone(),
+            generation: *next,
+        }
     }
 
     /// Puts a snapshot back after a failed flush.
@@ -1022,7 +1084,9 @@ pub(crate) fn start_evidence_bridge(
     evidence: ExecutionEvidenceApi,
 ) -> (EvidenceBridge, EvidenceBridgeWorker) {
     let (sender, receiver) = sync_channel(EVIDENCE_QUEUE_CAPACITY);
-    let drops = Arc::new(DropAccumulator::default());
+    // The namespace is minted here and nowhere else: one bridge is one run, and every gap batch it
+    // reports carries that run's name so a restart cannot reuse a previous run's batch identity.
+    let drops = Arc::new(DropAccumulator::new(BridgeInstanceId::new()));
     let bridge = EvidenceBridge {
         sender,
         drops: drops.clone(),
@@ -1072,14 +1136,14 @@ fn flush_drops(evidence: &ExecutionEvidenceApi, drops: &DropAccumulator) {
         return;
     }
     let mut unflushed = DropSnapshot::default();
-    for ((session_id, reason, batch_id), count) in snapshot.batches {
+    for ((session_id, reason, identity), count) in snapshot.batches {
         let Ok(session) = EvidenceSessionId::parse(session_id.clone()) else {
             // An unusable session cannot key a marker, and inventing one would file the gap
             // against a session that never existed. It stays a global count.
             unflushed.unattributed = unflushed.unattributed.saturating_add(count);
             continue;
         };
-        match record_gap_marker(evidence, &session, reason, batch_id, count) {
+        match record_gap_marker(evidence, &session, reason, &identity, count) {
             // The marker is durable, so the batch it represents is discharged. The notice and the
             // diagnostic ride along on the same call, which is why a recovered batch publishes
             // exactly one notice rather than one per retry.
@@ -1089,7 +1153,7 @@ fn flush_drops(evidence: &ExecutionEvidenceApi, drops: &DropAccumulator) {
             Err(()) => {
                 unflushed
                     .batches
-                    .entry((session_id, reason, batch_id))
+                    .entry((session_id, reason, identity))
                     .and_modify(|existing| *existing = existing.saturating_add(count))
                     .or_insert(count);
             }
@@ -1116,19 +1180,22 @@ fn record_gap_marker(
     evidence: &ExecutionEvidenceApi,
     session: &EvidenceSessionId,
     reason: EvidenceDropReason,
-    batch_id: GapBatchId,
+    identity: &GapBatchIdentity,
     dropped_count: u32,
 ) -> Result<(), ()> {
     let Ok(reason_code) = SafeReasonCode::parse(reason.as_str()) else {
         return Err(());
     };
-    // Session, reason, and batch. The count is deliberately not part of the identity: two gaps of
-    // the same size are two gaps, and keying on the size would make the second one collide with
-    // the first — which the journal would report as a conflicting duplicate rather than store.
+    // Session, reason, runtime namespace, and generation. The count is deliberately not part of
+    // the identity: two gaps of the same size are two gaps, and keying on the size would make the
+    // second collide with the first — which the journal reports as a conflicting duplicate rather
+    // than storing. The namespace is what keeps this run's generation one from colliding with the
+    // previous run's, which the journal outlives.
     let Ok(source_event_id) = SourceEventId::parse(format!(
-        "coverage-gap:{}:{}:{batch_id}",
+        "coverage-gap:{}:{}:{}",
         session.as_str(),
-        reason.as_str()
+        reason.as_str(),
+        identity.as_source_fragment()
     )) else {
         return Err(());
     };

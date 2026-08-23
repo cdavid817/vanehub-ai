@@ -510,7 +510,7 @@ retried callback doubles a count nobody can then correct.
 | Review decision | `review-decision:{reviewId}:{witness}:{decision}` | same id | witness, then decision value | one review, one snapshot, one verdict | re-asserting the same verdict on the same snapshot | a changed verdict, or the same verdict after the diff moves |
 | Verification | `verification:{operationId}` | same id | the operation | `start_action` mints one operation per action, so one operation is one verification run | a re-reported result | re-running the check mints a new operation |
 | Usage observed | `usage-observed:{invocationId}` | same id | none | invocation ids are minted per model call | a re-reported observation | a new invocation |
-| Coverage gap | `coverage-gap:{sessionId}:{reason}:{batchId}` | same batch id | batch | the batch id is a process counter, assigned once per accumulation | a retry after an ambiguous marker write | every new accumulation |
+| Coverage gap | `coverage-gap:{sessionId}:{reason}:{bridgeInstanceId}:{generation}` | same instance and generation | generation, inside a runtime namespace | the generation is assigned once per accumulation; the instance is 64 random bits minted per bridge bootstrap | a retry after an ambiguous marker write | every new accumulation, in every runtime |
 
 Three of these were wrong when first written and are corrected here.
 
@@ -526,8 +526,16 @@ witness carries the moment so that two writes to one file are two observations.
 
 `coverage-gap` keyed on its count. Two gaps of the same size collided, and because the content
 fingerprint includes the occurrence time the journal recorded a conflict rather than a second gap:
-a session that lost evidence twice reported losing it once. A batch id assigned per accumulation
+a session that lost evidence twice reported losing it once. A generation assigned per accumulation
 replaces the count, so a retry converges and two equal-sized gaps stay distinct.
+
+The generation alone was not enough. It is a process counter, so the first batch after a restart is
+generation one again and collides with the first batch of the run before it — the same conflict,
+across the boundary the journal is there to survive. A runtime namespace, minted once per bridge
+bootstrap, prefixes it. The namespace is sixty-four random bits and nothing else: it is written
+into a durable journal, so it carries no user, no machine, no path, and no start time. It is not a
+whole UUID either, because the source event id has a 128-character bound the session, the reason
+code, and the generation already share.
 
 ### Review Evidence Lands in Two Stages
 
