@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { agentService as defaultAgentService } from "../services/runtime-agent-client";
 import type { SessionWorkspaceEvidenceService } from "../services/session-workspace-evidence-service";
 import type { EvidenceSessionId, WorkspaceEvidenceSummary } from "../types/session-workspace-evidence";
@@ -56,9 +56,13 @@ export function useWorkspaceEvidenceNotices(
   sessionId: EvidenceSessionId | null,
   service: SessionWorkspaceEvidenceService = defaultAgentService,
   windowMs: number = EVIDENCE_NOTICE_WINDOW_MS,
-): void {
+): { recordsRevision: number } {
   const queryClient = useQueryClient();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Panels that page through records outside React Query cannot be reached by invalidation, so
+  // they are handed a revision instead. It counts flushes that touched records rather than
+  // carrying their contents: a number cannot leak an identifier into rendered output.
+  const [recordsRevision, setRecordsRevision] = useState(0);
 
   useEffect(() => {
     if (sessionId === null) return;
@@ -69,8 +73,10 @@ export function useWorkspaceEvidenceNotices(
     const flush = () => {
       timer.current = null;
       const invalidation = buffer.drain();
-      if (invalidation !== null && !released) {
-        applyEvidenceInvalidation(queryClient, sessionId, invalidation);
+      if (invalidation === null || released) return;
+      applyEvidenceInvalidation(queryClient, sessionId, invalidation);
+      if (invalidation.broad || invalidation.families.includes("records")) {
+        setRecordsRevision((current) => current + 1);
       }
     };
 
@@ -98,6 +104,8 @@ export function useWorkspaceEvidenceNotices(
       unsubscribe?.();
     };
   }, [queryClient, service, sessionId, windowMs]);
+
+  return { recordsRevision };
 }
 
 /**

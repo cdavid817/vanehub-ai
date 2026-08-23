@@ -42,6 +42,7 @@ export function TerminalTab({
   isVisible = true,
   messages,
   partial,
+  recordsRevision = 0,
   seatId = null,
   sessionId = null,
   targetRoot = "",
@@ -51,6 +52,8 @@ export function TerminalTab({
   isVisible?: boolean;
   messages: ChatMessage[];
   partial: boolean;
+  /** Bumped when a live notice said records moved. A gap widens to the whole session upstream. */
+  recordsRevision?: number;
   seatId?: string | null;
   sessionId?: string | null;
   targetRoot?: string;
@@ -78,6 +81,7 @@ export function TerminalTab({
   const pages = useExecutionRecordPages({
     filters: query,
     isVisible,
+    refreshToken: recordsRevision,
     scope: recordScope,
   });
 

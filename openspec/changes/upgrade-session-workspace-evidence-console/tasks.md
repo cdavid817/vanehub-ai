@@ -133,9 +133,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 6.6 Render command runtime, redacted display, duration, status, exit code/signal, working-directory display, output availability, truncation, fidelity, and coverage without fabricating unavailable fields.
 - [x] 6.7 Render tool, delegation, and verification records with their structured safe fields and source fidelity.
 - [x] 6.8 Add cross-panel actions for Trace, Logs, Files/Changes, Report, and Shell when the corresponding target is available.
-- [ ] 6.9 Add page append that de-duplicates by stable record id and preserves loaded rows on failure.
-- [ ] 6.10 Virtualize the loaded record list and verify bounded mounted rows with maximum-page fixtures.
-- [ ] 6.11 Add empty, partial, indexing, unavailable, and no-filter-match states using synchronized locale resources.
+- [x] 6.9 Add page append that de-duplicates by stable record id and preserves loaded rows on failure.
+- [x] 6.10 Virtualize the loaded record list and verify bounded mounted rows with maximum-page fixtures.
+- [x] 6.11 Add empty, partial, indexing, unavailable, and no-filter-match states using synchronized locale resources.
 - [ ] 6.12 Add tests for native, proxied, inferred, opaque, running, failed, cancelled, incomplete, redacted, output-unavailable, and partial-coverage rows.
 
 ## 7. Retained Multi-Shell Lifecycle

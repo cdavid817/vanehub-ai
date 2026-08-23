@@ -94,12 +94,17 @@ export function SessionTabs(props: SessionTabsProps) {
   // One summary read and one notice subscription for the whole workspace, above the panels so
   // neither multiplies by the number of mounted tabs.
   const { state, summary } = useWorkspaceEvidenceSummary(sessionId);
-  useWorkspaceEvidenceNotices(sessionId);
+  const { recordsRevision } = useWorkspaceEvidenceNotices(sessionId);
   const badges = useMemo(() => workspaceTabBadges(summary, state), [state, summary]);
 
   return (
     <WorkspaceEvidenceScopeProvider seatIds={seatIds} sessionId={sessionId}>
-      <SessionWorkspaceTabs {...props} badges={badges} seats={seats} />
+      <SessionWorkspaceTabs
+        {...props}
+        badges={badges}
+        recordsRevision={recordsRevision}
+        seats={seats}
+      />
     </WorkspaceEvidenceScopeProvider>
   );
 }
@@ -114,6 +119,7 @@ function SessionWorkspaceTabs({
   messagesPartial,
   onLoadEarlier = () => undefined,
   onOpenSettings,
+  recordsRevision,
   recoveryNotice,
   requestedTab,
   requestedTabNonce = 0,
@@ -124,6 +130,8 @@ function SessionWorkspaceTabs({
   workspaceTabsCollapsed = false,
 }: SessionTabsProps & {
   badges: Partial<Record<SessionTabId, WorkspaceTabBadge>>;
+  /** Bumped when a live notice said records moved, so a paged panel can re-read its newest page. */
+  recordsRevision: number;
   seats: SessionSeat[];
 }) {
   const { t } = useTranslation();
@@ -179,7 +187,7 @@ function SessionWorkspaceTabs({
     if (id === "documents") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadDocumentsTab} />;
     if (id === "files") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
-      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
+      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, recordsRevision, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }
     if (id === "shell") {
       return <LazyFeature componentProps={{ isVisible, seatId, sessionId }} loader={loadShellTab} />;
