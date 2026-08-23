@@ -30,14 +30,14 @@
 
 ## 3. Stable Memory Storage and Data-Loss Fixes
 
-- [ ] 3.1 Refactor the Markdown memory store so immutable UUID/ULID ids produce filenames and display names never participate in path identity.
-- [ ] 3.2 Split bounded `list_page` behavior from complete internal `enumerate_owned_entries`; complete enumeration must include malformed application-owned entries and must not stop at 200.
-- [ ] 3.3 Replace ordinary `fs::write` replacement semantics with create-new for creation and expected-revision atomic replacement for updates.
+- [x] 3.1 Refactor the Markdown memory store so immutable UUID/ULID ids produce filenames and display names never participate in path identity.
+- [x] 3.2 Split bounded `list_page` behavior from complete internal `enumerate_owned_entries`; complete enumeration must include malformed application-owned entries and must not stop at 200.
+- [x] 3.3 Replace ordinary `fs::write` replacement semantics with create-new for creation and expected-revision atomic replacement for updates.
 - [ ] 3.4 Use same-directory temporary files, flush/sync where supported, platform-safe replacement, and directory mutation serialization following existing dependency and platform conventions.
-- [ ] 3.5 Preserve path traversal, symlink escape, Unicode normalization, and platform case-sensitivity protections for Windows, macOS, and Linux.
-- [ ] 3.6 Implement file parsing/serialization for v2 frontmatter and body with content hash and revision validation.
-- [ ] 3.7 Implement coordinated create/update/delete application services that update the authoritative file, SQLite projection, derived index, and retrieval index with repair-required reporting.
-- [ ] 3.8 Replace reset implementation with complete maintenance enumeration and a structured result containing matched, deleted files, projection rows, retrieval entries, quarantined entries, and failures.
+- [x] 3.5 Preserve path traversal, symlink escape, Unicode normalization, and platform case-sensitivity protections for Windows, macOS, and Linux.
+- [x] 3.6 Implement file parsing/serialization for v2 frontmatter and body with content hash and revision validation.
+- [x] 3.7 Implement coordinated create/update/delete application services that update the authoritative file, SQLite projection, derived index, and retrieval index with repair-required reporting.
+- [x] 3.8 Replace reset implementation with complete maintenance enumeration and a structured result containing matched, deleted files, projection rows, retrieval entries, quarantined entries, and failures.
 - [ ] 3.9 Add tests for 0, 1, 200, 201, and 1,000 memories; duplicate display names; create collision; stale revision; partial filesystem failure; malformed files; locked files; and idempotent repeated reset.
 - [ ] 3.10 Add platform-sensitive tests for Windows case-insensitive names, macOS Unicode normalization, Linux permissions/symlinks, and remote-workspace path identity normalization where CI supports them.
 

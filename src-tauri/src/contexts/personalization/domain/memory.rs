@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::error::{IdentityRejection, PersonalizationDomainError};
 use super::scope::{AgentId, SessionId, WorkspaceKey};
@@ -234,6 +235,16 @@ impl MemoryRecord {
         format!("{}.md", self.id)
     }
 
+    /// Fingerprint of the body.
+    ///
+    /// Lives in the domain rather than beside the file writer because two consumers need it and
+    /// neither may reach the other: the file format records it to make a torn write detectable,
+    /// and the SQLite projection stores it so reconciliation can tell whether a file changed
+    /// without reading every body twice.
+    pub(crate) fn content_hash(&self) -> String {
+        content_hash(&self.content)
+    }
+
     pub(crate) fn validate(&self) -> Result<(), PersonalizationDomainError> {
         validate_bounded("name", &self.name, 1, MEMORY_NAME_MAX_CHARS)?;
         validate_bounded(
@@ -263,6 +274,18 @@ impl MemoryRecord {
         }
         Ok(())
     }
+}
+
+/// SHA-256 of a memory body, rendered as `sha256:<hex>`.
+///
+/// Line endings must already be normalized by the caller: hashing raw bytes means a body saved on
+/// Windows would otherwise read as torn everywhere else.
+pub(crate) fn content_hash(body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(body.as_bytes());
+    let digest = hasher.finalize();
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("sha256:{hex}")
 }
 
 fn validate_bounded(

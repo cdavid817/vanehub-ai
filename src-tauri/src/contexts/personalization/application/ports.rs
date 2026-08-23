@@ -62,10 +62,12 @@ pub(crate) trait PolicyRepository: Send + Sync {
 }
 
 /// The authoritative memory store: Markdown files addressed by immutable id.
+///
+/// Deliberately has no list operation. The design sketches `list_page` here, but answering it from
+/// files would mean reading every body to render a list — the N+1 the same design forbids. Listing
+/// belongs to `MemoryProjectionPort`; the application service routes queries there and detail reads
+/// here, so a caller cannot accidentally take the expensive path.
 pub(crate) trait MemoryRepository: Send + Sync {
-    /// Bounded by construction. The only list operation the UI and runtime may use.
-    fn list_page(&self, query: &MemoryQuery) -> Result<MemoryPage>;
-
     fn get(&self, id: &MemoryId) -> Result<Option<MemoryRecord>>;
 
     /// Create-new semantics. Never replaces an existing file, so a duplicate display name produces
@@ -80,6 +82,10 @@ pub(crate) trait MemoryRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<MemoryRecord>;
 
+    /// Removes the authoritative file only. The returned outcome has `deleted_file` set and every
+    /// derived flag left false — the coordinating application service is what removes the
+    /// projection row, the index line, and the retrieval entry, and only it can report on all
+    /// four.
     fn delete(&self, id: &MemoryId, expected_revision: Option<u64>) -> Result<DeleteMemoryOutcome>;
 }
 
