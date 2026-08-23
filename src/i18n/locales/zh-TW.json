@@ -3806,5 +3806,18 @@
   "cliParameters.opencode.logLevel.values.WARN.label": "Warning",
   "cliParameters.opencode.logLevel.values.WARN.description": "Include warnings and errors only.",
   "cliParameters.opencode.logLevel.values.ERROR.label": "Error",
-  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only."
+  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only.",
+  "workspaceScope.chips.label": "目前證據篩選",
+  "workspaceScope.clearAll": "清除全部篩選",
+  "workspaceScope.clearField": "清除 {{field}} 篩選 {{value}}",
+  "workspaceScope.unsupported": "本檢視不依 {{fields}} 篩選，因此這些篩選在此不生效。",
+  "workspaceScope.field.seatId": "席位",
+  "workspaceScope.field.runId": "執行",
+  "workspaceScope.field.traceId": "追蹤",
+  "workspaceScope.field.spanId": "跨度",
+  "workspaceScope.field.operationId": "作業",
+  "workspaceScope.field.commandId": "命令",
+  "workspaceScope.field.relativePath": "檔案",
+  "workspaceScope.field.hunkFingerprint": "差異區塊",
+  "workspaceScope.field.occurredAt": "時間"
 }

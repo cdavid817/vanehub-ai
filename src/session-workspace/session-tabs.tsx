@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { LazyFeature } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
-import type { Session } from "../types/agent";
+import { evidenceSessionIdSchema } from "../contracts/session-workspace-evidence-ids";
+import type { Session, SessionSeat } from "../types/agent";
 import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import { useSessionRoles } from "../hooks/use-session-speakers";
 import { activeSeatsFromSession, seatsFromSession } from "../services/session-seats";
@@ -15,6 +16,13 @@ import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./sessi
 import { toolUseCount } from "./terminal-utils";
 import { ConversationOverflowMenu } from "./conversation-overflow-menu";
 import { SessionConversationHeader } from "./session-conversation-header";
+import { useMountedWorkspaceTabs } from "./use-mounted-workspace-tabs";
+import { evidenceTabOf } from "./workspace-evidence-reducer";
+import {
+  WorkspaceEvidenceScopeProvider,
+  useWorkspaceEvidenceScope,
+} from "./workspace-evidence-scope";
+import { WorkspaceEvidenceScopeChips } from "./workspace-evidence-scope-chips";
 
 export interface ConversationVisibilityControls {
   infoPanelExpanded: boolean;
@@ -26,33 +34,7 @@ export interface ConversationVisibilityControls {
   workspaceTabsExpanded: boolean;
 }
 
-const loadChangesTab = () => import("./changes-tab").then((module) => ({ default: module.ChangesTab }));
-const loadDocumentsTab = () => import("./documents-tab").then((module) => ({ default: module.DocumentsTab }));
-const loadFilesTab = () => import("./files-tab").then((module) => ({ default: module.FilesTab }));
-const loadTerminalTab = () => import("./terminal-tab").then((module) => ({ default: module.TerminalTab }));
-const loadShellTab = () => import("./shell-tab").then((module) => ({ default: module.ShellTab }));
-const loadLogsTab = () => import("./logs-tab").then((module) => ({ default: module.LogsTab }));
-const loadExecutionTimelineTab = () => import("./execution-timeline-tab")
-  .then((module) => ({ default: module.ExecutionTimelineTab }));
-const loadReportTab = () => import("./report-tab").then((module) => ({ default: module.ReportTab }));
-
-export function SessionTabs({
-  activeSession,
-  apiComposer,
-  focusMode = false,
-  isStreaming = false,
-  messages,
-  messagesPartial,
-  onLoadEarlier = () => undefined,
-  onOpenSettings,
-  recoveryNotice,
-  requestedTab,
-  requestedTabNonce = 0,
-  sessionActivationKey,
-  turnStatus = null,
-  visibilityControls,
-  workspaceTabsCollapsed = false,
-}: {
+interface SessionTabsProps {
   activeSession: Session | null;
   apiComposer?: ReactNode;
   focusMode?: boolean;
@@ -69,35 +51,93 @@ export function SessionTabs({
   turnStatus?: TurnStatus | null;
   visibilityControls?: ConversationVisibilityControls;
   workspaceTabsCollapsed?: boolean;
-}) {
+}
+
+const loadChangesTab = () => import("./changes-tab").then((module) => ({ default: module.ChangesTab }));
+const loadDocumentsTab = () => import("./documents-tab").then((module) => ({ default: module.DocumentsTab }));
+const loadFilesTab = () => import("./files-tab").then((module) => ({ default: module.FilesTab }));
+const loadTerminalTab = () => import("./terminal-tab").then((module) => ({ default: module.TerminalTab }));
+const loadShellTab = () => import("./shell-tab").then((module) => ({ default: module.ShellTab }));
+const loadLogsTab = () => import("./logs-tab").then((module) => ({ default: module.LogsTab }));
+const loadExecutionTimelineTab = () => import("./execution-timeline-tab")
+  .then((module) => ({ default: module.ExecutionTimelineTab }));
+const loadReportTab = () => import("./report-tab").then((module) => ({ default: module.ReportTab }));
+
+/**
+ * Owns the evidence scope for the selected session and nothing else.
+ *
+ * The split exists because a component cannot read a context it provides, and the active tab now
+ * lives in that context: it moves together with the scope, and a navigation that changed one
+ * without the other would show a panel filtered to a row the user never chose.
+ */
+export function SessionTabs(props: SessionTabsProps) {
+  const seats = useMemo(
+    () => (props.activeSession ? activeSeatsFromSession(props.activeSession) : []),
+    [props.activeSession],
+  );
+  const seatIds = useMemo(
+    () => seats.flatMap((seat) => (seat.seatId === undefined ? [] : [seat.seatId])),
+    [seats],
+  );
+  // Parsed rather than asserted: the brand is a claim that the value passed validation, and the
+  // schema is the only place allowed to make it. A session without a usable id gets no scope,
+  // which is the honest answer — not an empty scope that reads as "no filters applied".
+  const sessionId = useMemo(() => {
+    const parsed = evidenceSessionIdSchema.safeParse(props.activeSession?.id);
+    return parsed.success ? parsed.data : null;
+  }, [props.activeSession?.id]);
+
+  return (
+    <WorkspaceEvidenceScopeProvider seatIds={seatIds} sessionId={sessionId}>
+      <SessionWorkspaceTabs {...props} seats={seats} />
+    </WorkspaceEvidenceScopeProvider>
+  );
+}
+
+function SessionWorkspaceTabs({
+  activeSession,
+  apiComposer,
+  focusMode = false,
+  isStreaming = false,
+  messages,
+  messagesPartial,
+  onLoadEarlier = () => undefined,
+  onOpenSettings,
+  recoveryNotice,
+  requestedTab,
+  requestedTabNonce = 0,
+  seats,
+  sessionActivationKey,
+  turnStatus = null,
+  visibilityControls,
+  workspaceTabsCollapsed = false,
+}: SessionTabsProps & { seats: SessionSeat[] }) {
   const { t } = useTranslation();
   const sessionId = activeSession?.id ?? null;
-  const seats = useMemo(() => (activeSession ? activeSeatsFromSession(activeSession) : []), [activeSession]);
   const isSharedThread = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
-  const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
+  const { activateTab, activeTab } = useWorkspaceEvidenceScope();
   // Null is "all seats": a freshly opened tab must not silently narrow to one participant.
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
-  const [mountedTabs, setMountedTabs] = useState<Set<SessionTabId>>(() => new Set(["chat"]));
+  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId);
   const terminalCount = useMemo(() => toolUseCount(messages), [messages]);
 
   useEffect(() => {
-    setActiveTab("chat");
-    setMountedTabs(new Set(["chat"]));
     setSelectedSeat(null);
   }, [sessionId]);
 
   useEffect(() => {
     if (!requestedTab) return;
-    setMountedTabs((current) => new Set(current).add(requestedTab));
-    setActiveTab(requestedTab);
+    mount(requestedTab);
+    activateTab(requestedTab);
     // The nonce lets the same tab be requested twice in a row — otherwise a second `/logs` after
-    // the user manually returned to chat would be a no-op.
-  }, [requestedTab, requestedTabNonce, sessionId]);
+    // the user manually returned to chat would be a no-op. The session reset happens during
+    // render, so an uncleared request still wins over the switch back to chat.
+  }, [activateTab, mount, requestedTab, requestedTabNonce, sessionId]);
 
   function activate(tab: SessionTabId) {
-    setMountedTabs((current) => new Set(current).add(tab));
-    setActiveTab(tab);
+    mount(tab);
+    activateTab(tab);
   }
 
   function renderPanel(id: SessionTabId) {
@@ -157,7 +197,7 @@ export function SessionTabs({
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {sessionTabDefinitions.map(({ id }) => mountedTabs.has(id) ? (
+        {sessionTabDefinitions.map(({ id }) => mountedTabs.includes(id) ? (
           <section
             aria-labelledby={`session-tab-${id}`}
             className={cn("h-full min-h-0", activeTab === id ? "block" : "hidden")}
@@ -178,10 +218,17 @@ export function SessionTabs({
               // that the tab is not seat-scoped.
               <p className="sr-only">{t("session.seatSwitcher.sessionScoped")}</p>
             ) : null}
+            <ScopeChipsFor tab={id} />
             {renderPanel(id)}
           </section>
         ) : null)}
       </div>
     </div>
   );
+}
+
+/** Chat consumes no evidence scope, so it gets no chips rather than an empty chip bar. */
+function ScopeChipsFor({ tab }: { tab: SessionTabId }) {
+  const destination = evidenceTabOf(tab);
+  return destination === null ? null : <WorkspaceEvidenceScopeChips tab={destination} />;
 }

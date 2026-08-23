@@ -3806,5 +3806,18 @@
   "cliParameters.opencode.logLevel.values.WARN.label": "Warning",
   "cliParameters.opencode.logLevel.values.WARN.description": "Include warnings and errors only.",
   "cliParameters.opencode.logLevel.values.ERROR.label": "Error",
-  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only."
+  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only.",
+  "workspaceScope.chips.label": "Active evidence filters",
+  "workspaceScope.clearAll": "Clear all filters",
+  "workspaceScope.clearField": "Clear the {{field}} filter {{value}}",
+  "workspaceScope.unsupported": "This view does not filter by {{fields}}, so those filters are not applied here.",
+  "workspaceScope.field.seatId": "Seat",
+  "workspaceScope.field.runId": "Run",
+  "workspaceScope.field.traceId": "Trace",
+  "workspaceScope.field.spanId": "Span",
+  "workspaceScope.field.operationId": "Operation",
+  "workspaceScope.field.commandId": "Command",
+  "workspaceScope.field.relativePath": "File",
+  "workspaceScope.field.hunkFingerprint": "Hunk",
+  "workspaceScope.field.occurredAt": "Time"
 }

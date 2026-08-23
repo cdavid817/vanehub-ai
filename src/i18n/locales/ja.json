@@ -3806,5 +3806,18 @@
   "cliParameters.opencode.logLevel.values.WARN.label": "Warning",
   "cliParameters.opencode.logLevel.values.WARN.description": "Include warnings and errors only.",
   "cliParameters.opencode.logLevel.values.ERROR.label": "Error",
-  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only."
+  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only.",
+  "workspaceScope.chips.label": "適用中のエビデンスフィルター",
+  "workspaceScope.clearAll": "すべてのフィルターを解除",
+  "workspaceScope.clearField": "{{field}} フィルター {{value}} を解除",
+  "workspaceScope.unsupported": "このビューは {{fields}} で絞り込まないため、これらのフィルターは適用されません。",
+  "workspaceScope.field.seatId": "シート",
+  "workspaceScope.field.runId": "実行",
+  "workspaceScope.field.traceId": "トレース",
+  "workspaceScope.field.spanId": "スパン",
+  "workspaceScope.field.operationId": "操作",
+  "workspaceScope.field.commandId": "コマンド",
+  "workspaceScope.field.relativePath": "ファイル",
+  "workspaceScope.field.hunkFingerprint": "ハンク",
+  "workspaceScope.field.occurredAt": "時刻"
 }

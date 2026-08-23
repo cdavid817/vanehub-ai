@@ -3806,5 +3806,18 @@
   "cliParameters.opencode.logLevel.values.WARN.label": "警告",
   "cliParameters.opencode.logLevel.values.WARN.description": "仅包含警告和错误。",
   "cliParameters.opencode.logLevel.values.ERROR.label": "错误",
-  "cliParameters.opencode.logLevel.values.ERROR.description": "仅包含错误。"
+  "cliParameters.opencode.logLevel.values.ERROR.description": "仅包含错误。",
+  "workspaceScope.chips.label": "当前证据筛选",
+  "workspaceScope.clearAll": "清除全部筛选",
+  "workspaceScope.clearField": "清除 {{field}} 筛选 {{value}}",
+  "workspaceScope.unsupported": "本视图不按 {{fields}} 筛选，因此这些筛选在此不生效。",
+  "workspaceScope.field.seatId": "席位",
+  "workspaceScope.field.runId": "运行",
+  "workspaceScope.field.traceId": "链路",
+  "workspaceScope.field.spanId": "跨度",
+  "workspaceScope.field.operationId": "操作",
+  "workspaceScope.field.commandId": "命令",
+  "workspaceScope.field.relativePath": "文件",
+  "workspaceScope.field.hunkFingerprint": "差异块",
+  "workspaceScope.field.occurredAt": "时间"
 }

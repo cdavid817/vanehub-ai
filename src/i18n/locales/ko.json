@@ -3806,5 +3806,18 @@
   "cliParameters.opencode.logLevel.values.WARN.label": "Warning",
   "cliParameters.opencode.logLevel.values.WARN.description": "Include warnings and errors only.",
   "cliParameters.opencode.logLevel.values.ERROR.label": "Error",
-  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only."
+  "cliParameters.opencode.logLevel.values.ERROR.description": "Include errors only.",
+  "workspaceScope.chips.label": "적용 중인 증거 필터",
+  "workspaceScope.clearAll": "모든 필터 지우기",
+  "workspaceScope.clearField": "{{field}} 필터 {{value}} 지우기",
+  "workspaceScope.unsupported": "이 화면은 {{fields}} 기준으로 필터링하지 않으므로 해당 필터는 적용되지 않습니다.",
+  "workspaceScope.field.seatId": "시트",
+  "workspaceScope.field.runId": "실행",
+  "workspaceScope.field.traceId": "트레이스",
+  "workspaceScope.field.spanId": "스팬",
+  "workspaceScope.field.operationId": "작업",
+  "workspaceScope.field.commandId": "명령",
+  "workspaceScope.field.relativePath": "파일",
+  "workspaceScope.field.hunkFingerprint": "헝크",
+  "workspaceScope.field.occurredAt": "시각"
 }

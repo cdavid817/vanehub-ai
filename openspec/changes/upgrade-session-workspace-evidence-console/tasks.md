@@ -109,10 +109,10 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 5. Workspace Evidence Scope, Navigation, Summary, and Tab Lifecycle
 
-- [ ] 5.1 Add `WorkspaceEvidenceScopeProvider` scoped to the selected Session Workspace, using React Context and serializable state only.
-- [ ] 5.2 Implement atomic `navigate(target)` behavior that changes the active tab and evidence scope without resetting unrelated mounted panel state.
-- [ ] 5.3 Clear run/trace/span/operation/command/path/hunk scope when the selected session changes; preserve per-session panel view state where valid.
-- [ ] 5.4 Add active-filter chips and Clear Scope actions to panels that consume cross-panel scope.
+- [x] 5.1 Add `WorkspaceEvidenceScopeProvider` scoped to the selected Session Workspace, using React Context and serializable state only.
+- [x] 5.2 Implement atomic `navigate(target)` behavior that changes the active tab and evidence scope without resetting unrelated mounted panel state.
+- [x] 5.3 Clear run/trace/span/operation/command/path/hunk scope when the selected session changes; preserve per-session panel view state where valid.
+- [x] 5.4 Add active-filter chips and Clear Scope actions to panels that consume cross-panel scope.
 - [ ] 5.5 Add a `WorkspaceTabCapability` registry describing seat mode, live support, and retention policy instead of scattered tab-id conditionals.
 - [ ] 5.6 Pass `isVisible` to every mounted workspace panel.
 - [ ] 5.7 Suspend Logs/Traces live subscriptions, Report refreshes, and Files/Documents polling when their mounted panel is hidden.
