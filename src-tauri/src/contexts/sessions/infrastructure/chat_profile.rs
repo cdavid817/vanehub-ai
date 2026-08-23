@@ -2,7 +2,7 @@ use crate::contexts::sessions::application::{
     ChatConfigurationValues, SessionChatProfilePort, SessionsApplicationError,
 };
 use crate::contexts::sessions::domain::normalize_reasoning;
-use crate::contexts::tooling::cli::application::NativeConfigPort;
+use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::platform::database::NativeDatabase;
 use rusqlite::OptionalExtension;

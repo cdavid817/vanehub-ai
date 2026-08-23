@@ -16,7 +16,7 @@ use crate::contexts::sessions::infrastructure::{
     SqliteSessionChatProfileAdapter, SqliteSessionsRepository, SystemReviewClock,
     SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
 };
-use crate::contexts::tooling::cli::application::NativeConfigPort;
+use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;

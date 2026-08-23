@@ -1,11 +1,10 @@
 use super::*;
-use crate::contexts::tooling::cli::domain::ToolDefinition;
 use std::sync::Mutex;
 
 struct Locator(PathBuf);
 
-impl CliExecutableLocatorPort for Locator {
-    fn resolve(&self, _: ToolDefinition, _: Option<&str>) -> Option<String> {
+impl DelegationExecutableResolver for Locator {
+    fn resolve(&self, _: DelegationTarget) -> Option<String> {
         Some(self.0.to_string_lossy().into_owned())
     }
 }

@@ -9,6 +9,7 @@
 use crate::contexts::tooling::cli::application::environment_bulk::{
     PreparedCliBulkExecution, PreparedCliBulkPlanning, PreparedCliDoctor,
 };
+use crate::contexts::tooling::cli::application::environment_launch::CliLaunchTarget;
 use crate::contexts::tooling::cli::application::environment_planning::{
     ExecuteCliActionInput, PrepareCliActionInput, PreparedCliActionExecution,
     PreparedCliActionPlanning,
@@ -29,6 +30,17 @@ pub(crate) struct CliEnvironmentApi {
 impl CliEnvironmentApi {
     pub(crate) fn new(service: CliEnvironmentService) -> Self {
         Self { service }
+    }
+
+    /// Which executable the Agent Runtime should launch for a tool.
+    ///
+    /// Bounded: a stored snapshot, or a bounded live lookup when nothing has been scanned yet.
+    /// Never a probe and never a mutation.
+    pub(crate) fn resolve_launch_target(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliLaunchTarget, CliEnvironmentError> {
+        self.service.resolve_launch_target(agent_id)
     }
 
     /// Bounded: reads storage and computes the environment fingerprint. Starts nothing.

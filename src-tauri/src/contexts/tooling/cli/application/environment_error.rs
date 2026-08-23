@@ -52,9 +52,26 @@ pub(crate) enum CliEnvironmentError {
     #[error("no action plan found")]
     PlanNotFound,
 
+    // Declared because the contract enumerates them and the command layer already maps both to a
+    // stable category. Nothing constructs them yet: the shipped adapters report elevation as a
+    // plan precondition rather than a refusal, and no source declares a dependency to check.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "declared by the error contract; no adapter raises it yet"
+        )
+    )]
     #[error("{dependency} is required and was not found")]
     MissingDependency { dependency: String },
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "declared by the error contract; no adapter raises it yet"
+        )
+    )]
     #[error("this action requires elevated privileges")]
     ElevationRequired,
 

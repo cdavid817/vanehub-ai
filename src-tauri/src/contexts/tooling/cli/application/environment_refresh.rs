@@ -76,6 +76,14 @@ impl CliEnvironmentService {
         prepared: PreparedEnvironmentRefresh,
     ) -> Result<(), CliEnvironmentError> {
         let operation_id = prepared.operation_id.clone();
+        // Bounded plan maintenance rides along here rather than on a timer: a refresh already runs
+        // off the command boundary, and a plan table nobody sweeps grows for the life of the
+        // install. A failure to sweep is not a failure to refresh, so it is recorded and dropped.
+        if let Err(error) = self.expire_stale_plans() {
+            self.ports
+                .diagnostics
+                .record(&operation_id, None, None, &error.to_string());
+        }
         match self.refresh_all(&prepared) {
             Ok(refreshed) => self
                 .ports

@@ -159,8 +159,24 @@ pub(crate) struct CliPlanRequest<'a> {
     pub(crate) agent_id: &'a CliToolId,
     pub(crate) action: CliActionKind,
     pub(crate) target_version: Option<&'a NormalizedCliVersion>,
+    /// Carried for sources that publish more than one channel. The three shipped adapters resolve
+    /// their own package identity from the registry definition and none reads this yet.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "part of the request contract; no shipped adapter reads it yet"
+        )
+    )]
     pub(crate) channel: Option<&'a str>,
     /// Resolved from the backend registry, never from the frontend.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "part of the request contract; no shipped adapter reads it yet"
+        )
+    )]
     pub(crate) package_reference: Option<&'a str>,
     /// Whether this source's preflight confirmed it can honour an exact version here.
     pub(crate) exact_version_confirmed: bool,

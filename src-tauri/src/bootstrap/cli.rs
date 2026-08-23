@@ -1,38 +1,25 @@
-use crate::contexts::operations::api::OperationsApi;
-use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
-use crate::contexts::tooling::cli::api::{CliApi, CliError};
-use crate::contexts::tooling::cli::application::{CliApplicationPorts, CliApplicationService};
-use crate::contexts::tooling::cli::infrastructure::{
-    CliDetectionAdapter, CliExecutableLocatorAdapter, CliOperationAdapter,
-    SqliteCliStatusRepository, SystemCliClock, UnifiedCliLoggingAdapter,
-};
-use crate::platform::database::NativeDatabase;
-use std::path::PathBuf;
-use std::sync::Arc;
+use crate::contexts::tooling::cli::api::{CliApi, CliEnvironmentApi, CliEnvironmentError};
 
-pub(crate) fn assemble_cli_api(
-    database: NativeDatabase,
-    operations: OperationsApi,
-    fallback_log_dir: PathBuf,
-) -> CliApi {
-    let logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_dir));
-    CliApi::new(CliApplicationService::new(CliApplicationPorts {
-        repository: Arc::new(SqliteCliStatusRepository::new(database)),
-        detection: Arc::new(CliDetectionAdapter::new()),
-        executable_locator: Arc::new(CliExecutableLocatorAdapter::new()),
-        operations: Arc::new(CliOperationAdapter::new(operations)),
-        logging: Arc::new(UnifiedCliLoggingAdapter::new(logging.clone(), logging)),
-        clock: Arc::new(SystemCliClock),
-    }))
+/// Launch resolution for the Agent Runtime, over the source-aware environment.
+///
+/// One assembly, one authority. The flat `cli_tool_status` service this replaces had its own
+/// repository, its own detection adapter, and its own executable locator, which is how the runtime
+/// and the CLI Management page came to disagree about which installation a tool has.
+pub(crate) fn assemble_cli_api(environment: CliEnvironmentApi) -> CliApi {
+    CliApi::new(environment)
 }
 
-pub(crate) fn start_initial_cli_refresh(api: CliApi) -> Result<(), CliError> {
-    if !api.needs_initial_refresh()? {
-        return Ok(());
-    }
-    let prepared = api.prepare_refresh(None, "Initial CLI detection refresh".to_string())?;
+/// Scans the environment once on first run, in the background.
+///
+/// Deliberately unconditional beyond the emptiness check the service makes for itself: a host that
+/// has never been scanned has no snapshot for the launch path to read, so the first launch would
+/// fall back to a bounded live lookup instead of the environment's own answer.
+pub(crate) fn start_initial_cli_refresh(
+    environment: CliEnvironmentApi,
+) -> Result<(), CliEnvironmentError> {
+    let prepared = environment.prepare_refresh(Vec::new(), false)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _ = api.execute_refresh(prepared);
+        let _ = environment.execute_refresh(prepared);
     });
     Ok(())
 }

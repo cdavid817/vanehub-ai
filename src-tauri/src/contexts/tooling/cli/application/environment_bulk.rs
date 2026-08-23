@@ -470,7 +470,7 @@ impl CliEnvironmentService {
 
     /// Bounded maintenance: marks a slice of expired draft plans so the table cannot grow without
     /// limit. Called from refresh, which already runs off the command boundary.
-    pub(super) fn expire_stale_plans(&self) -> Result<usize, CliEnvironmentError> {
+    pub(crate) fn expire_stale_plans(&self) -> Result<usize, CliEnvironmentError> {
         self.ports
             .repository
             .expire_stale_plans(self.ports.clock.now(), 64)

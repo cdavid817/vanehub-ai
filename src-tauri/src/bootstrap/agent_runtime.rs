@@ -86,7 +86,6 @@ use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
-use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::tooling::extensions::application::PaddleOcrReadinessService;
 use crate::contexts::tooling::extensions::infrastructure::{
@@ -367,9 +366,9 @@ fn assemble_native_tool_registry(
         );
     }
     let delegation_readiness = DelegationReadinessService::new(
-        Arc::new(PassiveDelegationProbe::new(Arc::new(
-            CliExecutableLocatorAdapter::new(),
-        ))),
+        // The same launch resolution the runtime itself uses, so readiness judges the binary a
+        // delegation would actually start.
+        Arc::new(PassiveDelegationProbe::new(Arc::new(cli.clone()))),
         DelegationCapabilityDependencies {
             process_tree_control: true,
             analyze_isolation: true,

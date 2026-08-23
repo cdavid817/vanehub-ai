@@ -99,6 +99,16 @@ impl NormalizedCliVersion {
     }
 }
 
+/// Ordering between two raw version strings, for callers outside this context.
+///
+/// The delegation readiness check reads it to place a CLI's reported version between the minimum
+/// and maximum it was tested against. It goes through `NormalizedCliVersion` like everything else:
+/// the string comparison it replaced returned "cannot tell" for any version containing a hyphen,
+/// so every prerelease build came back unclassified rather than compared.
+pub(crate) fn compare_versions(left: &str, right: &str) -> Option<Ordering> {
+    NormalizedCliVersion::parse(left).compare(&NormalizedCliVersion::parse(right))
+}
+
 impl fmt::Display for NormalizedCliVersion {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.raw)

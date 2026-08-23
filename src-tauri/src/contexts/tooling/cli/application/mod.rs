@@ -1,65 +1,22 @@
-// The source-aware use cases are built alongside the flat `CliToolStatus` service they replace.
-// Task group 9 moves the Tauri commands onto them and task group 13 deletes what is left.
-//
-// `not(test)` makes the attribute double as a coverage gate: an item no test touches fails the
-// test build rather than passing unnoticed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
+//! The source-aware CLI use cases.
+//!
+//! One module per concern. The flat `CliToolStatus` service this replaced lived beside these until
+//! the Agent Runtime's launch path moved onto the environment snapshot; with no caller left it
+//! went, along with its ports, its models, and its own SQLite repository.
+
 pub(crate) mod environment_bulk;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
 pub(crate) mod environment_error;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
+pub(crate) mod environment_launch;
 pub(crate) mod environment_planning;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the CLI Tauri commands in task group 9; remove with that group"
-    )
-)]
 pub(crate) mod environment_ports;
+pub(crate) mod environment_refresh;
+pub(crate) mod environment_service;
+pub(crate) mod native_config;
+
 #[cfg(test)]
 #[path = "environment_readiness_tests.rs"]
 mod environment_readiness_tests;
-pub(crate) mod environment_refresh;
-pub(crate) mod environment_service;
 #[cfg(test)]
 mod environment_service_fixtures;
 #[cfg(test)]
 mod environment_test_doubles;
-
-mod error;
-mod models;
-mod ports;
-mod service;
-
-#[cfg(test)]
-mod tests;
-
-pub(crate) use error::CliApplicationError;
-pub(crate) use models::{
-    CliDetectionResult, CliLogCategory, CliLogEvent, CliLogLevel, CliOperationRequest,
-    CliOperationResult, CliOperationType, CliToolStatus, PreparedCliRefresh, StartedCliOperation,
-};
-pub(crate) use ports::{
-    CliClockPort, CliDetectionPort, CliExecutableLocatorPort, CliLoggingPort, CliOperationPort,
-    CliStatusRepository, NativeConfigPort,
-};
-pub(crate) use service::{CliApplicationPorts, CliApplicationService};
