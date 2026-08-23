@@ -3819,5 +3819,21 @@
   "workspaceScope.field.commandId": "命令",
   "workspaceScope.field.relativePath": "文件",
   "workspaceScope.field.hunkFingerprint": "差异块",
-  "workspaceScope.field.occurredAt": "时间"
+  "workspaceScope.field.occurredAt": "时间",
+  "workspaceBadge.count": "{{label}}：{{count, number}}",
+  "workspaceBadge.atLeast": "{{label}}：至少 {{count, number}}",
+  "workspaceBadge.unknown.loading": "{{label}}：正在加载",
+  "workspaceBadge.unknown.indexing": "{{label}}：尚未统计，索引仍在建立",
+  "workspaceBadge.unknown.partial": "{{label}}：未统计，本会话证据不完整",
+  "workspaceBadge.unknown.unavailable": "{{label}}：未统计，证据不可用",
+  "workspaceBadge.unknown.complete": "{{label}}：未统计",
+  "workspaceBadge.label.changes": "未查看的变更文件",
+  "workspaceBadge.label.terminal": "运行中的执行",
+  "workspaceBadge.label.shell": "活动 Shell",
+  "workspaceBadge.label.logs": "新增错误",
+  "workspaceBadge.label.traces": "运行中的 Run",
+  "workspaceBadge.label.report": "失败的验证",
+  "workspaceBadge.label.chat": "对话",
+  "workspaceBadge.label.documents": "文档",
+  "workspaceBadge.label.files": "文件"
 }

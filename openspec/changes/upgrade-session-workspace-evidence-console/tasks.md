@@ -117,9 +117,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 5.6 Pass `isVisible` to every mounted workspace panel.
 - [x] 5.7 Suspend Logs/Traces live subscriptions, Report refreshes, and Files/Documents polling when their mounted panel is hidden.
 - [x] 5.8 Detach the Shell xterm view when hidden while preserving the native Shell instance.
-- [ ] 5.9 Add one bounded `WorkspaceEvidenceSummary` query for tab badges and Basic Info health rather than mounting every panel query.
-- [ ] 5.10 Add accessible badge labels for Changes, Terminal History, Shell, Logs, Traces, and Report, and omit zero badges where the existing UI rule requires it.
-- [ ] 5.11 Debounce/coalesce identifier-only evidence notices and invalidate only affected query keys.
+- [x] 5.9 Add one bounded `WorkspaceEvidenceSummary` query for tab badges and Basic Info health rather than mounting every panel query.
+- [x] 5.10 Add accessible badge labels for Changes, Terminal History, Shell, Logs, Traces, and Report, and omit zero badges where the existing UI rule requires it.
+- [x] 5.11 Debounce/coalesce identifier-only evidence notices and invalidate only affected query keys.
 - [ ] 5.12 Add frontend tests for navigation from log to span, span to command, command to file, finding to run, and summary row to owning tab.
 - [ ] 5.13 Add tests proving hidden mounted panels retain local selection/forms while live work is suspended.
 

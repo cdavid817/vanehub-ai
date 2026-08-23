@@ -62,7 +62,12 @@ const root = "session-workspace-evidence" as const;
 export const evidenceQueryKeys = {
   all: () => [root] as const,
 
-  summary: (sessionId: EvidenceSessionId, seatId?: string) =>
+  /**
+   * Null is a key, not an error. The workspace mounts its summary query before a session is
+   * selected and leaves it disabled; giving that state its own key keeps the "no session" entry
+   * from colliding with a real one.
+   */
+  summary: (sessionId: EvidenceSessionId | null, seatId?: string) =>
     [root, "summary", sessionId, seatId ?? null] as const,
 
   /**

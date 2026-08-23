@@ -13,10 +13,14 @@ import type { ChatMessage } from "../types/chat";
 import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChatTab } from "./chat-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
-import { toolUseCount } from "./terminal-utils";
 import { ConversationOverflowMenu } from "./conversation-overflow-menu";
 import { SessionConversationHeader } from "./session-conversation-header";
 import { useMountedWorkspaceTabs } from "./use-mounted-workspace-tabs";
+import {
+  useWorkspaceEvidenceNotices,
+  useWorkspaceEvidenceSummary,
+} from "./use-workspace-evidence-summary";
+import { workspaceTabBadges, type WorkspaceTabBadge } from "./workspace-evidence-badges";
 import { evidenceTabOf } from "./workspace-evidence-reducer";
 import {
   WorkspaceEvidenceScopeProvider,
@@ -87,9 +91,15 @@ export function SessionTabs(props: SessionTabsProps) {
     return parsed.success ? parsed.data : null;
   }, [props.activeSession?.id]);
 
+  // One summary read and one notice subscription for the whole workspace, above the panels so
+  // neither multiplies by the number of mounted tabs.
+  const { state, summary } = useWorkspaceEvidenceSummary(sessionId);
+  useWorkspaceEvidenceNotices(sessionId);
+  const badges = useMemo(() => workspaceTabBadges(summary, state), [state, summary]);
+
   return (
     <WorkspaceEvidenceScopeProvider seatIds={seatIds} sessionId={sessionId}>
-      <SessionWorkspaceTabs {...props} seats={seats} />
+      <SessionWorkspaceTabs {...props} badges={badges} seats={seats} />
     </WorkspaceEvidenceScopeProvider>
   );
 }
@@ -97,6 +107,7 @@ export function SessionTabs(props: SessionTabsProps) {
 function SessionWorkspaceTabs({
   activeSession,
   apiComposer,
+  badges,
   focusMode = false,
   isStreaming = false,
   messages,
@@ -111,7 +122,10 @@ function SessionWorkspaceTabs({
   turnStatus = null,
   visibilityControls,
   workspaceTabsCollapsed = false,
-}: SessionTabsProps & { seats: SessionSeat[] }) {
+}: SessionTabsProps & {
+  badges: Partial<Record<SessionTabId, WorkspaceTabBadge>>;
+  seats: SessionSeat[];
+}) {
   const { t } = useTranslation();
   const sessionId = activeSession?.id ?? null;
   const isSharedThread = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
@@ -120,7 +134,6 @@ function SessionWorkspaceTabs({
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
   const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId);
-  const terminalCount = useMemo(() => toolUseCount(messages), [messages]);
 
   useEffect(() => {
     setSelectedSeat(null);
@@ -193,7 +206,7 @@ function SessionWorkspaceTabs({
         <div className="shrink-0 border-b border-border/70 bg-[hsl(var(--panel))] px-3 py-2">
           <SessionTabBar
             activeTab={activeTab}
-            badges={{ terminal: terminalCount > 0 ? terminalCount : undefined }}
+            badges={badges}
             onActivate={activate}
             onOpenSettings={onOpenSettings}
             session={activeSession}

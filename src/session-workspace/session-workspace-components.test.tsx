@@ -40,16 +40,19 @@ describe("session workspace components", () => {
     await activateAppLanguage("en");
   });
   it("renders all tab labels and the terminal badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "count", count: 1, tone: "neutral", atLeast: false } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
     expect(html).toContain("Workspace");
     expect(html).toContain("Changes");
     expect(html).toContain("Report");
     expect(html).toContain("1");
   });
 
-  it("omits a zero terminal-history badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 0 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
-    expect(html).not.toContain('title="0 entries"');
+  it("omits a badge for a known zero rather than rendering 0", () => {
+    // A known zero is the absence of a badge. "Zero live shells" and "nobody has counted the live
+    // shells" must not look the same, so the count case never carries a zero.
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "none" } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    expect(html).not.toContain('data-badge="terminal-count"');
+    expect(html).not.toContain('data-badge="terminal-unknown"');
   });
 
   it("renders tool execution cards and report values", () => {

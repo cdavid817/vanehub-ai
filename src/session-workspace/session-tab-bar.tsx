@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import { FolderOpenerControl } from "./folder-opener-control";
+import { workspaceBadgeLabelKey, type WorkspaceTabBadge } from "./workspace-evidence-badges";
 
 export type SessionTabId =
   | "chat"
@@ -52,7 +53,7 @@ export function SessionTabBar({
   onOpenSettings,
 }: {
   activeTab: SessionTabId;
-  badges: Partial<Record<SessionTabId, number>>;
+  badges: Partial<Record<SessionTabId, WorkspaceTabBadge>>;
   onActivate: (tab: SessionTabId) => void;
   session: Session | null;
   onOpenSettings: () => void;
@@ -107,17 +108,57 @@ export function SessionTabBar({
           >
             <Icon aria-hidden="true" className="h-3.5 w-3.5" />
             <span>{label}</span>
-            {badge !== undefined && badge > 0 ? (
-              <span className="min-w-5 rounded-full border border-border px-1 font-mono text-[10px]" title={t("sessionTabs.badge", { count: badge })}>
-                {badge}
-              </span>
-            ) : null}
+            <TabBadge badge={badge} tab={id} />
           </button>
         );
       })}
     </div>
     <FolderOpenerControl onOpenSettings={onOpenSettings} session={session} />
     </div>
+  );
+}
+
+/**
+ * A badge states a count or states that it has none — never both, and never a zero standing in for
+ * an answer nobody has.
+ *
+ * The placeholder is a glyph with a spoken name. Rendering `0` for an index that is still building
+ * would be a claim the workspace cannot support, and a reader has no way to tell the two apart.
+ */
+function TabBadge({ badge, tab }: { badge: WorkspaceTabBadge | undefined; tab: SessionTabId }) {
+  const { t } = useTranslation();
+  if (badge === undefined || badge.kind === "none") return null;
+  const subject = t(workspaceBadgeLabelKey(tab));
+
+  if (badge.kind === "unknown") {
+    return (
+      <span
+        aria-label={t(`workspaceBadge.unknown.${badge.reason}`, { label: subject })}
+        className="min-w-5 rounded-full border border-dashed border-border px-1 text-center font-mono text-[10px] text-muted-foreground"
+        data-badge={`${tab}-unknown`}
+        title={t(`workspaceBadge.unknown.${badge.reason}`, { label: subject })}
+      >
+        ·
+      </span>
+    );
+  }
+
+  const description = t(badge.atLeast ? "workspaceBadge.atLeast" : "workspaceBadge.count", {
+    count: badge.count,
+    label: subject,
+  });
+  return (
+    <span
+      aria-label={description}
+      className={cn(
+        "min-w-5 rounded-full border px-1 font-mono text-[10px]",
+        badge.tone === "danger" ? "border-destructive text-destructive" : "border-border",
+      )}
+      data-badge={`${tab}-count`}
+      title={description}
+    >
+      {badge.atLeast ? `≥${badge.count}` : badge.count}
+    </span>
   );
 }
 

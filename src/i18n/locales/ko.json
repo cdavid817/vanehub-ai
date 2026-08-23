@@ -3819,5 +3819,21 @@
   "workspaceScope.field.commandId": "명령",
   "workspaceScope.field.relativePath": "파일",
   "workspaceScope.field.hunkFingerprint": "헝크",
-  "workspaceScope.field.occurredAt": "시각"
+  "workspaceScope.field.occurredAt": "시각",
+  "workspaceBadge.count": "{{label}}: {{count, number}}",
+  "workspaceBadge.atLeast": "{{label}}: 최소 {{count, number}}",
+  "workspaceBadge.unknown.loading": "{{label}}: 불러오는 중",
+  "workspaceBadge.unknown.indexing": "{{label}}: 아직 집계되지 않음, 색인 생성 중",
+  "workspaceBadge.unknown.partial": "{{label}}: 집계되지 않음, 이 세션의 증거가 불완전합니다",
+  "workspaceBadge.unknown.unavailable": "{{label}}: 집계되지 않음, 증거를 사용할 수 없습니다",
+  "workspaceBadge.unknown.complete": "{{label}}: 집계되지 않음",
+  "workspaceBadge.label.changes": "확인하지 않은 변경 파일",
+  "workspaceBadge.label.terminal": "실행 중인 작업",
+  "workspaceBadge.label.shell": "실행 중인 셸",
+  "workspaceBadge.label.logs": "새 오류",
+  "workspaceBadge.label.traces": "실행 중인 Run",
+  "workspaceBadge.label.report": "실패한 검증",
+  "workspaceBadge.label.chat": "대화",
+  "workspaceBadge.label.documents": "문서",
+  "workspaceBadge.label.files": "파일"
 }

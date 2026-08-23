@@ -3819,5 +3819,21 @@
   "workspaceScope.field.commandId": "Command",
   "workspaceScope.field.relativePath": "File",
   "workspaceScope.field.hunkFingerprint": "Hunk",
-  "workspaceScope.field.occurredAt": "Time"
+  "workspaceScope.field.occurredAt": "Time",
+  "workspaceBadge.count": "{{label}}: {{count, number}}",
+  "workspaceBadge.atLeast": "{{label}}: at least {{count, number}}",
+  "workspaceBadge.unknown.loading": "{{label}}: still loading",
+  "workspaceBadge.unknown.indexing": "{{label}}: not counted yet, the index is still building",
+  "workspaceBadge.unknown.partial": "{{label}}: not counted, evidence for this session is partial",
+  "workspaceBadge.unknown.unavailable": "{{label}}: not counted, evidence is unavailable",
+  "workspaceBadge.unknown.complete": "{{label}}: not counted",
+  "workspaceBadge.label.changes": "Unviewed changed files",
+  "workspaceBadge.label.terminal": "Running executions",
+  "workspaceBadge.label.shell": "Live shells",
+  "workspaceBadge.label.logs": "New errors",
+  "workspaceBadge.label.traces": "Running runs",
+  "workspaceBadge.label.report": "Failed verifications",
+  "workspaceBadge.label.chat": "Conversation",
+  "workspaceBadge.label.documents": "Documents",
+  "workspaceBadge.label.files": "Files"
 }

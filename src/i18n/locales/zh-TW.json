@@ -3819,5 +3819,21 @@
   "workspaceScope.field.commandId": "命令",
   "workspaceScope.field.relativePath": "檔案",
   "workspaceScope.field.hunkFingerprint": "差異區塊",
-  "workspaceScope.field.occurredAt": "時間"
+  "workspaceScope.field.occurredAt": "時間",
+  "workspaceBadge.count": "{{label}}：{{count, number}}",
+  "workspaceBadge.atLeast": "{{label}}：至少 {{count, number}}",
+  "workspaceBadge.unknown.loading": "{{label}}：正在載入",
+  "workspaceBadge.unknown.indexing": "{{label}}：尚未統計，索引仍在建立",
+  "workspaceBadge.unknown.partial": "{{label}}：未統計，本工作階段證據不完整",
+  "workspaceBadge.unknown.unavailable": "{{label}}：未統計，證據無法取得",
+  "workspaceBadge.unknown.complete": "{{label}}：未統計",
+  "workspaceBadge.label.changes": "未檢視的變更檔案",
+  "workspaceBadge.label.terminal": "執行中的作業",
+  "workspaceBadge.label.shell": "使用中的 Shell",
+  "workspaceBadge.label.logs": "新增錯誤",
+  "workspaceBadge.label.traces": "執行中的 Run",
+  "workspaceBadge.label.report": "失敗的驗證",
+  "workspaceBadge.label.chat": "對話",
+  "workspaceBadge.label.documents": "文件",
+  "workspaceBadge.label.files": "檔案"
 }
