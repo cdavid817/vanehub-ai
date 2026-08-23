@@ -24,7 +24,8 @@ pub(crate) use identity::{
 };
 pub(crate) use payload::{
     CommandRuntimeKind, EvidenceKind, EvidenceOutcome, FileChangeKind, OutputAvailability,
-    SafeEvidencePayload, UsageQuality, VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
+    ReviewDecisionScope, ReviewDecisionValue, SafeEvidencePayload, UsageQuality,
+    VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
 };
 pub(crate) use safety::SafeBasename;
 

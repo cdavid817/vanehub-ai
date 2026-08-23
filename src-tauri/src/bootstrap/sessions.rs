@@ -96,7 +96,7 @@ pub(crate) fn assemble_sessions_api(
         eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
         runtime: Arc::new(runtime_adapter.clone()),
     })
-    .with_evidence(evidence);
+    .with_evidence(evidence.clone());
     let review = ReviewApplicationService::new(
         Arc::new(SqliteReviewRepository::new(database)),
         Arc::new(SystemReviewClock),
@@ -105,7 +105,8 @@ pub(crate) fn assemble_sessions_api(
         Arc::new(WorkspaceReviewSnapshotAdapter(workspaces.clone())),
         Arc::new(SessionReviewOperationAdapter(operations.clone())),
         Arc::new(SessionReviewLoggingAdapter(logging)),
-    );
+    )
+    .with_evidence(evidence.clone());
     (
         SessionsApi::new(service).with_review(review),
         runtime_adapter,

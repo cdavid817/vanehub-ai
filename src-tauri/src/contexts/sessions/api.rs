@@ -18,7 +18,8 @@ pub(crate) use super::application::{
 };
 use super::application::{ReviewApplicationService, SessionsApplicationService};
 pub(crate) use super::application::{
-    SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
 };
 pub(crate) use super::domain::{
     AccountingUnit, LoopSessionRole, MeasurementKind, MeasurementQuality, RecoveryDecision,

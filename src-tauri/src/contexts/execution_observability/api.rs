@@ -42,8 +42,9 @@ pub(crate) mod evidence {
         CommandRuntimeKind, EvidenceAgentId, EvidenceCorrelation, EvidenceFileMutationId,
         EvidenceOperationId, EvidenceOutcome, EvidenceSeatId, EvidenceSessionId,
         EvidenceSourceContext, EvidenceToolCallId, ExecutionFidelity, ExecutionStatus,
-        FileChangeKind, QueryCoverage, RedactionReceipt, SafeBasename, SafeEvidencePayload,
-        SafeFingerprint, SafeReasonCode, SourceEventId, SpanId, UsageQuality,
+        FileChangeKind, QueryCoverage, RedactionReceipt, ReviewDecisionScope, ReviewDecisionValue,
+        SafeBasename, SafeEvidencePayload, SafeFingerprint, SafeReasonCode, SourceEventId, SpanId,
+        UsageQuality, VerificationOutcome,
     };
     pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
 }

@@ -16,12 +16,13 @@ use crate::contexts::execution_observability::api::evidence::{
     BoundedLabel, CommandRuntimeKind, EvidenceCorrelation, EvidenceFileMutationId, EvidenceOutcome,
     EvidenceSessionId, EvidenceSourceContext, EvidenceToolCallId, ExecutionEvidenceApi,
     ExecutionFidelity, ExecutionStatus, FileChangeKind, RecordEvidenceInput, RedactionReceipt,
-    SafeBasename, SafeEvidencePayload, SafeFingerprint, SafeReasonCode, SourceEventId, SpanId,
-    UsageQuality,
+    ReviewDecisionScope, ReviewDecisionValue, SafeBasename, SafeEvidencePayload, SafeFingerprint,
+    SafeReasonCode, SourceEventId, SpanId, UsageQuality, VerificationOutcome,
 };
 use crate::contexts::operations::api::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::sessions::api::{
-    SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
 };
 use crate::contexts::workspaces::api::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
@@ -722,14 +723,27 @@ fn receipt_for(rewritten: bool) -> Option<RedactionReceipt> {
 
 impl SessionEvidencePort for EvidenceBridge {
     fn try_publish(&self, signal: SessionEvidenceSignal) {
-        let SessionEvidenceSignal::UsageObserved {
+        self.offer(session_session(&signal), map_session_signal(&signal));
+    }
+}
+
+fn session_session(signal: &SessionEvidenceSignal) -> &str {
+    match signal {
+        SessionEvidenceSignal::UsageObserved { session_id, .. }
+        | SessionEvidenceSignal::ReviewDecisionRecorded { session_id, .. }
+        | SessionEvidenceSignal::VerificationCompleted { session_id, .. } => session_id,
+    }
+}
+
+fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceInput> {
+    match signal {
+        SessionEvidenceSignal::UsageObserved {
             session_id,
             invocation_id,
             run_id,
             quality,
             occurred_at,
-        } = &signal;
-        let input = (|| {
+        } => {
             let mut correlation = correlation(session_id, None, None)?;
             correlation.run_id = run_id.as_ref().and_then(|value| {
                 crate::contexts::execution_observability::api::ExecutionRunId::parse(value.clone())
@@ -744,10 +758,11 @@ impl SessionEvidencePort for EvidenceBridge {
                 status: None,
                 fidelity: ExecutionFidelity::Native,
                 payload: SafeEvidencePayload::UsageObserved {
-                    // A count and a classification. The token dimensions stay in sessions;
-                    // duplicating them would create a second total that can disagree with the
-                    // first, with nothing to say which is right. The invocation this points at is
-                    // the source event id above, which is also what makes a retry idempotent.
+                    // A count and a classification. The token dimensions, the cache totals, and
+                    // any cost stay in sessions; a second copy here would be a second total that
+                    // can disagree with the first, with nothing to say which is right. The
+                    // invocation is the source event id, which is also what makes a retry
+                    // idempotent.
                     response_count: 1,
                     quality: match quality {
                         SessionUsageEvidenceQuality::Reported => UsageQuality::Reported,
@@ -759,8 +774,84 @@ impl SessionEvidencePort for EvidenceBridge {
                 },
                 redaction: RedactionReceipt::none(),
             })
-        })();
-        self.offer(session_id, input);
+        }
+        SessionEvidenceSignal::ReviewDecisionRecorded {
+            session_id,
+            review_id,
+            decision,
+            witness_fingerprint,
+            occurred_at,
+        } => {
+            let correlation = correlation(session_id, None, None)?;
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Sessions,
+                // The witness is part of the key: a review re-decided after the diff moved on is
+                // a second decision, and keying on the review alone would keep only the first.
+                source_event_id: SourceEventId::parse(format!(
+                    "review-decision:{review_id}:{witness_fingerprint}"
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: None,
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::ReviewDecisionRecorded {
+                    // Review scope only. Hunk and file-viewed scopes exist in this enum for 13.2
+                    // and 13.5; publishing one now would mean deriving it from a review-level
+                    // decision, which is a guess wearing an observation's clothes.
+                    scope: ReviewDecisionScope::Review,
+                    decision: match decision {
+                        SessionReviewDecision::Accepted => ReviewDecisionValue::Accepted,
+                        SessionReviewDecision::ChangesRequested => {
+                            ReviewDecisionValue::ChangesRequested
+                        }
+                    },
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        SessionEvidenceSignal::VerificationCompleted {
+            session_id,
+            run_id,
+            verification_run_id,
+            name,
+            outcome,
+            passed_count,
+            failed_count,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, None, None)?;
+            correlation.run_id = run_id.as_ref().and_then(|value| {
+                crate::contexts::execution_observability::api::ExecutionRunId::parse(value.clone())
+                    .ok()
+            });
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Sessions,
+                source_event_id: SourceEventId::parse(format!(
+                    "verification:{verification_run_id}"
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(match outcome {
+                    SessionVerificationOutcome::Passed => ExecutionStatus::Succeeded,
+                    SessionVerificationOutcome::Failed => ExecutionStatus::Failed,
+                }),
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::VerificationCompleted {
+                    // The check's name and its counts. What it said about any particular line is
+                    // a finding, and findings live in the store that can render them safely.
+                    name: BoundedLabel::parse("verification name", name.clone()).ok()?,
+                    outcome: match outcome {
+                        SessionVerificationOutcome::Passed => VerificationOutcome::Passed,
+                        SessionVerificationOutcome::Failed => VerificationOutcome::Failed,
+                    },
+                    passed_count: *passed_count,
+                    failed_count: *failed_count,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
     }
 }
 

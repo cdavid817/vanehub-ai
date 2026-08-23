@@ -113,6 +113,7 @@ pub(crate) struct ReviewApplicationService {
     snapshots: Arc<dyn ReviewSnapshotPort>,
     operations: Arc<dyn ReviewOperationPort>,
     logging: Arc<dyn ReviewLoggingPort>,
+    evidence: Arc<dyn super::SessionEvidencePort>,
 }
 
 impl ReviewApplicationService {
@@ -133,7 +134,14 @@ impl ReviewApplicationService {
             snapshots,
             operations,
             logging,
+            evidence: Arc::new(super::NoSessionEvidence),
         }
+    }
+
+    /// Bootstrap swaps in the real publisher; the default keeps a build with no bridge running.
+    pub(crate) fn with_evidence(mut self, evidence: Arc<dyn super::SessionEvidencePort>) -> Self {
+        self.evidence = evidence;
+        self
     }
 
     pub(crate) fn start_action(
@@ -274,6 +282,20 @@ impl ReviewApplicationService {
             review_id: review.id.clone(),
             item_count: 1,
         });
+        // After `save` commits. A decision reported first would survive a rollback as a record of
+        // something nobody decided. `Pending` publishes nothing: it is the absence of a decision.
+        if let Some(decision) = review_evidence_decision(review.decision) {
+            self.evidence
+                .try_publish(super::SessionEvidenceSignal::ReviewDecisionRecorded {
+                    session_id: review.session_id.clone(),
+                    review_id: review.id.clone(),
+                    decision,
+                    // The snapshot fingerprint, which is what makes a decision about the current
+                    // diff distinguishable from one about a diff that has since moved on.
+                    witness_fingerprint: review.fingerprint.clone(),
+                    occurred_at: review.updated_at.clone(),
+                });
+        }
         Ok(review)
     }
 
@@ -326,7 +348,38 @@ impl ReviewApplicationService {
                 .map_err(ReviewApplicationError::Domain)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.add_findings(review_id, findings)
+        // Errors are what an automated check failing means here; anything less severe is an
+        // observation it made, not a verdict against it.
+        let failed = findings
+            .iter()
+            .filter(|finding| {
+                finding.severity == crate::contexts::sessions::domain::ReviewFindingSeverity::Error
+            })
+            .count() as u32;
+        let total = findings.len() as u32;
+        let review = self.add_findings(review_id, findings)?;
+        // After `add_findings` commits. A check reported before its findings persist would claim
+        // an outcome nobody can look up.
+        self.evidence
+            .try_publish(super::SessionEvidenceSignal::VerificationCompleted {
+                session_id: review.session_id.clone(),
+                run_id: None,
+                // The operation is the check's own run. It is what makes a re-run of the same
+                // check a second observation and a replayed callback the same one.
+                verification_run_id: operation_id.to_string(),
+                name: source.to_string(),
+                outcome: if failed > 0 {
+                    super::SessionVerificationOutcome::Failed
+                } else {
+                    super::SessionVerificationOutcome::Passed
+                },
+                // Counts, never the findings. A finding's title quotes the code it is about, and
+                // the finding store already holds it behind rules that can render it safely.
+                passed_count: Some(total.saturating_sub(failed)),
+                failed_count: Some(failed),
+                occurred_at: review.updated_at.clone(),
+            });
+        Ok(review)
     }
 
     pub(crate) fn prepare_feedback(
@@ -407,6 +460,16 @@ impl fmt::Display for ReviewApplicationError {
 }
 
 impl std::error::Error for ReviewApplicationError {}
+
+/// `Pending` is not a decision. Recording it would put "nobody has decided yet" into a journal of
+/// things that happened, and a reader counting decisions would count it.
+fn review_evidence_decision(decision: ReviewDecision) -> Option<super::SessionReviewDecision> {
+    match decision {
+        ReviewDecision::Accepted => Some(super::SessionReviewDecision::Accepted),
+        ReviewDecision::ChangesRequested => Some(super::SessionReviewDecision::ChangesRequested),
+        ReviewDecision::Pending => None,
+    }
+}
 
 #[cfg(test)]
 mod tests {

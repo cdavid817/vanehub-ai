@@ -27,7 +27,8 @@ use crate::contexts::execution_observability::infrastructure::{
 };
 use crate::contexts::operations::api::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::sessions::api::{
-    SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
 };
 use crate::contexts::workspaces::api::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
@@ -1077,6 +1078,157 @@ fn stored_reason_codes(harness: &Harness) -> std::collections::BTreeSet<String> 
         .query_map([], |row| row.get::<_, String>(0))
         .expect("query");
     rows.filter_map(Result::ok).collect()
+}
+
+/// A review decision reaches the journal as a decision about a review, with the snapshot it was
+/// made against.
+#[test]
+fn a_review_decision_records_its_scope_and_witness() {
+    let harness = harness("bridge-review-decision");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::ReviewDecisionRecorded {
+            session_id: SESSION.to_string(),
+            review_id: "review-1".to_string(),
+            decision: SessionReviewDecision::ChangesRequested,
+            witness_fingerprint: "snapshot-a".to_string(),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(
+        stored.contains("review"),
+        "the scope is review-level: {stored}"
+    );
+    // Hunk and file-viewed scopes belong to 13.2 and 13.5. Emitting one now would mean deriving it
+    // from a review-level decision, which is a guess wearing an observation's clothes.
+    assert!(!stored.contains("hunk"));
+    assert!(!stored.contains("fileViewed"));
+}
+
+/// Re-deciding a review after its diff moved on is a second decision. Keying on the review alone
+/// would keep only the first, so a reviewer who accepted, saw new changes, and asked for more would
+/// read as having only accepted.
+#[test]
+fn a_review_re_decided_against_a_new_snapshot_records_again() {
+    let harness = harness("bridge-review-re-decided");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for witness in ["snapshot-a", "snapshot-b"] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                decision: SessionReviewDecision::Accepted,
+                witness_fingerprint: witness.to_string(),
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+}
+
+/// A verification records its name and counts, and reaches a terminal record.
+#[test]
+fn a_verification_outcome_records_its_counts() {
+    let harness = harness("bridge-verification");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::VerificationCompleted {
+            session_id: SESSION.to_string(),
+            run_id: None,
+            verification_run_id: "verification-1".to_string(),
+            name: "cargo test".to_string(),
+            outcome: SessionVerificationOutcome::Failed,
+            passed_count: Some(138),
+            failed_count: Some(2),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let record = single_record(&harness, "verification");
+    assert_eq!(
+        crate::contexts::execution_observability::api::evidence::status_token(record.status),
+        "failed"
+    );
+    let stored = stored_payload_json(&harness);
+    assert!(stored.contains("138") && stored.contains('2'));
+}
+
+/// Usage evidence points at an observation; it never restates it. A second copy of a total is a
+/// second number that can disagree with the first, with nothing to say which is right.
+#[test]
+fn usage_evidence_carries_no_totals_or_cost() {
+    let harness = harness("bridge-usage-no-totals");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::UsageObserved {
+            session_id: SESSION.to_string(),
+            invocation_id: "invocation-1".to_string(),
+            run_id: None,
+            quality: SessionUsageEvidenceQuality::Estimated,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(
+        stored.contains("estimated"),
+        "the quality travels: {stored}"
+    );
+    for forbidden in [
+        "inputTokens",
+        "outputTokens",
+        "cache",
+        "cost",
+        "price",
+        "usd",
+    ] {
+        assert!(
+            !stored.contains(forbidden),
+            "usage evidence restated a {forbidden}: {stored}"
+        );
+    }
+}
+
+/// One invocation is one usage observation however many times it is reported.
+#[test]
+fn a_repeated_usage_reference_is_recorded_once() {
+    let harness = harness("bridge-usage-idempotent");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..3 {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::UsageObserved {
+                session_id: SESSION.to_string(),
+                invocation_id: "invocation-1".to_string(),
+                run_id: None,
+                quality: SessionUsageEvidenceQuality::Reported,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 1);
 }
 
 fn stored_fidelity(harness: &Harness) -> String {
