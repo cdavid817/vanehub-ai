@@ -721,7 +721,7 @@
   "cli.planWarning.exact-version-not-confirmed": "无法确认该来源支持这个确切版本。",
   "cli.planWarning.active-installation-shadowed": "PATH 中靠前的另一处安装在此操作之后仍会优先命中。",
   "cli.planWarning.downgrade-may-lose-state": "退回旧版本可能让该工具已有的状态不兼容。",
-  "cli.skip.already-current": "已是当前版本",
+  "cli.skip.already-current": "已是目标版本",
   "cli.skip.detect-only-source": "其来源仅支持检测",
   "cli.skip.catalog-unavailable": "版本目录不可用",
   "cli.skip.needs-auth": "需要先登录",

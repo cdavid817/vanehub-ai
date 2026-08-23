@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, type QueryClient } from "@tanstack/react-query";
 import { operationService } from "../../../services/runtime-operation-client";
 import type { CliBulkItemResult } from "../../../types/cli-environment";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
 import { isOperationRunning } from "./cli-operation-status";
+
+/** Returns the same object when nothing was dropped, so setting state cannot force a re-render. */
+function withoutOperations(
+  current: Record<string, string>,
+  finished: ReadonlySet<string>,
+): Record<string, string> {
+  const kept = Object.entries(current).filter(([, id]) => !finished.has(id));
+  return kept.length === Object.keys(current).length ? current : Object.fromEntries(kept);
+}
 
 /**
  * Which operation belongs to which tool, and what it is doing.
@@ -50,28 +59,62 @@ export function useCliOperationTracking(
     return Object.fromEntries(entries);
   }, [operationIds, queries]);
 
+  // Which operations have already been reacted to, and which were seen mid-flight. `useQueries`
+  // hands back a fresh array every render, so the effect below re-runs constantly; without these
+  // it re-set both maps to brand-new empty objects each time, and re-setting state from an effect
+  // whose own dependency changes on every render is a render loop that ends in a dead worker.
+  const settled = useRef(new Set<string>());
+  const seenRunning = useRef(new Set<string>());
+
   useEffect(() => {
-    const finished = new Set(
-      operationIds.filter((id) => operationsById[id] && !isOperationRunning(operationsById[id])),
-    );
+    const started = new Set([...Object.values(refreshing), ...Object.values(mutating)]);
+    const finished = new Set<string>();
+    for (const id of operationIds) {
+      const task = operationsById[id];
+      if (!task) continue;
+      if (isOperationRunning(task)) {
+        seenRunning.current.add(id);
+        continue;
+      }
+      if (settled.current.has(id)) continue;
+      settled.current.add(id);
+      // An operation already finished when this page first looked at it changed nothing while the
+      // page was watching, so there is nothing to invalidate on its account.
+      if (seenRunning.current.has(id) || started.has(id)) finished.add(id);
+    }
     if (finished.size === 0) return;
-    setRefreshing((current) =>
-      Object.fromEntries(Object.entries(current).filter(([, id]) => !finished.has(id))));
-    setMutating((current) =>
-      Object.fromEntries(Object.entries(current).filter(([, id]) => !finished.has(id))));
+    setRefreshing((current) => withoutOperations(current, finished));
+    setMutating((current) => withoutOperations(current, finished));
     // Only the CLI environment list. An unrelated query has no reason to refetch because a CLI
     // operation ended.
     void queryClient.invalidateQueries({ queryKey: snapshotsQueryKey });
-  }, [operationIds, operationsById, queryClient, snapshotsQueryKey]);
+  }, [operationIds, operationsById, refreshing, mutating, queryClient, snapshotsQueryKey]);
+
+  /**
+   * The operation a tool's controls act on.
+   *
+   * `lastOperationId` is in the chain because an operation started before this page mounted -- or
+   * by another window -- is still the one running against that tool. Leaving it out gave the card
+   * an operation to display and no operation to cancel.
+   */
+  const operationIdByAgentId = useMemo(() => {
+    const byAgent: Record<string, string | undefined> = {};
+    for (const snapshot of snapshots) {
+      byAgent[snapshot.agentId] = mutating[snapshot.agentId]
+        ?? refreshing[snapshot.agentId]
+        ?? snapshot.lastOperationId
+        ?? undefined;
+    }
+    return byAgent;
+  }, [snapshots, mutating, refreshing]);
 
   const operationsByAgentId = useMemo(() => {
     const byAgent: Record<string, OperationTask | undefined> = {};
-    for (const snapshot of snapshots) {
-      const id = mutating[snapshot.agentId] ?? refreshing[snapshot.agentId] ?? snapshot.lastOperationId;
-      byAgent[snapshot.agentId] = id ? operationsById[id] : undefined;
+    for (const [agentId, id] of Object.entries(operationIdByAgentId)) {
+      byAgent[agentId] = id ? operationsById[id] : undefined;
     }
     return byAgent;
-  }, [snapshots, mutating, refreshing, operationsById]);
+  }, [operationIdByAgentId, operationsById]);
 
   /** Polls one operation to its terminal state and returns its result payload. */
   const awaitResult = useCallback(async (operationId: string) => {
@@ -118,7 +161,7 @@ export function useCliOperationTracking(
     },
 
     cancel(agentId: string) {
-      const operationId = mutating[agentId] ?? refreshing[agentId];
+      const operationId = operationIdByAgentId[agentId];
       if (!operationId) return;
       // Through the operation service, which owns the cancellation flag the backend polls.
       void operationService.cancelOperation(operationId);

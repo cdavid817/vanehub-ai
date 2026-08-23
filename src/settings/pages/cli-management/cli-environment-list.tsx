@@ -15,6 +15,8 @@ export function CliEnvironmentList({
   operations,
   refreshingAgentIds,
   mutatingAgentIds,
+  detailsAgentId,
+  detailsPanelId,
   onSelectedVersionChange,
   onRefresh,
   onRequestChange,
@@ -26,10 +28,16 @@ export function CliEnvironmentList({
   operations: Record<string, OperationTask | undefined>;
   refreshingAgentIds: ReadonlySet<string>;
   mutatingAgentIds: ReadonlySet<string>;
+  detailsAgentId: string | null;
+  detailsPanelId: string;
   onSelectedVersionChange: (agentId: string, version: string) => void;
   onRefresh: (agentId: string) => void;
-  onRequestChange: (snapshot: CliEnvironmentSnapshot, targetVersion: string) => void;
-  onOpenDetails: (agentId: string) => void;
+  onRequestChange: (
+    snapshot: CliEnvironmentSnapshot,
+    targetVersion: string,
+    trigger: HTMLElement,
+  ) => void;
+  onOpenDetails: (agentId: string, trigger: HTMLElement) => void;
   onCancelOperation: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
@@ -46,6 +54,8 @@ export function CliEnvironmentList({
     <div className="grid gap-4 xl:grid-cols-2">
       {snapshots.map((snapshot) => (
         <CliEnvironmentCard
+          detailsOpen={detailsAgentId === snapshot.agentId}
+          detailsPanelId={detailsPanelId}
           key={snapshot.agentId}
           mutating={mutatingAgentIds.has(snapshot.agentId)}
           operation={operations[snapshot.agentId]}
@@ -53,9 +63,9 @@ export function CliEnvironmentList({
           selectedVersion={selectedVersions[snapshot.agentId] ?? ""}
           snapshot={snapshot}
           onCancelOperation={() => onCancelOperation(snapshot.agentId)}
-          onOpenDetails={() => onOpenDetails(snapshot.agentId)}
+          onOpenDetails={(trigger) => onOpenDetails(snapshot.agentId, trigger)}
           onRefresh={() => onRefresh(snapshot.agentId)}
-          onRequestChange={(version) => onRequestChange(snapshot, version)}
+          onRequestChange={(version, trigger) => onRequestChange(snapshot, version, trigger)}
           onSelectedVersionChange={(version) => onSelectedVersionChange(snapshot.agentId, version)}
         />
       ))}

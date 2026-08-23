@@ -721,7 +721,7 @@
   "cli.planWarning.exact-version-not-confirmed": "Support for this exact version could not be confirmed for this source.",
   "cli.planWarning.active-installation-shadowed": "Another installation earlier in PATH will still win after this runs.",
   "cli.planWarning.downgrade-may-lose-state": "Going back a version may leave this tool's stored state incompatible.",
-  "cli.skip.already-current": "Already current",
+  "cli.skip.already-current": "Already at the target version",
   "cli.skip.detect-only-source": "Its source is detect-only",
   "cli.skip.catalog-unavailable": "Version catalog unavailable",
   "cli.skip.needs-auth": "Sign-in required first",

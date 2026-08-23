@@ -28,10 +28,19 @@ interface CliEnvironmentCardProps {
   refreshing: boolean;
   /** Per tool, never global: one tool's mutation has no bearing on another tool's buttons. */
   mutating: boolean;
+  /** Whether this card's drawer is the one on screen, so the trigger can report its own state. */
+  detailsOpen: boolean;
+  /** The id the drawer renders under, for `aria-controls` on the trigger. */
+  detailsPanelId: string;
   onSelectedVersionChange: (version: string) => void;
   onRefresh: () => void;
-  onRequestChange: (targetVersion: string) => void;
-  onOpenDetails: () => void;
+  /**
+   * The dialogs restore focus to the control that opened them, so both callbacks hand over the
+   * element itself. Reading `document.activeElement` instead works in a browser and silently
+   * resolves to `<body>` for a click that never moved focus.
+   */
+  onRequestChange: (targetVersion: string, trigger: HTMLElement) => void;
+  onOpenDetails: (trigger: HTMLElement) => void;
   onCancelOperation: () => void;
 }
 
@@ -70,11 +79,14 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
+            aria-controls={props.detailsOpen ? props.detailsPanelId : undefined}
+            aria-expanded={props.detailsOpen}
+            aria-haspopup="dialog"
             aria-label={t("cli.details.open", { name: snapshot.displayName })}
             size="icon"
             title={t("cli.details.open", { name: snapshot.displayName })}
             variant="ghost"
-            onClick={props.onOpenDetails}
+            onClick={(event) => props.onOpenDetails(event.currentTarget)}
           >
             <Info aria-hidden="true" />
           </Button>
@@ -154,7 +166,7 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
         {changeable ? (
           <Button
             disabled={props.mutating || operationRunning}
-            onClick={() => selected && props.onRequestChange(selected)}
+            onClick={(event) => selected && props.onRequestChange(selected, event.currentTarget)}
           >
             <ArrowUpCircle aria-hidden="true" />
             {t("cli.action.change")}

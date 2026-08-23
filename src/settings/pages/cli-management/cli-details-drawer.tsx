@@ -29,6 +29,7 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
  */
 export function CliDetailsDrawer({
   snapshot,
+  panelId,
   operation,
   diagnosticsRunning,
   onClose,
@@ -37,6 +38,8 @@ export function CliDetailsDrawer({
   returnFocus,
 }: {
   snapshot: CliEnvironmentSnapshot;
+  /** What the card's trigger names in `aria-controls`, so the two are provably the same thing. */
+  panelId: string;
   operation?: OperationTask;
   diagnosticsRunning: boolean;
   onClose: () => void;
@@ -62,7 +65,7 @@ export function CliDetailsDrawer({
       title={t("cli.details.title", { name: snapshot.displayName })}
       onClose={onClose}
     >
-      <div className="space-y-4">
+      <div className="space-y-4" id={panelId}>
         <div
           aria-label={t("cli.details.tabs")}
           className="flex flex-wrap gap-1 border-b border-border"

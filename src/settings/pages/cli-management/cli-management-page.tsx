@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TerminalSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -49,6 +49,7 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
   const [bulkPlanId, setBulkPlanId] = useState<string | null>(null);
   const [bulkResults, setBulkResults] = useState<readonly CliBulkItemResult[] | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const detailsPanelId = `${useId()}-cli-details`;
 
   const snapshotsQuery = useQuery({
     queryKey: cliEnvironmentsQueryKey,
@@ -206,23 +207,21 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
         </div>
       ) : null}
       <CliEnvironmentList
+        detailsAgentId={detailsAgentId}
+        detailsPanelId={detailsPanelId}
         mutatingAgentIds={tracking.mutatingAgentIds}
         operations={tracking.operationsByAgentId}
         refreshingAgentIds={tracking.refreshingAgentIds}
         selectedVersions={selectedVersions}
         snapshots={visible}
         onCancelOperation={(agentId) => tracking.cancel(agentId)}
-        onOpenDetails={(agentId) => {
-          triggerRef.current = document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
+        onOpenDetails={(agentId, trigger) => {
+          triggerRef.current = trigger;
           setDetailsAgentId(agentId);
         }}
         onRefresh={(agentId) => refreshMutation.mutate(agentId)}
-        onRequestChange={(snapshot, targetVersion) => {
-          triggerRef.current = document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
+        onRequestChange={(snapshot, targetVersion, trigger) => {
+          triggerRef.current = trigger;
           prepareMutation.mutate({ snapshot, targetVersion });
         }}
         onSelectedVersionChange={(agentId, version) =>
@@ -233,6 +232,7 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
         <CliDetailsDrawer
           diagnosticsRunning={tracking.mutatingAgentIds.has(detailsSnapshot.agentId)}
           operation={tracking.operationsByAgentId[detailsSnapshot.agentId]}
+          panelId={detailsPanelId}
           returnFocus={triggerRef.current}
           snapshot={detailsSnapshot}
           onCancelOperation={() => tracking.cancel(detailsSnapshot.agentId)}

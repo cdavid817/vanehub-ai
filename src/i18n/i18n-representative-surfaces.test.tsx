@@ -88,6 +88,8 @@ function RepresentativeSurfaces() {
         <NotificationCenter />
       </NotificationProvider>
       <CliEnvironmentCard
+        detailsOpen={false}
+        detailsPanelId="cli-details"
         mutating={false}
         refreshing={false}
         selectedVersion=""
