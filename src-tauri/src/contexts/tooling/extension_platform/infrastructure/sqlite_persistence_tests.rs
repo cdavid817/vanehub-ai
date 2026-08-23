@@ -13,10 +13,11 @@ use crate::contexts::tooling::extension_platform::application::{
     RuntimeGenerationRepository, SnapshotPointerRepository, VersionClaimRepository,
 };
 use crate::contexts::tooling::extension_platform::domain::{
-    CapabilityDiff, ClaimOutcome, ClaimProvenance, CompatibilityOutcome, ExtensionId,
-    ExtensionInstallWitness, InstallWitnessSubject, InstallationId, ManifestDigest, PackageHash,
-    PublisherId, RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord,
-    SignatureSummary, SnapshotId, SnapshotRecord, TrustProfile,
+    CapabilityDiff, ClaimAuthority, ClaimOutcome, ClaimProvenance, CompatibilityOutcome,
+    ExtensionId, ExtensionInstallWitness, InstallWitnessSubject, InstallationId, ManifestDigest,
+    PackageHash, PublisherId, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
+    RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord, SignatureSummary,
+    SnapshotId, SnapshotRecord, TrustProfile, PUBLISHER_KEY_BYTES,
 };
 use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
@@ -43,8 +44,13 @@ fn fixture(label: &str) -> Fixture {
     }
 }
 
-fn publisher() -> PublisherId {
-    PublisherId::parse("acme").expect("publisher")
+/// An authority established the only way one can be: from a stored key record.
+fn authority() -> ClaimAuthority {
+    ClaimAuthority::of_verified_key(&PublisherKeyRecord {
+        publisher: PublisherId::parse("acme").expect("publisher"),
+        key: PublisherPublicKey::from_bytes([1_u8; PUBLISHER_KEY_BYTES]),
+        trust_state: PublisherTrustState::Trusted,
+    })
 }
 
 fn extension() -> ExtensionId {
@@ -120,7 +126,7 @@ fn a_version_binds_to_one_hash_and_the_same_hash_is_idempotent() {
     let fixture = fixture("claims-idempotent");
     let claims = SqliteVersionClaimRepository::new(fixture.database.clone());
     let offered = claim_for(
-        &publisher(),
+        &authority(),
         &extension(),
         &version(),
         &hash(FIRST),
@@ -155,7 +161,7 @@ fn the_same_version_with_different_bytes_is_refused_and_the_offered_hash_is_kept
     let fixture = fixture("claims-conflict");
     let claims = SqliteVersionClaimRepository::new(fixture.database.clone());
     let bound = claim_for(
-        &publisher(),
+        &authority(),
         &extension(),
         &version(),
         &hash(FIRST),
@@ -165,7 +171,7 @@ fn the_same_version_with_different_bytes_is_refused_and_the_offered_hash_is_kept
     claims.claim(&bound, "2026-08-01T00:00:00Z").expect("claim");
 
     let other = claim_for(
-        &publisher(),
+        &authority(),
         &extension(),
         &version(),
         &hash(SECOND),
@@ -206,7 +212,7 @@ fn two_connections_claiming_the_same_version_produce_exactly_one_binding() {
     let left = std::thread::spawn(move || {
         one.claim(
             &claim_for(
-                &publisher(),
+                &authority(),
                 &extension(),
                 &version(),
                 &hash(FIRST),
@@ -219,7 +225,7 @@ fn two_connections_claiming_the_same_version_produce_exactly_one_binding() {
     let right = std::thread::spawn(move || {
         two.claim(
             &claim_for(
-                &publisher(),
+                &authority(),
                 &extension(),
                 &version(),
                 &hash(SECOND),
@@ -688,4 +694,51 @@ fn migration_86_is_a_no_op_on_a_database_that_already_has_it() {
         )
         .expect("count");
     assert_eq!(packages, 1);
+}
+
+#[test]
+fn a_local_build_and_a_verified_publisher_hold_separate_version_bindings() {
+    // The contract migration 86 owes: the claim key is an authority this installation established,
+    // not a string the package supplied. If both filed under the manifest's `publisher`, a local
+    // build of `acme.git-guardian` 1.2.0 would take the binding and every later genuine release of
+    // that version would be refused as a conflict.
+    let fixture = fixture("claims-authority");
+    let claims = SqliteVersionClaimRepository::new(fixture.database.clone());
+
+    let signed = claim_for(
+        &authority(),
+        &extension(),
+        &version(),
+        &hash(FIRST),
+        ClaimProvenance::Signed,
+        "2026-08-01T00:00:00Z",
+    );
+    let local = claim_for(
+        &ClaimAuthority::LocalDeveloper,
+        &extension(),
+        &version(),
+        &hash(SECOND),
+        ClaimProvenance::Unsigned,
+        "2026-08-20T00:00:00Z",
+    );
+
+    assert_eq!(
+        claims
+            .claim(&signed, "2026-08-01T00:00:00Z")
+            .expect("claim"),
+        ClaimOutcome::Bound
+    );
+    assert_eq!(
+        claims.claim(&local, "2026-08-20T00:00:00Z").expect("claim"),
+        ClaimOutcome::Bound,
+        "the local build gets its own binding rather than colliding with the publisher's"
+    );
+    assert_eq!(
+        claims
+            .held(&signed)
+            .expect("held")
+            .map(|held| held.package_hash),
+        Some(hash(FIRST)),
+        "and the verified publisher's binding is untouched"
+    );
 }

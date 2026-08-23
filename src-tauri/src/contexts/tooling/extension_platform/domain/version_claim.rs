@@ -18,8 +18,27 @@
 //! `publisher` is stored even though `extension_id` already begins with it. The binding must not
 //! depend on the id grammar staying what it is today; if `ExtensionId` ever admits a different
 //! shape, a claim written under the old rule still says who made it.
+//!
+//! ## Who is allowed to claim
+//!
+//! The publisher a claim is filed under is **never the manifest's `publisher` field**. That field
+//! is a string inside a file the claimant wrote: anyone able to produce a package the installer
+//! reads can put `acme` in it, and a claim filed under it would let a local build take the version
+//! binding for a real publisher and make every later genuine 1.2.0 a conflict. Squatting a
+//! competitor's version numbers is a cheap denial of service, and the manifest is exactly the
+//! wrong place to learn who someone is.
+//!
+//! So a claim carries a `ClaimAuthority`, and there are only two ways to get one:
+//!
+//! * `VerifiedPublisher` — established by signature verification against a trusted key. The
+//!   publisher here comes from the *stored key record*, not from the envelope and not from the
+//!   manifest, both of which the package supplies.
+//! * `LocalDeveloper` — assigned by the host to content with no provenance. It files under the
+//!   reserved namespace `local:`, which contains a colon and is therefore unrepresentable as a
+//!   `PublisherId`: no verified publisher can ever collide with it, and no manifest can ask to be
+//!   filed there.
 
-use super::{ExtensionId, PackageHash, PublisherId};
+use super::{ExtensionId, PackageHash, PublisherId, PublisherKeyRecord};
 use semver::Version;
 
 /// Whether the package making a claim had provenance.
@@ -51,10 +70,61 @@ impl ClaimProvenance {
     }
 }
 
+/// The reserved namespace unsigned content is filed under.
+///
+/// Contains a colon, which `PublisherId` cannot, so it can never collide with a real publisher.
+pub(crate) const LOCAL_DEVELOPER_NAMESPACE: &str = "local:developer";
+
+/// Who a claim is filed under, and how that was established.
+///
+/// Constructed only from a verified key record or by the host. There is deliberately no
+/// constructor taking a manifest's publisher field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClaimAuthority {
+    /// Established by signature verification against a key this installation trusts.
+    VerifiedPublisher(PublisherId),
+    /// Content with no provenance, filed under the host's reserved namespace.
+    LocalDeveloper,
+}
+
+impl ClaimAuthority {
+    /// Established from the *stored key record*, which is what verification matched against.
+    ///
+    /// Takes the record rather than the envelope or the manifest: both of those are supplied by
+    /// the package, and only the record is something this installation decided to trust.
+    pub(crate) fn of_verified_key(key: &PublisherKeyRecord) -> Self {
+        Self::VerifiedPublisher(key.publisher.clone())
+    }
+
+    /// The string a claim is filed under.
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            Self::VerifiedPublisher(publisher) => publisher.as_str(),
+            Self::LocalDeveloper => LOCAL_DEVELOPER_NAMESPACE,
+        }
+    }
+
+    /// Reads an authority back out of storage.
+    ///
+    /// The reserved namespace round-trips as `LocalDeveloper`; anything else must parse as a
+    /// publisher, so a hand-edited row naming something that is neither is refused rather than
+    /// treated as a publisher nobody vetted.
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        if value == LOCAL_DEVELOPER_NAMESPACE {
+            return Some(Self::LocalDeveloper);
+        }
+        PublisherId::parse(value).ok().map(Self::VerifiedPublisher)
+    }
+
+    pub(crate) const fn is_verified(&self) -> bool {
+        matches!(self, Self::VerifiedPublisher(_))
+    }
+}
+
 /// What one version of one extension is bound to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VersionClaim {
-    pub(crate) publisher: PublisherId,
+    pub(crate) authority: ClaimAuthority,
     pub(crate) extension: ExtensionId,
     pub(crate) version: Version,
     pub(crate) package_hash: PackageHash,

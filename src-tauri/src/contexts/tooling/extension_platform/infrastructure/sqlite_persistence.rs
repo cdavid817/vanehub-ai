@@ -13,8 +13,8 @@ use crate::contexts::tooling::extension_platform::application::{
     RuntimeGenerationRepository, VersionClaimRepository,
 };
 use crate::contexts::tooling::extension_platform::domain::{
-    decide_claim, ActiveGeneration, ClaimOutcome, ClaimProvenance, ExtensionId,
-    ExtensionInstallWitness, InstallationId, PackageHash, PublisherId, RuntimeGenerationError,
+    decide_claim, ActiveGeneration, ClaimAuthority, ClaimOutcome, ClaimProvenance, ExtensionId,
+    ExtensionInstallWitness, InstallationId, PackageHash, RuntimeGenerationError,
     RuntimeGenerationId, RuntimeGenerationRecord, SnapshotId, VersionClaim,
 };
 use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
@@ -47,7 +47,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
                  FROM extension_platform_version_claims \
                  WHERE publisher = ?1 AND extension_id = ?2 AND version = ?3",
                 params![
-                    offered.publisher.as_str(),
+                    offered.authority.as_str(),
                     offered.extension.as_str(),
                     offered.version.to_string()
                 ],
@@ -66,7 +66,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
             return Ok(None);
         };
         Ok(Some(VersionClaim {
-            publisher: offered.publisher.clone(),
+            authority: offered.authority.clone(),
             extension: offered.extension.clone(),
             version: offered.version.clone(),
             package_hash: PackageHash::parse(&package_hash)
@@ -89,7 +89,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
                  FROM extension_platform_version_claims \
                  WHERE publisher = ?1 AND extension_id = ?2 AND version = ?3",
                 params![
-                    offered.publisher.as_str(),
+                    offered.authority.as_str(),
                     offered.extension.as_str(),
                     offered.version.to_string()
                 ],
@@ -100,7 +100,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
 
         let held_claim = match held {
             Some((package_hash, provenance, first_claimed_at)) => Some(VersionClaim {
-                publisher: offered.publisher.clone(),
+                authority: offered.authority.clone(),
                 extension: offered.extension.clone(),
                 version: offered.version.clone(),
                 package_hash: PackageHash::parse(&package_hash)
@@ -122,7 +122,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
                               first_claimed_at) \
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         params![
-                            offered.publisher.as_str(),
+                            offered.authority.as_str(),
                             offered.extension.as_str(),
                             offered.version.to_string(),
                             offered.package_hash.as_str(),
@@ -143,7 +143,7 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
                               offered_package_hash, offered_provenance, observed_at) \
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                         params![
-                            offered.publisher.as_str(),
+                            offered.authority.as_str(),
                             offered.extension.as_str(),
                             offered.version.to_string(),
                             conflict.bound_hash.as_str(),
@@ -436,9 +436,9 @@ pub(crate) fn record_package(
     Ok(())
 }
 
-/// A publisher's id, as the claim table stores it.
+/// A claim, from an authority this installation established rather than one a package asserted.
 pub(crate) fn claim_for(
-    publisher: &PublisherId,
+    authority: &ClaimAuthority,
     extension: &ExtensionId,
     version: &Version,
     package_hash: &PackageHash,
@@ -446,7 +446,7 @@ pub(crate) fn claim_for(
     at: &str,
 ) -> VersionClaim {
     VersionClaim {
-        publisher: publisher.clone(),
+        authority: authority.clone(),
         extension: extension.clone(),
         version: version.clone(),
         package_hash: package_hash.clone(),

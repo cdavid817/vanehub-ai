@@ -187,5 +187,6 @@ pub(crate) use snapshot::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use version_claim::{
-    decide_claim, ClaimOutcome, ClaimProvenance, VersionClaim, VersionContentConflict,
+    decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, VersionClaim,
+    VersionContentConflict, LOCAL_DEVELOPER_NAMESPACE,
 };

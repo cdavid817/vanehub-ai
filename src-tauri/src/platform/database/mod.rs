@@ -33,6 +33,42 @@ const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
 /// call sites keep using `prepare` / `execute` / `transaction` unchanged.
 pub(crate) type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 
+/// Why a write transaction could not be started.
+///
+/// `Busy` is separated from every other storage failure because it is the one a caller may
+/// sensibly retry, and because "another writer had the lock" and "the database file is corrupt"
+/// arriving as the same string is how a retry loop ends up retrying corruption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WriteTransactionError {
+    /// Another connection held the write lock for longer than the busy timeout.
+    Busy,
+    Storage(String),
+}
+
+impl WriteTransactionError {
+    pub(crate) const fn code(&self) -> &'static str {
+        match self {
+            Self::Busy => "database_busy",
+            Self::Storage(_) => "database_storage_failure",
+        }
+    }
+}
+
+/// Renders the stable code, so the distinction survives being flattened into a `String`.
+///
+/// Most callers map this into their own error type's storage variant, which is a string. If the
+/// rendering said only "database is busy", the one failure worth retrying would arrive at those
+/// callers indistinguishable from a corrupt file, and the whole point of the enum would be lost at
+/// the first boundary it crossed.
+impl std::fmt::Display for WriteTransactionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Busy => formatter.write_str(self.code()),
+            Self::Storage(reason) => write!(formatter, "{}: {reason}", self.code()),
+        }
+    }
+}
+
 /// Begins a transaction that will write, taking the write lock up front.
 ///
 /// `Connection::unchecked_transaction` begins a *deferred* transaction, which takes a read lock and
@@ -42,13 +78,42 @@ pub(crate) type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 /// timeout looks. `BEGIN IMMEDIATE` takes the write lock at the start, which is the case
 /// `busy_timeout` does cover.
 ///
-/// Use this for every transaction that will write. The cost is serialising writers, which WAL was
-/// already doing; the alternative is an intermittent "database is locked" that only appears under
-/// real concurrency.
+/// # When this is the right tool
+///
+/// A transaction that is **short**, **certain to write**, and typically **read-then-write or
+/// compare-and-swap**. Taking the write lock up front serialises every other writer for the whole
+/// transaction, so what happens inside has to be bounded and predictable: SQL, and nothing else.
+///
+/// # What must never happen inside one
+///
+/// Filesystem work, network calls, credential-store access, Hook dispatch, MCP calls, WASM
+/// execution, sidecar interaction, or any other unbounded or externally-timed operation. Each of
+/// those can block for seconds or forever, and every one of them would be blocking *all* database
+/// writers while it did. A flow that needs both does the outside work first, or afterwards under a
+/// compensating step — never in between.
+///
+/// A read-only transaction does not belong here either: it would serialise writers to answer a
+/// question that takes no lock at all under WAL.
 pub(crate) fn begin_write_transaction(
     connection: &PooledSqlite,
-) -> Result<rusqlite::Transaction<'_>, rusqlite::Error> {
+) -> Result<rusqlite::Transaction<'_>, WriteTransactionError> {
     rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)
+        .map_err(map_write_transaction_error)
+}
+
+/// Contention is a distinct answer; everything else is storage.
+fn map_write_transaction_error(error: rusqlite::Error) -> WriteTransactionError {
+    match &error {
+        rusqlite::Error::SqliteFailure(failure, _)
+            if matches!(
+                failure.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            WriteTransactionError::Busy
+        }
+        _ => WriteTransactionError::Storage(error.to_string()),
+    }
 }
 
 #[derive(Debug, Error)]
@@ -338,6 +403,90 @@ mod tests {
 
         assert_eq!(value, "preserved");
         assert_eq!(migration_count, 86);
+    }
+
+    #[test]
+    fn a_rolled_back_write_transaction_releases_the_lock() {
+        // The reason `BEGIN IMMEDIATE` is safe to use everywhere a write is certain: the lock it
+        // takes is held by the `Transaction` guard and released when the guard drops, committed or
+        // not. A failure path that left the lock held would turn one bad write into a stalled
+        // application.
+        let directory = TempDirectory::new("write-transaction-rollback");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let first = database.connection().expect("first connection");
+        let second = database.connection().expect("second connection");
+
+        {
+            let transaction = begin_write_transaction(&first).expect("write transaction");
+            transaction
+                .execute(
+                    "INSERT INTO settings (key, value, created_at, updated_at)                      VALUES ('rolled-back', 'x', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                    [],
+                )
+                .expect("write inside the transaction");
+            // Dropped without commit.
+        }
+
+        let recovered = begin_write_transaction(&second).expect("the lock was released");
+        recovered
+            .execute(
+                "INSERT INTO settings (key, value, created_at, updated_at)                  VALUES ('after', 'y', '2026-08-23T00:00:00Z', '2026-08-23T00:00:00Z')",
+                [],
+            )
+            .expect("write after the rollback");
+        recovered.commit().expect("commit");
+
+        let rolled_back: i64 = second
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'rolled-back'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(rolled_back, 0, "the rolled-back write left nothing behind");
+    }
+
+    #[test]
+    fn contention_is_reported_as_busy_rather_than_as_an_opaque_storage_failure() {
+        // `Busy` is the one failure a caller may sensibly retry. If it arrived as the same string
+        // as a corrupt database, a retry loop would retry corruption.
+        let directory = TempDirectory::new("write-transaction-busy");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let holder = database.connection().expect("holder");
+        let waiter = database.connection().expect("waiter");
+
+        let held = begin_write_transaction(&holder).expect("write transaction");
+
+        // The pool configures a five-second busy timeout, which is right in production and would
+        // make this test wait five seconds to prove a mapping. Lowered for the attempt and put
+        // back immediately, because the setting lives on the physical connection and outlives the
+        // checkout.
+        waiter
+            .busy_timeout(Duration::from_millis(20))
+            .expect("shorten the timeout");
+        let outcome = begin_write_transaction(&waiter);
+        waiter
+            .busy_timeout(BUSY_TIMEOUT)
+            .expect("restore the timeout");
+
+        assert_eq!(outcome.err(), Some(WriteTransactionError::Busy));
+        assert_eq!(WriteTransactionError::Busy.code(), "database_busy");
+        assert_ne!(
+            WriteTransactionError::Busy.code(),
+            WriteTransactionError::Storage(String::new()).code()
+        );
+        // And the distinction survives the flattening into `String` that most callers do.
+        assert!(WriteTransactionError::Busy
+            .to_string()
+            .contains("database_busy"));
+        assert!(
+            WriteTransactionError::Storage("disk image is malformed".to_string())
+                .to_string()
+                .contains("database_storage_failure")
+        );
+
+        drop(held);
+        begin_write_transaction(&waiter).expect("and the lock is available again");
     }
 
     #[test]

@@ -2491,11 +2491,21 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // 86, and 18 are `begin_write_transaction`, which belongs here because it is database execution
     // protocol rather than any one context's rule. Migration 86's own tests deliberately do *not*
     // live here -- they assert about `extension_platform`'s tables, so they moved to that
-    // subdomain. Migrations 87-89 will add 7 lines each; the budget is re-measured once when Task
-    // Group 3 closes rather than nudged per migration.
+    // subdomain.
+    //
+    // Raised again from 2,996 by +149 for the guardrails on that helper. `BEGIN IMMEDIATE` takes a
+    // write lock for the whole transaction, so it is only correct for short, certainly-writing work
+    // -- 88 lines are the doc comment saying that, plus the `WriteTransactionError` type that keeps
+    // contention (`database_busy`, worth retrying) distinct from real storage failure instead of
+    // flattening both into one opaque string, and the `Display` that renders the stable code so the
+    // distinction survives the flattening into `String` that every caller does. The other 61 are
+    // the tests the distinction is worth nothing without: that a rolled-back transaction releases
+    // the lock, and that contention surfaces as `Busy` rather than as a storage error. Both need a
+    // second pooled connection and a temporarily lowered `busy_timeout`, which is why they are not
+    // one-liners.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_996,
+        budget: 3_145,
         owner: "add-unified-extension-platform",
     },
 ];

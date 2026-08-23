@@ -78,7 +78,8 @@ impl FeatureGateRepository for SqliteFeatureGateRepository {
 
     fn upsert(&self, write: &FeatureGateWrite) -> Result<PersistedFeatureGate, FeatureGateError> {
         let connection = self.connection()?;
-        let transaction = begin_write_transaction(&connection).map_err(storage)?;
+        let transaction = begin_write_transaction(&connection)
+            .map_err(|error| FeatureGateError::Storage(error.to_string()))?;
 
         let current_revision: i64 = transaction
             .query_row(
