@@ -18,15 +18,30 @@ use crate::contexts::execution_observability::domain::{
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct SqliteEvidenceRepository {
     database: NativeDatabase,
+    /// Evidence lost with no session to attribute it to.
+    ///
+    /// Shared with every clone, because this is a fact about the store as a whole rather than
+    /// about one handle to it. While it is non-zero no session may report `complete`: the one that
+    /// lost the evidence is among them, and nothing here can say which.
+    unattributed_gaps: Arc<AtomicU32>,
 }
 
 impl SqliteEvidenceRepository {
     pub(crate) fn new(database: NativeDatabase) -> Self {
-        Self { database }
+        Self {
+            database,
+            unattributed_gaps: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    pub(super) fn unattributed_gaps(&self) -> u32 {
+        self.unattributed_gaps.load(Ordering::Relaxed)
     }
 
     fn connection(&self) -> Result<PooledSqlite, EvidenceApplicationError> {
@@ -225,7 +240,8 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         });
 
         let session = query.scope.session_id.as_ref();
-        let coverage = coverage_for_session(&connection, session)?.with_truncated(has_more);
+        let coverage = coverage_for_session(&connection, session, self.unattributed_gaps())?
+            .with_truncated(has_more);
         Ok(EvidenceRecordPage {
             items: rows,
             next_cursor,
@@ -268,7 +284,11 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         query: &WorkspaceEvidenceSummaryQuery,
     ) -> Result<WorkspaceEvidenceSummary, EvidenceApplicationError> {
         let connection = self.connection()?;
-        let coverage = coverage_for_session(&connection, Some(&query.session_id))?;
+        let coverage = coverage_for_session(
+            &connection,
+            Some(&query.session_id),
+            self.unattributed_gaps(),
+        )?;
 
         let (running, failed): (i64, i64) = connection
             .query_row(
@@ -389,7 +409,11 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         Ok(EvidenceSubscriptionBootstrap {
             session_id: session_id.clone(),
             watermark_sequence: watermark,
-            coverage: coverage_for_session(&connection, Some(session_id))?,
+            coverage: coverage_for_session(
+                &connection,
+                Some(session_id),
+                self.unattributed_gaps(),
+            )?,
         })
     }
 
@@ -398,6 +422,16 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
     /// `MAX(sequence)` is served by the primary key and the projected-kind filter narrows it;
     /// `MAX(last_sequence)` reads one column of the projection. A current projection therefore
     /// costs two index lookups at startup rather than a pass over every event ever recorded.
+    fn report_unattributed_gap(&self, count: u32) {
+        // Saturating: a wrapped count would read as fewer losses, and what matters is that a
+        // non-zero count degrades every session's coverage.
+        self.unattributed_gaps
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_add(count))
+            })
+            .ok();
+    }
+
     fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
         let connection = self.connection()?;
         let journal_head: i64 = connection

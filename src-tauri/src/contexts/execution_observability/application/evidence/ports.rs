@@ -79,6 +79,16 @@ pub(crate) trait EvidenceRepositoryPort: Send + Sync {
         session_id: &EvidenceSessionId,
     ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError>;
 
+    /// Records evidence lost with no session to attribute it to.
+    ///
+    /// Not persistence: there is no session to key a row on, and filing one under a placeholder
+    /// would attribute the loss to work that lost nothing. What it does is stop every session from
+    /// reporting `complete` while the count stands — the session that lost the evidence is among
+    /// them, and this is the only honest thing left to say. It lives here because the repository
+    /// is what builds coverage, and a fact that changes coverage belongs with the thing that
+    /// reports it.
+    fn report_unattributed_gap(&self, count: u32);
+
     /// Whether the projection still agrees with the journal.
     ///
     /// Two indexed aggregates, not a scan: the newest lifecycle event's sequence against the

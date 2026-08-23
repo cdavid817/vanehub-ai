@@ -447,9 +447,9 @@ fn the_drop_accumulator_caps_the_sessions_it_tracks() {
 
     let snapshot = accumulator.take();
     let sessions: std::collections::BTreeSet<&str> = snapshot
-        .counts
+        .batches
         .keys()
-        .map(|(session, _)| session.as_str())
+        .map(|(session, _, _)| session.as_str())
         .collect();
     assert_eq!(sessions.len(), MAX_TRACKED_DROP_SESSIONS);
     // The overflow is not discarded: it is reported without a session, so the total stays honest
@@ -475,8 +475,8 @@ fn the_drop_accumulator_caps_the_reasons_per_session() {
     }
 
     let snapshot = accumulator.take();
-    assert!(snapshot.counts.len() <= MAX_TRACKED_DROP_REASONS);
-    assert_eq!(snapshot.counts.len(), 4, "each reason keys separately");
+    assert!(snapshot.batches.len() <= MAX_TRACKED_DROP_REASONS);
+    assert_eq!(snapshot.batches.len(), 4, "each reason opens its own batch");
     assert_eq!(snapshot.unattributed, 0);
 }
 
@@ -492,8 +492,8 @@ fn a_drop_recorded_during_a_flush_is_not_lost() {
     accumulator.record(SESSION, EvidenceDropReason::QueueFull);
     let second = accumulator.take();
 
-    assert_eq!(first.counts.values().sum::<u32>(), 1);
-    assert_eq!(second.counts.values().sum::<u32>(), 1);
+    assert_eq!(first.batches.values().sum::<u32>(), 1);
+    assert_eq!(second.batches.values().sum::<u32>(), 1);
 }
 
 /// A signal the journal cannot correlate is counted, not silently forgotten. Dropping it without a
@@ -1255,29 +1255,24 @@ fn restoring_a_failed_flush_merges_rather_than_overwrites() {
     accumulator.record(SESSION, EvidenceDropReason::QueueFull);
     accumulator.restore(snapshot);
 
-    assert_eq!(accumulator.take().counts.values().sum::<u32>(), 2);
+    assert_eq!(accumulator.take().batches.values().sum::<u32>(), 2);
 }
 
 #[test]
 fn a_drop_count_saturates_rather_than_wrapping() {
     let accumulator = DropAccumulator::default();
     accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    let snapshot = accumulator.take();
+    let key = snapshot.batches.keys().next().expect("one batch").clone();
+    accumulator.restore(snapshot);
     accumulator.restore(DropSnapshot {
-        counts: std::iter::once((
-            (SESSION.to_string(), EvidenceDropReason::QueueFull),
-            u32::MAX,
-        ))
-        .collect(),
+        batches: std::iter::once((key.clone(), u32::MAX)).collect(),
         unattributed: 0,
     });
 
     // A wrapped count would report a smaller gap than occurred, which reads as less loss, not more.
     assert_eq!(
-        *accumulator
-            .take()
-            .counts
-            .get(&(SESSION.to_string(), EvidenceDropReason::QueueFull))
-            .expect("count"),
+        *accumulator.take().batches.get(&key).expect("count"),
         u32::MAX
     );
 }
@@ -1724,4 +1719,472 @@ fn no_producer_subject_is_affected_by_an_unavailable_recorder() {
     // Reaching here at all is the assertion: every call returned `()`. The elapsed bound catches a
     // blocking send, which is the failure a return type cannot express.
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+/// Two gaps of the same size are two gaps.
+///
+/// Before the batch id the marker was keyed by its count, so the second one collided with the
+/// first. Because the content fingerprint includes the occurrence time, the journal did not treat
+/// that as a harmless replay — it recorded a conflict and kept only the first, so a session that
+/// lost evidence twice reported losing it once.
+#[test]
+fn two_equal_sized_gap_batches_have_distinct_source_ids() {
+    let accumulator = DropAccumulator::default();
+
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    let first = accumulator.take();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    let second = accumulator.take();
+
+    let first_key = first.batches.keys().next().expect("first batch");
+    let second_key = second.batches.keys().next().expect("second batch");
+    assert_eq!(first.batches[first_key], second.batches[second_key]);
+    assert_ne!(
+        first_key.2, second_key.2,
+        "same-sized gaps must not share a batch id"
+    );
+}
+
+/// A retry re-sends the same batch under the same id, so the journal sees a replay rather than a
+/// second gap. A fresh id per attempt would multiply one loss into as many markers as retries.
+#[test]
+fn a_failed_gap_flush_retries_with_the_same_batch_id() {
+    let accumulator = DropAccumulator::default();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+
+    let attempt = accumulator.take();
+    let key = attempt.batches.keys().next().expect("batch").clone();
+    accumulator.restore(attempt);
+    let retry = accumulator.take();
+
+    assert_eq!(retry.batches.keys().next(), Some(&key));
+    assert_eq!(retry.batches[&key], 1);
+}
+
+/// A repository that refuses the first coverage-gap append and then behaves.
+///
+/// This is the ambiguous case that matters: the flush cannot tell "the write failed" from "the
+/// write landed and the answer was lost", so it retries. If the retry carried a new identity the
+/// one loss would become two markers, and a reader counting gaps would double them.
+struct FlakyMarkerRepository {
+    inner: SqliteEvidenceRepository,
+    refused_once: Mutex<bool>,
+}
+
+impl crate::contexts::execution_observability::application::evidence::ports::EvidenceRepositoryPort
+    for FlakyMarkerRepository
+{
+    fn append(
+        &self,
+        event: &crate::contexts::execution_observability::domain::ExecutionEvidenceEvent,
+        fingerprint: &str,
+        recorded_at: &str,
+    ) -> Result<
+        crate::contexts::execution_observability::application::evidence::ports::EvidenceAppendOutcome,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    >{
+        let is_marker = event.kind()
+            == crate::contexts::execution_observability::domain::EvidenceKind::CoverageGapRecorded;
+        let mut refused = self.refused_once.lock().expect("refused");
+        if is_marker && !*refused {
+            *refused = true;
+            return Err(
+                crate::contexts::execution_observability::api::evidence::EvidenceApplicationError::Storage(
+                    "refused once".to_string(),
+                ),
+            );
+        }
+        drop(refused);
+        self.inner.append(event, fingerprint, recorded_at)
+    }
+
+    fn list_records(
+        &self,
+        query: &crate::contexts::execution_observability::api::evidence::ExecutionRecordQuery,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::EvidenceRecordPage,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.list_records(query)
+    }
+
+    fn record_detail(
+        &self,
+        query: &crate::contexts::execution_observability::api::evidence::ExecutionRecordDetailQuery,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::ExecutionRecordDetailView,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.record_detail(query)
+    }
+
+    fn summary(
+        &self,
+        query: &crate::contexts::execution_observability::api::evidence::WorkspaceEvidenceSummaryQuery,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::WorkspaceEvidenceSummary,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.summary(query)
+    }
+
+    fn correlation_counts(
+        &self,
+        session_id: &EvidenceSessionId,
+        run_id: Option<&str>,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::EvidenceCorrelationCounts,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.correlation_counts(session_id, run_id)
+    }
+
+    fn subscription_bootstrap(
+        &self,
+        session_id: &EvidenceSessionId,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::EvidenceSubscriptionBootstrap,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.subscription_bootstrap(session_id)
+    }
+
+    fn report_unattributed_gap(&self, count: u32) {
+        self.inner.report_unattributed_gap(count);
+    }
+
+    fn projection_is_stale(
+        &self,
+    ) -> Result<
+        bool,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.projection_is_stale()
+    }
+
+    fn replay_projections(
+        &self,
+        session_id: Option<&EvidenceSessionId>,
+    ) -> Result<
+        usize,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.replay_projections(session_id)
+    }
+
+    fn maintain_retention(
+        &self,
+        cutoff: &str,
+        now: &str,
+    ) -> Result<
+        crate::contexts::execution_observability::application::evidence::ports::EvidenceRetentionSummary,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    >{
+        // The trait method, not the inherent one: the repository has both, and the inherent
+        // version returns the infrastructure's own outcome type.
+        crate::contexts::execution_observability::application::evidence::ports::EvidenceRepositoryPort::maintain_retention(
+            &self.inner, cutoff, now,
+        )
+    }
+}
+
+/// A retry after a refused marker converges on one event rather than adding a second.
+#[test]
+fn an_identical_gap_batch_retry_is_idempotent() {
+    let directory = TempDirectory::new("bridge-gap-retry-idempotent");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let api = ExecutionEvidenceApi::new(
+        Arc::new(FlakyMarkerRepository {
+            inner: SqliteEvidenceRepository::new(database.clone()),
+            refused_once: Mutex::new(false),
+        }),
+        Arc::new(SystemEvidenceClock),
+        Arc::new(UuidEvidenceIdGenerator),
+        Arc::new(DomainEvidenceRedactionValidator),
+        Arc::new(SilentNotices),
+        Arc::new(CountingDiagnostics::default()),
+    );
+    let harness = Harness {
+        _directory: directory,
+        api: api.clone(),
+        diagnostics: Arc::new(CountingDiagnostics::default()),
+        database,
+    };
+    let (bridge, worker) = start_evidence_bridge(api);
+
+    // One unmappable run opens one batch; the first marker write is refused, so the batch is
+    // restored and retried on the next flush.
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::RunStarted {
+            session_id: SESSION.to_string(),
+            run_id: "not-a-uuid".to_string(),
+            trace_id: TRACE.to_string(),
+            agent_id: None,
+            seat_id: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    for index in 1..4 {
+        AgentEvidencePort::try_publish(&bridge, run_started(&run_id(index)));
+    }
+
+    assert!(wait_until(|| gap_marker_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(
+        gap_marker_count(&harness),
+        1,
+        "the retried batch became a second marker"
+    );
+}
+
+/// A drop arriving while a batch is being retried opens its own batch.
+///
+/// Adding it to the in-flight one would change the content behind a marker the journal may already
+/// hold, and the retry would then arrive as a conflicting duplicate rather than a replay.
+#[test]
+fn new_drops_do_not_mutate_an_inflight_gap_batch() {
+    let accumulator = DropAccumulator::default();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+
+    // The flush takes the batch; the retry has not put it back yet.
+    let inflight = accumulator.take();
+    let inflight_key = inflight.batches.keys().next().expect("batch").clone();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    accumulator.restore(inflight);
+
+    let both = accumulator.take();
+    assert_eq!(
+        both.batches.len(),
+        2,
+        "the new drop joined the retried batch"
+    );
+    assert_eq!(
+        both.batches[&inflight_key], 1,
+        "the retried batch's content changed"
+    );
+}
+
+/// A batch that recovers reports once. The notice is what tells a live panel its coverage moved,
+/// and one loss reported twice would read as two.
+#[test]
+fn a_recovered_batch_publishes_one_notice() {
+    let harness = harness("bridge-gap-one-notice");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::RunStarted {
+            session_id: SESSION.to_string(),
+            run_id: "not-a-uuid".to_string(),
+            trace_id: TRACE.to_string(),
+            agent_id: None,
+            seat_id: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+
+    assert!(wait_until(|| *harness
+        .diagnostics
+        .dropped
+        .lock()
+        .expect("dropped")
+        > 0));
+    worker.shutdown();
+    assert_eq!(
+        *harness.diagnostics.dropped.lock().expect("dropped"),
+        1,
+        "the recovered batch was reported more than once"
+    );
+}
+
+/// The 65th session cannot be tracked, and it must not be told it is whole.
+///
+/// Its loss is real; what the accumulator cannot do is keep its id without growing without bound.
+/// So the count goes global, and while it stands no session claims `complete` — the one that lost
+/// the evidence is among them and nothing here can say which.
+#[test]
+fn a_session_past_the_attribution_cap_never_reports_complete() {
+    let accumulator = DropAccumulator::default();
+    for index in 0..MAX_TRACKED_DROP_SESSIONS {
+        accumulator.record(&format!("session-{index}"), EvidenceDropReason::QueueFull);
+    }
+
+    // The session past the cap.
+    accumulator.record("session-overflow", EvidenceDropReason::QueueFull);
+    let snapshot = accumulator.take();
+    assert_eq!(snapshot.unattributed, 1);
+    assert!(
+        !snapshot
+            .batches
+            .keys()
+            .any(|(session, _, _)| session == "session-overflow"),
+        "an untrackable session was invented a slot"
+    );
+
+    let harness = harness("bridge-attribution-overflow");
+    harness.api.report_unattributed_gap(snapshot.unattributed);
+    let coverage = harness
+        .api
+        .subscription_bootstrap(&session())
+        .expect("bootstrap")
+        .coverage;
+
+    assert_ne!(
+        coverage.state(),
+        crate::contexts::execution_observability::domain::EvidenceCoverageState::Complete,
+        "a session claimed complete while this process had an unattributable loss"
+    );
+    assert!(coverage
+        .reason_codes()
+        .iter()
+        .any(|code| code.as_str() == "evidence_gap_attribution_overflow"));
+}
+
+/// A known session whose reason cannot be held keeps its gap under a reason that says so. Losing
+/// the reason is survivable; losing the attribution would let the session read complete.
+#[test]
+fn a_known_session_over_the_reason_cap_keeps_its_attribution() {
+    let accumulator = DropAccumulator::default();
+    // Fill this session's reason slots, then force one more distinct reason through.
+    for index in 0..MAX_TRACKED_DROP_REASONS {
+        accumulator.record(&format!("filler-{index}"), EvidenceDropReason::QueueFull);
+    }
+    for reason in [
+        EvidenceDropReason::QueueFull,
+        EvidenceDropReason::WorkerGone,
+        EvidenceDropReason::UnmappableSignal,
+        EvidenceDropReason::PersistenceFailed,
+    ] {
+        accumulator.record(SESSION, reason);
+    }
+
+    let snapshot = accumulator.take();
+    let mine: Vec<_> = snapshot
+        .batches
+        .keys()
+        .filter(|(session, _, _)| session == SESSION)
+        .collect();
+    assert!(!mine.is_empty(), "a known session lost its attribution");
+}
+
+fn gap_marker_count(harness: &Harness) -> i64 {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_events WHERE kind = 'coverage.gap.recorded'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default()
+}
+
+/// A reviewer who accepts and then asks for changes on the same diff made two decisions.
+///
+/// Keyed on review and witness alone, the second would arrive as a conflicting duplicate and be
+/// refused, so the journal would say the review was accepted and stop there.
+#[test]
+fn a_review_re_decided_on_one_snapshot_records_both_decisions() {
+    let harness = harness("bridge-review-changed-mind");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for decision in [
+        SessionReviewDecision::Accepted,
+        SessionReviewDecision::ChangesRequested,
+    ] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                decision,
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+}
+
+/// Re-asserting the same decision about the same snapshot is a replay, and converges.
+#[test]
+fn a_repeated_identical_review_decision_records_once() {
+    let harness = harness("bridge-review-same-decision");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..3 {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                decision: SessionReviewDecision::Accepted,
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 1);
+}
+
+/// Two sessions changing the same relative path are two observations.
+///
+/// The journal keys on `(source_context, source_event_id)` with no session of its own, so a path
+/// digest that ignored the session would file the second session's edit as a replay of the first
+/// and drop it — the second session would then report having changed nothing.
+#[test]
+fn two_sessions_changing_one_relative_path_record_separately() {
+    let harness = harness("bridge-file-two-sessions");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for session in [SESSION, "session-2"] {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: session.to_string(),
+                basename: "main.rs".to_string(),
+                path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+                change_kind: WorkspaceFileChangeKind::Modified,
+                witness_fingerprint: "modified:2026-08-22T10:00:00Z".to_string(),
+                observed_directly: true,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+}
+
+/// Two writes to one file at two moments are two observations.
+#[test]
+fn two_writes_to_one_file_record_separately() {
+    let harness = harness("bridge-file-two-writes");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for moment in ["2026-08-22T10:00:00Z", "2026-08-22T10:05:00Z"] {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: SESSION.to_string(),
+                basename: "main.rs".to_string(),
+                path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+                change_kind: WorkspaceFileChangeKind::Modified,
+                witness_fingerprint: format!("modified:{moment}"),
+                observed_directly: true,
+                occurred_at: moment.to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
 }

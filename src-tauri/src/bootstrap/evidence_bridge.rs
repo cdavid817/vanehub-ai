@@ -56,6 +56,10 @@ pub(crate) enum EvidenceDropReason {
     UnmappableSignal,
     /// The journal took the call and refused the row.
     PersistenceFailed,
+    /// A drop this session really had, whose specific reason the bounded accumulator had no slot
+    /// for. The session is still named, because losing the reason is survivable and losing the
+    /// attribution is not.
+    AttributionOverflow,
 }
 
 impl EvidenceDropReason {
@@ -67,6 +71,7 @@ impl EvidenceDropReason {
             Self::WorkerGone => "evidence_worker_unavailable",
             Self::UnmappableSignal => "evidence_signal_unmappable",
             Self::PersistenceFailed => "evidence_persistence_failed",
+            Self::AttributionOverflow => "evidence_gap_attribution_overflow",
         }
     }
 }
@@ -78,61 +83,117 @@ impl EvidenceDropReason {
 /// something overflowed is the wrong shape.
 pub(crate) const MAX_TRACKED_DROP_SESSIONS: usize = 64;
 
-/// Reasons per session. Every reason is a variant of a closed enum, so this caps at the enum's
-/// size; it is stated anyway, because adding a variant past it would silently discard the new one.
+/// Reasons per session. Above this, a session's further reasons fold into `AttributionOverflow`
+/// rather than being discarded: the session keeps its gap, and only the "why" is lost.
 pub(crate) const MAX_TRACKED_DROP_REASONS: usize = 8;
 
-/// What never reached the journal, keyed by session and reason.
+/// A hard ceiling on entries, independent of the two dimensional caps.
+///
+/// A batch being retried and a batch opened while that retry was in flight coexist under the same
+/// session and reason, so entries can exceed sessions times reasons. This is what actually bounds
+/// the memory.
+pub(crate) const MAX_TRACKED_GAP_BATCHES: usize = MAX_TRACKED_DROP_SESSIONS * 2;
+
+/// Identifies one accumulation of drops across a retry.
+///
+/// A marker keyed by its count would collide with any later gap of the same size, and because the
+/// content fingerprint includes the occurrence time the journal would see a conflicting duplicate
+/// rather than a second gap. The id is what makes a retry idempotent and two same-sized gaps
+/// distinct. It is a process counter rather than a clock, because a marker written after a clock
+/// adjustment still has to be the same batch.
+pub(crate) type GapBatchId = u64;
+
+/// The full identity of one batch: whose gap, why, and which accumulation.
+pub(crate) type GapBatchKey = (String, EvidenceDropReason, GapBatchId);
+
+/// What never reached the journal, keyed by session, reason, and batch.
 ///
 /// Counted rather than queued: a drop that had to be queued to be reported would be dropped by the
 /// same full queue that caused it. The worker flushes these once it has room.
 #[derive(Default)]
 pub(crate) struct DropAccumulator {
-    counts: Mutex<BTreeMap<(String, EvidenceDropReason), u32>>,
-    /// Drops that arrived with the session cap already reached and no existing key to attribute
-    /// them to. Reported without a session, so the total stays honest when the attribution cannot.
+    batches: Mutex<BTreeMap<GapBatchKey, u32>>,
+    next_batch_id: Mutex<GapBatchId>,
+    /// Drops from sessions the accumulator has no slot for at all. There is no attribution to key
+    /// a marker on, so these are reported to the context instead, which stops every session from
+    /// claiming complete for as long as the count stands.
     unattributed: Mutex<u32>,
 }
 
 impl DropAccumulator {
     pub(crate) fn record(&self, session_id: &str, reason: EvidenceDropReason) {
-        let key = (session_id.to_string(), reason);
-        let mut counts = lock(&self.counts);
-        if let Some(existing) = counts.get_mut(&key) {
+        let mut batches = lock(&self.batches);
+        // The newest open batch for this session and reason. A batch being retried has a lower id,
+        // and adding to it would change the content and the fingerprint of a marker already in
+        // flight — the journal would then see the retry as a conflicting duplicate.
+        if let Some(newest) = batches
+            .keys()
+            .filter(|(session, key_reason, _)| session == session_id && *key_reason == reason)
+            .map(|(_, _, batch_id)| *batch_id)
+            .max()
+        {
+            let entry = batches
+                .entry((session_id.to_string(), reason, newest))
+                .or_insert(0);
             // Saturating: a count that wrapped would report a smaller gap than occurred, which is
             // worse than reporting a capped one.
-            *existing = existing.saturating_add(1);
+            *entry = entry.saturating_add(1);
             return;
         }
-        let tracked_sessions = counts
+
+        let sessions = batches
             .keys()
-            .map(|(session, _)| session.as_str())
+            .map(|(session, _, _)| session.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        let known_session = tracked_sessions.contains(key.0.as_str());
-        let reasons_here = counts.keys().filter(|(s, _)| *s == key.0).count();
-        if (!known_session && tracked_sessions.len() >= MAX_TRACKED_DROP_SESSIONS)
-            || reasons_here >= MAX_TRACKED_DROP_REASONS
-        {
-            drop(counts);
+        let known_session = sessions.contains(session_id);
+        let reasons_here = batches
+            .keys()
+            .filter(|(session, _, _)| session == session_id)
+            .map(|(_, key_reason, _)| *key_reason)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+
+        if !known_session && sessions.len() >= MAX_TRACKED_DROP_SESSIONS {
+            // A session with no slot at all. Keeping its id would mean unbounded growth, so the
+            // count goes global rather than being attributed to a session that did not lose it.
+            drop(batches);
             let mut unattributed = lock(&self.unattributed);
             *unattributed = unattributed.saturating_add(1);
             return;
         }
-        counts.insert(key, 1);
+        if reason != EvidenceDropReason::AttributionOverflow
+            && (reasons_here >= MAX_TRACKED_DROP_REASONS
+                || batches.len() >= MAX_TRACKED_GAP_BATCHES)
+        {
+            // A session the accumulator already knows, whose specific reason it cannot hold. The
+            // session keeps its gap under a reason that says the reason itself was lost. An
+            // untraceable gap is still a gap; discarding it would let the session read complete.
+            drop(batches);
+            self.record(session_id, EvidenceDropReason::AttributionOverflow);
+            return;
+        }
+        let batch_id = self.next_id();
+        batches.insert((session_id.to_string(), reason, batch_id), 1);
     }
 
-    /// Puts a snapshot back after a failed flush, merging rather than overwriting.
+    fn next_id(&self) -> GapBatchId {
+        let mut next = lock(&self.next_batch_id);
+        *next = next.saturating_add(1);
+        *next
+    }
+
+    /// Puts a snapshot back after a failed flush.
     ///
-    /// Merging is what makes a concurrent drop safe: a drop recorded while the flush was in
-    /// flight is already in a fresh entry, and overwriting would erase it — losing exactly the
-    /// drops that happen when drops are most likely.
+    /// Keyed by batch, so a restored batch and one opened while the flush was in flight stay
+    /// separate: the retry re-sends byte-identical content under the same id, and the newer drops
+    /// wait for their own marker.
     pub(crate) fn restore(&self, snapshot: DropSnapshot) {
-        let mut counts = lock(&self.counts);
-        for (key, count) in snapshot.counts {
-            let entry = counts.entry(key).or_insert(0);
+        let mut batches = lock(&self.batches);
+        for (key, count) in snapshot.batches {
+            let entry = batches.entry(key).or_insert(0);
             *entry = entry.saturating_add(count);
         }
-        drop(counts);
+        drop(batches);
         let mut unattributed = lock(&self.unattributed);
         *unattributed = unattributed.saturating_add(snapshot.unattributed);
     }
@@ -141,10 +202,10 @@ impl DropAccumulator {
     ///
     /// Taking rather than reading-then-clearing is what makes a concurrent drop safe: anything
     /// recorded between those two steps would be erased by the clear, whereas a take leaves an
-    /// empty map and the new count lands in a fresh entry.
+    /// empty map and the next drop opens a fresh batch.
     pub(crate) fn take(&self) -> DropSnapshot {
         DropSnapshot {
-            counts: std::mem::take(&mut lock(&self.counts)),
+            batches: std::mem::take(&mut lock(&self.batches)),
             unattributed: std::mem::take(&mut lock(&self.unattributed)),
         }
     }
@@ -152,13 +213,13 @@ impl DropAccumulator {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct DropSnapshot {
-    pub(crate) counts: BTreeMap<(String, EvidenceDropReason), u32>,
+    pub(crate) batches: BTreeMap<GapBatchKey, u32>,
     pub(crate) unattributed: u32,
 }
 
 impl DropSnapshot {
     pub(crate) fn is_empty(&self) -> bool {
-        self.counts.is_empty() && self.unattributed == 0
+        self.batches.is_empty() && self.unattributed == 0
     }
 }
 
@@ -611,11 +672,15 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
                 EvidenceFileMutationId::parse(path_fingerprint.clone()).ok();
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Workspaces,
-                // The witness is part of the key. Two writes to one file against two different
-                // snapshots are two observations; keying on the path alone would collapse them and
-                // report a file that changed twice as one that changed once.
+                // Session-scoped. The path digest alone is not an identity: two sessions editing
+                // the same relative path in different workspaces produce the same digest, and the
+                // journal keys on `(source_context, source_event_id)` without a session — so one
+                // session's edit would be filed as a replay of the other's and silently dropped.
+                //
+                // The witness carries the moment, so two writes to one file are two observations
+                // while an exact duplicate of one observation converges.
                 source_event_id: SourceEventId::parse(format!(
-                    "file-mutated:{path_fingerprint}:{witness_fingerprint}"
+                    "file-mutated:{session_id}:{path_fingerprint}:{witness_fingerprint}"
                 ))
                 .ok()?,
                 occurred_at: occurred_at.clone(),
@@ -641,6 +706,14 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
                 redaction: RedactionReceipt::none(),
             })
         }
+    }
+}
+
+/// The decision's own token, which is part of its identity and not only its payload.
+fn review_decision_token(decision: SessionReviewDecision) -> &'static str {
+    match decision {
+        SessionReviewDecision::Accepted => "accepted",
+        SessionReviewDecision::ChangesRequested => "changes_requested",
     }
 }
 
@@ -814,10 +887,14 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
             let correlation = correlation(session_id, None, None)?;
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Sessions,
-                // The witness is part of the key: a review re-decided after the diff moved on is
-                // a second decision, and keying on the review alone would keep only the first.
+                // Review, snapshot, and the decision itself. The witness distinguishes a decision
+                // made after the diff moved on; the value distinguishes a reviewer who accepted
+                // and then changed their mind about the same diff, which is a second decision the
+                // journal has to hold rather than refuse as a conflict. Re-asserting the same
+                // decision about the same snapshot is the one genuine replay, and it converges.
                 source_event_id: SourceEventId::parse(format!(
-                    "review-decision:{review_id}:{witness_fingerprint}"
+                    "review-decision:{review_id}:{witness_fingerprint}:{}",
+                    review_decision_token(*decision)
                 ))
                 .ok()?,
                 occurred_at: occurred_at.clone(),
@@ -995,33 +1072,34 @@ fn flush_drops(evidence: &ExecutionEvidenceApi, drops: &DropAccumulator) {
         return;
     }
     let mut unflushed = DropSnapshot::default();
-    for ((session_id, reason), count) in snapshot.counts {
+    for ((session_id, reason, batch_id), count) in snapshot.batches {
         let Ok(session) = EvidenceSessionId::parse(session_id.clone()) else {
             // An unusable session cannot key a marker, and inventing one would file the gap
-            // against a session that never existed. It stays a count and a diagnostic.
+            // against a session that never existed. It stays a global count.
             unflushed.unattributed = unflushed.unattributed.saturating_add(count);
             continue;
         };
-        match record_gap_marker(evidence, &session, reason, count) {
-            // The marker is durable, so the count it represents is discharged. The notice and the
-            // diagnostic ride along on the same call.
+        match record_gap_marker(evidence, &session, reason, batch_id, count) {
+            // The marker is durable, so the batch it represents is discharged. The notice and the
+            // diagnostic ride along on the same call, which is why a recovered batch publishes
+            // exactly one notice rather than one per retry.
             Ok(()) => evidence.record_dropped_events(&session, count),
-            // Only the snapshot's own numbers go back. Anything recorded while this flush ran is
-            // already in a fresh entry, so restoring the snapshot adds to it rather than
-            // overwriting it — a concurrent drop is never lost to a failed report.
+            // The batch goes back under its own id, so the retry re-sends byte-identical content.
+            // Anything recorded while this flush ran opened a newer batch and is untouched.
             Err(()) => {
                 unflushed
-                    .counts
-                    .entry((session_id, reason))
+                    .batches
+                    .entry((session_id, reason, batch_id))
                     .and_modify(|existing| *existing = existing.saturating_add(count))
                     .or_insert(count);
             }
         }
     }
-    // Sessionless drops never become a marker. The journal keys on a session, and a global gap
-    // filed under a placeholder would be attributed to work that did not lose anything.
+    // Sessionless drops never become a marker: the journal keys on a session, and one filed under
+    // a placeholder would attribute a loss to work that lost nothing. They are reported to the
+    // context instead, which stops every session from claiming complete while the count stands.
     if snapshot.unattributed > 0 {
-        unflushed.unattributed = unflushed.unattributed.saturating_add(snapshot.unattributed);
+        evidence.report_unattributed_gap(snapshot.unattributed);
     }
     if !unflushed.is_empty() {
         drops.restore(unflushed);
@@ -1038,15 +1116,17 @@ fn record_gap_marker(
     evidence: &ExecutionEvidenceApi,
     session: &EvidenceSessionId,
     reason: EvidenceDropReason,
+    batch_id: GapBatchId,
     dropped_count: u32,
 ) -> Result<(), ()> {
     let Ok(reason_code) = SafeReasonCode::parse(reason.as_str()) else {
         return Err(());
     };
-    // Keyed by session, reason, and count. A second gap of the same size for the same reason is
-    // the same observation replayed; a different size is a different one.
+    // Session, reason, and batch. The count is deliberately not part of the identity: two gaps of
+    // the same size are two gaps, and keying on the size would make the second one collide with
+    // the first — which the journal would report as a conflicting duplicate rather than store.
     let Ok(source_event_id) = SourceEventId::parse(format!(
-        "coverage-gap:{}:{}:{dropped_count}",
+        "coverage-gap:{}:{}:{batch_id}",
         session.as_str(),
         reason.as_str()
     )) else {

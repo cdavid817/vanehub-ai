@@ -133,6 +133,7 @@ fn record_id_suffix(record_id: &str, prefix: &str) -> Option<String> {
 pub(super) fn coverage_for_session(
     connection: &Connection,
     session_id: Option<&EvidenceSessionId>,
+    unattributed_gaps: u32,
 ) -> Result<QueryCoverage, EvidenceApplicationError> {
     let Some(session_id) = session_id else {
         return Ok(QueryCoverage::complete().degrade_to(
@@ -209,6 +210,15 @@ pub(super) fn coverage_for_session(
         coverage = coverage.degrade_to(
             EvidenceCoverageState::Partial,
             reason_codes::RETENTION_EXPIRED,
+        );
+    }
+    // Something in this process lost evidence and could not keep the session it belonged to. The
+    // losing session is among the ones being queried and nothing here can say which, so none of
+    // them may claim to be whole.
+    if unattributed_gaps > 0 {
+        coverage = coverage.degrade_to(
+            EvidenceCoverageState::Partial,
+            reason_codes::GAP_ATTRIBUTION_OVERFLOW,
         );
     }
     Ok(coverage)

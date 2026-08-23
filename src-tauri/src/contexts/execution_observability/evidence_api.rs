@@ -60,6 +60,16 @@ impl ExecutionEvidenceApi {
         self.service.record_dropped_events(session_id, dropped);
     }
 
+    /// Reports evidence lost with no session to attribute it to.
+    ///
+    /// There is no marker to write, because a marker needs a session and filing one under a
+    /// placeholder would attribute the loss to work that lost nothing. What it does instead is
+    /// stop every session from reporting `complete` — the one that lost the evidence is among
+    /// them, and this is the only honest thing left to say.
+    pub(crate) fn report_unattributed_gap(&self, count: u32) {
+        self.service.report_unattributed_gap(count);
+    }
+
     pub(crate) fn summary(
         &self,
         query: WorkspaceEvidenceSummaryQuery,
@@ -197,6 +207,8 @@ mod tests {
                 coverage: QueryCoverage::complete(),
             })
         }
+
+        fn report_unattributed_gap(&self, _count: u32) {}
 
         fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
             self.calls.lock().expect("calls").push("stale?");

@@ -45,6 +45,10 @@ pub(crate) mod reason_codes {
     pub(crate) const PROJECTION_REBUILDING: &str = "evidence_projection_rebuilding";
     /// The owning context of a summary figure has not been connected yet.
     pub(crate) const SOURCE_NOT_OWNED: &str = "evidence_source_not_owned";
+    /// Evidence was lost somewhere in this process and the bounded accumulator could not keep the
+    /// session it belonged to. No session can be told it is whole while this stands, because the
+    /// one that lost the evidence is among them and nothing here can say which.
+    pub(crate) const GAP_ATTRIBUTION_OVERFLOW: &str = "evidence_gap_attribution_overflow";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

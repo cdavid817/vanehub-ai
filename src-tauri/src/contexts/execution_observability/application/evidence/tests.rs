@@ -125,6 +125,8 @@ impl EvidenceRepositoryPort for FakeRepository {
         })
     }
 
+    fn report_unattributed_gap(&self, _count: u32) {}
+
     fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
         Ok(*self.projection_stale.lock().expect("stale flag"))
     }

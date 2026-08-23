@@ -488,6 +488,47 @@ to a coverage state that names them: a review finding is an unresolved comment, 
 field with a verification count would put a plausible number where the honest answer is "not
 observed from here".
 
+### Source Event Identity
+
+Idempotency rides on `(source_context, source_event_id)`. The journal has no session of its own in
+that key, so every id below carries whatever it needs to be unique inside its context -- including
+the session, wherever two sessions could otherwise produce the same string.
+
+Two failures follow from getting an id wrong, and they are opposite. Too coarse and a genuine new
+observation arrives as a conflicting duplicate: the original row wins and the new state is lost, so
+a review decided twice reads as decided once. Too fine and a replay becomes a second event: a
+retried callback doubles a count nobody can then correct.
+
+| Event | Authoritative identity | Retry identity | Revision axis | Unique because | Replay converges | New event required |
+| --- | --- | --- | --- | --- | --- | --- |
+| Run started/finished | `run-{started,finished}:{runId}` | same id | none -- a run starts once | run ids are UUIDs minted per run | duplicated start or finish | a second run is a second id |
+| Tool started/finished | `tool-{started,finished}:{callId}[:{attempt}]` | same id | `attempt` | provider call ids are unique within a run, attempts within a call | re-delivered lifecycle, resume, restart replay | each attempt |
+| Delegation started/finished | `delegation-{started,finished}:{delegationId}[:{attempt}]` | same id | `attempt` | delegation ids are minted per hand-off | re-delivered lifecycle | each attempt |
+| Shell opened/closed | `shell-{opened,closed}:{shellId}` | same id | none -- a shell opens and closes once | shell ids are minted per shell | repeated close, shutdown racing an explicit stop | a new shell is a new id |
+| File mutation | `file-mutated:{sessionId}:{pathFingerprint}:{changeKind}:{observedAt}` | same id | the moment | the digest covers workspace and relative path, the session separates two workspaces' identical paths | an exact duplicate of one observation | every write |
+| Operation failure | `operation-failed:{operationId}` | same id | none | operation ids are minted per operation | a retried failure report | a new operation |
+| Review decision | `review-decision:{reviewId}:{witness}:{decision}` | same id | witness, then decision value | one review, one snapshot, one verdict | re-asserting the same verdict on the same snapshot | a changed verdict, or the same verdict after the diff moves |
+| Verification | `verification:{operationId}` | same id | the operation | `start_action` mints one operation per action, so one operation is one verification run | a re-reported result | re-running the check mints a new operation |
+| Usage observed | `usage-observed:{invocationId}` | same id | none | invocation ids are minted per model call | a re-reported observation | a new invocation |
+| Coverage gap | `coverage-gap:{sessionId}:{reason}:{batchId}` | same batch id | batch | the batch id is a process counter, assigned once per accumulation | a retry after an ambiguous marker write | every new accumulation |
+
+Three of these were wrong when first written and are corrected here.
+
+`review-decision` keyed only on review and witness. A reviewer who accepts and then asks for
+changes on the same diff has made two decisions, and the second would have arrived as a conflict --
+the journal would have kept the acceptance and refused the change. The verdict is now part of the
+identity, which also leaves re-asserting the same verdict as the replay it actually is.
+
+`file-mutated` keyed on a path digest with no workspace or session in it. Two sessions editing
+`src/main.rs` in different workspaces produced the same string, and the second was filed as a
+replay of the first. The digest now covers the workspace, the id carries the session, and the
+witness carries the moment so that two writes to one file are two observations.
+
+`coverage-gap` keyed on its count. Two gaps of the same size collided, and because the content
+fingerprint includes the occurrence time the journal recorded a conflict rather than a second gap:
+a session that lost evidence twice reported losing it once. A batch id assigned per accumulation
+replaces the count, so a retry converges and two equal-sized gaps stay distinct.
+
 ### Review Evidence Lands in Two Stages
 
 Group 4 records what the review context can already observe: a review-level decision and an

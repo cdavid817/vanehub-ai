@@ -14,7 +14,7 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::retrieval::api::CodeIndexApi;
 use crate::platform::database::NativeDatabase;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -304,6 +304,7 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
             code_index
                 .notify_targeted_change(&mutation.canonical_workspace, &mutation.relative_path);
         }
+        let observed_at = chrono::Utc::now().to_rfc3339();
         let Some(basename) = mutation
             .relative_path
             .rsplit('/')
@@ -318,7 +319,10 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
                 // The file's own name. The directory it sits in stays here: a workspace path says
                 // where someone works, which is not what "this file changed" needs to say.
                 basename: basename.to_string(),
-                path_fingerprint: path_fingerprint(&mutation.relative_path),
+                path_fingerprint: path_fingerprint(
+                    &mutation.canonical_workspace,
+                    &mutation.relative_path,
+                ),
                 change_kind: match mutation.change_kind {
                     crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created => {
                         crate::contexts::workspaces::api::WorkspaceFileChangeKind::Created
@@ -330,9 +334,9 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
                 // The runtime performed this write itself, so the witness is the write: there is
                 // no earlier snapshot to compare against, and inventing one would imply a
                 // comparison nobody made.
-                witness_fingerprint: mutation_witness(&mutation),
+                witness_fingerprint: mutation_witness(&mutation, &observed_at),
                 observed_directly: true,
-                occurred_at: chrono::Utc::now().to_rfc3339(),
+                occurred_at: observed_at.clone(),
             },
         );
     }
@@ -342,23 +346,35 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
 ///
 /// Groups two changes to one file without the path ever being stored. Truncated to the identifier
 /// bound the journal enforces, which is far more entropy than a workspace has files.
-fn path_fingerprint(relative_path: &str) -> String {
+/// Workspace-scoped, so two workspaces each holding a `src/main.rs` do not share one identity.
+///
+/// The workspace path is hashed with the relative path rather than stored beside it: what a reader
+/// needs is that two changes to one file group together, and a digest gives that without the
+/// journal ever holding a location. The separator is a NUL so no workspace-and-path pair can
+/// collide with a different pair that happens to concatenate the same way.
+fn path_fingerprint(canonical_workspace: &Path, relative_path: &str) -> String {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(relative_path.as_bytes());
-    digest
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_workspace.to_string_lossy().as_bytes());
+    hasher.update([0u8]);
+    hasher.update(relative_path.as_bytes());
+    hasher
+        .finalize()
         .iter()
         .take(16)
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
 
-/// What this observation was made against. A direct write witnesses itself, so the witness is the
-/// path digest and the change kind together: two writes to one file are two observations, and a
-/// witness that ignored the kind would collapse a create and a later modify into one.
-fn mutation_witness(mutation: &AgentWorkspaceMutation) -> String {
+/// What this observation was made against.
+///
+/// A direct write witnesses itself, so the witness is the change kind and the moment: two writes to
+/// one file are two observations, and a witness carrying only the path would collapse them into
+/// one. `publish` is reached from the tool handlers' success branch and is never replayed, so the
+/// moment is a per-write identity rather than a value a retry could disagree about.
+fn mutation_witness(mutation: &AgentWorkspaceMutation, observed_at: &str) -> String {
     format!(
-        "{}:{}",
-        path_fingerprint(&mutation.relative_path),
+        "{}:{observed_at}",
         match mutation.change_kind {
             crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created =>
                 "created",

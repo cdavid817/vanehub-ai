@@ -202,6 +202,14 @@ impl ExecutionEvidenceService {
     }
 }
 
+impl ExecutionEvidenceService {
+    /// Records a loss the caller could not attribute. Nothing is persisted: the count degrades
+    /// every session's coverage, which is what a reader needs and all this can honestly offer.
+    pub(crate) fn report_unattributed_gap(&self, count: u32) {
+        self.repository.report_unattributed_gap(count);
+    }
+}
+
 pub(crate) fn bounded_page_size(limit: usize) -> usize {
     if limit == 0 {
         return DEFAULT_EVIDENCE_PAGE_SIZE;
