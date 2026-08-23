@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,6 +25,7 @@ pub(super) trait WorkerHandle: Send {
         snapshot: &LocalMediaProfileSnapshot,
         call: &WorkerCall,
         cancelled: Arc<AtomicBool>,
+        abort: Arc<AtomicBool>,
         timeout: Duration,
         cancel_grace: Duration,
     ) -> Result<WorkerReply, LocalMediaError>;
@@ -39,10 +40,19 @@ impl WorkerHandle for WorkerSession {
         snapshot: &LocalMediaProfileSnapshot,
         call: &WorkerCall,
         cancelled: Arc<AtomicBool>,
+        abort: Arc<AtomicBool>,
         timeout: Duration,
         cancel_grace: Duration,
     ) -> Result<WorkerReply, LocalMediaError> {
-        WorkerSession::call(self, snapshot, call, cancelled, timeout, cancel_grace)
+        WorkerSession::call(
+            self,
+            snapshot,
+            call,
+            cancelled,
+            abort,
+            timeout,
+            cancel_grace,
+        )
     }
 
     fn is_poisoned(&self) -> bool {
@@ -107,6 +117,12 @@ pub(crate) struct LocalMediaWorkerSupervisor {
     launcher: Arc<dyn WorkerLauncher>,
     policy: SupervisorPolicy,
     slots: Mutex<HashMap<LocalMediaEngine, Slot>>,
+    /// Set once, by `shutdown_all`. Read by every in-flight call, by admission, and by check-in.
+    ///
+    /// A separate atomic rather than a field inside the slot map because the thread that has to
+    /// see it is inside a worker call, holding the handle the map no longer has and deliberately
+    /// not holding the map's lock.
+    shutting_down: Arc<AtomicBool>,
 }
 
 impl LocalMediaWorkerSupervisor {
@@ -115,6 +131,7 @@ impl LocalMediaWorkerSupervisor {
             launcher,
             policy,
             slots: Mutex::new(HashMap::new()),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -126,6 +143,10 @@ impl LocalMediaWorkerSupervisor {
         let Ok(mut slots) = self.slots.lock() else {
             return Err(LocalMediaError::new(LocalMediaErrorCode::EngineUnavailable));
         };
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err(LocalMediaError::new(LocalMediaErrorCode::EngineUnavailable)
+                .with_text("engine", engine.as_str()));
+        }
         let slot = slots.entry(engine).or_default();
         if slot.quarantined {
             return Err(LocalMediaError::new(LocalMediaErrorCode::EngineUnavailable)
@@ -210,6 +231,13 @@ impl LocalMediaWorkerSupervisor {
         if worker.is_poisoned() {
             return;
         }
+        if self.shutting_down.load(Ordering::SeqCst) {
+            // Returning it to the slot would resurrect a worker `shutdown_all` has already walked
+            // past, and nothing would come along to collect it.
+            let mut worker = worker;
+            worker.shutdown(self.policy.shutdown_grace);
+            return;
+        }
         if let Ok(mut slots) = self.slots.lock() {
             let slot = slots.entry(engine).or_default();
             slot.worker = Some(worker);
@@ -230,6 +258,15 @@ impl LocalMediaWorkerSupervisor {
     pub(super) fn debug_release(&self, engine: LocalMediaEngine) {
         self.release(engine);
     }
+
+    #[cfg(test)]
+    pub(super) fn debug_checkin_for_test(
+        &self,
+        engine: LocalMediaEngine,
+        worker: Box<dyn WorkerHandle>,
+    ) {
+        self.checkin(engine, worker);
+    }
 }
 
 impl WorkerSupervisorPort for LocalMediaWorkerSupervisor {
@@ -248,6 +285,7 @@ impl WorkerSupervisorPort for LocalMediaWorkerSupervisor {
                 snapshot,
                 &call,
                 cancelled,
+                self.shutting_down.clone(),
                 self.policy.call_timeout,
                 self.policy.cancel_grace,
             );
@@ -299,16 +337,47 @@ impl WorkerSupervisorPort for LocalMediaWorkerSupervisor {
         }
     }
 
+    /// Stop every worker, idle or busy, and refuse to start another.
+    ///
+    /// Idempotent, and safe to call while requests are running. The flag goes up first so that a
+    /// call arriving between the flag and the sweep is refused rather than launching a process
+    /// nothing will collect.
+    ///
+    /// Idle workers are taken out of the map under the lock and shut down after it is released:
+    /// `shutdown` writes a frame and waits for the child, and holding the slot lock across that
+    /// would block a status read on an unrelated engine.
+    ///
+    /// A busy worker is not in the map at all -- `checkout` took it -- so it cannot be reached from
+    /// here. The thread inside its call sees the flag within one poll slice and terminates its own
+    /// child; this waits, bounded, for those threads to release their permits so that the children
+    /// have been reaped before the application finishes exiting.
     fn shutdown_all(&self) {
-        let Ok(mut slots) = self.slots.lock() else {
-            return;
-        };
-        for slot in slots.values_mut() {
-            if let Some(mut worker) = slot.worker.take() {
-                worker.shutdown(self.policy.shutdown_grace);
+        self.shutting_down.store(true, Ordering::SeqCst);
+
+        let mut idle = Vec::new();
+        if let Ok(mut slots) = self.slots.lock() {
+            for slot in slots.values_mut() {
+                if let Some(worker) = slot.worker.take() {
+                    idle.push(worker);
+                }
+                slot.busy = false;
             }
-            slot.busy = false;
-            slot.in_flight = 0;
+        }
+        for mut worker in idle {
+            worker.shutdown(self.policy.shutdown_grace);
+        }
+
+        let deadline = Instant::now() + self.policy.shutdown_grace + self.policy.cancel_grace;
+        while Instant::now() < deadline {
+            let Ok(slots) = self.slots.lock() else {
+                return;
+            };
+            let busy = slots.values().any(|slot| slot.in_flight > 0);
+            drop(slots);
+            if !busy {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
     }
 }
@@ -339,8 +408,9 @@ impl PythonWorkerLauncher {
         }
     }
 
-    /// Extend the worker environment. Only a `desktop-e2e` assembly calls this.
-    #[cfg(feature = "desktop-e2e")]
+    /// Extend the worker environment. Only a `desktop-e2e` assembly and this crate's own tests
+    /// call it; a release build has neither, so the launch path stays exactly as it ships.
+    #[cfg(any(feature = "desktop-e2e", test))]
     pub(crate) fn with_environment_overlay(
         mut self,
         overlay: super::environment::WorkerEnvironmentOverlay,
@@ -417,3 +487,7 @@ pub(crate) fn build_supervisor_with_overlay(
 #[cfg(test)]
 #[path = "supervisor_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shutdown_process_tests.rs"]
+mod shutdown_process_tests;

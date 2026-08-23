@@ -1,4 +1,4 @@
-mod environment;
+pub(super) mod environment;
 mod process;
 mod protocol;
 mod supervisor;

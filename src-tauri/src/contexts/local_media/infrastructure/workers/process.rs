@@ -108,6 +108,7 @@ impl WorkerSession {
         snapshot: &LocalMediaProfileSnapshot,
         call: &WorkerCall,
         cancelled: Arc<AtomicBool>,
+        abort: Arc<AtomicBool>,
         timeout: Duration,
         cancel_grace: Duration,
     ) -> Result<WorkerReply, LocalMediaError> {
@@ -131,6 +132,15 @@ impl WorkerSession {
         let mut cancel_deadline: Option<Instant> = None;
 
         loop {
+            // Checked before cancellation, and without a grace period. `abort` is the supervisor
+            // shutting down: there is nobody left to receive a cooperative answer, and a worker
+            // that finishes politely two seconds later is a process outliving the application.
+            if abort.load(Ordering::SeqCst) {
+                self.transport.terminate();
+                self.poisoned = true;
+                return Err(LocalMediaError::new(LocalMediaErrorCode::EngineUnavailable)
+                    .with_text("engine", self.engine.as_str()));
+            }
             if cancel_deadline.is_none() && cancelled.load(Ordering::SeqCst) {
                 // Cooperative first: the worker may be between pages or segments and can stop
                 // cleanly. Only if it does not answer within the grace period is it killed.

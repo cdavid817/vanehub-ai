@@ -219,6 +219,7 @@ fn a_successful_call_returns_a_typed_reply() {
             &snapshot(),
             &transcribe_call(),
             never_cancelled(),
+            never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
         )
@@ -256,6 +257,7 @@ fn request_ids_are_unique_per_call() {
                 &snapshot(),
                 &transcribe_call(),
                 never_cancelled(),
+                never_cancelled(),
                 CALL_TIMEOUT,
                 CANCEL_GRACE,
             )
@@ -282,6 +284,7 @@ fn a_mismatched_response_id_poisons_the_worker() {
             &snapshot(),
             &transcribe_call(),
             never_cancelled(),
+            never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
         )
@@ -304,6 +307,7 @@ fn stdout_contamination_during_a_call_poisons_the_worker() {
             &snapshot(),
             &transcribe_call(),
             never_cancelled(),
+            never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
         )
@@ -322,6 +326,7 @@ fn a_worker_that_dies_mid_call_reports_a_crash() {
             &snapshot(),
             &transcribe_call(),
             never_cancelled(),
+            never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
         )
@@ -338,6 +343,7 @@ fn a_hung_worker_is_terminated_at_the_call_deadline() {
         .call(
             &snapshot(),
             &transcribe_call(),
+            never_cancelled(),
             never_cancelled(),
             Duration::from_millis(30),
             CANCEL_GRACE,
@@ -363,6 +369,7 @@ fn a_worker_error_response_does_not_poison_the_session() {
         .call(
             &snapshot(),
             &transcribe_call(),
+            never_cancelled(),
             never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
@@ -395,6 +402,7 @@ fn a_cooperative_cancel_sends_a_cancel_frame_and_settles_as_cancelled() {
             &snapshot(),
             &transcribe_call(),
             flag,
+            never_cancelled(),
             CALL_TIMEOUT,
             CANCEL_GRACE,
         )
@@ -421,6 +429,7 @@ fn a_non_cooperative_worker_is_terminated_after_the_grace_period() {
             &snapshot(),
             &transcribe_call(),
             flag,
+            never_cancelled(),
             CALL_TIMEOUT,
             Duration::from_millis(20),
         )

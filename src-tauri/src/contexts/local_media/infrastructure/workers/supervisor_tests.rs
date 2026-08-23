@@ -32,6 +32,7 @@ impl WorkerHandle for StubSession {
         _snapshot: &LocalMediaProfileSnapshot,
         _call: &WorkerCall,
         _cancelled: Arc<AtomicBool>,
+        _abort: Arc<AtomicBool>,
         _timeout: Duration,
         _cancel_grace: Duration,
     ) -> Result<WorkerReply, LocalMediaError> {
@@ -452,4 +453,76 @@ fn a_transcribe_call_reaches_the_worker_unchanged() {
         .call(&snapshot(LocalMediaEngine::Stt, 1), call, flag())
         .is_ok());
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn shutdown_refuses_to_start_another_worker() {
+    let fixture = fixture(vec![]);
+    fixture
+        .supervisor
+        .call(
+            &snapshot(LocalMediaEngine::Ocr, 1),
+            WorkerCall::Probe,
+            flag(),
+        )
+        .expect("call");
+    let launched = fixture.launcher.launches.load(Ordering::SeqCst);
+
+    fixture.supervisor.shutdown_all();
+    let refused = fixture
+        .supervisor
+        .call(
+            &snapshot(LocalMediaEngine::Ocr, 1),
+            WorkerCall::Probe,
+            flag(),
+        )
+        .expect_err("refused");
+
+    // Restart backoff and quarantine exist to recover; after shutdown there is nothing to recover
+    // into, and a process started here would outlive the runtime that asked everything to stop.
+    assert_eq!(refused.code(), LocalMediaErrorCode::EngineUnavailable);
+    assert_eq!(fixture.launcher.launches.load(Ordering::SeqCst), launched);
+}
+
+#[test]
+fn shutdown_is_idempotent() {
+    let fixture = fixture(vec![]);
+    fixture
+        .supervisor
+        .call(
+            &snapshot(LocalMediaEngine::Tts, 1),
+            WorkerCall::Probe,
+            flag(),
+        )
+        .expect("call");
+
+    fixture.supervisor.shutdown_all();
+    fixture.supervisor.shutdown_all();
+
+    assert_eq!(
+        fixture.supervisor.state(LocalMediaEngine::Tts),
+        WorkerState::Stopped
+    );
+}
+
+#[test]
+fn a_worker_checked_in_after_shutdown_is_shut_down_rather_than_stored() {
+    let fixture = fixture(vec![]);
+    // Shut down first, then hand a live worker back: the shape of the race where a call finishes
+    // just as the runtime is exiting, holding a handle `shutdown_all` has already walked past.
+    fixture.supervisor.shutdown_all();
+    let session = StubSession {
+        behaviour: StubBehaviour::Succeed,
+        revision: 1,
+        poisoned: false,
+        calls: fixture.calls.clone(),
+    };
+    fixture
+        .supervisor
+        .debug_checkin_for_test(LocalMediaEngine::Stt, Box::new(session));
+
+    assert_eq!(
+        fixture.supervisor.state(LocalMediaEngine::Stt),
+        WorkerState::Stopped
+    );
 }
