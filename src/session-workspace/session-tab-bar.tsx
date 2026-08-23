@@ -45,6 +45,30 @@ export const sessionTabDefinitions: TabDefinition[] = [
   { id: "report", icon: BarChart3 },
 ];
 
+function badgeDescriptionId(tab: SessionTabId): string {
+  return `session-tab-badge-${tab}`;
+}
+
+/**
+ * What a badge says out loud: the subject it counts and the count, or why there is no count.
+ *
+ * Returns null for a tab with nothing to report, which is how the button decides whether it has a
+ * description at all.
+ */
+function badgeDescription(
+  badge: WorkspaceTabBadge | undefined,
+  tab: SessionTabId,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string | null {
+  if (badge === undefined || badge.kind === "none") return null;
+  const label = t(workspaceBadgeLabelKey(tab));
+  if (badge.kind === "unknown") return t(`workspaceBadge.unknown.${badge.reason}`, { label });
+  return t(badge.atLeast ? "workspaceBadge.atLeast" : "workspaceBadge.count", {
+    count: badge.count,
+    label,
+  });
+}
+
 export function SessionTabBar({
   activeTab,
   badges,
@@ -60,6 +84,10 @@ export function SessionTabBar({
 }) {
   const { t } = useTranslation();
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const descriptions = sessionTabDefinitions.flatMap(({ id }) => {
+    const text = badgeDescription(badges[id], id, t);
+    return text === null ? [] : [{ id, text }];
+  });
 
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let nextIndex: number | null = null;
@@ -84,9 +112,14 @@ export function SessionTabBar({
       {sessionTabDefinitions.map(({ id, icon: Icon }, index) => {
         const label = t(`sessionTabs.tab.${id}`);
         const badge = badges[id];
+        const described = descriptions.some((entry) => entry.id === id);
         return (
           <button
             aria-controls={`session-tab-panel-${id}`}
+            // Described, not renamed. A tab's accessible name identifies the tab; folding a live
+            // count into it makes the name change as work runs, and a name like "Changes,
+            // unviewed changed files: 4" then matches a search for the Files tab.
+            aria-describedby={described ? badgeDescriptionId(id) : undefined}
             aria-selected={activeTab === id}
             className={cn(
               "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -114,51 +147,51 @@ export function SessionTabBar({
       })}
     </div>
     <FolderOpenerControl onOpenSettings={onOpenSettings} session={session} />
+    {/* Outside the buttons on purpose: a description rendered inside one would be read as part of
+        that button's name, which is the thing `aria-describedby` exists to avoid. */}
+    <div className="sr-only">
+      {descriptions.map((entry) => (
+        <span id={badgeDescriptionId(entry.id)} key={entry.id}>
+          {entry.text}
+        </span>
+      ))}
+    </div>
     </div>
   );
 }
 
 /**
- * A badge states a count or states that it has none — never both, and never a zero standing in for
- * an answer nobody has.
+ * The visible half of a badge: a count, a floor, or a placeholder glyph.
  *
- * The placeholder is a glyph with a spoken name. Rendering `0` for an index that is still building
- * would be a claim the workspace cannot support, and a reader has no way to tell the two apart.
+ * Hidden from the accessibility tree because the button carries the spoken version as its
+ * description. A `0` never appears here — rendering one for an index that has not finished
+ * building would be a claim the workspace cannot support, and a reader cannot tell the two apart.
  */
 function TabBadge({ badge, tab }: { badge: WorkspaceTabBadge | undefined; tab: SessionTabId }) {
-  const { t } = useTranslation();
   if (badge === undefined || badge.kind === "none") return null;
-  const subject = t(workspaceBadgeLabelKey(tab));
 
   if (badge.kind === "unknown") {
     return (
       <span
-        aria-label={t(`workspaceBadge.unknown.${badge.reason}`, { label: subject })}
+        aria-hidden="true"
         className="min-w-5 rounded-full border border-dashed border-border px-1 text-center font-mono text-[10px] text-muted-foreground"
         data-badge={`${tab}-unknown`}
-        title={t(`workspaceBadge.unknown.${badge.reason}`, { label: subject })}
       >
         ·
       </span>
     );
   }
 
-  const description = t(badge.atLeast ? "workspaceBadge.atLeast" : "workspaceBadge.count", {
-    count: badge.count,
-    label: subject,
-  });
   return (
     <span
-      aria-label={description}
+      aria-hidden="true"
       className={cn(
         "min-w-5 rounded-full border px-1 font-mono text-[10px]",
         badge.tone === "danger" ? "border-destructive text-destructive" : "border-border",
       )}
       data-badge={`${tab}-count`}
-      title={description}
     >
       {badge.atLeast ? `≥${badge.count}` : badge.count}
     </span>
   );
 }
-
