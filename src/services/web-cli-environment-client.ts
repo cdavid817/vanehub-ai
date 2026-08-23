@@ -3,12 +3,12 @@ import { createWebMockOperation } from "./web-operation-client";
 import { nowIso } from "./web-mock-clock";
 import {
   WEB_CLI_FIXED_PLAN_IDS,
-  WEB_CLI_OUTCOME_TARGETS,
   WEB_CLI_REFUSAL_TARGETS,
   webCliActionPlan,
   webCliBulkActionPlan,
   webCliBulkItemResults,
   webCliEnvironmentSnapshots,
+  webCliOutcomeFor,
 } from "./web-cli-environment-fixtures";
 import { CliEnvironmentRejection } from "../types/cli-environment";
 import type {
@@ -31,31 +31,10 @@ import type { OperationTask } from "../types/operation";
  * `changed-but-failed` without a machine that happens to be in that state.
  */
 
-/** Which outcome a chosen target version drives. Unlisted targets verify. */
-function outcomeFor(targetVersion: string | null): {
-  status: "succeeded" | "failed";
-  outcome: string;
-  error: string | null;
-} {
-  switch (targetVersion) {
-    case WEB_CLI_OUTCOME_TARGETS.appliedUnverified:
-      // The command succeeded; verification could not confirm it. Not a failure.
-      return { status: "succeeded", outcome: "applied-unverified", error: null };
-    case WEB_CLI_OUTCOME_TARGETS.changedButFailed:
-      return { status: "failed", outcome: "changed-but-failed", error: "cli.mutation.changed-but-failed" };
-    case WEB_CLI_OUTCOME_TARGETS.noChangeFailed:
-      return { status: "failed", outcome: "no-change-failed", error: "cli.mutation.no-change-failed" };
-    case WEB_CLI_OUTCOME_TARGETS.cancelled:
-      return { status: "failed", outcome: "cancelled", error: "cli.mutation.cancelled" };
-    default:
-      return { status: "succeeded", outcome: "verified", error: null };
-  }
-}
-
 function mutationResult(
   operationId: string,
   input: PrepareCliActionInput,
-  outcome: ReturnType<typeof outcomeFor>,
+  outcome: ReturnType<typeof webCliOutcomeFor>,
 ): Record<string, unknown> {
   const observed = outcome.outcome === "verified" ? input.targetVersion : "1.2.0";
   return {
@@ -90,9 +69,8 @@ function fixedPlan(planId: string): CliActionPlan | null {
       return webCliActionPlan({ id: planId, state: "expired" });
     case WEB_CLI_FIXED_PLAN_IDS.consumed:
       return webCliActionPlan({ id: planId, state: "completed" });
+    // Both read as ordinary drafts. What makes the stale one stale happens at execution, not here.
     case WEB_CLI_FIXED_PLAN_IDS.stale:
-      // A revision the caller cannot match: the environment moved after the plan was built.
-      return webCliActionPlan({ id: planId, revision: 2 });
     case WEB_CLI_FIXED_PLAN_IDS.draft:
       return webCliActionPlan({ id: planId });
     default:
@@ -101,6 +79,17 @@ function fixedPlan(planId: string): CliActionPlan | null {
 }
 
 let preparedPlan: CliActionPlan | null = null;
+
+/**
+ * The revision this plan carries at the moment execution admits it.
+ *
+ * One plan id is always revised between review and execution, whatever revision the review showed.
+ * Modelling that by counting reads made the outcome depend on how many times the caller happened
+ * to refetch, which is not a property of the environment being modelled.
+ */
+function revisionAtExecution(plan: CliActionPlan, reviewed: number): number {
+  return plan.id === WEB_CLI_FIXED_PLAN_IDS.stale ? reviewed + 1 : plan.revision;
+}
 
 export const webCliEnvironmentClient: CliToolService = {
   async listCliEnvironments() {
@@ -159,13 +148,13 @@ export const webCliEnvironmentClient: CliToolService = {
     const plan = await this.getCliActionPlan(input.planId);
     // Refused before anything runs, in the same shape and with the same categories the desktop
     // command layer rejects with, so a caller cannot handle one runtime and drop the other.
-    if (plan.revision !== input.expectedRevision) {
+    if (revisionAtExecution(plan, input.expectedRevision) !== input.expectedRevision) {
       throw new CliEnvironmentRejection("plan-revision-mismatch", true);
     }
     if (plan.state !== "draft") {
       throw new CliEnvironmentRejection(plan.state === "expired" ? "plan-expired" : "plan-consumed", true);
     }
-    const outcome = outcomeFor(plan.targetVersion);
+    const outcome = webCliOutcomeFor(plan.targetVersion);
     const operationId = `web-cli-execute-${plan.id}`;
     return createWebMockOperation({
       id: operationId,

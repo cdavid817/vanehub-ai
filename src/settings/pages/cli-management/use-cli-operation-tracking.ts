@@ -32,14 +32,24 @@ export function useCliOperationTracking(
 ) {
   const [refreshing, setRefreshing] = useState<Record<string, string>>({});
   const [mutating, setMutating] = useState<Record<string, string>>({});
+  /**
+   * The most recent operation per tool, kept after it finishes.
+   *
+   * Separate from the two busy maps on purpose. Those are pruned the moment an operation settles,
+   * which is right for disabling controls and wrong for showing a result: pruning the displayed
+   * operation too made every terminal outcome vanish in the same render it arrived in, so a user
+   * never saw whether the change they authorized worked.
+   */
+  const [shown, setShown] = useState<Record<string, string>>({});
 
   const operationIds = useMemo(
     () => [...new Set([
       ...snapshots.flatMap((s) => (s.lastOperationId ? [s.lastOperationId] : [])),
       ...Object.values(refreshing),
       ...Object.values(mutating),
+      ...Object.values(shown),
     ])],
-    [snapshots, refreshing, mutating],
+    [snapshots, refreshing, mutating, shown],
   );
 
   const queries = useQueries({
@@ -91,7 +101,7 @@ export function useCliOperationTracking(
   }, [operationIds, operationsById, refreshing, mutating, queryClient, snapshotsQueryKey]);
 
   /**
-   * The operation a tool's controls act on.
+   * The operation a tool shows and its controls act on.
    *
    * `lastOperationId` is in the chain because an operation started before this page mounted -- or
    * by another window -- is still the one running against that tool. Leaving it out gave the card
@@ -102,11 +112,12 @@ export function useCliOperationTracking(
     for (const snapshot of snapshots) {
       byAgent[snapshot.agentId] = mutating[snapshot.agentId]
         ?? refreshing[snapshot.agentId]
+        ?? shown[snapshot.agentId]
         ?? snapshot.lastOperationId
         ?? undefined;
     }
     return byAgent;
-  }, [snapshots, mutating, refreshing]);
+  }, [snapshots, mutating, refreshing, shown]);
 
   const operationsByAgentId = useMemo(() => {
     const byAgent: Record<string, OperationTask | undefined> = {};
@@ -133,15 +144,15 @@ export function useCliOperationTracking(
 
     trackRefresh(operation: OperationTask, agentId: string | null, all: readonly CliEnvironmentSnapshot[]) {
       const targets = agentId ? [agentId] : all.map((snapshot) => snapshot.agentId);
-      setRefreshing((current) => ({
-        ...current,
-        ...Object.fromEntries(targets.map((id) => [id, operation.id])),
-      }));
+      const assigned = Object.fromEntries(targets.map((id) => [id, operation.id]));
+      setRefreshing((current) => ({ ...current, ...assigned }));
+      setShown((current) => ({ ...current, ...assigned }));
     },
 
     trackMutation(operation: OperationTask, agentId: string | null) {
       if (!agentId) return;
       setMutating((current) => ({ ...current, [agentId]: operation.id }));
+      setShown((current) => ({ ...current, [agentId]: operation.id }));
     },
 
     /** The plan id a preparation operation produced, once it finishes. */
@@ -162,7 +173,9 @@ export function useCliOperationTracking(
 
     cancel(agentId: string) {
       const operationId = operationIdByAgentId[agentId];
-      if (!operationId) return;
+      // A finished operation stays on the card so its result can be read; cancelling one would ask
+      // the backend to stop work that already stopped.
+      if (!operationId || !isOperationRunning(operationsById[operationId])) return;
       // Through the operation service, which owns the cancellation flag the backend polls.
       void operationService.cancelOperation(operationId);
     },

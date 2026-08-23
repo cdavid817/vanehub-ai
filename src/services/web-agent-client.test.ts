@@ -264,7 +264,15 @@ describe("webAgentClient", () => {
     const operation = await webAgentClient.refreshCliEnvironments(["codex-cli"], false);
     expect(operation).toMatchObject({ status: "queued", relatedEntityId: "codex-cli" });
 
+    // A refresh runs for seconds, so the mock does too: it is still running at a second, which is
+    // what makes the refreshing state and the chance to cancel it observable at all.
     await vi.advanceTimersByTimeAsync(950);
+    await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({
+      status: "running",
+      cancellable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
     await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({
       status: "succeeded",
     });

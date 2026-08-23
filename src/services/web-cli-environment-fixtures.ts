@@ -44,6 +44,20 @@ export const WEB_CLI_REFUSAL_TARGETS = Object.freeze(bulk.refusalTargets);
 /** Plan ids the mock always answers for, one per refusal the real backend can produce. */
 export const WEB_CLI_FIXED_PLAN_IDS = Object.freeze(bulk.fixedPlanIds);
 
+interface WebCliOutcome {
+  status: "succeeded" | "failed";
+  outcome: string;
+  error: string | null;
+}
+
+/** Which terminal outcome a chosen target version drives. Unlisted targets verify. */
+export function webCliOutcomeFor(targetVersion: string | null): WebCliOutcome {
+  const listed: Record<string, { status: string; outcome: string; error: string | null }> = bulk.outcomes;
+  const found = listed[targetVersion ?? ""];
+  if (!found) return { status: "succeeded", outcome: "verified", error: null };
+  return { ...found, status: found.status === "failed" ? "failed" : "succeeded" };
+}
+
 export function webCliEnvironmentSnapshots(): CliEnvironmentSnapshot[] {
   // Copied per call: a caller that mutated what it was handed would change every later call's
   // answer, and a mock whose data drifts is worse than no mock.

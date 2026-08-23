@@ -87,17 +87,29 @@ export class CliEnvironmentRejection extends Error implements CliRejection {
   }
 }
 
-/** Reads a boundary refusal off whatever was thrown, or `null` when it was something else. */
+/**
+ * Reads a boundary refusal off whatever was thrown, or `null` when it was something else.
+ *
+ * Follows `cause`, because the service boundary normalizes everything it catches into a
+ * `ServiceError` and keeps the original there. On the desktop runtime that original is the
+ * serialized command error itself, so without this the category would never reach a UI at all.
+ */
 export function readCliRejection(error: unknown): CliRejection | null {
-  if (typeof error !== "object" || error === null) return null;
-  const candidate = error as Partial<CliRejection>;
-  if (typeof candidate.category !== "string" || candidate.category.length === 0) return null;
-  return {
-    category: candidate.category,
-    message: typeof candidate.message === "string" ? candidate.message : candidate.category,
-    retryableWithANewPlan: candidate.retryableWithANewPlan === true,
-    diagnosticId: typeof candidate.diagnosticId === "string" ? candidate.diagnosticId : null,
-  };
+  for (let candidate = error, depth = 0; candidate !== null && depth < 4; depth += 1) {
+    if (typeof candidate !== "object") return null;
+    const shape = candidate as Partial<CliRejection> & { cause?: unknown };
+    if (typeof shape.category === "string" && shape.category.length > 0) {
+      return {
+        category: shape.category,
+        message: typeof shape.message === "string" ? shape.message : shape.category,
+        retryableWithANewPlan: shape.retryableWithANewPlan === true,
+        diagnosticId: typeof shape.diagnosticId === "string" ? shape.diagnosticId : null,
+      };
+    }
+    candidate = shape.cause;
+    if (candidate === undefined) return null;
+  }
+  return null;
 }
 
 /**

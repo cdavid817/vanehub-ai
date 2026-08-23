@@ -6,6 +6,28 @@
     "noChangeFailed": "1.3.0-fails",
     "cancelled": "1.3.0-cancels"
   },
+  "outcomes": {
+    "1.3.0-unverified": {
+      "status": "succeeded",
+      "outcome": "applied-unverified",
+      "error": null
+    },
+    "1.3.0-changed": {
+      "status": "failed",
+      "outcome": "changed-but-failed",
+      "error": "cli.mutation.changed-but-failed"
+    },
+    "1.3.0-fails": {
+      "status": "failed",
+      "outcome": "no-change-failed",
+      "error": "cli.mutation.no-change-failed"
+    },
+    "1.3.0-cancels": {
+      "status": "failed",
+      "outcome": "cancelled",
+      "error": "cli.mutation.cancelled"
+    }
+  },
   "refusalTargets": {
     "expired": "1.3.0-expired",
     "stale": "1.3.0-stale"
