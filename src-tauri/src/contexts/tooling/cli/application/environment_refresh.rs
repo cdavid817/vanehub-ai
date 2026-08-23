@@ -516,7 +516,7 @@ impl CliEnvironmentService {
                 continue;
             }
             summaries.push(CliSourceSummary {
-                source_id: CliSourceId::trusted(kind.as_str()),
+                source_id: kind.source_id(),
                 kind,
                 capabilities: CliSourceCapabilities::DETECT_ONLY,
                 // The installation is here, so the source is present on this platform. What is

@@ -2585,6 +2585,10 @@ const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
     ("infrastructure/npm_source.rs", "\"npm\""),
     ("infrastructure/winget_source.rs", "\"winget\""),
     ("infrastructure/vendor_source.rs", "\"vendor\""),
+    // A match over `CliSourceKind`'s own variants. Every arm is a literal in that file, so the
+    // argument cannot carry a stored row or a package manager's output no matter where the kind
+    // itself came from.
+    ("domain/source.rs", "self.as_str()"),
     // Fallback literals. The dynamic value goes through the fallible `new` first; only the
     // last-resort constant is trusted.
     ("infrastructure/environment_discovery.rs", "\"i-unknown\""),

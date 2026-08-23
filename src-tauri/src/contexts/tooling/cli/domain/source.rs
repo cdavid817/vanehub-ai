@@ -49,6 +49,17 @@ impl CliSourceKind {
         }
     }
 
+    /// This kind's own name, as a source id.
+    ///
+    /// Trusted rather than validated, and deliberately here rather than at the call site: the
+    /// argument is `as_str`, a match over this enum's variants, so the value is always one of the
+    /// ten literals written a few lines above -- never a stored row, a PATH entry, or a package
+    /// manager's stdout. Keeping the unchecked constructor next to the literals it trusts means
+    /// there is one place to audit instead of one per caller.
+    pub(crate) fn source_id(self) -> CliSourceId {
+        CliSourceId::trusted(self.as_str())
+    }
+
     /// Whether this change ships lifecycle management for the source at all. Detect-only is a
     /// statement about VaneHub's capability, never about the installation's health -- a manually
     /// installed CLI that runs fine is healthy and detect-only at the same time.
