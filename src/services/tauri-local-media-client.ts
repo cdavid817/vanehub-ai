@@ -25,6 +25,23 @@ const OCR_FILE_FILTERS = [
 ];
 
 /**
+ * Stable code the fixture command answers when the fixture runtime was never activated.
+ *
+ * The ordinary Desktop Smoke layer runs this same `desktop-e2e` artifact without the runtime
+ * switch, so this one code -- and only this one -- means "there is no fixture here, use the real
+ * dialog".
+ */
+const FIXTURE_UNAVAILABLE = "FIXTURE_OCR_SOURCE_UNAVAILABLE";
+
+/** The trailing token of a command rejection is the stable code; anything else has none. */
+function stableCodeOf(error: unknown): string | null {
+  const raw =
+    typeof error === "string" ? error : error instanceof Error ? error.message : String(error ?? "");
+  const candidate = raw.trim().split(/\s+/u).pop() ?? "";
+  return /^[A-Z][A-Z0-9_]*$/u.test(candidate) ? candidate : null;
+}
+
+/**
  * Which file the picker returns.
  *
  * A desktop test build asks the native fixture for a repository-controlled image instead of
@@ -32,17 +49,18 @@ const OCR_FILE_FILTERS = [
  * hands the path to the real `stage_local_media_ocr_source`, so sniffing, the size, page and pixel
  * ceilings, staging, the one-time claim and cleanup are unchanged.
  *
- * `FIXTURE_OCR_SOURCE_UNAVAILABLE` means fixtures were never activated -- the ordinary Desktop
- * Smoke layer runs this same build -- so the real dialog is correct there. When fixtures *are*
- * active the native side has already verified the file at startup and refused to boot without it,
- * which is where fail-closed lives.
+ * Every other failure is rethrown rather than swallowed. A registry miss, an IPC fault, a path
+ * encoding problem, or an internal error once fixtures *are* active are all real defects, and
+ * quietly opening a dialog instead would turn each of them into a test that hangs waiting for a
+ * human. Fail-closed for the activated case lives natively: the app refuses to boot without a
+ * readable fixture source.
  */
 async function chooseOcrSource(): Promise<string | null> {
   if (import.meta.env.VITE_DESKTOP_E2E === "1") {
     try {
       return await invoke<string>("fixture_local_media_ocr_source");
-    } catch {
-      // Fixtures are off in this run; fall through to the real picker.
+    } catch (error) {
+      if (stableCodeOf(error) !== FIXTURE_UNAVAILABLE) throw error;
     }
   }
   const selected = await open({ multiple: false, filters: OCR_FILE_FILTERS });

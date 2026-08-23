@@ -58,8 +58,12 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `tauri-local-media-client.ts` 多出一个 `chooseOcrSource`——4 行逻辑加 17 行注释,说明为什么
 // 只替换选择结果、为什么 fail-closed 在原生侧而不在这里,以及为什么普通 Desktop Smoke 用同一个
 // 构建却必须仍然走真实对话框。选择之后的嗅探、限额、staging、one-time claim 与清理一行未改。
+// 再上调 18 行:上一版的 fixture 分支 catch 住任何异常就退回真实对话框,于是命令未注册、IPC 断链
+// 这类真实缺陷会在无人应答的 headless runner 上变成挂起,而不是一条能读的失败。现在只有恰好等于
+// `FIXTURE_OCR_SOURCE_UNAVAILABLE` 的稳定码才回退,其余一律重新抛出——多出来的是一个从错误串尾部
+// 取稳定码的小函数,以及说明为什么只有这一个码允许回退的注释。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19638, owner: "add-local-composer-media-tools" },
+  { root: "src/services", budget: 19656, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([
