@@ -447,7 +447,7 @@ fn a_bulk_insert_that_fails_leaves_no_item_plans_behind() {
     // The same batch id again: the bulk row violates the primary key, and it is written before the
     // item plans, so the item is inside the transaction that fails.
     let error = repository
-        .create_bulk_plan_atomic(&bulk, &[orphan.clone()])
+        .create_bulk_plan_atomic(&bulk, std::slice::from_ref(&orphan))
         .expect_err("refused");
 
     assert_eq!(error.category(), "storage");
@@ -466,7 +466,7 @@ fn attaching_an_already_persisted_plan_to_a_batch_updates_it_instead_of_failing(
     repository.create_action_plan(&plan).expect("planned");
 
     repository
-        .create_bulk_plan_atomic(&bulk_for("bulk-1"), &[plan.clone()])
+        .create_bulk_plan_atomic(&bulk_for("bulk-1"), std::slice::from_ref(&plan))
         .expect("the batch attaches the plan it planned");
 
     assert_eq!(
