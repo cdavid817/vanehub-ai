@@ -27,9 +27,11 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// Mode switch and its audit trail, and migration 85 adds published snapshots and the
 /// pointer that says which one each installation runs, and migration 86 adds version claims,
 /// packages, snapshot detail, runtime generations, and operation witnesses while rebuilding
-/// the installations table with the references SQLite cannot add after the fact.
+/// the installations table with the references SQLite cannot add after the fact, and migration 87
+/// adds lifecycle Hook subjects, their versioned definitions, user bindings, and bounded
+/// execution evidence.
 fn expected_versions() -> Vec<i64> {
-    (1..=86).collect()
+    (1..=87).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

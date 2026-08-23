@@ -2503,9 +2503,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // the lock, and that contention surfaces as `Busy` rather than as a storage error. Both need a
     // second pooled connection and a temporarily lowered `busy_timeout`, which is why they are not
     // one-liners.
+    //
+    // Raised again from 3,145 by +7 to register migration 87 (lifecycle Hook persistence): 6 lines
+    // of `apply_transactional_migration` plus 1 in `EXPECTED_MIGRATIONS`. Migration 87's schema and
+    // its tests live in `contexts/tooling/lifecycle_hooks`, which owns the tables; what is here is
+    // the registration. Migrations 88 and 89 will add 7 lines each.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_145,
+        budget: 3_152,
         owner: "add-unified-extension-platform",
     },
 ];

@@ -1119,6 +1119,14 @@ Before implementation, Codex must inspect and rebase against these active change
 
 If a referenced contract changes, update this change's delta specs and run `openspec validate add-unified-extension-platform --strict` before code modifications.
 
+### Follow-up change this one deliberately does not make: `fix-sqlite-deferred-write-upgrade-contention`
+
+Task Group 3 found a defect that is not this change's to fix. `Connection::unchecked_transaction()` opens a **deferred** transaction, which takes no lock until its first write. A transaction that reads and then writes therefore has to *upgrade* to a write lock partway through, and SQLite refuses that upgrade with `SQLITE_BUSY` **without honouring `busy_timeout`** — because waiting could not help: the reader is holding the very snapshot that would have to be abandoned. The symptom is an intermittent `database is locked` under concurrency, on code that looks correct and passes every single-threaded test.
+
+Four call sites in this change were repaired with `begin_write_transaction` (`BEGIN IMMEDIATE`). The same pattern exists in `retrieval`, `sessions`, `tooling::extensions`, and the existing `permissions` code, and **this change does not touch them**: they are other subdomains' storage, a fix there would be unreviewable inside an extension-platform diff, and a mistake there would surface as a lock held across work that has no business holding one.
+
+A separate change carries it, created **after Task Group 3 closes and before Task Group 4 starts**. It must classify every existing transaction before changing any of them — `read-only`, `write-first`, `read-then-write`, `CAS`, `external-I/O` — and convert only the third and fourth. A global mechanical replacement is forbidden: `BEGIN IMMEDIATE` holds a write lock for the whole transaction, so applying it to a read-only or an external-I/O transaction converts a defect that appears under contention into a serialisation bottleneck that appears always, and an `external-I/O` transaction must be restructured rather than converted at all.
+
 ## Contract reconciliation against current code (Task Group 0)
 
 Recorded on 2026-08-22 against `main` at `ee3eaf3f`. Where this section and an earlier Decision disagree, this section is the current fact and the Decision is the intent to be reconciled.
@@ -1389,10 +1397,18 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `extension_hook_subjects` | **Immutable identity** | — | — | PK `hook_global_id` | Permanent | None | Built-in seed, idempotent |
-| `extension_hook_definition_revisions` | **Immutable** | — | → hook subjects, RESTRICT | PK `(hook_global_id, snapshot_id)` | With its snapshot | None | None |
-| `extension_hook_bindings` | Mutable | `revision` + CAS | → hook subjects, RESTRICT | PK `(hook_global_id, scope)` | Permanent | None | **Never overwrites user enablement** |
-| `extension_hook_executions` | **Immutable rows inside a bounded retention window** | — | → hook subjects, RESTRICT | PK `execution_id`; monotonic `sequence` | **N most recent per hook; only terminal rows removed** | **Bounded and redacted before the repository** | None |
+| `lifecycle_hook_subjects` | **Immutable identity** | — | — | PK `hook_global_id` | Permanent | None | Built-in seed, idempotent |
+| `lifecycle_hook_definition_revisions` | **Immutable** | — | → hook subjects, RESTRICT | PK `(hook_global_id, snapshot_id)` | With its snapshot | None | None |
+| `lifecycle_hook_bindings` | Mutable | `revision` + CAS | → hook subjects, RESTRICT | PK `(hook_global_id, scope_kind, scope_key)` | Permanent | None | **Never overwrites user enablement** |
+| `lifecycle_hook_executions` | **Immutable rows inside a bounded retention window** | — | → hook subjects, RESTRICT | PK `execution_id`; unique `(hook_global_id, sequence)` | **N most recent per hook; only terminal rows removed** | **No column can hold one** | None |
+
+**A binding's scope is two `NOT NULL` columns, not one nullable one.** SQLite treats `NULL` as distinct from every other `NULL` in a unique index, so `(hook_global_id, scope)` with `NULL` meaning "global" admits unlimited global bindings for one Hook — each invisible to the others, and whichever a reader saw first would decide whether the Hook ran. `scope_kind` plus a `scope_key` that is `''` for global makes the key total, and a table `CHECK` keeps global-with-a-key and scoped-without-one unrepresentable.
+
+**Recording a definition revision is idempotent on the same digest and refused on a different one.** `(subject, snapshot)` naming two digests is not a duplicate; it is two incompatible answers to what the Hook does in that snapshot, and taking the later one would let a rebuild change what an already-installed snapshot means. `event` is inside the digest, so re-pointing a Hook at a different trigger under the same identity lands as `DefinitionContentConflict` rather than as a silent re-registration.
+
+**Redaction is structural, not procedural.** `lifecycle_hook_executions` has no payload, message, or path column — not a redacted one, none. The only thing an outcome can say is a `HookOutcomeCode`, whose grammar is lower_snake_case and bounded, so a stderr dump does not fit through it and the attempt fails at the constructor. A repository with a free-text field would have to be trusted to redact, and every caller would have to remember to.
+
+**`sequence` is assigned by storage as `MAX + 1` under a write lock, and retention is what keeps it monotonic.** Timestamps are not an ordering: two executions inside one clock tick tie, and the clock can go backwards. Pruning keeps the newest `keep` rows whatever their status and removes only *terminal* rows from what is left, so a subject that has ever run always retains at least one row and a sequence is never reissued. `HookExecutionRetention` cannot be constructed with a window of zero, which is what makes that unconditional. An unfinished execution is never removed regardless of age: deleting one turns a Hook that is still going into a Hook that never happened, and the completion that arrives afterwards has nothing to attach to.
 
 #### `permissions::rules` — migration 88
 
