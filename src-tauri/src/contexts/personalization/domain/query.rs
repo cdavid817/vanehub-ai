@@ -92,9 +92,14 @@ pub(crate) enum MemoryOrder {
 
 /// Keyset position rather than an offset: an offset page shifts under concurrent writes and
 /// silently skips or repeats rows while the user is paging through them.
+///
+/// `sort_key` is whatever the active order sorts by, rendered as text — a timestamp for the
+/// updated orders, the display name for the name order. Keeping it opaque means adding an order
+/// does not change this type, and the id tie-breaker keeps the position total even when two rows
+/// share a key, which duplicate display names make routine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MemoryCursor {
-    pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) sort_key: String,
     pub(crate) id: MemoryId,
 }
 
@@ -109,7 +114,9 @@ pub(crate) struct MemoryQuery {
     pub(crate) audience_agent_id: Option<AgentId>,
     pub(crate) order: MemoryOrder,
     pub(crate) cursor: Option<MemoryCursor>,
-    page_size: usize,
+    /// Read through `page_size()`, never directly: the accessor is what enforces the bound, so a
+    /// struct-literal caller cannot set an unbounded value.
+    pub(crate) requested_page_size: usize,
 }
 
 impl MemoryQuery {
@@ -117,15 +124,16 @@ impl MemoryQuery {
     /// way to pull every memory body through the list endpoint, but it is not worth failing a
     /// user's query over.
     pub(crate) fn with_page_size(mut self, requested: usize) -> Self {
-        self.page_size = requested.clamp(1, MEMORY_PAGE_MAX_SIZE);
+        self.requested_page_size = requested.clamp(1, MEMORY_PAGE_MAX_SIZE);
         self
     }
 
+    /// Clamped on read as well as on write, so the bound holds however the query was built.
     pub(crate) fn page_size(&self) -> usize {
-        if self.page_size == 0 {
+        if self.requested_page_size == 0 {
             MEMORY_PAGE_DEFAULT_SIZE
         } else {
-            self.page_size
+            self.requested_page_size.min(MEMORY_PAGE_MAX_SIZE)
         }
     }
 }

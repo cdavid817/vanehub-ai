@@ -35,9 +35,9 @@ pub(crate) use memory::{
     MEMORY_CONTENT_MAX_CHARS, MEMORY_DESCRIPTION_MAX_CHARS, MEMORY_NAME_MAX_CHARS,
 };
 pub(crate) use policy::{
-    InstructionMergeMode, PersonalizationPolicyPatch, PersonalizationPolicyRecord, PolicyToggle,
-    RevisionConflict, SessionPersonalizationMode, DEFAULT_POLICY_SET_ID,
-    INSTRUCTION_FIELD_MAX_CHARS,
+    InstructionMergeMode, PatchPolicyResult, PersonalizationPolicyPatch,
+    PersonalizationPolicyRecord, PolicyToggle, RevisionConflict, SessionPersonalizationMode,
+    DEFAULT_POLICY_SET_ID, INSTRUCTION_FIELD_MAX_CHARS,
 };
 pub(crate) use query::{
     MemoryCursor, MemoryOrder, MemoryPage, MemoryQuery, MemoryScopeFilter, MemorySummary,

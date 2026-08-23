@@ -140,6 +140,19 @@ pub(crate) struct RevisionConflict {
     pub(crate) current: u64,
 }
 
+/// The result of an expected-revision policy write.
+///
+/// A conflict is a normal outcome carrying the current record, not an error: the UI needs the
+/// server's version to offer a comparison, and it must keep the user's draft either way. Returning
+/// `Err` here would push callers toward discarding the draft.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PatchPolicyResult {
+    Updated(PersonalizationPolicyRecord),
+    Conflict {
+        current: PersonalizationPolicyRecord,
+    },
+}
+
 /// One persisted policy layer.
 ///
 /// Deliberately holds no timestamps: `created_at`/`updated_at` are persistence metadata owned by

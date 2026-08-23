@@ -510,6 +510,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "cli-parameter-profiles",
         crate::contexts::tooling::cli_parameters::infrastructure::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        82,
+        "personalization-governance",
+        crate::contexts::personalization::infrastructure::apply_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -609,6 +615,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
     (81, "cli-parameter-profiles"),
+    (82, "personalization-governance"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

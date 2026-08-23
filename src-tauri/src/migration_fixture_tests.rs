@@ -22,9 +22,11 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
 /// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
 /// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
-/// beside the existing per-parameter rows without deleting any of them.
+/// beside the existing per-parameter rows without deleting any of them, and migration 82 adds the
+/// personalization policy, memory projection, candidate, and migration-state tables without
+/// touching the legacy `AppSettings` personalization fields those records will be migrated from.
 fn expected_versions() -> Vec<i64> {
-    (1..=81).collect()
+    (1..=82).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

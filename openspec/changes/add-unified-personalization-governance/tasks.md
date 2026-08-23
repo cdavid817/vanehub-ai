@@ -19,13 +19,13 @@
 
 ## 2. SQLite Schema and Repository Ports
 
-- [ ] 2.1 Add the next migration using the existing migration registry for `personalization_policy_overrides`, `personalization_memory_projection`, `personalization_memory_candidates`, and `personalization_migration_state`.
-- [ ] 2.2 Add indexes for policy scope lookup, active memory scope/status lookup, source-Agent filtering, type filtering, update ordering, and candidate status ordering.
-- [ ] 2.3 Add application ports for policy persistence, memory repository, maintenance enumeration, memory projection, candidate persistence, retrieval-index coordination, workspace identity, and clock/id generation.
-- [ ] 2.4 Implement the SQLite policy repository with one row per typed scope key and expected-revision updates.
-- [ ] 2.5 Implement policy load/update transactions and typed conflict results without whole-`AppSettings` replacement.
-- [ ] 2.6 Implement the SQLite memory projection and cursor pagination without loading memory bodies for list pages.
-- [ ] 2.7 Implement candidate persistence and bounded rejected-candidate retention through the existing local retention policy.
+- [x] 2.1 Add the next migration using the existing migration registry for `personalization_policy_overrides`, `personalization_memory_projection`, `personalization_memory_candidates`, and `personalization_migration_state`.
+- [x] 2.2 Add indexes for policy scope lookup, active memory scope/status lookup, source-Agent filtering, type filtering, update ordering, and candidate status ordering.
+- [x] 2.3 Add application ports for policy persistence, memory repository, maintenance enumeration, memory projection, candidate persistence, retrieval-index coordination, workspace identity, and clock/id generation.
+- [x] 2.4 Implement the SQLite policy repository with one row per typed scope key and expected-revision updates.
+- [x] 2.5 Implement policy load/update transactions and typed conflict results without whole-`AppSettings` replacement.
+- [x] 2.6 Implement the SQLite memory projection and cursor pagination without loading memory bodies for list pages.
+- [x] 2.7 Implement candidate persistence and bounded rejected-candidate retention through the existing local retention policy.
 - [ ] 2.8 Add migration/repository tests for fresh database creation, upgrade, constraints, indexes, rollback on failure, optimistic conflicts, paging stability, and Web/mock-equivalent fixtures.
 
 ## 3. Stable Memory Storage and Data-Loss Fixes
