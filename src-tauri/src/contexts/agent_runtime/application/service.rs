@@ -2694,11 +2694,11 @@ impl AgentRuntimeApplicationService {
             );
         }
         let profile = if agent.launch().kind_str() == "cli" {
-            match self
-                .ports
-                .cli_profiles
-                .load(agent.id().as_str(), &configuration)
-            {
+            match self.ports.cli_profiles.load(
+                agent.id().as_str(),
+                &configuration,
+                Some(&operation.id),
+            ) {
                 Ok(profile) => profile,
                 Err(error) => {
                     self.record_prompt_execution(
@@ -2722,12 +2722,8 @@ impl AgentRuntimeApplicationService {
                 }
             }
         } else {
-            CliProfileSnapshot {
-                executable: String::new(),
-                selections: std::collections::BTreeMap::new(),
-                managed_args: Vec::new(),
-                env: std::collections::BTreeMap::new(),
-            }
+            // API agents launch no CLI process, so there is no profile to resolve.
+            CliProfileSnapshot::default()
         };
         let input_count = effective_prompt.content.chars().count();
         let agent_context = child_context(&root_context, self.ports.execution_ids.next_span_id());

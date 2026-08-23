@@ -1,26 +1,17 @@
+//! The pre-cutover CLI-parameter module, verbatim except for its imports.
+//!
+//! It is compiled only under `cfg(test)`. `baseline_argv_equivalence_tests` recomputes each
+//! provider's old argv through this renderer and compares it against the live resolver, and
+//! the tests at the bottom keep the legacy settings write path — the one the v2 dual-read has
+//! to stay compatible with — from drifting unobserved.
+
+use super::CliParametersError;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
-use crate::platform::database::{NativeDatabase, PooledSqlite};
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub(crate) enum CliParametersError {
-    #[error("{0}")]
-    Validation(String),
-    #[error("{0}")]
-    Repository(String),
-}
-
-impl From<rusqlite::Error> for CliParametersError {
-    fn from(error: rusqlite::Error) -> Self {
-        Self::Repository(error.to_string())
-    }
-}
 
 pub(crate) const MANAGED_CLI_AGENT_IDS: [&str; 5] = [
     "claude-code",
@@ -503,7 +494,7 @@ pub(crate) fn catalog_for(
     Ok(definitions)
 }
 
-fn is_policy_governed(agent_id: &str, parameter_id: &str) -> bool {
+pub(crate) fn is_policy_governed(agent_id: &str, parameter_id: &str) -> bool {
     matches!(
         (agent_id, parameter_id),
         ("claude-code", "permissionMode")
@@ -514,7 +505,9 @@ fn is_policy_governed(agent_id: &str, parameter_id: &str) -> bool {
     )
 }
 
-fn editable_catalog_for(agent_id: &str) -> Result<Vec<CliParameterDefinition>, CliParametersError> {
+pub(crate) fn editable_catalog_for(
+    agent_id: &str,
+) -> Result<Vec<CliParameterDefinition>, CliParametersError> {
     Ok(catalog_for(agent_id)?
         .into_iter()
         .filter(|definition| !is_policy_governed(agent_id, &definition.id))
@@ -579,15 +572,7 @@ fn normalized_value(definition: &CliParameterDefinition, value: Value) -> Value 
     )
 }
 
-pub(crate) fn normalize_selections(
-    agent_id: &str,
-    input: &BTreeMap<String, Value>,
-) -> Result<BTreeMap<String, Value>, CliParametersError> {
-    let definitions = catalog_for(agent_id)?;
-    normalize_with_definitions(agent_id, input, definitions)
-}
-
-fn normalize_with_definitions(
+pub(crate) fn normalize_with_definitions(
     agent_id: &str,
     input: &BTreeMap<String, Value>,
     definitions: Vec<CliParameterDefinition>,
@@ -623,7 +608,7 @@ fn normalize_with_definitions(
         .collect()
 }
 
-fn render_args(
+pub(crate) fn render_args(
     definitions: Vec<CliParameterDefinition>,
     normalized: &BTreeMap<String, Value>,
     scope: CliParameterLaunchScope,
@@ -668,30 +653,17 @@ fn scope_matches(definition: &CliParameterDefinition, scope: &CliParameterLaunch
     definition.launch_scopes.contains(scope)
 }
 
-pub(crate) fn preview_args(
+/// The pre-cutover renderer, exposed for the cutover equivalence test only. Production has no
+/// caller: every launch renders through the v2 resolver. It reproduces what `preview_args` did at
+/// `ee3eaf3f` — normalize against the full legacy catalog, then render in legacy catalog order.
+#[cfg(test)]
+pub(crate) fn baseline_preview_args(
     agent_id: &str,
     selections: &BTreeMap<String, Value>,
     scope: CliParameterLaunchScope,
 ) -> Result<Vec<String>, CliParametersError> {
-    let normalized = normalize_selections(agent_id, selections)?;
+    let normalized = normalize_with_definitions(agent_id, selections, catalog_for(agent_id)?)?;
     Ok(render_args(catalog_for(agent_id)?, &normalized, scope))
-}
-
-pub(crate) fn apply_schema(conn: &Connection) -> Result<(), CliParametersError> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS cli_parameter_settings (
-            agent_id TEXT NOT NULL,
-            parameter_id TEXT NOT NULL,
-            enabled INTEGER NOT NULL DEFAULT 1,
-            value_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (agent_id, parameter_id),
-            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-        );
-        "#,
-    )?;
-    Ok(())
 }
 
 fn write_profile_event(
@@ -802,27 +774,6 @@ pub(crate) fn load_profile(
     })
 }
 
-fn load_profile_with_logging(
-    conn: &Connection,
-    agent_id: &str,
-    logging: Option<&dyn DiagnosticLogPort>,
-) -> Result<CliParameterProfile, CliParametersError> {
-    let definitions = editable_catalog_for(agent_id)?;
-    let mut selections = load_selections_with_logging(conn, agent_id, logging)?;
-    selections.retain(|parameter_id, _| !is_policy_governed(agent_id, parameter_id));
-    let preview_args = render_args(
-        definitions.clone(),
-        &selections,
-        CliParameterLaunchScope::Chat,
-    );
-    Ok(CliParameterProfile {
-        agent_id: agent_id.to_string(),
-        definitions,
-        selections,
-        preview_args,
-    })
-}
-
 fn save_profile_to_conn(
     conn: &mut Connection,
     input: &SaveCliParameterProfileInput,
@@ -859,108 +810,28 @@ fn reset_profile_in_conn(
     load_profile(conn, agent_id)
 }
 
-#[derive(Clone)]
-pub(crate) struct CliParametersApi {
-    database: NativeDatabase,
-    logging: Arc<dyn DiagnosticLogPort>,
-}
-
-impl CliParametersApi {
-    pub(crate) fn new(database: NativeDatabase, logging: Arc<dyn DiagnosticLogPort>) -> Self {
-        Self { database, logging }
-    }
-
-    pub(crate) fn list_profiles(&self) -> Result<Vec<CliParameterProfile>, CliParametersError> {
-        let connection = self.connection()?;
-        MANAGED_CLI_AGENT_IDS
-            .iter()
-            .map(|agent_id| {
-                load_profile_with_logging(&connection, agent_id, Some(self.logging.as_ref()))
-            })
-            .collect()
-    }
-
-    pub(crate) fn save_profile(
-        &self,
-        input: &SaveCliParameterProfileInput,
-    ) -> Result<CliParameterProfile, CliParametersError> {
-        let mut connection = self.connection()?;
-        let result = save_profile_to_conn(&mut connection, input);
-        let (severity, message) = match &result {
-            Ok(_) => (LogSeverity::Info, "saved CLI parameter profile".to_string()),
-            Err(error) => (
-                LogSeverity::Error,
-                format!("failed to save CLI parameter profile: {error}"),
-            ),
-        };
-        write_profile_event(
-            Some(self.logging.as_ref()),
-            severity,
-            &input.agent_id,
-            "profile",
-            &message,
-        );
-        result
-    }
-
-    pub(crate) fn reset_profile(
-        &self,
-        agent_id: &str,
-    ) -> Result<CliParameterProfile, CliParametersError> {
-        let connection = self.connection()?;
-        let result = reset_profile_in_conn(&connection, agent_id);
-        let (severity, message) = match &result {
-            Ok(_) => (LogSeverity::Info, "reset CLI parameter profile".to_string()),
-            Err(error) => (
-                LogSeverity::Error,
-                format!("failed to reset CLI parameter profile: {error}"),
-            ),
-        };
-        write_profile_event(
-            Some(self.logging.as_ref()),
-            severity,
-            agent_id,
-            "profile",
-            &message,
-        );
-        result
-    }
-
-    pub(crate) fn load_selections(
-        &self,
-        agent_id: &str,
-    ) -> Result<BTreeMap<String, Value>, CliParametersError> {
-        load_selections_with_logging(&*self.connection()?, agent_id, Some(self.logging.as_ref()))
-    }
-
-    pub(crate) fn normalize_selections(
-        &self,
-        agent_id: &str,
-        selections: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>, CliParametersError> {
-        normalize_selections(agent_id, selections)
-    }
-
-    pub(crate) fn preview_args(
-        &self,
-        agent_id: &str,
-        selections: &BTreeMap<String, Value>,
-        scope: CliParameterLaunchScope,
-    ) -> Result<Vec<String>, CliParametersError> {
-        preview_args(agent_id, selections, scope)
-    }
-
-    fn connection(&self) -> Result<PooledSqlite, CliParametersError> {
-        self.database
-            .connection()
-            .map_err(|error| CliParametersError::Repository(error.to_string()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::OptionalExtension;
+
+    /// The launch path no longer routes through this module, so the public wrappers were removed
+    /// with the cutover. These shims keep the legacy settings-preview renderer under test.
+    fn normalize_selections(
+        agent_id: &str,
+        input: &BTreeMap<String, Value>,
+    ) -> Result<BTreeMap<String, Value>, CliParametersError> {
+        normalize_with_definitions(agent_id, input, catalog_for(agent_id)?)
+    }
+
+    fn preview_args(
+        agent_id: &str,
+        selections: &BTreeMap<String, Value>,
+        scope: CliParameterLaunchScope,
+    ) -> Result<Vec<String>, CliParametersError> {
+        let normalized = normalize_selections(agent_id, selections)?;
+        Ok(render_args(catalog_for(agent_id)?, &normalized, scope))
+    }
 
     fn connection() -> Connection {
         let conn = Connection::open_in_memory().expect("database");
@@ -968,7 +839,7 @@ mod tests {
             "PRAGMA foreign_keys = ON; CREATE TABLE agents (id TEXT PRIMARY KEY); INSERT INTO agents VALUES ('claude-code'), ('codex-cli'), ('gemini-cli'), ('opencode');",
         )
         .expect("agents");
-        apply_schema(&conn).expect("schema");
+        super::super::apply_schema(&conn).expect("schema");
         conn
     }
 
@@ -1014,7 +885,7 @@ mod tests {
             "CREATE TABLE agents (id TEXT PRIMARY KEY); CREATE TABLE legacy_data (value TEXT); INSERT INTO legacy_data VALUES ('kept');",
         )
         .expect("legacy schema");
-        apply_schema(&conn).expect("schema");
+        super::super::apply_schema(&conn).expect("schema");
         let value: String = conn
             .query_row("SELECT value FROM legacy_data", [], |row| row.get(0))
             .expect("legacy row");
@@ -1211,7 +1082,7 @@ mod tests {
     #[test]
     fn editable_catalog_matches_the_shared_frontend_contract() {
         let expected: Value = serde_json::from_str(include_str!(
-            "../../../../src/contracts/fixtures/cli-parameter-editable-catalog.json"
+            "../../../../../src/contracts/fixtures/cli-parameter-editable-catalog.json"
         ))
         .expect("shared catalog contract");
         let actual = MANAGED_CLI_AGENT_IDS

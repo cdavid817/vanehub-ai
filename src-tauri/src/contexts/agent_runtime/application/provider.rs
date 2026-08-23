@@ -39,14 +39,18 @@ pub(crate) struct ProviderGenerationInvocationRequest<'a> {
     pub(crate) executable: String,
     pub(crate) prompt: &'a str,
     pub(crate) provider_session: Option<&'a ProviderSessionRef>,
-    pub(crate) managed_args: &'a [String],
+    /// Resolved user-profile tokens that must precede a provider subcommand.
+    pub(crate) global_args: &'a [String],
+    /// Resolved user-profile tokens owned by the invocation grammar.
+    pub(crate) invocation_args: &'a [String],
     pub(crate) role_briefing: Option<&'a str>,
 }
 
 pub(crate) struct ProviderInteractiveInvocationRequest<'a> {
     pub(crate) executable: String,
     pub(crate) provider_session: Option<&'a ProviderSessionRef>,
-    pub(crate) managed_args: &'a [String],
+    pub(crate) global_args: &'a [String],
+    pub(crate) invocation_args: &'a [String],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1386,8 +1386,8 @@ fn sample_request(launch_kind: &str) -> GenerationProcessRequest {
         role_briefing: None,
         cli_profile: CliProfileSnapshot {
             executable: String::new(),
-            selections: BTreeMap::new(),
-            managed_args: Vec::new(),
+            global_args: Vec::new(),
+            invocation_args: Vec::new(),
             env: BTreeMap::new(),
         },
         // Desktop chat is the interactive default; the non-interactive cases construct their

@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function openOnePieceParameters(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
-  await page.getByRole("button", { name: /^(CLI 参数|CLI Parameters)$/ }).click();
+  await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await page.getByRole("button", { name: "OnePiece" }).click();
 }
 
@@ -21,7 +21,7 @@ test.describe("OnePiece context policy health", () => {
 
     await region.getByRole("combobox", { name: "保留期" }).selectOption("90");
     await page.reload();
-    await page.getByRole("button", { name: /^(CLI 参数|CLI Parameters)$/ }).click();
+    await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
     await page.getByRole("button", { name: "OnePiece" }).click();
     await expect(page.getByRole("combobox", { name: "保留期" })).toHaveValue("90");
   });
@@ -32,7 +32,7 @@ test.describe("OnePiece context policy health", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
     await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
-    await page.getByRole("button", { name: "CLI Parameters" }).click();
+    await page.getByRole("button", { name: "Agent Configurations" }).click();
     await page.getByRole("button", { name: "OnePiece" }).click();
 
     const region = page.getByRole("region", { name: "Context policy health" });
@@ -54,7 +54,7 @@ test.describe("OnePiece context policy health", () => {
       await page.getByRole("button", { name: /设置|Settings/ }).click();
       await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
       await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption(variant.theme);
-      await page.getByRole("button", { name: "CLI Parameters" }).click();
+      await page.getByRole("button", { name: "Agent Configurations" }).click();
       await page.getByRole("button", { name: "OnePiece" }).click();
       const inspectorToggle = page.getByRole("button", { name: "Context Inspector" });
       await inspectorToggle.focus();

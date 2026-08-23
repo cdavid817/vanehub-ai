@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 80. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 81. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -20,9 +20,11 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
-/// nullable Agent Runner projections, and migration 80 retires standalone Plan execution.
+/// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
+/// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
+/// beside the existing per-parameter rows without deleting any of them.
 fn expected_versions() -> Vec<i64> {
-    (1..=80).collect()
+    (1..=81).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

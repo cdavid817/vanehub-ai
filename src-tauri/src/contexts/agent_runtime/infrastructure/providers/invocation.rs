@@ -3,8 +3,7 @@ use crate::contexts::agent_runtime::application::{
     ProviderPromptDelivery,
 };
 use crate::contexts::permissions::api::PolicyTemplateName;
-use serde_json::Value;
-use std::collections::BTreeMap;
+use crate::contexts::tooling::api::{CliParameterSelection, CliParameterSelectionMap};
 use std::fmt::{Display, Formatter};
 
 /// Managed CLI agents whose chat and terminal launches receive a final policy projection.
@@ -15,6 +14,14 @@ pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 5] = [
     "opencode",
     "antigravity-cli",
 ];
+
+/// The two registry-declared placement slots, resolved by the Tooling CLI-parameter API. The
+/// provider grammar decides where each lands; the builder never inspects a token's spelling.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ProviderLaunchSegments<'a> {
+    pub(crate) global: &'a [String],
+    pub(crate) invocation: &'a [String],
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderInvocationError {
@@ -46,18 +53,12 @@ pub(crate) fn build_invocation_with_role(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
-    managed_args: &[String],
+    segments: ProviderLaunchSegments<'_>,
     role_briefing: Option<&str>,
 ) -> Result<ProviderInvocationSpec, ProviderInvocationError> {
     let briefing = role_briefing.map(str::trim).filter(|text| !text.is_empty());
     let Some(briefing) = briefing else {
-        return build_invocation(
-            agent_id,
-            executable,
-            prompt,
-            runtime_session_id,
-            managed_args,
-        );
+        return build_invocation(agent_id, executable, prompt, runtime_session_id, segments);
     };
     let extra: Vec<String> = match agent_id {
         "claude-code" => vec!["--append-system-prompt".to_string(), briefing.to_string()],
@@ -68,9 +69,20 @@ pub(crate) fn build_invocation_with_role(
         // No native channel; the caller injects per turn instead.
         _ => Vec::new(),
     };
-    let mut managed = managed_args.to_vec();
-    managed.extend(extra);
-    build_invocation(agent_id, executable, prompt, runtime_session_id, &managed)
+    // The briefing is a runtime-owned argument, not a registry parameter. It rides in the global
+    // position so its placement is unchanged by the segment split.
+    let mut global = segments.global.to_vec();
+    global.extend(extra);
+    build_invocation(
+        agent_id,
+        executable,
+        prompt,
+        runtime_session_id,
+        ProviderLaunchSegments {
+            global: &global,
+            invocation: segments.invocation,
+        },
+    )
 }
 
 pub(crate) fn build_invocation(
@@ -78,12 +90,13 @@ pub(crate) fn build_invocation(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
-    managed_args: &[String],
+    segments: ProviderLaunchSegments<'_>,
 ) -> Result<ProviderInvocationSpec, ProviderInvocationError> {
     let mut args = Vec::new();
     let prompt_delivery = match agent_id {
         "claude-code" => {
-            args.extend_from_slice(managed_args);
+            args.extend_from_slice(segments.global);
+            args.extend_from_slice(segments.invocation);
             args.extend([
                 "-p".to_string(),
                 "--output-format".to_string(),
@@ -94,23 +107,16 @@ pub(crate) fn build_invocation(
             push_resume_args(&mut args, runtime_session_id, "--resume");
             ProviderPromptDelivery::Stdin
         }
+        // The only provider whose two slots straddle a subcommand: options before `exec` are
+        // global, options the `exec` grammar owns (such as `--ephemeral`) follow the resume pair.
+        // Placement is registry-declared; no argument is matched by spelling here.
         "codex-cli" => {
-            args.extend(
-                managed_args
-                    .iter()
-                    .filter(|argument| argument.as_str() != "--ephemeral")
-                    .cloned(),
-            );
+            args.extend_from_slice(segments.global);
             args.push("exec".to_string());
             if let Some(session_id) = non_empty_session_id(runtime_session_id) {
                 args.extend(["resume".to_string(), session_id.to_string()]);
             }
-            if managed_args
-                .iter()
-                .any(|argument| argument == "--ephemeral")
-            {
-                args.push("--ephemeral".to_string());
-            }
+            args.extend_from_slice(segments.invocation);
             args.extend(["--json".to_string(), "-".to_string()]);
             ProviderPromptDelivery::Stdin
         }
@@ -126,14 +132,16 @@ pub(crate) fn build_invocation(
         // reads stdin as the prompt, so this is the same request through the channel that has
         // neither limit.
         "gemini-cli" => {
-            args.extend_from_slice(managed_args);
+            args.extend_from_slice(segments.global);
+            args.extend_from_slice(segments.invocation);
             push_resume_args(&mut args, runtime_session_id, "--resume");
             args.extend(["-o".to_string(), "stream-json".to_string()]);
             ProviderPromptDelivery::Stdin
         }
         "opencode" => {
+            args.extend_from_slice(segments.global);
             args.push("run".to_string());
-            args.extend_from_slice(managed_args);
+            args.extend_from_slice(segments.invocation);
             push_resume_args(&mut args, runtime_session_id, "--session");
             args.extend([
                 "--format".to_string(),
@@ -145,7 +153,8 @@ pub(crate) fn build_invocation(
         // `-p` takes the prompt as its value, so the prompt travels as an argument the way it does
         // for gemini-cli rather than through stdin. Flags verified against `agy --help` (v1.1.11).
         "antigravity-cli" => {
-            args.extend_from_slice(managed_args);
+            args.extend_from_slice(segments.global);
+            args.extend_from_slice(segments.invocation);
             push_resume_args(&mut args, runtime_session_id, "--conversation");
             args.extend([
                 "-p".to_string(),
@@ -169,14 +178,17 @@ pub(crate) fn build_interactive_invocation(
     agent_id: &str,
     executable: String,
     runtime_session_id: Option<&str>,
-    managed_args: &[String],
+    segments: ProviderLaunchSegments<'_>,
 ) -> Result<ProviderInteractiveInvocationSpec, ProviderInvocationError> {
     let mut args = Vec::new();
     let existing_session_id = non_empty_session_id(runtime_session_id);
     let mut assigned_runtime_session_id = None;
+    // No interactive grammar has a subcommand, so both segments precede the session arguments in
+    // declared order.
+    args.extend_from_slice(segments.global);
+    args.extend_from_slice(segments.invocation);
     match agent_id {
         "claude-code" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--resume", session_id);
             } else {
@@ -186,13 +198,11 @@ pub(crate) fn build_interactive_invocation(
             }
         }
         "codex-cli" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 args.extend(["resume".to_string(), session_id.to_string()]);
             }
         }
         "gemini-cli" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--resume", session_id);
             } else {
@@ -202,7 +212,6 @@ pub(crate) fn build_interactive_invocation(
             }
         }
         "opencode" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--session", session_id);
             }
@@ -211,7 +220,6 @@ pub(crate) fn build_interactive_invocation(
         // conversation but no documented flag to name a new one, so a fresh interactive launch
         // lets the CLI mint its own id and picks it up from the `init` event.
         "antigravity-cli" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--conversation", session_id);
             }
@@ -237,25 +245,28 @@ pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path:
     );
 }
 
-pub(crate) fn apply_configuration_overrides(
+/// Per-message overrides for ordinary parameters only. A message can govern model, reasoning
+/// depth, and opencode's thinking display; every other parameter stays absent so the saved profile
+/// decides. Policy-governed and runtime-reserved ids are never produced here.
+pub(crate) fn message_override_selections(
     agent_id: &str,
-    mut selections: BTreeMap<String, Value>,
     configuration: &AgentChatConfiguration,
-) -> BTreeMap<String, Value> {
+) -> CliParameterSelectionMap {
+    let mut overrides = CliParameterSelectionMap::new();
     if let Some(model) = configuration
         .model_id
         .as_deref()
         .and_then(|model_id| mapped_model(agent_id, model_id))
     {
-        selections.insert("model".to_string(), Value::String(model.to_string()));
+        overrides.insert("model".to_string(), CliParameterSelection::text(model));
     }
 
     if let Some(reasoning_depth) = configuration.reasoning_depth.as_deref() {
         match agent_id {
             "claude-code" => {
-                selections.insert(
+                overrides.insert(
                     "effort".to_string(),
-                    Value::String(reasoning_depth.to_string()),
+                    CliParameterSelection::text(reasoning_depth),
                 );
             }
             "codex-cli" => {
@@ -264,9 +275,9 @@ pub(crate) fn apply_configuration_overrides(
                 } else {
                     reasoning_depth
                 };
-                selections.insert(
+                overrides.insert(
                     "reasoningEffort".to_string(),
-                    Value::String(effort.to_string()),
+                    CliParameterSelection::text(effort),
                 );
             }
             // `agy --effort` accepts only low|medium|high, so anything above high clamps rather
@@ -277,169 +288,143 @@ pub(crate) fn apply_configuration_overrides(
                 } else {
                     reasoning_depth
                 };
-                selections.insert("effort".to_string(), Value::String(effort.to_string()));
+                overrides.insert("effort".to_string(), CliParameterSelection::text(effort));
             }
             _ => {}
         }
     }
 
     if agent_id == "opencode" {
-        selections.insert("thinking".to_string(), Value::Bool(configuration.thinking));
+        overrides.insert(
+            "thinking".to_string(),
+            CliParameterSelection::boolean(configuration.thinking),
+        );
     }
 
-    selections
+    overrides
 }
 
-/// Projects an agent principal's assigned policy template onto `codex-cli`/`gemini-cli`/
-/// `opencode`'s own native launch-time approval/sandbox parameters, taking precedence over
-/// whatever the user separately saved in that agent's CLI Parameter profile for the specific
-/// keys it governs (`add-cli-agent-permission-launch-flags` design.md's mapping table). Every
-/// other selection is left untouched — this mirrors `apply_configuration_overrides`'s own
-/// override-only-what-you-govern shape, just driven by the launch-time policy template instead
-/// of the per-message chat `execution_mode`.
+/// Projects an agent principal's assigned policy template onto the registry's policy-governed
+/// parameters. These values never come from a saved profile or a message: the resolver accepts
+/// them on a separate input and refuses a user-editable id on that path.
 ///
-/// `trusted` and `yolo` deliberately resolve identically here, matching the established
+/// `trusted` and `yolo` deliberately resolve identically, matching the established
 /// `permissions-core` precedent that the two templates already resolve identically in
 /// `evaluate()` — the difference between them is assignment-time confirmation friction, not
-/// technical capability, so it would be inconsistent to carve out a tool-specific middle tier
-/// (e.g. gemini-cli's `auto_edit`) for one of them here.
+/// technical capability.
 ///
-/// `opencode`'s `standard` deliberately makes no selections change: no existing `opencode`
-/// catalog value means "ask before edits/bash, stay permissive for reads," so that template is
-/// instead expressed via an injected `OPENCODE_PERMISSION` environment variable in the generated
-/// terminal wrapper script (see `terminal_wrapper.rs`).
-pub(crate) fn apply_policy_template_overrides(
+/// `opencode`'s `standard` deliberately makes no selection: no opencode catalog value means "ask
+/// before edits/bash, stay permissive for reads," so that template is expressed via an injected
+/// `OPENCODE_PERMISSION` environment variable instead (see `terminal_wrapper.rs`).
+///
+/// An `Inherit` entry is an explicit "this template emits no token for that parameter" and is what
+/// the pre-cutover code expressed by storing the sentinel string `default`.
+pub(crate) fn policy_override_selections(
     agent_id: &str,
-    mut selections: BTreeMap<String, Value>,
     template: PolicyTemplateName,
-) -> BTreeMap<String, Value> {
+) -> CliParameterSelectionMap {
+    let mut overrides = CliParameterSelectionMap::new();
     match (agent_id, template) {
         ("claude-code", PolicyTemplateName::Readonly) => {
-            selections.insert(
+            overrides.insert(
                 "permissionMode".to_string(),
-                Value::String("plan".to_string()),
+                CliParameterSelection::text("plan"),
             );
         }
+        // Claude Code's own ask-before-acting default. The registry does not expose `default` as a
+        // provider value here, so `standard` emits no flag, exactly as before the cutover.
         ("claude-code", PolicyTemplateName::Standard) => {
-            selections.insert(
-                "permissionMode".to_string(),
-                Value::String("default".to_string()),
-            );
+            overrides.insert("permissionMode".to_string(), CliParameterSelection::Inherit);
         }
         ("claude-code", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
-            selections.insert(
+            overrides.insert(
                 "permissionMode".to_string(),
-                Value::String("acceptEdits".to_string()),
+                CliParameterSelection::text("acceptEdits"),
             );
         }
         ("codex-cli", PolicyTemplateName::Readonly) => {
-            selections.insert(
+            overrides.insert(
                 "sandbox".to_string(),
-                Value::String("read-only".to_string()),
+                CliParameterSelection::text("read-only"),
             );
-            selections.insert(
+            overrides.insert(
                 "approvalPolicy".to_string(),
-                Value::String("never".to_string()),
+                CliParameterSelection::text("never"),
             );
         }
         ("codex-cli", PolicyTemplateName::Standard) => {
-            selections.insert(
+            overrides.insert(
                 "sandbox".to_string(),
-                Value::String("workspace-write".to_string()),
+                CliParameterSelection::text("workspace-write"),
             );
-            selections.insert(
+            overrides.insert(
                 "approvalPolicy".to_string(),
-                Value::String("on-request".to_string()),
+                CliParameterSelection::text("on-request"),
             );
         }
         ("codex-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
-            selections.insert(
+            overrides.insert(
                 "sandbox".to_string(),
-                Value::String("workspace-write".to_string()),
+                CliParameterSelection::text("workspace-write"),
             );
-            selections.insert(
+            overrides.insert(
                 "approvalPolicy".to_string(),
-                Value::String("never".to_string()),
+                CliParameterSelection::text("never"),
             );
         }
         ("gemini-cli", PolicyTemplateName::Readonly) => {
-            selections.insert(
+            overrides.insert(
                 "approvalMode".to_string(),
-                Value::String("plan".to_string()),
+                CliParameterSelection::text("plan"),
             );
         }
+        // `default` is gemini-cli's own real ask-every-time mode. The registry declares it as a
+        // provider value rather than an inheritance sentinel, so it renders declaratively and the
+        // post-render fixup this used to need is gone.
         ("gemini-cli", PolicyTemplateName::Standard) => {
-            // `preview_args` omits any flag whose selected value is the literal string
-            // "default" (its convention for "don't override, respect whatever's already
-            // configured"). gemini-cli's own real ask-every-time mode happens to be spelled
-            // "default" too, so recording it here is necessary for the effective-selections
-            // view to be honest, but not sufficient on its own to guarantee the flag reaches
-            // argv — `force_gemini_standard_approval_flag` does that after `preview_args` runs.
-            selections.insert(
+            overrides.insert(
                 "approvalMode".to_string(),
-                Value::String("default".to_string()),
+                CliParameterSelection::text("default"),
             );
         }
         ("gemini-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
-            selections.insert(
+            overrides.insert(
                 "approvalMode".to_string(),
-                Value::String("yolo".to_string()),
+                CliParameterSelection::text("yolo"),
             );
         }
         ("opencode", PolicyTemplateName::Readonly) => {
-            selections.insert("agent".to_string(), Value::String("plan".to_string()));
+            overrides.insert("agent".to_string(), CliParameterSelection::text("plan"));
         }
         ("opencode", PolicyTemplateName::Standard) => {}
         ("opencode", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
-            selections.insert("autoApprove".to_string(), Value::Bool(true));
+            overrides.insert(
+                "autoApprove".to_string(),
+                CliParameterSelection::boolean(true),
+            );
         }
-        // `--mode` is Antigravity's own graduated execution mode, so the projection uses it
-        // rather than the `--dangerously-skip-permissions` bypass flag the non-bypass rule forbids.
+        // `--mode` is Antigravity's own graduated execution mode, so the projection uses it rather
+        // than the `--dangerously-skip-permissions` bypass flag the non-bypass rule forbids.
         ("antigravity-cli", PolicyTemplateName::Readonly) => {
-            selections.insert("mode".to_string(), Value::String("plan".to_string()));
-            selections.insert("sandbox".to_string(), Value::Bool(true));
+            overrides.insert("mode".to_string(), CliParameterSelection::text("plan"));
+            overrides.insert("sandbox".to_string(), CliParameterSelection::boolean(true));
         }
         ("antigravity-cli", PolicyTemplateName::Standard) => {
             // No mode override: the CLI's own `request-review` default is exactly the
             // ask-before-acting posture `standard` means.
-            selections.insert("mode".to_string(), Value::String("default".to_string()));
-            selections.insert("sandbox".to_string(), Value::Bool(false));
+            overrides.insert("mode".to_string(), CliParameterSelection::Inherit);
+            overrides.insert("sandbox".to_string(), CliParameterSelection::boolean(false));
         }
         ("antigravity-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
-            selections.insert(
+            overrides.insert(
                 "mode".to_string(),
-                Value::String("accept-edits".to_string()),
+                CliParameterSelection::text("accept-edits"),
             );
-            selections.insert("sandbox".to_string(), Value::Bool(false));
+            overrides.insert("sandbox".to_string(), CliParameterSelection::boolean(false));
         }
         _ => {}
     }
-    selections
-}
-
-/// Forces `--approval-mode default` onto a gemini-cli `standard` launch's final argv, undoing
-/// `preview_args`' general "a `default`-valued selection omits its flag" convention for this one
-/// case. Without this, `standard` would silently fall through to the user's own
-/// `~/.gemini/settings.json`, which may set anything (including `yolo`), breaking the guarantee
-/// that `standard` reliably asks. Safe to call for any agent/template; it only acts on
-/// `(gemini-cli, Standard)`.
-pub(crate) fn force_gemini_standard_approval_flag(
-    agent_id: &str,
-    template: PolicyTemplateName,
-    mut args: Vec<String>,
-) -> Vec<String> {
-    if agent_id != "gemini-cli" || template != PolicyTemplateName::Standard {
-        return args;
-    }
-    if let Some(position) = args
-        .iter()
-        .position(|argument| argument == "--approval-mode")
-    {
-        let end = (position + 2).min(args.len());
-        args.drain(position..end);
-    }
-    args.extend(["--approval-mode".to_string(), "default".to_string()]);
-    args
+    overrides
 }
 
 /// Opencode's `standard` template has no expressible `cli_parameters` catalog value for "ask
