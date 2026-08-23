@@ -1770,3 +1770,39 @@ Real PaddleOCR, faster-whisper, and sherpa-onnx models; real microphone and spea
 `scripts/desktop/schema-snapshot.mjs` now snapshots the directory by bytes before the build and restores it afterwards, verifying a sha256 of the whole tree rather than trusting the write. A byte snapshot rather than `git restore`: the directory may already carry edits the developer made before running anything, and a Git-based reset would silently destroy them.
 
 Unrelated and harmless, but easy to mistake for the same thing: on a Windows checkout with `core.autocrlf=true`, any plain `cargo` build rewrites these files with LF, so `git status` lists them while `git diff` shows nothing. The content is byte-identical to `HEAD` and staging them produces an empty commit; `git checkout -- src-tauri/gen/schemas` clears it. Linux and macOS never see it.
+
+## 30. Independent code review, and what it changed
+
+An independent review of the full diff raised one P1, two P2s, and three P3s. What follows is what each one turned out to be and how it was answered; the fixes are separate commits on top of the fifteen the review covered.
+
+### Fixed: a release inside the microphone's opening window was dropped
+
+`startRecording` blocks natively until the capture device is playing, which on a real machine is hundreds of milliseconds. A tap released inside that window reached `finishRecording` with no handle yet and returned silently, so the release was lost and the recording ran on with nobody holding the control; Escape in the same window skipped the cancel and the pending continuation then flipped the UI back to recording.
+
+`use-speech-composer.ts` now carries an explicit opening-attempt machine: a per-hold generation id, a pending action of `null | finish | abort` where abort outranks finish, and an in-flight marker that refuses a second hold until the abandoned one has been released. A handle that arrives for a stale attempt, an unmounted controller, or a session the user has left is cancelled rather than adopted.
+
+Every other test in the suite closed that window -- the double answered immediately, or the press was awaited before the release -- so `use-microphone-opening-window.test.tsx` drives it with a deferred `startRecording` and mounts under `StrictMode`. The first version of the fix passed those tests and still failed in the browser, because it cleared a mount flag on teardown without restoring it and StrictMode's remount left the controller permanently marked unmounted; the browser suite caught it and the component suite now does too.
+
+### Fixed: the TTS output check compared a resolved path against an unresolved one
+
+The worker answers with `os.path.realpath(outputPath)`. The host compared that against its own unresolved join, so on any machine whose application-data directory is reached through a symlink, a junction, or a redirected profile, every synthesis would be refused as a protocol error. `verify_output_wav` now type-checks the authorized name with `symlink_metadata`, resolves both sides, and delegates containment to the shared `BoundedFilesystem` rather than growing a second copy of that rule. Canonicalization failure is a refusal, not a reason to fall back to string equality.
+
+### Fixed: the OnePiece artifact read dropped its length check
+
+The code this change replaced asserted `size_bytes == bytes.len()`; the replacement verified per-chunk hashes and offsets but not the total. A short read still sniffs as a valid image and its header dimensions still parse, so OCR would run on a truncated document and return a result carrying full provenance. The read now checks the running length against the declared size at every chunk and requires exact agreement at the end, before admission.
+
+### Fixed: two activation variables were outside the whole-tree guard
+
+The boundary test searched for one literal. `VANEHUB_LOCAL_MEDIA_E2E_OCR_SOURCE` -- the most reusable of the four, because it names a real file -- was never scanned. All four now drive every scan, verified by planting an ungated read of each in `bootstrap/local_media.rs` and watching both guards fail.
+
+### Reproduced and fixed: shutdown left an in-flight worker running
+
+`checkout` takes the handle out of its slot, so `shutdown_all` could only see idle workers. `shutdown_process_tests.rs` starts the real bridge under a real interpreter, parks it in a sleep, calls `shutdown_all`, and checks for the marker the fixture writes after that sleep returns. The marker appeared: the process survived, **on Windows as well**, because the job object only reaps when the parent itself exits and the parent was still alive.
+
+The supervisor now has a `shutting_down` flag that admission, check-in, and every in-flight call observe. A running call sees it within one poll slice and terminates its own child; a worker handed back afterwards is shut down instead of stored; a call arriving after it is refused rather than launching a process nothing would collect. `shutdown_all` sets the flag, releases the slot lock before doing any blocking I/O, and then waits a bounded period for the in-flight permits to drain so the children are reaped rather than merely signalled.
+
+### Documented: the capture callback allocates once per callback
+
+The constraint in section 10 is that the real-time callback must not "allocate unbounded memory". `submit` takes ownership, so the reused mono buffer is cloned -- one bounded allocation of the device's period length per callback. That satisfies the constraint; the comment beside it claimed there was no allocation at all, which was wrong, and it now says what actually happens.
+
+Recorded as performance debt rather than fixed here: removing it means a buffer pool or a lock-free ring on the capture path, and an unverified lock-free rewrite would trade a known small cost for an unknown correctness risk. If the allocator ever does stall, the bounded queue reports `AUDIO_CAPTURE_OVERRUN` rather than dropping audio silently.

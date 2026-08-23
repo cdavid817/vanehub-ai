@@ -16,11 +16,37 @@ fn read(relative: &str) -> String {
     fs::read_to_string(native_root().join(relative)).expect("read a native source")
 }
 
-/// Names that exist only because the fixture assembly exists.
-const FIXTURE_TOKENS: [&str; 6] = [
+/// Every runtime switch the fixture assembly reads.
+///
+/// One list, iterated by every scan below. Searching for a single literal is how
+/// `VANEHUB_LOCAL_MEDIA_E2E_OCR_SOURCE` -- the most reusable of the four, because it names a real
+/// file -- stayed outside the whole-tree guard while the other three were covered.
+const ACTIVATION_VARIABLES: [&str; 4] = [
     "VANEHUB_LOCAL_MEDIA_E2E_FIXTURES",
     "VANEHUB_LOCAL_MEDIA_E2E_SCENARIO_FILE",
     "VANEHUB_LOCAL_MEDIA_E2E_PYTHON_ROOT",
+    "VANEHUB_LOCAL_MEDIA_E2E_OCR_SOURCE",
+];
+
+/// The only files allowed to name an activation variable.
+///
+/// The third is a test that spawns a real worker and has to put the scenario path into that child's
+/// environment. It never reads the variable from its own environment, and it is a `#[cfg(test)]`
+/// module, so nothing it contains reaches a shipped binary -- but it is listed here rather than
+/// waved through by a path pattern, because an exception that is spelled out is one a reader can
+/// audit.
+const ACTIVATION_FILES: [&str; 3] = [
+    "src/bootstrap/local_media_fixture_boundary_tests.rs",
+    "src/contexts/local_media/infrastructure/fixtures/scenario.rs",
+    "src/contexts/local_media/infrastructure/workers/shutdown_process_tests.rs",
+];
+
+/// Names that exist only because the fixture assembly exists.
+const FIXTURE_TOKENS: [&str; 7] = [
+    "VANEHUB_LOCAL_MEDIA_E2E_FIXTURES",
+    "VANEHUB_LOCAL_MEDIA_E2E_SCENARIO_FILE",
+    "VANEHUB_LOCAL_MEDIA_E2E_PYTHON_ROOT",
+    "VANEHUB_LOCAL_MEDIA_E2E_OCR_SOURCE",
     "FixtureAudioCapture",
     "FixtureAudioPlayback",
     "FixtureAudioDeviceCatalog",
@@ -45,37 +71,22 @@ fn the_fixture_module_is_gated_behind_the_feature() {
 #[test]
 fn no_fixture_name_appears_in_ungated_production_source() {
     let mut offenders = Vec::new();
-    let mut stack = vec![native_root().join("src")];
-    while let Some(directory) = stack.pop() {
-        for entry in fs::read_dir(&directory).expect("enumerate native sources") {
-            let path = entry.expect("read an entry").path();
-            if path.is_dir() {
-                stack.push(path);
+    for path in native_sources() {
+        let relative = relative_of(&path);
+        // The fixture module itself and the files listed above are where the names belong.
+        if relative.contains("local_media/infrastructure/fixtures/")
+            || ACTIVATION_FILES.contains(&relative.as_str())
+        {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a native source");
+        for (index, line) in source.lines().enumerate() {
+            let Some(token) = FIXTURE_TOKENS.iter().find(|token| line.contains(**token)) else {
                 continue;
-            }
-            if path.extension().and_then(|value| value.to_str()) != Some("rs") {
-                continue;
-            }
-            let relative = path
-                .strip_prefix(native_root())
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            // The fixture module itself and this test are the two places the names belong.
-            if relative.contains("local_media/infrastructure/fixtures/")
-                || relative.ends_with("local_media_fixture_boundary_tests.rs")
-            {
-                continue;
-            }
-            let source = fs::read_to_string(&path).expect("read a native source");
-            for (index, line) in source.lines().enumerate() {
-                if !FIXTURE_TOKENS.iter().any(|token| line.contains(token)) {
-                    continue;
-                }
-                // A mention is acceptable only inside a region the feature gates.
-                if !gated_region(&source, index) {
-                    offenders.push(format!("{relative}:{}", index + 1));
-                }
+            };
+            // A mention is acceptable only inside a region the feature gates.
+            if !gated_region(&source, index) {
+                offenders.push(format!("{relative}:{} ({token})", index + 1));
             }
         }
     }
@@ -232,35 +243,46 @@ fn the_fixture_command_is_routed_only_behind_the_feature() {
 }
 
 #[test]
-fn the_activation_is_read_only_from_the_gated_module() {
-    let mut readers = Vec::new();
+fn every_activation_variable_is_read_only_from_the_gated_module() {
+    // The module that defines the switches. Requiring it in every reader set is what keeps this
+    // from passing vacuously if a variable is renamed or dropped on one side only.
+    let definition = "src/contexts/local_media/infrastructure/fixtures/scenario.rs";
+    for variable in ACTIVATION_VARIABLES {
+        let mut readers = Vec::new();
+        for path in native_sources() {
+            let source = fs::read_to_string(&path).expect("read a native source");
+            if source.contains(variable) {
+                readers.push(relative_of(&path));
+            }
+        }
+        readers.sort();
+        assert!(
+            readers.iter().any(|reader| reader == definition),
+            "`{variable}` is not declared in the gated module"
+        );
+        let strays: Vec<&String> = readers
+            .iter()
+            .filter(|reader| !ACTIVATION_FILES.contains(&reader.as_str()))
+            .collect();
+        assert!(strays.is_empty(), "`{variable}` is named in {strays:?}");
+    }
+}
+
+/// Every `.rs` file under the native crate's source tree.
+fn native_sources() -> Vec<PathBuf> {
+    let mut found = Vec::new();
     let mut stack = vec![native_root().join("src")];
     while let Some(directory) = stack.pop() {
         for entry in fs::read_dir(&directory).expect("enumerate native sources") {
             let path = entry.expect("read an entry").path();
             if path.is_dir() {
                 stack.push(path);
-                continue;
-            }
-            if path.extension().and_then(|value| value.to_str()) != Some("rs") {
-                continue;
-            }
-            let source = fs::read_to_string(&path).expect("read a native source");
-            if source.contains("VANEHUB_LOCAL_MEDIA_E2E_FIXTURES") {
-                readers.push(relative_of(&path));
+            } else if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+                found.push(path);
             }
         }
     }
-
-    readers.sort();
-    // Exactly two: the module that defines the switch, and this test.
-    assert_eq!(
-        readers,
-        vec![
-            "src/bootstrap/local_media_fixture_boundary_tests.rs".to_string(),
-            "src/contexts/local_media/infrastructure/fixtures/scenario.rs".to_string(),
-        ]
-    );
+    found
 }
 
 fn relative_of(path: &Path) -> String {

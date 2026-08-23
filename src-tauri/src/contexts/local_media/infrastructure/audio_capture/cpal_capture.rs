@@ -249,9 +249,19 @@ fn build_stream(
     channels: u16,
     writer: Arc<CaptureWriter>,
 ) -> Result<cpal::Stream, LocalMediaError> {
-    // The callback is real-time: it converts, downmixes into reused buffers, and hands the chunk to
-    // a bounded queue. No file I/O, no logging, and no allocation beyond the two `Vec` growths that
-    // settle after the first few callbacks.
+    // The callback is real-time: it converts and downmixes into two reused buffers, then hands the
+    // chunk to a bounded queue. No file I/O, no logging, and no blocking.
+    //
+    // It does allocate, once per callback: `submit` takes ownership of the chunk, so the reused
+    // `mono` buffer is cloned rather than moved. That allocation is *bounded* -- one buffer of the
+    // device's period length, a few kilobytes at typical settings -- which is what the design
+    // constraint requires ("must not perform file I/O, allocate unbounded memory, block on
+    // inference, or log sample data"). It is not zero, and the earlier wording here claimed it was.
+    //
+    // Recorded as performance debt rather than fixed in place: removing it means a buffer pool or
+    // a lock-free ring, and an unverified lock-free rewrite on the capture path would trade a known
+    // small cost for an unknown correctness risk. If the allocator ever does stall here, the
+    // bounded queue turns it into `AUDIO_CAPTURE_OVERRUN` rather than silently dropped audio.
     macro_rules! stream_for {
         ($sample:ty, $convert:expr) => {{
             let mut scratch: Vec<i16> = Vec::new();
