@@ -5,7 +5,7 @@
 //!
 //! An origin is scheme, host, and port — nothing else. A request carrying a path, a query, or
 //! credentials is not an origin, and accepting one would mean the reviewed text and the enforced
-//! rule disagree: the user reads "https://api.github.com/repos/acme" and approves what looks like
+//! rule disagree: the user reads `https://api.github.com/repos/acme` and approves what looks like
 //! one repository, while the broker can only ever match on the origin and has granted the whole
 //! host.
 //!
