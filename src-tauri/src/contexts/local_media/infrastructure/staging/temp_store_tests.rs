@@ -422,6 +422,139 @@ fn an_authorized_output_is_the_only_playable_path() {
     );
 }
 
+/// A store rooted at a path that only *reaches* the real directory through a link.
+///
+/// This is the shape a redirected profile, a relocated home, or a dotfile-managed data directory
+/// produces. The worker answers with a fully resolved path, so a host comparing its own unresolved
+/// join would refuse every synthesis on such a machine.
+#[cfg(unix)]
+fn linked_root_fixture() -> (TempDir, FilesystemMediaTempStore) {
+    let real = TempDir::new().expect("real root");
+    let link_home = TempDir::new().expect("link home");
+    let link = link_home.path().join("media");
+    std::os::unix::fs::symlink(real.path(), &link).expect("link the root");
+    let store = FilesystemMediaTempStore::new(
+        link,
+        Arc::new(SequentialIds {
+            counter: AtomicU64::new(0),
+        }),
+        Arc::new(MovableClock {
+            millis: AtomicU64::new(1_000),
+        }),
+        AdmissionLimits::HARD_CEILING,
+    );
+    (link_home, store)
+}
+
+#[cfg(unix)]
+#[test]
+fn an_output_reached_through_a_symlinked_root_is_accepted() {
+    let (_home, store) = linked_root_fixture();
+    let authorized = store
+        .authorize_output_wav("operation-1")
+        .expect("authorize");
+    fs::write(&authorized, wav_bytes()).expect("write wav");
+    // What the worker reports: the resolved path, not the one the host handed it.
+    let resolved = authorized.canonicalize().expect("resolve");
+    assert_ne!(resolved, authorized, "the fixture did not exercise a link");
+
+    assert!(store.verify_output_wav("operation-1", &resolved).is_ok());
+    // The host's own lexical form resolves to the same file and is accepted too.
+    assert!(store.verify_output_wav("operation-1", &authorized).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_output_that_is_a_symlink_out_of_the_operation_directory_is_refused() {
+    let fixture = fixture();
+    let authorized = fixture
+        .store
+        .authorize_output_wav("operation-1")
+        .expect("authorize");
+    let elsewhere = fixture.source_dir.path().join("smuggled.wav");
+    fs::write(&elsewhere, wav_bytes()).expect("write elsewhere");
+    std::os::unix::fs::symlink(&elsewhere, &authorized).expect("link the output");
+
+    // Following it would turn playback into an arbitrary-file read.
+    for candidate in [&authorized, &elsewhere] {
+        assert_eq!(
+            fixture
+                .store
+                .verify_output_wav("operation-1", candidate)
+                .map(|_| ())
+                .map_err(|error| error.code()),
+            Err(LocalMediaErrorCode::WorkerProtocolError)
+        );
+    }
+}
+
+#[test]
+fn a_lexically_different_path_that_resolves_to_the_output_is_accepted() {
+    let fixture = fixture();
+    let authorized = fixture
+        .store
+        .authorize_output_wav("operation-1")
+        .expect("authorize");
+    fs::write(&authorized, wav_bytes()).expect("write wav");
+    let directory = authorized.parent().expect("parent");
+    // A `..` component survives `Path`'s comparison -- unlike `.`, which its component iterator
+    // folds away -- so this is the portable stand-in for the aliases a real host produces: 8.3
+    // names, `subst` drives, case folding, and a symlinked profile.
+    fs::create_dir_all(directory.join("nested")).expect("nested");
+    let alias = directory.join("nested").join("..").join(OUTPUT_FILE);
+    assert_ne!(alias, authorized, "the alias is not lexically distinct");
+
+    assert!(fixture
+        .store
+        .verify_output_wav("operation-1", &alias)
+        .is_ok());
+}
+
+#[test]
+fn an_output_that_does_not_exist_is_refused() {
+    let fixture = fixture();
+    let authorized = fixture
+        .store
+        .authorize_output_wav("operation-1")
+        .expect("authorize");
+
+    // Canonicalization cannot succeed, and a failure to resolve is a refusal rather than a reason
+    // to compare the raw strings instead.
+    assert_eq!(
+        fixture
+            .store
+            .verify_output_wav("operation-1", &authorized)
+            .map(|_| ())
+            .map_err(|error| error.code()),
+        Err(LocalMediaErrorCode::WorkerProtocolError)
+    );
+}
+
+#[test]
+fn another_operations_authorized_output_is_refused() {
+    let fixture = fixture();
+    let ours = fixture
+        .store
+        .authorize_output_wav("operation-1")
+        .expect("authorize");
+    let theirs = fixture
+        .store
+        .authorize_output_wav("operation-2")
+        .expect("authorize");
+    fs::write(&ours, wav_bytes()).expect("write ours");
+    fs::write(&theirs, wav_bytes()).expect("write theirs");
+
+    // Both exist and both are inside the media root; only one belongs to this operation.
+    assert_eq!(
+        fixture
+            .store
+            .verify_output_wav("operation-1", &theirs)
+            .map(|_| ())
+            .map_err(|error| error.code()),
+        Err(LocalMediaErrorCode::WorkerProtocolError)
+    );
+}
+
 #[test]
 fn a_non_wav_at_the_authorized_path_is_refused() {
     let fixture = fixture();

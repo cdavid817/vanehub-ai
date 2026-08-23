@@ -31,6 +31,7 @@ use crate::contexts::local_media::domain::{
     LocalMediaError, LocalMediaErrorCode, OcrMediaType, RecordingId, SniffedFormat, StagedInputId,
     StagedInputRecord, StagedOcrSource,
 };
+use crate::platform::filesystem::BoundedFilesystem;
 
 const STAGING_DIR: &str = "staging";
 const RECORDINGS_DIR: &str = "recordings";
@@ -362,23 +363,46 @@ impl MediaTempStore for FilesystemMediaTempStore {
         Ok(directory.join(OUTPUT_FILE))
     }
 
+    /// Confirm the worker wrote to the one path it was authorized to write to.
+    ///
+    /// Both sides are canonicalized before they are compared. The worker answers with a fully
+    /// resolved path, so a host that compared its own unresolved join would reject every synthesis
+    /// on a machine whose application-data directory is reached through a symlink, a junction, or a
+    /// redirected profile -- a fail-closed answer, but a permanently broken feature and a
+    /// `WORKER_PROTOCOL_ERROR` that points at the wrong thing.
+    ///
+    /// Canonicalization failure is itself a refusal. By the time this runs the worker has reported
+    /// success, so the authorized file exists; a path that cannot be resolved is not a reason to
+    /// fall back to a weaker comparison on a boundary that decides what gets played.
     fn verify_output_wav(
         &self,
         operation_id: &str,
         candidate: &Path,
     ) -> Result<u64, LocalMediaError> {
         let protocol_error = || LocalMediaError::new(LocalMediaErrorCode::WorkerProtocolError);
-        let expected = self
+        let directory = self
             .owned_directory(OPERATIONS_DIR, operation_id)
-            .map_err(|_| protocol_error())?
-            .join(OUTPUT_FILE);
-        if candidate != expected {
-            return Err(protocol_error());
-        }
-        let metadata = fs::symlink_metadata(&expected).map_err(|_| protocol_error())?;
+            .map_err(|_| protocol_error())?;
+        let authorized = directory.join(OUTPUT_FILE);
+
+        // The type check goes against the authorized name rather than the resolved one: a reparse
+        // point put there after the directory was created is exactly what must not be followed.
+        let metadata = fs::symlink_metadata(&authorized).map_err(|_| protocol_error())?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(protocol_error());
         }
+
+        // The shared bounded filesystem owns the containment rule: it canonicalizes the operation
+        // root, refuses a name that is not a plain child of it, and rejects anything that resolves
+        // outside. Duplicating that here would make it two rules that can disagree.
+        let bounded = BoundedFilesystem::new(&directory).map_err(|_| protocol_error())?;
+        let expected = bounded
+            .resolve_existing(OUTPUT_FILE)
+            .map_err(|_| protocol_error())?;
+        if candidate.canonicalize().map_err(|_| protocol_error())? != expected {
+            return Err(protocol_error());
+        }
+
         let byte_length = metadata.len();
         if byte_length == 0 || byte_length > MAX_OUTPUT_WAV_BYTES {
             return Err(protocol_error());

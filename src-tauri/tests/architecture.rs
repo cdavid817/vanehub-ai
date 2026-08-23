@@ -2296,9 +2296,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // that owner, plus the tests that pin the contract as unchanged: `contractVersion: 1`, the
     // same artifact-only input, and readiness read from the local-media status instead of from a
     // second copy of the engine's own health.
+    //
+    // Raised from 59,640 by +207 for the same change's code-review fix. The adapter's chunked
+    // artifact read had dropped the `size_bytes == bytes.len()` assertion the deleted
+    // `ocr_admission.rs` carried, so a short read reached OCR: a truncated image still sniffs as
+    // one and its header dimensions still parse, and the result came back with full provenance.
+    // The read is now a free function -- 11 lines of length accounting plus the doc explaining
+    // which failures it catches -- and the rest is the test that could not exist before it: port
+    // doubles whose catalog and blob store disagree, covering exact, short, early-terminated,
+    // over-long, and multi-chunk reads plus the stable `IntegrityFailure` contract.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_640,
+        budget: 59_847,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

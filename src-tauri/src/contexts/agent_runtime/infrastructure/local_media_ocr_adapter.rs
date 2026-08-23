@@ -59,7 +59,7 @@ impl LocalMediaOcrAdapter {
             metadata: BTreeMap::new(),
         });
 
-        let (descriptor, bytes) = self.resolve_artifact(&input.artifact_id)?;
+        let (descriptor, bytes) = read_admitted_artifact(&self.artifacts, &input.artifact_id)?;
         request.context.progress.publish(NativeToolProgress {
             sequence: 2,
             phase: NativeToolProgressPhase::Updated,
@@ -136,38 +136,6 @@ impl LocalMediaOcrAdapter {
                 ),
             ]),
         })
-    }
-
-    /// Read the artifact's bytes, re-verifying the content hash on every chunk.
-    fn resolve_artifact(
-        &self,
-        artifact_id: &str,
-    ) -> Result<(ArtifactDescriptor, Vec<u8>), OcrToolError> {
-        let descriptor = self
-            .artifacts
-            .metadata(artifact_id)
-            .map_err(|_| OcrToolError::Admission)?;
-        let capacity = usize::try_from(descriptor.size_bytes).map_err(|_| OcrToolError::Limit)?;
-        let mut admitted = Vec::with_capacity(capacity);
-        let mut offset = 0_u64;
-        loop {
-            let chunk = self
-                .artifacts
-                .download_chunk(artifact_id, offset, 1_048_576)
-                .map_err(|_| OcrToolError::Admission)?;
-            if chunk.offset != offset || chunk.content_hash != descriptor.content_hash {
-                return Err(OcrToolError::Admission);
-            }
-            admitted.extend_from_slice(&chunk.bytes);
-            let Some(next) = chunk.next_offset else {
-                break;
-            };
-            if next <= offset || next > descriptor.size_bytes {
-                return Err(OcrToolError::Admission);
-            }
-            offset = next;
-        }
-        Ok((descriptor, admitted))
     }
 
     /// Poll the shared operation until it settles, the tool's deadline passes, or the call is
@@ -255,6 +223,57 @@ impl LocalMediaOcrAdapter {
             "source_artifact_ids": artifact.source_artifact_ids
         }))
     }
+}
+
+/// Read an artifact's bytes, re-verifying the content hash and the declared length.
+///
+/// A free function rather than a method so it can be driven against an `ArtifactService` built from
+/// port doubles, without a whole local-media runtime standing behind it.
+///
+/// The length is checked as the read proceeds and again when it ends. A chunk source that stops
+/// early -- a truncated blob, an artifact rewritten between the metadata read and the last chunk, a
+/// storage bug -- still produces bytes that sniff as a valid PNG or JPEG and whose header
+/// dimensions parse, so OCR would run on a partial document and return a plausible-looking result
+/// carrying full provenance. The declared length is the cheap end-to-end assertion that catches it,
+/// and it has to fail before anything is handed to admission or inference.
+fn read_admitted_artifact(
+    artifacts: &ArtifactService,
+    artifact_id: &str,
+) -> Result<(ArtifactDescriptor, Vec<u8>), OcrToolError> {
+    let descriptor = artifacts
+        .metadata(artifact_id)
+        .map_err(|_| OcrToolError::Admission)?;
+    let capacity = usize::try_from(descriptor.size_bytes).map_err(|_| OcrToolError::Limit)?;
+    let mut admitted = Vec::with_capacity(capacity);
+    let mut offset = 0_u64;
+    loop {
+        let chunk = artifacts
+            .download_chunk(artifact_id, offset, 1_048_576)
+            .map_err(|_| OcrToolError::Admission)?;
+        if chunk.offset != offset || chunk.content_hash != descriptor.content_hash {
+            return Err(OcrToolError::Admission);
+        }
+        admitted.extend_from_slice(&chunk.bytes);
+        // Checked, and against the declared size rather than only against the final total: a
+        // source that overruns is refused at the chunk that overran rather than after it has been
+        // allowed to grow the buffer past what the metadata promised.
+        let read = u64::try_from(admitted.len()).map_err(|_| OcrToolError::Limit)?;
+        if read > descriptor.size_bytes {
+            return Err(OcrToolError::Admission);
+        }
+        let Some(next) = chunk.next_offset else {
+            // The end of the stream has to agree with the metadata exactly.
+            if read != descriptor.size_bytes {
+                return Err(OcrToolError::Admission);
+            }
+            break;
+        };
+        if next <= offset || next > descriptor.size_bytes {
+            return Err(OcrToolError::Admission);
+        }
+        offset = next;
+    }
+    Ok((descriptor, admitted))
 }
 
 /// Flatten the shared page/line result into the tool's block list.
