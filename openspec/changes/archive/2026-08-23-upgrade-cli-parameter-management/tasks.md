@@ -186,7 +186,7 @@
 - [x] 15.14 Inspect `git diff --check`, generated artifacts, migration files, localization coverage, production TS/TSX line counts, command registration, and both service adapters.
 - [x] 15.15 Update this task list only for tasks actually verified; leave blocked platform-specific work unchecked and document why.
 - [x] 15.16 Produce a final implementation report listing architecture changes, migrations, provider audit decisions, UI changes, tests, command results, known limitations, and per-platform status using `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`.
-- [ ] 15.17 Do not archive the change until every required task is complete and `openspec validate upgrade-cli-parameter-management --strict` passes; do not commit or push unless the user explicitly requests it.
+- [x] 15.17 Do not archive the change until every required task is complete and `openspec validate upgrade-cli-parameter-management --strict` passes; do not commit or push unless the user explicitly requests it.
 
 ## Implementation evidence
 
@@ -1410,3 +1410,25 @@ One native run failed before the passing one, on `relay_stdio::child_exit_does_n
 with `Blocking waiting for file lock on build directory` in the same log — two cargo invocations
 were competing. The same contention produced a `rust-lld.exe` link failure in a parallel run.
 Neither is reported as a pass; the results above are from exclusive runs.
+
+### 15.17 — archive preconditions
+
+Archiving is explicitly authorized. The three conditions this task guards are met:
+
+- **Every required task is complete.** 141 of 142 were ticked before this one; 15.17 is the last.
+- **`openspec validate upgrade-cli-parameter-management --strict` passes**, re-run immediately before
+  archiving, alongside `openspec validate --specs --strict` (136 items) and a clean `git diff --check`.
+- **Task 14.9 passed on the final HEAD across all three platforms**, not extrapolated from one:
+  run `32640202632` on `03632961`, jobs `97196013746` (Linux), `97196013683` (Windows) and
+  `97196013796` (macOS), each 17 platform fixtures + 158 subdomain tests + no contract drift. That
+  run completed `success` overall, every job included.
+
+**Integration constraint carried into the archive.** PR #210 is designated as the first
+migration-bearing lane after migration 80 `retire-plan-execution`. Migration 81
+`cli-parameter-profiles` is valid *only* under that designation. `origin/main` was re-checked at
+`ee3eaf3f` immediately before archiving and its migration head is still 80. Five other lanes are
+also sitting on 81 and two already occupy 82 and 83, so if any of them reaches main first this
+branch must stop and renumber before merging — and renumbering still touches the five hard-coded
+assertions no compiler checks: `EXPECTED_MIGRATIONS`, `assert_migration_history_is_dense`, the two
+counts in `platform/database/migrations/tests.rs`, and `migration_fixture_tests.rs::expected_versions`.
+No number is pre-allocated for any other lane here.
