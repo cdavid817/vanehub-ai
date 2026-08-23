@@ -217,12 +217,7 @@ pub(crate) fn invoke_handler(
         crate::commands::permissions::list_pending_approvals::list_pending_approvals,
         crate::commands::permissions::get_agent_policy_principal::get_agent_policy_principal,
         // Tooling: CLI and CLI Parameters
-        crate::commands::tooling::cli::list_cli_tools::list_cli_tools,
-        crate::commands::tooling::cli::refresh_cli_detections::refresh_cli_detections,
-        crate::commands::tooling::cli::install_cli_version::install_cli_version,
-        crate::commands::tooling::cli::upgrade_all_cli_versions::upgrade_all_cli_versions,
-        // Tooling: source-aware CLI environment. Registered alongside the four commands above,
-        // which task 9.8 removes once the frontend has moved onto these.
+        // Tooling: source-aware CLI environment.
         crate::commands::tooling::cli_environment::list_cli_environments::list_cli_environments,
         crate::commands::tooling::cli_environment::refresh_cli_environment::refresh_cli_environment,
         crate::commands::tooling::cli_environment::prepare_cli_action::prepare_cli_action,

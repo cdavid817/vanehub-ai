@@ -230,11 +230,13 @@ impl CliEnvironmentService {
         let target = self.resolve_plan_target(
             input,
             action,
-            requested,
+            PlanVersions {
+                requested,
+                active: active_version.as_ref(),
+            },
             &agent_id,
             distribution,
             platform,
-            active_version.as_ref(),
         )?;
 
         let mut warnings = Vec::new();
@@ -358,12 +360,15 @@ impl CliEnvironmentService {
         &self,
         input: &PrepareCliActionInput,
         action: CliActionKind,
-        requested: Option<NormalizedCliVersion>,
+        versions: PlanVersions<'_>,
         agent_id: &CliToolId,
         distribution: &CliDistributionDefinition,
         platform: CliPlatform,
-        active_version: Option<&NormalizedCliVersion>,
     ) -> Result<Option<NormalizedCliVersion>, CliEnvironmentError> {
+        let PlanVersions {
+            requested,
+            active: active_version,
+        } = versions;
         let source_id = distribution
             .source_id()
             .map_err(|error| CliEnvironmentError::Validation(error.to_string()))?;
@@ -826,6 +831,12 @@ fn preconditions_for(source_id: &CliSourceId, requires_elevation: &bool) -> Vec<
         preconditions.push(CliPrecondition::ElevatedPrivileges);
     }
     preconditions
+}
+
+/// The two versions a plan is decided between: what was asked for, and what is installed.
+struct PlanVersions<'a> {
+    requested: Option<NormalizedCliVersion>,
+    active: Option<&'a NormalizedCliVersion>,
 }
 
 /// Which lifecycle action moving to `requested` actually is.

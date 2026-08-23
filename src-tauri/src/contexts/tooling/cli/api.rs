@@ -5,8 +5,7 @@ pub(crate) use environment::{CliEnvironmentApi, CliEnvironmentError};
 
 use crate::contexts::tooling::cli::application::CliApplicationService;
 pub(crate) use crate::contexts::tooling::cli::application::{
-    CliApplicationError as CliError, CliToolStatus, PreparedCliInstall, PreparedCliRefresh,
-    PreparedCliUpgradeAll, StartedCliOperation,
+    CliApplicationError as CliError, PreparedCliRefresh,
 };
 pub(crate) use crate::contexts::tooling::cli::domain::compare_versions;
 
@@ -18,10 +17,6 @@ pub(crate) struct CliApi {
 impl CliApi {
     pub(crate) fn new(service: CliApplicationService) -> Self {
         Self { service }
-    }
-
-    pub(crate) fn list_tools(&self) -> Result<Vec<CliToolStatus>, CliError> {
-        self.service.list_tools()
     }
 
     pub(crate) fn needs_initial_refresh(&self) -> Result<bool, CliError> {
@@ -42,30 +37,5 @@ impl CliApi {
 
     pub(crate) fn execute_refresh(&self, prepared: PreparedCliRefresh) -> Result<(), CliError> {
         self.service.execute_refresh(prepared)
-    }
-
-    pub(crate) fn prepare_install(
-        &self,
-        agent_id: String,
-        target_version: String,
-        confirmed_active_path: Option<String>,
-    ) -> Result<PreparedCliInstall, CliError> {
-        self.service
-            .prepare_install(agent_id, target_version, confirmed_active_path)
-    }
-
-    pub(crate) fn execute_install(&self, prepared: PreparedCliInstall) -> Result<(), CliError> {
-        self.service.execute_install(prepared)
-    }
-
-    pub(crate) fn prepare_upgrade_all(&self) -> Result<PreparedCliUpgradeAll, CliError> {
-        self.service.prepare_upgrade_all()
-    }
-
-    pub(crate) fn execute_upgrade_all(
-        &self,
-        prepared: PreparedCliUpgradeAll,
-    ) -> Result<(), CliError> {
-        self.service.execute_upgrade_all(prepared)
     }
 }

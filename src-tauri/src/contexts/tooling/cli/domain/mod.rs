@@ -133,7 +133,7 @@ pub(crate) mod trust;
 pub(crate) mod version;
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ToolDefinition {
@@ -459,38 +459,6 @@ fn version_parts(version: &str) -> Option<Vec<u64>> {
         .collect()
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct MutationClaims {
-    active_agent_ids: BTreeSet<String>,
-}
-
-impl MutationClaims {
-    pub(crate) fn try_acquire(&mut self, agent_id: &str) -> bool {
-        self.active_agent_ids.insert(agent_id.to_string())
-    }
-
-    pub(crate) fn release(&mut self, agent_id: &str) {
-        self.active_agent_ids.remove(agent_id);
-    }
-
-    pub(crate) fn try_acquire_many<'a>(
-        &mut self,
-        agent_ids: impl IntoIterator<Item = &'a str>,
-    ) -> Vec<String> {
-        agent_ids
-            .into_iter()
-            .filter(|agent_id| self.active_agent_ids.insert((*agent_id).to_string()))
-            .map(str::to_string)
-            .collect()
-    }
-
-    pub(crate) fn release_many<'a>(&mut self, agent_ids: impl IntoIterator<Item = &'a str>) {
-        for agent_id in agent_ids {
-            self.active_agent_ids.remove(agent_id);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,23 +701,5 @@ mod tests {
         );
         assert_eq!(compare_versions("1.2", "1.2.0"), Some(Ordering::Equal));
         assert_eq!(compare_versions("1.2-beta", "1.2"), None);
-    }
-
-    #[test]
-    fn mutation_claims_serialize_per_agent_without_blocking_other_agents() {
-        let mut claims = MutationClaims::default();
-        assert!(claims.try_acquire("codex-cli"));
-        assert!(!claims.try_acquire("codex-cli"));
-        assert_eq!(
-            claims.try_acquire_many(["codex-cli", "gemini-cli", "opencode"]),
-            vec!["gemini-cli", "opencode"]
-        );
-        claims.release("codex-cli");
-        claims.release_many(["gemini-cli", "opencode"]);
-        assert!(claims.try_acquire("codex-cli"));
-        assert_eq!(
-            claims.try_acquire_many(["gemini-cli", "opencode"]),
-            vec!["gemini-cli", "opencode"]
-        );
     }
 }

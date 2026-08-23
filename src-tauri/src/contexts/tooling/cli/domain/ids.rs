@@ -87,6 +87,10 @@ macro_rules! cli_identifier {
             /// command mapper cannot reach this at all, because it lives outside this context.
             /// `no_external_input_reaches_the_trusted_identifier_constructor` in the architecture
             /// suite is the other half, covering the call sites inside it.
+            // Generated for all five identifiers; only the ones with an in-tree literal or a
+            // generated value call it. `allow` rather than `expect` because which instantiations
+            // are used is a property of the callers, not of this macro.
+            #[allow(dead_code)]
             pub(in crate::contexts::tooling::cli) fn trusted(value: impl Into<String>) -> Self {
                 let value = value.into();
                 debug_assert!(

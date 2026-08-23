@@ -1,8 +1,5 @@
 use super::*;
-use crate::contexts::tooling::cli::domain::{
-    definition, EnvironmentType, InstallSource, Installation, LifecycleEligibility, MutationClaims,
-    ToolDefinition, VersionCheckStatus,
-};
+use crate::contexts::tooling::cli::domain::{definition, EnvironmentType, ToolDefinition};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -71,7 +68,12 @@ impl CliDetectionPort for FakeDetection {
         {
             return Err(CliApplicationError::Detection("probe failed".to_string()));
         }
-        let mut status = eligible_status(definition.agent_id, "1.0.0", "2.0.0");
+        // A detected tool, as the legacy detection path still reports one for Agent Runtime's
+        // availability check. Nothing about versions matters here: this port no longer feeds a
+        // lifecycle, only a resolved path and a timestamp.
+        let mut status = unknown_status(definition);
+        status.installed = Some(true);
+        status.detected_path = Some(format!("/fixture/npm/{}", definition.executable_name));
         status.last_checked_at = None;
         status.last_operation_id = None;
         Ok(CliDetectionResult {
@@ -88,70 +90,12 @@ impl CliDetectionPort for FakeDetection {
     }
 }
 
-#[derive(Default)]
-struct FakePackages {
-    validation_failures: Mutex<BTreeSet<String>>,
-    execution_failures: Mutex<BTreeSet<String>>,
-    validations: Mutex<Vec<String>>,
-    executions: Mutex<Vec<(String, String)>>,
-}
-
-impl CliPackagePort for FakePackages {
-    fn validate(
-        &self,
-        definition: ToolDefinition,
-        _status: &CliToolStatus,
-        _confirmed_active_path: Option<&str>,
-    ) -> Result<(), CliApplicationError> {
-        self.validations
-            .lock()
-            .expect("validations")
-            .push(definition.agent_id.to_string());
-        if self
-            .validation_failures
-            .lock()
-            .expect("validation failures")
-            .contains(definition.agent_id)
-        {
-            return Err(CliApplicationError::Validation(
-                "the active CLI path changed".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn execute(
-        &self,
-        _operation_id: &str,
-        definition: ToolDefinition,
-        _status: &CliToolStatus,
-        target_version: &str,
-        _emit: &mut dyn FnMut(CliLogEvent),
-    ) -> Result<(), CliApplicationError> {
-        self.executions
-            .lock()
-            .expect("executions")
-            .push((definition.agent_id.to_string(), target_version.to_string()));
-        if self
-            .execution_failures
-            .lock()
-            .expect("execution failures")
-            .contains(definition.agent_id)
-        {
-            return Err(CliApplicationError::Package(
-                "package manager failed".to_string(),
-            ));
-        }
-        Ok(())
-    }
-}
-
+/// What the fake operation port was asked to do, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum OperationEvent {
     Started(CliOperationRequest),
     Logged(CliLogEvent),
     Completed(CliOperationResult),
-    Failed(String),
 }
 
 #[derive(Default)]
@@ -204,14 +148,6 @@ impl CliOperationPort for FakeOperations {
             .push(OperationEvent::Completed(result.clone()));
         Ok(())
     }
-
-    fn fail(&self, _operation_id: &str, error: String) -> Result<(), CliApplicationError> {
-        self.events
-            .lock()
-            .expect("events")
-            .push(OperationEvent::Failed(error));
-        Ok(())
-    }
 }
 
 #[derive(Default)]
@@ -250,56 +186,13 @@ impl CliExecutableLocatorPort for FakeExecutableLocator {
     }
 }
 
-#[derive(Default)]
-struct FakeMutations {
-    claims: Mutex<MutationClaims>,
-    released: Mutex<Vec<String>>,
-}
-
-impl CliMutationPort for FakeMutations {
-    fn try_acquire(&self, agent_id: &str) -> Result<bool, CliApplicationError> {
-        Ok(self.claims.lock().expect("claims").try_acquire(agent_id))
-    }
-
-    fn release(&self, agent_id: &str) -> Result<(), CliApplicationError> {
-        self.claims.lock().expect("claims").release(agent_id);
-        self.released
-            .lock()
-            .expect("released")
-            .push(agent_id.to_string());
-        Ok(())
-    }
-
-    fn try_acquire_many(&self, agent_ids: &[String]) -> Result<Vec<String>, CliApplicationError> {
-        Ok(self
-            .claims
-            .lock()
-            .expect("claims")
-            .try_acquire_many(agent_ids.iter().map(String::as_str)))
-    }
-
-    fn release_many(&self, agent_ids: &[String]) -> Result<(), CliApplicationError> {
-        self.claims
-            .lock()
-            .expect("claims")
-            .release_many(agent_ids.iter().map(String::as_str));
-        self.released
-            .lock()
-            .expect("released")
-            .extend(agent_ids.iter().cloned());
-        Ok(())
-    }
-}
-
 struct Fixture {
     service: CliApplicationService,
     repository: Arc<FakeRepository>,
     detection: Arc<FakeDetection>,
     executable_locator: Arc<FakeExecutableLocator>,
-    packages: Arc<FakePackages>,
     operations: Arc<FakeOperations>,
     logging: Arc<FakeLogging>,
-    mutations: Arc<FakeMutations>,
 }
 
 impl Fixture {
@@ -307,29 +200,23 @@ impl Fixture {
         let repository = Arc::new(FakeRepository::default());
         let detection = Arc::new(FakeDetection::default());
         let executable_locator = Arc::new(FakeExecutableLocator::default());
-        let packages = Arc::new(FakePackages::default());
         let operations = Arc::new(FakeOperations::default());
         let logging = Arc::new(FakeLogging::default());
-        let mutations = Arc::new(FakeMutations::default());
         let service = CliApplicationService::new(CliApplicationPorts {
             repository: repository.clone(),
             detection: detection.clone(),
             executable_locator: executable_locator.clone(),
-            packages: packages.clone(),
             operations: operations.clone(),
             logging: logging.clone(),
             clock: Arc::new(FakeClock),
-            mutations: mutations.clone(),
         });
         Self {
             service,
             repository,
             detection,
             executable_locator,
-            packages,
             operations,
             logging,
-            mutations,
         }
     }
 
@@ -351,62 +238,6 @@ fn unknown_status(definition: ToolDefinition) -> CliToolStatus {
             definition.package_name.unwrap_or_default()
         ),
     )
-}
-
-fn eligible_status(agent_id: &str, current: &str, latest: &str) -> CliToolStatus {
-    let definition = definition(agent_id).expect("definition");
-    let path = format!("/fixture/npm/{}", definition.executable_name);
-    let mut status = unknown_status(definition);
-    status.installed = Some(true);
-    status.current_version = Some(current.to_string());
-    status.latest_version = Some(latest.to_string());
-    status.detected_path = Some(path.clone());
-    status.active_installation_path = Some(path.clone());
-    status.version_check_status = VersionCheckStatus::Succeeded;
-    status.lifecycle_eligibility = LifecycleEligibility::Npm;
-    status.installations = vec![Installation {
-        path,
-        version: Some(current.to_string()),
-        runnable: true,
-        error: None,
-        source: InstallSource::Npm,
-        environment_type: EnvironmentType::Linux,
-        is_active: true,
-    }];
-    status
-}
-
-#[test]
-fn list_uses_catalog_order_and_cached_startup_state() {
-    let fixture = Fixture::new();
-
-    let statuses = fixture.service.list_tools().expect("list tools");
-
-    assert_eq!(
-        statuses
-            .iter()
-            .map(|status| status.agent_id.as_str())
-            .collect::<Vec<_>>(),
-        [
-            "claude-code",
-            "codex-cli",
-            "gemini-cli",
-            "opencode",
-            "antigravity-cli"
-        ]
-    );
-    assert!(fixture
-        .service
-        .needs_initial_refresh()
-        .expect("initial refresh"));
-    fixture
-        .repository
-        .has_cached_statuses
-        .store(true, Ordering::SeqCst);
-    assert!(!fixture
-        .service
-        .needs_initial_refresh()
-        .expect("cached refresh"));
 }
 
 #[test]
@@ -480,155 +311,4 @@ fn refresh_associates_clock_operation_and_both_log_channels() {
         operation_logs,
         fixture.logging.events.lock().expect("logs").len()
     );
-}
-
-#[test]
-fn install_start_failure_releases_the_agent_claim() {
-    let fixture = Fixture::new();
-    fixture.insert_status(eligible_status("codex-cli", "1.0.0", "2.0.0"));
-    fixture.operations.fail_start.store(true, Ordering::SeqCst);
-
-    let error = fixture
-        .service
-        .prepare_install("codex-cli".to_string(), "latest".to_string(), None)
-        .expect_err("start must fail");
-
-    assert_eq!(error.to_string(), "operation start failed");
-    assert!(fixture
-        .mutations
-        .try_acquire("codex-cli")
-        .expect("claim after failure"));
-}
-
-#[test]
-fn package_failure_is_persisted_terminal_and_releases_the_claim() {
-    let fixture = Fixture::new();
-    fixture.insert_status(eligible_status("codex-cli", "1.0.0", "2.0.0"));
-    fixture
-        .packages
-        .execution_failures
-        .lock()
-        .expect("execution failures")
-        .insert("codex-cli".to_string());
-    let prepared = fixture
-        .service
-        .prepare_install("codex-cli".to_string(), "2.0.0".to_string(), None)
-        .expect("prepare install");
-
-    fixture
-        .service
-        .execute_install(prepared)
-        .expect("terminal failure recorded");
-
-    assert!(fixture
-        .operations
-        .events
-        .lock()
-        .expect("events")
-        .contains(&OperationEvent::Failed(
-            "package manager failed".to_string()
-        )));
-    let failed = fixture.repository.saved.lock().expect("saved");
-    assert_eq!(
-        failed
-            .last()
-            .and_then(|status| status.last_error.as_deref()),
-        Some("package manager failed")
-    );
-    assert_eq!(
-        failed.last().map(|status| status.version_check_status),
-        Some(VersionCheckStatus::Failed)
-    );
-    assert!(fixture
-        .mutations
-        .try_acquire("codex-cli")
-        .expect("claim after execution"));
-}
-
-#[test]
-fn successful_install_refreshes_and_persists_detection_before_completion() {
-    let fixture = Fixture::new();
-    fixture.insert_status(eligible_status("codex-cli", "1.0.0", "2.0.0"));
-    let prepared = fixture
-        .service
-        .prepare_install("codex-cli".to_string(), "2.0.0".to_string(), None)
-        .expect("prepare install");
-
-    fixture
-        .service
-        .execute_install(prepared)
-        .expect("execute install");
-
-    assert_eq!(
-        fixture
-            .packages
-            .executions
-            .lock()
-            .expect("executions")
-            .as_slice(),
-        [("codex-cli".to_string(), "2.0.0".to_string())]
-    );
-    let saved = fixture.repository.saved.lock().expect("saved");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].last_operation_id.as_deref(), Some("op-1"));
-    assert_eq!(
-        saved[0].last_checked_at.as_deref(),
-        Some("2026-07-18T12:00:00Z")
-    );
-    assert!(fixture.operations.events.lock().expect("events").contains(
-        &OperationEvent::Completed(CliOperationResult::Install {
-            agent_id: "codex-cli".to_string(),
-            target_version: "2.0.0".to_string(),
-        })
-    ));
-}
-
-#[test]
-fn bulk_upgrade_skips_busy_agents_and_releases_only_acquired_claims() {
-    let fixture = Fixture::new();
-    fixture.insert_status(eligible_status("codex-cli", "1.0.0", "2.0.0"));
-    fixture.insert_status(eligible_status("gemini-cli", "1.0.0", "3.0.0"));
-    assert!(fixture
-        .mutations
-        .try_acquire("gemini-cli")
-        .expect("preclaim gemini"));
-    let prepared = fixture
-        .service
-        .prepare_upgrade_all()
-        .expect("prepare bulk upgrade");
-
-    fixture
-        .service
-        .execute_upgrade_all(prepared)
-        .expect("execute bulk upgrade");
-
-    assert_eq!(
-        fixture
-            .packages
-            .executions
-            .lock()
-            .expect("executions")
-            .as_slice(),
-        [("codex-cli".to_string(), "2.0.0".to_string())]
-    );
-    assert!(fixture.operations.events.lock().expect("events").contains(
-        &OperationEvent::Completed(CliOperationResult::UpgradeAll {
-            upgraded: vec!["codex-cli".to_string()],
-            skipped: vec![
-                "claude-code".to_string(),
-                "gemini-cli".to_string(),
-                "opencode".to_string(),
-                "antigravity-cli".to_string(),
-            ],
-            failed: Vec::new(),
-        })
-    ));
-    assert!(fixture
-        .mutations
-        .try_acquire("codex-cli")
-        .expect("codex released"));
-    assert!(!fixture
-        .mutations
-        .try_acquire("gemini-cli")
-        .expect("gemini remains claimed"));
 }

@@ -569,13 +569,10 @@ impl From<CliError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-            CliError::Detection(message) | CliError::Package(message) => {
-                Self::redacted(CommandErrorCategory::Internal, message)
-            }
+            CliError::Detection(message) => Self::redacted(CommandErrorCategory::Internal, message),
             CliError::Operation(message) | CliError::Logging(message) => {
                 Self::redacted(CommandErrorCategory::Infrastructure, message)
             }
-            CliError::Internal(message) => Self::redacted(CommandErrorCategory::Internal, message),
         }
     }
 }

@@ -63,12 +63,6 @@ impl CliToolStatus {
         self.last_operation_id = Some(operation_id.to_string());
         self.last_checked_at = Some(checked_at);
     }
-
-    pub(super) fn record_failure(&mut self, operation_id: &str, error: String) {
-        self.last_operation_id = Some(operation_id.to_string());
-        self.last_error = Some(error);
-        self.version_check_status = VersionCheckStatus::Failed;
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,8 +75,6 @@ pub(crate) struct CliDetectionResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CliOperationType {
     Refresh,
-    Install,
-    UpgradeAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,17 +95,11 @@ pub(crate) struct StartedCliOperation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CliOperationResult {
+    /// The only remaining legacy operation. Install and upgrade-all went with the lifecycle the
+    /// action plan replaced; this one still feeds Agent Runtime's availability check until task
+    /// group 13 moves that onto the source-aware snapshots.
     Refresh {
         agent_ids: Vec<String>,
-        failed: Vec<String>,
-    },
-    Install {
-        agent_id: String,
-        target_version: String,
-    },
-    UpgradeAll {
-        upgraded: Vec<String>,
-        skipped: Vec<String>,
         failed: Vec<String>,
     },
 }
@@ -150,19 +136,4 @@ pub(crate) struct CliLogEvent {
 pub(crate) struct PreparedCliRefresh {
     pub(crate) operation: StartedCliOperation,
     pub(super) agent_id: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct PreparedCliInstall {
-    pub(crate) operation: StartedCliOperation,
-    pub(super) definition: ToolDefinition,
-    pub(super) status: CliToolStatus,
-    pub(super) target_version: String,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct PreparedCliUpgradeAll {
-    pub(crate) operation: StartedCliOperation,
-    pub(super) statuses: Vec<CliToolStatus>,
-    pub(super) acquired_agent_ids: Vec<String>,
 }

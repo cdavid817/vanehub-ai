@@ -59,7 +59,6 @@ mod native_config_reader;
     )
 )]
 pub(crate) mod npm_source;
-mod package_adapter;
 mod process_adapter;
 mod runtime_adapters;
 mod sqlite_repository;
@@ -92,8 +91,5 @@ pub(crate) mod winget_source;
 pub(crate) use detection_adapter::CliDetectionAdapter;
 pub(crate) use executable_locator::CliExecutableLocatorAdapter;
 pub(crate) use native_config_reader::NativeConfigReader;
-pub(crate) use package_adapter::CliPackageAdapter;
-pub(crate) use runtime_adapters::{
-    CliMutationAdapter, CliOperationAdapter, SystemCliClock, UnifiedCliLoggingAdapter,
-};
+pub(crate) use runtime_adapters::{CliOperationAdapter, SystemCliClock, UnifiedCliLoggingAdapter};
 pub(crate) use sqlite_repository::SqliteCliStatusRepository;

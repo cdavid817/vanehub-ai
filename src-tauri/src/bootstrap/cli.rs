@@ -3,8 +3,8 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::tooling::cli::api::{CliApi, CliError};
 use crate::contexts::tooling::cli::application::{CliApplicationPorts, CliApplicationService};
 use crate::contexts::tooling::cli::infrastructure::{
-    CliDetectionAdapter, CliExecutableLocatorAdapter, CliMutationAdapter, CliOperationAdapter,
-    CliPackageAdapter, SqliteCliStatusRepository, SystemCliClock, UnifiedCliLoggingAdapter,
+    CliDetectionAdapter, CliExecutableLocatorAdapter, CliOperationAdapter,
+    SqliteCliStatusRepository, SystemCliClock, UnifiedCliLoggingAdapter,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -20,11 +20,9 @@ pub(crate) fn assemble_cli_api(
         repository: Arc::new(SqliteCliStatusRepository::new(database)),
         detection: Arc::new(CliDetectionAdapter::new()),
         executable_locator: Arc::new(CliExecutableLocatorAdapter::new()),
-        packages: Arc::new(CliPackageAdapter::new()),
         operations: Arc::new(CliOperationAdapter::new(operations)),
         logging: Arc::new(UnifiedCliLoggingAdapter::new(logging.clone(), logging)),
         clock: Arc::new(SystemCliClock),
-        mutations: Arc::new(CliMutationAdapter::default()),
     }))
 }
 

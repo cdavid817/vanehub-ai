@@ -18,11 +18,7 @@ pub(crate) enum CliApplicationError {
     )]
     Detection(String),
     #[error("{0}")]
-    Package(String),
-    #[error("{0}")]
     Operation(String),
     #[error("{0}")]
     Logging(String),
-    #[error("{0}")]
-    Internal(String),
 }

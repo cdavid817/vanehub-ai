@@ -300,6 +300,6 @@ fn only_https_hosts_on_the_allowlist_are_admitted_on_every_hop() {
 fn the_redirect_budget_is_bounded() {
     // Vendors publish through a CDN, so one or two hops are normal. Refusing a longer chain is
     // cheaper than following it.
-    assert!(MAX_REDIRECTS >= 1);
-    assert!(MAX_REDIRECTS <= 8);
+    const { assert!(MAX_REDIRECTS >= 1) };
+    const { assert!(MAX_REDIRECTS <= 8) };
 }

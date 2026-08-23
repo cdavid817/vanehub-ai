@@ -56,11 +56,10 @@ mod tests;
 pub(crate) use error::CliApplicationError;
 pub(crate) use models::{
     CliDetectionResult, CliLogCategory, CliLogEvent, CliLogLevel, CliOperationRequest,
-    CliOperationResult, CliOperationType, CliToolStatus, PreparedCliInstall, PreparedCliRefresh,
-    PreparedCliUpgradeAll, StartedCliOperation,
+    CliOperationResult, CliOperationType, CliToolStatus, PreparedCliRefresh, StartedCliOperation,
 };
 pub(crate) use ports::{
-    CliClockPort, CliDetectionPort, CliExecutableLocatorPort, CliLoggingPort, CliMutationPort,
-    CliOperationPort, CliPackagePort, CliStatusRepository, NativeConfigPort,
+    CliClockPort, CliDetectionPort, CliExecutableLocatorPort, CliLoggingPort, CliOperationPort,
+    CliStatusRepository, NativeConfigPort,
 };
 pub(crate) use service::{CliApplicationPorts, CliApplicationService};

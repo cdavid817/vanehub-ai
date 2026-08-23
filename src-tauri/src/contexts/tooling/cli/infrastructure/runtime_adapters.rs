@@ -4,13 +4,11 @@ use crate::contexts::operations::api::{
 };
 use crate::contexts::tooling::cli::application::{
     CliApplicationError, CliClockPort, CliLogCategory, CliLogEvent, CliLogLevel, CliLoggingPort,
-    CliMutationPort, CliOperationPort, CliOperationRequest, CliOperationResult,
-    StartedCliOperation,
+    CliOperationPort, CliOperationRequest, CliOperationResult, StartedCliOperation,
 };
-use crate::contexts::tooling::cli::domain::MutationClaims;
 use crate::platform::clock::SystemClock;
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SystemCliClock;
@@ -72,13 +70,6 @@ impl CliOperationPort for CliOperationAdapter {
             .map(|_| ())
             .map_err(operation_error)
     }
-
-    fn fail(&self, operation_id: &str, error: String) -> Result<(), CliApplicationError> {
-        self.operations
-            .fail(operation_id, error)
-            .map(|_| ())
-            .map_err(operation_error)
-    }
 }
 
 #[derive(Clone)]
@@ -132,58 +123,16 @@ impl CliLoggingPort for UnifiedCliLoggingAdapter {
     }
 }
 
-#[derive(Clone, Default)]
-pub(crate) struct CliMutationAdapter {
-    claims: Arc<Mutex<MutationClaims>>,
-}
-
-impl CliMutationPort for CliMutationAdapter {
-    fn try_acquire(&self, agent_id: &str) -> Result<bool, CliApplicationError> {
-        self.claims
-            .lock()
-            .map(|mut claims| claims.try_acquire(agent_id))
-            .map_err(lock_error)
-    }
-
-    fn release(&self, agent_id: &str) -> Result<(), CliApplicationError> {
-        self.claims
-            .lock()
-            .map(|mut claims| claims.release(agent_id))
-            .map_err(lock_error)
-    }
-
-    fn try_acquire_many(&self, agent_ids: &[String]) -> Result<Vec<String>, CliApplicationError> {
-        self.claims
-            .lock()
-            .map(|mut claims| claims.try_acquire_many(agent_ids.iter().map(String::as_str)))
-            .map_err(lock_error)
-    }
-
-    fn release_many(&self, agent_ids: &[String]) -> Result<(), CliApplicationError> {
-        self.claims
-            .lock()
-            .map(|mut claims| claims.release_many(agent_ids.iter().map(String::as_str)))
-            .map_err(lock_error)
-    }
-}
-
+/// The refresh result's wire shape.
+///
+/// Only refresh remains: the install and upgrade-all payloads went with the lifecycle the action
+/// plan replaced.
 #[derive(Serialize)]
 #[serde(untagged)]
 enum OperationPayload<'a> {
     Refresh {
         #[serde(rename = "agentIds")]
         agent_ids: &'a [String],
-        failed: &'a [String],
-    },
-    Install {
-        #[serde(rename = "agentId")]
-        agent_id: &'a str,
-        #[serde(rename = "targetVersion")]
-        target_version: &'a str,
-    },
-    UpgradeAll {
-        upgraded: &'a [String],
-        skipped: &'a [String],
         failed: &'a [String],
     },
 }
@@ -194,22 +143,6 @@ impl<'a> From<&'a CliOperationResult> for OperationPayload<'a> {
             CliOperationResult::Refresh { agent_ids, failed } => {
                 Self::Refresh { agent_ids, failed }
             }
-            CliOperationResult::Install {
-                agent_id,
-                target_version,
-            } => Self::Install {
-                agent_id,
-                target_version,
-            },
-            CliOperationResult::UpgradeAll {
-                upgraded,
-                skipped,
-                failed,
-            } => Self::UpgradeAll {
-                upgraded,
-                skipped,
-                failed,
-            },
         }
     }
 }
@@ -229,10 +162,6 @@ fn operation_error(error: impl std::fmt::Display) -> CliApplicationError {
 
 fn logging_error(error: impl std::fmt::Display) -> CliApplicationError {
     CliApplicationError::Logging(error.to_string())
-}
-
-fn lock_error<T>(_: std::sync::PoisonError<T>) -> CliApplicationError {
-    CliApplicationError::Internal("CLI mutation state is unavailable".to_string())
 }
 
 #[cfg(test)]
@@ -275,17 +204,6 @@ mod tests {
                 "failed": ["opencode"]
             }))
         );
-    }
-
-    #[test]
-    fn mutation_adapter_serializes_claims_across_clones() {
-        let first = CliMutationAdapter::default();
-        let second = first.clone();
-
-        assert!(first.try_acquire("codex-cli").expect("first claim"));
-        assert!(!second.try_acquire("codex-cli").expect("second claim"));
-        second.release("codex-cli").expect("release");
-        assert!(first.try_acquire("codex-cli").expect("claim again"));
     }
 
     #[test]
