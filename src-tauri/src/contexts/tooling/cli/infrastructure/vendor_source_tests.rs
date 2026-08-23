@@ -71,9 +71,14 @@ impl CliInstallerDownloader for RecordingDownloader {
             "downloader received a non-allowlisted url"
         );
         self.urls.lock().expect("urls").push(url.to_string());
-        let path = std::env::temp_dir().join(format!("vanehub-test-installer-{}", url.len()));
+        // Its own directory, exactly as the production downloader does, so the handle owns cleanup.
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let path = directory.path().join("installer.sh");
         std::fs::write(&path, b"#!/bin/sh\nexit 0\n").expect("write fixture installer");
-        Ok(DownloadedInstaller { path })
+        Ok(DownloadedInstaller {
+            path,
+            _directory: directory,
+        })
     }
 }
 
@@ -298,13 +303,18 @@ fn the_preview_names_the_audited_url_not_a_temporary_path() {
 
 #[test]
 fn a_downloaded_installer_is_removed_when_it_drops() {
-    let path = std::env::temp_dir().join("vanehub-test-drop-installer");
+    let directory = tempfile::tempdir().expect("directory");
+    let path = directory.path().join("installer.sh");
     std::fs::write(&path, b"x").expect("write");
     assert!(path.exists());
     {
-        let _installer = DownloadedInstaller { path: path.clone() };
+        let _installer = DownloadedInstaller {
+            path: path.clone(),
+            _directory: directory,
+        };
     }
-    // Removed on every path -- success, failure, timeout, cancellation, and panic alike.
+    // Removed on every path -- success, failure, timeout, cancellation, and panic alike. The
+    // directory goes with it, so an installer that wrote a sibling file leaves nothing either.
     assert!(!path.exists());
 }
 

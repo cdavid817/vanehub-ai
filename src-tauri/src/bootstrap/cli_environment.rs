@@ -22,6 +22,8 @@ use crate::contexts::tooling::cli::infrastructure::environment_runtime_adapters:
     UuidCliIdFactory,
 };
 use crate::contexts::tooling::cli::infrastructure::npm_source::NpmSource;
+use crate::contexts::tooling::cli::infrastructure::vendor_downloader::HttpsInstallerDownloader;
+use crate::contexts::tooling::cli::infrastructure::vendor_source::VendorSource;
 use crate::contexts::tooling::cli::infrastructure::winget_source::WingetSource;
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -37,13 +39,13 @@ pub(crate) fn assemble_cli_environment_api(
     // Registered under the id each adapter reports for itself. A tool whose plan names a source
     // that is not here resolves to `source-unavailable` -- a typed refusal, never a fallback onto
     // whichever source happens to be present.
-    //
-    // The vendor installer source is deliberately absent: `CliInstallerDownloader` has no
-    // production implementation yet (task 5.7), and registering an adapter whose download step
-    // cannot run would turn a known gap into a runtime surprise.
     let sources = CliSourceAdapterRegistry::default()
         .with(Arc::new(NpmSource::new(gateway.clone())))
-        .with(Arc::new(WingetSource::new(gateway)));
+        .with(Arc::new(WingetSource::new(gateway.clone())))
+        .with(Arc::new(VendorSource::new(
+            gateway,
+            Arc::new(HttpsInstallerDownloader),
+        )));
 
     CliEnvironmentApi::new(CliEnvironmentService::new(CliEnvironmentPorts {
         discovery: Arc::new(SystemCliDiscovery),

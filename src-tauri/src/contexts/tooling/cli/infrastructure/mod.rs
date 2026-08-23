@@ -71,6 +71,14 @@ mod support;
         reason = "assembled in bootstrap by task group 9; remove with that group"
     )
 )]
+pub(crate) mod vendor_downloader;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "assembled in bootstrap by task group 9; remove with that group"
+    )
+)]
 pub(crate) mod vendor_source;
 #[cfg_attr(
     not(test),

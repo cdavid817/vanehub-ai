@@ -43,14 +43,13 @@ const MUTATION_TIMEOUT: Duration = Duration::from_secs(900);
 
 /// A downloaded installer on disk. Removed when dropped, so a cancelled or panicking run does not
 /// leave an executable behind in the temporary directory.
+#[derive(Debug)]
 pub(crate) struct DownloadedInstaller {
     pub(crate) path: PathBuf,
-}
-
-impl Drop for DownloadedInstaller {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
+    /// The directory the file lives in. Held rather than used: dropping it removes the directory
+    /// and everything under it, which is what makes cleanup cover an installer that wrote a
+    /// sibling file next to itself.
+    pub(crate) _directory: tempfile::TempDir,
 }
 
 /// Fetching an audited installer, under the trust policy's bounds.
