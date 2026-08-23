@@ -87,9 +87,10 @@ describe("i18n resources", () => {
         "cli.planWarning.downgrade-may-lose-state",
         "cli.error.plan-revision-mismatch",
       ];
+      const simplified = resources["zh-CN"];
       for (const key of sentences) {
         expect(resources[language][key], `${language}:${key} copies English`).not.toBe(canonicalResource[key]);
-        expect(resources[language][key], `${language}:${key} copies Simplified Chinese`).not.toBe(zhCN[key]);
+        expect(resources[language][key], `${language}:${key} copies Simplified Chinese`).not.toBe(simplified[key]);
       }
     },
   );

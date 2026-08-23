@@ -529,6 +529,24 @@ fn insert_plan(
     Ok(())
 }
 
+/// Attaching an item plan to its batch.
+///
+/// An upsert rather than an insert, because bulk preparation runs the ordinary single-action
+/// planning path for every eligible tool -- which persists each plan before the batch exists -- and
+/// then records the batch. Inserting again failed on the primary key and took the whole batch down
+/// with it, on a real database. The in-memory double never saw it: its map overwrote by key.
+const ATTACH_PLAN_SQL: &str = "INSERT INTO cli_action_plans
+    (plan_id, plan_kind, agent_id, scope_id, revision, state, environment_fingerprint,
+     plan_json, created_at, expires_at, bulk_plan_id)
+    VALUES (?1, 'action', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+    ON CONFLICT(plan_id) DO UPDATE SET
+      revision = excluded.revision,
+      state = excluded.state,
+      environment_fingerprint = excluded.environment_fingerprint,
+      plan_json = excluded.plan_json,
+      expires_at = excluded.expires_at,
+      bulk_plan_id = excluded.bulk_plan_id";
+
 fn insert_plan_tx(
     transaction: &Transaction<'_>,
     plan: &CliActionPlan,
@@ -536,7 +554,7 @@ fn insert_plan_tx(
 ) -> rusqlite::Result<()> {
     let row = PlanRow::of(plan, bulk_plan_id);
     transaction.execute(
-        INSERT_PLAN_SQL,
+        ATTACH_PLAN_SQL,
         params![
             row.plan_id,
             row.agent_id,

@@ -13,9 +13,13 @@ import { createDesktopConfig } from "./wdio-shared.mjs";
  * a credential store, or the user's database -- and `cli-side-effect-guard.mjs` checks that
  * afterwards rather than trusting it.
  */
-const fixture = await createCliManagementFixture({
-  root: path.join(process.env.VANEHUB_DESKTOP_RESULT_DIR ?? process.cwd(), "cli-fixture"),
-});
+// Inside the run root, next to the isolated application data, so disposal takes it with everything
+// else. The relocated home below collects WebView2's user-data folder, which has no business in an
+// evidence directory that CI uploads.
+const runRoot = process.env.VANEHUB_APP_DATA_DIR
+  ? path.dirname(process.env.VANEHUB_APP_DATA_DIR)
+  : process.cwd();
+const fixture = await createCliManagementFixture({ root: path.join(runRoot, "cli-fixture") });
 
 // Handed to the specs through a file rather than an environment variable, because the spec process
 // and this config process are the same process only by accident of the runner.
@@ -35,12 +39,14 @@ const baseConfig = await createDesktopConfig({
     // Windows resolves `npm.cmd` through PATHEXT; without it the fake package manager is invisible
     // to the process gateway even though its directory is first on PATH.
     ...(fixture.pathext ? { PATHEXT: fixture.pathext } : {}),
+    // PATH alone does not isolate discovery: it also enumerates known locations under the user's
+    // home. Without these the layer finds whatever the developer has installed and reports it.
+    ...fixture.homeEnvironment,
     VANEHUB_CLI_FIXTURE_ROOT: fixture.root,
   },
 });
 
-export const config = {
-  ...baseConfig,
-  specFileRetries: 1,
-  specFileRetriesDelay: 5,
-};
+// No retries. The fixture is mutated by design -- an upgrade rewrites the version a fake CLI
+// reports -- so a second attempt runs against a host the first attempt already changed, and neither
+// a pass nor a failure from it says anything about the code.
+export const config = baseConfig;

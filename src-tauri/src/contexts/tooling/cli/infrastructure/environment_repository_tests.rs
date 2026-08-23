@@ -423,31 +423,64 @@ fn a_bulk_plan_and_its_item_plans_are_inserted_together() {
         .is_some());
 }
 
-#[test]
-fn a_bulk_insert_that_fails_leaves_no_item_plans_behind() {
-    let (repository, _directory) = repository();
-    let good = plan_for("item-1", CliActionPlanState::Draft);
-    // Two items with the same id: the second insert violates the primary key.
-    let duplicate = plan_for("item-1", CliActionPlanState::Draft);
-    let bulk = CliBulkActionPlan {
-        id: CliBulkPlanId::new("bulk-1").expect("bulk id"),
+fn bulk_for(id: &str) -> CliBulkActionPlan {
+    CliBulkActionPlan {
+        id: CliBulkPlanId::new(id).expect("bulk id"),
         revision: 1,
         items: Vec::new(),
         skipped: Vec::new(),
         environment_fingerprint: "fingerprint-a".to_string(),
         created_at: stamp(1_000),
         expires_at: stamp(1_600),
-    };
+    }
+}
 
+#[test]
+fn a_bulk_insert_that_fails_leaves_no_item_plans_behind() {
+    let (repository, _directory) = repository();
+    let bulk = bulk_for("bulk-1");
+    repository
+        .create_bulk_plan_atomic(&bulk, &[])
+        .expect("the first batch lands");
+    let orphan = plan_for("item-orphan", CliActionPlanState::Draft);
+
+    // The same batch id again: the bulk row violates the primary key, and it is written before the
+    // item plans, so the item is inside the transaction that fails.
     let error = repository
-        .create_bulk_plan_atomic(&bulk, &[good.clone(), duplicate])
+        .create_bulk_plan_atomic(&bulk, &[orphan.clone()])
         .expect_err("refused");
 
     assert_eq!(error.category(), "storage");
-    // Rolled back completely: neither the batch nor the item that did insert survives, so nothing
-    // is left that no bulk plan references and no expiry sweep would ever reach.
-    assert_eq!(repository.load_bulk_plan(&bulk.id).expect("load"), None);
-    assert_eq!(repository.load_action_plan(&good.id).expect("load"), None);
+    // Rolled back completely, so nothing is left that no bulk plan references and no expiry sweep
+    // would ever reach.
+    assert_eq!(repository.load_action_plan(&orphan.id).expect("load"), None);
+}
+
+#[test]
+fn attaching_an_already_persisted_plan_to_a_batch_updates_it_instead_of_failing() {
+    let (repository, _directory) = repository();
+    // Bulk preparation runs the ordinary single-action planning path first, so by the time the
+    // batch is recorded every item plan is already a row. Inserting again failed on the primary
+    // key and took the whole batch down with it.
+    let plan = plan_for("item-1", CliActionPlanState::Draft);
+    repository.create_action_plan(&plan).expect("planned");
+
+    repository
+        .create_bulk_plan_atomic(&bulk_for("bulk-1"), &[plan.clone()])
+        .expect("the batch attaches the plan it planned");
+
+    assert_eq!(
+        repository.load_action_plan(&plan.id).expect("load"),
+        Some(plan.clone())
+    );
+    // One row, not two: the plan was updated in place rather than duplicated.
+    assert_eq!(
+        repository
+            .list_draft_plans(&plan.agent_id)
+            .expect("drafts")
+            .len(),
+        1
+    );
 }
 
 #[test]

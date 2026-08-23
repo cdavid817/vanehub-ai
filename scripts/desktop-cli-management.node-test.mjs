@@ -126,6 +126,11 @@ test("the built fixture answers probes and mutates only itself", async (t) => {
     await stat(entry);
   }
   assert.ok(fixture.pathValue.startsWith(fixture.pathEntries[0]));
+  // The inherited PATH is deliberately absent: a developer's npm global bin sits on it, and
+  // discovery would walk past the fixture and find their real installation as a second one.
+  assert.equal(fixture.pathValue.split(path.delimiter).length, fixture.pathEntries.length + 1);
+  assert.ok(Object.keys(fixture.homeEnvironment).length > 0);
+  for (const value of Object.values(fixture.homeEnvironment)) assert.ok(value.startsWith(fixture.root), value);
 
   const layout = layoutFor();
   const npmGlobal = fixture.directories["npm-global"];

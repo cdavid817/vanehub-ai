@@ -40,10 +40,13 @@ globalThis.describe("VaneHub AI desktop CLI management: persistence", () => {
     assert.notEqual(recommended.reportedVersion, INITIAL_VERSIONS.claude);
     assert.ok(claude.checkedAt, "a restored snapshot carried no detection timestamp");
 
-    // The mutation is on the record, so the page can explain what last happened to this tool.
+    // The mutation is on the record, so the page can explain what last happened to this tool. The
+    // previous spec ran a failing command after the successful one, and the last one is what a
+    // user needs to see -- a record that kept the older, happier result would be a lie about the
+    // most recent thing that happened to this host.
     assert.ok(claude.lastMutation, "the completed mutation was not persisted");
-    assert.equal(claude.lastMutation.outcome, "verified");
-    assert.equal(claude.lastMutation.targetVersion, UPGRADE_TARGET);
+    assert.equal(claude.lastMutation.outcome, "no-change-failed");
+    assert.equal(claude.lastMutation.sourceId, "npm");
 
     await assertNoFatalError(root);
   });

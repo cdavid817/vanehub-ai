@@ -184,23 +184,19 @@ fn a_plan_is_single_use() {
         .expect("prepare");
     harness.service.execute_cli_action(first).expect("execute");
 
-    // A retry must build a new plan; reusing this one is refused.
-    let second = harness
+    // A retry must build a new plan; reusing this one is refused before an operation exists.
+    // Returning an operation id here would have the caller poll for a failure that was already
+    // decided -- and on the desktop runtime, close the review dialog as though the change started.
+    let refusal = harness
         .service
         .prepare_cli_action_execution(ExecuteCliActionInput {
             plan_id: plan_id.clone(),
             expected_revision: 1,
         })
-        .expect("prepare");
-    let operation_id = second.operation_id.clone();
-    harness.service.execute_cli_action(second).expect("runs");
+        .expect_err("a consumed plan is refused");
 
-    let operation = harness.operations.find(&operation_id).expect("operation");
-    assert_eq!(operation.terminal.as_deref(), Some("failed"));
-    assert!(operation
-        .error
-        .as_deref()
-        .is_some_and(|error| error.contains("already been used")));
+    assert_eq!(refusal.category(), "plan-consumed");
+    assert!(refusal.is_retryable_with_a_new_plan());
 }
 
 #[test]
@@ -213,22 +209,15 @@ fn an_expired_plan_is_refused_before_any_process_starts() {
     // Ten minutes and one second later.
     harness.clock.advance_to(1_000 + 601);
 
-    let prepared = harness
+    let refusal = harness
         .service
         .prepare_cli_action_execution(ExecuteCliActionInput {
             plan_id,
             expected_revision: 1,
         })
-        .expect("prepare");
-    let operation_id = prepared.operation_id.clone();
-    harness.service.execute_cli_action(prepared).expect("runs");
+        .expect_err("an expired plan is refused");
 
-    let operation = harness.operations.find(&operation_id).expect("operation");
-    assert_eq!(operation.terminal.as_deref(), Some("failed"));
-    assert!(operation
-        .error
-        .as_deref()
-        .is_some_and(|error| error.contains("expired")));
+    assert_eq!(refusal.category(), "plan-expired");
     assert_eq!(source.executions().len(), executions_before);
 }
 
@@ -242,21 +231,15 @@ fn a_changed_environment_makes_the_plan_stale_instead_of_running_it() {
     // Something outside VaneHub changed PATH between review and confirm.
     harness.discovery.set_fingerprint("fingerprint-CHANGED");
 
-    let prepared = harness
+    let refusal = harness
         .service
         .prepare_cli_action_execution(ExecuteCliActionInput {
             plan_id,
             expected_revision: 1,
         })
-        .expect("prepare");
-    let operation_id = prepared.operation_id.clone();
-    harness.service.execute_cli_action(prepared).expect("runs");
+        .expect_err("a stale plan is refused");
 
-    let operation = harness.operations.find(&operation_id).expect("operation");
-    assert!(operation
-        .error
-        .as_deref()
-        .is_some_and(|error| error.contains("environment changed")));
+    assert_eq!(refusal.category(), "plan-stale");
     assert_eq!(source.executions().len(), executions_before);
 }
 
@@ -266,22 +249,15 @@ fn a_superseded_revision_is_refused() {
     installed_at(&harness, "1.2.0");
     let plan_id = prepare(&harness, CliActionKind::Upgrade, Some("1.3.0")).expect("plan");
 
-    let prepared = harness
+    let refusal = harness
         .service
         .prepare_cli_action_execution(ExecuteCliActionInput {
             plan_id,
             expected_revision: 7,
         })
-        .expect("prepare");
-    let operation_id = prepared.operation_id.clone();
-    harness.service.execute_cli_action(prepared).expect("runs");
+        .expect_err("a superseded revision is refused");
 
-    let operation = harness.operations.find(&operation_id).expect("operation");
-    assert_eq!(operation.terminal.as_deref(), Some("failed"));
-    assert!(operation
-        .error
-        .as_deref()
-        .is_some_and(|error| error.contains("revised")));
+    assert_eq!(refusal.category(), "plan-revision-mismatch");
 }
 
 #[test]

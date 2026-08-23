@@ -592,10 +592,17 @@ impl CliEnvironmentRepository for FakeRepository {
     }
 
     fn create_action_plan(&self, plan: &CliActionPlan) -> Result<(), CliEnvironmentError> {
-        self.plans
-            .lock()
-            .expect("plans")
-            .insert(plan.id.as_str().to_string(), plan.clone());
+        // Refuses a duplicate id the way the real table's primary key does. Overwriting by key
+        // instead hid a double insert in bulk preparation that only failed against SQLite, on a
+        // desktop run, after the whole batch had already been planned.
+        let mut plans = self.plans.lock().expect("plans");
+        if plans.contains_key(plan.id.as_str()) {
+            return Err(CliEnvironmentError::Storage(format!(
+                "UNIQUE constraint failed: cli_action_plans.plan_id ({})",
+                plan.id.as_str()
+            )));
+        }
+        plans.insert(plan.id.as_str().to_string(), plan.clone());
         Ok(())
     }
 

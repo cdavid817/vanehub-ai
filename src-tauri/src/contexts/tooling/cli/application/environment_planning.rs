@@ -446,6 +446,21 @@ impl CliEnvironmentService {
             .load_action_plan(&plan_id)?
             .ok_or(CliEnvironmentError::PlanNotFound)?;
 
+        // Refused here, before an operation exists, when the answer is already knowable: a plan
+        // that expired, that already ran, or whose revision moved is not a run that failed. Letting
+        // it through returned an operation id and reported the refusal as a failed operation, which
+        // on the desktop runtime meant the review dialog closed as though the change had started.
+        //
+        // The atomic `draft -> executing` transition still happens inside execution; this only
+        // moves the decisions that are already final. Two concurrent callers are still separated
+        // there, not here.
+        plan.admit_execution(
+            input.expected_revision,
+            &self.ports.discovery.environment_fingerprint()?,
+            self.ports.clock.now(),
+        )
+        .map_err(CliEnvironmentError::from)?;
+
         let operation_id = self.ports.operations.start(
             Some(&plan.agent_id),
             format!("{} {}", plan.action.as_str(), plan.agent_id),

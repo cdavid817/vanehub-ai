@@ -238,6 +238,9 @@ test("the CLI management layer runs against a fixture PATH and orders its restar
   assert.match(config, /PATH: fixture\.pathValue/);
   assert.match(config, /PATHEXT/);
   assert.match(config, /specFiles: \["cli-lifecycle\.e2e\.mjs", "cli-persistence\.e2e\.mjs"\]/);
+  // A retry would run against a fixture the first attempt already mutated -- an upgrade rewrites
+  // the version a fake CLI reports -- so it could neither confirm nor deny anything about the code.
+  assert.doesNotMatch(config, /specFileRetries/);
 
   // Real IPC, not the Web/mock adapter: the mock answers from invented data and can prove nothing
   // about discovery, process execution, verification, or SQLite.

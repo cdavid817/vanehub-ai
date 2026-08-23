@@ -26,12 +26,41 @@ export async function readInvocations(fixture) {
     .map((line) => JSON.parse(line));
 }
 
-export function invoke(command, args) {
-  return globalThis.browser.tauri.execute(
-    ({ core }, name, payload) => core.invoke(name, payload),
+/**
+ * One Tauri command, with a refusal reported as a refusal.
+ *
+ * The bridge resolves whatever the executed function returns, and a rejected `core.invoke` came
+ * back as `undefined` rather than as an error -- which read as "the backend accepted it", the one
+ * reading that is never true of a refusal. Catching inside the page and tagging the result is what
+ * makes a refused command assertable.
+ */
+export async function invoke(command, args) {
+  const result = await globalThis.browser.tauri.execute(
+    async ({ core }, name, payload) => {
+      try {
+        return { ok: true, value: await core.invoke(name, payload) };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : error };
+      }
+    },
     command,
     args ?? {},
   );
+  if (!result?.ok) {
+    const detail = typeof result?.error === "string" ? result.error : JSON.stringify(result?.error);
+    throw new Error(`${command} refused: ${detail}`);
+  }
+  return result.value;
+}
+
+/** The refusal a command produced, or `null` when it was accepted. */
+export async function invokeExpectingRefusal(command, args) {
+  try {
+    await invoke(command, args);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 /** Polls one operation to a terminal status and returns it. */

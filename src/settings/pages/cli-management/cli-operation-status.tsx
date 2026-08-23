@@ -36,6 +36,15 @@ function guidanceKey(outcome: CliMutationResult["outcome"]): string | null {
   }
 }
 
+/** Outcomes that mean the change did not take. The operation still completed; the change did not. */
+const FAILED_OUTCOMES = ["changed-but-failed", "no-change-failed", "cancelled"];
+
+function statusTone(operation: OperationTask, result: CliMutationResult | null) {
+  if (isOperationRunning(operation)) return "muted" as const;
+  if (result?.outcome && FAILED_OUTCOMES.includes(result.outcome)) return "warning" as const;
+  return operation.status === "succeeded" ? ("success" as const) : ("warning" as const);
+}
+
 export function CliOperationStatus({
   operation,
   onCancel,
@@ -56,7 +65,13 @@ export function CliOperationStatus({
         exactly the person the region was added for.
       */}
       <div aria-atomic="true" aria-live="polite" className="flex flex-wrap items-center gap-2">
-        <Badge tone={running ? "muted" : operation.status === "succeeded" ? "success" : "warning"}>
+        {/*
+          Toned by the outcome when there is one. VaneHub completes the operation for a command
+          that ran and failed -- the record is worth more than a bare failure message -- so keying
+          the badge off the operation status alone painted "no-change-failed" green and called it
+          a success.
+        */}
+        <Badge tone={statusTone(operation, result)}>
           {t(`cli.operationStatus.${operation.status}`)}
         </Badge>
         {operation.phase ? (

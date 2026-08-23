@@ -1,4 +1,4 @@
-import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -151,9 +151,15 @@ fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({
   executable: __filename,
 }) + "\\n");
 const VERSION_FILES = ${JSON.stringify(versionFiles)};
+// The source's own preflight is \`--version\`; answering it is what makes the source available at
+// all. A fake that only handled install reported the source as missing and never ran anything.
+if (args[0] === "--version" || args[0] === "-v") {
+  process.stdout.write("11.0.0-fixture\\n");
+  process.exit(0);
+}
 if (args[0] === "view" || args[0] === "show") {
-  // A source-native catalog answer. Shaped like npm's --json output for \`versions\`.
-  process.stdout.write(JSON.stringify(["1.1.0", "1.2.0", "1.3.0"]) + "\\n");
+  // A source-native catalog answer, shaped like \`npm view <pkg> versions --json\`.
+  process.stdout.write(JSON.stringify(["1.1.0", "1.2.0", "1.3.0", "9.9.9-fails"]) + "\\n");
   process.exit(0);
 }
 if (args[0] === "install" || args[0] === "upgrade") {
@@ -198,10 +204,19 @@ async function writeExecutable(directory, base, extension, body) {
 export async function createCliManagementFixture({ root, platform = process.platform } = {}) {
   const layout = layoutFor(platform);
   const fixtureRoot = root ?? path.join(os.tmpdir(), `vanehub-cli-management-${process.pid}`);
+  // Idempotent on purpose. The wdio configuration module is re-imported by every worker, and a
+  // build that started by deleting the tree wiped the fixture out from under the spec that was
+  // already running against it -- which then fell through to the host's real npm directory and
+  // reported the developer's own installation as a finding.
+  const built = await describeBuiltFixture(fixtureRoot, layout, platform);
+  if (built) return built;
+
   await rm(fixtureRoot, { recursive: true, force: true });
   const logPath = path.join(fixtureRoot, INVOCATION_LOG);
   const versionsDir = path.join(fixtureRoot, "versions");
   await mkdir(versionsDir, { recursive: true });
+  // An empty home, so the known-location enumeration finds nothing rather than the host.
+  await mkdir(fixtureHome(fixtureRoot), { recursive: true });
   await writeFile(logPath, "", "utf8");
 
   const directories = {};
@@ -273,16 +288,70 @@ export async function createCliManagementFixture({ root, platform = process.plat
     );
   }
 
+  await writeFile(path.join(fixtureRoot, BUILT_MARKER), `${new Date().toISOString()}\n`, "utf8");
+  return describe(fixtureRoot, layout, platform);
+}
+
+/** Name of the file that says the tree is complete, so a second caller reuses it. */
+const BUILT_MARKER = ".built";
+
+/**
+ * A home directory the discovery adapter's known-location enumeration will find nothing in.
+ *
+ * `PATH` alone does not isolate discovery: it also looks under `%APPDATA%\\npm`, scoop's shims,
+ * WinGet's links, and `$HOME/.local/bin`. Pointing those at the fixture is what stops the layer
+ * from reporting whatever the developer happens to have installed.
+ */
+function fixtureHome(fixtureRoot) {
+  return path.join(fixtureRoot, "home");
+}
+
+/** The descriptor for a tree that is already on disk, or `null` when it is not built yet. */
+async function describeBuiltFixture(fixtureRoot, layout, platform) {
+  try {
+    await stat(path.join(fixtureRoot, BUILT_MARKER));
+  } catch {
+    return null;
+  }
+  return describe(fixtureRoot, layout, platform);
+}
+
+function describe(fixtureRoot, layout, platform) {
+  const directories = Object.fromEntries(
+    layout.directories.map((entry) => [entry.role, path.join(fixtureRoot, ...entry.segments)]),
+  );
+  const versionFiles = Object.fromEntries(
+    Object.keys(INITIAL_VERSIONS).map((tool) => [tool, path.join(fixtureRoot, "versions", `${tool}.txt`)]),
+  );
   const pathEntries = layout.directories.map((entry) => directories[entry.role]);
+  const home = fixtureHome(fixtureRoot);
   return {
     root: fixtureRoot,
     directories,
     versionFiles,
-    logPath,
+    logPath: path.join(fixtureRoot, INVOCATION_LOG),
     pathEntries,
-    /** Prepended, never replacing: the runtime still needs `node` to run the fakes themselves. */
-    pathValue: [...pathEntries, process.env.PATH ?? ""].join(path.delimiter),
+    /**
+     * The fixture's directories and the one host directory that holds `node`, and nothing else.
+     *
+     * Appending the inherited PATH looked harmless and was not: a developer's npm global bin is on
+     * it, so discovery walked past the fixture and found their real `claude.cmd` as a second
+     * installation. The runtime still needs `node` to run the fakes themselves, which is why that
+     * one directory stays.
+     */
+    pathValue: [...pathEntries, path.dirname(process.execPath)].join(path.delimiter),
     pathext: layout.pathext.join(";"),
+    /**
+     * The home-shaped variables the discovery adapter reads for known locations.
+     *
+     * All of them, because all of them turned up a real installation on the machine this was first
+     * run on: `%APPDATA%\\npm` had four CLIs in it, and `%LOCALAPPDATA%` had two more under the
+     * Codex desktop bundle and `agy`. A layer that leaves any of these pointing at the host reports
+     * whatever the developer happens to have installed and calls it a finding.
+     */
+    homeEnvironment: platform === "win32"
+      ? { APPDATA: home, LOCALAPPDATA: home, USERPROFILE: home, HOME: home }
+      : { HOME: home },
   };
 }
 

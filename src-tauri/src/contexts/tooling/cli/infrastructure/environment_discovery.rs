@@ -95,11 +95,15 @@ fn path_candidates(executable_names: &[&str], limit: usize) -> Vec<(PathBuf, u32
             break;
         }
         for name in executable_names {
+            // Every launcher in the directory, not just the first. One npm global install on
+            // Windows writes `tool`, `tool.cmd`, and `tool.ps1` side by side, and stopping at the
+            // first meant the other two were never seen -- so `group_launcher_families` had
+            // nothing to fold and the details drawer's alias list was always empty. Folding is
+            // what keeps one install from reporting as three; skipping the siblings only hid them.
             for filename in executable_filenames(name) {
                 let candidate = directory.join(&filename);
                 if candidate.is_file() {
                     found.push((candidate, u32::try_from(index).unwrap_or(u32::MAX)));
-                    break;
                 }
             }
         }

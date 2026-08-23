@@ -8,6 +8,7 @@ import {
   awaitOperation,
   installationOf,
   invoke,
+  invokeExpectingRefusal,
   readFixture,
   readInvocations,
   refreshEnvironments,
@@ -150,13 +151,13 @@ globalThis.describe("VaneHub AI desktop CLI management: lifecycle", () => {
     const consumed = await invoke("get_cli_action_plan", { planId });
     assert.notEqual(consumed.state, "draft", JSON.stringify(consumed));
 
-    let refused = null;
-    try {
-      await invoke("execute_cli_action", { planId, expectedRevision: planRevision });
-    } catch (error) {
-      refused = error;
-    }
-    assert.ok(refused, "a consumed plan was accepted for execution");
+    const refusal = await invokeExpectingRefusal("execute_cli_action", {
+      planId,
+      expectedRevision: planRevision,
+    });
+    assert.ok(refusal, "a consumed plan was accepted for execution");
+    // A stable category, not a parsed sentence: the frontend localizes from exactly this.
+    assert.match(refusal, /plan-consumed|plan-revision-mismatch|plan-expired/);
   });
 
   globalThis.it("reports a failing command as failed without claiming a rollback", async function () {
@@ -183,11 +184,16 @@ globalThis.describe("VaneHub AI desktop CLI management: lifecycle", () => {
       (await invoke("execute_cli_action", { planId: failing, expectedRevision: plan.revision })).operationId,
     );
 
-    assert.equal(executed.status, "failed");
+    // The operation completes and carries a truthful record; the *outcome* is what says the change
+    // did not take. A bare failed operation would lose the termination, the exit code, and the
+    // observation that decides whether retrying is safe.
     assert.ok(
       ["no-change-failed", "changed-but-failed"].includes(executed.result.outcome),
       JSON.stringify(executed.result),
     );
+    assert.equal(executed.result.termination, "exited");
+    assert.notEqual(executed.result.exitCode, 0);
+    assert.equal(executed.result.warning, true);
     // The previous upgrade stands. Nothing restored it, and nothing claimed to.
     assert.equal((await readFile(fixture.versionFiles.claude, "utf8")).trim(), UPGRADE_TARGET);
   });
