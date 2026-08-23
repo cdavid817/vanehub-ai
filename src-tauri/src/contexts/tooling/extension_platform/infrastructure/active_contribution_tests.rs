@@ -330,6 +330,82 @@ fn two_installations_claiming_one_contribution_id_is_refused_rather_than_resolve
 }
 
 #[test]
+fn the_three_reads_share_one_snapshot_across_a_concurrent_activation() {
+    // Under WAL each bare statement takes its own snapshot, so without an explicit read
+    // transaction this reader could return the owner from before an activation and the generation
+    // from after it -- a state that never existed, assembled from two that did.
+    //
+    // The reader pauses once its snapshot is established; the writer then activates v2 on a second
+    // connection and commits. Whatever the reader returns must be one whole generation.
+    let fixture = fixture("active-snapshot-isolation");
+    publish(
+        &fixture,
+        "install-a",
+        "acme.git-guardian",
+        "snap-v1",
+        "1.0.0",
+        0,
+        Some(V1_DIGEST),
+    );
+    publish(
+        &fixture,
+        "install-a",
+        "acme.git-guardian",
+        "snap-v2",
+        "2.0.0",
+        1,
+        Some(V2_DIGEST),
+    );
+    activate(&fixture, "install-a", "generation-1", "snap-v1", 0);
+
+    let (reader_paused, paused) = std::sync::mpsc::channel();
+    let (writer_done, activated) = std::sync::mpsc::channel();
+    let reading = SqliteActiveContributionReader::new(fixture.database.clone());
+    let reading_thread = std::thread::spawn(move || {
+        reading.active_pausing_after_owner_lookup(HOOK, &|| {
+            reader_paused.send(()).expect("signal");
+            activated.recv().expect("wait for the writer");
+        })
+    });
+
+    paused.recv().expect("the reader reached its pause");
+    // A second, independent connection: the whole point is that this commits while the reader's
+    // snapshot is open. Revision 1, because `generation-1` already moved the pointer.
+    activate(&fixture, "install-a", "generation-2", "snap-v2", 1);
+    writer_done.send(()).expect("release the reader");
+
+    let answer = reading_thread.join().expect("thread").expect("read");
+
+    assert!(
+        matches!(
+            &answer,
+            ActiveContribution::Running { snapshot_id, declared_digest }
+                if (snapshot_id == "snap-v1" && declared_digest.as_deref() == Some(V1_DIGEST))
+                    || (snapshot_id == "snap-v2" && declared_digest.as_deref() == Some(V2_DIGEST))
+        ),
+        "the answer must be one whole generation, never a mixture: {answer:?}"
+    );
+    assert_eq!(
+        answer,
+        ActiveContribution::Running {
+            snapshot_id: "snap-v1".to_string(),
+            declared_digest: Some(V1_DIGEST.to_string()),
+        },
+        "and it is the generation that was live when the snapshot was taken"
+    );
+
+    // The writer's commit is visible to a read that starts after it, so the test proved isolation
+    // rather than that the write never landed.
+    assert_eq!(
+        reader(&fixture).active(HOOK).expect("read"),
+        ActiveContribution::Running {
+            snapshot_id: "snap-v2".to_string(),
+            declared_digest: Some(V2_DIGEST.to_string()),
+        }
+    );
+}
+
+#[test]
 fn a_contribution_row_written_before_digests_existed_declares_nothing() {
     // The repaired-database case. A NULL digest is not an empty digest that matches nothing; it is
     // an absent declaration, and the conservative reading is "nothing to dispatch".

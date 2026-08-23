@@ -1420,9 +1420,37 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `authorization_rule_sets` | **Immutable** | — | — | PK `rule_set_id`; unique `content_digest` | Permanent evidence | None | None |
-| `authorization_rules` | **Immutable** | — | → rule sets, RESTRICT | unique `(rule_set_id, source, rule_id)` | With its rule set | None | None |
-| `authorization_active_rule_set` | Mutable | `revision` + CAS | → rule sets, RESTRICT | single row, `CHECK (id = 1)` | Permanent | None | None |
+| `permission_rule_sets` | **Immutable** | — | — | PK `rule_set_id`; unique `content_digest` | Permanent evidence | None | None |
+| `permission_authorization_rules` | **Immutable** | — | → rule sets, RESTRICT | PK `(rule_set_id, source_kind, source_id, rule_id)` | With its rule set | None | None |
+| `permission_active_rule_set` | Mutable | `revision` + CAS | → rule sets, RESTRICT | single row, `CHECK (id = 1)` | Permanent | None | **Seeded pointing at nothing** |
+
+**One canonical model.** One `AuthorizationRule`, one immutable rule set, one active pointer, one repository, one evaluator. The Unified Extension Platform contributes the `Extension` rule source into it; the Permission Policy Center manages `User` and `Project` in the same model. Neither builds a second rule table, and there is no dual-write compatibility layer.
+
+**Templates are not a persisted rule source.** `agent_principals.template_name`, `PolicyTemplateName`, `policies_for_template()`, and the current PDP keep template ownership. Migration 88 creates no `source_kind = 'template'` — the `CHECK` makes one unrepresentable — seeds no rows for the four templates, includes no template in a rule-set digest, and does not publish a rule set or move the active pointer when a template assignment changes. Compiling templates into rules would make every template change publish an immutable set, and would put the host's own fallback behind the same review path as a downloaded extension's rules.
+
+**The rule evaluator returns four outcomes.** `Deny`, `Ask`, `Allow`, and `NoMatch` — and only `NoMatch` reaches the existing template/PDP. Collapsing `NoMatch` into `Ask` would silently replace the PDP: today's templates allow `file.read`, so every read would start prompting the moment the first rule set was published, for an operation the rule set never mentioned. A template consulted this way appears in the audit as `DecisionTraceStep::TemplateFallback`, which is a trace step and not a stored rule.
+
+**Grants stay independent.** Migration 88 does not modify, copy, or rebuild `permission_grants`, and no grant is part of a rule-set digest. Grants remain the Approval Broker's and Grant Repository's; they participate only when the answer is still `Ask` after rules, template, and hooks, and only within the intersection of the Immutable Safety Floor, the rule's `allowed_scopes`, risk, and the session/project boundary. Activating a different rule set deletes no grant — eligibility is re-decided the next time the grant would be used, which is what lets a rule set be rolled back without destroying a user's remembered answers.
+
+**The decision order is fixed**, and is written down as `DECISION_ORDER` so that changing it is a change to the security model rather than a refactor:
+
+```text
+Normalize/Risk -> Immutable Safety Floor -> Parent-chain Explicit Deny -> Active Compiled Rule Set
+  -> Template/PDP Fallback on NoMatch -> Hook Monotonic Strengthening
+  -> Remembered Grant for remaining Ask -> User Approval -> Redacted Trace/Audit
+```
+
+Every step may only make the answer stricter than the one before it, except `TemplateFallback`, which is reached only when the rule set said `NoMatch` and so has nothing to be stricter than. The Immutable Safety Floor sits above the rule set and is not controlled by the active pointer: a published rule set cannot weaken it.
+
+**One active pointer for the whole application.** It represents the rule *generation*, not a scope: rules carry their own Global/User/Project/Principal/Session boundary. A pointer per scope would let two scopes run generations that were never reviewed together. It starts `NULL` rather than pointing at a fabricated empty set, because "nothing has been published" and "a published set that happens to be empty" are different facts and the second would claim a digest nobody produced.
+
+**An extension rule may only be `Ask` or `Deny`**, refused twice — by `AuthorizationRule::admit` and by a table `CHECK` — because an `Allow` contributed by a downloaded package is a privilege escalation, and a single guard is one refactor away from not existing.
+
+**The digest cannot depend on row order.** SQLite promises nothing about row order without an `ORDER BY`, and adding an index can change the plan even with one. Every rule is encoded on its own with length-prefixed fields, the encodings are sorted as bytes, and the sorted sequence is hashed with the rule count inside it. Sorting encodings rather than rules means the order does not depend on which field anyone thought to sort by.
+
+**Reads fail closed.** A stored `source_kind`, `effect`, `matcher`, `scope_kind`, or `provenance` this build cannot name makes the whole rule set unreadable, rather than skipping the row — a set silently missing exactly one unparseable `Deny` is the worst available outcome.
+
+**While the store is unwired, permissions behaviour is unchanged.** Migration 88 lands the model and the storage; wiring the `NoMatch` fallthrough and the trace into `EvaluationService` belongs to the task group that owns evaluation. A test publishes and activates a Deny-everything rule set and asserts the existing PDP still answers exactly as it does today.
 
 #### `tooling::connectors` — migration 89
 

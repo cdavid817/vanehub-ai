@@ -7,6 +7,7 @@ mod policy;
 mod principal;
 mod resource;
 mod risk_level;
+pub(crate) mod rules;
 mod scope;
 mod template;
 

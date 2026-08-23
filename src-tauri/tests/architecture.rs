@@ -2515,9 +2515,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // recorded, so the column would never appear there. Same shape as the
     // `repair_missing_stable_participant_schema` call above it, and a no-op wherever the column is
     // present.
+    //
+    // Raised again from 3,158 by +35: 7 register migration 88 (the canonical authorization rule
+    // store, whose schema and tests live in `contexts/permissions/rules`), and 28 are
+    // `begin_read_transaction`. That helper belongs here for the same reason its write counterpart
+    // does -- it is database execution protocol, not any one context's rule. Under WAL a bare
+    // statement takes its own snapshot, so a multi-statement read can straddle a commit and return
+    // a state that never existed; the doc comment is most of the 28 because the failure looks like
+    // nothing at all until it is described. Migration 89 will add 7 lines.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_158,
+        budget: 3_193,
         owner: "add-unified-extension-platform",
     },
 ];

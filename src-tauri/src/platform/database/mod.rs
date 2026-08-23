@@ -101,6 +101,34 @@ pub(crate) fn begin_write_transaction(
         .map_err(map_write_transaction_error)
 }
 
+/// Begins a read-only transaction that holds one snapshot for its whole life.
+///
+/// Under WAL a bare statement gets its own read snapshot, so a sequence of `query_row` calls on
+/// one connection can straddle a concurrent commit and return a state that never existed: half the
+/// answer from before the write, half from after. Each statement is individually consistent, which
+/// is exactly why the defect survives review — nothing is torn, the pieces simply come from
+/// different moments.
+///
+/// `BEGIN DEFERRED` fixes the snapshot at the first read and keeps it until the transaction ends,
+/// which makes a multi-statement read repeatable.
+///
+/// # When this is the right tool
+///
+/// Any read whose statements must agree with each other — following a pointer to a row, then that
+/// row to another. A single-statement read does not need one.
+///
+/// # What it is not
+///
+/// Not [`begin_write_transaction`]. This takes no write lock, so it does not serialise writers,
+/// and it must not be used for anything that writes: the first write inside a deferred transaction
+/// has to upgrade the lock, and SQLite refuses that upgrade without honouring `busy_timeout`.
+pub(crate) fn begin_read_transaction(
+    connection: &PooledSqlite,
+) -> Result<rusqlite::Transaction<'_>, WriteTransactionError> {
+    rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Deferred)
+        .map_err(map_write_transaction_error)
+}
+
 /// Contention is a distinct answer; everything else is storage.
 fn map_write_transaction_error(error: rusqlite::Error) -> WriteTransactionError {
     match &error {
@@ -340,7 +368,7 @@ mod tests {
 
         // Row count rather than maximum version. They agree only while history is dense, so a
         // branch that reserves a number ahead of an unmerged one will see these diverge.
-        assert_eq!(migration_count, 87);
+        assert_eq!(migration_count, 88);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -402,7 +430,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 87);
+        assert_eq!(migration_count, 88);
     }
 
     #[test]
