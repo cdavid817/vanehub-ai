@@ -19,14 +19,14 @@ There are two routes to installing a CLI, and **they produce the same result —
 
 ### Method A: install it inside VaneHub AI
 
-Open **Settings → CLI management**; each CLI card offers an action based on its current detection status: **Install**, **Upgrade**, **Downgrade**, **Up to date**, **Unavailable**, or **Handle manually**. Click **Install**, and VaneHub AI installs it for you through npm, then automatically refreshes detection.
+Open **Settings → CLI management**; each CLI card offers whatever its source supports — install, upgrade, downgrade, or nothing at all. Pick a version, review the plan VaneHub shows you, and confirm; detection refreshes when it finishes and reports whether the change was verified.
 
-Good for: you already have Node.js 22+ on this machine, and you're fine with the CLI coming from npm.
+Good for: you already have Node.js 22+ on this machine, and you're fine with the CLI coming from npm or, on Windows, from WinGet.
 
 **Two things to know going in:**
 
-- **It only goes through npm.** VaneHub AI never calls a vendor's official install script, and never uses Homebrew, winget, or scoop.
-- **Antigravity CLI has no npm package**, so the UI offers no install/upgrade/downgrade action for it — it can only go through Method B.
+- **The source decides what is possible.** VaneHub AI drives npm, WinGet on Windows, and per-CLI audited vendor installers. Homebrew, Bun, Volta, desktop bundles, and system packages are detected and reported but never changed. It never pipes a downloaded script into a shell, and it never installs a second copy beside someone else's and calls that an upgrade.
+- **Antigravity CLI has no npm package.** Its only source is the vendor installer, which pins no exact version, so the UI offers an upgrade to latest rather than a version list.
 
 ### Method B: install it from the terminal
 

@@ -73,6 +73,40 @@ describe("i18n resources", () => {
     },
   );
 
+  it.each(appLanguages.filter((language) => language !== "en" && language !== "zh-CN"))(
+    "localizes CLI management copy in %s instead of copying a reference locale",
+    (language) => {
+      // Copying English or Simplified Chinese into every locale passes the key-parity check above
+      // and still ships an untranslated page. These are sentences rather than terms, so an honest
+      // translation cannot come out byte-identical to either reference.
+      const sentences = [
+        "cli.outcome.guidance.changed-but-failed",
+        "cli.conflict.path-shadowing",
+        "cli.guidance.homebrew",
+        "cli.plan.description",
+        "cli.planWarning.downgrade-may-lose-state",
+        "cli.error.plan-revision-mismatch",
+      ];
+      for (const key of sentences) {
+        expect(resources[language][key], `${language}:${key} copies English`).not.toBe(canonicalResource[key]);
+        expect(resources[language][key], `${language}:${key} copies Simplified Chinese`).not.toBe(zhCN[key]);
+      }
+    },
+  );
+
+  it.each(appLanguages)("keeps every CLI placeholder intact in %s", (language) => {
+    // The parity check above compares variable names across locales; this one is about the CLI
+    // surface specifically, where a dropped `{{count, number}}` renders a bare label next to a
+    // number that never arrives.
+    for (const key of Object.keys(canonicalResource).filter((name) => name.startsWith("cli."))) {
+      const expected = interpolationVariables(canonicalResource[key]);
+      expect(interpolationVariables(resources[language][key]), `${language}:${key}`).toEqual(expected);
+      if (expected.includes("count")) {
+        expect(resources[language][key], `${language}:${key}`).toContain("{{count, number}}");
+      }
+    }
+  });
+
   it("uses complete i18next v4 plural pairs for count-sensitive messages", () => {
     const pluralKeys = Object.keys(canonicalResource).filter((key) => /_(?:one|other)$/.test(key));
     const pluralBases = new Set(pluralKeys.map((key) => key.replace(/_(?:one|other)$/, "")));
