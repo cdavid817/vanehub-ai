@@ -2570,3 +2570,100 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
         .map(str::to_string)
         .collect()
 }
+
+/// Where `CliIdentifier::trusted` may be called, and with what.
+///
+/// The constructor skips validation, so it is only ever correct for a value this repository
+/// produced itself. Visibility already keeps it out of `commands/` -- it is scoped to the CLI
+/// context. This covers the half visibility cannot: a call *inside* that context that hands it a
+/// stored row, a DTO field, a PATH entry, or a package manager's stdout.
+///
+/// Each entry is (file suffix, exact argument text). Adding a call site means adding a line here
+/// and stating why the value cannot come from outside.
+const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
+    // Fixed source names owned by this repository, one per adapter.
+    ("infrastructure/npm_source.rs", "\"npm\""),
+    ("infrastructure/winget_source.rs", "\"winget\""),
+    ("infrastructure/vendor_source.rs", "\"vendor\""),
+    // Fallback literals. The dynamic value goes through the fallible `new` first; only the
+    // last-resort constant is trusted.
+    ("infrastructure/environment_discovery.rs", "\"i-unknown\""),
+    ("infrastructure/environment_serde.rs", "\"legacy\""),
+    // Generated in-process from an ASCII prefix, a counter, and a UUID. No caller supplies any
+    // part of it, and a fallback constant here would let two plans share an id.
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-plan\")",
+    ),
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-bulk\")",
+    ),
+];
+
+#[test]
+fn no_external_input_reaches_the_trusted_identifier_constructor() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // The definition itself and its own unit tests are not call sites.
+        if display.ends_with("domain/ids.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            let Some(position) = line.find("::trusted(") else {
+                continue;
+            };
+            let argument = line[position + "::trusted(".len()..]
+                .rsplit_once(')')
+                .map(|(head, _)| head.trim())
+                .unwrap_or("")
+                .to_string();
+            let allowed = TRUSTED_IDENTIFIER_CALL_SITES
+                .iter()
+                .any(|(suffix, expected)| display.ends_with(suffix) && argument == *expected);
+            if !allowed {
+                unexpected.push(format!("{display}:{}: `{argument}`", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "these `trusted` identifier constructions are not on the audited list. `trusted` skips \
+         validation, so a value that can be shaped by a DTO field, a SQLite column, a PATH entry, \
+         a package manager's output, or the network must use the fallible `new` instead: {}",
+        unexpected.join(", ")
+    );
+}
+
+#[test]
+fn command_adapters_cannot_construct_identifiers_without_validating_them() {
+    // Visibility is the real guard; this fails with a readable message rather than a privacy error
+    // if someone widens it.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("commands");
+    let files = rust_files(&root).expect("command sources");
+
+    let offenders: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            fs::read_to_string(file)
+                .map(|source| source.contains("::trusted("))
+                .unwrap_or(false)
+        })
+        .map(|file| file.display().to_string())
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "a command adapter builds an identifier without validating it. Everything a command \
+         receives came from outside the process: {}",
+        offenders.join(", ")
+    );
+}

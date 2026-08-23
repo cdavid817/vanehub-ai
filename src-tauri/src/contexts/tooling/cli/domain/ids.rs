@@ -80,7 +80,14 @@ macro_rules! cli_identifier {
             /// pieces, is not one of those. `expect`ing on such a value would put a panic in a
             /// release binary to guard against a typo the test suite already catches, so the check
             /// is a debug assertion instead: it fires in every test run and costs a user nothing.
-            pub(crate) fn trusted(value: impl Into<String>) -> Self {
+            ///
+            /// **Never for external input.** A DTO field, a SQLite column, a PATH entry, a package
+            /// manager's stdout, or anything off the network goes through `new` and is refused if
+            /// it does not validate. The visibility below is the structural half of that rule: a
+            /// command mapper cannot reach this at all, because it lives outside this context.
+            /// `no_external_input_reaches_the_trusted_identifier_constructor` in the architecture
+            /// suite is the other half, covering the call sites inside it.
+            pub(in crate::contexts::tooling::cli) fn trusted(value: impl Into<String>) -> Self {
                 let value = value.into();
                 debug_assert!(
                     validate(&value, $label).is_ok(),
