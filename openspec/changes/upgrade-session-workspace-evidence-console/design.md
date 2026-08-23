@@ -475,6 +475,35 @@ Four properties are normative:
 - Only allowlisted, bounded values SHALL enter the queue. A raw producer object crossing that
   boundary would make the queue a second place where unredacted content lives.
 
+### Review Evidence Lands in Two Stages
+
+Group 4 records what the review context can already observe: a review-level decision and an
+automated verification outcome. Both have an authoritative row to point at the moment they are
+published.
+
+Hunk decisions and file Viewed state do not. Their store arrives in 13.1, and until it does the
+only way to report them would be to derive them from review-level state -- a review accepted means
+every hunk accepted, a file rendered means a file viewed. Both inferences are wrong often enough to
+matter, and once written, a derived observation is indistinguishable from an observed one. So they
+are deferred to 13.2 and 13.5, which publish immediately after their own commit.
+
+The contract is settled here so those tasks publish against a fixed shape rather than inventing
+one. Each is a reference plus a witness, never the content of what was decided:
+
+| Signal | Published by | Correlation | Payload |
+| --- | --- | --- | --- |
+| Review decision | 4.7 | session, review id | decision value, snapshot witness fingerprint |
+| Verification outcome | 4.7 | session, run, verification run id | outcome, passed/failed counts |
+| Hunk decision | 13.2 | session, review id, file basename | decision value, hunk fingerprint, snapshot witness |
+| File Viewed | 13.5 | session, review id, file basename | viewed or reset, snapshot witness |
+
+Three rules apply to all four. The comment prose, the finding text, the diff, the patch, the source
+line, and the absolute path never cross -- a review evidence record says a decision was made about
+an identified thing, not what the thing said. The witness fingerprint travels with the decision, so
+a reader can tell a decision about the current snapshot from one about a snapshot that has since
+changed. And publication follows the authoritative commit, because a decision reported before it
+persists can be rolled back into a record of something that never happened.
+
 ### Startup Projection Replay Is Repair-If-Needed
 
 A projection is a cache of the journal, so it can always be rebuilt -- but rebuilding one that

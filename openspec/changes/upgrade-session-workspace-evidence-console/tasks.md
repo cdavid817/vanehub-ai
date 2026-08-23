@@ -101,7 +101,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [ ] 4.4 Record safe run start/completion and observable tool/delegation lifecycle references from the existing canonical execution path.
 - [ ] 4.5 Record Session Shell opened/closed and structured command start/completion references when boundaries are observable.
 - [ ] 4.6 Record safe file-mutation observations after trusted workspace mutations or witnessed snapshot comparison; do not persist file content or full paths.
-- [ ] 4.7 Record review-level decision, hunk-level decision, file Viewed reset, and automated verification outcome references.
+- [ ] 4.7 Record review-level decision and automated verification outcome references. Hunk-level decisions and file Viewed resets are deferred to 13.2 and 13.5: neither has an authoritative store until 13.1 adds one, so a producer here would have to derive them from review-level state, and a derived observation recorded as an observed one is the confusion this journal exists to remove. The evidence contract for both is defined in design.md now so 13.2 and 13.5 publish against a settled shape rather than inventing one.
 - [ ] 4.8 Record usage-observed references that point to sessions-owned accounting observations without duplicating usage totals in the journal.
 - [ ] 4.9 Emit a bounded coverage-gap marker after queue overflow or persistence recovery, including counts and safe reason codes only.
 - [ ] 4.10 Add tests proving producer success is unchanged when the evidence recorder is unavailable or its queue is full.
@@ -250,10 +250,10 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 ## 13. Review Hunk State, Viewed Progress, Patch Copy, and Evidence
 
 - [ ] 13.1 Add additive SQLite migrations for review hunk decisions and review file Viewed state keyed to current snapshot witnesses.
-- [ ] 13.2 Extend the review aggregate/application service to persist review-level and hunk-level decisions independently.
+- [ ] 13.2 Extend the review aggregate/application service to persist review-level and hunk-level decisions independently, and publish a hunk decision evidence reference after the decision commits. This completes the half of 4.7 that had no authoritative store to observe.
 - [ ] 13.3 Reject stale hunk decisions when review, file, or hunk witnesses no longer match and return `stale_witness` without mutation.
 - [ ] 13.4 Add `setCodeReviewHunkDecision` Tauri command, Tauri/Web adapters, DTO schemas, and contract tests.
-- [ ] 13.5 Add `setCodeReviewFileViewed` and reset a file to unviewed when its snapshot fingerprint changes.
+- [ ] 13.5 Add `setCodeReviewFileViewed` and reset a file to unviewed when its snapshot fingerprint changes, publishing a file Viewed evidence reference after the state commits. This completes the other half of 4.7.
 - [ ] 13.6 Add review summary fields for viewed/current file counts and unresolved comment/finding counts.
 - [ ] 13.7 Add `getCodeReviewPatch` using the existing native structured diff/patch renderer and requiring the current snapshot witness.
 - [ ] 13.8 Bound patch output, return its fingerprint, and reject binary, oversized, ambiguous, or stale requests.
