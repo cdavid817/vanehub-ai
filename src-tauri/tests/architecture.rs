@@ -2601,6 +2601,35 @@ const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The text between `trusted(` and the paren that closes it.
+///
+/// Depth-aware because the argument may itself be a call -- `self.next("cli-plan")` -- and because
+/// the whole thing may sit inside another call, as it does in an `unwrap_or_else` fallback.
+fn trusted_argument(rest: &str) -> String {
+    let mut depth = 0_i32;
+    for (index, character) in rest.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' if depth == 0 => return rest[..index].trim().to_string(),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    rest.trim().to_string()
+}
+
+#[test]
+fn the_trusted_argument_scanner_stops_at_the_closing_paren() {
+    assert_eq!(trusted_argument("\"npm\")"), "\"npm\"");
+    // Nested call: the inner `)` is part of the argument.
+    assert_eq!(
+        trusted_argument("self.next(\"cli-plan\"))"),
+        "self.next(\"cli-plan\")"
+    );
+    // Wrapped in an outer call, as a fallback inside `unwrap_or_else` is.
+    assert_eq!(trusted_argument("\"legacy\"));"), "\"legacy\"");
+}
+
 #[test]
 fn no_external_input_reaches_the_trusted_identifier_constructor() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -2618,11 +2647,7 @@ fn no_external_input_reaches_the_trusted_identifier_constructor() {
             let Some(position) = line.find("::trusted(") else {
                 continue;
             };
-            let argument = line[position + "::trusted(".len()..]
-                .rsplit_once(')')
-                .map(|(head, _)| head.trim())
-                .unwrap_or("")
-                .to_string();
+            let argument = trusted_argument(&line[position + "::trusted(".len()..]);
             let allowed = TRUSTED_IDENTIFIER_CALL_SITES
                 .iter()
                 .any(|(suffix, expected)| display.ends_with(suffix) && argument == *expected);

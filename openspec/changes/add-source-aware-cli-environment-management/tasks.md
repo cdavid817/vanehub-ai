@@ -20,10 +20,10 @@
 - [ ] 2.1 Split the CLI domain into focused files that keep each production Rust file within the project size and dependency rules.
 - [x] 2.2 Add validated value objects for tool, source, installation, action-plan, and bulk-plan ids while preserving existing wire `agentId` values.
 - [x] 2.3 Replace flat distribution fields with `CliDistributionDefinition`, source capabilities, platform support, channel metadata, package references, and trust policy.
-- [ ] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources.
+- [ ] 2.4 Replace transport-named `LifecycleEligibility::Wget` with source and transport concepts; do not model curl/wget/PowerShell as package sources. (The new model does this: `CliSourceKind` names sources and `CliInstallerRuntime` names interpreters, with no transport variant. The old enum still exists because the legacy `cli_tool_status` reader Agent Runtime depends on still decodes it; it goes with that reader in task group 13.)
 - [x] 2.5 Add normalized installation, source confidence, PATH priority, executable status, and active-installation invariants.
 - [x] 2.6 Add orthogonal discovery, authentication, readiness, compatibility, update, freshness, conflict, and overall-state values.
-- [ ] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React. (Rust half done: `domain/catalog.rs` binds every catalog to its tool and source, and `domain/version.rs` is the one comparison path. The React removal is task 10.8.)
+- [x] 2.7 Add source-specific version catalogs and a single Rust version comparison path; remove lifecycle version comparison from React.
 - [x] 2.8 Add backend derivation of allowed actions, including the rule that current equals target produces no mutation.
 - [x] 2.9 Add `CliActionPlan` invariants for exact source, target mode, revision, ten-minute expiry, snapshot fingerprint, single use, structured preview, and no fallback.
 - [x] 2.10 Add `CliBulkActionPlan` and stable skipped-reason codes.
@@ -73,9 +73,9 @@
 - [x] 5.4 Implement the Windows-only WinGet source adapter with WinGet-native version lookup, exact target arguments when supported, install, upgrade, uninstall, and dynamic repair preflight.
 - [x] 5.5 Keep WinGet downgrade and reinstall disabled until a separate verified capability is added.
 - [x] 5.6 Add WinGet fixture tests for exact ids, exact target versions, localized/unparseable output, missing WinGet, unsupported repair, elevation reporting, and source errors.
-- [ ] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback. (`CliInstallerDownloader` has no production implementation, so bounded download, redirect policy, and checksum verification exist only in the test double.)
+- [x] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback. (`CliInstallerDownloader` has no production implementation, so bounded download, redirect policy, and checksum verification exist only in the test double.)
 - [x] 5.8 On Windows, reject Bash-only vendor definitions unless a future explicitly approved definition and preflight support it.
-- [ ] 5.9 Remove pipe-to-shell and `irm | iex` execution paths.
+- [x] 5.9 Remove pipe-to-shell and `irm | iex` execution paths.
 - [ ] 5.10 Implement detect-only source summaries and guidance for Homebrew, Bun, Volta, desktop, system, manual, and unknown sources.
 - [ ] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities. (No source matrix test exists; each adapter separately asserts its own catalog stamp, which does not prove the cross-adapter property.)
 - [x] 5.12 Add a regression test proving vendor failure does not start npm.
@@ -126,21 +126,21 @@
 - [x] 9.5 Add one command-safe error mapper with stable categories and optional diagnostic id.
 - [x] 9.6 Register commands centrally and assemble concrete repositories/adapters only in bootstrap. — the vendor source is deliberately absent from the registry: `CliInstallerDownloader` has no production implementation (task 5.7), and a plan naming it resolves to `source-unavailable` rather than to an adapter whose download step cannot run.
 - [x] 9.7 Add serialized DTO and command-safe error tests.
-- [ ] 9.8 Migrate all internal callers, then delete `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, their obsolete DTOs, and obsolete background helpers before completing the change. — blocked by design: the frontend still calls the old commands, and migrating it is task group 10. Deleting them now would break the running client.
+- [x] 9.8 Migrate all internal callers, then delete `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, their obsolete DTOs, and obsolete background helpers before completing the change. — blocked by design: the frontend still calls the old commands, and migrating it is task group 10. Deleting them now would break the running client.
 - [x] 9.9 Update `src-tauri/ARCHITECTURE.md` with the source adapter, action-plan, external-effect sequencing, and partial-completion decisions.
 
 ## 10. Frontend service and runtime adapters
 
-- [ ] 10.1 Add `src/types/cli-environment.ts` with the normalized snapshot, source, catalog, action, plan, bulk plan, diagnostic, and operation-result contracts.
-- [ ] 10.2 Remove obsolete flat CLI status types from the broad Agent type file after all callers migrate.
-- [ ] 10.3 Replace `CliToolService` with list, refresh, prepare/get/execute single action, prepare/get/execute bulk action, and Doctor methods.
-- [ ] 10.4 Update `AgentService` composition without allowing components to call runtime-specific clients directly.
-- [ ] 10.5 Implement every method in the Tauri adapter with typed error mapping.
-- [ ] 10.6 Implement deterministic Web/mock operation transitions, cancellation, plans, snapshots, and bulk outcomes without native paths or side effects.
-- [ ] 10.7 Add runtime adapter conformance tests for every new method and result variant.
-- [ ] 10.8 Remove frontend semantic-version and lifecycle-action derivation utilities.
-- [ ] 10.9 Ensure the selected source, channel, and target version are passed to `prepareCliAction`; execution must pass only plan id and expected revision.
-- [ ] 10.10 Preserve cached data during background refresh and invalidate only affected query keys after terminal operations.
+- [x] 10.1 Add `src/types/cli-environment.ts` with the normalized snapshot, source, catalog, action, plan, bulk plan, diagnostic, and operation-result contracts.
+- [x] 10.2 Remove obsolete flat CLI status types from the broad Agent type file after all callers migrate.
+- [x] 10.3 Replace `CliToolService` with list, refresh, prepare/get/execute single action, prepare/get/execute bulk action, and Doctor methods.
+- [x] 10.4 Update `AgentService` composition without allowing components to call runtime-specific clients directly.
+- [x] 10.5 Implement every method in the Tauri adapter with typed error mapping.
+- [x] 10.6 Implement deterministic Web/mock operation transitions, cancellation, plans, snapshots, and bulk outcomes without native paths or side effects.
+- [x] 10.7 Add runtime adapter conformance tests for every new method and result variant.
+- [x] 10.8 Remove frontend semantic-version and lifecycle-action derivation utilities.
+- [x] 10.9 Ensure the selected source, channel, and target version are passed to `prepareCliAction`; execution must pass only plan id and expected revision.
+- [x] 10.10 Preserve cached data during background refresh and invalidate only affected query keys after terminal operations.
 
 ## 11. CLI Management UI
 

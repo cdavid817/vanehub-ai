@@ -283,3 +283,112 @@ change cannot reach it", not "pre-existing".
 Settings page still calls the old `install_cli_version` path. They go green when task group 10
 moves the frontend onto the new commands. Weakening or skipping them was explicitly out of bounds
 and was not done.
+
+## Baseline flaky reproduction (task group 10 round)
+
+The `code_intelligence` timeout test was re-tested properly rather than argued about. A read-only
+worktree was created at the merge base (`ee3eaf3f`, "Make the workspace scannable and recoverable
+(#208)"), built in the same profile, and the single test run serially ten times. The same loop then
+ran on this branch.
+
+| Tree | Result | Per-run wall clock after the first build |
+| --- | --- | --- |
+| merge base `ee3eaf3f` | **10 passed, 0 failed** | 4.2s - 12.3s |
+| `worktree-cli-management` | **10 passed, 0 failed** | 5.9s - 12.3s |
+
+Neither tree reproduces it on an idle machine, so the earlier failures were not a property of this
+branch. What they share is load: the failure appeared inside a full `cargo test --workspace`, and
+again in a 3-run loop while builds were running, and never once in twenty idle runs across both
+trees. The test's shape explains why -- a single two-second budget is shared between an initialize
+phase that must time out by design and the forced process-tree cleanup that follows it, so the
+cleanup starts with the budget already spent and a loaded machine finishes the kill too late.
+
+Recorded as **load-sensitive, not branch-introduced**. The test was not deleted, ignored, or given a
+longer timeout. The temporary worktree was removed.
+
+## Vendor downloader (task 5.7)
+
+`HttpsInstallerDownloader` closes the gap that kept the vendor source out of bootstrap, and the
+source is now registered. Security properties, each with a test:
+
+| Property | How it is enforced |
+| --- | --- |
+| HTTPS + host allowlist | `trust.permits_url` on the initial URL **and every redirect hop** |
+| Redirect policy | client built with redirects disabled; hops followed manually, capped at 4 |
+| Maximum size | checked per chunk while reading, not from a header afterwards |
+| Timeout | deadline checked between hops and on every chunk |
+| Cancellation | same cadence as the deadline |
+| Temporary file | a VaneHub-owned directory removed on drop -- success, failure, timeout, cancel |
+| Checksum | SHA-256 verified before execution; mismatch discards the file |
+| No shell | `-File` on Windows, an interpreter file on Unix; no `curl|bash`, `wget|sh`, `irm|iex` |
+
+Tests drive an in-memory body. No `https://` request is made and no installer is executed.
+
+## `CliIdentifier::trusted` audit
+
+Seven production call sites, all admitted:
+
+| Site | Argument | Why it cannot come from outside |
+| --- | --- | --- |
+| `npm_source.rs` | `"npm"` | fixed source name |
+| `winget_source.rs` | `"winget"` | fixed source name |
+| `vendor_source.rs` | `"vendor"` | fixed source name |
+| `environment_discovery.rs` | `"i-unknown"` | fallback literal; the dynamic value went through `new` first |
+| `environment_serde.rs` | `"legacy"` | same |
+| `environment_runtime_adapters.rs` | `self.next("cli-plan")` | ASCII prefix + counter + UUID, built in-process |
+| `environment_runtime_adapters.rs` | `self.next("cli-bulk")` | same |
+
+Two guards were added. Visibility is now `pub(in crate::contexts::tooling::cli)`, which puts it out
+of reach of `commands/` entirely. Inside the context,
+`no_external_input_reaches_the_trusted_identifier_constructor` pins the list above, so a new call
+site has to be added to it deliberately.
+
+## Database architecture budget audit
+
+The 64 lines added to `platform/database` are three `apply_transactional_migration` registrations
+(the schema bodies live in `contexts/tooling/cli/infrastructure/environment_schema.rs`), the
+test-only `expected_migration_versions` accessor, and `migration_versions_are_unique_and_dense`.
+No CLI source policy, action-plan rule, snapshot derivation, or row-to-domain decision is in that
+subtree -- those live in `environment_schema.rs`, `environment_serde.rs`, and
+`environment_repository.rs`. The raise stands as recorded.
+
+## Migration numbers 81-83 remain provisional
+
+They are the only genuinely free contiguous range on this branch, because
+`assert_migration_history_is_dense` rejects a gapped history at startup and main ends at 80. They
+are **not** final:
+
+- `worktree-ocr`, `worktree-workspace` and `worktree-skill-plugin-mcp` each already claim 81, and
+  the last claims through 85.
+- The target branch must be re-scanned before merge or before any full desktop validation run.
+- If it has taken 81 or above by then, renumber in a **separate commit** and update the four derived
+  version assertions with it.
+
+Every database and native integration test in this round used a temporary SQLite file. The user's
+`%APPDATA%\ai.vanehub.app\vanehub.sqlite` was never opened.
+
+## `src/services` line budget: open, not resolved
+
+`npm run architecture:check` fails on one rule:
+
+```
+[ARCH-FE-004] src/services: 19485 aggregate physical lines exceeds budget 19234
+```
+
+The budget had **zero headroom** before this round: a previous change tightened it to its exact
+measured value ("上限按实测值收紧，不保留任何一侧凭预估留下的余量"). Group 10 adds a nine-method
+capability across two runtime adapters, which cannot cost zero lines.
+
+What was done rather than raising it:
+
+- The Tauri half was split into `tauri-cli-environment-client.ts` instead of growing
+  `tauri-agent-client.ts` past its own 1213-line budget.
+- The Web mock's snapshot data moved to `web-cli-environment-snapshots.json`, following
+  `src/config/onepiece-provider-catalog.json`. That removed 185 lines of object literals from the
+  measured set -- data, not code.
+- `web-cli-tool-client.ts` (183 lines) and the four legacy adapter methods were deleted outright.
+
+251 lines remain over. Resolving it needs a decision this round was told not to make: either raise
+the budget by 251 with the reason stated in the same commit, which is what the previous entry in
+that list did for its own new capability, or delete unrelated code from `src/services` to pay for
+it. The overage is reported rather than absorbed.
