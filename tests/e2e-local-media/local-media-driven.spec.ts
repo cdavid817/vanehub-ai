@@ -33,9 +33,19 @@ async function calls(page: Page): Promise<Record<string, number>> {
 }
 
 /** A multi-seat session is the one structured composer the Web build can reach end to end. */
-async function openComposer(page: Page) {
+async function openComposer(page: Page, title = "本地媒体 fake 会话") {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  await createSession(page, title);
+}
+
+/**
+ * A second session in the same page.
+ *
+ * Deliberately without a navigation: the suite clears `localStorage` on every load, so reopening
+ * the workspace would discard the session this one is meant to sit beside.
+ */
+async function createSession(page: Page, title: string) {
   await page.getByRole("button", { name: /新建/ }).click();
   const projectPath = page.getByPlaceholder(/code.*project/);
   await expect(async () => {
@@ -53,13 +63,19 @@ async function openComposer(page: Page) {
     const value = await select.locator("option").nth(index).getAttribute("value");
     if (value) await select.selectOption(value);
   }
-  await page.getByPlaceholder("新会话").fill("本地媒体 fake 会话");
+  await page.getByPlaceholder("新会话").fill(title);
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByTestId("composer-media-actions")).toBeVisible();
 }
 
 function composer(page: Page) {
   return page.getByPlaceholder(/输入指令/);
+}
+
+/** Make another existing session the active one, the way a user does. */
+async function switchTo(page: Page, title: string) {
+  await page.locator("[data-session-id]").filter({ hasText: title }).first().click();
+  await expect(page.getByTestId("composer-media-actions")).toBeVisible();
 }
 
 test.describe("local media driven by the deterministic fake", () => {
@@ -212,6 +228,57 @@ test.describe("local media driven by the deterministic fake", () => {
     const observed = await calls(page);
     expect(observed.cancelRecording).toBe(1);
     expect(observed.stopRecordingAndTranscribe).toBeUndefined();
+  });
+
+  test("releases a running recording when the user switches session", async ({ page }) => {
+    await openComposer(page, "会话甲");
+    await createSession(page, "会话乙");
+    await switchTo(page, "会话甲");
+
+    const microphone = page.getByTestId("composer-media-microphone");
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(page.getByTestId("composer-media-recording")).toBeVisible();
+
+    // No release, no Escape, no waiting for the duration ceiling: just leaving.
+    await switchTo(page, "会话乙");
+
+    await expect(page.getByTestId("composer-media-recording")).toHaveCount(0);
+    await expect(composer(page)).toHaveValue("");
+    const afterSwitch = await calls(page);
+    expect(afterSwitch.cancelRecording).toBe(1);
+    expect(afterSwitch.stopRecordingAndTranscribe).toBeUndefined();
+
+    // The session the user arrived in owns the microphone now.
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(page.getByTestId("composer-media-recording")).toBeVisible();
+    await microphone.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+    await expect(composer(page)).toHaveValue("fixture transcript");
+    expect((await calls(page)).startRecording).toBe(2);
+  });
+
+  test("releases an opening recording when the user switches session", async ({ page }) => {
+    await openComposer(page, "会话甲");
+    await createSession(page, "会话乙");
+    await switchTo(page, "会话甲");
+    await control(page, "holdStartRecording");
+
+    const microphone = page.getByTestId("composer-media-microphone");
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(microphone).toHaveAttribute("aria-pressed", "true");
+
+    // The device is still opening; the handle arrives after the session is already gone.
+    await switchTo(page, "会话乙");
+    await control(page, "releaseStartRecording");
+
+    await expect(page.getByTestId("composer-media-recording")).toHaveCount(0);
+    const afterSwitch = await calls(page);
+    expect(afterSwitch.cancelRecording).toBe(1);
+    expect(afterSwitch.stopRecordingAndTranscribe).toBeUndefined();
+
+    await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(page.getByTestId("composer-media-recording")).toBeVisible();
+    await microphone.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
+    await expect(composer(page)).toHaveValue("fixture transcript");
   });
 
   test("cancels a hold on Escape without transcribing", async ({ page }) => {

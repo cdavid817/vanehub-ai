@@ -335,7 +335,7 @@ describe("useLocalMediaComposer", () => {
       await beginHold(harness);
       await act(async () => harness.model.microphone.onPointerCancel());
 
-      expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+      expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
       expect(double.service.stopRecordingAndTranscribe).not.toHaveBeenCalled();
       expect(harness.draft).toBe("kept");
     });

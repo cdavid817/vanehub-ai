@@ -629,6 +629,28 @@ fn another_scope_cannot_stop_or_cancel_a_recording_it_does_not_own() {
 }
 
 #[test]
+fn a_refused_cancel_leaves_the_recording_for_its_own_scope_to_release() {
+    let harness = harness();
+    let handle = harness.service.start_recording(scope()).expect("recording");
+    let other = ComposerScopeId::new("session-2");
+
+    // The frontend keeps the scope a recording was born under precisely so this call is the one it
+    // makes. Aiming it with whatever session is on screen produces the refusal below, and the
+    // application-wide slot would then stay occupied with the microphone open.
+    assert!(harness
+        .service
+        .cancel_recording(&handle.recording_id, &other)
+        .is_err());
+
+    // Refusing did not end it: the owner can still release it, and the slot frees.
+    assert!(harness
+        .service
+        .cancel_recording(&handle.recording_id, &scope())
+        .is_ok());
+    assert!(harness.service.start_recording(other).is_ok());
+}
+
+#[test]
 fn guessing_a_recording_id_is_not_enough() {
     let harness = harness();
     harness.service.start_recording(scope()).expect("recording");

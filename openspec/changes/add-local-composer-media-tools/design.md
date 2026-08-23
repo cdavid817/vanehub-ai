@@ -1806,3 +1806,61 @@ The supervisor now has a `shutting_down` flag that admission, check-in, and ever
 The constraint in section 10 is that the real-time callback must not "allocate unbounded memory". `submit` takes ownership, so the reused mono buffer is cloned -- one bounded allocation of the device's period length per callback. That satisfies the constraint; the comment beside it claimed there was no allocation at all, which was wrong, and it now says what actually happens.
 
 Recorded as performance debt rather than fixed here: removing it means a buffer pool or a lock-free ring on the capture path, and an unverified lock-free rewrite would trade a known small cost for an unknown correctness risk. If the allocator ever does stall, the bounded queue reports `AUDIO_CAPTURE_OVERRUN` rather than dropping audio silently.
+
+## 31. Follow-up review: recording ownership across a session change
+
+A second, source-level review of the review fixes raised one more finding: the composer's
+session-scope change did not close out an in-flight or running recording. Both halves reproduced.
+
+### What was wrong
+
+`useLocalMediaComposer` reset OCR review state, the failure banner, and the operation-ownership map
+when `composerScopeId` changed, and stopped there. Nothing ended a recording.
+
+The opening half left the control dead. A handle arriving after the scope moved was cancelled --
+correctly, and under the scope that started it -- but the phase reset lived inside the same branch
+as the "this attempt still owns the UI" check, so a scope change skipped it. The control stayed at
+`opening` forever and the next session could not record at all.
+
+The running half was worse in kind. Nothing cancelled, so `recordingRef` still held the previous
+session's recording id while the current render carried the new session's scope. A release or an
+Escape then called the native side with `recordingId` from one session and `composerScopeId` from
+another. That pairing is exactly what the native side refuses -- `RECORDING_NOT_FOUND` -- so the
+user got an error in a session they had just opened and the application-wide single-recording slot
+stayed occupied with the microphone still open.
+
+### What changed
+
+`recordingRef` no longer holds a bare id. It holds the owner: the recording *and* the scope it was
+born under. Every finish and every cancel is addressed with that scope rather than with whatever
+the current render carries. Four questions that were previously collapsed into one "owned" flag are
+now asked separately -- is this attempt still current, is the controller still mounted, is the
+session on screen still the one that pressed, and which scope owns the native recording -- and only
+the last decides how a release is addressed.
+
+The recording half moved to `use-microphone-recording.ts`, with the release path and its
+availability consequences in `recording-release.ts`. `use-speech-composer.ts` keeps read-aloud and
+composes the two; leaving it all in one file would have put it past the 300-line rule with no
+reading benefit.
+
+A cancellation that fails is not swallowed. Until a release settles the control stays unusable,
+because a second hold would collide with the first on the singleton slot. If it settles as anything
+other than `RECORDING_NOT_FOUND` -- the one code that means the slot is already free -- the control
+stays unusable and reports the code, rather than showing an idle microphone on no evidence.
+
+### Reachability, stated precisely
+
+In the shipped UI a session switch **unmounts** the composer: `ApiSessionComposer` renders only
+while `displayedSession` is present, and that is briefly false while the newly selected session
+loads. Probed three times in a real browser, the composer's DOM node is replaced every time. The
+unmount path was already correct, so neither half was reachable through today's session switcher.
+
+That is why the two browser regressions added here pass with and without the fix. They are kept as
+user-visible coverage of "switching session while recording releases the microphone and hands it to
+the next session", not as evidence for this finding; the component tests are the evidence.
+
+The fix still belongs. `useLocalMediaComposer` takes `composerScopeId` as a prop and must be correct
+when it changes, `ApiSessionComposer` is rendered without a key, and the unmount that currently
+saves it is an incidental consequence of a transient loading render rather than a designed
+guarantee. Depending on it for a privacy-relevant property -- whether the microphone is closed -- is
+not a dependency worth keeping.

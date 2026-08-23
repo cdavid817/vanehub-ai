@@ -26,11 +26,17 @@ export interface LocalMediaDouble {
   fail: (operationId: string, code: string) => void;
   calls: {
     cancelOperation: string[];
+    /// Recorded as `recordingId@composerScopeId`.
+    ///
+    /// One array rather than two, because the pairing is the point: the native side refuses a
+    /// cancel whose scope does not own the recording, so a test that only saw the id could not
+    /// tell a correct release from one aimed at the session the user just switched to.
     cancelRecording: string[];
     discardStaged: string[];
     startOcr: string[];
     startRecording: string[];
     startTts: string[];
+    /// Recorded as `recordingId@composerScopeId`, for the same reason.
     stopRecordingAndTranscribe: string[];
     stopPlayback: number;
   };
@@ -48,6 +54,8 @@ export interface LocalMediaDouble {
   resolveStartRecording: () => void;
   /** Reject the deferred `startRecording` with a stable code. */
   rejectStartRecording: (code: string) => void;
+  /** Make the next `cancelRecording` reject, so the release path can be tested when it fails. */
+  failNextCancelRecording: (code: string) => void;
 }
 
 export function readyStatus(
@@ -141,6 +149,7 @@ export function createLocalMediaDouble(
   let deferStart = false;
   let pendingStart: { resolve: () => void; reject: (error: unknown) => void } | null = null;
   let recordingSequence = 0;
+  let nextCancelFailure: string | null = null;
 
   const handle = (kind: LocalMediaOperationResult["kind"]) => {
     nextOperation += 1;
@@ -181,12 +190,17 @@ export function createLocalMediaDouble(
         pendingStart = { resolve: () => resolve(started), reject };
       });
     }),
-    stopRecordingAndTranscribe: vi.fn(async (input: { recordingId: string }) => {
-      calls.stopRecordingAndTranscribe.push(input.recordingId);
-      return handle("stt");
-    }),
-    cancelRecording: vi.fn(async (input: { recordingId: string }) => {
-      calls.cancelRecording.push(input.recordingId);
+    stopRecordingAndTranscribe: vi.fn(
+      async (input: { recordingId: string; composerScopeId: string }) => {
+        calls.stopRecordingAndTranscribe.push(`${input.recordingId}@${input.composerScopeId}`);
+        return handle("stt");
+      },
+    ),
+    cancelRecording: vi.fn(async (input: { recordingId: string; composerScopeId: string }) => {
+      calls.cancelRecording.push(`${input.recordingId}@${input.composerScopeId}`);
+      const code = nextCancelFailure;
+      nextCancelFailure = null;
+      if (code) throw new Error(code);
     }),
     startTts: vi.fn(async (input: { text: string }) => {
       calls.startTts.push(input.text);
@@ -226,6 +240,9 @@ export function createLocalMediaDouble(
       const pending = pendingStart;
       pendingStart = null;
       pending?.resolve();
+    },
+    failNextCancelRecording: (code) => {
+      nextCancelFailure = code;
     },
     rejectStartRecording: (code) => {
       const pending = pendingStart;

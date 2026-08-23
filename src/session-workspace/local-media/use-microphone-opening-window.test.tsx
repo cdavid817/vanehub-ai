@@ -125,7 +125,7 @@ describe("the microphone opening window", () => {
     await answer();
 
     // The release is honoured against the handle that arrived after it, rather than dropped.
-    expect(double.calls.stopRecordingAndTranscribe).toEqual(["rec-1"]);
+    expect(double.calls.stopRecordingAndTranscribe).toEqual(["rec-1@session-a"]);
     expect(double.calls.cancelRecording).toEqual([]);
     // The control never sat in `recording` with nobody holding it, which is the state the old
     // code reached and stayed in.
@@ -158,7 +158,7 @@ describe("the microphone opening window", () => {
 
     await answer();
 
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
     expect(double.calls.stopRecordingAndTranscribe).toEqual([]);
     expect(phase()).toBe("idle");
     expect(phases).not.toContain("recording");
@@ -172,7 +172,7 @@ describe("the microphone opening window", () => {
     await answer();
 
     // The user withdrew the release; nothing may be transcribed.
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
     expect(double.calls.stopRecordingAndTranscribe).toEqual([]);
     expect(phase()).toBe("idle");
   });
@@ -183,7 +183,7 @@ describe("the microphone opening window", () => {
     await blur();
     await answer();
 
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
     expect(double.calls.stopRecordingAndTranscribe).toEqual([]);
   });
 
@@ -198,7 +198,7 @@ describe("the microphone opening window", () => {
     expect(double.calls.startRecording).toEqual(["session-a"]);
 
     await answer();
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
   });
 
   it("cancels a handle that arrives after the session changed", async () => {
@@ -207,10 +207,66 @@ describe("the microphone opening window", () => {
     await act(async () => mounted.rerenderScope("session-b"));
     await answer();
 
-    // The recording belongs to the scope that asked for it, and that scope is gone.
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    // Cancelled, and cancelled as the session that started it. The native side matches recording
+    // and scope together, so releasing it under the new session's name would be refused and the
+    // application-wide slot would stay occupied.
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
     expect(double.calls.stopRecordingAndTranscribe).toEqual([]);
     expect(screen.getByTestId("draft").textContent).toBe("");
+  });
+
+  it("hands the microphone back to the session the user switched to", async () => {
+    const mounted = await armed();
+    await press();
+    await act(async () => mounted.rerenderScope("session-b"));
+    await answer();
+
+    // The control belongs to session B now, and session B never pressed anything.
+    expect(phase()).toBe("idle");
+
+    double.deferStartRecording();
+    await press();
+    await answer();
+    await release();
+
+    // Two starts, in order, each under its own session.
+    expect(double.calls.startRecording).toEqual(["session-a", "session-b"]);
+    // Session A's handle released exactly once, and only session B's is transcribed.
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
+    expect(double.calls.stopRecordingAndTranscribe).toEqual(["rec-2@session-b"]);
+    expect(screen.getByTestId("failure").textContent).toBe("");
+  });
+
+  it("cancels once when the session changes twice before the handle arrives", async () => {
+    const mounted = await armed();
+    await press();
+    await act(async () => mounted.rerenderScope("session-b"));
+    await act(async () => mounted.rerenderScope("session-c"));
+    await answer();
+
+    // One release, still named for the session that asked for it.
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
+    expect(phase()).toBe("idle");
+    // Usable again, asked the only way that means anything: by pressing it.
+    await press();
+    expect(double.calls.startRecording).toEqual(["session-a", "session-c"]);
+  });
+
+  it("keeps a start rejected after a session change from raising a banner", async () => {
+    const mounted = await armed();
+    await press();
+    await act(async () => mounted.rerenderScope("session-b"));
+    await act(async () => {
+      double.rejectStartRecording("MIC_PERMISSION_DENIED");
+      await Promise.resolve();
+    });
+
+    // The failure belongs to a session the user has left.
+    expect(screen.getByTestId("failure").textContent).toBe("");
+    expect(phase()).toBe("idle");
+    expect(double.calls.cancelRecording).toEqual([]);
+    await press();
+    expect(double.calls.startRecording).toEqual(["session-a", "session-b"]);
   });
 
   it("cancels a handle that arrives after the composer unmounted", async () => {
@@ -220,7 +276,7 @@ describe("the microphone opening window", () => {
     await act(async () => mounted.view.unmount());
     await answer();
 
-    expect(double.calls.cancelRecording).toEqual(["rec-1"]);
+    expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
     // No state update on an unmounted controller.
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
@@ -268,7 +324,7 @@ describe("the microphone opening window", () => {
       await Promise.resolve();
     });
 
-    expect(double.calls.stopRecordingAndTranscribe).toEqual(["rec-1"]);
+    expect(double.calls.stopRecordingAndTranscribe).toEqual(["rec-1@session-a"]);
     expect(double.calls.cancelRecording).toEqual([]);
   });
 });
