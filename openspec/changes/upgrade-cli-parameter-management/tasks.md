@@ -3,23 +3,23 @@
 - [x] 0.1 Read `AGENTS.md`, `openspec/project.md`, `openspec/specs/cli-parameter-management/spec.md`, this change's `proposal.md`, `design.md`, delta spec, and all currently active changes that modify `cli-parameter-management`.
 - [x] 0.2 Run `openspec validate upgrade-cli-parameter-management --strict` before implementation and correct only this change's artifacts if the validator identifies delta-format or baseline-name issues.
 - [x] 0.3 Search active and archived changes for concurrent edits to CLI lifecycle, Agent Policies, provider invocation builders, settings navigation, generated contracts, or SQLite CLI settings; record concrete conflicts in the implementation notes before editing code.
-- [ ] 0.4 Capture the current behavior with focused tests before refactoring: current profile listing, custom-text control behavior, chat preview, persistence reload, policy-owned field rejection, and provider argv placement.
+- [x] 0.4 Capture the current behavior with focused tests before refactoring: current profile listing, custom-text control behavior, chat preview, persistence reload, policy-owned field rejection, and provider argv placement.
 - [x] 0.5 Confirm the current names and ownership of the existing CLI lifecycle read model, unified logging API, database migration registry, Tauri command registration, and Web/mock storage namespace; adapt the paths in this plan to repository reality without creating a parallel subsystem.
 - [x] 0.6 Create an implementation evidence section at the end of this file or in the repository's established change-evidence location; record commands, results, platform, and relevant artifact paths as tasks are completed.
 
 ## 1. Characterize and lock down current regressions
 
-- [ ] 1.1 Add a component test proving that selecting Custom with no text does not immediately submit an empty value and that save remains disabled until the value is valid.
-- [ ] 1.2 Add a component test proving that transient custom input for `claude-code:model` cannot appear in `codex-cli:model` or another CLI that reuses the `model` parameter id.
-- [ ] 1.3 Add a test proving that the existing page's preview differs between `chat` and `interactive` scopes for at least one scope-specific parameter.
-- [ ] 1.4 Add a test proving that a preview token containing whitespace remains one argv token and is not asserted through a joined shell-like string.
-- [ ] 1.5 Add a test proving that a backend structured field error is mapped to the correct parameter without parsing an English message.
+- [x] 1.1 Add a component test proving that selecting Custom with no text does not immediately submit an empty value and that save remains disabled until the value is valid.
+- [x] 1.2 Add a component test proving that transient custom input for `claude-code:model` cannot appear in `codex-cli:model` or another CLI that reuses the `model` parameter id.
+- [x] 1.3 Add a test proving that the existing page's preview differs between `chat` and `interactive` scopes for at least one scope-specific parameter.
+- [x] 1.4 Add a test proving that a preview token containing whitespace remains one argv token and is not asserted through a joined shell-like string.
+- [x] 1.5 Add a test proving that a backend structured field error is mapped to the correct parameter without parsing an English message.
 - [x] 1.6 Add a native regression test for the existing Codex `model_reasoning_effort` provider-specific renderer before replacing parameter-id branching.
 - [x] 1.7 Add native tests proving that policy-owned and runtime-reserved parameters cannot be persisted or emitted by the user profile path.
 
 ## 2. Establish the native CLI-parameter subdomain
 
-- [ ] 2.1 Replace the monolithic `src-tauri/src/contexts/tooling/cli_parameters.rs` with `src-tauri/src/contexts/tooling/cli_parameters/` using the repository's bounded-context conventions.
+- [x] 2.1 Replace the monolithic `src-tauri/src/contexts/tooling/cli_parameters.rs` with `src-tauri/src/contexts/tooling/cli_parameters/` using the repository's bounded-context conventions.
 - [x] 2.2 Create focused domain modules for agent ids, parameter ids, selection envelopes, definition/control types, render strategies, compatibility, dependency rules, diagnostics, profiles/revisions, validation, and deterministic rendering.
 - [x] 2.3 Create application modules for list profiles, preview draft, save profile, reset profile, and resolve launch segments.
 - [x] 2.4 Create infrastructure modules for canonical registry loading, SQLite repository/migration, cached CLI lifecycle compatibility access, and Web-contract generation support where native ownership requires it.
@@ -49,7 +49,7 @@
 
 ## 5. Audit and implement provider catalog v2
 
-- [ ] 5.1 Re-audit every retained parameter against the official provider reference and record source id, review date `2026-08-22` or the actual implementation review date, reviewed version/document state, and verification status in the canonical registry.
+- [x] 5.1 Re-audit every retained parameter against the official provider reference and record source id, review date `2026-08-22` or the actual implementation review date, reviewed version/document state, and verification status in the canonical registry.
 - [x] 5.2 Claude Code: retain custom model values; implement audited effort values with model-dependent guidance; add ordered fallback models; replace independent Chrome booleans with inherited/enable/disable tri-state; add setting sources; version-gate accessibility and newly documented effort values; scope `bare` to verified scripted/chat use.
 - [x] 5.3 Claude Code: keep prompt, system prompt, tool allow/deny lists, additional-directory authority, permission mode, session identity, output format, and dangerous bypass controls outside the editable registry.
 - [x] 5.4 Codex CLI: implement model as bounded custom text; replace the hard-coded global reasoning list with the accepted current configuration-reference baseline; render reasoning through declarative `--config` metadata; preserve unsupported legacy values only as repair diagnostics.
@@ -90,7 +90,7 @@
 - [x] 8.4 Add or update focused Tauri command files; register commands through the existing bootstrap path and keep command functions as thin DTO adapters.
 - [x] 8.5 Implement `previewCliParameterProfile` as a read-only use case accepting agent id, scope, catalog version, and complete draft selections; prove it does not mutate persistence or revision.
 - [x] 8.6 Implement latest-safe response identifiers or request correlation fields needed for the frontend to discard stale preview responses without making the domain depend on UI timing.
-- [ ] 8.7 Ensure list/save/reset continue to provide practical compatibility for existing frontend call sites during the refactor, then remove obsolete DTOs once both adapters and all consumers migrate.
+- [x] 8.7 Ensure list/save/reset continue to provide practical compatibility for existing frontend call sites during the refactor, then remove obsolete DTOs once both adapters and all consumers migrate.
 - [x] 8.8 Add application tests for success, structured field error, dependency conflict, unsupported selection, stale revision, stale catalog, missing CLI, and non-mutating preview.
 
 ## 9. Publish runtime resolution and migrate provider builders
@@ -109,63 +109,63 @@
 - [x] 10.1 Add a deterministic repository script that generates the frontend registry contract from the canonical native registry into a clearly marked generated file.
 - [x] 10.2 Add generated-file headers and repository documentation stating that the artifact must not be hand-edited.
 - [x] 10.3 Add the generator verification to `npm run contracts:check` or the repository's established contract-check composition so CI fails on drift.
-- [ ] 10.4 Delete the hand-maintained frontend provider catalog and duplicate renderer after the generated contract and service preview paths replace all consumers.
+- [x] 10.4 Delete the hand-maintained frontend provider catalog and duplicate renderer after the generated contract and service preview paths replace all consumers.
 - [x] 10.5 Update `src/services/tauri-agent-client.ts` for the new DTOs and commands.
 - [x] 10.6 Update `src/services/web-agent-client.ts` to use the generated contract and browser storage while clearly remaining a non-launching mock adapter.
 - [x] 10.7 Add TypeScript contract tests for deterministic generation, Rust/TypeScript registry parity, Web preview parity on representative fixtures, and reserved/policy exclusions.
 
 ## 11. Build the isolated frontend draft engine
 
-- [ ] 11.1 Create a focused CLI-parameter page directory and split production TS/TSX files so each remains at or below the repository's 300-line rule without adding an exemption.
-- [ ] 11.2 Implement `useCliParameterDrafts` or an equivalent hook keyed by both agent id and parameter id, tracking baseline revision, baseline catalog version, baseline selections, draft selections, transient custom inputs, dirty ids, blocking diagnostics, and server-conflict state.
-- [ ] 11.3 On refetch, replace an unmodified draft; retain a dirty draft when revision is unchanged; mark conflict and disable save when a newer revision arrives.
-- [ ] 11.4 Make every field fully controlled; selecting Custom changes editor mode only; clearing custom input produces local validation without inserting an invalid transport value.
-- [ ] 11.5 Preserve all per-CLI drafts when switching active CLI and expose dirty/error/warning counts for inactive rail items.
-- [ ] 11.6 Integrate the shared unsaved-change guard for any dirty profile.
-- [ ] 11.7 Debounce draft preview, attach request identity, apply latest-request-wins, preserve the previous valid preview during refresh/failure, and cancel or ignore obsolete responses on agent/scope change.
-- [ ] 11.8 Map structured backend diagnostics by stable code and parameter id; delete English-message regular expressions.
-- [ ] 11.9 Add hook tests for isolation, refetch merge, revision conflict, catalog conflict, custom input, scope switch, stale preview, discard, reset, and save success/failure.
+- [x] 11.1 Create a focused CLI-parameter page directory and split production TS/TSX files so each remains at or below the repository's 300-line rule without adding an exemption.
+- [x] 11.2 Implement `useCliParameterDrafts` or an equivalent hook keyed by both agent id and parameter id, tracking baseline revision, baseline catalog version, baseline selections, draft selections, transient custom inputs, dirty ids, blocking diagnostics, and server-conflict state.
+- [x] 11.3 On refetch, replace an unmodified draft; retain a dirty draft when revision is unchanged; mark conflict and disable save when a newer revision arrives.
+- [x] 11.4 Make every field fully controlled; selecting Custom changes editor mode only; clearing custom input produces local validation without inserting an invalid transport value.
+- [x] 11.5 Preserve all per-CLI drafts when switching active CLI and expose dirty/error/warning counts for inactive rail items.
+- [x] 11.6 Integrate the shared unsaved-change guard for any dirty profile.
+- [x] 11.7 Debounce draft preview, attach request identity, apply latest-request-wins, preserve the previous valid preview during refresh/failure, and cancel or ignore obsolete responses on agent/scope change.
+- [x] 11.8 Map structured backend diagnostics by stable code and parameter id; delete English-message regular expressions.
+- [x] 11.9 Add hook tests for isolation, refetch merge, revision conflict, catalog conflict, custom input, scope switch, stale preview, discard, reset, and save success/failure.
 
 ## 12. Redesign Settings → CLI Parameters UI
 
-- [ ] 12.1 Replace the current mixed Agent list with an external-CLI-only branded rail for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI; add a concise link to Agent Configuration for OnePiece.
-- [ ] 12.2 Show cached active version, executable path, missing/unrunnable/conflict status, dirty count, warning count, and error count in the rail/header; link operational problems to CLI Management.
-- [ ] 12.3 Add explicit Chat and Interactive scope controls with accessible names and persistent selection while switching CLIs.
-- [ ] 12.4 Add search plus All, Modified, Warnings, Unsupported, and Advanced filters; search localized label/description/option text and literal flag/stable id.
-- [ ] 12.5 Group fields into registry categories such as Model & reasoning, Experience & accessibility, Context & extensions, Runtime, and Diagnostics; omit empty groups.
-- [ ] 12.6 For each field, show label, literal flag or render summary, localized description, Inherit state, compatibility/maturity badges, VaneHub source statement, inline validation, and dependency/conflict guidance.
-- [ ] 12.7 Implement accessible controls for enum, custom text, tri-state, boolean, multi-enum, ordered string list, and path list; make reorder/remove/directory actions keyboard operable.
-- [ ] 12.8 Add a policy notice that approval, automatic approval, permissions, sandboxing, and dangerous bypass behavior are configured in Agent Policies; provide navigation without duplicating controls.
-- [ ] 12.9 Render preview as individual tokens grouped by segment where useful; add Copy argv JSON and optional display-only escaped copy; never present a joined string as an executable command.
-- [ ] 12.10 Keep the preview sticky on supported wide layouts and place it after controls at narrow widths without horizontal page overflow.
-- [ ] 12.11 Add Restore Inherited Values, Discard Draft, and Save Profile actions in the sticky action area; do not add Save All unless a future spec defines cross-profile atomicity.
-- [ ] 12.12 Display legacy, compatibility, lifecycle, and preview diagnostics with repair/navigation actions and non-color-only severity labels.
-- [ ] 12.13 Preserve focus during filtering where possible; use polite live regions for refresh/preview status and an assertive alert for stale-revision conflict.
-- [ ] 12.14 Use shared semantic tokens and compact settings primitives for both `futuristic` and `minimal`; do not introduce inline styles, CSS modules, a second UI library, or nested decorative card stacks.
+- [x] 12.1 Replace the current mixed Agent list with an external-CLI-only branded rail for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI; add a concise link to Agent Configuration for OnePiece.
+- [x] 12.2 Show cached active version, executable path, missing/unrunnable/conflict status, dirty count, warning count, and error count in the rail/header; link operational problems to CLI Management.
+- [x] 12.3 Add explicit Chat and Interactive scope controls with accessible names and persistent selection while switching CLIs.
+- [x] 12.4 Add search plus All, Modified, Warnings, Unsupported, and Advanced filters; search localized label/description/option text and literal flag/stable id.
+- [x] 12.5 Group fields into registry categories such as Model & reasoning, Experience & accessibility, Context & extensions, Runtime, and Diagnostics; omit empty groups.
+- [x] 12.6 For each field, show label, literal flag or render summary, localized description, Inherit state, compatibility/maturity badges, VaneHub source statement, inline validation, and dependency/conflict guidance.
+- [x] 12.7 Implement accessible controls for enum, custom text, tri-state, boolean, multi-enum, ordered string list, and path list; make reorder/remove/directory actions keyboard operable.
+- [x] 12.8 Add a policy notice that approval, automatic approval, permissions, sandboxing, and dangerous bypass behavior are configured in Agent Policies; provide navigation without duplicating controls.
+- [x] 12.9 Render preview as individual tokens grouped by segment where useful; add Copy argv JSON and optional display-only escaped copy; never present a joined string as an executable command.
+- [x] 12.10 Keep the preview sticky on supported wide layouts and place it after controls at narrow widths without horizontal page overflow.
+- [x] 12.11 Add Restore Inherited Values, Discard Draft, and Save Profile actions in the sticky action area; do not add Save All unless a future spec defines cross-profile atomicity.
+- [x] 12.12 Display legacy, compatibility, lifecycle, and preview diagnostics with repair/navigation actions and non-color-only severity labels.
+- [x] 12.13 Preserve focus during filtering where possible; use polite live regions for refresh/preview status and an assertive alert for stale-revision conflict.
+- [x] 12.14 Use shared semantic tokens and compact settings primitives for both `futuristic` and `minimal`; do not introduce inline styles, CSS modules, a second UI library, or nested decorative card stacks.
 
 ## 13. Localization and documentation
 
-- [ ] 13.1 Add every new visible string to all registered locale files, not only `zh-CN` and `en`; retain literal flags, paths, versions, and stable ids where translation would be incorrect.
-- [ ] 13.2 Add localized labels and detailed descriptions for every exposed registry parameter, option, category, maturity state, compatibility state, diagnostic code, filter, preview action, and repair action.
-- [ ] 13.3 Add a contract test that every registry localization key resolves in every registered locale.
-- [ ] 13.4 Update the user guide to explain scope, Inherit versus explicit value, precedence, safe token preview, policy ownership, version compatibility, legacy repair, Web/mock limitations, and when changes affect processes.
-- [ ] 13.5 Generate or update the documented provider parameter matrix from the canonical registry where practical; do not maintain another manual parameter table that can drift.
-- [ ] 13.6 Document the registry update/audit workflow for future CLI releases, including official-source review, compatibility changes, generation, smoke fixtures, and contract checks.
+- [x] 13.1 Add every new visible string to all registered locale files, not only `zh-CN` and `en`; retain literal flags, paths, versions, and stable ids where translation would be incorrect.
+- [x] 13.2 Add localized labels and detailed descriptions for every exposed registry parameter, option, category, maturity state, compatibility state, diagnostic code, filter, preview action, and repair action.
+- [x] 13.3 Add a contract test that every registry localization key resolves in every registered locale.
+- [x] 13.4 Update the user guide to explain scope, Inherit versus explicit value, precedence, safe token preview, policy ownership, version compatibility, legacy repair, Web/mock limitations, and when changes affect processes.
+- [x] 13.5 Generate or update the documented provider parameter matrix from the canonical registry where practical; do not maintain another manual parameter table that can drift.
+- [x] 13.6 Document the registry update/audit workflow for future CLI releases, including official-source review, compatibility changes, generation, smoke fixtures, and contract checks.
 - [ ] 13.7 Update any screenshots or help anchors affected by the settings-page information architecture.
 
 ## 14. Automated verification
 
 - [x] 14.1 Run focused Rust domain/application/repository/runtime tests throughout implementation and keep each task's evidence.
-- [ ] 14.2 Run focused Vitest component/hook/service/adapter tests throughout implementation.
+- [x] 14.2 Run focused Vitest component/hook/service/adapter tests throughout implementation.
 - [x] 14.3 Run `npm run contracts:check` after registry generation and prove a deliberately stale generated artifact is detected by the test, then restore the generated output.
 - [x] 14.4 Run `npm run architecture:check` and fix any cross-context, direct-invoke, service-boundary, generated-contract, or file-size violation without adding exemptions.
-- [ ] 14.5 Run `npx playwright test` because settings behavior and accessibility change; retain failure artifacts if blocked by the environment.
+- [x] 14.5 Run `npx playwright test` because settings behavior and accessibility change; retain failure artifacts if blocked by the environment.
 - [x] 14.6 Run `npm run desktop:unit:test` and `npm run test:desktop:desktop-settings-persistence` using fixed CLI fixtures and no real model calls.
-- [ ] 14.7 Run `npm run test:desktop:desktop-cli-terminal` to verify interactive profile projection and provider token placement through a real desktop test client.
-- [ ] 14.8 Run the full desktop suite with `npm run test:desktop` when the local platform supports it; report other platforms as `NOT RUN` rather than extrapolating.
+- [x] 14.7 Run `npm run test:desktop:desktop-cli-terminal` to verify interactive profile projection and provider token placement through a real desktop test client.
+- [x] 14.8 Run the full desktop suite with `npm run test:desktop` when the local platform supports it; report other platforms as `NOT RUN` rather than extrapolating.
 - [ ] 14.9 Add or update Windows, macOS, and Linux CI fixture coverage for path-list normalization, executable status, argv tokens, and persistence; report each platform as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`.
-- [ ] 14.10 Run accessibility checks for keyboard operation, focus behavior, labels, live regions, contrast under both themes, and narrow-width reflow.
-- [ ] 14.11 Run legacy migration fixtures against a copy of representative existing SQLite rows; verify no destructive loss and one-time rewrite on successful save/reset.
+- [x] 14.10 Run accessibility checks for keyboard operation, focus behavior, labels, live regions, contrast under both themes, and narrow-width reflow.
+- [x] 14.11 Run legacy migration fixtures against a copy of representative existing SQLite rows; verify no destructive loss and one-time rewrite on successful save/reset.
 - [x] 14.12 Verify that no test, log, preview, snapshot, or persisted diagnostic contains prompts, credentials, API tokens, session ids, or unredacted secret-bearing environment values.
 
 ## 15. Final repository gates and change completion
@@ -939,3 +939,268 @@ Second run: 32 of 32 spec files pass.
 plugin's permission entries whenever `test:desktop:build` runs with the `desktop-e2e` feature. That
 is a byproduct of running the desktop suite, not part of this change, so both files were restored
 before the final diff.
+
+
+## Implementation evidence — round 4: provider audit, draft engine, UI, i18n, cleanup
+
+Host OS: Windows 11 (`win32`). Three local checkpoint commits were made first; nothing was pushed,
+merged, archived, or opened as a PR.
+
+### Local commits
+
+| Hash | Message | Files |
+| --- | --- | --- |
+| `098ac64b` | `feat(cli-parameters): introduce canonical v2 registry and profile persistence` | 41 |
+| `f9572661` | `refactor(cli-parameters): cut runtime and settings APIs over to v2` | 50 |
+| `66671f41` | `test(cli-parameters): add equivalence migration and desktop contract coverage` | 14 |
+
+Each was staged by explicit path, reviewed with `git diff --cached --stat` and
+`git diff --cached --check`, and `git status --short` was empty afterwards. Each was then checked
+out and compiled on its own: `cargo check --workspace --all-targets` exits 0 at `098ac64b` and at
+`f9572661`, and `npx tsc --noEmit` exits 0 at `f9572661`. The first commit carries the subdomain
+under `#[allow(dead_code)]` because nothing calls it yet; the second removes that suppression as it
+gives every module a consumer. That is the only way this change forms three commits that each build.
+
+### Provider audit (task 5.1)
+
+Every editable parameter was re-checked against the vendor's published reference **and** the binary
+installed here, because the two disagreed twice. Binary versions: claude-code 2.1.237,
+codex-cli 0.149.0, gemini-cli 0.53.0, opencode 1.18.19, antigravity-cli 1.1.18.
+
+| Finding | Evidence | Action |
+| --- | --- | --- |
+| `claude-code.advisor` is absent from `claude --help` | An unknown option produces `error: unknown option '--definitely-not-a-flag'`; `--advisor sonnet` produces no such error and proceeds to authentication. The published reference documents it. | Kept, `verified`, with the hiding recorded in its note |
+| `claude-code.effort` value `ultracode` is absent from the binary's own rejection message | `--effort bogusvalue` warns `Unknown --effort value 'bogusvalue' … Valid values: low, medium, high, xhigh, max`; `--effort ultracode` produces no warning. The reference lists it. | Kept, `verified`, with that asymmetry recorded |
+| `claude-code.model` documents a `fable` alias the registry lacked | Reference lists sonnet, opus, haiku, fable | **Added** `fable` |
+| `claude-code.fallbackModels` "only works with `--print`" | Stated verbatim in `claude --help` | **Scope narrowed** from interactive+chat to chat |
+| `codex-cli.approvalPolicy` offered `untrusted` | `--ask-for-approval untrusted` → `invalid value 'untrusted' … [possible values: on-request, never]` | **Removed.** No policy template ever projected it, so no launch could have hit it |
+| `codex-cli.reasoningEffort` value `xhigh` is model-dependent | Stated in the config reference | **Added** the model-dependent diagnostic |
+| All five antigravity parameters were `repository-verified` | `agy --help` states `--effort (low|medium|high)` and `--mode (accept-edits, plan)`; the published headless flag table confirms model, effort, agent and sandbox | **Upgraded to `verified`**; `mode` notes that only the binary states it |
+| Everything else | Confirmed unchanged: `codex exec --ephemeral` really is a subcommand flag, opencode's `--variant`/`--thinking` really are `run`-only, gemini's aliases really are auto/pro/flash/flash-lite | Metadata refreshed |
+
+`CliParameterAudit` gained `reviewedState`, because a date alone cannot say whether the reviewer read
+the published page, the installed binary, or both. `CliParameterVerification::NeedsReview` was
+renamed `PendingReview` (`pending-review` on the wire) to match the vocabulary the audit uses.
+
+One narrowing is deliberate and recorded rather than fixed: opencode's `--pure` exists on both the
+root command and `run`, and VaneHub keeps it interactive-only, so a chat launch always loads
+plugins.
+
+### Draft engine
+
+`draft-state.ts` is a pure reducer, so its rules are testable without mounting anything, and
+`use-cli-parameter-drafts.ts` is the thin React binding. State per CLI:
+
+```
+baselineRevision, baselineCatalogVersion, baselineSelections,
+selections, customInputs, customMode, invalidIds, conflict
+```
+
+`customInputs` is keyed by parameter id inside a map keyed by agent id, which is what stops
+`claude-code:model`'s half-typed text from appearing in `codex-cli:model`.
+
+| Transition | Rule |
+| --- | --- |
+| refetch, draft clean | replace with the server's profile |
+| refetch, draft dirty, revision and catalog unchanged | keep the draft |
+| refetch, draft dirty, revision moved | `conflict: "revision"`, keep the draft, refuse save |
+| refetch, draft dirty, catalog moved | `conflict: "catalog"`, same |
+| choose Custom | editor mode only; no value written; field invalid until it holds text |
+| clear the custom box | field invalid; the previous selection stays exactly as it was |
+| discard | back to baseline, clearing custom state |
+| restore inherited | every editable parameter to `inherit` |
+| save succeeds | the returned profile becomes the new baseline |
+| reload after conflict | the server wins and the draft is gone |
+
+`canSave` requires dirty, no invalid field, and no conflict; the page additionally refuses while the
+server reports a blocking diagnostic.
+
+Preview is debounced at 200 ms and carries a monotonic request identity. A response whose identity
+is not the newest is ignored rather than raced into state, and a rejected draft leaves the last
+valid preview on screen marked stale — a preview panel that blanks while you type is worse than one
+that is briefly out of date.
+
+The repository has no shared unsaved-change guard to integrate with, so the guard is a
+`beforeunload` listener armed only while something is dirty. In-app navigation needs no guard
+because drafts survive a page switch.
+
+### UI structure
+
+```
+src/settings/cli-parameters/
+  draft-state.ts                    228   pure reducer
+  use-cli-parameter-drafts.ts       124   React binding + unsaved guard
+  use-cli-parameter-preview.ts       77   debounce, request identity, latest-wins
+  view-model.ts                     195   error mapping, filters, support text, dependencies
+  cli-parameters-page.tsx           253   composition
+  cli-parameter-rail.tsx            119   five external CLIs, lifecycle, counts
+  cli-parameter-toolbar.tsx          71   scope, search, filters
+  cli-parameter-field-groups.tsx     91   registry categories, empty groups omitted
+  cli-parameter-field.tsx           125   one field row
+  cli-parameter-control.tsx         183   enum, custom text, tri-state, boolean, multi-enum
+  cli-parameter-list-control.tsx    131   ordered list, keyboard reorder/remove, directory picker
+```
+
+Every production file is at or below the 300-line rule and no exemption was added. The old
+`src/settings/pages/cli-parameters-page.tsx` and its single-file control are deleted.
+
+The list editor uses buttons rather than a drag handle, because a drag handle leaves keyboard users
+with no way to reorder at all, and the directory picker goes through `agentService.selectProjectDirectory`
+rather than a Tauri call from React.
+
+The preview renders tokens grouped into global and invocation segments, never a joined command line:
+a value containing a space is one argv entry here and two after a shell splits it, so a pasteable
+string would misinform. **Copy argv JSON** is the exact-content path.
+
+### i18n
+
+113 keys added to all five registered locales (en, zh-CN, zh-TW, ja, ko), covering the 27 registry
+keys the catalog needed plus diagnostics, error codes, remediations, categories, maturity,
+compatibility states, filters, scope, lifecycle, badges, preview, conflict and guard copy.
+
+`src/contracts/cli-parameter-localization.test.ts` fails if any registry or page key is missing from
+any locale — in every locale at once, not just the two a developer reads. It also asserts that every
+flag-shaped token in every locale string is a flag the registry actually emits. The first version of
+that guard rejected any description *starting* with a flag, which flagged three legitimate Japanese
+sentences; quoting a flag in prose is correct, translating one is not, and the rewritten guard
+checks the latter.
+
+### Deletions, with search evidence
+
+`rg -n 'from "[^"]*cli-parameter-catalog"' src --glob '!*.test.*'` → no production consumer. Removed:
+
+| Removed | Was consumed by |
+| --- | --- |
+| `src/services/cli-parameter-catalog.ts` (the hand-maintained catalog and duplicate renderer) | two tests only |
+| `src/services/cli-parameter-catalog.test.ts` | — |
+| the v1 CLI-parameter DTOs in `src/types/agent.ts` and `src/contracts/agent.ts`, and their eight conformance assertions | the deleted catalog |
+| `src/settings/pages/cli-parameters-page.tsx`, `cli-parameter-control.tsx`, `cli-parameter-view-model.ts` | the settings loader, now repointed |
+| `contexts/tooling/cli_parameters.rs` as a file | replaced by `cli_parameters/mod.rs`; the monolith is gone, the directory is the module |
+
+`src/contracts/cli-parameter-catalog-audit.test.ts` was rewritten onto the generated registry, so
+the source-audit fixture keeps its home without keeping the old catalog alive.
+
+### ARCH-NATIVE-008: a production-only ratchet
+
+The aggregate `ARCH-NATIVE-007` budget counts test files, so raising it for a characterization suite
+silently hands the same number of lines to production. `ARCH-NATIVE-008` measures the same subtree
+with test files skipped and every other file truncated at its first `#[cfg(test)]`, pinned to the
+26,998 production lines measured on this commit. It was verified to fire by setting it to 0 first.
+
+### The desktop CLI-terminal failure was a harness bug, and it is fixed
+
+Round 3 reported this layer as a pre-existing host problem, proven by a baseline control. The
+control was sound — the failure does reproduce on unmodified `main` — but the conclusion drawn from
+it was wrong. Reproducing on baseline rules out *this change*; it says nothing about whether the
+harness itself is correct.
+
+What cracked it was making the timeout say what *had* arrived instead of only what had not. One run
+then reported `Listener armed: true. States seen: ["running"]. Output so far: "\u001b[6n"`. That is
+a Device Status Report — the cursor-position query PowerShell's PSReadLine emits at startup and then
+*waits* for an answer to. The real UI is xterm.js and answers automatically; the spec only
+accumulated output strings, so nothing replied, the wrapper blocked forever, and the fixture binary
+never started.
+
+Three harness defects, all fixed in `tests/desktop/specs-cli-terminal/cli-terminal.e2e.mjs`:
+
+1. `browser.execute` does not await the promise handed to it, so `event.listen`'s subscription was
+   not established before the terminal opened.
+2. The timeout message carried no diagnostic state.
+3. Nothing answered the cursor-position report.
+
+`npm run test:desktop:cli-terminal` now passes, twice in a row, and task 14.7 is checked on that
+evidence rather than on an argument.
+
+### Playwright caught a real regression
+
+The first full run after the redesign failed 10 specs. Two were the CLI-parameters spec, still
+written against the old page. The other eight reached OnePiece's retrieval and context-health
+parameters *through the CLI Parameters page* — and moving OnePiece off that page had left those
+panels with **no mount point at all**. That is a dropped feature, not a stale selector.
+
+`OnePieceParametersPanel` now sits on the Agent Configurations page, where task 12.1 says OnePiece
+belongs. Co-locating it exposed a second latent defect: it and `OnePieceConfigurationPanel` used the
+same react-query key for **different data shapes**, which was harmless only because they had never
+been mounted together. Whichever mounted second read the wrong shape and saw no providers. Both now
+use the same key and the same shape, which also means creating a provider updates the retrieval
+panel immediately.
+
+Full suite after the fixes: **156 passed, 0 failed**.
+
+### Round 4 command results
+
+| Command | Result |
+| --- | --- |
+| `cargo test --workspace` | PASSED — exit 0 |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | PASSED |
+| `cargo check --workspace` | PASSED |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASSED |
+| `npm run native:panic:check` | PASSED |
+| `npm run architecture:check` | PASSED — 43 native fitness tests |
+| `npm run lint:ci` | PASSED |
+| `npx tsc --noEmit` | PASSED |
+| `npm run test` | PASSED — 302 files, 1,402 tests |
+| `npm run test:coverage` | PASSED — statements 71.60%, branches 67.67%, functions 67.50%, lines 75.37% |
+| `npm run coverage:policy:test` | PASSED |
+| `npm run version:unit:test` | PASSED |
+| `npm run contracts:check` | PASSED — generator drift, matrix drift, 3 contract files |
+| `npm run build` | PASSED |
+| `npm run desktop:unit:test` | PASSED — 18 tests |
+| `npm run docs:check` | PASSED |
+| `npx playwright test` | PASSED — 156 passed |
+| `openspec validate --specs --strict` | PASSED |
+| `openspec validate upgrade-cli-parameter-management --strict` | PASSED |
+| `git diff --check` | PASSED |
+
+Two native runs failed before the passing one, each on a different known load-sensitive test in a
+context this change does not touch — `code_intelligence`'s bounded process-tree cleanup (running
+alongside `npm run test:coverage`) and `browser_automation`'s real-Chromium shutdown budget. Both
+passed on the exclusive re-run. Neither is reported as a pass here; the gate result above is the
+exclusive run.
+
+### Desktop, per platform
+
+| Layer | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| `test:desktop:build` | PASSED | NOT RUN | NOT RUN |
+| `test:desktop:smoke` | PASSED — 32 spec files | NOT RUN | NOT RUN |
+| `test:desktop:cli-terminal` | PASSED | NOT RUN | NOT RUN |
+| `test:desktop:session-workspace` | PASSED | NOT RUN | NOT RUN |
+| `test:desktop:dialogs` | PASSED | NOT RUN | NOT RUN |
+| `test:desktop:settings-persistence` | PASSED | NOT RUN | NOT RUN |
+| `npm run test:desktop` (all five) | PASSED | NOT RUN | NOT RUN |
+
+macOS and Linux are `NOT RUN`. A Windows result is not transferable to either, and the
+cursor-position fix above is specifically about a PowerShell wrapper that only Windows uses.
+
+One smoke run stalled indefinitely on `ui-multi-agent` and was killed; after clearing stray
+`vanehub-ai`/`msedgedriver` processes it passed 32/32 in 11m48s, and the full suite passed again
+afterwards. A stalled desktop run on this host is worth checking for orphaned processes before
+anything else.
+
+### Still open
+
+| Task | Why |
+| --- | --- |
+| 13.7 | `assets/screenshots/settings-cli-parameters-*.png` are now stale. Regenerating them here would produce a polluted baseline — this worktree is not a clean `npm ci` checkout, and a contaminated environment leaves a drift that looks like cross-machine noise. **Merge blocker**: run `npm run docs:screenshots:update` in a clean worktree and commit the result. |
+| 14.9 | Cross-platform CI fixture coverage for path-list normalization, executable status, argv tokens and persistence is not added. The native tests cover the behaviours on this platform; asserting them per-platform needs CI matrix work this round did not do. |
+| 15.17 | Archiving is forbidden by instruction and the change is not complete. |
+
+### Migration number remains a merge blocker
+
+`origin/main` is still at 80 (`retire-plan-execution`), so this lane keeps 81. A scan of all 84 refs
+found **five other lanes also sitting on 81**, two of which already occupy 82 and beyond:
+
+| Ref | Migrations above 80 |
+| --- | --- |
+| `worktree-cli-args` (this lane) | 81 `cli-parameter-profiles` |
+| `origin/worktree-ocr` / `worktree-ocr` | 81 `local-media-profiles` |
+| `worktree-cli-management` | 81, 82, 83 |
+| `worktree-skill-plugin-mcp` | 81 through 86 |
+| `worktree-workspace` | 81 `execution-evidence-journal` |
+
+Whoever merges second must renumber. **Do not pre-allocate**: `worktree-cli-management` and
+`worktree-skill-plugin-mcp` already hold 83, so reserving it here would collide by construction.
+Renumbering touches five hard-coded assertions no compiler or linter checks: `EXPECTED_MIGRATIONS`,
+`assert_migration_history_is_dense`, the two counts in `platform/database/migrations/tests.rs`, and
+`migration_fixture_tests.rs::expected_versions`'s `(1..=N)`.

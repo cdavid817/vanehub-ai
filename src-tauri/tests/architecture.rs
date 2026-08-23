@@ -2403,6 +2403,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     },
 ];
 
+/// Production-only ceilings. Set from the measurement taken when the entry was added, so they can
+/// only be raised by an explicit decision about production code — never as a side effect of adding
+/// tests.
+const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
+    // `upgrade-cli-parameter-management` raised the aggregate ceiling for this subtree by 1,080
+    // lines of characterization tests. That raise must not become production headroom, so this
+    // records what production actually measured on the same commit.
+    SubtreeBudget {
+        root: "src-tauri/src/contexts/agent_runtime/infrastructure",
+        budget: 26_998,
+        owner: "upgrade-cli-parameter-management",
+    },
+];
+
 fn physical_lines(source: &str) -> usize {
     source.lines().count()
 }
@@ -2422,6 +2436,32 @@ fn measure_budgeted_subtree(root: &Path, relative: &str) -> usize {
         .expect("enumerate budgeted subtree")
         .iter()
         .map(|path| physical_lines(&fs::read_to_string(path).expect("read budgeted source")))
+        .sum()
+}
+
+/// Production lines only: test files are skipped entirely and every other file is truncated at its
+/// first `#[cfg(test)]`.
+///
+/// The aggregate budget above counts tests too, so raising it for a characterization suite silently
+/// hands the same number of lines to production. This measurement is what stops that: a subtree can
+/// grow a thousand lines of tests without gaining room for one line of production code.
+fn measure_production_subtree(root: &Path, relative: &str) -> usize {
+    let subtree = root.join(relative);
+    rust_files(&subtree)
+        .expect("enumerate production subtree")
+        .iter()
+        .filter(|path| {
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            !is_test_source(&relative_path)
+        })
+        .map(|path| {
+            let source = fs::read_to_string(path).expect("read production source");
+            physical_lines(source.split("#[cfg(test)]").next().unwrap_or(&source))
+        })
         .sum()
 }
 
@@ -2466,6 +2506,18 @@ fn oversized_native_paths_stay_within_their_recorded_line_budgets() {
     for budget in NATIVE_SUBTREE_BUDGETS {
         let measured = measure_budgeted_subtree(&root, budget.root);
         violations.extend(subtree_budget_diagnostic(budget, measured));
+    }
+
+    for budget in NATIVE_PRODUCTION_SUBTREE_BUDGETS {
+        let measured = measure_production_subtree(&root, budget.root);
+        if measured > budget.budget {
+            violations.push(format!(
+                "[ARCH-NATIVE-008] {}: {measured} production physical lines exceeds budget {}. \
+                 Owner: {}. Repair: this ceiling ignores test files and everything after the first \
+                 `#[cfg(test)]`, so a test-driven raise of the aggregate budget does not move it",
+                budget.root, budget.budget, budget.owner
+            ));
+        }
     }
 
     assert!(

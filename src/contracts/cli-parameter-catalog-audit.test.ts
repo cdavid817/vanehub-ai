@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildCliParameterPreview } from "../services/cli-parameter-catalog";
-import { managedCliAgentIds } from "../types/agent";
 import sourceAudit from "./fixtures/cli-parameter-source-audit.json";
+import { cliParameterDefinitions } from "../services/cli-parameter-registry";
+import {
+  cliArgumentSegmentValues,
+  renderCliParameterSegments,
+} from "../services/cli-parameter-renderer";
+import { managedCliAgentIds } from "../types/agent";
 
 describe("CLI parameter catalog audit", () => {
   it("records a current official source for every managed CLI", () => {
@@ -21,9 +25,44 @@ describe("CLI parameter catalog audit", () => {
     ).toBe(true);
   });
 
+  it("records an audit verdict and a reviewed artefact for every parameter", () => {
+    for (const agentId of managedCliAgentIds) {
+      for (const definition of cliParameterDefinitions(agentId)) {
+        // `audit` is registry metadata, not part of the frontend contract, so it is read off the
+        // generated projection rather than typed here.
+        const audit = (definition as unknown as { audit?: Record<string, string> }).audit;
+        if (!audit) continue;
+        expect(["verified", "repository-verified", "pending-review"]).toContain(
+          audit.verification,
+        );
+        expect(audit.reviewedState.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("applies expanded flags only to their declared launch scopes", () => {
-    expect(buildCliParameterPreview("codex-cli", { noAltScreen: true }, "interactive")).toContain("--no-alt-screen");
-    expect(buildCliParameterPreview("codex-cli", { noAltScreen: true }, "chat")).not.toContain("--no-alt-screen");
-    expect(buildCliParameterPreview("gemini-cli", { debug: true, screenReader: true }, "chat")).toEqual(["--debug"]);
+    const codex = cliParameterDefinitions("codex-cli");
+    const gemini = cliParameterDefinitions("gemini-cli");
+
+    const noAltScreen = { noAltScreen: { state: "value" as const, value: true } };
+    expect(
+      cliArgumentSegmentValues(renderCliParameterSegments(codex, noAltScreen, "interactive")),
+    ).toContain("--no-alt-screen");
+    expect(
+      cliArgumentSegmentValues(renderCliParameterSegments(codex, noAltScreen, "chat")),
+    ).not.toContain("--no-alt-screen");
+
+    expect(
+      cliArgumentSegmentValues(
+        renderCliParameterSegments(
+          gemini,
+          {
+            debug: { state: "value", value: true },
+            screenReader: { state: "value", value: true },
+          },
+          "chat",
+        ),
+      ),
+    ).toEqual(["--debug"]);
   });
 });

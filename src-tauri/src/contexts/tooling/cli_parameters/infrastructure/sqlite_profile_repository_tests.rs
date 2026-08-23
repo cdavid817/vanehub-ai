@@ -40,6 +40,17 @@ fn replace(
     }
 }
 
+fn stored_row_count(repository: &SqliteCliParameterProfileRepository, agent_id: &str) -> i64 {
+    repository
+        .raw_connection_for_tests()
+        .query_row(
+            "SELECT COUNT(*) FROM cli_parameter_settings WHERE agent_id = ?1",
+            params![agent_id],
+            |row| row.get(0),
+        )
+        .expect("count legacy rows")
+}
+
 #[test]
 fn a_fresh_profile_starts_at_revision_zero_with_no_rows() {
     let (_directory, repository) = repository();
@@ -223,6 +234,114 @@ fn legacy_rows_and_malformed_json_survive_the_migration_untouched() {
     // version until the first successful save rewrites it.
     assert_eq!(profile.selection_schema_version, 1);
     assert_eq!(profile.revision, 0);
+}
+
+#[test]
+fn a_representative_legacy_profile_is_rewritten_exactly_once_and_loses_nothing_first() {
+    // Every shape a v1 row could take, together: both sentinels, a real list, a parameter that no
+    // longer exists, and a row that was never valid JSON.
+    let (_directory, repository) = repository();
+    {
+        let database_connection = repository.raw_connection_for_tests();
+        database_connection
+            .execute(
+                "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at)
+                 VALUES ('claude-code', 'model', 1, '\"default\"', '2026-01-01T00:00:00Z'),
+                        ('claude-code', 'safeMode', 1, 'false', '2026-01-01T00:00:00Z'),
+                        ('claude-code', 'settingSources', 1, '[\"user\",\"project\"]', '2026-01-01T00:00:00Z'),
+                        ('claude-code', 'retiredFlag', 1, '\"whatever\"', '2026-01-01T00:00:00Z'),
+                        ('claude-code', 'broken', 0, 'not-json', '2026-01-01T00:00:00Z')",
+                params![],
+            )
+            .expect("legacy rows");
+    }
+
+    // Loading must not delete or rewrite anything: a read that repairs data destroys the evidence
+    // a user needs to repair it themselves.
+    let before = repository.load("claude-code").expect("load");
+    // Four of the five are read: the row stored with `enabled = 0` is not surfaced. It is not
+    // deleted either, which is the distinction this asserts.
+    assert_eq!(before.rows.len(), 4);
+    assert_eq!(before.selection_schema_version, 1);
+    assert_eq!(before.revision, 0);
+    assert_eq!(stored_row_count(&repository, "claude-code"), 5);
+    let load_again = repository.load("claude-code").expect("load twice");
+    assert_eq!(
+        load_again.rows.len(),
+        4,
+        "a second read changed the stored rows"
+    );
+    assert_eq!(stored_row_count(&repository, "claude-code"), 5);
+
+    let saved = repository
+        .replace_if_revision(replace(
+            "claude-code",
+            0,
+            &[
+                ("model", CliParameterSelection::text("opus")),
+                ("safeMode", CliParameterSelection::boolean(true)),
+            ],
+        ))
+        .expect("save");
+    assert_eq!(saved.revision, 1);
+
+    // The first successful save is the rewrite: the profile is now v2, holds only what was saved,
+    // and the retired and malformed rows are gone rather than lingering as unreadable state.
+    let after = repository.load("claude-code").expect("load after save");
+    assert_eq!(after.selection_schema_version, 2);
+    assert_eq!(after.rows.len(), 2);
+    let ids: Vec<&str> = after
+        .rows
+        .iter()
+        .map(|row| row.parameter_id.as_str())
+        .collect();
+    assert!(ids.contains(&"model") && ids.contains(&"safeMode"));
+    assert!(!ids.contains(&"broken") && !ids.contains(&"retiredFlag"));
+
+    // And it happens once: a second save is an ordinary write, not another migration.
+    let second = repository
+        .replace_if_revision(replace(
+            "claude-code",
+            1,
+            &[("model", CliParameterSelection::text("sonnet"))],
+        ))
+        .expect("second save");
+    assert_eq!(second.revision, 2);
+    let final_profile = repository
+        .load("claude-code")
+        .expect("load after second save");
+    assert_eq!(final_profile.selection_schema_version, 2);
+    assert_eq!(final_profile.rows.len(), 1);
+}
+
+#[test]
+fn a_reset_rewrites_a_legacy_profile_without_touching_another_agent() {
+    let (_directory, repository) = repository();
+    {
+        let database_connection = repository.raw_connection_for_tests();
+        database_connection
+            .execute(
+                "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at)
+                 VALUES ('codex-cli', 'model', 1, '\"gpt-5.5\"', '2026-01-01T00:00:00Z'),
+                        ('opencode', 'model', 1, '\"anthropic/claude-sonnet-4\"', '2026-01-01T00:00:00Z')",
+                params![],
+            )
+            .expect("legacy rows");
+    }
+
+    let reset = repository
+        .reset_if_revision("codex-cli", 0, CATALOG_VERSION)
+        .expect("reset");
+    assert_eq!(reset.revision, 1);
+
+    let codex = repository.load("codex-cli").expect("load codex");
+    assert_eq!(codex.selection_schema_version, 2);
+    assert!(codex.rows.is_empty());
+
+    // The other agent's legacy row is untouched, including its schema version.
+    let opencode = repository.load("opencode").expect("load opencode");
+    assert_eq!(opencode.selection_schema_version, 1);
+    assert_eq!(opencode.rows.len(), 1);
 }
 
 #[test]

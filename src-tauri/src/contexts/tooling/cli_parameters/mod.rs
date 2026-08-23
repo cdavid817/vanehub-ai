@@ -1,8 +1,9 @@
 //! CLI parameters.
 //!
-//! Everything the product uses lives in the four subdomain modules below. What remains in this
-//! file is the legacy `cli_parameter_settings` table's schema, which migration 81 still needs
-//! because the v2 profile reader dual-reads legacy rows, and the error type that schema returns.
+//! The monolith this replaced is gone: everything the product uses lives in the four subdomain
+//! modules below. What remains here is the legacy `cli_parameter_settings` table's schema, which
+//! migration 81 still needs because the v2 profile reader dual-reads legacy rows, and the error
+//! type that schema returns. Both retire with the dual-read.
 
 pub(crate) mod api;
 pub(crate) mod application;
