@@ -35,8 +35,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 上调理由(add-source-aware-cli-environment-management):CLI 环境边界从 3 个方法变成 9 个,
+// 因为"准备计划"和"执行计划"必须是两次调用——执行只收计划 ID 与版本号,这样"复核过的版本就是
+// 实际执行的版本"是结构上成立的,而不是靠约定。9 个方法在 Tauri 与 Web/mock 两侧各实现一份,
+// 是这条边界的固定开销。同一轮里 `web-cli-tool-client.ts`(183 行)整个删掉,mock 快照数据
+// (185 行)搬进 JSON,没有保留任何旧路径,也没有复制既有分支。上限取实测值 19516,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19234, owner: "improve-workspace-ui-ergonomics" },
+  { root: "src/services", budget: 19516, owner: "add-source-aware-cli-environment-management" },
 ]);
 
 const STATE_PACKAGES = new Set([
