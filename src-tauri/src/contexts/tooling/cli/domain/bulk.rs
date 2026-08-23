@@ -197,14 +197,6 @@ impl CliBulkItemStatus {
             Self::Completed(_) => None,
         }
     }
-
-    /// Whether the machine may have changed for this item.
-    ///
-    /// A skipped item never touched it; a completed one did unless its outcome says otherwise.
-    pub(crate) fn may_have_changed_the_machine(self) -> bool {
-        self.outcome()
-            .is_some_and(CliMutationOutcome::may_have_changed_the_machine)
-    }
 }
 
 /// One tool's terminal result inside a batch.

@@ -16,7 +16,7 @@ use crate::contexts::tooling::cli::domain::catalog::{
     update_status_for_source, CliCatalogUnavailableReason, CliVersionCatalog,
 };
 use crate::contexts::tooling::cli::domain::definition::CliToolDefinition;
-use crate::contexts::tooling::cli::domain::ids::{CliSourceId, CliToolId};
+use crate::contexts::tooling::cli::domain::ids::CliToolId;
 use crate::contexts::tooling::cli::domain::installation::{
     conflicts_block_mutation, deduplicate, derive_conflicts, group_launcher_families,
     select_active, ActiveSelection, CliInstallation,

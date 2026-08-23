@@ -168,7 +168,9 @@ fn a_detect_only_kind_offers_no_lifecycle_and_names_its_own_tool() {
             CliSourceManagement::DetectOnly
         );
         // Every one has advice, because "why is there no upgrade button" deserves an answer.
-        let guidance = kind.guidance_code().expect(kind.as_str());
+        let guidance = kind
+            .guidance_code()
+            .unwrap_or_else(|| panic!("{} has no guidance", kind.as_str()));
         assert!(guidance.starts_with("cli.guidance."), "{guidance}");
     }
 }
