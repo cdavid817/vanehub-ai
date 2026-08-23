@@ -227,6 +227,39 @@ fn the_producer_facing_half_of_the_bridge_never_touches_storage() {
     );
 }
 
+/// Evidence follows the owning state change, never precedes it.
+///
+/// In `tool_lifecycle` the owning change is `append_tool_use`, which is fallible: publishing before
+/// it would leave an observation of a tool call whose record never persisted, and a reader cannot
+/// tell that from a call that really happened. The order is a property of two adjacent statements,
+/// so nothing at runtime would notice if they swapped.
+#[test]
+fn tool_evidence_is_published_after_the_tool_use_is_appended() {
+    let service = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/contexts/agent_runtime/application/service.rs"),
+    )
+    .expect("read the agent runtime service");
+    let code = strip_comments(&service);
+    let body = code
+        .split("fn tool_lifecycle(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .expect("tool_lifecycle is a method on the event handler");
+
+    let append = body
+        .find("append_tool_use(")
+        .expect("tool_lifecycle appends the tool use");
+    let publish = body
+        .find("publish_tool_evidence(")
+        .expect("tool_lifecycle publishes evidence");
+    assert!(
+        append < publish,
+        "[ARCH-EVIDENCE-006] evidence is published before append_tool_use commits. Repair: \
+         publish after the owning state change, so a failed append records nothing"
+    );
+}
+
 fn read_bridge() -> String {
     fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bootstrap/evidence_bridge.rs"),

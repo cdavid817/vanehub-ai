@@ -11,7 +11,7 @@ use super::evidence_bridge::{
     MAX_TRACKED_DROP_SESSIONS,
 };
 use crate::contexts::agent_runtime::api::{
-    AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
 };
 use crate::contexts::execution_observability::api::evidence::{
     EvidenceSessionId, ExecutionEvidenceApi,
@@ -576,4 +576,305 @@ fn an_acceptable_reason_code_records_no_redaction() {
     assert!(wait_until(|| watermark(&harness.api) >= 1));
     worker.shutdown();
     assert!(stored_redaction_rules(&harness).is_empty());
+}
+
+fn tool_started(call_id: &str, attempt: Option<u32>) -> AgentEvidenceSignal {
+    AgentEvidenceSignal::ToolStarted {
+        session_id: SESSION.to_string(),
+        run_id: run_id(1),
+        trace_id: TRACE.to_string(),
+        span_id: Some("00f067aa0ba902b7".to_string()),
+        agent_id: Some("agent-1".to_string()),
+        seat_id: Some("seat-builder".to_string()),
+        call_id: call_id.to_string(),
+        tool_name: "read_file".to_string(),
+        observation: AgentEvidenceObservation::Direct,
+        attempt,
+        occurred_at: "2026-08-22T10:00:00Z".to_string(),
+    }
+}
+
+fn tool_finished(
+    call_id: &str,
+    attempt: Option<u32>,
+    observation: AgentEvidenceObservation,
+    outcome: AgentRunEvidenceOutcome,
+) -> AgentEvidenceSignal {
+    AgentEvidenceSignal::ToolFinished {
+        session_id: SESSION.to_string(),
+        run_id: run_id(1),
+        trace_id: TRACE.to_string(),
+        span_id: Some("00f067aa0ba902b7".to_string()),
+        agent_id: Some("agent-1".to_string()),
+        seat_id: Some("seat-builder".to_string()),
+        call_id: call_id.to_string(),
+        tool_name: "read_file".to_string(),
+        observation,
+        attempt,
+        outcome,
+        occurred_at: "2026-08-22T10:00:05Z".to_string(),
+    }
+}
+
+/// The one projected record of a kind, so a test can assert on what a reader would see rather than
+/// on what the bridge believes it sent.
+fn single_record(
+    harness: &Harness,
+    kind: &str,
+) -> crate::contexts::execution_observability::api::evidence::ExecutionRecordProjection {
+    let page = harness
+        .api
+        .list_records(
+            crate::contexts::execution_observability::api::evidence::ExecutionRecordQuery {
+                scope:
+                    crate::contexts::execution_observability::api::evidence::EvidenceQueryScope {
+                        session_id: Some(session()),
+                        ..Default::default()
+                    },
+                filters: Default::default(),
+                cursor: None,
+                limit: 100,
+            },
+        )
+        .expect("page");
+    page.items
+        .into_iter()
+        .find(|record| record.kind.as_str() == kind)
+        .unwrap_or_else(|| panic!("no {kind} record was projected"))
+}
+
+fn journal_event_count(harness: &Harness) -> i64 {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_events",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count")
+}
+
+fn stored_payload_json(harness: &Harness) -> String {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT safe_payload_json FROM execution_evidence_events ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored payload")
+}
+
+/// A tool call that started and finished reaches the journal as one record with a terminal status.
+#[test]
+fn a_tool_lifecycle_reaches_a_terminal_record() {
+    let harness = harness("bridge-tool-lifecycle");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(&bridge, tool_started("call-1", None));
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            "call-1",
+            None,
+            AgentEvidenceObservation::Direct,
+            AgentRunEvidenceOutcome::Failed,
+        ),
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 2));
+    worker.shutdown();
+    let record = single_record(&harness, "tool");
+    assert_eq!(
+        crate::contexts::execution_observability::api::evidence::status_token(record.status),
+        "failed"
+    );
+    assert_eq!(
+        record.seat_id.map(|seat| seat.as_str().to_string()),
+        Some("seat-builder".to_string())
+    );
+}
+
+/// Two attempts of one call are two executions, so they key separately. Sharing a source id would
+/// make the journal treat the retry as a duplicate and keep only the first, so a call that failed
+/// and then succeeded would read as having only failed.
+#[test]
+fn two_attempts_of_one_call_are_two_observations() {
+    let harness = harness("bridge-tool-attempts");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            "call-1",
+            Some(1),
+            AgentEvidenceObservation::Direct,
+            AgentRunEvidenceOutcome::Failed,
+        ),
+    );
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            "call-1",
+            Some(2),
+            AgentEvidenceObservation::Direct,
+            AgentRunEvidenceOutcome::Succeeded,
+        ),
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+}
+
+/// One observation delivered twice is one event. This is what makes a duplicated provider
+/// callback, a resume, and a restart replay converge on the same journal.
+#[test]
+fn a_duplicate_completion_is_recorded_once() {
+    let harness = harness("bridge-tool-duplicate");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    let signal = tool_finished(
+        "call-1",
+        Some(1),
+        AgentEvidenceObservation::Direct,
+        AgentRunEvidenceOutcome::Succeeded,
+    );
+    AgentEvidencePort::try_publish(&bridge, signal.clone());
+    AgentEvidencePort::try_publish(&bridge, signal);
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(
+        journal_event_count(&harness),
+        1,
+        "a second delivery of one observation must not become a second event"
+    );
+}
+
+/// A delegation is recorded as a delegation, not as a tool named after whichever handler ran it.
+#[test]
+fn a_delegation_lifecycle_reaches_a_delegation_record() {
+    let harness = harness("bridge-delegation-lifecycle");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::DelegationStarted {
+            session_id: SESSION.to_string(),
+            run_id: run_id(1),
+            trace_id: TRACE.to_string(),
+            span_id: None,
+            parent_agent_id: Some("agent-1".to_string()),
+            seat_id: None,
+            delegation_id: "delegation-1".to_string(),
+            call_id: "call-1".to_string(),
+            attempt: Some(1),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::DelegationFinished {
+            session_id: SESSION.to_string(),
+            run_id: run_id(1),
+            trace_id: TRACE.to_string(),
+            span_id: None,
+            parent_agent_id: Some("agent-1".to_string()),
+            seat_id: None,
+            delegation_id: "delegation-1".to_string(),
+            call_id: "call-1".to_string(),
+            attempt: Some(1),
+            outcome: AgentRunEvidenceOutcome::Cancelled,
+            occurred_at: "2026-08-22T10:00:09Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 2));
+    worker.shutdown();
+    assert_eq!(
+        crate::contexts::execution_observability::api::evidence::status_token(
+            single_record(&harness, "delegation").status
+        ),
+        "cancelled"
+    );
+}
+
+/// A reconstructed observation must not be filed as one the runtime watched. Fidelity is the only
+/// field a reader has to weigh a record by, and upgrading it is a claim nobody can back.
+#[test]
+fn a_reconstructed_observation_is_never_recorded_as_native() {
+    let harness = harness("bridge-tool-fidelity");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            "call-1",
+            None,
+            AgentEvidenceObservation::Reconstructed,
+            AgentRunEvidenceOutcome::Succeeded,
+        ),
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 1));
+    worker.shutdown();
+    assert_eq!(
+        crate::contexts::execution_observability::api::evidence::fidelity_token(
+            single_record(&harness, "tool").fidelity
+        ),
+        "inferred"
+    );
+}
+
+/// A tool whose completion was seen without its start keeps the completion and omits the start.
+#[test]
+fn a_completion_only_tool_call_omits_its_start() {
+    let harness = harness("bridge-tool-completion-only");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            "call-1",
+            None,
+            AgentEvidenceObservation::Direct,
+            AgentRunEvidenceOutcome::Succeeded,
+        ),
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 1));
+    worker.shutdown();
+    let record = single_record(&harness, "tool");
+    assert!(
+        record.started_at.is_none(),
+        "no start was observed, so none is reported"
+    );
+    assert_eq!(record.ended_at.as_deref(), Some("2026-08-22T10:00:05Z"));
+}
+
+/// The tool's name and its ids reach the journal; nothing it was asked to do or returned does.
+#[test]
+fn a_tool_record_carries_no_arguments_or_results() {
+    let harness = harness("bridge-tool-no-payload");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(&bridge, tool_started("call-1", None));
+
+    assert!(wait_until(|| watermark(&harness.api) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(
+        stored.contains("read_file"),
+        "the tool name is the point of the record"
+    );
+    for forbidden in ["arguments", "input", "result", "output", "content"] {
+        assert!(
+            !stored.contains(forbidden),
+            "the stored payload carried a {forbidden} field: {stored}"
+        );
+    }
 }

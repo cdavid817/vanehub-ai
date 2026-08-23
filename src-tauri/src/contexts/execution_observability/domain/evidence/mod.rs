@@ -18,7 +18,7 @@ pub(crate) use error::EvidenceDomainError;
 pub(crate) use event::{fidelity_token, parse_fidelity_token, parse_status_token, status_token};
 pub(crate) use event::{ExecutionEvidenceEvent, ExecutionEvidenceEventInput, RedactionReceipt};
 pub(crate) use identity::{
-    EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
+    BoundedLabel, EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
     EvidenceOperationId, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
     EvidenceToolCallId, SafeReasonCode, SourceEventId,
 };

@@ -64,7 +64,8 @@ pub(crate) use context_reinjection::{
 };
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use evidence::{
-    AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome, NoAgentEvidence,
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+    NoAgentEvidence,
 };
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};

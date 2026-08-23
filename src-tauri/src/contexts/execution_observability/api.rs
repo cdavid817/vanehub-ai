@@ -38,11 +38,11 @@ pub(crate) mod evidence {
     /// These are the value types the payload enum is made of, so an adapter can construct a
     /// correlation and a safe payload without ever naming an event, a row, or the repository.
     pub(crate) use crate::contexts::execution_observability::domain::{
-        fidelity_token, parse_fidelity_token, parse_status_token, status_token, CommandRuntimeKind,
-        EvidenceAgentId, EvidenceCorrelation, EvidenceOperationId, EvidenceOutcome, EvidenceSeatId,
-        EvidenceSessionId, EvidenceSourceContext, ExecutionFidelity, ExecutionStatus,
-        QueryCoverage, RedactionReceipt, SafeEvidencePayload, SafeReasonCode, SourceEventId,
-        UsageQuality,
+        fidelity_token, parse_fidelity_token, parse_status_token, status_token, BoundedLabel,
+        CommandRuntimeKind, EvidenceAgentId, EvidenceCorrelation, EvidenceOperationId,
+        EvidenceOutcome, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
+        EvidenceToolCallId, ExecutionFidelity, ExecutionStatus, QueryCoverage, RedactionReceipt,
+        SafeEvidencePayload, SafeReasonCode, SourceEventId, SpanId, UsageQuality,
     };
     pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
 }

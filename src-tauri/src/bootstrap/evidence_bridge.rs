@@ -10,13 +10,13 @@
 //! unavailable recorder, and a rejected append are all invisible to the operation being observed.
 
 use crate::contexts::agent_runtime::api::{
-    AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
 };
 use crate::contexts::execution_observability::api::evidence::{
-    CommandRuntimeKind, EvidenceCorrelation, EvidenceOutcome, EvidenceSessionId,
-    EvidenceSourceContext, ExecutionEvidenceApi, ExecutionFidelity, ExecutionStatus,
-    RecordEvidenceInput, RedactionReceipt, SafeEvidencePayload, SafeReasonCode, SourceEventId,
-    UsageQuality,
+    BoundedLabel, CommandRuntimeKind, EvidenceCorrelation, EvidenceOutcome, EvidenceSessionId,
+    EvidenceSourceContext, EvidenceToolCallId, ExecutionEvidenceApi, ExecutionFidelity,
+    ExecutionStatus, RecordEvidenceInput, RedactionReceipt, SafeEvidencePayload, SafeReasonCode,
+    SourceEventId, SpanId, UsageQuality,
 };
 use crate::contexts::operations::api::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::sessions::api::{
@@ -267,7 +267,207 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
                 redaction: RedactionReceipt::none(),
             })
         }
+        AgentEvidenceSignal::ToolStarted {
+            session_id,
+            run_id,
+            trace_id,
+            span_id,
+            agent_id,
+            seat_id,
+            call_id,
+            tool_name,
+            observation,
+            attempt,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, Some(run_id), Some(trace_id))?;
+            bind_agent(&mut correlation, agent_id.as_deref(), seat_id.as_deref());
+            bind_tool(&mut correlation, span_id.as_deref(), call_id);
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::AgentRuntime,
+                // The call id, plus the attempt when there is one. A retry of the same call is a
+                // second observation of a second execution: sharing one id would make the journal
+                // treat the retry as a duplicate of the first and drop it.
+                source_event_id: SourceEventId::parse(attempt_scoped(
+                    "tool-started",
+                    call_id,
+                    *attempt,
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(ExecutionStatus::Running),
+                fidelity: observed_fidelity(*observation),
+                payload: SafeEvidencePayload::ToolStarted {
+                    // The name, never the arguments. What a tool was asked to do is the payload
+                    // this journal exists not to hold.
+                    tool_name: BoundedLabel::parse("tool name", tool_name.clone()).ok()?,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        AgentEvidenceSignal::ToolFinished {
+            session_id,
+            run_id,
+            trace_id,
+            span_id,
+            agent_id,
+            seat_id,
+            call_id,
+            tool_name,
+            observation,
+            attempt,
+            outcome,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, Some(run_id), Some(trace_id))?;
+            bind_agent(&mut correlation, agent_id.as_deref(), seat_id.as_deref());
+            bind_tool(&mut correlation, span_id.as_deref(), call_id);
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::AgentRuntime,
+                source_event_id: SourceEventId::parse(attempt_scoped(
+                    "tool-finished",
+                    call_id,
+                    *attempt,
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(execution_status(*outcome)),
+                fidelity: observed_fidelity(*observation),
+                payload: SafeEvidencePayload::ToolCompleted {
+                    tool_name: BoundedLabel::parse("tool name", tool_name.clone()).ok()?,
+                    outcome: evidence_outcome(*outcome),
+                    // The runtime does not measure a tool's wall clock here. Subtracting the two
+                    // timestamps would report the gap between two observations as a duration.
+                    duration_ms: None,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        AgentEvidenceSignal::DelegationStarted {
+            session_id,
+            run_id,
+            trace_id,
+            span_id,
+            parent_agent_id,
+            seat_id,
+            delegation_id,
+            call_id,
+            attempt,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, Some(run_id), Some(trace_id))?;
+            bind_agent(
+                &mut correlation,
+                parent_agent_id.as_deref(),
+                seat_id.as_deref(),
+            );
+            bind_tool(&mut correlation, span_id.as_deref(), call_id);
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::AgentRuntime,
+                source_event_id: SourceEventId::parse(attempt_scoped(
+                    "delegation-started",
+                    delegation_id,
+                    *attempt,
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(ExecutionStatus::Running),
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::AgentDelegated {
+                    // The delegation id is what a reader follows; the child agent is not known at
+                    // hand-off, and naming one here would name an agent that may never start.
+                    attempt: *attempt,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        AgentEvidenceSignal::DelegationFinished {
+            session_id,
+            run_id,
+            trace_id,
+            span_id,
+            parent_agent_id,
+            seat_id,
+            delegation_id,
+            call_id,
+            attempt,
+            outcome,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, Some(run_id), Some(trace_id))?;
+            bind_agent(
+                &mut correlation,
+                parent_agent_id.as_deref(),
+                seat_id.as_deref(),
+            );
+            bind_tool(&mut correlation, span_id.as_deref(), call_id);
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::AgentRuntime,
+                source_event_id: SourceEventId::parse(attempt_scoped(
+                    "delegation-finished",
+                    delegation_id,
+                    *attempt,
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(execution_status(*outcome)),
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::AgentCompleted {
+                    outcome: evidence_outcome(*outcome),
+                    duration_ms: None,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
     }
+}
+
+/// A source event id that survives a retry without colliding with it.
+///
+/// Two executions of the same call are two things that happened; giving them one id would make the
+/// journal treat the second as a duplicate of the first and keep only the first. An id without the
+/// attempt is used when the producer never reported one, which is the same value on every replay of
+/// that same observation — that is what makes a duplicate callback idempotent.
+fn attempt_scoped(prefix: &str, id: &str, attempt: Option<u32>) -> String {
+    match attempt {
+        Some(attempt) => format!("{prefix}:{id}:{attempt}"),
+        None => format!("{prefix}:{id}"),
+    }
+}
+
+/// Never upgrades. A reconstruction reported as a direct observation is a claim the runtime cannot
+/// back, and the fidelity is the only field a reader has to weigh the record by.
+fn observed_fidelity(observation: AgentEvidenceObservation) -> ExecutionFidelity {
+    match observation {
+        AgentEvidenceObservation::Direct => ExecutionFidelity::Native,
+        AgentEvidenceObservation::Reported => ExecutionFidelity::Proxied,
+        AgentEvidenceObservation::Reconstructed => ExecutionFidelity::Inferred,
+    }
+}
+
+fn execution_status(outcome: AgentRunEvidenceOutcome) -> ExecutionStatus {
+    match outcome {
+        AgentRunEvidenceOutcome::Succeeded => ExecutionStatus::Succeeded,
+        AgentRunEvidenceOutcome::Failed => ExecutionStatus::Failed,
+        AgentRunEvidenceOutcome::Cancelled => ExecutionStatus::Cancelled,
+    }
+}
+
+fn evidence_outcome(outcome: AgentRunEvidenceOutcome) -> EvidenceOutcome {
+    match outcome {
+        AgentRunEvidenceOutcome::Succeeded => EvidenceOutcome::Succeeded,
+        AgentRunEvidenceOutcome::Failed => EvidenceOutcome::Failed,
+        AgentRunEvidenceOutcome::Cancelled => EvidenceOutcome::Cancelled,
+    }
+}
+
+fn bind_tool(correlation: &mut EvidenceCorrelation, span_id: Option<&str>, call_id: &str) {
+    correlation.span_id = span_id.and_then(|value| SpanId::parse(value.to_string()).ok());
+    correlation.tool_call_id = EvidenceToolCallId::parse(call_id.to_string()).ok();
 }
 
 fn bind_agent(
@@ -292,7 +492,11 @@ fn bind_agent(
 fn agent_session(signal: &AgentEvidenceSignal) -> &str {
     match signal {
         AgentEvidenceSignal::RunStarted { session_id, .. }
-        | AgentEvidenceSignal::RunFinished { session_id, .. } => session_id,
+        | AgentEvidenceSignal::RunFinished { session_id, .. }
+        | AgentEvidenceSignal::ToolStarted { session_id, .. }
+        | AgentEvidenceSignal::ToolFinished { session_id, .. }
+        | AgentEvidenceSignal::DelegationStarted { session_id, .. }
+        | AgentEvidenceSignal::DelegationFinished { session_id, .. } => session_id,
     }
 }
 
