@@ -6,7 +6,7 @@
 // committed file no longer matches the registry.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -99,8 +99,10 @@ function main() {
     const current = existsSync(TARGET) ? readFileSync(TARGET, "utf8") : "";
     if (current !== output) {
       console.error(
-        "docs/reference/cli-parameter-matrix.md is stale.\n" +
-          "Run `npm run docs:matrix:generate` and commit the result. Never hand-edit it.",
+        `${relative(root, TARGET).split(sep).join("/")} is stale.\n` +
+          "Run `npm run docs:matrix:generate` and commit the result. Never hand-edit it.\n" +
+          "If the content looks identical, compare line endings: this file is pinned to LF in " +
+          ".gitattributes, and a working copy checked out before that pin still holds CRLF.",
       );
       process.exit(1);
     }
