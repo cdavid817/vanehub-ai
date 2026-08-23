@@ -739,10 +739,14 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
                 // journal keys on `(source_context, source_event_id)` without a session — so one
                 // session's edit would be filed as a replay of the other's and silently dropped.
                 //
-                // The witness carries the moment, so two writes to one file are two observations
-                // while an exact duplicate of one observation converges.
+                // The witness carries the moment and the observer's own ordinal, so two writes to
+                // one file are two observations while an exact duplicate of one observation
+                // converges. Folded into a fixed-width revision rather than pasted on: the witness
+                // is chosen by the producer, and an identity whose validity depends on how long
+                // that choice is fails silently when someone lengthens it.
                 source_event_id: SourceEventId::parse(format!(
-                    "file-mutated:{session_id}:{path_fingerprint}:{witness_fingerprint}"
+                    "file-mutated:{session_id}:{path_fingerprint}:{}",
+                    transition_revision(&[change_kind_token(*change_kind), witness_fingerprint])
                 ))
                 .ok()?,
                 occurred_at: occurred_at.clone(),
@@ -769,6 +773,45 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
             })
         }
     }
+}
+
+/// The change kind's own token, so the identity does not rely on the producer's witness happening
+/// to encode it.
+fn change_kind_token(change_kind: WorkspaceFileChangeKind) -> &'static str {
+    match change_kind {
+        WorkspaceFileChangeKind::Created => "created",
+        WorkspaceFileChangeKind::Modified => "modified",
+        WorkspaceFileChangeKind::Deleted => "deleted",
+        WorkspaceFileChangeKind::Renamed => "renamed",
+    }
+}
+
+/// Folds the parts of a state transition into a fixed-width revision.
+///
+/// A source event id is bounded at 128 characters, and pasting variable-length parts together made
+/// that bound depend on a choice made in another context. A review's snapshot fingerprint is a
+/// full SHA-256 hex, so `review-decision:{uuid}:{fingerprint}:changes_requested` came to 135
+/// characters and the journal refused it — while an acceptance fitted at 126. The console recorded
+/// reviewers approving work and silently never recorded them rejecting it.
+///
+/// Folding also keeps these identities about transitions rather than states. The moment is one of
+/// the parts, so a reviewer who accepts, retracts, and accepts again produces three ids instead of
+/// colliding the third with the first, and a retry of one transition still produces one id because
+/// every part comes from state that was saved before the signal was published.
+fn transition_revision(parts: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part.as_bytes());
+        // A NUL separator, so two different part lists cannot concatenate into one string.
+        hasher.update([0u8]);
+    }
+    hasher
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// The decision's own token, which is part of its identity and not only its payload.
@@ -949,14 +992,24 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
             let correlation = correlation(session_id, None, None)?;
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Sessions,
-                // Review, snapshot, and the decision itself. The witness distinguishes a decision
-                // made after the diff moved on; the value distinguishes a reviewer who accepted
-                // and then changed their mind about the same diff, which is a second decision the
-                // journal has to hold rather than refuse as a conflict. Re-asserting the same
-                // decision about the same snapshot is the one genuine replay, and it converges.
+                // The review, readable, and then the transition folded into a fixed-width
+                // revision: the snapshot it was made about, the decision value, and the moment the
+                // review recorded it. The witness distinguishes a decision made after the diff
+                // moved on; the value distinguishes a reviewer who changed their mind; the moment
+                // distinguishes a reviewer who changed it back, which the value alone reported as
+                // a conflicting duplicate of the first decision.
+                //
+                // `occurred_at` is the review's own `updated_at`, saved before this signal was
+                // published, so a replay of the same transition carries the same revision. It is
+                // not a clock read here — that would mint a new identity per attempt and turn one
+                // decision into as many events as the bridge retried it.
                 source_event_id: SourceEventId::parse(format!(
-                    "review-decision:{review_id}:{witness_fingerprint}:{}",
-                    review_decision_token(*decision)
+                    "review-decision:{review_id}:{}",
+                    transition_revision(&[
+                        witness_fingerprint,
+                        review_decision_token(*decision),
+                        occurred_at,
+                    ])
                 ))
                 .ok()?,
                 occurred_at: occurred_at.clone(),

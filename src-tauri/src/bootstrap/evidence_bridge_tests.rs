@@ -2069,6 +2069,38 @@ fn a_known_session_over_the_reason_cap_keeps_its_attribution() {
     assert!(!mine.is_empty(), "a known session lost its attribution");
 }
 
+/// Events of one kind. `journal_event_count` counts everything, and a signal the bridge dropped
+/// leaves a coverage-gap marker behind — so a test asserting "two events" would pass on one
+/// decision plus the marker recording that the other one was lost.
+fn event_count_of_kind(harness: &Harness, kind: &str) -> i64 {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_events WHERE kind = ?1",
+            [kind],
+            |row| row.get(0),
+        )
+        .unwrap_or_default()
+}
+
+/// The longest source event id the journal actually holds. `SourceEventId` refuses anything past
+/// its bound, and the refusal is silent from the producer's side — the signal simply becomes a
+/// coverage gap — so the invariant is worth asserting on stored rows rather than on arithmetic.
+fn longest_source_event_id(harness: &Harness) -> i64 {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COALESCE(MAX(LENGTH(source_event_id)), 0) FROM execution_evidence_events",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default()
+}
+
 fn gap_marker_count(harness: &Harness) -> i64 {
     harness
         .database
@@ -2109,6 +2141,173 @@ fn a_review_re_decided_on_one_snapshot_records_both_decisions() {
 
     assert!(wait_until(|| journal_event_count(&harness) >= 2));
     worker.shutdown();
+}
+
+/// Two mutations that produce the same witness are still two mutations.
+///
+/// The witness carries a clock reading, and a clock has a resolution. Two writes to one file
+/// inside one tick produced one witness, and the journal filed the second as a replay of the
+/// first — so the file's second change was never recorded. The observer's ordinal is what makes
+/// them distinct structurally rather than probabilistically.
+#[test]
+fn two_mutations_sharing_one_witness_moment_are_two_events() {
+    let harness = harness("bridge-file-same-moment");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for observation in 0..2 {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: SESSION.to_string(),
+                basename: "main.rs".to_string(),
+                path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+                change_kind: WorkspaceFileChangeKind::Modified,
+                // The same moment for both, which is what a coarse clock produces.
+                witness_fingerprint: format!("modified:2026-08-22T10:00:00Z:{observation}"),
+                observed_directly: true,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| event_count_of_kind(
+        &harness,
+        "file.mutation.observed"
+    ) >= 2));
+    worker.shutdown();
+    assert_eq!(
+        event_count_of_kind(&harness, "file.mutation.observed"),
+        2,
+        "a write was filed as a replay of the write before it"
+    );
+}
+
+/// The same observation, delivered twice, is one event.
+#[test]
+fn a_repeated_file_mutation_observation_records_once() {
+    let harness = harness("bridge-file-replay");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..3 {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: SESSION.to_string(),
+                basename: "main.rs".to_string(),
+                path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+                change_kind: WorkspaceFileChangeKind::Modified,
+                witness_fingerprint: "modified:2026-08-22T10:00:00Z:7".to_string(),
+                observed_directly: true,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| event_count_of_kind(
+        &harness,
+        "file.mutation.observed"
+    ) >= 1));
+    worker.shutdown();
+    assert_eq!(event_count_of_kind(&harness, "file.mutation.observed"), 1);
+}
+
+/// A decision's identity must not depend on how long a fingerprint another context chose is.
+///
+/// The snapshot fingerprint is a full SHA-256 hex — sixty-four characters — and the review id is a
+/// UUID. Pasted together with the longest decision token, that is 135 characters against the
+/// journal's 128-character bound, so `SourceEventId` refused it and the signal was dropped as
+/// unmappable. An acceptance squeaked under at 126 and a request for changes did not: the console
+/// recorded reviewers approving work and never recorded them rejecting it.
+#[test]
+fn a_review_decision_identity_fits_a_real_snapshot_fingerprint() {
+    let harness = harness("bridge-review-long-fingerprint");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for decision in [
+        SessionReviewDecision::Accepted,
+        SessionReviewDecision::ChangesRequested,
+    ] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "0192f0c4-8f3a-7c21-9f4e-6b2d1a5c8e70".to_string(),
+                decision,
+                // A real `fingerprint_snapshot` result: SHA-256, hex, sixty-four characters.
+                witness_fingerprint:
+                    "d7603be9087de5633bb80712e3c136bf7b67bd611d1c0e637aa0344e29e60bcb".to_string(),
+                occurred_at: match decision {
+                    SessionReviewDecision::Accepted => "2026-08-22T10:00:00Z".to_string(),
+                    SessionReviewDecision::ChangesRequested => "2026-08-22T10:05:00Z".to_string(),
+                },
+            },
+        );
+    }
+
+    assert!(wait_until(|| event_count_of_kind(
+        &harness,
+        "review.decision.recorded"
+    ) >= 2));
+    worker.shutdown();
+    assert_eq!(
+        event_count_of_kind(&harness, "review.decision.recorded"),
+        2,
+        "a decision was dropped because its identity did not fit"
+    );
+    assert_eq!(
+        gap_marker_count(&harness),
+        0,
+        "a decision became a coverage gap"
+    );
+    // The bound the journal enforces, asserted against what was actually written rather than an
+    // arithmetic the next person would have to redo by hand.
+    assert!(
+        longest_source_event_id(&harness) <= 128,
+        "a source event id reached the journal's identifier bound"
+    );
+}
+
+/// A reviewer who changes their mind back has made a third decision.
+///
+/// Keyed on review, witness, and decision value, the third arrives with the same id as the first.
+/// The content fingerprint includes the occurrence time, so the journal records a conflict and
+/// keeps the acceptance from ten minutes earlier: it would report the review as accepted once and
+/// changed once, in that order, when the reviewer actually accepted, retracted, and accepted again.
+#[test]
+fn a_review_decided_back_and_forth_records_every_decision() {
+    let harness = harness("bridge-review-oscillates");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for (decision, moment) in [
+        (SessionReviewDecision::Accepted, "2026-08-22T10:00:00Z"),
+        (
+            SessionReviewDecision::ChangesRequested,
+            "2026-08-22T10:05:00Z",
+        ),
+        (SessionReviewDecision::Accepted, "2026-08-22T10:10:00Z"),
+    ] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                decision,
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: moment.to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| event_count_of_kind(
+        &harness,
+        "review.decision.recorded"
+    ) >= 3));
+    worker.shutdown();
+    assert_eq!(
+        event_count_of_kind(&harness, "review.decision.recorded"),
+        3,
+        "a decision the reviewer made was refused as a duplicate of an earlier one"
+    );
 }
 
 /// Re-asserting the same decision about the same snapshot is a replay, and converges.

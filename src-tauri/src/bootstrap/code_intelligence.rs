@@ -15,7 +15,7 @@ use crate::contexts::retrieval::api::CodeIndexApi;
 use crate::platform::database::NativeDatabase;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -265,6 +265,10 @@ pub(crate) struct WorkspaceMutationFanout {
     code_intelligence: CodeIntelligenceApi,
     code_index: OnceLock<CodeIndexApi>,
     evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    /// This runtime's observation ordinal. The fanout is the single point every successful
+    /// mutation passes through, so its own count is an authoritative order for the observations
+    /// it makes — and the only part of the witness that cannot repeat.
+    observations: AtomicU64,
 }
 
 impl WorkspaceMutationFanout {
@@ -280,6 +284,7 @@ impl WorkspaceMutationFanout {
             code_intelligence,
             code_index: OnceLock::new(),
             evidence,
+            observations: AtomicU64::new(0),
         }
     }
 
@@ -330,7 +335,11 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
                 // The runtime performed this write itself, so the witness is the write: there is
                 // no earlier snapshot to compare against, and inventing one would imply a
                 // comparison nobody made.
-                witness_fingerprint: mutation_witness(&mutation, &observed_at),
+                witness_fingerprint: mutation_witness(
+                    &mutation,
+                    &observed_at,
+                    self.observations.fetch_add(1, Ordering::Relaxed),
+                ),
                 observed_directly: true,
                 occurred_at: observed_at.clone(),
             },
@@ -364,13 +373,26 @@ fn path_fingerprint(canonical_workspace: &Path, relative_path: &str) -> String {
 
 /// What this observation was made against.
 ///
-/// A direct write witnesses itself, so the witness is the change kind and the moment: two writes to
-/// one file are two observations, and a witness carrying only the path would collapse them into
-/// one. `publish` is reached from the tool handlers' success branch and is never replayed, so the
-/// moment is a per-write identity rather than a value a retry could disagree about.
-fn mutation_witness(mutation: &AgentWorkspaceMutation, observed_at: &str) -> String {
+/// A direct write witnesses itself, so the witness is the change kind, the moment, and this
+/// runtime's observation ordinal.
+///
+/// Two writes to one file are two observations, and a witness carrying only the path would
+/// collapse them into one. The moment alone is not enough either: a clock has a resolution, and
+/// two writes inside one tick would produce one witness and the second would be filed as a replay
+/// of the first. The ordinal makes that structurally impossible rather than merely unlikely, and a
+/// counter is safe here where a random value would not be — `publish` is reached once per
+/// successful write from the tool handlers' success branch and is never replayed, so the ordinal
+/// is minted per observation rather than per delivery attempt.
+///
+/// It needs no cross-restart namespace of its own: the moment supplies that axis, and the ordinal
+/// supplies the within-tick one.
+fn mutation_witness(
+    mutation: &AgentWorkspaceMutation,
+    observed_at: &str,
+    observation: u64,
+) -> String {
     format!(
-        "{}:{observed_at}",
+        "{}:{observed_at}:{observation}",
         match mutation.change_kind {
             crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created =>
                 "created",

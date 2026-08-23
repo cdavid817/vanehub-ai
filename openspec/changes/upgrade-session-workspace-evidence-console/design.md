@@ -505,14 +505,15 @@ retried callback doubles a count nobody can then correct.
 | Tool started/finished | `tool-{started,finished}:{callId}[:{attempt}]` | same id | `attempt` | provider call ids are unique within a run, attempts within a call | re-delivered lifecycle, resume, restart replay | each attempt |
 | Delegation started/finished | `delegation-{started,finished}:{delegationId}[:{attempt}]` | same id | `attempt` | delegation ids are minted per hand-off | re-delivered lifecycle | each attempt |
 | Shell opened/closed | `shell-{opened,closed}:{shellId}` | same id | none -- a shell opens and closes once | shell ids are minted per shell | repeated close, shutdown racing an explicit stop | a new shell is a new id |
-| File mutation | `file-mutated:{sessionId}:{pathFingerprint}:{changeKind}:{observedAt}` | same id | the moment | the digest covers workspace and relative path, the session separates two workspaces' identical paths | an exact duplicate of one observation | every write |
+| File mutation | `file-mutated:{sessionId}:{pathFingerprint}:{revision}` where revision folds change kind and witness | same id | the witness: change kind, moment, observation ordinal | the digest covers workspace and relative path, the session separates two workspaces' identical paths, the ordinal separates two writes inside one clock tick | an exact duplicate of one observation | every write |
 | Operation failure | `operation-failed:{operationId}` | same id | none | operation ids are minted per operation | a retried failure report | a new operation |
-| Review decision | `review-decision:{reviewId}:{witness}:{decision}` | same id | witness, then decision value | one review, one snapshot, one verdict | re-asserting the same verdict on the same snapshot | a changed verdict, or the same verdict after the diff moves |
+| Review decision | `review-decision:{reviewId}:{revision}` where revision folds witness, decision, and the review's `updated_at` | same id | the review's own `updated_at`, saved before the signal is published | one review, one snapshot, one verdict, one moment | a replay of one transition | every `set_decision`, including a verdict the reviewer returns to |
 | Verification | `verification:{operationId}` | same id | the operation | `start_action` mints one operation per action, so one operation is one verification run | a re-reported result | re-running the check mints a new operation |
 | Usage observed | `usage-observed:{invocationId}` | same id | none | invocation ids are minted per model call | a re-reported observation | a new invocation |
 | Coverage gap | `coverage-gap:{sessionId}:{reason}:{bridgeInstanceId}:{generation}` | same instance and generation | generation, inside a runtime namespace | the generation is assigned once per accumulation; the instance is 64 random bits minted per bridge bootstrap | a retry after an ambiguous marker write | every new accumulation, in every runtime |
 
-Three of these were wrong when first written and are corrected here.
+Three of these were wrong when first written and are corrected here. Two more were found by
+auditing what the corrections had left, and are corrected below them.
 
 `review-decision` keyed only on review and witness. A reviewer who accepts and then asks for
 changes on the same diff has made two decisions, and the second would have arrived as a conflict --
@@ -523,6 +524,27 @@ identity, which also leaves re-asserting the same verdict as the replay it actua
 `src/main.rs` in different workspaces produced the same string, and the second was filed as a
 replay of the first. The digest now covers the workspace, the id carries the session, and the
 witness carries the moment so that two writes to one file are two observations.
+
+A source event id is bounded at 128 characters, and the corrected `review-decision` id depended on
+lengths chosen in another context: a review's snapshot fingerprint is a full SHA-256 hex and the
+review id is a UUID, so the id reached 126 characters for `accepted` and 135 for
+`changes_requested`. The journal refused the longer one, the bridge counted it as an unmappable
+signal, and the console recorded reviewers approving work while silently never recording them
+rejecting it. The variable parts now fold into a fixed-width revision, so the id's validity no
+longer depends on how long someone else's fingerprint is.
+
+Keying `review-decision` on the decision value also made it a state identity rather than a
+transition one. A reviewer who accepts, retracts, and accepts again on one snapshot has made three
+decisions, and the third arrived with the first's id. The review's own `updated_at` — saved before
+the signal is published, and therefore stable across a replay — is now part of the revision, which
+makes every `set_decision` its own event while a redelivered one still converges.
+
+`file-mutated` witnessed itself with a clock reading, and a clock has a resolution. Two writes to
+one file inside one tick produced one witness, so the second was filed as a replay of the first and
+the file's second change was never recorded. The fanout is the single point every successful
+mutation passes through, so its own observation ordinal joins the witness: two writes are two
+events structurally, not probabilistically. The ordinal needs no cross-restart namespace, because
+the moment already supplies that axis.
 
 `coverage-gap` keyed on its count. Two gaps of the same size collided, and because the content
 fingerprint includes the occurrence time the journal recorded a conflict rather than a second gap:
