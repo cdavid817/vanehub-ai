@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 
 use super::ids::{CliActionPlanId, CliBulkPlanId, CliSourceId, CliToolId};
 use super::plan::CliActionPlanState;
+use super::snapshot::CliMutationOutcome;
 
 /// Why a tool the user asked to upgrade is not in the batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,10 @@ pub(crate) enum CliBulkSkipReason {
     SourceOwnershipUnproven,
     /// The environment moved between preparation and execution.
     PlanStale,
+    /// The item plan outlived its ten-minute window before the batch reached it.
+    PlanExpired,
+    /// The item plan had already been run. A plan is single-use, batch or not.
+    PlanConsumed,
     /// Another operation already holds this tool.
     OperationConflict,
     /// A structured installation conflict makes the mutation target ambiguous or unsafe.
@@ -51,6 +56,8 @@ impl CliBulkSkipReason {
             Self::UnorderedVersions => "unordered-versions",
             Self::SourceOwnershipUnproven => "source-ownership-unproven",
             Self::PlanStale => "plan-stale",
+            Self::PlanExpired => "plan-expired",
+            Self::PlanConsumed => "plan-consumed",
             Self::OperationConflict => "operation-conflict",
             Self::InstallationConflict => "installation-conflict",
         }
@@ -153,6 +160,88 @@ impl CliBulkActionPlan {
             .iter()
             .filter(|skip| skip.reason.is_actionable())
             .collect()
+    }
+}
+
+/// What became of one tool in a batch.
+///
+/// Two arms, not one string. An item either ran and produced one of the five mutation outcomes, or
+/// it did not run and has a stable reason. Collapsing them into a single string vocabulary is what
+/// produced the `"ran"` placeholder this replaces: a label that says a process started and nothing
+/// about whether the machine changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliBulkItemStatus {
+    Completed(CliMutationOutcome),
+    Skipped(CliBulkSkipReason),
+}
+
+impl CliBulkItemStatus {
+    /// The discriminant the wire and the UI switch on.
+    pub(crate) fn kind(self) -> &'static str {
+        match self {
+            Self::Completed(_) => "completed",
+            Self::Skipped(_) => "skipped",
+        }
+    }
+
+    pub(crate) fn outcome(self) -> Option<CliMutationOutcome> {
+        match self {
+            Self::Completed(outcome) => Some(outcome),
+            Self::Skipped(_) => None,
+        }
+    }
+
+    pub(crate) fn reason(self) -> Option<CliBulkSkipReason> {
+        match self {
+            Self::Skipped(reason) => Some(reason),
+            Self::Completed(_) => None,
+        }
+    }
+
+    /// Whether the machine may have changed for this item.
+    ///
+    /// A skipped item never touched it; a completed one did unless its outcome says otherwise.
+    pub(crate) fn may_have_changed_the_machine(self) -> bool {
+        self.outcome()
+            .is_some_and(CliMutationOutcome::may_have_changed_the_machine)
+    }
+}
+
+/// One tool's terminal result inside a batch.
+///
+/// Every item the batch knew about gets one of these -- the ones that ran, the ones the plan
+/// already excluded, and the ones a cancellation stopped before they started. A missing entry
+/// would read as "nothing to report", which is never true of a tool the user asked to upgrade.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CliBulkItemResult {
+    pub(crate) agent_id: CliToolId,
+    /// `None` for a tool the plan excluded before an item plan existed for it.
+    pub(crate) plan_id: Option<CliActionPlanId>,
+    pub(crate) source_id: Option<CliSourceId>,
+    pub(crate) target_version: Option<String>,
+    pub(crate) status: CliBulkItemStatus,
+}
+
+impl CliBulkItemResult {
+    pub(crate) fn skipped(agent_id: CliToolId, reason: CliBulkSkipReason) -> Self {
+        Self {
+            agent_id,
+            plan_id: None,
+            source_id: None,
+            target_version: None,
+            status: CliBulkItemStatus::Skipped(reason),
+        }
+    }
+
+    /// The result for an item that had a plan, whether it ran or was refused.
+    pub(crate) fn for_item(item: &CliBulkActionItem, status: CliBulkItemStatus) -> Self {
+        Self {
+            agent_id: item.agent_id.clone(),
+            plan_id: Some(item.plan_id.clone()),
+            source_id: Some(item.source_id.clone()),
+            target_version: item.target_version.clone(),
+            status,
+        }
     }
 }
 
@@ -340,6 +429,8 @@ mod tests {
                 "source-ownership-unproven",
             ),
             (CliBulkSkipReason::PlanStale, "plan-stale"),
+            (CliBulkSkipReason::PlanExpired, "plan-expired"),
+            (CliBulkSkipReason::PlanConsumed, "plan-consumed"),
             (CliBulkSkipReason::OperationConflict, "operation-conflict"),
             (
                 CliBulkSkipReason::InstallationConflict,

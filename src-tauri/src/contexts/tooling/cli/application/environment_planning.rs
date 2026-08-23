@@ -461,6 +461,24 @@ impl CliEnvironmentService {
         &self,
         prepared: PreparedCliActionExecution,
     ) -> Result<(), CliEnvironmentError> {
+        // A refusal is already recorded on the operation, and this caller is a background task
+        // with nowhere to report a second copy of it. Only a failure to *record* propagates.
+        self.execute_action_recording(prepared).map(|_| ())
+    }
+
+    /// Runs a plan and hands back what happened, having already recorded it on the operation.
+    ///
+    /// The outer `Result` is about recording: an `Err` means the operations store itself failed,
+    /// which is the only thing a caller can still do something about. The inner report says what
+    /// happened to the run.
+    ///
+    /// Bulk execution needs that distinction. Returning it from the one path that produces it is
+    /// what stops a batch inventing a second, weaker vocabulary for the same event -- which is
+    /// exactly what the `"ran"` placeholder was.
+    pub(super) fn execute_action_recording(
+        &self,
+        prepared: PreparedCliActionExecution,
+    ) -> Result<CliActionExecutionReport, CliEnvironmentError> {
         let operation_id = prepared.operation_id.clone();
         let started_at = self.ports.clock.now();
         match self.run_action(&prepared) {
@@ -470,7 +488,8 @@ impl CliEnvironmentService {
                 // label cannot carry.
                 self.ports
                     .operations
-                    .complete(&operation_id, encode_operation_record(&record))
+                    .complete(&operation_id, encode_operation_record(&record))?;
+                Ok(CliActionExecutionReport::Recorded(record))
             }
             Err(error) => {
                 let message = error.to_string();
@@ -489,7 +508,8 @@ impl CliEnvironmentService {
                     None,
                     &format!("{message} ({})", describe_record(&record)),
                 );
-                self.ports.operations.fail(&operation_id, message)
+                self.ports.operations.fail(&operation_id, message)?;
+                Ok(CliActionExecutionReport::Refused(error))
             }
         }
     }
@@ -831,6 +851,15 @@ fn preconditions_for(source_id: &CliSourceId, requires_elevation: &bool) -> Vec<
         preconditions.push(CliPrecondition::ElevatedPrivileges);
     }
     preconditions
+}
+
+/// What one execution attempt did, once it has been recorded on its operation.
+pub(super) enum CliActionExecutionReport {
+    /// The plan ran. The record carries the five-state outcome and everything around it.
+    Recorded(CliOperationRecord),
+    /// Admission or the adapter refused it. Already reported on the operation; the error is
+    /// returned so a batch can turn it into that item's stable skip reason.
+    Refused(CliEnvironmentError),
 }
 
 /// The two versions a plan is decided between: what was asked for, and what is installed.

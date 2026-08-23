@@ -35,11 +35,11 @@
 - [x] 3.2 Implement bounded cached `list_cli_environments`.
 - [x] 3.3 Implement async all-tool and targeted `refresh_cli_environments`, preserving unrelated snapshots on targeted refresh.
 - [x] 3.4 Implement async `prepare_cli_action`, bounded `get_cli_action_plan`, and async `execute_cli_action`.
-- [ ] 3.5 Implement async `prepare_cli_bulk_upgrade`, bounded `get_cli_bulk_action_plan`, and async `execute_cli_bulk_action`. (Bulk item outcomes are a placeholder: `run_bulk` discards the real five-state result and records the literal string "ran".)
+- [x] 3.5 Implement async `prepare_cli_bulk_upgrade`, bounded `get_cli_bulk_action_plan`, and async `execute_cli_bulk_action`.
 - [x] 3.6 Implement async `run_cli_doctor`.
 - [x] 3.7 Add typed application errors for unknown tool, unsupported source/action, invalid version, catalog unavailable, expired/stale/consumed plan, missing dependency, elevation, conflict, source unavailable, process, storage, and validation.
-- [ ] 3.8 Implement per-tool and mutation-key coordination with at most two concurrent mutations and deterministic queuing. (The one-per-tool, one-per-key, cap-two policy exists only in `FakeCoordinator` under `#[cfg(test)]`; no production coordinator exists.)
-- [ ] 3.9 Ensure cancellation releases every operation, plan, tool, and mutation-key reservation exactly once. (Only the happy path is covered. No test for duplicate cancellation, release on the error path, or plan state when an early `?` skips `finish_action_plan`.)
+- [x] 3.8 Implement per-tool and mutation-key coordination with at most two concurrent mutations and deterministic queuing.
+- [x] 3.9 Ensure cancellation releases every operation, plan, tool, and mutation-key reservation exactly once.
 - [x] 3.10 Add deterministic application tests using port doubles; do not use SQLite, filesystem, network, Tauri, or live processes in these tests.
 
 ## 4. Discovery and environment fingerprint

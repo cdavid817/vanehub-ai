@@ -216,11 +216,37 @@ export const webCliEnvironmentClient: CliToolService = {
       message: "cli.operation.bulk-execute",
       terminalStatus: "succeeded",
       error: null,
-      // Per item, because a batch that half-succeeded is not a batch that succeeded.
+      // Per item, because a batch that half-succeeded is not a batch that succeeded. Both arms
+      // of the discriminated union are exercised so a UI can be built against each.
       result: {
         items: [
-          { agentId: "claude-code", outcome: "verified" },
-          { agentId: "codex-cli", outcome: "no-change-failed" },
+          {
+            status: "completed",
+            agentId: "claude-code",
+            planId: "web-plan-claude",
+            sourceId: "npm",
+            targetVersion: "1.3.0",
+            outcome: "verified",
+            reason: null,
+          },
+          {
+            status: "completed",
+            agentId: "codex-cli",
+            planId: "web-plan-codex",
+            sourceId: "npm",
+            targetVersion: "2.0.0",
+            outcome: "no-change-failed",
+            reason: null,
+          },
+          {
+            status: "skipped",
+            agentId: "opencode",
+            planId: null,
+            sourceId: null,
+            targetVersion: null,
+            outcome: null,
+            reason: "installation-conflict",
+          },
         ],
       },
     });

@@ -815,3 +815,131 @@ fn elapsed_time_never_runs_backwards() {
     // A clock correction mid-operation must not read as a multi-century run.
     assert_eq!(elapsed_ms(timestamp(1_000), timestamp(900)), 0);
 }
+
+/// Every terminal path a mutation can take must leave the coordinator empty.
+///
+/// The reservation is held by an `Arc` whose `Drop` releases it, and `release` is idempotent, so
+/// one assertion per path is enough to prove exactly-once: a missed release leaves the tool locked
+/// forever, and a double release would let a second holder in.
+#[test]
+fn every_terminal_path_releases_the_reservation_exactly_once() {
+    // Success.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    harness.probes.set_version("/path/claude", "1.3.0");
+    run_upgrade(&harness, |_, _| {});
+    assert!(harness.coordinator.currently_held().is_empty(), "success");
+
+    // Command failure.
+    let harness = Harness::new();
+    let source = installed_at(&harness, "1.2.0");
+    source.set_process_failure();
+    run_upgrade(&harness, |_, _| {});
+    assert!(harness.coordinator.currently_held().is_empty(), "failure");
+
+    // Cancellation.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    run_upgrade(&harness, |harness, operation_id| {
+        harness.operations.cancel(operation_id)
+    });
+    assert!(harness.coordinator.currently_held().is_empty(), "cancelled");
+
+    // Post-detection could not run.
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    run_upgrade(&harness, |harness, _| harness.coordinator.block_detection());
+    assert!(
+        harness.coordinator.currently_held().is_empty(),
+        "post-detection skipped"
+    );
+}
+
+#[test]
+fn an_adapter_error_releases_the_reservation_before_returning() {
+    // The adapter itself fails, so `run_action` returns early with `?` after the reservation was
+    // taken. `Drop` is what covers this path; an explicit release alone would miss it.
+    let harness = Harness::new();
+    let source = installed_at(&harness, "1.2.0");
+    *source.execute_error.lock().expect("execute error") = Some(
+        crate::contexts::tooling::cli::application::environment_error::CliEnvironmentError::Process(
+            "npm is not installed".to_string(),
+        ),
+    );
+
+    run_upgrade(&harness, |_, _| {});
+
+    assert!(harness.coordinator.currently_held().is_empty());
+}
+
+#[test]
+fn a_repository_failure_after_the_mutation_still_releases_the_reservation() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let plan_id = prepare(&harness, CliActionKind::Upgrade, Some("1.3.0")).expect("plan");
+    // Saving the post-mutation snapshot fails, so `verify_and_persist` returns with `?`.
+    *harness.repository.save_error.lock().expect("save error") = Some(
+        crate::contexts::tooling::cli::application::environment_error::CliEnvironmentError::Storage(
+            "disk is full".to_string(),
+        ),
+    );
+
+    let prepared = harness
+        .service
+        .prepare_cli_action_execution(ExecuteCliActionInput {
+            plan_id,
+            expected_revision: 1,
+        })
+        .expect("prepare");
+    harness.service.execute_cli_action(prepared).expect("runs");
+
+    // The machine may have changed and the write failed; the tool must still not be left locked.
+    assert!(harness.coordinator.currently_held().is_empty());
+}
+
+#[test]
+fn a_repeated_cancel_request_does_not_free_a_second_slot() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let operation = run_upgrade(&harness, |harness, operation_id| {
+        harness.operations.cancel(operation_id);
+        // The user clicks cancel again. Cancelling twice is one cancellation.
+        harness.operations.cancel(operation_id);
+    });
+
+    assert_eq!(result_field(&operation, "termination"), "cancelled");
+    assert!(harness.coordinator.currently_held().is_empty());
+}
+
+#[test]
+fn a_second_mutation_for_the_same_tool_is_refused_while_the_first_holds_it() {
+    let harness = Harness::new();
+    installed_at(&harness, "1.2.0");
+    let plan_id = prepare(&harness, CliActionKind::Upgrade, Some("1.3.0")).expect("plan");
+    // Someone else already holds this tool.
+    use crate::contexts::tooling::cli::application::environment_ports::CliMutationCoordinator;
+    let _held = harness
+        .coordinator
+        .try_reserve(
+            &crate::contexts::tooling::cli::domain::ids::CliToolId::new("claude-code")
+                .expect("tool id"),
+            &crate::contexts::tooling::cli::domain::source::CliMutationKey::npm_global(),
+        )
+        .expect("reserve")
+        .expect("granted");
+
+    let prepared = harness
+        .service
+        .prepare_cli_action_execution(ExecuteCliActionInput {
+            plan_id,
+            expected_revision: 1,
+        })
+        .expect("prepare");
+    let operation_id = prepared.operation_id.clone();
+    harness.service.execute_cli_action(prepared).expect("runs");
+
+    let operation = harness.operations.find(&operation_id).expect("operation");
+    assert_eq!(operation.terminal.as_deref(), Some("failed"));
+    // Refused, and the existing holder still holds exactly one reservation.
+    assert_eq!(harness.coordinator.currently_held().len(), 1);
+}

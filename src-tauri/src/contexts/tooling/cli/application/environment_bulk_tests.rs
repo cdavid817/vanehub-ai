@@ -1,16 +1,28 @@
 // Included through `#[path]` from environment_bulk.rs.
 use super::super::environment_service_fixtures::{healthy_npm_installation, npm_catalog, Harness};
 use crate::contexts::tooling::cli::domain::bulk::CliBulkSkipReason;
+use crate::contexts::tooling::cli::domain::snapshot::CliMutationOutcome;
 
 /// Installs `agent_id` at `active` with an npm catalog whose latest is `latest`, then refreshes so
 /// the snapshot and catalog planning reads are populated.
 fn install(harness: &Harness, agent_id: &str, active: &str, latest: &str) {
+    install_returning_source(harness, agent_id, active, latest);
+}
+
+/// The same, handing back the source adapter so a test can make its process fail.
+fn install_returning_source(
+    harness: &Harness,
+    agent_id: &str,
+    active: &str,
+    latest: &str,
+) -> std::sync::Arc<crate::contexts::tooling::cli::application::environment_test_doubles::FakeSource>
+{
     let path = format!("/path/{agent_id}");
     harness
         .discovery
         .set(agent_id, vec![healthy_npm_installation(agent_id, &path)]);
     harness.probes.set_version(&path, active);
-    harness.register_npm_source(npm_catalog(agent_id, &[latest, active], latest));
+    let source = harness.register_npm_source(npm_catalog(agent_id, &[latest, active], latest));
 
     let prepared = harness
         .service
@@ -20,6 +32,7 @@ fn install(harness: &Harness, agent_id: &str, active: &str, latest: &str) {
         .service
         .execute_refresh(prepared)
         .expect("execute refresh");
+    source
 }
 
 fn prepare_bulk(harness: &Harness, agent_ids: &[&str]) -> String {
@@ -360,4 +373,167 @@ fn expired_draft_plans_are_swept_in_bounded_batches() {
     assert_eq!(harness.service.expire_stale_plans().expect("sweep"), 1);
     // Idempotent: a second sweep finds nothing left in draft.
     assert_eq!(harness.service.expire_stale_plans().expect("sweep"), 0);
+}
+
+/// Runs a prepared batch and returns its per-item results.
+fn run_bulk_items(harness: &Harness, plan_id: &str) -> Vec<serde_json::Value> {
+    let prepared = harness
+        .service
+        .prepare_cli_bulk_execution(plan_id, 1)
+        .expect("prepare bulk execution");
+    let operation_id = prepared.operation_id.clone();
+    harness
+        .service
+        .execute_cli_bulk_action(prepared)
+        .expect("bulk runs");
+    harness
+        .operations
+        .find(&operation_id)
+        .and_then(|operation| operation.result)
+        .and_then(|result| {
+            result
+                .get("items")
+                .and_then(|items| items.as_array())
+                .cloned()
+        })
+        .expect("item results")
+}
+
+#[test]
+fn every_bulk_item_reports_a_real_mutation_outcome() {
+    let harness = Harness::new();
+    install(&harness, "claude-code", "1.2.0", "1.3.0");
+    // The machine really moves, so the item verifies.
+    harness.probes.set_version("/path/claude-code", "1.3.0");
+    let plan_id = prepare_bulk(&harness, &["claude-code"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["agentId"], "claude-code");
+    assert_eq!(items[0]["status"], "completed");
+    // The five-state outcome the single-action path produced, not a label saying a process ran.
+    assert_eq!(items[0]["outcome"], CliMutationOutcome::Verified.as_str());
+    assert!(items[0]["reason"].is_null());
+}
+
+#[test]
+fn a_bulk_item_whose_verification_failed_reports_applied_unverified() {
+    let harness = Harness::new();
+    install(&harness, "claude-code", "1.2.0", "1.3.0");
+    // The probe keeps reporting the old version after the command succeeded.
+    let plan_id = prepare_bulk(&harness, &["claude-code"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    assert_eq!(
+        items[0]["outcome"],
+        CliMutationOutcome::AppliedUnverified.as_str()
+    );
+}
+
+#[test]
+fn a_bulk_item_whose_command_failed_reports_a_failing_outcome() {
+    let harness = Harness::new();
+    let source = install_returning_source(&harness, "claude-code", "1.2.0", "1.3.0");
+    source.set_process_failure();
+    let plan_id = prepare_bulk(&harness, &["claude-code"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    // Failed and nothing observed to have moved.
+    assert_eq!(items[0]["status"], "completed");
+    assert_eq!(
+        items[0]["outcome"],
+        CliMutationOutcome::NoChangeFailed.as_str()
+    );
+}
+
+#[test]
+fn a_cancelled_batch_reports_every_item_rather_than_dropping_them() {
+    let harness = Harness::new();
+    install(&harness, "claude-code", "1.2.0", "1.3.0");
+    install(&harness, "codex-cli", "1.0.0", "2.0.0");
+    let plan_id = prepare_bulk(&harness, &["claude-code", "codex-cli"]);
+
+    let prepared = harness
+        .service
+        .prepare_cli_bulk_execution(&plan_id, 1)
+        .expect("prepare");
+    let operation_id = prepared.operation_id.clone();
+    harness.operations.cancel(&operation_id);
+    harness
+        .service
+        .execute_cli_bulk_action(prepared)
+        .expect("bulk runs");
+
+    let items = harness
+        .operations
+        .find(&operation_id)
+        .and_then(|operation| operation.result)
+        .and_then(|result| {
+            result
+                .get("items")
+                .and_then(|items| items.as_array())
+                .cloned()
+        })
+        .expect("items");
+
+    // Both tools are accounted for. A missing entry would read as "nothing to report".
+    assert_eq!(items.len(), 2);
+    assert!(items
+        .iter()
+        .all(|item| item["status"] == "completed" || item["status"] == "skipped"));
+}
+
+#[test]
+fn a_skipped_tool_keeps_its_stable_reason_in_the_item_results() {
+    let harness = Harness::new();
+    install(&harness, "claude-code", "1.2.0", "1.3.0");
+    // Already at latest: excluded at planning time, still reported at execution time.
+    install(&harness, "gemini-cli", "3.0.0", "3.0.0");
+    let plan_id = prepare_bulk(&harness, &["claude-code", "gemini-cli"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    let skipped = items
+        .iter()
+        .find(|item| item["agentId"] == "gemini-cli")
+        .expect("skipped tool is reported");
+    assert_eq!(skipped["status"], "skipped");
+    assert_eq!(
+        skipped["reason"],
+        CliBulkSkipReason::AlreadyCurrent.as_str()
+    );
+    assert!(skipped["outcome"].is_null());
+}
+
+#[test]
+fn no_bulk_item_result_uses_the_ran_placeholder() {
+    let harness = Harness::new();
+    install(&harness, "claude-code", "1.2.0", "1.3.0");
+    let plan_id = prepare_bulk(&harness, &["claude-code"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    // `"ran"` said a process started and nothing about whether the machine changed.
+    let serialized = serde_json::to_string(&items).expect("serialize");
+    assert!(!serialized.contains("\"ran\""), "{serialized}");
+    assert!(!serialized.contains("unknown"), "{serialized}");
+}
+
+#[test]
+fn one_failing_item_does_not_erase_the_others() {
+    let harness = Harness::new();
+    let failing = install_returning_source(&harness, "claude-code", "1.2.0", "1.3.0");
+    install(&harness, "codex-cli", "1.0.0", "2.0.0");
+    failing.set_process_failure();
+    let plan_id = prepare_bulk(&harness, &["claude-code", "codex-cli"]);
+
+    let items = run_bulk_items(&harness, &plan_id);
+
+    assert_eq!(items.len(), 2);
+    // Both reported, and the batch operation itself succeeded: collecting every outcome is what
+    // the orchestration is for, so an item that failed is not an orchestration failure.
+    assert!(items.iter().all(|item| !item["status"].is_null()));
 }

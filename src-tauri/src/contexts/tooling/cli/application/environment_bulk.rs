@@ -8,19 +8,22 @@
 //! One item failing or going stale never erases the others' outcomes.
 
 use super::environment_error::CliEnvironmentError;
-use super::environment_planning::{ExecuteCliActionInput, PrepareCliActionInput};
+use super::environment_planning::{
+    CliActionExecutionReport, ExecuteCliActionInput, PrepareCliActionInput,
+};
 use super::environment_service::CliEnvironmentService;
 use crate::contexts::tooling::cli::domain::action::{
     resolve_target, CliActionKind, CliTargetResolution,
 };
 use crate::contexts::tooling::cli::domain::bulk::{
-    CliBulkActionItem, CliBulkActionPlan, CliBulkSkip, CliBulkSkipReason,
+    CliBulkActionItem, CliBulkActionPlan, CliBulkItemResult, CliBulkItemStatus, CliBulkSkip,
+    CliBulkSkipReason,
 };
 use crate::contexts::tooling::cli::domain::ids::{CliBulkPlanId, CliToolId};
 use crate::contexts::tooling::cli::domain::phase::CliOperationPhase;
 use crate::contexts::tooling::cli::domain::plan::{CliActionPlan, CliActionPlanState};
 use crate::contexts::tooling::cli::domain::registry::CLI_TOOL_DEFINITIONS;
-use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
+use crate::contexts::tooling::cli::domain::snapshot::{CliEnvironmentSnapshot, CliMutationOutcome};
 use crate::contexts::tooling::cli::domain::status::{CliOverallState, CliUpdateStatus};
 use crate::contexts::tooling::cli::domain::version::NormalizedCliVersion;
 
@@ -287,10 +290,15 @@ impl CliEnvironmentService {
     ) -> Result<(), CliEnvironmentError> {
         let operation_id = prepared.operation_id.clone();
         match self.run_bulk(&prepared) {
-            Ok(outcomes) => self
-                .ports
-                .operations
-                .complete(&operation_id, serde_json::json!({ "items": outcomes })),
+            // The batch succeeded because it collected every item's terminal result. An item that
+            // failed is reported in that item's result, not as a failure of the orchestration --
+            // conflating the two is how a batch of five with one bad item reads as five failures.
+            Ok(results) => self.ports.operations.complete(
+                &operation_id,
+                serde_json::json!({ "items": encode_item_results(&results) }),
+            ),
+            // Only the orchestration itself failing gets here: the bulk plan could not be loaded,
+            // its revision moved, or it expired before execution started.
             Err(error) => {
                 let message = error.to_string();
                 self.ports
@@ -304,7 +312,7 @@ impl CliEnvironmentService {
     fn run_bulk(
         &self,
         prepared: &PreparedCliBulkExecution,
-    ) -> Result<Vec<serde_json::Value>, CliEnvironmentError> {
+    ) -> Result<Vec<CliBulkItemResult>, CliEnvironmentError> {
         let operation_id = &prepared.operation_id;
         let cancellation = self.ports.operations.cancellation(operation_id)?;
         let bulk = self
@@ -322,40 +330,25 @@ impl CliEnvironmentService {
             return Err(CliEnvironmentError::PlanExpired);
         }
 
+        // Tools the plan already excluded are carried into the results. Reporting only the items
+        // that ran would leave a tool the user asked about with no answer at all.
+        let mut results: Vec<CliBulkItemResult> = bulk
+            .skipped
+            .iter()
+            .map(|skip| CliBulkItemResult::skipped(skip.agent_id.clone(), skip.reason))
+            .collect();
+
         let total = u32::try_from(bulk.items.len()).unwrap_or(u32::MAX);
-        let mut outcomes = Vec::new();
         for (index, item) in bulk.items.iter().enumerate() {
-            if cancellation.is_cancelled() {
-                // Not-yet-started items are reported as cancelled rather than silently dropped.
-                outcomes.push(serde_json::json!({
-                    "agentId": item.agent_id.as_str(),
-                    "outcome": "cancelled",
-                }));
-                continue;
-            }
-            let execution = self.prepare_cli_action_execution(ExecuteCliActionInput {
-                plan_id: item.plan_id.as_str().to_string(),
-                expected_revision: 1,
-            });
-            let outcome = match execution {
-                Ok(execution) => {
-                    let item_operation = execution.operation_id.clone();
-                    // Each item runs through the same single-action path, including the
-                    // coordinator, so the batch cannot bypass the per-tool lock.
-                    self.execute_cli_action(execution)?;
-                    self.ports
-                        .operations
-                        .cancellation(&item_operation)
-                        .map(|_| "ran".to_string())
-                        .unwrap_or_else(|_| "unknown".to_string())
-                }
-                // A stale or consumed item plan is skipped; the batch continues.
-                Err(error) => error.category().to_string(),
+            let status = if cancellation.is_cancelled() {
+                // Never started. `Cancelled` is the truthful outcome: nothing ran, so nothing on
+                // the machine changed, and silently dropping the item would say neither.
+                CliBulkItemStatus::Completed(CliMutationOutcome::Cancelled)
+            } else {
+                self.run_bulk_item(item)
             };
-            outcomes.push(serde_json::json!({
-                "agentId": item.agent_id.as_str(),
-                "outcome": outcome,
-            }));
+            results.push(CliBulkItemResult::for_item(item, status));
+
             let completed = u32::try_from(index + 1).unwrap_or(u32::MAX);
             self.ports
                 .operations
@@ -364,7 +357,37 @@ impl CliEnvironmentService {
         self.ports
             .operations
             .report_phase(operation_id, CliOperationPhase::Completed, false)?;
-        Ok(outcomes)
+        Ok(results)
+    }
+
+    /// One item, through the same single-action path a lone mutation takes.
+    ///
+    /// Not a simplified copy of it: the same admission, the same coordinator reservation, the same
+    /// post-mutation verification. A batch that had its own package-manager flow would be a second
+    /// implementation of the rules, and the two would disagree the first time one changed.
+    fn run_bulk_item(&self, item: &CliBulkActionItem) -> CliBulkItemStatus {
+        let execution = self.prepare_cli_action_execution(ExecuteCliActionInput {
+            plan_id: item.plan_id.as_str().to_string(),
+            expected_revision: 1,
+        });
+        let execution = match execution {
+            Ok(execution) => execution,
+            Err(error) => return CliBulkItemStatus::Skipped(skip_reason_for(&error)),
+        };
+        match self.execute_action_recording(execution) {
+            // The record carries the five-state outcome the single-action path derived.
+            Ok(CliActionExecutionReport::Recorded(record)) => match record.outcome {
+                Some(outcome) => CliBulkItemStatus::Completed(outcome),
+                // A record with no outcome means the run never reached verification.
+                None => CliBulkItemStatus::Skipped(CliBulkSkipReason::OperationConflict),
+            },
+            Ok(CliActionExecutionReport::Refused(error)) => {
+                CliBulkItemStatus::Skipped(skip_reason_for(&error))
+            }
+            // The operations store itself failed. Nothing about this item was recorded, so the
+            // batch says so rather than claiming an outcome it never observed.
+            Err(error) => CliBulkItemStatus::Skipped(skip_reason_for(&error)),
+        }
     }
 
     pub(crate) fn prepare_cli_doctor(
@@ -452,6 +475,53 @@ impl CliEnvironmentService {
             .repository
             .expire_stale_plans(self.ports.clock.now(), 64)
     }
+}
+
+/// Maps a refusal from the single-action path onto this item's skip reason.
+///
+/// Every arm is a stable code the UI localizes. Surfacing the error message instead would put a
+/// sentence where a code belongs and lose the ability to group items by cause.
+fn skip_reason_for(error: &CliEnvironmentError) -> CliBulkSkipReason {
+    match error {
+        CliEnvironmentError::PlanStale
+        | CliEnvironmentError::PlanRevisionMismatch { .. }
+        | CliEnvironmentError::PlanNotFound => CliBulkSkipReason::PlanStale,
+        CliEnvironmentError::PlanExpired => CliBulkSkipReason::PlanExpired,
+        CliEnvironmentError::PlanConsumed => CliBulkSkipReason::PlanConsumed,
+        CliEnvironmentError::OperationConflict { .. } => CliBulkSkipReason::OperationConflict,
+        CliEnvironmentError::CatalogUnavailable { .. } => CliBulkSkipReason::CatalogUnavailable,
+        CliEnvironmentError::UnsupportedAction { .. }
+        | CliEnvironmentError::UnsupportedSource { .. }
+        | CliEnvironmentError::RuntimeUnsupported => CliBulkSkipReason::UnsupportedAction,
+        CliEnvironmentError::SourceUnavailable { .. }
+        | CliEnvironmentError::MissingDependency { .. } => CliBulkSkipReason::DetectOnlySource,
+        CliEnvironmentError::ElevationRequired => CliBulkSkipReason::NeedsAuth,
+        // Anything else stopped this item before it could run, and the executable is the first
+        // thing the user will look at.
+        _ => CliBulkSkipReason::Broken,
+    }
+}
+
+/// The wire shape of the per-item results.
+///
+/// A discriminated union: `status` says which arm, and exactly one of `outcome` and `reason` is
+/// populated. Both keys are always present so a reader never has to tell "absent" from
+/// "not applicable".
+fn encode_item_results(results: &[CliBulkItemResult]) -> Vec<serde_json::Value> {
+    results
+        .iter()
+        .map(|result| {
+            serde_json::json!({
+                "agentId": result.agent_id.as_str(),
+                "planId": result.plan_id.as_ref().map(|id| id.as_str()),
+                "sourceId": result.source_id.as_ref().map(|id| id.as_str()),
+                "targetVersion": result.target_version,
+                "status": result.status.kind(),
+                "outcome": result.status.outcome().map(CliMutationOutcome::as_str),
+                "reason": result.status.reason().map(CliBulkSkipReason::as_str),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

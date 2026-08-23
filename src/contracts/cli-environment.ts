@@ -148,3 +148,75 @@ export const CLI_OPERATION_PHASES: readonly CliOperationPhase[] = [
   "running-doctor",
   "completed",
 ] as const;
+
+/**
+ * Why a tool the user asked to upgrade is not in a batch, or did not run inside one.
+ *
+ * Mirrors `CliBulkSkipReason::as_str`. Stable codes rather than sentences, so the UI localizes
+ * them and a test can assert on them.
+ */
+export type CliBulkSkipReason =
+  | "already-current"
+  | "detect-only-source"
+  | "catalog-unavailable"
+  | "needs-auth"
+  | "broken"
+  | "not-installed"
+  | "unsupported-action"
+  | "unordered-versions"
+  | "source-ownership-unproven"
+  | "plan-stale"
+  | "plan-expired"
+  | "plan-consumed"
+  | "operation-conflict"
+  | "installation-conflict";
+
+export const CLI_BULK_SKIP_REASONS: readonly CliBulkSkipReason[] = [
+  "already-current",
+  "detect-only-source",
+  "catalog-unavailable",
+  "needs-auth",
+  "broken",
+  "not-installed",
+  "unsupported-action",
+  "unordered-versions",
+  "source-ownership-unproven",
+  "plan-stale",
+  "plan-expired",
+  "plan-consumed",
+  "operation-conflict",
+  "installation-conflict",
+] as const;
+
+/**
+ * What became of one tool in a batch.
+ *
+ * A discriminated union, not one string vocabulary. An item either ran and produced one of the
+ * five mutation outcomes, or it did not run and has a stable reason. The placeholder this replaces
+ * said a process had started and nothing about whether the machine changed.
+ */
+export type CliBulkItemResult =
+  | {
+      status: "completed";
+      agentId: string;
+      planId: string | null;
+      sourceId: string | null;
+      targetVersion: string | null;
+      outcome: CliMutationOutcome;
+      reason: null;
+    }
+  | {
+      status: "skipped";
+      agentId: string;
+      planId: string | null;
+      sourceId: string | null;
+      targetVersion: string | null;
+      outcome: null;
+      reason: CliBulkSkipReason;
+    };
+
+/** Terminal result of a bulk execution, carried on `OperationTask.result`. */
+export interface CliBulkExecutionResult {
+  /** Every tool the batch knew about, including the ones its plan already excluded. */
+  items: readonly CliBulkItemResult[];
+}

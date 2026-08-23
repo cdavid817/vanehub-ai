@@ -12,6 +12,11 @@ import {
   WEB_CLI_OUTCOME_TARGETS,
 } from "./web-cli-environment-fixtures";
 import type { OperationStatus } from "../types/operation";
+import {
+  CLI_BULK_SKIP_REASONS,
+  CLI_MUTATION_OUTCOMES,
+  type CliBulkExecutionResult,
+} from "../types/cli-environment";
 
 // The lifecycle both runtimes must agree on. Adding a status here without adding it to the Rust
 // `OperationStatus` enum is exactly the drift this file exists to catch.
@@ -196,16 +201,30 @@ describe("CLI environment adapter conformance across runtimes", () => {
     expect(result.skipped.find((skip) => skip.agentId === "opencode")?.reason).toBe("installation-conflict");
   });
 
-  it("reports a per-item outcome for a bulk execution", async () => {
+  it("reports a typed per-item result for a bulk execution", async () => {
     const started = await webCliEnvironmentClient.executeCliBulkAction({
       planId: "web-bulk-plan",
       expectedRevision: 1,
     });
     const terminal = await waitForTerminal(started.id);
-    const items = (terminal.result as { items: Array<{ outcome: string }> }).items;
+    const { items } = terminal.result as unknown as CliBulkExecutionResult;
 
     // A batch that half-succeeded is not a batch that succeeded.
-    expect(items.map((item) => item.outcome)).toEqual(["verified", "no-change-failed"]);
+    expect(items.map((item) => item.status)).toEqual(["completed", "completed", "skipped"]);
+    expect(items.filter((item) => item.status === "completed").map((item) => item.outcome))
+      .toEqual(["verified", "no-change-failed"]);
+    for (const item of items) {
+      // Exactly one arm is populated; a reader never has to tell "absent" from "not applicable".
+      if (item.status === "completed") {
+        expect(CLI_MUTATION_OUTCOMES).toContain(item.outcome);
+        expect(item.reason).toBeNull();
+      } else {
+        expect(CLI_BULK_SKIP_REASONS).toContain(item.reason);
+        expect(item.outcome).toBeNull();
+      }
+    }
+    // The placeholder said a process started and nothing about whether the machine changed.
+    expect(JSON.stringify(items)).not.toContain("\"ran\"");
   });
 
   it("supports Web cancellation as a distinct terminal status with no invented result", async () => {

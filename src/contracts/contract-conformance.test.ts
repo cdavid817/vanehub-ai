@@ -260,6 +260,17 @@ type CliEnvironmentAssertions = [
   >,
 ];
 
+type CliBulkAssertions = [
+  Assert<Equal<CliEnvironmentContracts.CliBulkSkipReason, CliEnvironmentTypes.CliBulkSkipReason>>,
+  Assert<Equal<CliEnvironmentContracts.CliBulkItemResult, CliEnvironmentTypes.CliBulkItemResult>>,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliBulkExecutionResult,
+      CliEnvironmentTypes.CliBulkExecutionResult
+    >
+  >,
+];
+
 type CliSnapshotAssertions = [
   Assert<Equal<CliSnapshotContracts.CliInstallation, CliSnapshotTypes.CliInstallation>>,
   Assert<Equal<CliSnapshotContracts.CliConflict, CliSnapshotTypes.CliConflict>>,
@@ -476,6 +487,7 @@ void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
 void (0 as unknown as CliEnvironmentAssertions);
 void (0 as unknown as CliSnapshotAssertions);
+void (0 as unknown as CliBulkAssertions);
 void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);

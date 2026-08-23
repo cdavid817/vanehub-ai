@@ -230,3 +230,75 @@ fn detection_waits_while_a_resource_is_being_written() {
     lease.release();
     assert!(coordinator.may_detect_now(&CliMutationKey::npm_global()));
 }
+
+#[test]
+fn a_freed_slot_goes_to_the_next_caller_in_call_order() {
+    // The coordinator refuses rather than blocking, so "queue" here means the order callers are
+    // admitted in is the order they ask in -- not an order the coordinator invents.
+    let coordinator = CliEnvironmentMutationCoordinator::default();
+    let first = coordinator
+        .try_reserve(&tool("claude-code"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .expect("granted");
+
+    let refused_second = coordinator
+        .try_reserve(&tool("codex-cli"), &CliMutationKey::npm_global())
+        .expect("reserve");
+    let refused_third = coordinator
+        .try_reserve(&tool("gemini-cli"), &CliMutationKey::npm_global())
+        .expect("reserve");
+    assert!(refused_second.is_none());
+    assert!(refused_third.is_none());
+
+    first.release();
+    // Whoever asks next gets it, deterministically, and the same key never has two holders.
+    let second = coordinator
+        .try_reserve(&tool("codex-cli"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .expect("granted");
+    assert!(coordinator
+        .try_reserve(&tool("gemini-cli"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .is_none());
+    second.release();
+}
+
+#[test]
+fn a_held_key_never_blocks_a_read() {
+    // `may_detect_now` is the only thing a held key gates. Listing snapshots and reading a stored
+    // plan take no reservation at all, so a running mutation cannot make the page unreadable.
+    let coordinator = CliEnvironmentMutationCoordinator::default();
+    let lease = coordinator
+        .try_reserve(&tool("claude-code"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .expect("granted");
+
+    assert!(!coordinator.may_detect_now(&CliMutationKey::npm_global()));
+    // A different tool's resource is unaffected, and nothing here refuses a read.
+    assert!(coordinator.may_detect_now(&CliMutationKey::winget()));
+    assert_eq!(coordinator.global_capacity(), 2);
+    lease.release();
+}
+
+#[test]
+fn releasing_a_lease_that_was_already_dropped_is_harmless() {
+    let coordinator = CliEnvironmentMutationCoordinator::default();
+    {
+        let lease = coordinator
+            .try_reserve(&tool("claude-code"), &CliMutationKey::npm_global())
+            .expect("reserve")
+            .expect("granted");
+        lease.release();
+        // Dropping after an explicit release must not free a second slot.
+    }
+    let regained = coordinator
+        .try_reserve(&tool("claude-code"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .expect("granted");
+    // Exactly one slot came back, not two.
+    assert!(coordinator
+        .try_reserve(&tool("codex-cli"), &CliMutationKey::npm_global())
+        .expect("reserve")
+        .is_none());
+    regained.release();
+}
