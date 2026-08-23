@@ -1,12 +1,12 @@
 //! Extension Platform persistence beyond the capability gates, publisher keys, and the snapshot
-//! pointer that migrations 81–85 already established.
+//! pointer that migrations 82–86 already established.
 //!
 //! Two things this file does that a schema file usually does not, both deliberate.
 //!
-//! It **rebuilds `extension_platform_installations`**. Migration 85 created it without foreign
+//! It **rebuilds `extension_platform_installations`**. Migration 86 created it without foreign
 //! keys, and SQLite cannot add one to an existing table. A pointer without integrity is exactly
 //! what the active-pointer rule exists to prevent, so the table is recreated with the references
-//! and its rows copied. Migration 85 is unchanged and unchangeable; this is the additive repair.
+//! and its rows copied. Migration 86 is unchanged and unchangeable; this is the additive repair.
 //!
 //! It uses `ON DELETE RESTRICT` everywhere and `CASCADE` nowhere. Every row a pointer points at is
 //! evidence, and cascade is the mechanism by which evidence disappears because something else was
@@ -122,7 +122,7 @@ fn apply_snapshot_detail(conn: &Connection) -> Result<(), DatabaseError> {
     repair_snapshot_contribution_digest(conn)
 }
 
-/// Migration 90: records which schema version wrote each operation witness.
+/// Migration 91: records which schema version wrote each operation witness.
 ///
 /// Retention must never remove a row a newer build wrote. Without a version on the row that is
 /// unknowable, and the failure is asymmetric: a downgrade that prunes what it cannot interpret
@@ -146,13 +146,13 @@ pub(crate) fn apply_operation_witness_bounds(conn: &Connection) -> Result<(), Da
 
 /// Adds `contribution_digest` to a contributions table created before it existed.
 ///
-/// Migration 86 gained the column while this change was still unreleased, so a database that had
+/// Migration 87 gained the column while this change was still unreleased, so a database that had
 /// already recorded 86 would never see it — `apply_transactional_migration` skips a version it has
 /// applied, and `CREATE TABLE IF NOT EXISTS` would not add it either. That database is a developer
 /// database on this branch, and this repository's databases are shared across worktrees, so
 /// "delete it and start again" would destroy unrelated branches' state.
 ///
-/// Called both from migration 86 and unconditionally from `migrate`, and a no-op wherever the
+/// Called both from migration 87 and unconditionally from `migrate`, and a no-op wherever the
 /// column is present.
 ///
 /// The column is nullable rather than `NOT NULL DEFAULT ''`: a row written before the column
@@ -184,7 +184,7 @@ pub(crate) fn repair_snapshot_contribution_digest(conn: &Connection) -> Result<(
     Ok(())
 }
 
-/// Recreates the installations table with the references migration 85 could not add.
+/// Recreates the installations table with the references migration 86 could not add.
 ///
 /// Guarded on the references being absent, so a database that already has them is untouched and a
 /// re-run is a no-op. The copy is inside the caller's transaction: `apply_transactional_migration`

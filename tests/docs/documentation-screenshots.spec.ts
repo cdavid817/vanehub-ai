@@ -212,8 +212,19 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   "settings-agent-configurations": (page, locale) =>
     openSettings(page, "agent-configurations", text(locale, "Agent 配置", "Agent Configurations")),
 
-  "settings-cli-parameters": (page, locale) =>
-    openSettings(page, "cli-parameters", text(locale, "CLI 参数管理", "CLI Parameter Management")),
+  "settings-cli-parameters": async (page, locale) => {
+    const shell = await openSettings(
+      page,
+      "cli-parameters",
+      text(locale, "CLI 参数管理", "CLI Parameter Management"),
+    );
+    // The preview is debounced, so the capture would otherwise freeze on the "refreshing" badge
+    // and document a transient state as if it were the resting one.
+    await expect(
+      shell.getByText(text(locale, "预览刷新中", "Refreshing preview")),
+    ).toHaveCount(0);
+    return shell;
+  },
 
   "settings-personalization": (page, locale) =>
     openSettings(page, "personalization", text(locale, "个性化", "Personalization")),

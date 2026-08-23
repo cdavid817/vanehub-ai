@@ -467,10 +467,13 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
 }
 
 pub(crate) trait AgentCliProfileGateway: Send + Sync {
+    /// `operation_id` associates any resolution diagnostic with the observable operation that
+    /// triggered the launch. An Agent Terminal launch has none.
     fn load(
         &self,
         agent_id: &str,
         configuration: &AgentChatConfiguration,
+        operation_id: Option<&str>,
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError>;
 
     fn load_interactive(

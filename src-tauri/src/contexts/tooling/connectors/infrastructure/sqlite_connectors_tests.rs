@@ -1,4 +1,4 @@
-//! Migration 89 against a real database.
+//! Migration 90 against a real database.
 //!
 //! Every concurrency test opens **two independent connections** from the pool. A single connection
 //! serialises by construction, so a CAS test that shares one proves nothing.
@@ -104,7 +104,7 @@ fn create(fixture: &Fixture, id: &str, label: &str) -> Result<(), ConnectorInsta
 // ---------------------------------------------------------------------------
 
 #[test]
-fn migration_89_creates_every_table_the_subdomain_owns() {
+fn migration_90_creates_every_table_the_subdomain_owns() {
     let fixture = fixture("connectors-migration");
     let connection = fixture.database.connection().expect("connection");
 
@@ -126,7 +126,7 @@ fn migration_89_creates_every_table_the_subdomain_owns() {
 }
 
 #[test]
-fn migration_89_is_a_no_op_on_a_database_that_already_has_it() {
+fn migration_90_is_a_no_op_on_a_database_that_already_has_it() {
     let directory = TempDirectory::new("connectors-idempotent");
     let path = directory.path().join("repeat.sqlite");
     let connection = Connection::open(&path).expect("open");

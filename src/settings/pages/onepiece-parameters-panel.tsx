@@ -8,9 +8,20 @@ import { OnePieceContextHealthSection } from "./agents/onepiece-context-health-s
 
 export function OnePieceParametersPanel() {
   const { t } = useTranslation();
+  // Same key *and* same shape as `OnePieceConfigurationPanel`. They used to be on different pages
+  // and never mounted together, which hid a collision: one stored `{ overview, presets }` under the
+  // key and the other stored the bare overview, so whichever mounted second read the wrong shape.
+  // Sharing the entry also means creating a provider updates this panel immediately, because the
+  // configuration panel writes the new value straight into the cache.
   const profiles = useQuery({
     queryKey: ["agents", "onepiece-provider-profiles"],
-    queryFn: () => agentService.listOnePieceProviderProfiles(),
+    queryFn: async () => {
+      const [overview, presets] = await Promise.all([
+        agentService.listOnePieceProviderProfiles(),
+        agentService.listOnePieceProviderPresets(),
+      ]);
+      return { overview, presets };
+    },
   });
 
   if (profiles.isLoading) {
@@ -24,6 +35,6 @@ export function OnePieceParametersPanel() {
   return <div className="space-y-4">
     <OnePieceContextCompactionSection />
     <OnePieceContextHealthSection />
-    <OnePieceRetrievalSection profiles={profiles.data?.profiles ?? []} />
+    <OnePieceRetrievalSection profiles={profiles.data?.overview.profiles ?? []} />
   </div>;
 }

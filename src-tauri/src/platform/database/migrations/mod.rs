@@ -507,60 +507,66 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         81,
+        "cli-parameter-profiles",
+        crate::contexts::tooling::cli_parameters::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        82,
         "extension-platform-feature-gates",
         crate::contexts::tooling::extension_platform::infrastructure::apply_feature_gate_schema,
     )?;
     apply_transactional_migration(
         conn,
-        82,
+        83,
         "extension-platform-gate-degradations",
         crate::contexts::tooling::extension_platform::infrastructure::apply_feature_gate_degradation_schema,
     )?;
     apply_transactional_migration(
         conn,
-        83,
+        84,
         "extension-platform-publisher-keys",
         crate::contexts::tooling::extension_platform::infrastructure::apply_publisher_key_schema,
     )?;
     apply_transactional_migration(
         conn,
-        84,
+        85,
         "extension-platform-developer-mode",
         crate::contexts::tooling::extension_platform::infrastructure::apply_developer_mode_schema,
     )?;
     apply_transactional_migration(
         conn,
-        85,
+        86,
         "extension-platform-snapshots",
         crate::contexts::tooling::extension_platform::infrastructure::apply_snapshot_schema,
     )?;
     apply_transactional_migration(
         conn,
-        86,
+        87,
         "extension-platform-persistence",
         crate::contexts::tooling::extension_platform::infrastructure::apply_extension_persistence_schema,
     )?;
     apply_transactional_migration(
         conn,
-        87,
+        88,
         "lifecycle-hook-persistence",
         crate::contexts::tooling::lifecycle_hooks::infrastructure::apply_lifecycle_hook_schema,
     )?;
     apply_transactional_migration(
         conn,
-        88,
+        89,
         "permission-authorization-rules",
         crate::contexts::permissions::infrastructure::rules::apply_authorization_rule_schema,
     )?;
     apply_transactional_migration(
         conn,
-        89,
+        90,
         "connector-persistence",
         crate::contexts::tooling::connectors::infrastructure::apply_connector_schema,
     )?;
     apply_transactional_migration(
         conn,
-        90,
+        91,
         "operation-witness-schema-version",
         crate::contexts::tooling::extension_platform::infrastructure::apply_operation_witness_bounds,
     )?;
@@ -668,16 +674,17 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
-    (81, "extension-platform-feature-gates"),
-    (82, "extension-platform-gate-degradations"),
-    (83, "extension-platform-publisher-keys"),
-    (84, "extension-platform-developer-mode"),
-    (85, "extension-platform-snapshots"),
-    (86, "extension-platform-persistence"),
-    (87, "lifecycle-hook-persistence"),
-    (88, "permission-authorization-rules"),
-    (89, "connector-persistence"),
-    (90, "operation-witness-schema-version"),
+    (81, "cli-parameter-profiles"),
+    (82, "extension-platform-feature-gates"),
+    (83, "extension-platform-gate-degradations"),
+    (84, "extension-platform-publisher-keys"),
+    (85, "extension-platform-developer-mode"),
+    (86, "extension-platform-snapshots"),
+    (87, "extension-platform-persistence"),
+    (88, "lifecycle-hook-persistence"),
+    (89, "permission-authorization-rules"),
+    (90, "connector-persistence"),
+    (91, "operation-witness-schema-version"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

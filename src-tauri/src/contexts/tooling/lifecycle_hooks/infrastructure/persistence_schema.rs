@@ -1,4 +1,4 @@
-//! Migration 87: Hook subjects, versioned definitions, user bindings, and execution evidence.
+//! Migration 88: Hook subjects, versioned definitions, user bindings, and execution evidence.
 //!
 //! Four choices here are load-bearing, and all four are cheaper to get right in the DDL than to
 //! defend in every repository method afterwards.

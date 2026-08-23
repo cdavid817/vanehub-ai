@@ -3297,6 +3297,19 @@
         "native-developer-documentation",
         "user-guide-documentation"
       ]
+    },
+    {
+      "archivedOn": "2026-08-23",
+      "changeName": "upgrade-cli-parameter-management",
+      "path": "openspec/changes/archive/2026-08-23-upgrade-cli-parameter-management/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-parameter-management"
+      ]
     }
   ]
 }

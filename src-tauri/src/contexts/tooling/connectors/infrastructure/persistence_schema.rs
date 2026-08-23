@@ -1,4 +1,4 @@
-//! Migration 89: connector subjects, versioned definitions, instances, and bindings.
+//! Migration 90: connector subjects, versioned definitions, instances, and bindings.
 //!
 //! ## What this deliberately does not touch
 //!

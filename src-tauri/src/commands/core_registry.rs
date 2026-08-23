@@ -232,6 +232,7 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::cli_config::apply_cli_config_profile::apply_cli_config_profile,
         crate::commands::tooling::cli_config::validate_cli_config_credential::validate_cli_config_credential,
         crate::commands::tooling::cli_parameters::list_cli_parameter_profiles::list_cli_parameter_profiles,
+        crate::commands::tooling::cli_parameters::preview_cli_parameter_profile::preview_cli_parameter_profile,
         crate::commands::tooling::cli_parameters::save_cli_parameter_profile::save_cli_parameter_profile,
         crate::commands::tooling::cli_parameters::reset_cli_parameter_profile::reset_cli_parameter_profile,
         // Tooling: MCP

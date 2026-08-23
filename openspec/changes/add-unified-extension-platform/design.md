@@ -1254,11 +1254,11 @@ Four rules the implementation encodes:
 
 A row that no longer parses — key material that is not 32 bytes, an unknown source or trust state — is dropped from a list read rather than failing it. One corrupt row must not make every trusted key invisible, because invisible keys mean every signed package suddenly reads as signed by an unknown publisher. Dropping resolves the broken row to "not trusted", which is fail-closed for the row that is actually broken.
 
-The publisher-key table (`extension_platform_publisher_keys`, migration 83) lands here rather than in task 3.1, because 2.4 comes first in the required order and needs somewhere to write. Task 3.1 covers the remaining tables and must not add a second one for keys.
+The publisher-key table (`extension_platform_publisher_keys`, migration 84) lands here rather than in task 3.1, because 2.4 comes first in the required order and needs somewhere to write. Task 3.1 covers the remaining tables and must not add a second one for keys.
 
 ### Unsigned content and Developer Mode (Task 2.5)
 
-**Developer Mode is not an eighth capability gate.** The seven gates say which parts of the Extension Platform are compiled and switched on; this says whether content with no provenance may be installed at all. Filing an admission policy behind a rollout switch would conflate two different questions, and the gate enum is deliberately closed. It gets its own single-row table and audit trail (migration 84).
+**Developer Mode is not an eighth capability gate.** The seven gates say which parts of the Extension Platform are compiled and switched on; this says whether content with no provenance may be installed at all. Filing an admission policy behind a rollout switch would conflate two different questions, and the gate enum is deliberately closed. It gets its own single-row table and audit trail (migration 85).
 
 Three rules the code encodes rather than documents:
 
@@ -1330,7 +1330,7 @@ Publication is a rename within one volume, which is the only step that is atomic
 
 The revision is checked twice: once before any content is moved, so a caller holding a stale preview does not leave bytes behind, and once inside the guarded write, where it is authoritative. The first is a courtesy that avoids pointless work; the second is the one that decides.
 
-`extension_platform_snapshots` and `extension_platform_installations` land here as migration 85 rather than in task 3.1, for the same reason as tasks 2.4 and 2.5: the required order puts this first and it needs somewhere to write.
+`extension_platform_snapshots` and `extension_platform_installations` land here as migration 86 rather than in task 3.1, for the same reason as tasks 2.4 and 2.5: the required order puts this first and it needs somewhere to write.
 
 ### What a restart may clean up (Task 2.10)
 
@@ -1372,7 +1372,7 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 * **No foreign key on `operation_id`.** Operations live in `InMemoryOperationRepository`; there is no table to reference and this change must not create one.
 * **Immutable evidence is never cascade-deleted.** Packages, version claims, snapshots, witnesses, rule sets, hook definitions, and connector definitions go only through an explicit uninstall path that Task Group 4 owns.
 
-#### `tooling::extension_platform` — migration 86
+#### `tooling::extension_platform` — migration 87
 
 | Aggregate | In 81–85 | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1395,7 +1395,7 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 **Witness identity is `(operation_id, witness_digest)`, not the digest alone.** The digest deliberately covers only the *state* a confirmation is bound to, so that it can be recomputed at confirm time; it does not include the operation. Two operations previewing the same unchanged world therefore produce the same digest, and a digest primary key would make the second collide with the first. `witness_id` is the key and the pair is unique.
 
-#### `tooling::lifecycle_hooks` — migration 87
+#### `tooling::lifecycle_hooks` — migration 88
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1416,7 +1416,7 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 **`sequence` is assigned by storage as `MAX + 1` under a write lock, and retention is what keeps it monotonic.** Timestamps are not an ordering: two executions inside one clock tick tie, and the clock can go backwards. Pruning keeps the newest `keep` rows whatever their status and removes only *terminal* rows from what is left, so a subject that has ever run always retains at least one row and a sequence is never reissued. `HookExecutionRetention` cannot be constructed with a window of zero, which is what makes that unconditional. An unfinished execution is never removed regardless of age: deleting one turns a Hook that is still going into a Hook that never happened, and the completion that arrives afterwards has nothing to attach to.
 
-#### `permissions::rules` — migration 88
+#### `permissions::rules` — migration 89
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1426,11 +1426,11 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 **One canonical model.** One `AuthorizationRule`, one immutable rule set, one active pointer, one repository, one evaluator. The Unified Extension Platform contributes the `Extension` rule source into it; the Permission Policy Center manages `User` and `Project` in the same model. Neither builds a second rule table, and there is no dual-write compatibility layer.
 
-**Templates are not a persisted rule source.** `agent_principals.template_name`, `PolicyTemplateName`, `policies_for_template()`, and the current PDP keep template ownership. Migration 88 creates no `source_kind = 'template'` — the `CHECK` makes one unrepresentable — seeds no rows for the four templates, includes no template in a rule-set digest, and does not publish a rule set or move the active pointer when a template assignment changes. Compiling templates into rules would make every template change publish an immutable set, and would put the host's own fallback behind the same review path as a downloaded extension's rules.
+**Templates are not a persisted rule source.** `agent_principals.template_name`, `PolicyTemplateName`, `policies_for_template()`, and the current PDP keep template ownership. Migration 89 creates no `source_kind = 'template'` — the `CHECK` makes one unrepresentable — seeds no rows for the four templates, includes no template in a rule-set digest, and does not publish a rule set or move the active pointer when a template assignment changes. Compiling templates into rules would make every template change publish an immutable set, and would put the host's own fallback behind the same review path as a downloaded extension's rules.
 
 **The rule evaluator returns four outcomes.** `Deny`, `Ask`, `Allow`, and `NoMatch` — and only `NoMatch` reaches the existing template/PDP. Collapsing `NoMatch` into `Ask` would silently replace the PDP: today's templates allow `file.read`, so every read would start prompting the moment the first rule set was published, for an operation the rule set never mentioned. A template consulted this way appears in the audit as `DecisionTraceStep::TemplateFallback`, which is a trace step and not a stored rule.
 
-**Grants stay independent.** Migration 88 does not modify, copy, or rebuild `permission_grants`, and no grant is part of a rule-set digest. Grants remain the Approval Broker's and Grant Repository's; they participate only when the answer is still `Ask` after rules, template, and hooks, and only within the intersection of the Immutable Safety Floor, the rule's `allowed_scopes`, risk, and the session/project boundary. Activating a different rule set deletes no grant — eligibility is re-decided the next time the grant would be used, which is what lets a rule set be rolled back without destroying a user's remembered answers.
+**Grants stay independent.** Migration 89 does not modify, copy, or rebuild `permission_grants`, and no grant is part of a rule-set digest. Grants remain the Approval Broker's and Grant Repository's; they participate only when the answer is still `Ask` after rules, template, and hooks, and only within the intersection of the Immutable Safety Floor, the rule's `allowed_scopes`, risk, and the session/project boundary. Activating a different rule set deletes no grant — eligibility is re-decided the next time the grant would be used, which is what lets a rule set be rolled back without destroying a user's remembered answers.
 
 **The decision order is fixed**, and is written down as `DECISION_ORDER` so that changing it is a change to the security model rather than a refactor:
 
@@ -1450,9 +1450,9 @@ Every step may only make the answer stricter than the one before it, except `Tem
 
 **Reads fail closed.** A stored `source_kind`, `effect`, `matcher`, `scope_kind`, or `provenance` this build cannot name makes the whole rule set unreadable, rather than skipping the row — a set silently missing exactly one unparseable `Deny` is the worst available outcome.
 
-**While the store is unwired, permissions behaviour is unchanged.** Migration 88 lands the model and the storage; wiring the `NoMatch` fallthrough and the trace into `EvaluationService` belongs to the task group that owns evaluation. A test publishes and activates a Deny-everything rule set and asserts the existing PDP still answers exactly as it does today.
+**While the store is unwired, permissions behaviour is unchanged.** Migration 89 lands the model and the storage; wiring the `NoMatch` fallthrough and the trace into `EvaluationService` belongs to the task group that owns evaluation. A test publishes and activates a Deny-everything rule set and asserts the existing PDP still answers exactly as it does today.
 
-#### `tooling::connectors` — migration 89
+#### `tooling::connectors` — migration 90
 
 | Aggregate | Mutability | Revision / CAS | Foreign key | Unique | Retention | Secret | Seed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1469,7 +1469,7 @@ Every step may only make the answer stricter than the one before it, except `Tem
 
 **`public_configuration` refuses secret-shaped keys.** Not a value scanner — a name check at the one boundary where the name is reliable, because a field a definition declared *public* is by construction never the one called `api_key`. It catches the specific mistake the column invites: pasting a token into the visible settings form.
 
-**Migration 89 does not migrate or dual-write the existing IM connectors, MCP servers, GitHub readiness, or the local OCR/ASR/TTS capabilities.** Their projections onto this model land with the task groups that own them; moving live user state now would be rewriting it to fit a model nothing reads yet.
+**Migration 90 does not migrate or dual-write the existing IM connectors, MCP servers, GitHub readiness, or the local OCR/ASR/TTS capabilities.** Their projections onto this model land with the task groups that own them; moving live user state now would be rewriting it to fit a model nothing reads yet.
 
 #### Stable subject, versioned definition
 
@@ -1518,9 +1518,9 @@ Every mutation is idempotent or one-way: adding a key rewrites only `label`, `so
 
 **No credential-store call may happen inside a SQLite transaction.** A keychain read can block on a user prompt, a locked keyring, or a DBus round trip, and a write transaction holding the database lock while that happens stalls every other writer for as long as the dialog goes unanswered. The repository methods take handles precisely so the two never interleave.
 
-**Crash-safe replacement is an open task, not something migration 89 implements.** `write-new -> CAS -> delete-old` survives an error return and nothing more: a process killed between the credential-store write and the database commit leaves an orphaned secret and an instance pointing at the old handle, and nothing on the next launch knows to look. Making it durable needs a `connector_credential_transitions` table that records the *predictable new handle before the secret is written*, then `prepared -> new_stored -> switched -> cleanup_pending/completed`, with every non-terminal transition reconciled at startup.
+**Crash-safe replacement is an open task, not something migration 90 implements.** `write-new -> CAS -> delete-old` survives an error return and nothing more: a process killed between the credential-store write and the database commit leaves an orphaned secret and an instance pointing at the old handle, and nothing on the next launch knows to look. Making it durable needs a `connector_credential_transitions` table that records the *predictable new handle before the secret is written*, then `prepared -> new_stored -> switched -> cleanup_pending/completed`, with every non-terminal transition reconciled at startup.
 
-Task Group 3 has no connect or execute path, so there is no real replacement to make safe. Building the state machine now would ship recovery code no code path reaches and no test exercises honestly, which is worse than not having it: it would read as solved. It belongs to the **Connector Lifecycle task group** and is recorded there as an explicit open task rather than implied to exist. What migration 89 does provide is the property the state machine will rest on — `allocate` returns a fresh handle every time, so a new secret never overwrites the old one in place and the previous one stays readable until something deliberately deletes it.
+Task Group 3 has no connect or execute path, so there is no real replacement to make safe. Building the state machine now would ship recovery code no code path reaches and no test exercises honestly, which is worse than not having it: it would read as solved. It belongs to the **Connector Lifecycle task group** and is recorded there as an explicit open task rather than implied to exist. What migration 90 does provide is the property the state machine will rest on — `allocate` returns a fresh handle every time, so a new secret never overwrites the old one in place and the previous one stays readable until something deliberately deletes it.
 
 #### What is deliberately absent
 

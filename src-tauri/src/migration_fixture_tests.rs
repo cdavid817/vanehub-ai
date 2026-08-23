@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 86. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 91. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -21,20 +21,22 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
 /// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
-/// migration 81 adds Extension Platform capability-gate desired state and its audit trail, and
-/// migration 82 adds the gate-degradation record written when a reload leaves the published set
-/// stale, migration 83 adds the trusted publisher-key store, and migration 84 adds the Developer
-/// Mode switch and its audit trail, and migration 85 adds published snapshots and the
-/// pointer that says which one each installation runs, and migration 86 adds version claims,
+/// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
+/// beside the existing per-parameter rows without deleting any of them, and
+/// migration 82 adds Extension Platform capability-gate desired state and its audit trail, and
+/// migration 83 adds the gate-degradation record written when a reload leaves the published set
+/// stale, migration 84 adds the trusted publisher-key store, and migration 85 adds the Developer
+/// Mode switch and its audit trail, and migration 86 adds published snapshots and the
+/// pointer that says which one each installation runs, and migration 87 adds version claims,
 /// packages, snapshot detail, runtime generations, and operation witnesses while rebuilding
-/// the installations table with the references SQLite cannot add after the fact, and migration 87
+/// the installations table with the references SQLite cannot add after the fact, and migration 88
 /// adds lifecycle Hook subjects, their versioned definitions, user bindings, and bounded
-/// execution evidence, and migration 88 adds the canonical authorization rule sets, their rules,
-/// and the single active-rule-set pointer, and migration 89 adds connector subjects, their
-/// versioned definitions, configured instances, and their bindings, and migration 90 records which
+/// execution evidence, and migration 89 adds the canonical authorization rule sets, their rules,
+/// and the single active-rule-set pointer, and migration 90 adds connector subjects, their
+/// versioned definitions, configured instances, and their bindings, and migration 91 records which
 /// schema version wrote each operation witness so retention never prunes a newer build's row.
 fn expected_versions() -> Vec<i64> {
-    (1..=90).collect()
+    (1..=91).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

@@ -1,11 +1,18 @@
 {
-  "reviewedAt": "2026-08-20",
+  "reviewedAt": "2026-08-23",
   "sources": {
     "claude-code": "https://code.claude.com/docs/en/cli-reference",
-    "codex-cli": "https://developers.openai.com/codex/cli/reference",
-    "gemini-cli": "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md",
-    "opencode": "https://dev.opencode.ai/docs/cli/",
-    "antigravity-cli": "https://antigravity.google/docs/cli/using"
+    "codex-cli": "https://developers.openai.com/codex/config-reference",
+    "gemini-cli": "https://geminicli.com/docs/cli/cli-reference/",
+    "opencode": "https://opencode.ai/docs/cli/",
+    "antigravity-cli": "https://antigravity.google/docs/cli/headless/"
+  },
+  "binaries": {
+    "claude-code": "2.1.237",
+    "codex-cli": "0.149.0",
+    "gemini-cli": "0.53.0",
+    "opencode": "1.18.19",
+    "antigravity-cli": "1.1.18"
   },
   "excludedCategories": [
     "approval-and-permission-policy",

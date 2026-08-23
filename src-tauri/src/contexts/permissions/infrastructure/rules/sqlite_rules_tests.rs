@@ -1,6 +1,6 @@
-//! Migration 88 against a real database.
+//! Migration 89 against a real database.
 //!
-//! Half of these assert what migration 88 does. The other half assert what it does **not** do:
+//! Half of these assert what migration 89 does. The other half assert what it does **not** do:
 //! templates are not seeded as rules, grants are untouched, and nothing about the existing
 //! permissions path changes while the rule set is unwired. Those are the assertions that would
 //! catch this migration quietly replacing the PDP instead of sitting beside it.
@@ -93,7 +93,7 @@ fn record(fixture: &Fixture, id: &str, rules: &[AuthorizationRule]) -> RuleSetOu
 // ---------------------------------------------------------------------------
 
 #[test]
-fn migration_88_creates_every_table_the_subdomain_owns() {
+fn migration_89_creates_every_table_the_subdomain_owns() {
     let fixture = fixture("rules-migration");
     let connection = fixture.database.connection().expect("connection");
 
@@ -114,7 +114,7 @@ fn migration_88_creates_every_table_the_subdomain_owns() {
 }
 
 #[test]
-fn migration_88_is_a_no_op_on_a_database_that_already_has_it() {
+fn migration_89_is_a_no_op_on_a_database_that_already_has_it() {
     let directory = TempDirectory::new("rules-idempotent");
     let path = directory.path().join("repeat.sqlite");
     let connection = Connection::open(&path).expect("open");
@@ -167,12 +167,12 @@ fn the_active_pointer_is_a_singleton() {
 }
 
 // ---------------------------------------------------------------------------
-// What migration 88 leaves alone
+// What migration 89 leaves alone
 // ---------------------------------------------------------------------------
 
 #[test]
 fn template_assignments_survive_the_upgrade_unchanged() {
-    // Templates stay with the existing PDP. If migration 88 ever rewrote a principal's template --
+    // Templates stay with the existing PDP. If migration 89 ever rewrote a principal's template --
     // to "compile" it into rules, say -- an agent's policy would change during an upgrade nobody
     // asked for.
     let directory = TempDirectory::new("rules-templates-preserved");
@@ -237,7 +237,7 @@ fn no_rule_is_seeded_for_any_template() {
 
 #[test]
 fn existing_grants_are_neither_moved_nor_counted() {
-    // Grants stay with the Approval Broker. Migration 88 does not copy, rebuild, or delete one,
+    // Grants stay with the Approval Broker. Migration 89 does not copy, rebuild, or delete one,
     // and no grant is part of any rule-set digest.
     let directory = TempDirectory::new("rules-grants-preserved");
     let path = directory.path().join("grants.sqlite");
@@ -709,7 +709,7 @@ impl DefaultTemplatePort for FixedDefault {
 
 #[test]
 fn the_existing_pdp_answers_exactly_as_it_did_while_the_rule_set_is_unwired() {
-    // Migration 88 lands the store. Wiring it into evaluation -- the `NoMatch` fallthrough and the
+    // Migration 89 lands the store. Wiring it into evaluation -- the `NoMatch` fallthrough and the
     // trace -- belongs to the task group that owns the PDP. Until then the permissions answer must
     // be what it is today, and the way to prove that is to publish and activate a rule set that
     // would flip every answer, then check that no answer moved.

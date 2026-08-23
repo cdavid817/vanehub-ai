@@ -22,6 +22,26 @@ async function fixtureProcessCount() {
   return stdout.split("\n").filter((line) => line.includes("fixtures/cli/opencode")).length;
 }
 
+const CURSOR_POSITION_REPORT = "\u001b[6n";
+
+async function answerCursorPositionReport(terminalId) {
+  const asked = await globalThis.browser
+    .waitUntil(
+      async () =>
+        (await globalThis.browser.execute(() => globalThis.__terminalOutput)).includes(
+          CURSOR_POSITION_REPORT,
+        ),
+      { timeout: 10000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!asked) return;
+  await globalThis.browser.tauri.execute(
+    ({ core }, input) => core.invoke("send_agent_terminal_input", input),
+    { terminalId, content: "\u001b[1;1R" },
+  );
+}
+
 globalThis.describe("VaneHub AI CLI Agent terminal round trip", () => {
   globalThis.it("starts, streams, accepts input, and stops a managed CLI Agent terminal", async function () {
     this.timeout(180000);
@@ -43,15 +63,29 @@ globalThis.describe("VaneHub AI CLI Agent terminal round trip", () => {
     assert.ok(agent, "the builtin opencode Agent is missing from the registry");
     assert.equal(agent.availabilityState, "available", agent.unavailableReason ?? "fixture executable was not resolved");
 
+    // `browser.execute` does not await the promise it is handed, and `event.listen` only completes
+    // its subscription after an IPC round trip. Returning that promise therefore armed nothing:
+    // whatever the terminal emitted before the round trip finished was dropped, and on a slow host
+    // that is the first line the assertions wait for. The registration is now confirmed before the
+    // terminal is opened.
     await globalThis.browser.execute(() => {
       globalThis.__terminalOutput = "";
       globalThis.__terminalStates = [];
-      return globalThis.__TAURI__.event.listen("agent-terminal:event", (received) => {
-        const payload = received.payload;
-        if (payload.type === "output") globalThis.__terminalOutput += payload.content;
-        else if (payload.type === "state") globalThis.__terminalStates.push(payload.state);
-      });
+      globalThis.__terminalListening = false;
+      void globalThis.__TAURI__.event
+        .listen("agent-terminal:event", (received) => {
+          const payload = received.payload;
+          if (payload.type === "output") globalThis.__terminalOutput += payload.content;
+          else if (payload.type === "state") globalThis.__terminalStates.push(payload.state);
+        })
+        .then(() => {
+          globalThis.__terminalListening = true;
+        });
     });
+    await globalThis.browser.waitUntil(
+      async () => globalThis.browser.execute(() => globalThis.__terminalListening === true),
+      { timeout: 30000, timeoutMsg: "The terminal event listener was never registered." },
+    );
 
     await globalThis.browser.tauri.execute(({ core }, projectPath) => core.invoke("create_session", {
       input: {
@@ -77,10 +111,25 @@ globalThis.describe("VaneHub AI CLI Agent terminal round trip", () => {
     assert.equal(terminal.state, "running");
     assert.equal(terminal.capability, "native");
 
+    const diagnose = async () => {
+      const captured = await globalThis.browser.execute(() => ({
+        output: globalThis.__terminalOutput,
+        states: globalThis.__terminalStates,
+        listening: globalThis.__terminalListening,
+      }));
+      return ` Listener armed: ${captured.listening}. States seen: ${JSON.stringify(captured.states)}. Output so far: ${JSON.stringify(captured.output.slice(-400))}.`;
+    };
     const seen = async (needle) => globalThis.browser.waitUntil(
       async () => (await globalThis.browser.execute(() => globalThis.__terminalOutput)).includes(needle),
-      { timeout: 30000, timeoutMsg: `The terminal never produced ${needle}.` },
+      { timeout: 30000, timeoutMsg: `The terminal never produced ${needle}.${await diagnose()}` },
     );
+
+    // The wrapper runs under PowerShell, whose PSReadLine asks the terminal where the cursor is
+    // (`ESC[6n`) and waits for the answer before it will run anything. The real UI is xterm.js and
+    // answers automatically; this harness only accumulates strings, so nothing replied and the
+    // fixture never got to start. Answering the report is emulating the terminal, not working
+    // around the product.
+    await answerCursorPositionReport(terminal.terminalId);
 
     await seen(READY);
     await globalThis.browser.tauri.execute(

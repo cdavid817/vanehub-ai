@@ -191,7 +191,7 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 ## CLI 启动参数
 
-五个 CLI 各自的命令行参数、VaneHub AI 里的启动参数配置，以及 OnePiece 的等价配置，统一收在[工具与扩展 → CLI 参数](tooling.md#cli-参数)。
+五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](tooling.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](tooling.md#agent-配置)。
 
 ## 下一步
 

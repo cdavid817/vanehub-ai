@@ -1,4 +1,4 @@
-//! Migration 87 against a real database: references, idempotency, retention, redaction, and CAS.
+//! Migration 88 against a real database: references, idempotency, retention, redaction, and CAS.
 //!
 //! Every concurrency test here opens **two independent connections** from the pool. A single
 //! connection serialises by construction, so a CAS test that shares one proves nothing about the
@@ -95,7 +95,7 @@ fn execution(id: &str, status: HookExecutionStatus) -> HookExecutionRecord {
 }
 
 #[test]
-fn migration_87_creates_every_table_the_subdomain_owns() {
+fn migration_88_creates_every_table_the_subdomain_owns() {
     let fixture = fixture("hooks-migration");
     let connection = fixture.database.connection().expect("connection");
 
@@ -117,7 +117,7 @@ fn migration_87_creates_every_table_the_subdomain_owns() {
 }
 
 #[test]
-fn migration_87_is_a_no_op_on_a_database_that_already_has_it() {
+fn migration_88_is_a_no_op_on_a_database_that_already_has_it() {
     // Every start runs it. A migration that is not idempotent is a migration that breaks the
     // second launch, which is the launch nobody tests by hand.
     let directory = TempDirectory::new("hooks-idempotent");

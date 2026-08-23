@@ -1,4 +1,4 @@
-//! Migration 86 against a real database: references, idempotency, rollback, and two-connection CAS.
+//! Migration 87 against a real database: references, idempotency, rollback, and two-connection CAS.
 //!
 //! Every concurrency test here opens **two independent connections** from the pool. A single
 //! connection serialises by construction, so a CAS test that shares one proves nothing about the
@@ -594,8 +594,8 @@ fn evidence_is_not_removed_by_deleting_what_points_at_it() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn migration_86_rebuilds_installations_with_references_and_keeps_their_rows() {
-    // Migration 85 created the table without foreign keys and SQLite cannot add one afterwards, so
+fn migration_87_rebuilds_installations_with_references_and_keeps_their_rows() {
+    // Migration 86 created the table without foreign keys and SQLite cannot add one afterwards, so
     // 86 recreates it and copies. The copy is the part worth testing: a rebuild that silently
     // dropped rows would leave every installed extension unfindable while every schema assertion
     // still passed.
@@ -607,7 +607,7 @@ fn migration_86_rebuilds_installations_with_references_and_keeps_their_rows() {
     connection
         .execute_batch(
             r#"
-            DELETE FROM schema_migrations WHERE version = 86;
+            DELETE FROM schema_migrations WHERE version = 87;
             DROP TABLE extension_platform_active_runtime_generations;
             DROP TABLE extension_platform_runtime_generations;
             DROP TABLE extension_platform_operation_witnesses;
@@ -642,7 +642,7 @@ fn migration_86_rebuilds_installations_with_references_and_keeps_their_rows() {
                     '2026-08-22T00:00:00Z');
             "#,
         )
-        .expect("pre-migration-86 fixture");
+        .expect("pre-migration-87 fixture");
 
     let references_before: i64 = connection
         .query_row(
@@ -680,7 +680,7 @@ fn migration_86_rebuilds_installations_with_references_and_keeps_their_rows() {
 }
 
 #[test]
-fn migration_86_is_a_no_op_on_a_database_that_already_has_it() {
+fn migration_87_is_a_no_op_on_a_database_that_already_has_it() {
     // The rebuild is guarded on the references being absent, so re-running must not recreate the
     // table -- a second rebuild would be a second chance to lose rows.
     let connection = Connection::open_in_memory().expect("in-memory database");
@@ -706,7 +706,7 @@ fn migration_86_is_a_no_op_on_a_database_that_already_has_it() {
 
 #[test]
 fn a_local_build_and_a_verified_publisher_hold_separate_version_bindings() {
-    // The contract migration 86 owes: the claim key is an authority this installation established,
+    // The contract migration 87 owes: the claim key is an authority this installation established,
     // not a string the package supplied. If both filed under the manifest's `publisher`, a local
     // build of `acme.git-guardian` 1.2.0 would take the binding and every later genuine release of
     // that version would be refused as a conflict.

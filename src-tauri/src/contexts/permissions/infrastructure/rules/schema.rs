@@ -1,4 +1,4 @@
-//! Migration 88: the one canonical authorization-rule store.
+//! Migration 89: the one canonical authorization-rule store.
 //!
 //! ## What this deliberately does not touch
 //!

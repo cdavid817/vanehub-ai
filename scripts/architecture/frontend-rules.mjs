@@ -44,8 +44,27 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 也没有 sidecar 宿主,不能说成"只是关着"。freshness 是同一条边界上的固定开销:degraded 与每个门
 // 自己的状态是两件事,合并会让"全关"同时表示"存储读不出来"和"就是关着"。实测 19407,上限按实测
 // 值收紧,不留余量。
+// 上调理由(upgrade-cli-parameter-management):CLI 参数命令切到 v2 DTO 后,Web/mock 适配器不能再
+// 依赖手工维护的 catalog。新增的 273 行是这条边界的固定开销:`cli-parameter-registry.ts` 用 zod
+// 解析 generated 契约(裸 `as` 会让生成器回归变成运行期形状错配,而适配器恰恰是 native 测试照不到
+// 的地方),`cli-parameter-renderer.ts` 是 native 渲染策略的镜像,两者都没有可搬移的现成实现。
+// 其余 +215 是 `web-cli-parameter-client.ts` 补上 revision/catalogVersion 乐观并发与结构化错误
+// (mock 若放行冲突,页面的冲突分支就永远不会被跑到),以及两个适配器的新 preview 方法。
+// 另有 51 行是 v1 浏览器存储的一次性迁移:v1 用 `"default"` 与 `false` 两个哨兵表示"未设置",
+// 但定义里真有 `default` 选项或本身是 tri-state 时它们都不是哨兵,所以转换必须按定义而不是按字符串
+// 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
+// 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
+// 一起下线,届时这条上限应当回落。
+// 合并后实测:上面两条各自只见过自己那一侧,19407 与 19727 都不是合并树的真实值。合并树实测
+// 19693——比 upgrade-cli-parameter-management 报的 19727 还低,也就是说那条上限本身留了 34 行
+// 余量,而不是合并把它撑破了。上限按实测值收紧到 19693,不取两者较大值。owner 记两条:任何一条
+// 回落时(例如 `cli-parameter-catalog.ts` 随 task 10.4 下线),这个上限都应当跟着回落。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19407, owner: "add-unified-extension-platform" },
+  {
+    root: "src/services",
+    budget: 19693,
+    owner: "add-unified-extension-platform + upgrade-cli-parameter-management",
+  },
 ]);
 
 const STATE_PACKAGES = new Set([
