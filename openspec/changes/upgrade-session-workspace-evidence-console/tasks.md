@@ -136,7 +136,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 6.9 Add page append that de-duplicates by stable record id and preserves loaded rows on failure.
 - [x] 6.10 Virtualize the loaded record list and verify bounded mounted rows with maximum-page fixtures.
 - [x] 6.11 Add empty, partial, indexing, unavailable, and no-filter-match states using synchronized locale resources.
-- [ ] 6.12 Add tests for native, proxied, inferred, opaque, running, failed, cancelled, incomplete, redacted, output-unavailable, and partial-coverage rows.
+- [x] 6.12 Add tests for native, proxied, inferred, opaque, running, failed, cancelled, incomplete, redacted, output-unavailable, and partial-coverage rows.
 
 ## 7. Retained Multi-Shell Lifecycle
 

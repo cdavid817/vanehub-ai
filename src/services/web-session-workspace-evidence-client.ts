@@ -1,3 +1,4 @@
+import { matchesExecutionRecordQuery } from "../contracts/execution-record-filter";
 import { evidenceCursorSchema } from "../contracts/session-workspace-evidence-ids";
 import type {
   CursorPage,
@@ -54,22 +55,6 @@ function boundedLimit(limit: number | undefined): number {
   return Math.min(Math.max(1, Math.trunc(limit)), EVIDENCE_PAGE_LIMITS.maximum);
 }
 
-function matchesQuery(record: ExecutionRecord, input: ExecutionRecordQuery): boolean {
-  const { scope, filters } = input;
-  if (record.sessionId !== scope.sessionId) return false;
-  // An absent correlation is not a match for a concrete filter value. Attributing an uncorrelated
-  // record to the current selection is the behaviour the seat work removed elsewhere.
-  if (scope.seatId !== undefined && record.seatId !== scope.seatId) return false;
-  if (scope.runId !== undefined && record.runId !== scope.runId) return false;
-  if (scope.traceId !== undefined && record.traceId !== scope.traceId) return false;
-  if (scope.spanId !== undefined && record.spanId !== scope.spanId) return false;
-  if (!filters) return true;
-  if (filters.kinds?.length && !filters.kinds.includes(record.kind)) return false;
-  if (filters.statuses?.length && !filters.statuses.includes(record.status)) return false;
-  if (filters.fidelities?.length && !filters.fidelities.includes(record.fidelity)) return false;
-  return true;
-}
-
 export interface SimulatedEvidenceNotice
   extends Omit<ExecutionEvidenceNotice, "sequence" | "occurredAt"> {
   /** Pin the sequence to script a gap; omit it to advance monotonically. */
@@ -108,7 +93,7 @@ export function createWebSessionWorkspaceEvidenceClient(): WebSessionWorkspaceEv
       const limit = boundedLimit(input.limit);
       const matching = webExecutionRecords()
         .map((record) => ({ ...record, sessionId: input.scope.sessionId }))
-        .filter((record) => matchesQuery(record, input));
+        .filter((record) => matchesExecutionRecordQuery(record, input));
       const items = matching.slice(offset, offset + limit);
       const nextOffset = offset + items.length;
       const hasMore = nextOffset < matching.length;

@@ -32,7 +32,7 @@ const traceId = evidenceTraceIdSchema.parse("trace-1");
  */
 function Probe({ onRender, sessionId }: { onRender: (frame: string) => void; sessionId: EvidenceSessionId }) {
   const { activeTab, activateTab, navigate, scope } = useWorkspaceEvidenceScope();
-  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId);
+  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId, activeTab);
   const renders = useRef(0);
   renders.current += 1;
   onRender(JSON.stringify({ activeTab, mounted: [...mountedTabs], scope }));

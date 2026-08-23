@@ -71,4 +71,66 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
     globalThis.console.warn("WORKSPACE_TABS " + JSON.stringify(rendered));
     await assertNoFatalError(root);
   });
+
+  globalThis.it("reads terminal history through the native record query", async function () {
+    this.timeout(300000);
+    const root = await bootDesktopUi();
+
+    const terminal = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="终端记录"]',
+    );
+    await terminal.waitForClickable({ timeout: 20000 });
+    await terminal.click();
+    const views = await globalThis.$('[role="tablist"][aria-label="执行记录视图"]');
+    await views.waitForExist({ timeout: 20000 });
+
+    // Straight through the registered Tauri command, with no client in the way. A panel that
+    // rendered rows the command cannot produce would be reading a fixture, and on the desktop
+    // runtime that is exactly the confusion this console exists to remove.
+    const nativeCount = async () =>
+      await globalThis.browser.tauri.execute(async ({ core }) => {
+        // Session-wide rather than pinned to one id: the assertion is about the journal not moving,
+        // and reading every session makes an accidental append anywhere visible.
+        const page = await core.invoke("list_execution_records", {
+          scope: {},
+          filters: null,
+          cursor: null,
+          limit: 100,
+        });
+        return page.items.length;
+      });
+
+    const before = await nativeCount();
+    assert.equal(typeof before, "number", "the native record query must answer");
+
+    // Legacy activity is projected from loaded messages and writes nothing. If it appended to the
+    // journal, opening its view would change what the native query returns.
+    const legacy = await globalThis.$('[data-testid="execution-record-view-legacy"]');
+    await legacy.waitForClickable({ timeout: 20000 });
+    await legacy.click();
+    await (await globalThis.$('[data-testid="legacy-source-notice"]')).waitForExist({
+      timeout: 20000,
+    });
+    assert.equal(
+      await nativeCount(),
+      before,
+      "viewing legacy activity changed the native evidence journal",
+    );
+
+    // Hidden means paused, not unmounted: the view the reader chose is still chosen when they
+    // come back, which is the Group 5 retention rule applied to this panel.
+    const report = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="报告"]',
+    );
+    await report.waitForClickable({ timeout: 20000 });
+    await report.click();
+    await terminal.click();
+    const stillLegacy = await globalThis.$('[data-testid="legacy-source-notice"]');
+    assert.ok(
+      await stillLegacy.isExisting(),
+      "the terminal history view was reset by a round trip through another tab",
+    );
+
+    await assertNoFatalError(root);
+  });
 });

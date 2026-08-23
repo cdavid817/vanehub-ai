@@ -141,7 +141,7 @@ function SessionWorkspaceTabs({
   // Null is "all seats": a freshly opened tab must not silently narrow to one participant.
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
-  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId);
+  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId, activeTab);
 
   useEffect(() => {
     setSelectedSeat(null);

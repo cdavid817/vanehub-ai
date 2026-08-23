@@ -120,7 +120,10 @@ test.describe("session workspace tabs", () => {
     const terminal = page.getByRole("tab", { name: /终端记录/ });
     await expect(terminal).not.toContainText("0");
     await terminal.click();
-    await expect(activeWorkspacePanel(page)).toContainText("当前会话尚未记录工具执行。");
+    // Terminal History now reads the execution record query rather than the loaded messages, so
+    // the deterministic native fixtures are what it shows. The legacy message-history projection
+    // lives behind its own view, and session-workspace-terminal-history.spec.ts walks both.
+    await expect(activeWorkspacePanel(page)).toContainText("npm test");
 
     await page.getByRole("tab", { name: "报告" }).click();
     await expect(activeWorkspacePanel(page)).toContainText("发送消息后即可生成会话报告。");
