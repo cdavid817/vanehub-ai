@@ -69,6 +69,16 @@ export interface CliSourceSummary {
   /** Present only when the source was reachable and reported one. */
   availableVersionCount: number | null;
   /**
+   * Whether VaneHub drives this source or only reports it.
+   *
+   * Decided by the backend. A detect-only source is a statement about VaneHub's capability, never
+   * about the installation's health -- a Homebrew-installed CLI that runs fine is healthy and
+   * detect-only at once, and must not render as broken.
+   */
+  management: "managed" | "detect-only";
+  /** What to tell the user when VaneHub cannot drive it. `null` when it can. */
+  guidanceCode: string | null;
+  /**
    * This source's own list, newest first. A target selector reads it rather than rebuilding one,
    * and two sources' lists are never merged -- borrowing another source's catalog is the defect
    * this change removes.

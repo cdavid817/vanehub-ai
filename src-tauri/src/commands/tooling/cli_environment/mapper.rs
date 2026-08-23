@@ -113,6 +113,8 @@ fn source_to_dto(source: &CliSourceSummary) -> CliSourceSummaryDto {
         kind: source.kind.as_str().to_string(),
         supported_on_this_platform: source.supported_on_this_platform,
         available_version_count: source.available_version_count,
+        management: source.management.as_str().to_string(),
+        guidance_code: source.guidance_code.map(str::to_string),
         available_versions: source
             .available_versions
             .iter()

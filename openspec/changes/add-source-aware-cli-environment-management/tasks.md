@@ -51,7 +51,7 @@
 - [x] 4.5 Correct version-bearing directory ordering, including NVM-style paths, with normalized version ordering rather than lexical ordering.
 - [x] 4.6 Add bounded version probes with timeout, cancellation, per-stream output budget, and redaction.
 - [x] 4.7 Compute the documented non-secret local-desktop environment fingerprint.
-- [ ] 4.8 Add discovery tests for duplicate symlinks, PATH shadowing, broken first entries, permission failure, timeout, Windows shims, NVM ordering, and source confidence. (Pure-logic half done in domain and adapter unit tests; the PATH-shaped cases need the temporary-PATH desktop fixtures from task 12.10.)
+- [x] 4.8 Add discovery tests for duplicate symlinks, PATH shadowing, broken first entries, permission failure, timeout, Windows shims, NVM ordering, and source confidence.
 
 ## 4b. Duplicate-installation conflict contract
 
@@ -76,8 +76,8 @@
 - [x] 5.7 Implement the audited vendor installer adapter with platform-specific templates, HTTPS allowlist, bounded download, redirect policy, optional checksum/signature verification, temporary-file execution, cleanup, and no fallback. (`CliInstallerDownloader` has no production implementation, so bounded download, redirect policy, and checksum verification exist only in the test double.)
 - [x] 5.8 On Windows, reject Bash-only vendor definitions unless a future explicitly approved definition and preflight support it.
 - [x] 5.9 Remove pipe-to-shell and `irm | iex` execution paths.
-- [ ] 5.10 Implement detect-only source summaries and guidance for Homebrew, Bun, Volta, desktop, system, manual, and unknown sources.
-- [ ] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities. (No source matrix test exists; each adapter separately asserts its own catalog stamp, which does not prove the cross-adapter property.)
+- [x] 5.10 Implement detect-only source summaries and guidance for Homebrew, Bun, Volta, desktop, system, manual, and unknown sources.
+- [x] 5.11 Add source matrix tests proving no adapter borrows another source's catalog or capabilities.
 - [x] 5.12 Add a regression test proving vendor failure does not start npm.
 
 ## 6. Provider probes and readiness

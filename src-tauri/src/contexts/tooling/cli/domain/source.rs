@@ -55,6 +55,53 @@ impl CliSourceKind {
     pub(crate) fn is_detect_only(self) -> bool {
         !matches!(self, Self::Npm | Self::Winget | Self::VendorInstaller)
     }
+
+    /// What to tell the user about a source VaneHub can see but not drive.
+    ///
+    /// A stable code, localized by the UI. `None` for the three managed sources: there is nothing
+    /// to explain when the action is simply offered.
+    ///
+    /// Each one names the tool that *does* own the installation, because the useful answer to
+    /// "why is there no upgrade button" is "run `brew upgrade`", not "unsupported".
+    pub(crate) fn guidance_code(self) -> Option<&'static str> {
+        match self {
+            Self::Npm | Self::Winget | Self::VendorInstaller => None,
+            Self::Homebrew => Some("cli.guidance.homebrew"),
+            Self::Bun => Some("cli.guidance.bun"),
+            Self::Volta => Some("cli.guidance.volta"),
+            Self::Desktop => Some("cli.guidance.desktop"),
+            Self::System => Some("cli.guidance.system"),
+            Self::Manual => Some("cli.guidance.manual"),
+            Self::Unknown => Some("cli.guidance.unknown"),
+        }
+    }
+}
+
+/// Whether VaneHub can drive a source, or only report what it sees.
+///
+/// Carried on the summary so no UI infers it from the source name. A source added later would
+/// otherwise be classified by whichever component remembered to update its own list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliSourceManagement {
+    Managed,
+    DetectOnly,
+}
+
+impl CliSourceManagement {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::DetectOnly => "detect-only",
+        }
+    }
+
+    pub(crate) fn of(kind: CliSourceKind) -> Self {
+        if kind.is_detect_only() {
+            Self::DetectOnly
+        } else {
+            Self::Managed
+        }
+    }
 }
 
 /// How certain the backend is that an installation came from a given source.
@@ -296,6 +343,10 @@ pub(crate) struct CliSourceSummary {
     pub(crate) supported_on_this_platform: bool,
     /// Present only when the source itself was reachable and reported one.
     pub(crate) available_version_count: Option<usize>,
+    /// Whether VaneHub drives this source or only reports it.
+    pub(crate) management: CliSourceManagement,
+    /// What to tell the user when it does not. `None` for a managed source.
+    pub(crate) guidance_code: Option<&'static str>,
     /// The versions this source offers, newest first, as its own catalog reported them.
     ///
     /// Carried on the summary so a target selector reads the source's list rather than a frontend
@@ -471,6 +522,8 @@ mod tests {
             },
             supported_on_this_platform: true,
             available_version_count: Some(42),
+            management: CliSourceManagement::Managed,
+            guidance_code: None,
             available_versions: Vec::new(),
         };
         assert!(summary.capabilities.manages_anything());

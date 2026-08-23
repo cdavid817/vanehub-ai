@@ -83,6 +83,10 @@ pub(crate) struct CliSourceSummaryDto {
     pub(crate) kind: String,
     pub(crate) supported_on_this_platform: bool,
     pub(crate) available_version_count: Option<usize>,
+    /// `managed` or `detect-only`. Carried so no UI infers it from the source name.
+    pub(crate) management: String,
+    /// What to tell the user when VaneHub cannot drive this source. `null` when it can.
+    pub(crate) guidance_code: Option<String>,
     /// This source's own list, newest first. A target selector reads it rather than rebuilding one,
     /// and two sources' lists are never merged.
     pub(crate) available_versions: Vec<String>,

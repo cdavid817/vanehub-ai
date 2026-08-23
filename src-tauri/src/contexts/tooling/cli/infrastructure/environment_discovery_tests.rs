@@ -6,6 +6,28 @@
 // depending on whatever the developer happens to have installed.
 use super::*;
 
+use crate::contexts::tooling::cli::application::environment_ports::CliProbeOutcome;
+use crate::contexts::tooling::cli::domain::installation::deduplicate;
+use crate::contexts::tooling::cli::domain::version::NormalizedCliVersion;
+
+/// A candidate as discovery hands one over: found, not yet probed.
+fn probe_installation(path: &str, priority: u32) -> CliInstallation {
+    CliInstallation {
+        id: CliInstallationId::new(format!("i-{}", path.len())).expect("installation id"),
+        executable_path: path.to_string(),
+        canonical_path: None,
+        alias_paths: Vec::new(),
+        target_missing: false,
+        reported_version: None,
+        source_id: None,
+        source_kind: CliSourceKind::Unknown,
+        source_confidence: CliSourceConfidence::Unknown,
+        path_priority: Some(priority),
+        environment_origin: CliEnvironmentOrigin::Path,
+        executable_status: CliExecutableStatus::Unknown,
+    }
+}
+
 #[test]
 fn a_path_shape_yields_inferred_confidence_never_verified() {
     // The distinction that gates automatic mutation: a path is evidence of ownership, not proof.
@@ -259,4 +281,79 @@ fn version_managed_directories_are_ordered_by_version_not_by_name() {
 fn a_missing_nvm_root_yields_no_candidates_rather_than_an_error() {
     let paths = version_managed_bin_paths(Path::new("/definitely/not/a/home"), "claude");
     assert!(paths.is_empty());
+}
+
+#[test]
+fn two_names_for_one_file_collapse_to_one_installation() {
+    // A symlink and its target are the same program reached two ways. Counting them twice would
+    // report a conflict on a machine that has exactly one install.
+    let canonical = "/usr/local/lib/node_modules/.bin/claude";
+    let installations = deduplicate(vec![
+        CliInstallation {
+            canonical_path: Some(canonical.to_string()),
+            ..probe_installation("/usr/local/bin/claude", 0)
+        },
+        CliInstallation {
+            canonical_path: Some(canonical.to_string()),
+            ..probe_installation("/home/dev/.local/bin/claude", 3)
+        },
+    ]);
+
+    assert_eq!(installations.len(), 1);
+    // The one kept is the one PATH reaches first, because that is what the shell runs.
+    assert_eq!(installations[0].executable_path, "/usr/local/bin/claude");
+    assert_eq!(installations[0].path_priority, Some(0));
+}
+
+#[test]
+fn a_candidate_that_cannot_be_canonicalized_is_kept_with_its_literal_path() {
+    // Permission denied on the parent directory: `canonicalize` fails, and dropping the candidate
+    // would hide an installation the user can see. It stays, with no canonical identity.
+    let installations = deduplicate(vec![CliInstallation {
+        canonical_path: None,
+        ..probe_installation("/opt/restricted/claude", 1)
+    }]);
+
+    assert_eq!(installations.len(), 1);
+    assert_eq!(installations[0].canonical_path, None);
+    // Without a canonical path its identity is the literal one, so it still deduplicates against
+    // itself and never against an unrelated file.
+    assert_eq!(installations[0].dedup_key(), "/opt/restricted/claude");
+}
+
+#[test]
+fn a_probe_that_timed_out_is_recorded_as_timed_out_not_as_missing() {
+    // "The probe did not answer in time" and "the tool is not installed" lead to different advice.
+    let outcome = CliProbeOutcome {
+        exit_code: None,
+        timed_out: true,
+        stdout: String::new(),
+        stderr: String::new(),
+        truncated: false,
+    };
+
+    assert!(!outcome.succeeded());
+    assert!(outcome.timed_out);
+    // A timeout produces no version, and inventing one from a previous read would be worse.
+    assert_eq!(
+        NormalizedCliVersion::from_probe_output(&outcome.stdout),
+        None
+    );
+}
+
+#[test]
+fn confidence_never_rises_above_what_the_evidence_supports() {
+    // Ordered, so a comparison decides whether evidence is strong enough rather than a list of
+    // special cases. A path heuristic can never reach `Verified`.
+    assert!(CliSourceConfidence::Unknown < CliSourceConfidence::Inferred);
+    assert!(CliSourceConfidence::Inferred < CliSourceConfidence::Verified);
+
+    for path in [
+        "/usr/local/lib/node_modules/.bin/claude",
+        "/home/dev/.npm-global/bin/claude",
+        "/opt/homebrew/bin/claude",
+    ] {
+        let (_, confidence) = classify_source(path);
+        assert_eq!(confidence, CliSourceConfidence::Inferred, "{path}");
+    }
 }

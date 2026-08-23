@@ -13,6 +13,8 @@ const npmSource = {
   supportedOnThisPlatform: true,
   availableVersionCount: 2,
   availableVersions: ["1.3.0", "1.2.0"],
+  management: "managed" as const,
+  guidanceCode: null,
   capabilities: {
     install: "exact",
     upgrade: "exact",

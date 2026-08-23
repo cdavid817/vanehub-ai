@@ -16,7 +16,7 @@ use crate::contexts::tooling::cli::domain::catalog::{
     update_status_for_source, CliCatalogUnavailableReason, CliVersionCatalog,
 };
 use crate::contexts::tooling::cli::domain::definition::CliToolDefinition;
-use crate::contexts::tooling::cli::domain::ids::CliToolId;
+use crate::contexts::tooling::cli::domain::ids::{CliSourceId, CliToolId};
 use crate::contexts::tooling::cli::domain::installation::{
     conflicts_block_mutation, deduplicate, derive_conflicts, group_launcher_families,
     select_active, ActiveSelection, CliInstallation,
@@ -27,7 +27,7 @@ use crate::contexts::tooling::cli::domain::probe_interpretation::{
 };
 use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
 use crate::contexts::tooling::cli::domain::source::{
-    CliPlatform, CliSourceConfidence, CliSourceSummary,
+    CliPlatform, CliSourceCapabilities, CliSourceConfidence, CliSourceManagement, CliSourceSummary,
 };
 use crate::contexts::tooling::cli::domain::status::{
     CliAuthenticationStatus, CliCompatibilityStatus, CliDiscoveryStatus, CliExecutableStatus,
@@ -244,7 +244,7 @@ impl CliEnvironmentService {
             &catalogs,
             blocks_mutation,
         );
-        let sources = self.summarize_sources(definition, &catalogs);
+        let sources = self.summarize_sources(definition, &catalogs, &installations);
 
         let mut snapshot = self.snapshot_or_never_scanned(tool_id, fingerprint)?;
         snapshot.environment_fingerprint = fingerprint.to_string();
@@ -474,8 +474,9 @@ impl CliEnvironmentService {
         &self,
         definition: &'static CliToolDefinition,
         catalogs: &[CliVersionCatalog],
+        installations: &[CliInstallation],
     ) -> Vec<CliSourceSummary> {
-        definition
+        let mut summaries: Vec<CliSourceSummary> = definition
             .distributions
             .iter()
             .filter_map(|distribution| {
@@ -493,13 +494,42 @@ impl CliEnvironmentService {
                         .map(|catalog| catalog.versions.len()),
                     // The source's own list, unmodified. Merging two sources' versions here is the
                     // borrowed-catalog defect this change removes.
+                    management: CliSourceManagement::of(distribution.kind),
+                    guidance_code: distribution.kind.guidance_code(),
                     available_versions: catalog
                         .filter(|catalog| catalog.is_available())
                         .map(|catalog| catalog.versions.clone())
                         .unwrap_or_default(),
                 })
             })
-            .collect()
+            .collect();
+
+        // A source VaneHub found but does not manage still gets a summary. Omitting it would leave
+        // a Homebrew-installed tool looking like it has no source at all, which reads as broken
+        // rather than as "this one is upgraded with brew".
+        for installation in installations {
+            let kind = installation.source_kind;
+            if !kind.is_detect_only() {
+                continue;
+            }
+            if summaries.iter().any(|summary| summary.kind == kind) {
+                continue;
+            }
+            summaries.push(CliSourceSummary {
+                source_id: CliSourceId::trusted(kind.as_str()),
+                kind,
+                capabilities: CliSourceCapabilities::DETECT_ONLY,
+                // The installation is here, so the source is present on this platform. What is
+                // absent is VaneHub's ability to drive it, which `management` says.
+                supported_on_this_platform: true,
+                // No catalog is queried, and borrowing npm's would be the defect being removed.
+                available_version_count: None,
+                management: CliSourceManagement::DetectOnly,
+                guidance_code: kind.guidance_code(),
+                available_versions: Vec::new(),
+            });
+        }
+        summaries
     }
 
     fn resolve_refresh_targets(

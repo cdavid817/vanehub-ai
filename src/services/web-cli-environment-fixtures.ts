@@ -43,7 +43,12 @@ export function webCliEnvironmentSnapshots(): CliEnvironmentSnapshot[] {
     ...snapshot,
     installations: snapshot.installations.map((installation) => ({ ...installation })),
     conflicts: snapshot.conflicts.map((conflict) => ({ ...conflict })),
-    sources: snapshot.sources.map((source) => ({ ...source })),
+    // JSON widens the literal union to `string`; narrowing here keeps the fixture data honest
+    // without an `as` cast that would let a typo through.
+    sources: snapshot.sources.map((source) => ({
+      ...source,
+      management: source.management === "managed" ? ("managed" as const) : ("detect-only" as const),
+    })),
     allowedActions: snapshot.allowedActions.map((action) => ({ ...action })),
   }));
 }

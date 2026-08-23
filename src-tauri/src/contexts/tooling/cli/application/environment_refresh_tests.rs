@@ -1,7 +1,11 @@
 // Included through `#[path]` from environment_refresh.rs.
 use super::super::environment_service_fixtures::{healthy_npm_installation, npm_catalog, Harness};
 use crate::contexts::tooling::cli::domain::ids::CliToolId;
+use crate::contexts::tooling::cli::domain::installation::CliInstallation;
 use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
+use crate::contexts::tooling::cli::domain::source::{
+    CliSourceConfidence, CliSourceKind, CliSourceManagement,
+};
 use crate::contexts::tooling::cli::domain::status::{
     CliDiscoveryStatus, CliExecutableStatus, CliFreshness, CliOverallState, CliUpdateStatus,
 };
@@ -372,4 +376,97 @@ fn a_discovery_failure_fails_the_operation_with_a_recorded_diagnostic() {
         .as_deref()
         .is_some_and(|error| error.contains("PATH enumeration failed")));
     assert!(!harness.diagnostics.messages().is_empty());
+}
+
+#[test]
+fn a_detect_only_installation_stays_healthy_and_offers_no_mutation() {
+    // The rule this guards: detect-only is a statement about VaneHub's capability, never about the
+    // installation's health. A Homebrew-installed CLI that runs fine must not render as broken.
+    let harness = Harness::new();
+    harness.discovery.set(
+        "claude-code",
+        vec![CliInstallation {
+            source_id: None,
+            source_kind: CliSourceKind::Homebrew,
+            source_confidence: CliSourceConfidence::Inferred,
+            ..healthy_npm_installation("brew", "/opt/homebrew/bin/claude")
+        }],
+    );
+    harness
+        .probes
+        .set_version("/opt/homebrew/bin/claude", "1.2.0");
+
+    let prepared = harness
+        .service
+        .prepare_refresh(vec!["claude-code".to_string()], false)
+        .expect("prepare");
+    harness.service.execute_refresh(prepared).expect("refresh");
+
+    let snapshot = harness
+        .repository
+        .snapshot("claude-code")
+        .expect("snapshot");
+
+    assert_eq!(snapshot.executable, CliExecutableStatus::Healthy);
+    let homebrew = snapshot
+        .sources
+        .iter()
+        .find(|source| source.kind == CliSourceKind::Homebrew)
+        .expect("the source it was actually installed from is summarized");
+    assert_eq!(homebrew.management, CliSourceManagement::DetectOnly);
+    assert_eq!(homebrew.guidance_code, Some("cli.guidance.homebrew"));
+    // No catalog is borrowed: the version list stays empty rather than showing npm's.
+    assert!(homebrew.available_versions.is_empty());
+    assert_eq!(homebrew.available_version_count, None);
+    // And nothing offers to mutate it through a source VaneHub does not drive.
+    assert!(snapshot
+        .allowed_actions
+        .iter()
+        .all(|action| action.source_id.as_str() != "homebrew"));
+}
+
+#[test]
+fn a_detect_only_source_never_borrows_the_managed_catalog() {
+    let harness = Harness::new();
+    harness.discovery.set(
+        "claude-code",
+        vec![CliInstallation {
+            source_id: None,
+            source_kind: CliSourceKind::Volta,
+            source_confidence: CliSourceConfidence::Inferred,
+            ..healthy_npm_installation("volta", "/home/dev/.volta/bin/claude")
+        }],
+    );
+    harness
+        .probes
+        .set_version("/home/dev/.volta/bin/claude", "1.2.0");
+    // npm has a catalog for this tool. The Volta summary must not show it.
+    harness.register_npm_source(npm_catalog("claude-code", &["1.3.0", "1.2.0"], "1.3.0"));
+
+    let prepared = harness
+        .service
+        .prepare_refresh(vec!["claude-code".to_string()], false)
+        .expect("prepare");
+    harness.service.execute_refresh(prepared).expect("refresh");
+
+    let snapshot = harness
+        .repository
+        .snapshot("claude-code")
+        .expect("snapshot");
+    let volta = snapshot
+        .sources
+        .iter()
+        .find(|source| source.kind == CliSourceKind::Volta)
+        .expect("volta summary");
+
+    assert!(volta.available_versions.is_empty());
+    assert_eq!(volta.guidance_code, Some("cli.guidance.volta"));
+    // npm's own summary still carries npm's list; the two never merge.
+    let npm = snapshot
+        .sources
+        .iter()
+        .find(|source| source.kind == CliSourceKind::Npm)
+        .expect("npm summary");
+    assert_eq!(npm.available_versions.len(), 2);
+    assert_eq!(npm.management, CliSourceManagement::Managed);
 }

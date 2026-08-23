@@ -36,7 +36,7 @@ use crate::contexts::tooling::cli::domain::snapshot::{
 };
 use crate::contexts::tooling::cli::domain::source::{
     CliDynamicCapability, CliSourceCapabilities, CliSourceConfidence, CliSourceKind,
-    CliSourceSummary, CliTargetVersionMode,
+    CliSourceManagement, CliSourceSummary, CliTargetVersionMode,
 };
 use crate::contexts::tooling::cli::domain::status::{
     CliAuthenticationStatus, CliCompatibilityStatus, CliDiscoveryStatus, CliExecutableStatus,
@@ -477,6 +477,8 @@ fn encode_source_summary(summary: &CliSourceSummary) -> Value {
         "capabilities": encode_capabilities(&summary.capabilities),
         "supportedOnThisPlatform": summary.supported_on_this_platform,
         "availableVersionCount": summary.available_version_count,
+        "management": summary.management.as_str(),
+        "guidanceCode": summary.guidance_code,
         "availableVersions": summary
             .available_versions
             .iter()
@@ -507,6 +509,35 @@ fn decode_source_summary(value: &Value) -> Decoded<CliSourceSummary> {
         ),
         capabilities: decode_capabilities(field(value, "capabilities")?)?,
         supported_on_this_platform: flag(value, "supportedOnThisPlatform")?,
+        management: parse_enum!(
+            value,
+            "management",
+            CliSourceManagement,
+            [
+                CliSourceManagement::Managed,
+                CliSourceManagement::DetectOnly
+            ]
+        ),
+        // Re-derived from the kind rather than trusted from the row: a stored code from an
+        // older build would otherwise outlive the wording it referred to.
+        guidance_code: parse_enum!(
+            value,
+            "kind",
+            CliSourceKind,
+            [
+                CliSourceKind::Npm,
+                CliSourceKind::Winget,
+                CliSourceKind::VendorInstaller,
+                CliSourceKind::Homebrew,
+                CliSourceKind::Bun,
+                CliSourceKind::Volta,
+                CliSourceKind::Desktop,
+                CliSourceKind::System,
+                CliSourceKind::Manual,
+                CliSourceKind::Unknown,
+            ]
+        )
+        .guidance_code(),
         available_version_count: value
             .get("availableVersionCount")
             .and_then(Value::as_u64)

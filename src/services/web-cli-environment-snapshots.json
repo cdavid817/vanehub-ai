@@ -53,7 +53,9 @@
           "reinstall": "exact",
           "uninstall": true,
           "repair": "unsupported"
-        }
+        },
+        "management": "managed",
+        "guidanceCode": null
       }
     ],
     "allowedActions": [
@@ -134,7 +136,9 @@
           "reinstall": "exact",
           "uninstall": true,
           "repair": "unsupported"
-        }
+        },
+        "management": "managed",
+        "guidanceCode": null
       }
     ],
     "allowedActions": [
@@ -206,7 +210,9 @@
           "reinstall": "exact",
           "uninstall": true,
           "repair": "unsupported"
-        }
+        },
+        "management": "managed",
+        "guidanceCode": null
       }
     ],
     "allowedActions": [
@@ -304,7 +310,9 @@
           "reinstall": "exact",
           "uninstall": true,
           "repair": "unsupported"
-        }
+        },
+        "management": "managed",
+        "guidanceCode": null
       }
     ],
     "allowedActions": [],
@@ -363,7 +371,9 @@
           "reinstall": "unsupported",
           "uninstall": false,
           "repair": "unsupported"
-        }
+        },
+        "management": "managed",
+        "guidanceCode": null
       }
     ],
     "allowedActions": [
