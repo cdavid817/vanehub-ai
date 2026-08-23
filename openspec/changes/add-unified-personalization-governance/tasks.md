@@ -8,14 +8,14 @@
 
 ## 1. Personalization Domain and Safe Defaults
 
-- [ ] 1.1 Create `src-tauri/src/contexts/personalization/` using the repository's domain/application/infrastructure/API conventions and wire only compilation-visible skeletons first.
-- [ ] 1.2 Add typed stable identities for Agent, session, workspace, policy scope, and memory id without hard-coding the built-in Agent set.
-- [ ] 1.3 Add `PolicyToggle`, `InstructionMergeMode`, `SessionPersonalizationMode`, policy scope, policy record, policy patch, and revision-conflict domain types.
-- [ ] 1.4 Add `EffectivePersonalizationSnapshot`, resolved instruction segment, effective memory access, exclusion, warning, and revision-token types.
-- [ ] 1.5 Add memory scope, audience, status, source, provenance, sensitivity, record, candidate, query, page, reset, and reconciliation domain types.
-- [ ] 1.6 Implement domain validation for instruction length, memory field limits, audience size, legal scope combinations, global non-inheritance rules, and project-only workspace requirements.
-- [ ] 1.7 Define fail-closed safe defaults: no user instructions and no memory read/write/extraction when no validated policy can be loaded.
-- [ ] 1.8 Add domain unit tests for all merge modes, tri-state resolution, precedence, temporary/project-only restrictions, scope/audience eligibility, validation boundaries, and deterministic revision tokens.
+- [x] 1.1 Create `src-tauri/src/contexts/personalization/` using the repository's domain/application/infrastructure/API conventions and wire only compilation-visible skeletons first.
+- [x] 1.2 Add typed stable identities for Agent, session, workspace, policy scope, and memory id without hard-coding the built-in Agent set.
+- [x] 1.3 Add `PolicyToggle`, `InstructionMergeMode`, `SessionPersonalizationMode`, policy scope, policy record, policy patch, and revision-conflict domain types.
+- [x] 1.4 Add `EffectivePersonalizationSnapshot`, resolved instruction segment, effective memory access, exclusion, warning, and revision-token types.
+- [x] 1.5 Add memory scope, audience, status, source, provenance, sensitivity, record, candidate, query, page, reset, and reconciliation domain types.
+- [x] 1.6 Implement domain validation for instruction length, memory field limits, audience size, legal scope combinations, global non-inheritance rules, and project-only workspace requirements.
+- [x] 1.7 Define fail-closed safe defaults: no user instructions and no memory read/write/extraction when no validated policy can be loaded.
+- [x] 1.8 Add domain unit tests for all merge modes, tri-state resolution, precedence, temporary/project-only restrictions, scope/audience eligibility, validation boundaries, and deterministic revision tokens.
 
 ## 2. SQLite Schema and Repository Ports
 
