@@ -58,6 +58,19 @@ pub(crate) enum EvidenceDropReason {
     PersistenceFailed,
 }
 
+impl EvidenceDropReason {
+    /// The stable code a gap marker carries. Localized by the frontend, so it is part of the
+    /// contract and cannot be reworded where it is emitted.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::QueueFull => "evidence_queue_full",
+            Self::WorkerGone => "evidence_worker_unavailable",
+            Self::UnmappableSignal => "evidence_signal_unmappable",
+            Self::PersistenceFailed => "evidence_persistence_failed",
+        }
+    }
+}
+
 /// How many distinct sessions the accumulator tracks at once.
 ///
 /// Bounded because the key comes from a producer: a bug that minted a fresh session id per event
@@ -106,6 +119,22 @@ impl DropAccumulator {
             return;
         }
         counts.insert(key, 1);
+    }
+
+    /// Puts a snapshot back after a failed flush, merging rather than overwriting.
+    ///
+    /// Merging is what makes a concurrent drop safe: a drop recorded while the flush was in
+    /// flight is already in a fresh entry, and overwriting would erase it — losing exactly the
+    /// drops that happen when drops are most likely.
+    pub(crate) fn restore(&self, snapshot: DropSnapshot) {
+        let mut counts = lock(&self.counts);
+        for (key, count) in snapshot.counts {
+            let entry = counts.entry(key).or_insert(0);
+            *entry = entry.saturating_add(count);
+        }
+        drop(counts);
+        let mut unattributed = lock(&self.unattributed);
+        *unattributed = unattributed.saturating_add(snapshot.unattributed);
     }
 
     /// Takes a snapshot and leaves the accumulator empty.
@@ -965,15 +994,76 @@ fn flush_drops(evidence: &ExecutionEvidenceApi, drops: &DropAccumulator) {
     if snapshot.is_empty() {
         return;
     }
-    let mut per_session: BTreeMap<String, u32> = BTreeMap::new();
-    for ((session_id, _reason), count) in &snapshot.counts {
-        let total = per_session.entry(session_id.clone()).or_insert(0);
-        *total = total.saturating_add(*count);
-    }
-    for (session_id, dropped) in per_session {
-        let Ok(session) = EvidenceSessionId::parse(session_id) else {
+    let mut unflushed = DropSnapshot::default();
+    for ((session_id, reason), count) in snapshot.counts {
+        let Ok(session) = EvidenceSessionId::parse(session_id.clone()) else {
+            // An unusable session cannot key a marker, and inventing one would file the gap
+            // against a session that never existed. It stays a count and a diagnostic.
+            unflushed.unattributed = unflushed.unattributed.saturating_add(count);
             continue;
         };
-        evidence.record_dropped_events(&session, dropped);
+        match record_gap_marker(evidence, &session, reason, count) {
+            // The marker is durable, so the count it represents is discharged. The notice and the
+            // diagnostic ride along on the same call.
+            Ok(()) => evidence.record_dropped_events(&session, count),
+            // Only the snapshot's own numbers go back. Anything recorded while this flush ran is
+            // already in a fresh entry, so restoring the snapshot adds to it rather than
+            // overwriting it — a concurrent drop is never lost to a failed report.
+            Err(()) => {
+                unflushed
+                    .counts
+                    .entry((session_id, reason))
+                    .and_modify(|existing| *existing = existing.saturating_add(count))
+                    .or_insert(count);
+            }
+        }
     }
+    // Sessionless drops never become a marker. The journal keys on a session, and a global gap
+    // filed under a placeholder would be attributed to work that did not lose anything.
+    if snapshot.unattributed > 0 {
+        unflushed.unattributed = unflushed.unattributed.saturating_add(snapshot.unattributed);
+    }
+    if !unflushed.is_empty() {
+        drops.restore(unflushed);
+    }
+}
+
+/// Writes the durable coverage gap.
+///
+/// Through the recorder, never the queue: re-queueing the report would put it behind the same full
+/// queue that produced it, so a burst would silence exactly the signal that says a burst happened.
+/// A failure here is returned rather than counted, because counting it would produce a gap about
+/// failing to record a gap, and that recursion has no fixed point.
+fn record_gap_marker(
+    evidence: &ExecutionEvidenceApi,
+    session: &EvidenceSessionId,
+    reason: EvidenceDropReason,
+    dropped_count: u32,
+) -> Result<(), ()> {
+    let Ok(reason_code) = SafeReasonCode::parse(reason.as_str()) else {
+        return Err(());
+    };
+    // Keyed by session, reason, and count. A second gap of the same size for the same reason is
+    // the same observation replayed; a different size is a different one.
+    let Ok(source_event_id) = SourceEventId::parse(format!(
+        "coverage-gap:{}:{}:{dropped_count}",
+        session.as_str(),
+        reason.as_str()
+    )) else {
+        return Err(());
+    };
+    let input = RecordEvidenceInput {
+        source_context: EvidenceSourceContext::ExecutionObservability,
+        source_event_id,
+        occurred_at: chrono::Utc::now().to_rfc3339(),
+        correlation: EvidenceCorrelation::for_session(session.clone()),
+        status: None,
+        fidelity: ExecutionFidelity::Native,
+        payload: SafeEvidencePayload::CoverageGapRecorded {
+            dropped_count,
+            reason: reason_code,
+        },
+        redaction: RedactionReceipt::none(),
+    };
+    evidence.record(input).map(|_| ()).map_err(|_| ())
 }

@@ -7,8 +7,8 @@
 //! failure mode most worth catching.
 
 use super::evidence_bridge::{
-    start_evidence_bridge, DropAccumulator, EvidenceDropReason, MAX_TRACKED_DROP_REASONS,
-    MAX_TRACKED_DROP_SESSIONS,
+    start_evidence_bridge, DropAccumulator, DropSnapshot, EvidenceDropReason,
+    EVIDENCE_QUEUE_CAPACITY, MAX_TRACKED_DROP_REASONS, MAX_TRACKED_DROP_SESSIONS,
 };
 use crate::contexts::agent_runtime::api::{
     AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
@@ -1242,4 +1242,486 @@ fn stored_fidelity(harness: &Harness) -> String {
             |row| row.get(0),
         )
         .expect("fidelity")
+}
+
+/// A failed flush puts its snapshot back by merging, so a drop recorded while the report was in
+/// flight is added to the restored count rather than overwritten by it.
+#[test]
+fn restoring_a_failed_flush_merges_rather_than_overwrites() {
+    let accumulator = DropAccumulator::default();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    let snapshot = accumulator.take();
+
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    accumulator.restore(snapshot);
+
+    assert_eq!(accumulator.take().counts.values().sum::<u32>(), 2);
+}
+
+#[test]
+fn a_drop_count_saturates_rather_than_wrapping() {
+    let accumulator = DropAccumulator::default();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    accumulator.restore(DropSnapshot {
+        counts: std::iter::once((
+            (SESSION.to_string(), EvidenceDropReason::QueueFull),
+            u32::MAX,
+        ))
+        .collect(),
+        unattributed: 0,
+    });
+
+    // A wrapped count would report a smaller gap than occurred, which reads as less loss, not more.
+    assert_eq!(
+        *accumulator
+            .take()
+            .counts
+            .get(&(SESSION.to_string(), EvidenceDropReason::QueueFull))
+            .expect("count"),
+        u32::MAX
+    );
+}
+
+/// The drop becomes a durable marker, not just a notice.
+///
+/// A notice is gone once the app restarts, so a session whose evidence was dropped during a burst
+/// would read as complete afterwards. The marker is what keeps the coverage honest across a
+/// restart, and it says how many were lost and why.
+#[test]
+fn a_queue_overflow_persists_a_coverage_gap_marker() {
+    let harness = harness("bridge-gap-marker");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    // Far more than the queue holds, published faster than one SQLite write per item can drain.
+    for index in 0..(EVIDENCE_QUEUE_CAPACITY * 8) {
+        AgentEvidencePort::try_publish(&bridge, run_started(&run_id(index)));
+    }
+
+    assert!(
+        wait_until(|| gap_marker_payload(&harness).is_some()),
+        "an overflow left no durable record that anything was lost"
+    );
+    worker.shutdown();
+    assert!(gap_marker_payload(&harness)
+        .expect("a gap marker")
+        .contains("evidence_queue_full"));
+}
+
+/// The marker carries a count and a reason, and nothing that could name what was lost.
+///
+/// This drives the persistence-failure path: a run id the producer could not supply as a UUID maps
+/// to an input with no run correlation, which the domain refuses at record time. The refusal is a
+/// gap, and the gap is what has to be durable.
+#[test]
+fn a_gap_marker_carries_only_a_count_and_a_reason() {
+    let harness = harness("bridge-gap-marker-shape");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::RunStarted {
+            session_id: SESSION.to_string(),
+            run_id: "not-a-uuid".to_string(),
+            trace_id: TRACE.to_string(),
+            agent_id: None,
+            seat_id: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    // A second signal so the worker loops again and flushes what the first one left behind.
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+
+    assert!(wait_until(|| gap_marker_payload(&harness).is_some()));
+    worker.shutdown();
+    let marker = gap_marker_payload(&harness).expect("a gap marker");
+    assert!(
+        marker.contains("evidence_persistence_failed"),
+        "marker was: {marker}"
+    );
+    assert!(marker.contains("dropped_count"));
+    for forbidden in ["not-a-uuid", "session-1", "agent", "tool", "trace"] {
+        assert!(
+            !marker.contains(forbidden),
+            "the marker named what was lost: {marker}"
+        );
+    }
+}
+
+/// A drop the bridge cannot attribute to a session produces no marker.
+///
+/// The journal keys on a session. Filing a gap under a placeholder would attribute a loss to work
+/// that lost nothing, which is worse than reporting it only as a count.
+#[test]
+fn a_sessionless_drop_never_becomes_a_marker() {
+    let harness = harness("bridge-gap-no-session");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::RunStarted {
+            // Unparseable: the mapper returns nothing and the drop has no session to key on.
+            session_id: String::new(),
+            run_id: run_id(1),
+            trace_id: TRACE.to_string(),
+            agent_id: None,
+            seat_id: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(2)));
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert!(
+        gap_marker_payload(&harness).is_none(),
+        "a sessionless drop was filed against some session anyway"
+    );
+}
+
+/// Reporting a gap must not produce a gap. A failure to record the marker is returned and the
+/// count is kept; counting it again would describe failing to describe a failure, which never
+/// settles.
+#[test]
+fn recording_a_gap_never_produces_another_gap() {
+    let bridge = fs_read_bridge();
+    let flush = bridge
+        .split("fn flush_drops(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("the flush is a free function");
+    assert!(
+        !flush.contains("drops.record("),
+        "the flush counts its own failure, which is a gap about reporting a gap"
+    );
+    let marker = bridge
+        .split("fn record_gap_marker(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("the marker writer is a free function");
+    assert!(
+        !marker.contains("try_send") && !marker.contains("sender"),
+        "the marker goes through the recorder, never the queue that produced the gap"
+    );
+}
+
+fn fs_read_bridge() -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bootstrap/evidence_bridge.rs"),
+    )
+    .expect("read the evidence bridge")
+}
+
+fn gap_marker_payload(harness: &Harness) -> Option<String> {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT safe_payload_json FROM execution_evidence_events \
+             WHERE kind = 'coverage.gap.recorded' ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+}
+
+/// One sentinel per category a producer could leak, each unique enough that a substring match
+/// cannot be coincidence.
+const PRIVACY_SENTINELS: &[(&str, &str)] = &[
+    ("raw prompt", "SENTINELPROMPTaaa please summarise this"),
+    ("model output", "SENTINELOUTPUTbbb here is the answer"),
+    ("tool arguments", r#"{"path": "SENTINELTOOLARGccc"}"#),
+    ("tool result", "SENTINELRESULTddd 42 rows"),
+    ("terminal text", "$ npm test\nSENTINELTERMeee"),
+    ("source code", "fn main() { SENTINELCODEfff(); }"),
+    ("diff", "@@ -1,2 +1,3 @@\n+SENTINELDIFFggg"),
+    ("windows path", r"C:\Users\SENTINELWINhhh\notes.txt"),
+    ("unix path", "/home/SENTINELNIXiii/notes.txt"),
+    ("unc path", r"\\server\share\SENTINELUNCjjj"),
+    (
+        "authorization header",
+        "Authorization: Bearer SENTINELTOKENkkk",
+    ),
+    ("env secret", "AWS_SECRET_ACCESS_KEY=SENTINELENVlll"),
+    ("private key", "-----BEGIN PRIVATE KEY-----SENTINELKEYmmm"),
+];
+
+/// Content passed where the contract expects a code is removed, not stored.
+///
+/// A reason code is the one free-text field a caller reliably gets wrong: an error message goes in
+/// where a code belongs. Every sentinel is normalized to a generic code, and the check reads the
+/// tables rather than the mapper, because what matters is not what the mapper meant to drop but
+/// what the bytes on disk contain.
+#[test]
+fn no_privacy_sentinel_survives_a_reason_code() {
+    let harness = harness("bridge-privacy-sentinels");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for (index, (_, sentinel)) in PRIVACY_SENTINELS.iter().enumerate() {
+        OperationsEvidencePort::try_publish(
+            &bridge,
+            OperationsEvidenceSignal::OperationFailed {
+                session_id: SESSION.to_string(),
+                operation_id: format!("operation-{index}"),
+                run_id: None,
+                reason_code: (*sentinel).to_string(),
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(9)));
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+
+    let stored = whole_store(&harness);
+    for (label, sentinel) in PRIVACY_SENTINELS {
+        assert!(
+            !stored.contains(sentinel),
+            "a {label} sentinel reached the store"
+        );
+        // The distinguishing token alone, in case a bound truncated the sentinel rather than
+        // rejecting it: half a secret in a journal is still a secret in a journal.
+        let core: String = sentinel
+            .chars()
+            .filter(char::is_ascii_uppercase)
+            .collect::<String>();
+        if core.len() >= 8 {
+            assert!(
+                !stored.contains(&core),
+                "a truncated {label} sentinel reached the store"
+            );
+        }
+    }
+}
+
+/// The producer signals have no field content could arrive in.
+///
+/// This is the guarantee the injection tests cannot make: a prompt passed as a verification name
+/// is stored, because a name is what that field is for and the journal stores names. What keeps a
+/// prompt out is that no signal has a field for one. A field added later with any of these names
+/// would open that door silently, so the door is checked rather than watched.
+#[test]
+fn no_producer_signal_declares_a_field_that_could_hold_content() {
+    let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/contexts");
+    let ports = [
+        "agent_runtime/application/evidence.rs",
+        "workspaces/application/evidence.rs",
+        "operations/application/evidence.rs",
+        "sessions/application/evidence.rs",
+    ];
+    // Field names, not words: `path_fingerprint` is a digest and `tool_name` is a name, so the
+    // check is anchored to a field declaration rather than to a substring anywhere in the file.
+    let forbidden_fields = [
+        "prompt:",
+        "output:",
+        "arguments:",
+        "args:",
+        "result:",
+        "content:",
+        "body:",
+        "diff:",
+        "patch:",
+        "transcript:",
+        "stdout:",
+        "stderr:",
+        "path:",
+        "absolute_path:",
+        "token:",
+        "secret:",
+        "header:",
+        "environment:",
+        "source_code:",
+    ];
+
+    let mut violations = Vec::new();
+    for relative in ports {
+        let source = std::fs::read_to_string(source_root.join(relative))
+            .unwrap_or_else(|_| panic!("every producer declares an evidence port: {relative}"));
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for field in forbidden_fields {
+                if trimmed.starts_with(field) {
+                    violations.push(format!("{relative}: declares `{trimmed}`"));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "a producer signal gained a field content could arrive in:
+{}",
+        violations.join(
+            "
+"
+        )
+    );
+}
+
+/// The domain refuses a label that is shaped like a path or carries a control character, so a
+/// producer that passed one gets no record rather than a record naming a location.
+#[test]
+fn a_path_shaped_basename_is_refused_rather_than_stored() {
+    let harness = harness("bridge-path-basename");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for path in [
+        r"C:\Users\someone\notes.txt",
+        "/home/someone/notes.txt",
+        r"\\server\share\notes.txt",
+    ] {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: SESSION.to_string(),
+                basename: path.to_string(),
+                path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+                change_kind: WorkspaceFileChangeKind::Modified,
+                witness_fingerprint: "witness-1".to_string(),
+                observed_directly: true,
+                occurred_at: "2026-08-22T10:00:00Z".to_string(),
+            },
+        );
+    }
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = whole_store(&harness);
+    assert!(!stored.contains("someone"));
+    assert!(!stored.contains("server"));
+}
+
+/// Reads every column a producer's values could land in, across the journal, the projection, and
+/// the coverage metadata. Scanning one table would miss a value the projection copied out.
+fn whole_store(harness: &Harness) -> String {
+    let connection = harness.database.connection().expect("connection");
+    let mut dumped = String::new();
+    for table in [
+        "execution_evidence_events",
+        "execution_evidence_records",
+        "execution_evidence_coverage",
+    ] {
+        let mut statement = connection
+            .prepare(&format!("SELECT * FROM {table}"))
+            .expect("prepare");
+        let column_count = statement.column_count();
+        let mut rows = statement.query([]).expect("query");
+        while let Some(row) = rows.next().expect("row") {
+            for index in 0..column_count {
+                if let Ok(value) = row.get::<_, String>(index) {
+                    dumped.push_str(&value);
+                    dumped.push('\n');
+                }
+            }
+        }
+    }
+    dumped
+}
+
+/// Every producer subject, published while the journal cannot take any of it.
+///
+/// The worker is gone, so each send is refused. What is being checked is that a producer can issue
+/// any of these and carry on: none returns a value, none can fail, and none blocks. A regression
+/// that made publishing fallible would not compile; one that made it blocking would hang here.
+#[test]
+fn no_producer_subject_is_affected_by_an_unavailable_recorder() {
+    let harness = harness("bridge-recorder-unavailable");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    drop(worker);
+
+    let started = Instant::now();
+    // Agent, tool, delegation.
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+    AgentEvidencePort::try_publish(&bridge, tool_started("call-1", None));
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::DelegationStarted {
+            session_id: SESSION.to_string(),
+            run_id: run_id(1),
+            trace_id: TRACE.to_string(),
+            span_id: None,
+            parent_agent_id: None,
+            seat_id: None,
+            delegation_id: "delegation-1".to_string(),
+            call_id: "call-1".to_string(),
+            attempt: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    // Shell, command boundary, file mutation.
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::ShellOpened {
+            session_id: SESSION.to_string(),
+            shell_id: "shell-1".to_string(),
+            seat_id: None,
+            runtime: WorkspaceShellRuntimeKind::Local,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::ShellClosed {
+            session_id: SESSION.to_string(),
+            shell_id: "shell-1".to_string(),
+            seat_id: None,
+            reason: WorkspaceShellCloseReason::ProcessExit,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        file_mutation("main.rs", WorkspaceFileChangeKind::Modified),
+    );
+    // Operation failure, review, verification, usage.
+    OperationsEvidencePort::try_publish(
+        &bridge,
+        OperationsEvidenceSignal::OperationFailed {
+            session_id: SESSION.to_string(),
+            operation_id: "operation-1".to_string(),
+            run_id: None,
+            reason_code: "runner_unavailable".to_string(),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::ReviewDecisionRecorded {
+            session_id: SESSION.to_string(),
+            review_id: "review-1".to_string(),
+            decision: SessionReviewDecision::Accepted,
+            witness_fingerprint: "snapshot-a".to_string(),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::VerificationCompleted {
+            session_id: SESSION.to_string(),
+            run_id: None,
+            verification_run_id: "verification-1".to_string(),
+            name: "cargo test".to_string(),
+            outcome: SessionVerificationOutcome::Passed,
+            passed_count: Some(1),
+            failed_count: Some(0),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::UsageObserved {
+            session_id: SESSION.to_string(),
+            invocation_id: "invocation-1".to_string(),
+            run_id: None,
+            quality: SessionUsageEvidenceQuality::Reported,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+
+    // Reaching here at all is the assertion: every call returned `()`. The elapsed bound catches a
+    // blocking send, which is the failure a return type cannot express.
+    assert!(started.elapsed() < Duration::from_secs(2));
 }

@@ -103,9 +103,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 4.6 Record safe file-mutation observations after trusted workspace mutations or witnessed snapshot comparison; do not persist file content or full paths.
 - [x] 4.7 Record review-level decision and automated verification outcome references. Hunk-level decisions and file Viewed resets are deferred to 13.2 and 13.5: neither has an authoritative store until 13.1 adds one, so a producer here would have to derive them from review-level state, and a derived observation recorded as an observed one is the confusion this journal exists to remove. The evidence contract for both is defined in design.md now so 13.2 and 13.5 publish against a settled shape rather than inventing one.
 - [x] 4.8 Record usage-observed references that point to sessions-owned accounting observations without duplicating usage totals in the journal.
-- [ ] 4.9 Emit a bounded coverage-gap marker after queue overflow or persistence recovery, including counts and safe reason codes only.
-- [ ] 4.10 Add tests proving producer success is unchanged when the evidence recorder is unavailable or its queue is full.
-- [ ] 4.11 Add tests proving raw prompts, output, tool payloads, terminal text, code, diffs, secrets, environment values, and absolute paths are rejected or removed before evidence persistence.
+- [x] 4.9 Emit a bounded coverage-gap marker after queue overflow or persistence recovery, including counts and safe reason codes only.
+- [x] 4.10 Add tests proving producer success is unchanged when the evidence recorder is unavailable or its queue is full.
+- [x] 4.11 Add tests proving raw prompts, output, tool payloads, terminal text, code, diffs, secrets, environment values, and absolute paths are rejected or removed before evidence persistence.
 
 ## 5. Workspace Evidence Scope, Navigation, Summary, and Tab Lifecycle
 
