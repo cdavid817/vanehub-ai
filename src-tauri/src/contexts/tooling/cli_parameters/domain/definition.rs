@@ -199,19 +199,32 @@ pub(crate) struct CliParameterAudit {
     /// Which artefact the review actually read, and in what state. A date alone cannot say whether
     /// the reviewer saw the published page, the installed binary's own help, or both.
     pub(crate) reviewed_state: String,
-    pub(crate) verification: CliParameterVerification,
+    /// Every kind of evidence that confirmed this parameter, not a single verdict.
+    ///
+    /// A lone `verified` flattened two very different confidences into one word: "the vendor
+    /// documents this" and "the binary's parser accepted it when I probed". Those came apart in
+    /// practice — `claude --help` hides `--advisor`, and the parser accepts it — so the audit has
+    /// to be able to say which of the two it has.
+    pub(crate) evidence: Vec<CliParameterEvidence>,
     pub(crate) note: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum CliParameterVerification {
-    /// Confirmed against a source the vendor publishes: its documentation, or its own binary's
-    /// help and argument rejection behaviour.
-    Verified,
-    /// Confirmed only against something in this repository. Never sufficient on its own.
+pub(crate) enum CliParameterEvidence {
+    /// The vendor's own documentation states it — the published reference, or the `--help` text
+    /// the vendor ships inside the binary.
+    OfficialReviewed,
+    /// The installed binary's argument parser was probed and behaved as the registry expects:
+    /// it accepted the flag or value, or rejected an invalid one while accepting this one.
+    BinaryParserAccepted,
+    /// The CLI was actually run with this parameter and the resulting behaviour was observed.
+    /// Parsing is not running; nothing may claim this on the strength of a probe alone.
+    LiveRuntimeVerified,
+    /// Only something in this repository confirms it. Never sufficient on its own.
     RepositoryVerified,
-    /// Carried forward without a source that settles it. It must not be presented as audited.
+    /// Nothing settles it. The parameter may be carried forward but must not be presented as
+    /// audited, and it stands alone: pairing it with real evidence would be a contradiction.
     PendingReview,
 }
 

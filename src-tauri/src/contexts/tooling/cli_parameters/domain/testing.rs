@@ -4,8 +4,8 @@
 use super::definition::{
     CliLaunchScope, CliParameterAudit, CliParameterCategory, CliParameterCompatibility,
     CliParameterConstraints, CliParameterControl, CliParameterDefinition, CliParameterDependencies,
-    CliParameterMaturity, CliParameterOption, CliParameterOwnership, CliParameterRisk,
-    CliParameterVerification,
+    CliParameterEvidence, CliParameterMaturity, CliParameterOption, CliParameterOwnership,
+    CliParameterRisk,
 };
 use super::rendering::{CliArgumentSlot, CliParameterRenderer};
 use super::selection::CliParameterSelection;
@@ -16,7 +16,7 @@ fn audit() -> CliParameterAudit {
         source_url: "https://example.invalid/reference".to_string(),
         reviewed_at: "2026-08-22".to_string(),
         reviewed_state: "Domain unit-test fixture; no external artefact.".to_string(),
-        verification: CliParameterVerification::RepositoryVerified,
+        evidence: vec![CliParameterEvidence::RepositoryVerified],
         note: "Domain unit-test fixture.".to_string(),
     }
 }

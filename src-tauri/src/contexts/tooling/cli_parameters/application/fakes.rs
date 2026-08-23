@@ -48,7 +48,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         },
@@ -66,7 +66,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         },
@@ -87,7 +87,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         }
@@ -109,7 +109,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         },
@@ -132,7 +132,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         },
@@ -149,7 +149,7 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
             "reviewedState": "test",
-            "verification": "repository-verified",
+            "evidence": ["repository-verified"],
             "note": "test"
           }
         }

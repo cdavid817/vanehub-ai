@@ -1,5 +1,5 @@
 use super::catalog::CliParameterCatalog;
-use super::definition::{CliParameterControl, CliParameterDefinition};
+use super::definition::{CliParameterControl, CliParameterDefinition, CliParameterEvidence};
 use super::dependency::find_requires_cycle;
 use super::error::CliParameterDomainError;
 use super::rendering::{CliConfigEncoding, CliParameterRenderer};
@@ -163,6 +163,39 @@ fn validate_audit(definition: &CliParameterDefinition) -> Result<(), CliParamete
             "{} has a non-https audit source",
             definition.id
         )));
+    }
+    if audit.reviewed_state.trim().is_empty() {
+        return Err(invalid(format!(
+            "{} records no reviewed artefact state",
+            definition.id
+        )));
+    }
+    if audit.evidence.is_empty() {
+        return Err(invalid(format!(
+            "{} records no audit evidence",
+            definition.id
+        )));
+    }
+    // `pending-review` means nothing settled it. Listing it beside real evidence would let a
+    // parameter read as both audited and unaudited, which is how a laundered verdict starts.
+    if audit
+        .evidence
+        .contains(&CliParameterEvidence::PendingReview)
+        && audit.evidence.len() > 1
+    {
+        return Err(invalid(format!(
+            "{} pairs pending-review with other evidence",
+            definition.id
+        )));
+    }
+    let mut seen = BTreeSet::new();
+    for evidence in &audit.evidence {
+        if !seen.insert(*evidence) {
+            return Err(invalid(format!(
+                "{} repeats an audit evidence kind",
+                definition.id
+            )));
+        }
     }
     Ok(())
 }

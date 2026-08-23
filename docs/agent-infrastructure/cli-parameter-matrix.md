@@ -14,18 +14,18 @@ Settings → CLI Parameters; `policy-governed` entries belong to Agent Permissio
 
 | Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | verified |
-| `permissionMode` | `--permission-mode` | global | interactive, chat | enum | policy-governed | — | verified |
-| `chrome` | `--chrome / --no-chrome` | global | interactive | tri-state | user-editable | — | verified |
-| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `advisor` | `--advisor` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `disableSlashCommands` | `--disable-slash-commands` | global | interactive | boolean-flag | user-editable | — | verified |
-| `screenReader` | `--ax-screen-reader` | global | interactive | boolean-flag | user-editable | 2.1.181 | verified |
-| `bare` | `--bare` | global | chat | boolean-flag | user-editable | — | verified |
-| `safeMode` | `--safe-mode` | global | interactive, chat | boolean-flag | user-editable | — | verified |
-| `fallbackModels` | `--fallback-model` | global | chat | ordered-string-list | user-editable | — | verified |
-| `settingSources` | `--setting-sources` | global | interactive, chat | multi-enum | user-editable | — | verified |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | — |
+| `permissionMode` | `--permission-mode` | global | interactive, chat | enum | policy-governed | — | — |
+| `chrome` | `--chrome / --no-chrome` | global | interactive | tri-state | user-editable | — | — |
+| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | — |
+| `advisor` | `--advisor` | global | interactive, chat | custom-text | user-editable | — | — |
+| `disableSlashCommands` | `--disable-slash-commands` | global | interactive | boolean-flag | user-editable | — | — |
+| `screenReader` | `--ax-screen-reader` | global | interactive | boolean-flag | user-editable | 2.1.181 | — |
+| `bare` | `--bare` | global | chat | boolean-flag | user-editable | — | — |
+| `safeMode` | `--safe-mode` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `fallbackModels` | `--fallback-model` | global | chat | ordered-string-list | user-editable | — | — |
+| `settingSources` | `--setting-sources` | global | interactive, chat | multi-enum | user-editable | — | — |
 
 Source: <https://code.claude.com/docs/en/cli-reference>
 
@@ -33,17 +33,17 @@ Source: <https://code.claude.com/docs/en/cli-reference>
 
 | Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `reasoningEffort` | `--config model_reasoning_effort=…` | global | interactive, chat | enum | user-editable | — | verified |
-| `sandbox` | `--sandbox` | global | interactive, chat | enum | policy-governed | — | verified |
-| `approvalPolicy` | `--ask-for-approval` | global | interactive, chat | enum | policy-governed | — | verified |
-| `ephemeral` | `--ephemeral` | invocation | chat | boolean-flag | user-editable | — | verified |
-| `strictConfig` | `--strict-config` | global | interactive, chat | boolean-flag | user-editable | — | verified |
-| `profile` | `--profile` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `search` | `--search` | global | interactive, chat | boolean-flag | user-editable | — | verified |
-| `oss` | `--oss` | global | interactive, chat | boolean-flag | user-editable | — | verified |
-| `noAltScreen` | `--no-alt-screen` | global | interactive | boolean-flag | user-editable | — | verified |
-| `localProvider` | `--local-provider` | global | interactive, chat | enum | user-editable | — | verified |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `reasoningEffort` | `--config model_reasoning_effort=…` | global | interactive, chat | enum | user-editable | — | — |
+| `sandbox` | `--sandbox` | global | interactive, chat | enum | policy-governed | — | — |
+| `approvalPolicy` | `--ask-for-approval` | global | interactive, chat | enum | policy-governed | — | — |
+| `ephemeral` | `--ephemeral` | invocation | chat | boolean-flag | user-editable | — | — |
+| `strictConfig` | `--strict-config` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `profile` | `--profile` | global | interactive, chat | custom-text | user-editable | — | — |
+| `search` | `--search` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `oss` | `--oss` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `noAltScreen` | `--no-alt-screen` | global | interactive | boolean-flag | user-editable | — | — |
+| `localProvider` | `--local-provider` | global | interactive, chat | enum | user-editable | — | — |
 
 Source: <https://developers.openai.com/codex/config-reference>
 
@@ -51,13 +51,13 @@ Source: <https://developers.openai.com/codex/config-reference>
 
 | Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `approvalMode` | `--approval-mode` | global | interactive, chat | enum | policy-governed | — | verified |
-| `sandbox` | `--sandbox` | global | interactive, chat | boolean-flag | policy-governed | — | verified |
-| `debug` | `--debug` | global | interactive, chat | boolean-flag | user-editable | — | verified |
-| `screenReader` | `--screen-reader` | global | interactive | boolean-flag | user-editable | — | verified |
-| `extensions` | `--extensions` | global | interactive, chat | ordered-string-list | user-editable | — | verified |
-| `includeDirectories` | `--include-directories` | global | interactive, chat | path-list | user-editable | — | verified |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `approvalMode` | `--approval-mode` | global | interactive, chat | enum | policy-governed | — | — |
+| `sandbox` | `--sandbox` | global | interactive, chat | boolean-flag | policy-governed | — | — |
+| `debug` | `--debug` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `screenReader` | `--screen-reader` | global | interactive | boolean-flag | user-editable | — | — |
+| `extensions` | `--extensions` | global | interactive, chat | ordered-string-list | user-editable | — | — |
+| `includeDirectories` | `--include-directories` | global | interactive, chat | path-list | user-editable | — | — |
 
 Source: <https://geminicli.com/docs/cli/cli-reference/>
 
@@ -65,14 +65,14 @@ Source: <https://geminicli.com/docs/cli/cli-reference/>
 
 | Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `model` | `--model` | invocation | interactive, chat | custom-text | user-editable | — | verified |
-| `variant` | `--variant` | invocation | chat | custom-text | user-editable | — | verified |
-| `agent` | `--agent` | invocation | interactive, chat | enum | policy-governed | — | verified |
-| `thinking` | `--thinking` | invocation | chat | boolean-flag | user-editable | — | verified |
-| `autoApprove` | `--auto` | invocation | interactive, chat | boolean-flag | policy-governed | — | verified |
-| `pure` | `--pure` | invocation | interactive | boolean-flag | user-editable | — | verified |
-| `printLogs` | `--print-logs` | invocation | interactive, chat | boolean-flag | user-editable | — | verified |
-| `logLevel` | `--log-level` | invocation | interactive, chat | enum | user-editable | — | verified |
+| `model` | `--model` | invocation | interactive, chat | custom-text | user-editable | — | — |
+| `variant` | `--variant` | invocation | chat | custom-text | user-editable | — | — |
+| `agent` | `--agent` | invocation | interactive, chat | enum | policy-governed | — | — |
+| `thinking` | `--thinking` | invocation | chat | boolean-flag | user-editable | — | — |
+| `autoApprove` | `--auto` | invocation | interactive, chat | boolean-flag | policy-governed | — | — |
+| `pure` | `--pure` | invocation | interactive | boolean-flag | user-editable | — | — |
+| `printLogs` | `--print-logs` | invocation | interactive, chat | boolean-flag | user-editable | — | — |
+| `logLevel` | `--log-level` | invocation | interactive, chat | enum | user-editable | — | — |
 
 Source: <https://opencode.ai/docs/cli/>
 
@@ -80,10 +80,10 @@ Source: <https://opencode.ai/docs/cli/>
 
 | Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | verified |
-| `mode` | `--mode` | global | interactive, chat | enum | policy-governed | — | verified |
-| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | verified |
-| `sandbox` | `--sandbox` | global | interactive, chat | boolean-flag | policy-governed | — | verified |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | — |
+| `mode` | `--mode` | global | interactive, chat | enum | policy-governed | — | — |
+| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | — |
+| `sandbox` | `--sandbox` | global | interactive, chat | boolean-flag | policy-governed | — | — |
 
 Source: <https://antigravity.google/docs/cli/headless/>
