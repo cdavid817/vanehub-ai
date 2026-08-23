@@ -45,8 +45,10 @@ describe("SessionTabBar badges", () => {
     // The name identifies the tab and nothing else. Folding a live count into it makes the name
     // change as work runs, and a name like "Changes, unviewed changed files: 4" then answers a
     // search for the Files tab — which is how a click lands on the wrong panel.
+    // `getByRole`'s string `name` filter matches the whole accessible name, so this fails the
+    // moment a badge joins it.
     for (const tab of ["changes", "documents", "files", "shell"] as const) {
-      expect(screen.getByRole("tab", { name: tabLabel(tab), exact: true })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: tabLabel(tab) })).toBeTruthy();
     }
   });
 
