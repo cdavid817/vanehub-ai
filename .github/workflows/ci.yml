@@ -463,11 +463,34 @@ jobs:
         if: runner.os != 'Linux'
         run: npm run test:desktop
 
+      # Reuses the artifact the smoke step just built rather than building a second one: the layer
+      # resolves `latest-artifact.json`. Windows only, because it needs a Python interpreter and the
+      # behaviour under test is host-side rather than platform-specific.
+      #
+      # Deterministic fixtures for the microphone, the speaker, the device list, the file picker and
+      # the three inference libraries. Not evidence that any engine, microphone or speaker works.
+      - name: Run deterministic local-media desktop layer
+        id: local_media_layer
+        if: runner.os == 'Windows'
+        run: npm run test:desktop:local-media
+
       - name: Upload desktop smoke failure evidence
-        if: failure()
+        if: failure() && steps.local_media_layer.outcome != 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-smoke-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: test-results/desktop/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Named for the layer rather than folded into the smoke artifact: both write sibling run
+      # directories under the same root, and whoever chases a local-media failure should not have to
+      # guess which run id belongs to which layer.
+      - name: Upload local-media fixture failure evidence
+        if: failure() && steps.local_media_layer.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-local-media-fixture-${{ runner.os }}-${{ github.run_id }}
           path: test-results/desktop/
           if-no-files-found: warn
           retention-days: 14

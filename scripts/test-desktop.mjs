@@ -200,6 +200,22 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+/**
+ * Deterministic local-media coverage, kept out of `all` on purpose.
+ *
+ * It needs a Python interpreter and a prepared fixture tree that none of the other layers want, and
+ * it runs the same artifact under a different assembly. Folding it into the default suite would
+ * make every other layer's result depend on whether this machine has Python.
+ */
+function localMediaDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-local-media-fixture",
+    config: "tests/desktop/wdio.local-media.conf.mjs",
+    label: "Desktop local media fixture",
+    artifact,
+  });
+}
+
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
@@ -208,6 +224,7 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "all") {
     const artifact = await buildDesktop();
     const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];

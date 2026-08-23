@@ -216,7 +216,7 @@
 - [x] 19.2 Run Rust domain/application/infrastructure tests with fake capture, playback, and workers.
 - [x] 19.3 Run Python bridge tests with fake modules and denied sockets.
 - [x] 19.4 Run Web Playwright tests for truthful native-only behavior and fake-service UI state coverage.
-- [ ] 19.5 Run desktop E2E with deterministic audio/OCR/TTS fixtures and worker failure injection.
+- [x] 19.5 Run desktop E2E with deterministic audio/OCR/TTS fixtures and worker failure injection (layer `desktop-local-media-fixture`; scope and evidence in design.md section 29).
 - [ ] 19.6 Run opt-in real local smoke tests for each configured engine on at least one supported developer machine; record package/model/device versions without recording content or paths.
 - [ ] 19.7 Manually verify real press/hold/release microphone behavior, permission denial/recovery, OCR review, TTS playback/stop, and session-switch races on available desktop platforms.
 - [x] 19.8 Record Windows/macOS/Linux results as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with concrete evidence/reason.

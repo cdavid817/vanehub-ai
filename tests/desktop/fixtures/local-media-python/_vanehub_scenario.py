@@ -55,11 +55,21 @@ def load(engine: str) -> Dict[str, Any]:
     return entry
 
 
-def _crash_marker(engine: str) -> str | None:
+def _marker(engine: str, name: str) -> str | None:
     path = _scenario_path()
     if not path:
         return None
-    return f"{path}.{engine}.crashed"
+    return f"{path}.{engine}.{name}"
+
+
+def _write_marker(marker: str | None) -> None:
+    if not marker:
+        return
+    try:
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write("1")
+    except OSError:
+        pass
 
 
 def apply_common(engine: str, scenario: Dict[str, Any]) -> str:
@@ -73,15 +83,10 @@ def apply_common(engine: str, scenario: Dict[str, Any]) -> str:
     behaviour = str(scenario.get("behaviour") or SUCCESS)
 
     if behaviour == CRASH_ONCE:
-        marker = _crash_marker(engine)
+        marker = _marker(engine, "crashed")
         already = bool(marker and os.path.exists(marker))
         if not already:
-            if marker:
-                try:
-                    with open(marker, "w", encoding="utf-8") as handle:
-                        handle.write("1")
-                except OSError:
-                    pass
+            _write_marker(marker)
             # Not an exception: an exception would be caught by the worker and reported as a mapped
             # error frame, which is the opposite of what a crash test needs. `os._exit` skips
             # cleanup and kills the interpreter, so the supervisor sees the pipe close.
@@ -92,7 +97,16 @@ def apply_common(engine: str, scenario: Dict[str, Any]) -> str:
         # Uncooperative on purpose. The worker's cancel token is only observed between engine
         # calls, so a library that never returns is what forces the grace period to expire and the
         # supervisor to kill the process.
+        #
+        # The first marker is what lets a spec cancel while the engine is genuinely stuck rather
+        # than while it is still starting; without it, a worker that failed to launch would produce
+        # the same observations as one that was killed.
+        _write_marker(_marker(engine, "hang-started"))
         time.sleep(float(scenario.get("hangSeconds") or 600))
+        # Only reached if nobody killed this process. Its absence after the sleep would have
+        # elapsed is what distinguishes "the host killed the worker" from "the host walked away
+        # and left it running" -- two outcomes that look identical from the operation's result.
+        _write_marker(_marker(engine, "hang-completed"))
         return SUCCESS
 
     if behaviour == DELAY:

@@ -31,6 +31,7 @@
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
+    "test:desktop:local-media": "node scripts/test-desktop.mjs local-media",
     "test:desktop": "node scripts/test-desktop.mjs all",
     "test:verify": "node scripts/test-verify.mjs",
     "local-media:python:test": "node scripts/test-local-media-python.mjs",

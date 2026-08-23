@@ -1554,6 +1554,22 @@ Actual-model smoke tests are opt-in and skipped by default CI because models are
 
 ### 23.6 Desktop E2E
 
+Implemented as its own layer, `desktop-local-media-fixture`, with its own wdio configuration and its
+own spec directory outside `tests/desktop/specs/`. It has to stay outside that glob: the other
+layers run the same artifact without the fixture environment, and a glob that reached these specs
+would run them against the production assembly, where there is no microphone and no engine.
+
+The layer replaces four boundaries and nothing else — `AudioCapturePort`, `AudioPlaybackPort`,
+`AudioDeviceCatalogPort`, and the file picker — plus the three third-party inference libraries,
+which are shadowed on `PYTHONPATH` behind the real bridge. The real `vane_local_media_worker` runs
+in a real child process against a real interpreter, so the command registry, application service,
+operation store, temp store, supervisor, launcher, JSON Lines transport, cancel grace, kill, and
+restart are all production code under test.
+
+Composer draft behaviour — append to the latest draft, review-then-append, Escape cancellation — is
+covered by the Web fake E2E suite instead, which drives the real React composer. The desktop layer
+drives the native surface.
+
 Use a test-only injected audio/input/playback port or deterministic fixture instead of depending on a physical microphone in CI:
 
 - press -> capture -> release -> operation -> final transcript -> latest draft append;
@@ -1711,10 +1727,40 @@ Two environments produced different results, and the difference is the environme
 
 `domain-local-media.e2e.mjs` has therefore been exercised only on the local Windows host.
 
+### Deterministic local-media desktop layer — `desktop-local-media-fixture`
+
+`npm run test:desktop:local-media`, Windows 11, Python 3.12.10, against the artifact
+`npm run test:desktop:build` produced: **PASSED**, 10 of 10 specs, 24.4 s.
+
+| Spec | What ran |
+| --- | --- |
+| Recognizes a staged image | picker → admission → staging → operation → worker → provenance |
+| Empty page versus engine failure | empty result succeeds; a `RuntimeError` becomes `ENGINE_UNAVAILABLE` and the library's message does not survive |
+| Captures and transcribes | real 16-bit mono WAV written by the host, opened and rejected-or-read by the library |
+| Recording ownership | a foreign composer scope gets `RECORDING_NOT_FOUND`; the owner's cancel frees the slot |
+| Microphone failures | `MIC_PERMISSION_DENIED`, `MIC_DEVICE_UNAVAILABLE`, empty device catalog, slot released |
+| Synthesis and stop | real WAV, `stop_local_media_playback` ends ~4.1 s of audio in under 3 s |
+| Crash and restart | `os._exit(17)` mid-request → `WORKER_CRASHED` → the next request is served by a fresh process |
+| Hang, grace, kill | the engine is provably inside its sleep before the cancel; the completion marker it would write is absent 19 s later |
+| Temp cleanup | `operations/`, `recordings/` and `staging/` are all empty afterwards |
+| Log privacy | no recognized line, transcript, synthesis input, source path or media root in the unified log |
+
+Both novel guards were proven to fail when the behaviour they describe is absent: shortening the
+scripted hang below the cancel grace makes the kill assertion fail, and adding a string the log
+genuinely contains makes the privacy assertion fail.
+
+What this layer does **not** show: that PaddleOCR, faster-whisper or sherpa-onnx work; that a
+microphone records or a speaker plays; that OS permission prompts behave correctly; or anything at
+all about macOS and Linux. It runs on Windows only, in CI as well as locally.
+
 ### Not evidenced anywhere
 
-Real PaddleOCR, faster-whisper, and sherpa-onnx models; real microphone and speaker hardware; microphone permission denial and recovery; Linux ALSA/PulseAudio/PipeWire classification against real devices; macOS audio hardware. Tasks 18.4, 18.5, 19.5, 19.6, and 19.7 remain unchecked for this reason. Task 20.2 remains unchecked because the Frontend job runs `npm run test:coverage`, which is a different command from the one that task names.
+Real PaddleOCR, faster-whisper, and sherpa-onnx models; real microphone and speaker hardware; microphone permission denial and recovery; Linux ALSA/PulseAudio/PipeWire classification against real devices; macOS audio hardware. Tasks 18.4, 18.5, 19.6, and 19.7 remain unchecked for this reason.
 
-### Known generated-artifact hazard
+### Resolved: the generated-artifact hazard
 
-`npm run test:desktop:build` enables the WDIO webdriver plugin, and the Tauri build regenerates the tracked `src-tauri/gen/schemas/*.json` with that plugin's ACL entries. Those entries are not produced by a normal build, so committing them makes the documentation job's read-only check fail. Until a follow-up task gives the test build an isolated output directory or restores the generated files afterwards, run `git status` after any desktop test build and discard changes to `gen/schemas`.
+`npm run test:desktop:build` enables the WDIO webdriver plugin, and the Tauri build regenerates the tracked `src-tauri/gen/schemas/*.json` with that plugin's ACL entries. Those entries are not produced by a normal build, so committing them made the documentation job's read-only check fail.
+
+`scripts/desktop/schema-snapshot.mjs` now snapshots the directory by bytes before the build and restores it afterwards, verifying a sha256 of the whole tree rather than trusting the write. A byte snapshot rather than `git restore`: the directory may already carry edits the developer made before running anything, and a Git-based reset would silently destroy them.
+
+Unrelated and harmless, but easy to mistake for the same thing: on a Windows checkout with `core.autocrlf=true`, any plain `cargo` build rewrites these files with LF, so `git status` lists them while `git diff` shows nothing. The content is byte-identical to `HEAD` and staging them produces an empty commit; `git checkout -- src-tauri/gen/schemas` clears it. Linux and macOS never see it.
