@@ -1,3 +1,17 @@
+// The v2 subdomain lands alongside the legacy module below so every layer can be compiled and
+// tested before its callers move. It is not yet reachable from a command, bootstrap, or provider
+// builder, so the dead-code lint is suppressed here and nowhere else; the cutover removes the
+// suppression once every module has a consumer.
+// `api` additionally allows unused imports: it is a re-export surface with no consumer yet.
+#[allow(dead_code, unused_imports)]
+pub(crate) mod api;
+#[allow(dead_code)]
+pub(crate) mod application;
+#[allow(dead_code)]
+pub(crate) mod domain;
+#[allow(dead_code, unused_imports)]
+pub(crate) mod infrastructure;
+
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use chrono::Utc;
