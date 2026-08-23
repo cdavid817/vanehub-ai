@@ -8,6 +8,9 @@
 mod binding;
 #[cfg(test)]
 mod binding_tests;
+mod builtin;
+#[cfg(test)]
+mod builtin_tests;
 mod definition;
 #[cfg(test)]
 mod definition_tests;
@@ -24,6 +27,11 @@ mod reconciliation_tests;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use binding::{
     all_hook_binding_errors, decide_seed, HookBinding, HookBindingError, SeedOutcome,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use builtin::{
+    all_hook_seed_rejections, builtin_hook_catalog, decide_owner, BuiltinHookDescriptor,
+    HookSeedOutcome, HookSeedRejection, BUILTIN_HOOK_SNAPSHOT,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use definition::{

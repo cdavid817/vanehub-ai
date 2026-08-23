@@ -8,6 +8,8 @@ mod credentials;
 mod credentials_tests;
 mod persistence_schema;
 #[cfg(test)]
+mod seed_tests;
+#[cfg(test)]
 mod sqlite_connectors_tests;
 mod sqlite_definitions;
 mod sqlite_instances;

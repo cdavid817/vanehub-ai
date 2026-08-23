@@ -6,8 +6,8 @@ use crate::contexts::tooling::extension_platform::domain::{
     ContentPublication, DeveloperMode, DeveloperModeError, ExtensionId, ExtensionPlatformFeature,
     FeatureGateDegradation, FeatureGateError, InstallationId, PackageHash, PrerequisiteReason,
     PublisherKeyFingerprint, PublisherKeyRecord, RuntimeGenerationError, RuntimeGenerationId,
-    RuntimeGenerationRecord, SnapshotPointer, SnapshotPublicationError, SnapshotRecord,
-    TrustedPublisherKey, VersionClaim,
+    RuntimeGenerationRecord, SafeExtensionRuntimeDiagnostic, SnapshotPointer,
+    SnapshotPublicationError, SnapshotRecord, TrustedPublisherKey, VersionClaim,
 };
 use std::path::Path;
 
@@ -202,6 +202,16 @@ pub(crate) trait VersionClaimRepository: Send + Sync {
 
     /// The hashes that were offered for a version already held by other bytes. Kept as evidence.
     fn conflicts(&self, extension: &ExtensionId) -> Result<Vec<String>, String>;
+}
+
+/// Where a runtime diagnostic goes.
+///
+/// A port rather than a direct call into logging, so the runtime that produces diagnostics can be
+/// tested without a log directory, and so "diagnostics go to the unified logging service" stays a
+/// wiring decision made in bootstrap rather than a fact scattered through the runtime.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait RuntimeDiagnosticSink: Send + Sync {
+    fn emit(&self, diagnostic: &SafeExtensionRuntimeDiagnostic) -> Result<(), String>;
 }
 
 /// What the platform currently runs for one contribution id.

@@ -5,9 +5,9 @@
 //! thing it claims to prove.
 
 use super::{
-    claim_for, record_operation_witness, record_package, record_snapshot_detail,
-    RecordedContribution, SqliteRuntimeGenerationRepository, SqliteSnapshotPointerRepository,
-    SqliteVersionClaimRepository,
+    claim_for, prune_operation_witnesses, record_operation_witness, record_package,
+    record_snapshot_detail, RecordedContribution, SqliteRuntimeGenerationRepository,
+    SqliteSnapshotPointerRepository, SqliteVersionClaimRepository,
 };
 use crate::contexts::tooling::extension_platform::application::{
     RuntimeGenerationRepository, SnapshotPointerRepository, VersionClaimRepository,
@@ -15,13 +15,14 @@ use crate::contexts::tooling::extension_platform::application::{
 use crate::contexts::tooling::extension_platform::domain::{
     CapabilityDiff, ClaimAuthority, ClaimOutcome, ClaimProvenance, CompatibilityOutcome,
     ExtensionId, ExtensionInstallWitness, InstallWitnessSubject, InstallationId, ManifestDigest,
-    PackageHash, PublisherId, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
-    RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord, SignatureSummary,
-    SnapshotId, SnapshotRecord, TrustProfile, PUBLISHER_KEY_BYTES,
+    PackageHash, PersistableOperationWitness, PublisherId, PublisherKeyRecord, PublisherPublicKey,
+    PublisherTrustState, RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord,
+    SignatureSummary, SnapshotId, SnapshotRecord, TrustProfile, WitnessProtection,
+    WitnessRetention, DEFAULT_WITNESS_LIMITS, PUBLISHER_KEY_BYTES, WITNESS_SCHEMA_VERSION,
 };
 use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use semver::Version;
 use std::sync::Arc;
 
@@ -65,8 +66,14 @@ fn hash(value: &str) -> PackageHash {
     PackageHash::parse(value).expect("hash")
 }
 
-/// A witness over an unchanged world, so two operations recording one produce the same digest --
-/// which is the case the identity has to survive.
+/// A witness that has passed every storage bound. The repository takes nothing else.
+///
+/// Over an unchanged world, so two operations recording one produce the same digest -- which is
+/// the case the witness identity has to survive.
+fn persistable() -> PersistableOperationWitness {
+    PersistableOperationWitness::admit(witness(), DEFAULT_WITNESS_LIMITS).expect("admit")
+}
+
 fn witness() -> ExtensionInstallWitness {
     ExtensionInstallWitness::issue(InstallWitnessSubject {
         extension: extension(),
@@ -485,7 +492,7 @@ fn snapshot_detail_packages_and_witnesses_are_idempotent() {
             &fixture.database,
             "witness-1",
             "operation-1",
-            &witness(),
+            &persistable(),
             "2026-08-22T00:00:00Z",
         )
         .expect("witness");
@@ -519,7 +526,7 @@ fn two_operations_previewing_the_same_world_both_record_a_witness() {
             &fixture.database,
             witness_id,
             operation_id,
-            &witness(),
+            &persistable(),
             "2026-08-22T00:00:00Z",
         )
         .expect("witness");
@@ -742,4 +749,177 @@ fn a_local_build_and_a_verified_publisher_hold_separate_version_bindings() {
         Some(hash(FIRST)),
         "and the verified publisher's binding is untouched"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Witness retention
+// ---------------------------------------------------------------------------
+
+/// Records `count` witnesses for one extension, each under its own operation.
+fn record_witnesses(fixture: &Fixture, count: usize) {
+    for index in 0..count {
+        let subject = InstallWitnessSubject {
+            version: Version::parse(&format!("1.{index}.0")).expect("version"),
+            ..witness().subject().clone()
+        };
+        let persistable = PersistableOperationWitness::admit(
+            ExtensionInstallWitness::issue(subject),
+            DEFAULT_WITNESS_LIMITS,
+        )
+        .expect("admit");
+        record_operation_witness(
+            &fixture.database,
+            &format!("witness-{index}"),
+            &format!("operation-{index}"),
+            &persistable,
+            &format!("2026-08-{:02}T00:00:00Z", index + 1),
+        )
+        .expect("witness");
+    }
+}
+
+fn stored_witness_ids(fixture: &Fixture) -> Vec<String> {
+    let connection = fixture.database.connection().expect("connection");
+    let mut statement = connection
+        .prepare(
+            "SELECT witness_id FROM extension_platform_operation_witnesses ORDER BY witness_id",
+        )
+        .expect("prepare");
+    statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query")
+        .map(|row| row.expect("row"))
+        .collect()
+}
+
+#[test]
+fn a_witness_records_the_schema_version_that_wrote_it() {
+    let fixture = fixture("witness-schema-version");
+    record_witnesses(&fixture, 1);
+
+    let stored: i64 = fixture
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT schema_version FROM extension_platform_operation_witnesses",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read");
+
+    assert_eq!(stored, WITNESS_SCHEMA_VERSION);
+}
+
+#[test]
+fn retention_keeps_the_newest_and_removes_the_rest() {
+    let fixture = fixture("witness-retention");
+    record_witnesses(&fixture, 6);
+
+    let removed = prune_operation_witnesses(
+        &fixture.database,
+        &extension(),
+        WitnessRetention::new(2).expect("window"),
+        &WitnessProtection::default(),
+    )
+    .expect("prune");
+
+    assert_eq!(removed, 4);
+    assert_eq!(
+        stored_witness_ids(&fixture),
+        vec!["witness-4".to_string(), "witness-5".to_string()],
+        "the two most recently issued survive"
+    );
+}
+
+#[test]
+fn retention_never_removes_evidence_for_an_unfinished_operation() {
+    // It is not history yet: the operation that will be compared against it has not run.
+    let fixture = fixture("witness-unfinished");
+    record_witnesses(&fixture, 6);
+
+    let removed = prune_operation_witnesses(
+        &fixture.database,
+        &extension(),
+        WitnessRetention::new(1).expect("window"),
+        &WitnessProtection {
+            unfinished_operations: vec!["operation-0".to_string()],
+            ..WitnessProtection::default()
+        },
+    )
+    .expect("prune");
+
+    assert_eq!(removed, 4);
+    assert!(
+        stored_witness_ids(&fixture).contains(&"witness-0".to_string()),
+        "the oldest row survives because its operation has not finished"
+    );
+}
+
+#[test]
+fn retention_never_removes_evidence_for_a_protected_package() {
+    // Active, rollback, and quarantine are one rule from storage's point of view: the package is
+    // still one the installation might run, so how it was approved is still a live answer.
+    let fixture = fixture("witness-protected-package");
+    record_witnesses(&fixture, 6);
+
+    let removed = prune_operation_witnesses(
+        &fixture.database,
+        &extension(),
+        WitnessRetention::new(1).expect("window"),
+        &WitnessProtection {
+            protected_packages: vec![hash(FIRST)],
+            ..WitnessProtection::default()
+        },
+    )
+    .expect("prune");
+
+    assert_eq!(removed, 0, "every row names the protected package");
+    assert_eq!(stored_witness_ids(&fixture).len(), 6);
+}
+
+#[test]
+fn retention_never_removes_a_row_a_newer_build_wrote() {
+    // A downgrade that prunes what it cannot interpret destroys the record the upgrade was
+    // keeping. Keeping it loses nothing.
+    let fixture = fixture("witness-newer-schema");
+    record_witnesses(&fixture, 6);
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            "UPDATE extension_platform_operation_witnesses SET schema_version = ?1 \
+             WHERE witness_id = 'witness-0'",
+            params![WITNESS_SCHEMA_VERSION + 1],
+        )
+        .expect("mark as written by a newer build");
+
+    let removed = prune_operation_witnesses(
+        &fixture.database,
+        &extension(),
+        WitnessRetention::new(1).expect("window"),
+        &WitnessProtection::default(),
+    )
+    .expect("prune");
+
+    assert_eq!(removed, 4);
+    assert!(stored_witness_ids(&fixture).contains(&"witness-0".to_string()));
+}
+
+#[test]
+fn retention_leaves_another_extensions_evidence_alone() {
+    let fixture = fixture("witness-other-extension");
+    record_witnesses(&fixture, 3);
+
+    let removed = prune_operation_witnesses(
+        &fixture.database,
+        &ExtensionId::parse("other.extension").expect("extension"),
+        WitnessRetention::new(1).expect("window"),
+        &WitnessProtection::default(),
+    )
+    .expect("prune");
+
+    assert_eq!(removed, 0);
+    assert_eq!(stored_witness_ids(&fixture).len(), 3);
 }

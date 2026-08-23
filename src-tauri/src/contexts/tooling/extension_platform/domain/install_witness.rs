@@ -347,6 +347,15 @@ fn changed_fields(
 
 /// SHA-256 over the shared canonical encoding of every bound fact.
 fn witness_digest(subject: &InstallWitnessSubject) -> String {
+    hex(&Sha256::digest(canonical_witness_bytes(subject)))
+}
+
+/// The bytes the digest is taken over.
+///
+/// Exposed so the storage bound can be measured against the same encoding the identity is derived
+/// from. Measuring anything else -- the sum of field lengths, say -- would let the two disagree,
+/// and the bound that matters is on what actually gets written.
+pub(crate) fn canonical_witness_bytes(subject: &InstallWitnessSubject) -> Vec<u8> {
     let mut canonical = Canonical::default();
     canonical.tag("vanehub.extension-platform.install-witness.v1");
 
@@ -433,5 +442,5 @@ fn witness_digest(subject: &InstallWitnessSubject) -> String {
             .map(|id| id.as_str().to_string()),
     );
 
-    hex(&Sha256::digest(canonical.bytes()))
+    canonical.bytes().to_vec()
 }

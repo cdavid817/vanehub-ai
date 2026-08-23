@@ -4,6 +4,9 @@
 //! about one. Connecting, executing, and changing a credential land with the Connector Lifecycle
 //! task group.
 
+mod builtin;
+#[cfg(test)]
+mod builtin_tests;
 mod definition;
 #[cfg(test)]
 mod definition_tests;
@@ -17,6 +20,12 @@ mod reconciliation;
 #[cfg(test)]
 mod reconciliation_tests;
 
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use builtin::{
+    all_connector_seed_rejections, builtin_connector_catalog, decide_connector_owner,
+    BuiltinConnectorDescriptor, ConnectorSeedOutcome, ConnectorSeedRejection,
+    BUILTIN_CONNECTOR_OWNER, BUILTIN_CONNECTOR_SNAPSHOT,
+};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use definition::{
     decide_connector_definition, ConnectorDefinitionContentConflict, ConnectorDefinitionOutcome,

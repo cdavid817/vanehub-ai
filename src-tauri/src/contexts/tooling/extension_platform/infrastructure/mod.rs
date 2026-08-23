@@ -13,6 +13,9 @@ mod reconciler_tests;
 mod roots;
 #[cfg(test)]
 mod roots_tests;
+mod runtime_diagnostics;
+#[cfg(test)]
+mod runtime_diagnostics_tests;
 mod schema;
 mod snapshot_store;
 #[cfg(test)]
@@ -34,12 +37,17 @@ pub(crate) use active_contribution::SqliteActiveContributionReader;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_reader::{read_extension_package, PackageReadError, ReadPackage};
 pub(crate) use persistence_schema::{
-    apply_extension_persistence_schema, repair_snapshot_contribution_digest,
+    apply_extension_persistence_schema, apply_operation_witness_bounds,
+    repair_snapshot_contribution_digest,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use reconciler::{reconcile, referenced_package_hashes};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use roots::{ExtensionRoots, RootError};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use runtime_diagnostics::{
+    rendered_measure_keys, LoggingRuntimeDiagnosticSink, RUNTIME_DIAGNOSTIC_CATEGORY,
+};
 pub(crate) use schema::{
     apply_developer_mode_schema, apply_feature_gate_degradation_schema, apply_feature_gate_schema,
     apply_publisher_key_schema, apply_snapshot_schema,
@@ -54,8 +62,9 @@ pub(crate) use sqlite_developer_mode::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_persistence::{
-    claim_for, record_operation_witness, record_package, record_snapshot_detail,
-    RecordedContribution, SqliteRuntimeGenerationRepository, SqliteVersionClaimRepository,
+    claim_for, prune_operation_witnesses, record_operation_witness, record_package,
+    record_snapshot_detail, RecordedContribution, SqliteRuntimeGenerationRepository,
+    SqliteVersionClaimRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_publisher_keys::SqlitePublisherKeyRepository;

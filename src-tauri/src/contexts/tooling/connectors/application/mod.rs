@@ -8,6 +8,7 @@ mod ports;
 mod reconcile;
 #[cfg(test)]
 mod reconcile_tests;
+mod seed;
 
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use ports::{
@@ -16,3 +17,5 @@ pub(crate) use ports::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use reconcile::{reconcile_connector, reconcile_connectors, recorded_revisions};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use seed::{seed_builtin_connectors, ConnectorSeedReport};

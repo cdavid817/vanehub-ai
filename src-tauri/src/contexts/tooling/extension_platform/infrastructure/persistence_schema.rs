@@ -122,6 +122,28 @@ fn apply_snapshot_detail(conn: &Connection) -> Result<(), DatabaseError> {
     repair_snapshot_contribution_digest(conn)
 }
 
+/// Migration 90: records which schema version wrote each operation witness.
+///
+/// Retention must never remove a row a newer build wrote. Without a version on the row that is
+/// unknowable, and the failure is asymmetric: a downgrade that prunes what it cannot interpret
+/// destroys the record the upgrade was keeping, while a downgrade that keeps it loses nothing.
+///
+/// A separate migration rather than a column added to 86, which is already committed. `NOT NULL
+/// DEFAULT 1` is the honest backfill: every existing row *was* written by schema version 1.
+pub(crate) fn apply_operation_witness_bounds(conn: &Connection) -> Result<(), DatabaseError> {
+    if crate::platform::database::table_has_column(
+        conn,
+        "extension_platform_operation_witnesses",
+        "schema_version",
+    )? {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "ALTER TABLE extension_platform_operation_witnesses              ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;",
+    )?;
+    Ok(())
+}
+
 /// Adds `contribution_digest` to a contributions table created before it existed.
 ///
 /// Migration 86 gained the column while this change was still unreleased, so a database that had

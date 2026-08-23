@@ -13,9 +13,10 @@ use crate::contexts::tooling::extension_platform::application::{
     RuntimeGenerationRepository, VersionClaimRepository,
 };
 use crate::contexts::tooling::extension_platform::domain::{
-    decide_claim, ActiveGeneration, ClaimAuthority, ClaimOutcome, ClaimProvenance, ExtensionId,
-    ExtensionInstallWitness, InstallationId, PackageHash, RuntimeGenerationError,
-    RuntimeGenerationId, RuntimeGenerationRecord, SnapshotId, VersionClaim,
+    decide_claim, is_prunable, ActiveGeneration, ClaimAuthority, ClaimOutcome, ClaimProvenance,
+    ExtensionId, InstallationId, PackageHash, PersistableOperationWitness, RuntimeGenerationError,
+    RuntimeGenerationId, RuntimeGenerationRecord, SnapshotId, VersionClaim, WitnessProtection,
+    WitnessRetention,
 };
 use crate::platform::database::{begin_write_transaction, NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension};
@@ -406,17 +407,18 @@ pub(crate) fn record_operation_witness(
     database: &NativeDatabase,
     witness_id: &str,
     operation_id: &str,
-    witness: &ExtensionInstallWitness,
+    persistable: &PersistableOperationWitness,
     issued_at: &str,
 ) -> Result<(), String> {
+    let witness = persistable.witness();
     let subject = witness.subject();
     let connection = database.connection().map_err(|error| error.to_string())?;
     connection
         .execute(
             "INSERT INTO extension_platform_operation_witnesses \
                  (witness_id, operation_id, witness_digest, extension_id, version, package_hash, \
-                  manifest_digest, signature_state, trust_profile, issued_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+                  manifest_digest, signature_state, trust_profile, issued_at, schema_version) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
              ON CONFLICT(operation_id, witness_digest) DO NOTHING",
             params![
                 witness_id,
@@ -429,10 +431,81 @@ pub(crate) fn record_operation_witness(
                 subject.signature.state,
                 subject.trust_profile.as_str(),
                 issued_at,
+                persistable.schema_version(),
             ],
         )
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// Removes witness evidence that is outside the retention window and protected by nothing.
+///
+/// Deliberately not a bare `DELETE ... LIMIT`. Four kinds of row are never removed, and each is a
+/// state in which the evidence is still the answer to a live question rather than history:
+///
+/// * a row for an operation the caller says has not finished;
+/// * a row for a package an installation runs, can roll back to, or has quarantined;
+/// * a row written under a schema version this build does not know -- a newer build's row is not
+///   this build's to interpret, and deleting what you cannot read is how a downgrade destroys the
+///   record the upgrade was keeping;
+/// * anything inside the newest `keep` rows for its extension.
+///
+/// The protection set is a parameter because storage cannot derive it: operations live in an
+/// in-memory registry with no table, and which package is active is the installation flow's
+/// knowledge. A repository that guessed would delete evidence on the launch its guess was wrong.
+pub(crate) fn prune_operation_witnesses(
+    database: &NativeDatabase,
+    extension: &ExtensionId,
+    retention: WitnessRetention,
+    protection: &WitnessProtection,
+) -> Result<usize, String> {
+    let connection = database.connection().map_err(|error| error.to_string())?;
+    // One transaction for the window read and the deletes: a witness recorded in between would
+    // otherwise shift the window under the decision that was made from it.
+    let transaction = begin_write_transaction(&connection).map_err(|error| error.to_string())?;
+
+    let mut statement = transaction
+        .prepare(
+            "SELECT witness_id, operation_id, package_hash, schema_version \
+             FROM extension_platform_operation_witnesses \
+             WHERE extension_id = ?1 ORDER BY issued_at DESC, witness_id DESC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![extension.as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(statement);
+
+    let mut removed = 0;
+    for (index, (witness_id, operation_id, package_hash, schema_version)) in rows.iter().enumerate()
+    {
+        if !is_prunable(
+            protection,
+            operation_id,
+            package_hash,
+            *schema_version,
+            index < retention.keep(),
+        ) {
+            continue;
+        }
+        removed += transaction
+            .execute(
+                "DELETE FROM extension_platform_operation_witnesses WHERE witness_id = ?1",
+                params![witness_id],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(removed)
 }
 
 /// Records the bytes a package arrived as. Idempotent: the same digest is the same package.

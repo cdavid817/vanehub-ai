@@ -2524,12 +2524,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // a state that never existed; the doc comment is most of the 28 because the failure looks like
     // nothing at all until it is described. Migration 89 will add 7 lines.
     //
-    // Raised a final time from 3,193 by +7 to register migration 89 (connector persistence), whose
-    // schema and tests live in `contexts/tooling/connectors`. That closes Task Group 3: migrations
-    // 86-89 are registered, and this is the measured total rather than a projection.
+    // Raised a final time from 3,193 by +14, and re-measured rather than projected now that Task
+    // Group 3 is closed. 7 register migration 89 (connector persistence) and 7 register migration
+    // 90, which records which schema version wrote each operation witness so retention never prunes
+    // a row a newer build left. Every migration body and its tests live in the context that owns
+    // the tables; what is here is the registration.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_200,
+        budget: 3_207,
         owner: "add-unified-extension-platform",
     },
 ];

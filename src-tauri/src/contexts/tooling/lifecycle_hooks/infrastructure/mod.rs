@@ -4,6 +4,8 @@ mod active_snapshot;
 #[cfg(test)]
 mod active_snapshot_tests;
 mod persistence_schema;
+#[cfg(test)]
+mod seed_tests;
 mod sqlite_bindings;
 mod sqlite_definitions;
 mod sqlite_executions;

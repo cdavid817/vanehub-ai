@@ -558,6 +558,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "connector-persistence",
         crate::contexts::tooling::connectors::infrastructure::apply_connector_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        90,
+        "operation-witness-schema-version",
+        crate::contexts::tooling::extension_platform::infrastructure::apply_operation_witness_bounds,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     // Same shape of repair, same reason: a column added to a migration a database had already
     // recorded. The version gate legitimately skips it, so the invariant is enforced outside the
@@ -671,6 +677,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (87, "lifecycle-hook-persistence"),
     (88, "permission-authorization-rules"),
     (89, "connector-persistence"),
+    (90, "operation-witness-schema-version"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

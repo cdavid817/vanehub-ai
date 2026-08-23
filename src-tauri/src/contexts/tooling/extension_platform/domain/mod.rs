@@ -57,6 +57,9 @@ mod publisher_key_tests;
 mod reconciliation;
 #[cfg(test)]
 mod reconciliation_tests;
+mod runtime_diagnostic;
+#[cfg(test)]
+mod runtime_diagnostic_tests;
 mod runtime_generation;
 mod signature_envelope;
 #[cfg(test)]
@@ -69,6 +72,9 @@ mod snapshot;
 mod version_claim;
 #[cfg(test)]
 mod version_claim_tests;
+mod witness_bounds;
+#[cfg(test)]
+mod witness_bounds_tests;
 
 pub(crate) use error::FeatureGateError;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -169,6 +175,12 @@ pub(crate) use reconciliation::{
     ReconciliationVerdict, ALL_EXTENSION_ROOT_SCOPES, ALL_RECONCILIATION_REASONS,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use runtime_diagnostic::{
+    all_diagnostic_rejections, DiagnosticMeasure, DiagnosticRejection, RuntimeDiagnosticCode,
+    SafeExtensionRuntimeDiagnostic, ALL_DIAGNOSTIC_MEASURES, ALL_RUNTIME_DIAGNOSTIC_CODES,
+    MAX_DIAGNOSTIC_MEASUREMENTS,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use runtime_generation::{
     all_runtime_generation_errors, ActiveGeneration, RuntimeGenerationError,
     RuntimeGenerationRecord,
@@ -194,4 +206,10 @@ pub(crate) use snapshot::{
 pub(crate) use version_claim::{
     decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, NamespaceMismatch, VersionClaim,
     VersionContentConflict, LOCAL_DEVELOPER_NAMESPACE,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use witness_bounds::{
+    all_witness_rejections, is_prunable, PersistableOperationWitness, WitnessLimits,
+    WitnessProtection, WitnessRejection, WitnessRetention, DEFAULT_WITNESS_LIMITS,
+    DEFAULT_WITNESS_RETENTION, WITNESS_SCHEMA_VERSION,
 };

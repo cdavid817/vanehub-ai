@@ -31,9 +31,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds lifecycle Hook subjects, their versioned definitions, user bindings, and bounded
 /// execution evidence, and migration 88 adds the canonical authorization rule sets, their rules,
 /// and the single active-rule-set pointer, and migration 89 adds connector subjects, their
-/// versioned definitions, configured instances, and their bindings.
+/// versioned definitions, configured instances, and their bindings, and migration 90 records which
+/// schema version wrote each operation witness so retention never prunes a newer build's row.
 fn expected_versions() -> Vec<i64> {
-    (1..=89).collect()
+    (1..=90).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
