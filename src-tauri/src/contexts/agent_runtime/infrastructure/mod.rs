@@ -3,8 +3,12 @@ mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;
 mod availability;
+#[cfg(test)]
+mod baseline_argv_equivalence_tests;
 mod builtin_expert_roles;
 mod cli_profile;
+#[cfg(test)]
+mod cli_profile_tests;
 mod code_intelligence_adapter;
 #[cfg(test)]
 mod code_intelligence_adapter_tests;

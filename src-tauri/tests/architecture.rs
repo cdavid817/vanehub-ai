@@ -2357,9 +2357,37 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // Raised from 59,456 by +11 for `prevent-hook-bash-permission-blocks`: 3 lines inject the
     // VaneHub-owned Claude Code scope marker, and 8 lines verify chat and terminal projections add
     // it only for Claude Code across the complete managed-CLI policy matrix.
+    //
+    // Raised from 59,467 to 60,547 by `upgrade-cli-parameter-management`'s native runtime cutover.
+    // The subtree grows 1,476 lines against `ee3eaf3f`; 396 fit the existing headroom, so the
+    // budget rises by 1,080. Production here does not grow at all — it falls by 328 — and every
+    // line of the raise is `#[cfg(test)]`:
+    //
+    // +693 `baseline_argv_equivalence_tests.rs`, which transcribes the pre-cutover
+    // `build_invocation`, `build_interactive_invocation`, `apply_policy_template_overrides` and
+    // `force_gemini_standard_approval_flag` verbatim from `ee3eaf3f`, recomputes each provider's
+    // argv through the legacy renderer, and asserts equality against the live resolver for all
+    // five providers across interactive, fresh chat and resume. Its duplication of the old bodies
+    // is the point: without a second, independent computation of the old argv there is no way to
+    // show the cutover preserved it rather than to assert that it did. It also pins the only two
+    // differences that are intended, so a third one cannot appear silently. It falls with the
+    // legacy monolith.
+    //
+    // +932 `cli_profile_tests.rs`, which is `cli_profile.rs`'s own `mod tests` moved out (that
+    // move is most of the -327 on `cli_profile.rs`) and extended to 23 tests: the policy
+    // projection per agent and template, the legacy and v2 read paths, quarantine that does not
+    // fail a launch, launch-time re-evaluation of profile, policy and CLI version, and the
+    // diagnostics' operation association and freedom from prompts, credentials and session ids.
+    //
+    // +179 across `providers/tests.rs`, `compatibility_tests.rs` and the three JSON fixtures for
+    // the table-driven runtime coverage the change requires.
+    //
+    // -328 production: `invocation.rs` loses its per-parameter-id renderer branches and
+    // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
+    // resolver.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_467,
+        budget: 60_547,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

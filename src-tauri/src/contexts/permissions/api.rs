@@ -227,13 +227,29 @@ pub(crate) fn test_permissions_api_with_hook(
     default_template: PolicyTemplateName,
     claude_code_hook: Arc<dyn ClaudeCodeHookPort>,
 ) -> PermissionsApi {
+    use crate::platform::database::NativeDatabase;
+    use crate::test_support::TempDirectory;
+
+    let directory = TempDirectory::new("published-permissions-api");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    // `directory` drops at function exit, exactly as it did before this helper was extracted.
+    test_permissions_api_on(database, default_template, claude_code_hook)
+}
+
+/// Assembles the facade over a caller-supplied database so a cross-context test can share one
+/// `NativeDatabase` with the subject under test. The repository wiring stays inside `permissions`:
+/// an outer adapter must never construct another context's concrete persistence itself.
+#[cfg(test)]
+pub(crate) fn test_permissions_api_on(
+    database: crate::platform::database::NativeDatabase,
+    default_template: PolicyTemplateName,
+    claude_code_hook: Arc<dyn ClaudeCodeHookPort>,
+) -> PermissionsApi {
     use super::application::{DefaultTemplatePort, PendingApprovalEventPort};
     use super::infrastructure::{
         PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
         SqliteGrantRepository, SqlitePrincipalRepository,
     };
-    use crate::platform::database::NativeDatabase;
-    use crate::test_support::TempDirectory;
 
     struct FixedDefault(PolicyTemplateName);
     impl DefaultTemplatePort for FixedDefault {
@@ -249,8 +265,6 @@ pub(crate) fn test_permissions_api_with_hook(
         }
     }
 
-    let directory = TempDirectory::new("published-permissions-api");
-    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
     let principals = Arc::new(SqlitePrincipalRepository::new(database.clone()));
     let grants = Arc::new(SqliteGrantRepository::new(database.clone()));
     let audit = Arc::new(SqliteAuditRepository::new(database));
