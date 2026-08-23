@@ -50,7 +50,12 @@ export function CliOperationStatus({
 
   return (
     <div className="rounded-md border border-border p-3 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
+      {/*
+        One polite announcement per status change -- the badge row, not the log. A live region
+        around streaming output reads every line as it arrives, which makes the page unusable for
+        exactly the person the region was added for.
+      */}
+      <div aria-atomic="true" aria-live="polite" className="flex flex-wrap items-center gap-2">
         <Badge tone={running ? "muted" : operation.status === "succeeded" ? "success" : "warning"}>
           {t(`cli.operationStatus.${operation.status}`)}
         </Badge>

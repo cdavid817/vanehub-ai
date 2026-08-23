@@ -144,33 +144,33 @@
 
 ## 11. CLI Management UI
 
-- [ ] 11.1 Rename/refactor the current Providers page into a focused CLI Management feature module and update the settings page registry.
-- [ ] 11.2 Add the compact summary bar for ready, needs login, updates, conflicts, and broken counts.
-- [ ] 11.3 Add search, status, source, and needs-action filters while preserving mounted filter and scroll state.
-- [ ] 11.4 Render backend-derived overall state plus orthogonal executable, authentication, compatibility, source, and freshness badges.
-- [ ] 11.5 Show active version, source, safe shortened path, update source/channel, and one backend-derived primary action per row/card.
-- [ ] 11.6 Keep unrelated cards interactive while one operation runs; show queue/running state only on affected tools.
-- [ ] 11.7 Add the details drawer with Overview, Installations, Diagnostics, and Operations tabs.
-- [ ] 11.8 Add installation rows for path, version, source, confidence, PATH priority, executable state, and active/shadowed state.
-- [ ] 11.9 Add the action-plan review dialog with source, version transition, structured command preview, network/elevation, preconditions, warnings, expiry, and no-fallback statement.
-- [ ] 11.10 Prevent opening/executing a plan when target equals current.
-- [ ] 11.11 Add the bulk-upgrade plan dialog with eligible and skipped sections and per-item execution outcome.
-- [ ] 11.12 Add visible stale, refreshing, `applied-unverified`, and `changed-but-failed` states without clearing cached content.
-- [ ] 11.13 Add cancel and safe-log-copy actions through the existing operation service.
-- [ ] 11.14 Use shared semantic tokens/primitives, compact desktop density, no nested card-in-card styling, and both registered visual styles.
-- [ ] 11.15 Add keyboard navigation, focus management, `aria-expanded`, `aria-controls`, accessible tooltips, non-color status cues, and restrained live-region announcements.
-- [ ] 11.16 Add every new visible string to every locale registered in `src/i18n/supported-locales.ts`; keep date formatting locale-aware.
+- [x] 11.1 Rename/refactor the current Providers page into a focused CLI Management feature module and update the settings page registry.
+- [x] 11.2 Add the compact summary bar for ready, needs login, updates, conflicts, and broken counts.
+- [x] 11.3 Add search, status, source, and needs-action filters while preserving mounted filter and scroll state.
+- [x] 11.4 Render backend-derived overall state plus orthogonal executable, authentication, compatibility, source, and freshness badges.
+- [x] 11.5 Show active version, source, safe shortened path, update source/channel, and one backend-derived primary action per row/card.
+- [x] 11.6 Keep unrelated cards interactive while one operation runs; show queue/running state only on affected tools.
+- [x] 11.7 Add the details drawer with Overview, Installations, Diagnostics, and Operations tabs.
+- [x] 11.8 Add installation rows for path, version, source, confidence, PATH priority, executable state, and active/shadowed state.
+- [x] 11.9 Add the action-plan review dialog with source, version transition, structured command preview, network/elevation, preconditions, warnings, expiry, and no-fallback statement.
+- [x] 11.10 Prevent opening/executing a plan when target equals current.
+- [x] 11.11 Add the bulk-upgrade plan dialog with eligible and skipped sections and per-item execution outcome.
+- [x] 11.12 Add visible stale, refreshing, `applied-unverified`, and `changed-but-failed` states without clearing cached content.
+- [x] 11.13 Add cancel and safe-log-copy actions through the existing operation service.
+- [x] 11.14 Use shared semantic tokens/primitives, compact desktop density, no nested card-in-card styling, and both registered visual styles.
+- [x] 11.15 Add keyboard navigation, focus management, `aria-expanded`, `aria-controls`, accessible tooltips, non-color status cues, and restrained live-region announcements.
+- [x] 11.16 Add every new visible string to every locale registered in `src/i18n/supported-locales.ts`; keep date formatting locale-aware.
 
 ## 12. Frontend, Web, and desktop tests
 
-- [ ] 12.1 Replace SSR/string-only CLI page tests with interaction tests using the shared service doubles.
-- [ ] 12.2 Test selected old/new/current versions and assert exact `prepareCliAction` inputs.
-- [ ] 12.3 Test that equal target renders current state and creates no mutation operation.
-- [ ] 12.4 Test source-specific catalogs and detect-only manual installations.
-- [ ] 12.5 Test per-tool busy state, queued operations, cancellation, stale display, and partial-completion warnings.
-- [ ] 12.6 Test action-plan and bulk-plan review, expiry, stale-plan rejection, skipped reasons, and retry through a new plan.
-- [ ] 12.7 Test drawer tabs, path truncation/copy, accessibility attributes, focus restoration, and keyboard use.
-- [ ] 12.8 Keep i18n parity and hard-coded visible text guardrails passing.
+- [x] 12.1 Replace SSR/string-only CLI page tests with interaction tests using the shared service doubles.
+- [x] 12.2 Test selected old/new/current versions and assert exact `prepareCliAction` inputs.
+- [x] 12.3 Test that equal target renders current state and creates no mutation operation.
+- [x] 12.4 Test source-specific catalogs and detect-only manual installations.
+- [x] 12.5 Test per-tool busy state, queued operations, cancellation, stale display, and partial-completion warnings.
+- [x] 12.6 Test action-plan and bulk-plan review, expiry, stale-plan rejection, skipped reasons, and retry through a new plan.
+- [x] 12.7 Test drawer tabs, path truncation/copy, accessibility attributes, focus restoration, and keyboard use.
+- [x] 12.8 Keep i18n parity and hard-coded visible text guardrails passing.
 - [ ] 12.9 Add Playwright coverage for filtering, details, plan review, bulk preview, operation progress, and Web/mock cancellation.
 - [ ] 12.10 Add deterministic fake CLI and fake package-manager fixtures under the existing desktop fixture hierarchy for Windows, macOS, and Linux.
 - [ ] 12.11 Add native desktop coverage for real Tauri IPC, temporary PATH discovery, duplicate/broken candidates, plan creation, fake mutation, verification, cancellation, and SQLite persistence across restart.
