@@ -233,25 +233,30 @@ export function CliParametersPage({
             </Button>
           </p>
 
-          {activeProfile ? (
-            <CliParameterFieldGroups
-              agentId={activeAgentId}
-              drafts={drafts}
-              filter={filter}
-              profile={activeProfile}
-              query={query}
-              scope={scope}
-            />
-          ) : null}
-
-          {/* Sticky at wide widths, and simply the last block at narrow ones, so the token
-              list never needs a horizontal scrollbar to stay visible. */}
-          <div className="lg:sticky lg:bottom-4">
-            <CliParameterPreviewPanel
-              refreshing={preview.refreshing}
-              segments={preview.preview?.segments ?? null}
-              stale={preview.stale}
-            />
+          {/* Two columns only once there is genuinely room for them. At 1440 the field rows already
+              split into label and control, so carving out a third column there squeezes the
+              descriptions into a vertical ribbon; below `2xl` the preview simply follows the
+              controls, which is also what narrow widths need. */}
+          <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:items-start">
+            <div className="min-w-0">
+              {activeProfile ? (
+                <CliParameterFieldGroups
+                  agentId={activeAgentId}
+                  drafts={drafts}
+                  filter={filter}
+                  profile={activeProfile}
+                  query={query}
+                  scope={scope}
+                />
+              ) : null}
+            </div>
+            <div className="min-w-0 2xl:sticky 2xl:top-4">
+              <CliParameterPreviewPanel
+                refreshing={preview.refreshing}
+                segments={preview.preview?.segments ?? null}
+                stale={preview.stale}
+              />
+            </div>
           </div>
         </div>
       </div>

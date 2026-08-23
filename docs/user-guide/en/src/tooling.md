@@ -126,7 +126,7 @@ The table above only lists the high-frequency items. The **complete matrix, gene
 
 #### OnePiece's equivalent configuration
 
-OnePiece doesn't go through an external CLI and has none of the command-line parameters above. Its equivalent is a **provider configuration** (managed under **Settings → Agent configurations**): pick an entry from the provider catalog, fill in an API key (validated before saving), discover and select a model, or configure a custom compatible endpoint as needed. See the next section and [Native API Agent](native-agent.md).
+OnePiece doesn't go through an external CLI and has none of the command-line parameters above, so it is not a tab on the CLI Parameters page. Everything it *does* have lives under **Settings → Agent configurations**: the **provider configuration** — pick an entry from the provider catalog, fill in an API key (validated before saving), discover and select a model, or configure a custom compatible endpoint — and, below it, OnePiece's retrieval, context-compaction and context-health parameters. See the next section and [Native API Agent](native-agent.md).
 
 ## Agent configurations
 

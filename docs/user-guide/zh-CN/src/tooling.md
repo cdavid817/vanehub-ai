@@ -124,7 +124,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 #### OnePiece 的等价配置
 
-OnePiece 不走外部 CLI，没有上述命令行参数。它的等价配置是 **provider 配置**（在**设置 → Agent 配置**里管理）：选 provider 目录条目、填 API Key（保存前校验）、发现并选定模型、按需配自定义兼容端点。见下一节与[原生 API Agent](native-agent.md)。
+OnePiece 不走外部 CLI，没有上述命令行参数，因此它不是 CLI 参数页上的一个标签页。它真正有的配置全在**设置 → Agent 配置**里：**provider 配置**（选 provider 目录条目、填 API Key（保存前校验）、发现并选定模型、按需配自定义兼容端点），以及排在其下方的 OnePiece 检索、上下文压缩与上下文健康参数。见下一节与[原生 API Agent](native-agent.md)。
 
 ## Agent 配置
 
