@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MessageItem } from "../components/chat/MessageItem";
 import { NotificationCenter } from "../notifications/notification-center";
 import { NotificationProvider } from "../notifications/notification-provider";
-import { CliEnvironmentCard } from "../settings/pages/cli-environment-card";
+import { CliEnvironmentCard } from "../settings/pages/cli-management/cli-environment-card";
 import type { CliEnvironmentSnapshot } from "../types/cli-environment-snapshot";
 import type { ChatMessage } from "../types/chat";
 import { activateAppLanguage } from ".";
@@ -88,17 +88,15 @@ function RepresentativeSurfaces() {
         <NotificationCenter />
       </NotificationProvider>
       <CliEnvironmentCard
-        diagnosticsExpanded={false}
         mutating={false}
-        operationExpanded={false}
         refreshing={false}
         selectedVersion=""
         snapshot={cliSnapshot}
+        onCancelOperation={() => undefined}
+        onOpenDetails={() => undefined}
         onRefresh={() => undefined}
         onRequestChange={() => undefined}
         onSelectedVersionChange={() => undefined}
-        onToggleDiagnostics={() => undefined}
-        onToggleOperation={() => undefined}
       />
     </main>
   );

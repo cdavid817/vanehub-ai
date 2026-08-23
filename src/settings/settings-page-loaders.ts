@@ -8,8 +8,8 @@ import type { SettingsPageContext } from "./settings-pages";
  */
 export const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/basic-settings-page")
   .then((module) => ({ default: module.BasicSettingsPage }));
-export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
-  .then((module) => ({ default: module.ProvidersPage }));
+export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-management/cli-management-page")
+  .then((module) => ({ default: module.CliManagementPage }));
 export const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-parameters-page")
   .then((module) => ({ default: module.CliParametersPage }));
 export const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")

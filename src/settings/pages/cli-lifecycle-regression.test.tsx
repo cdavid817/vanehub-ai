@@ -119,14 +119,14 @@ function snapshotAt(installedVersion: string): CliEnvironmentSnapshot {
 }
 
 async function renderPage(snapshot: CliEnvironmentSnapshot) {
-  const { ProvidersPage } = await import("./providers-page");
+  const { CliManagementPage } = await import("./cli-management/cli-management-page");
   listCliEnvironments.mockResolvedValue([snapshot]);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <ProvidersPage searchTerm="" />
+      <CliManagementPage searchTerm="" />
     </QueryClientProvider>,
   );
   await screen.findByText(snapshot.displayName);
