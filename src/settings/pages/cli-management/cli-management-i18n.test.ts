@@ -122,10 +122,13 @@ const DYNAMIC_FAMILIES: Array<[prefix: string, values: readonly string[]]> = [
   ["cli.verificationWarning", CLI_VERIFICATION_WARNINGS],
 ];
 
+/** Production files only. A test file's own fixtures are not copy this page can put on screen. */
+function moduleFiles(extension: RegExp): string[] {
+  return readdirSync(MODULE_DIR).filter((name) => extension.test(name) && !/\.test\.tsx?$/.test(name));
+}
+
 function moduleSources(): string[] {
-  return readdirSync(MODULE_DIR)
-    .filter((name) => /\.tsx?$/.test(name) && !name.endsWith(".test.ts") && !name.endsWith(".test.tsx"))
-    .map((name) => readFileSync(`${MODULE_DIR}/${name}`, "utf8"));
+  return moduleFiles(/\.tsx?$/).map((name) => readFileSync(`${MODULE_DIR}/${name}`, "utf8"));
 }
 
 /** Keys written out in full, as opposed to assembled from a value at runtime. */
@@ -168,7 +171,7 @@ describe("CLI management page localization", () => {
   it("keeps no visible copy hard-coded in the module", () => {
     // JSX text nodes made of letters. Anything user-visible has to come through `t`.
     const offenders: string[] = [];
-    for (const name of readdirSync(MODULE_DIR).filter((file) => file.endsWith(".tsx"))) {
+    for (const name of moduleFiles(/\.tsx$/)) {
       const source = readFileSync(`${MODULE_DIR}/${name}`, "utf8");
       for (const match of source.matchAll(/>\s*([A-Za-z][A-Za-z ]{3,})\s*</g)) {
         offenders.push(`${name}: ${match[1]}`);
