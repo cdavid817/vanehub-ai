@@ -20,7 +20,7 @@ const OCR_SOURCE: &str = "VANEHUB_LOCAL_MEDIA_E2E_OCR_SOURCE";
 
 /// Behaviours the Rust-side fixtures accept. Anything else is a configuration error, because a
 /// silently-ignored typo in a scenario would turn a failure test into a passing success test.
-const CAPTURE_BEHAVIOURS: [&str; 7] = [
+const CAPTURE_BEHAVIOURS: [&str; 8] = [
     "success",
     "permission_denied",
     "device_unavailable",
@@ -28,6 +28,9 @@ const CAPTURE_BEHAVIOURS: [&str; 7] = [
     "start_failure",
     "too_short",
     "overrun",
+    // Produces a valid recording that also reports the ceiling was hit, which is a warning on a
+    // successful transcription rather than a failure.
+    "limit_reached",
 ];
 const PLAYBACK_BEHAVIOURS: [&str; 2] = ["success", "failure"];
 const DEVICE_BEHAVIOURS: [&str; 3] = ["success", "no_devices", "enumeration_failure"];

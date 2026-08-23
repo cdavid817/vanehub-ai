@@ -86,3 +86,12 @@ fn every_documented_behaviour_is_accepted() {
         assert_eq!(FixtureScenario::load(Some(&path)).devices, behaviour);
     }
 }
+
+#[test]
+fn the_limit_reached_capture_behaviour_is_reachable() {
+    // It was accepted by the capture fixture but missing from the allowlist, so scripting it was a
+    // configuration error and the branch could never run.
+    let path = scenario_file(r#"{"capture":{"behaviour":"limit_reached"}}"#);
+
+    assert_eq!(FixtureScenario::load(Some(&path)).capture, "limit_reached");
+}
