@@ -15,9 +15,9 @@
 //! subdomain's deletions reach into another's evidence.
 
 use crate::contexts::tooling::lifecycle_hooks::domain::{
-    DefinitionOutcome, HookBinding, HookBindingError, HookDefinitionRevision, HookExecutionError,
-    HookExecutionRecord, HookExecutionRetention, HookGlobalId, HookScope, HookSubject, SeedOutcome,
-    SnapshotFact, SnapshotRef,
+    ActiveSnapshot, DefinitionOutcome, HookBinding, HookBindingError, HookDefinitionRevision,
+    HookExecutionError, HookExecutionRecord, HookExecutionRetention, HookGlobalId, HookScope,
+    HookSubject, SeedOutcome, SnapshotRef,
 };
 
 /// Stable Hook identities.
@@ -116,14 +116,16 @@ pub(crate) trait HookExecutionRepository: Send + Sync {
     ) -> Result<Vec<HookExecutionRecord>, HookExecutionError>;
 }
 
-/// What this subdomain may learn about a snapshot, and how.
+/// What snapshot the platform is running for a Hook's contribution, and what it declares.
 ///
-/// The whole surface: one fact, for one Hook, in one snapshot. Anything wider would be this
-/// subdomain reading another's model.
-pub(crate) trait SnapshotProjectionPort: Send + Sync {
-    fn fact(
-        &self,
-        hook: &HookGlobalId,
-        snapshot: &SnapshotRef,
-    ) -> Result<Option<SnapshotFact>, String>;
+/// Consumer-owned: this subdomain declares the interface it needs and an adapter in its own
+/// infrastructure satisfies it by calling `extension_platform`'s published API. The alternative --
+/// importing the platform's own type or reading its tables -- would make a change to the platform's
+/// model a compile error here, or worse, a silent behaviour change.
+///
+/// The whole surface is one question about one Hook. Anything wider would be this subdomain
+/// reading another's model, and every extra field would be one more thing that could be used to
+/// reconstruct a readiness answer without going through the authority chain.
+pub(crate) trait ActiveExtensionSnapshotPort: Send + Sync {
+    fn active_snapshot(&self, hook: &HookGlobalId) -> Result<ActiveSnapshot, String>;
 }

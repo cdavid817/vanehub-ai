@@ -6,7 +6,7 @@
 
 use super::{
     claim_for, record_operation_witness, record_package, record_snapshot_detail,
-    SqliteRuntimeGenerationRepository, SqliteSnapshotPointerRepository,
+    RecordedContribution, SqliteRuntimeGenerationRepository, SqliteSnapshotPointerRepository,
     SqliteVersionClaimRepository,
 };
 use crate::contexts::tooling::extension_platform::application::{
@@ -464,11 +464,12 @@ fn snapshot_detail_packages_and_witnesses_are_idempotent() {
                 ">=2.0.0".to_string(),
                 false,
             )],
-            &[(
-                "ext::acme.git-guardian::tool::git_status".to_string(),
-                "tool".to_string(),
-                "git_status".to_string(),
-            )],
+            &[RecordedContribution {
+                global_id: "ext::acme.git-guardian::tool::git_status".to_string(),
+                kind: "tool".to_string(),
+                local_id: "git_status".to_string(),
+                declared_digest: Some(FIRST.to_string()),
+            }],
         )
         .expect("detail");
         record_package(

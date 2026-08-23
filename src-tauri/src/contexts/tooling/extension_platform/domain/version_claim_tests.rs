@@ -1,9 +1,9 @@
 //! What a version claim binds, and what a second claim on the same version means.
 
 use super::{
-    decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, ExtensionId, PackageHash,
-    PublisherId, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState, VersionClaim,
-    VersionContentConflict, LOCAL_DEVELOPER_NAMESPACE, PUBLISHER_KEY_BYTES,
+    decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, ExtensionId, NamespaceMismatch,
+    PackageHash, PublisherId, PublisherKeyRecord, PublisherPublicKey, PublisherTrustState,
+    VersionClaim, VersionContentConflict, LOCAL_DEVELOPER_NAMESPACE, PUBLISHER_KEY_BYTES,
 };
 use semver::Version;
 
@@ -130,6 +130,10 @@ fn every_outcome_has_a_distinct_stable_code() {
             bound_provenance: ClaimProvenance::Signed,
             bound_at: String::new(),
         }),
+        ClaimOutcome::NamespaceMismatch(NamespaceMismatch {
+            authority: "other".to_string(),
+            namespace: PublisherId::parse("acme").expect("publisher"),
+        }),
     ];
     let mut codes: Vec<&str> = outcomes.iter().map(ClaimOutcome::code).collect();
     let total = codes.len();
@@ -211,4 +215,107 @@ fn a_local_build_cannot_take_a_verified_publishers_version_binding() {
         local.authority.as_str(),
         "different authorities are different rows, so neither can squat the other's version"
     );
+}
+
+#[test]
+fn two_trusted_keys_for_one_publisher_cannot_equivocate_about_a_version() {
+    // Key rotation, and the reason the authority is a `PublisherId` rather than a fingerprint.
+    // Both keys establish `acme`, so both file under one row -- and the second offering different
+    // bytes for a version the first already bound is a conflict, not a second binding. Were the
+    // authority a fingerprint, rotating a key would silently reopen every version the old key had
+    // bound, and the rotation would be indistinguishable from a compromise.
+    let first_key = ClaimAuthority::of_verified_key(&PublisherKeyRecord {
+        publisher: PublisherId::parse("acme").expect("publisher"),
+        key: PublisherPublicKey::from_bytes([1_u8; PUBLISHER_KEY_BYTES]),
+        trust_state: PublisherTrustState::Trusted,
+    });
+    let rotated_key = ClaimAuthority::of_verified_key(&PublisherKeyRecord {
+        publisher: PublisherId::parse("acme").expect("publisher"),
+        key: PublisherPublicKey::from_bytes([9_u8; PUBLISHER_KEY_BYTES]),
+        trust_state: PublisherTrustState::Trusted,
+    });
+    assert_eq!(
+        first_key, rotated_key,
+        "a rotated key for the same publisher is the same authority"
+    );
+
+    let held = VersionClaim {
+        authority: first_key,
+        ..claim(FIRST, ClaimProvenance::Signed, "2026-08-01T00:00:00Z")
+    };
+    let offered = VersionClaim {
+        authority: rotated_key,
+        ..claim(SECOND, ClaimProvenance::Signed, "2026-08-20T00:00:00Z")
+    };
+
+    let outcome = decide_claim(&offered, Some(&held));
+
+    assert!(
+        !outcome.admits_snapshot(),
+        "a rotated key must not be able to rewrite what a version means: {outcome:?}"
+    );
+    assert_eq!(outcome.code(), "version_content_conflict");
+}
+
+#[test]
+fn a_trusted_key_cannot_claim_a_version_in_someone_elses_namespace() {
+    // The hole a per-publisher authority would otherwise leave: `other` is inside the trusted set,
+    // and without an entitlement check it could bind `acme.git-guardian` 1.2.0 under its own row.
+    // That row would exist, be signed, and be indistinguishable to anything that looked up the
+    // version without also checking who claimed it.
+    let impostor = VersionClaim {
+        authority: verified("other"),
+        ..claim(FIRST, ClaimProvenance::Signed, "2026-08-01T00:00:00Z")
+    };
+
+    let outcome = decide_claim(&impostor, None);
+
+    assert_eq!(
+        outcome,
+        ClaimOutcome::NamespaceMismatch(NamespaceMismatch {
+            authority: "other".to_string(),
+            namespace: PublisherId::parse("acme").expect("publisher"),
+        })
+    );
+    assert!(!outcome.admits_snapshot());
+    assert_eq!(outcome.code(), "extension_namespace_mismatch");
+    let ClaimOutcome::NamespaceMismatch(mismatch) = &outcome else {
+        panic!("expected a namespace mismatch");
+    };
+    assert_eq!(
+        mismatch.code(),
+        outcome.code(),
+        "the mismatch and the outcome name the same finding"
+    );
+}
+
+#[test]
+fn entitlement_is_decided_before_the_incumbent_is_consulted() {
+    // A claim nobody was entitled to make is not a conflict with whoever holds the version -- it
+    // is not a claim. Reporting it as a conflict would tell an operator that two publishers
+    // disagree about the contents of a version, when what happened is that one of them had no
+    // business naming it at all.
+    let held = claim(FIRST, ClaimProvenance::Signed, "2026-08-01T00:00:00Z");
+    let impostor = VersionClaim {
+        authority: verified("other"),
+        ..claim(SECOND, ClaimProvenance::Signed, "2026-08-20T00:00:00Z")
+    };
+
+    assert_eq!(
+        decide_claim(&impostor, Some(&held)).code(),
+        "extension_namespace_mismatch"
+    );
+}
+
+#[test]
+fn developer_mode_may_still_build_an_extension_it_has_no_key_for() {
+    // The entitlement check binds verified publishers only. Building `acme.git-guardian` locally
+    // before there is a signature for it is the whole point of Developer Mode, and unsigned
+    // content files under the host's reserved namespace where it cannot displace acme's binding.
+    let local = VersionClaim {
+        authority: ClaimAuthority::LocalDeveloper,
+        ..claim(FIRST, ClaimProvenance::Unsigned, "2026-08-01T00:00:00Z")
+    };
+
+    assert_eq!(decide_claim(&local, None), ClaimOutcome::Bound);
 }

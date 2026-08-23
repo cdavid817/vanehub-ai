@@ -15,17 +15,17 @@
 //! port, and the result is a reconciliation verdict rather than a foreign key.
 //!
 //! `HookOutcomeCode` is the redaction floor. An execution row records *that* a Hook failed and
-//! under which stable code, never what it said: the grammar admits only lower_snake_case, which
-//! makes "just put the error message in the outcome" fail at the constructor rather than being
-//! caught by a reviewer who happens to be paying attention. A message contains prompts, paths, and
-//! whatever a Hook's stderr felt like emitting, and none of that belongs in a durable row.
+//! under which stable code, never what it said. It is a **closed vocabulary the host defines**,
+//! not a grammar: a rule that admitted any bounded lower_snake_case string would still admit
+//! `failed_to_open_c_users_alice_project_hook_ps1`, which is a path, a message, and a durable leak
+//! of a session's contents in one value. A closed set cannot be extended at a call site, so
+//! "just put the error in the outcome" has nowhere to go.
 
 use super::HookIdentifierKind;
 
 const MAX_GLOBAL_ID_CHARACTERS: usize = 160;
 const MAX_OPAQUE_ID_CHARACTERS: usize = 128;
 const MAX_SCOPE_KEY_CHARACTERS: usize = 256;
-const MAX_OUTCOME_CODE_CHARACTERS: usize = 64;
 /// SHA-256, rendered lower-case hex.
 const DIGEST_CHARACTERS: usize = 64;
 
@@ -167,33 +167,70 @@ impl DefinitionDigest {
     }
 }
 
-/// A stable code an execution row is allowed to carry.
+/// The stable codes an execution row is allowed to carry.
 ///
-/// The redaction floor: see the module header. Nothing here is free text.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct HookOutcomeCode(String);
+/// The redaction floor, and a **closed set**. "Any lower_snake_case string under 64 characters"
+/// was not enough: `failed_to_open_c_users_alice_project_hook_ps1` satisfies that grammar, and so
+/// does anything else a caller builds by snake-casing a message it already had. A vocabulary the
+/// host defines cannot be extended at a call site at all, which is the only version of this rule
+/// that a hurried caller cannot route around.
+///
+/// Adding an outcome is a deliberate edit here, next to the reason each one exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum HookOutcomeCode {
+    /// Ran to completion and reported success.
+    Completed,
+    /// Ran and reported failure. *Why* is not recorded: that is the Hook's own output, which the
+    /// dispatch surface shows live and durable storage does not keep.
+    Failed,
+    /// Exceeded its time budget and was stopped.
+    TimedOut,
+    /// Refused by an authorization rule before it ran.
+    DeniedByPolicy,
+    /// Refused because the capability it needs is gated off in this build or installation.
+    GateClosed,
+    /// The definition could not be dispatched: no active snapshot declares it, or the recorded
+    /// definition disagrees with the one the platform is running.
+    NotDispatchable,
+    /// The host could not start it -- the executable is missing, the sandbox refused, the runtime
+    /// is unavailable. Distinct from `Failed`, which means the Hook itself ran and said no.
+    LaunchFailed,
+}
+
+/// Every outcome, in a fixed order.
+pub(crate) const ALL_HOOK_OUTCOME_CODES: &[HookOutcomeCode] = &[
+    HookOutcomeCode::Completed,
+    HookOutcomeCode::Failed,
+    HookOutcomeCode::TimedOut,
+    HookOutcomeCode::DeniedByPolicy,
+    HookOutcomeCode::GateClosed,
+    HookOutcomeCode::NotDispatchable,
+    HookOutcomeCode::LaunchFailed,
+];
 
 impl HookOutcomeCode {
-    pub(crate) fn parse(value: &str) -> Result<Self, HookIdentityError> {
-        if !value.is_empty()
-            && value.len() <= MAX_OUTCOME_CODE_CHARACTERS
-            && !value.starts_with('_')
-            && !value.ends_with('_')
-            && value.chars().all(|character| {
-                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
-            })
-        {
-            Ok(Self(value.to_string()))
-        } else {
-            Err(HookIdentityError::new(
-                HookIdentifierKind::OutcomeCode,
-                value,
-            ))
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::TimedOut => "timed_out",
+            Self::DeniedByPolicy => "denied_by_policy",
+            Self::GateClosed => "gate_closed",
+            Self::NotDispatchable => "not_dispatchable",
+            Self::LaunchFailed => "launch_failed",
         }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+    /// Reads an outcome back out of storage.
+    ///
+    /// A row naming something outside the vocabulary is refused rather than carried through as an
+    /// opaque string, which is what keeps a hand-edited database from reintroducing free text.
+    pub(crate) fn parse(value: &str) -> Result<Self, HookIdentityError> {
+        ALL_HOOK_OUTCOME_CODES
+            .iter()
+            .copied()
+            .find(|code| code.as_str() == value)
+            .ok_or_else(|| HookIdentityError::new(HookIdentifierKind::OutcomeCode, value))
     }
 }
 

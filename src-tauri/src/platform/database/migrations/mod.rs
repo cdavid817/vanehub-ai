@@ -547,6 +547,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         crate::contexts::tooling::lifecycle_hooks::infrastructure::apply_lifecycle_hook_schema,
     )?;
     repair_missing_stable_participant_schema(conn)?;
+    // Same shape of repair, same reason: a column added to a migration a database had already
+    // recorded. The version gate legitimately skips it, so the invariant is enforced outside the
+    // gate. A no-op wherever the column is present.
+    crate::contexts::tooling::extension_platform::infrastructure::repair_snapshot_contribution_digest(
+        conn,
+    )?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;

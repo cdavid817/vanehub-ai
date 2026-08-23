@@ -135,6 +135,11 @@ pub(crate) struct VersionClaim {
 /// What claiming a version would mean, given whatever already holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ClaimOutcome {
+    /// A verified publisher tried to claim a version in someone else's namespace.
+    ///
+    /// See `decide_claim`. Decided before anything is compared against the held claim: a claim
+    /// nobody was entitled to make is not a conflict with the incumbent, it is not a claim.
+    NamespaceMismatch(NamespaceMismatch),
     /// Nothing holds this version. The claim binds it.
     Bound,
     /// The same bytes, claimed again. Reinstalling the identical package is not a conflict.
@@ -146,6 +151,7 @@ pub(crate) enum ClaimOutcome {
 impl ClaimOutcome {
     pub(crate) const fn code(&self) -> &'static str {
         match self {
+            Self::NamespaceMismatch(_) => "extension_namespace_mismatch",
             Self::Bound => "version_bound",
             Self::AlreadyBound => "version_already_bound",
             Self::Conflict(_) => "version_content_conflict",
@@ -155,6 +161,21 @@ impl ClaimOutcome {
     /// Whether an installation may proceed from here.
     pub(crate) const fn admits_snapshot(&self) -> bool {
         matches!(self, Self::Bound | Self::AlreadyBound)
+    }
+}
+
+/// A verified publisher claiming an extension id that is not theirs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NamespaceMismatch {
+    /// Who the signature established.
+    pub(crate) authority: String,
+    /// Who the extension id says owns it.
+    pub(crate) namespace: PublisherId,
+}
+
+impl NamespaceMismatch {
+    pub(crate) const fn code(&self) -> &'static str {
+        "extension_namespace_mismatch"
     }
 }
 
@@ -180,6 +201,26 @@ impl VersionContentConflict {
 ///
 /// A pure comparison, so the rule is one place and the repository only has to say what it found.
 pub(crate) fn decide_claim(offered: &VersionClaim, held: Option<&VersionClaim>) -> ClaimOutcome {
+    // Entitlement first. `acme.git-guardian` is owned by `acme`, and a key this installation
+    // trusts for `other` is still not a key for `acme`. Without this, any trusted publisher could
+    // bind a version in a competitor's namespace and every genuine release of that version
+    // afterwards would be refused as a conflict -- the same denial of service the authority model
+    // exists to stop, reached from inside the trusted set instead of outside it.
+    //
+    // Only `VerifiedPublisher` is bound this way. Developer Mode exists precisely to build
+    // `acme.git-guardian` before there is a signature for it, and unsigned content files under the
+    // host's reserved namespace, where it can neither collide with nor displace the real
+    // publisher's binding.
+    let namespace = offered.extension.publisher();
+    if let ClaimAuthority::VerifiedPublisher(publisher) = &offered.authority {
+        if publisher != &namespace {
+            return ClaimOutcome::NamespaceMismatch(NamespaceMismatch {
+                authority: publisher.as_str().to_string(),
+                namespace,
+            });
+        }
+    }
+
     let Some(held) = held else {
         return ClaimOutcome::Bound;
     };

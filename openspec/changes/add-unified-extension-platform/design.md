@@ -1389,6 +1389,8 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 
 **Version equivocation is refused, not recorded twice.** `unique (extension_id, version, package_hash)` on snapshots permits two rows with the same version and different bytes, which is the attack rather than the defence. The claim table is the defence: `(publisher, extension_id, version)` is the primary key and binds to exactly one `package_hash`, forever. Claiming the same hash again is idempotent; claiming a different one returns a stable `VersionContentConflict` and **no activatable snapshot is created**. Hash evidence is still kept — the conflicting package's hash is recorded as a claim attempt — so "same version, different bytes" becomes visible suspicious evidence rather than a silent replacement.
 
+**A claim is filed under an authority, and an authority is entitled to its own namespace only.** The key is a `PublisherId` established from the *stored key record*, never a key fingerprint and never the manifest's `publisher` field. Two consequences, both required: rotating a publisher's signing key does not reopen the versions the old key bound (both keys establish the same authority, so a rotated key offering different bytes for a bound version is a `VersionContentConflict`), and a key this installation trusts for `other` cannot bind a version under `acme.git-guardian` — `ClaimOutcome::NamespaceMismatch`, decided before the incumbent is consulted, because a claim nobody was entitled to make is not a conflict with the incumbent. Only verified publishers are bound this way: Developer Mode exists to build `acme.git-guardian` before there is a signature for it, and unsigned content files under the reserved `local:developer` namespace where it can neither collide with nor displace the real publisher's binding.
+
 `publisher` is stored explicitly even though `extension_id` is `<publisher>.<name>`: the binding must not depend on the id-parsing rule staying what it is today. The rule is identical for unsigned content — **V1 Developer Mode also requires a version change**, because a build loop that overwrites the same version in place is exactly how an unreviewed change reaches an installed extension.
 
 **Witness identity is `(operation_id, witness_digest)`, not the digest alone.** The digest deliberately covers only the *state* a confirmation is bound to, so that it can be recomputed at confirm time; it does not include the operation. Two operations previewing the same unchanged world therefore produce the same digest, and a digest primary key would make the second collide with the first. `witness_id` is the key and the pair is unique.
@@ -1401,6 +1403,10 @@ Written before any DDL, so ownership, mutability, and concurrency are decided on
 | `lifecycle_hook_definition_revisions` | **Immutable** | — | → hook subjects, RESTRICT | PK `(hook_global_id, snapshot_id)` | With its snapshot | None | None |
 | `lifecycle_hook_bindings` | Mutable | `revision` + CAS | → hook subjects, RESTRICT | PK `(hook_global_id, scope_kind, scope_key)` | Permanent | None | **Never overwrites user enablement** |
 | `lifecycle_hook_executions` | **Immutable rows inside a bounded retention window** | — | → hook subjects, RESTRICT | PK `execution_id`; unique `(hook_global_id, sequence)` | **N most recent per hook; only terminal rows removed** | **No column can hold one** | None |
+
+**The outcome vocabulary is closed, not merely well-formed.** `outcome_code` was first bounded by a grammar — lower_snake_case, at most 64 characters — and that is not enough: `failed_to_open_c_users_alice_project_hook_ps1` satisfies it, and so does anything else a caller produces by snake-casing a message it already had. `HookOutcomeCode` is an enum the host defines, so it cannot be extended at a call site at all.
+
+**`MAX(sequence) + 1` is a checked increment.** Overflow returns `HookExecutionSequenceExhausted`. Wrapping would reissue sequence 1 and silently break the ordering the table is keyed on; saturating would pin every later execution to one number and surface as a duplicate that is not one.
 
 **A binding's scope is two `NOT NULL` columns, not one nullable one.** SQLite treats `NULL` as distinct from every other `NULL` in a unique index, so `(hook_global_id, scope)` with `NULL` meaning "global" admits unlimited global bindings for one Hook — each invisible to the others, and whichever a reader saw first would decide whether the Hook ran. `scope_kind` plus a `scope_key` that is `''` for global makes the key total, and a table `CHECK` keeps global-with-a-key and scoped-without-one unrepresentable.
 
@@ -1437,14 +1443,30 @@ A hook or connector *definition* is versioned by snapshot; a user's *binding* or
 
 #### Reconciling a projection that has no foreign key
 
-`snapshot_id` on a definition revision is opaque text, so the database cannot enforce it. An application-level reconciliation makes up the difference, and it is a **read that computes a state, not a write that stores one** — a stored mark can go stale, and a reconciliation that writes is a reconciliation that can delete or rebind by mistake. It reports, per subject:
+`snapshot_id` on a definition revision is opaque text, so the database cannot enforce it. An application-level reconciliation makes up the difference, and it is a **read that computes a state, not a write that stores one** — a stored mark can go stale, and a reconciliation that writes is a reconciliation that can delete or rebind by mistake.
 
-* `ready` — a definition revision exists for a snapshot that exists, and the digests agree;
-* `orphaned` — the snapshot the revision names is gone;
-* `unavailable` — the snapshot exists but no definition revision references it, so the subject has a binding and nothing to bind to right now;
-* `drifted` — both exist and the stored definition digest disagrees with the snapshot's.
+**The authority is the active snapshot, and nothing else.** A subject can hold several recorded definition revisions at once, because an upgrade records a new one beside the old rather than over it — which is what lets a rollback still have something to dispatch from. "The most recently recorded revision" is therefore not an answer, and it is wrong in two separate ways: a version that has been recorded but not activated leads it, and after a rollback from v2 to v1 the abandoned v2 still leads it. Both end with a consumer reporting that a Hook is running something the platform is not running.
 
-None of the four deletes a row, rebinds anything, or activates anything. The snapshot facts it needs come from `extension_platform`'s published API through a projection port, never from a direct read of another subdomain's tables.
+The authoritative chain lives in `extension_platform`:
+
+```text
+Installation -> Active Generation Pointer -> Runtime Generation -> Snapshot
+```
+
+A consuming subdomain reaches it through a **consumer-owned port** — the interface is declared by the consumer, an adapter in the consumer's own infrastructure satisfies it by calling `extension_platform`'s published API, and there is no import of the platform's types and no read of its tables. `ActiveContributionReader` is the single implementation of the chain; ordering by `recorded_at` survives only as a diagnostic listing and takes no part in a verdict.
+
+Given the running snapshot, the revision consulted is the one recorded for exactly `(active snapshot, subject)`. The verdict is then one of:
+
+* `ready` — the active snapshot declares the contribution and the recorded definition digest agrees with it;
+* `drifted` — the active snapshot declares it and the recorded digest disagrees;
+* `unavailable` — there is no active generation, or the active snapshot does not declare the contribution, or this subdomain has no definition recorded for it, or the platform could not be asked at all;
+* `orphaned` — the subject has recorded definitions and nothing installed contributes it any more.
+
+**Drift needs two independently written copies.** Without one, the consuming subdomain's own record is the only statement of what a contribution is, and a single copy cannot disagree with itself — `drifted` would be a state the code could name and never reach. So `extension_platform_snapshot_contributions` carries a `contribution_digest`: what the platform recorded the snapshot declares. It is nullable, and a missing or null declaration reads as "nothing to dispatch" rather than as a match.
+
+**Not being able to ask is not the same as being ready.** When the port cannot answer, the verdict is `unavailable`. A subdomain that cannot reach the authority does not get to conclude a contribution is live.
+
+None of the four verdicts deletes a row, rebinds anything, or activates anything.
 
 #### Publisher keys are a monotonic state machine, not an exception
 

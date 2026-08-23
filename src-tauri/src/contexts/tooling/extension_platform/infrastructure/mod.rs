@@ -1,5 +1,8 @@
 //! SQLite adapters and schema for the Extension Platform.
 
+mod active_contribution;
+#[cfg(test)]
+mod active_contribution_tests;
 mod package_reader;
 #[cfg(test)]
 mod package_reader_tests;
@@ -27,9 +30,12 @@ mod sqlite_repository;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use active_contribution::SqliteActiveContributionReader;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use package_reader::{read_extension_package, PackageReadError, ReadPackage};
-pub(crate) use persistence_schema::apply_extension_persistence_schema;
+pub(crate) use persistence_schema::{
+    apply_extension_persistence_schema, repair_snapshot_contribution_digest,
+};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use reconciler::{reconcile, referenced_package_hashes};
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -49,7 +55,7 @@ pub(crate) use sqlite_developer_mode::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_persistence::{
     claim_for, record_operation_witness, record_package, record_snapshot_detail,
-    SqliteRuntimeGenerationRepository, SqliteVersionClaimRepository,
+    RecordedContribution, SqliteRuntimeGenerationRepository, SqliteVersionClaimRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_publisher_keys::SqlitePublisherKeyRepository;

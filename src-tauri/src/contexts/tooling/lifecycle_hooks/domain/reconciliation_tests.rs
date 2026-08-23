@@ -1,7 +1,7 @@
-//! The four states a subject can be in relative to the snapshot its definition names.
+//! The four states a subject can be in relative to the snapshot the platform is running.
 
 use super::{
-    judge_subject, DefinitionDigest, HookGlobalId, SnapshotFact, SnapshotRef, SubjectProjection,
+    judge_subject, ActiveSnapshot, DefinitionDigest, HookGlobalId, SnapshotRef, SubjectFacts,
     SubjectReadiness, ALL_SUBJECT_READINESS,
 };
 
@@ -12,83 +12,105 @@ fn digest(value: &str) -> DefinitionDigest {
     DefinitionDigest::parse(value).expect("digest")
 }
 
-fn snapshot() -> SnapshotRef {
-    SnapshotRef::parse("snap-a").expect("snapshot")
+fn snapshot(value: &str) -> SnapshotRef {
+    SnapshotRef::parse(value).expect("snapshot")
 }
 
-fn projection(revision: Option<(SnapshotRef, DefinitionDigest)>) -> SubjectProjection {
-    SubjectProjection {
+fn facts(active: ActiveSnapshot, recorded: Option<&str>, has_any: bool) -> SubjectFacts {
+    SubjectFacts {
         hook: HookGlobalId::parse("ext::acme.git-guardian::pre-commit").expect("hook"),
-        revision,
+        active,
+        recorded_at_active: recorded.map(digest),
+        has_any_revision: has_any,
+    }
+}
+
+fn running(snapshot_id: &str, declared: Option<&str>) -> ActiveSnapshot {
+    ActiveSnapshot::Running {
+        snapshot: snapshot(snapshot_id),
+        declared: declared.map(digest),
     }
 }
 
 #[test]
-fn a_definition_whose_snapshot_agrees_with_it_is_ready() {
-    let verdict = judge_subject(
-        &projection(Some((snapshot(), digest(FIRST)))),
-        Some(&SnapshotFact {
-            snapshot: snapshot(),
-            hook_digest: Some(digest(FIRST)),
-        }),
-    );
+fn the_running_snapshot_and_the_recorded_definition_agreeing_is_ready() {
+    let verdict = judge_subject(&facts(running("snap-a", Some(FIRST)), Some(FIRST), true));
 
     assert_eq!(verdict.readiness, SubjectReadiness::Ready);
     assert!(verdict.readiness.admits_dispatch());
-    assert_eq!(verdict.snapshot, Some(snapshot()));
-}
-
-#[test]
-fn a_definition_whose_snapshot_is_gone_is_orphaned() {
-    let verdict = judge_subject(&projection(Some((snapshot(), digest(FIRST)))), None);
-
-    assert_eq!(verdict.readiness, SubjectReadiness::Orphaned);
-    assert!(!verdict.readiness.admits_dispatch());
     assert_eq!(
         verdict.snapshot,
-        Some(snapshot()),
-        "the verdict must name the snapshot that went missing, or nobody can find out which"
+        Some(snapshot("snap-a")),
+        "a ready verdict must name what would run, or nobody can check it"
     );
 }
 
 #[test]
-fn a_subject_with_no_revision_at_all_is_unavailable_rather_than_an_error() {
-    // An extension installed but not activated looks exactly like this, and so does a subject that
-    // exists only because a binding or an execution mentions it. Neither is a fault.
-    let verdict = judge_subject(&projection(None), None);
+fn a_recorded_definition_that_disagrees_with_the_running_snapshot_is_drifted() {
+    // Worse than not running: the operator believes the reviewed version is in effect while
+    // something else would execute.
+    let verdict = judge_subject(&facts(running("snap-a", Some(FIRST)), Some(SECOND), true));
+
+    assert_eq!(verdict.readiness, SubjectReadiness::Drifted);
+    assert!(!verdict.readiness.admits_dispatch());
+    assert_eq!(verdict.snapshot, Some(snapshot("snap-a")));
+}
+
+#[test]
+fn a_running_snapshot_that_does_not_declare_the_hook_is_unavailable() {
+    // The newer version dropped the Hook. There is nothing to dispatch, and the one thing that
+    // must not happen is falling back to a revision from some other snapshot.
+    let verdict = judge_subject(&facts(running("snap-b", None), None, true));
+
+    assert_eq!(verdict.readiness, SubjectReadiness::Unavailable);
+    assert_eq!(
+        verdict.snapshot, None,
+        "there is no snapshot this verdict is about"
+    );
+}
+
+#[test]
+fn a_running_snapshot_this_subdomain_has_no_definition_for_is_unavailable() {
+    let verdict = judge_subject(&facts(running("snap-a", Some(FIRST)), None, false));
+
+    assert_eq!(verdict.readiness, SubjectReadiness::Unavailable);
+}
+
+#[test]
+fn no_active_generation_is_unavailable_rather_than_ready() {
+    // Installed, not running. The defect this replaced would have answered `ready` here from
+    // whatever definition happened to be recorded most recently.
+    let verdict = judge_subject(&facts(ActiveSnapshot::NoActiveGeneration, None, true));
 
     assert_eq!(verdict.readiness, SubjectReadiness::Unavailable);
     assert_eq!(verdict.snapshot, None);
 }
 
 #[test]
-fn a_snapshot_that_no_longer_contributes_the_hook_is_unavailable() {
-    let verdict = judge_subject(
-        &projection(Some((snapshot(), digest(FIRST)))),
-        Some(&SnapshotFact {
-            snapshot: snapshot(),
-            hook_digest: None,
-        }),
-    );
+fn an_unreachable_platform_is_unavailable_and_never_ready() {
+    // A subdomain that cannot reach the authority does not get to guess. Every path from `Unknown`
+    // is `Unavailable`, including the one where a definition is sitting right there.
+    let verdict = judge_subject(&facts(ActiveSnapshot::Unknown, Some(FIRST), true));
 
     assert_eq!(verdict.readiness, SubjectReadiness::Unavailable);
     assert!(!verdict.readiness.admits_dispatch());
 }
 
 #[test]
-fn a_definition_that_disagrees_with_its_snapshot_is_drifted_and_does_not_dispatch() {
-    // Dispatching a drifted definition runs something other than what was installed, which is
-    // worse than not running at all: the operator believes the reviewed version is in effect.
-    let verdict = judge_subject(
-        &projection(Some((snapshot(), digest(FIRST)))),
-        Some(&SnapshotFact {
-            snapshot: snapshot(),
-            hook_digest: Some(digest(SECOND)),
-        }),
-    );
+fn an_uninstalled_extension_leaves_its_hook_orphaned_when_evidence_remains() {
+    let verdict = judge_subject(&facts(ActiveSnapshot::NotInstalled, None, true));
 
-    assert_eq!(verdict.readiness, SubjectReadiness::Drifted);
+    assert_eq!(verdict.readiness, SubjectReadiness::Orphaned);
     assert!(!verdict.readiness.admits_dispatch());
+}
+
+#[test]
+fn a_subject_with_no_definition_at_all_is_unavailable_rather_than_orphaned() {
+    // A subject that exists only because a binding or an execution mentions it. Nothing was ever
+    // recorded for it, so nothing was orphaned.
+    let verdict = judge_subject(&facts(ActiveSnapshot::NotInstalled, None, false));
+
+    assert_eq!(verdict.readiness, SubjectReadiness::Unavailable);
 }
 
 #[test]
@@ -118,15 +140,15 @@ fn every_readiness_spelling_is_distinct() {
 fn judging_is_a_read_and_the_verdict_carries_the_subject_it_is_about() {
     // Nothing here deletes, rebinds, or activates. The verdict is the entire output, so a caller
     // that wanted to act on it has to do so explicitly rather than by having called this.
-    let subject = projection(Some((snapshot(), digest(FIRST))));
+    let subject = facts(running("snap-a", Some(FIRST)), Some(FIRST), true);
 
-    let verdict = judge_subject(&subject, None);
+    let verdict = judge_subject(&subject);
 
     assert_eq!(verdict.hook, subject.hook);
     assert_eq!(
-        subject.revision,
-        Some((snapshot(), digest(FIRST))),
-        "the projection is unchanged; judging stores nothing"
+        subject.recorded_at_active,
+        Some(digest(FIRST)),
+        "the facts are unchanged; judging stores nothing"
     );
 }
 
@@ -134,14 +156,7 @@ fn judging_is_a_read_and_the_verdict_carries_the_subject_it_is_about() {
 fn the_same_input_judges_the_same_way_every_time() {
     // Nothing here may depend on a clock or on iteration order; a verdict that reshuffled would
     // make a stored diagnostic unmatchable.
-    let subject = projection(Some((snapshot(), digest(FIRST))));
-    let fact = SnapshotFact {
-        snapshot: snapshot(),
-        hook_digest: Some(digest(SECOND)),
-    };
+    let subject = facts(running("snap-a", Some(FIRST)), Some(SECOND), true);
 
-    assert_eq!(
-        judge_subject(&subject, Some(&fact)),
-        judge_subject(&subject, Some(&fact))
-    );
+    assert_eq!(judge_subject(&subject), judge_subject(&subject));
 }

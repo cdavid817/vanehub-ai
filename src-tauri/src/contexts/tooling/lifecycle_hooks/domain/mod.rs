@@ -38,11 +38,11 @@ pub(crate) use execution::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use identity::{
     DefinitionDigest, HookExecutionId, HookGlobalId, HookIdentityError, HookOutcomeCode, HookScope,
-    HookScopeKind, SnapshotRef, ALL_HOOK_SCOPE_KINDS, GLOBAL_SCOPE_KEY,
+    HookScopeKind, SnapshotRef, ALL_HOOK_OUTCOME_CODES, ALL_HOOK_SCOPE_KINDS, GLOBAL_SCOPE_KEY,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use reconciliation::{
-    judge_subject, SnapshotFact, SubjectProjection, SubjectReadiness, SubjectVerdict,
+    judge_subject, ActiveSnapshot, SubjectFacts, SubjectReadiness, SubjectVerdict,
     ALL_SUBJECT_READINESS,
 };
 

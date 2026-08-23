@@ -111,12 +111,53 @@ fn apply_snapshot_detail(conn: &Connection) -> Result<(), DatabaseError> {
             global_id TEXT NOT NULL,
             kind TEXT NOT NULL,
             local_id TEXT NOT NULL,
+            contribution_digest TEXT,
             PRIMARY KEY (snapshot_id, global_id)
         );
 
         CREATE INDEX IF NOT EXISTS idx_extension_platform_snapshot_contributions_global
             ON extension_platform_snapshot_contributions (global_id);
         "#,
+    )?;
+    repair_snapshot_contribution_digest(conn)
+}
+
+/// Adds `contribution_digest` to a contributions table created before it existed.
+///
+/// Migration 86 gained the column while this change was still unreleased, so a database that had
+/// already recorded 86 would never see it — `apply_transactional_migration` skips a version it has
+/// applied, and `CREATE TABLE IF NOT EXISTS` would not add it either. That database is a developer
+/// database on this branch, and this repository's databases are shared across worktrees, so
+/// "delete it and start again" would destroy unrelated branches' state.
+///
+/// Called both from migration 86 and unconditionally from `migrate`, and a no-op wherever the
+/// column is present.
+///
+/// The column is nullable rather than `NOT NULL DEFAULT ''`: a row written before the column
+/// existed genuinely has no declaration, and an empty string would be a digest that matches
+/// nothing while looking like a value. `NULL` reads as "this snapshot declares no digest for that
+/// contribution", which makes the consumer's answer `unavailable` — the conservative one.
+pub(crate) fn repair_snapshot_contribution_digest(conn: &Connection) -> Result<(), DatabaseError> {
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master \
+             WHERE type = 'table' AND name = 'extension_platform_snapshot_contributions'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)?;
+    if !table_exists
+        || crate::platform::database::table_has_column(
+            conn,
+            "extension_platform_snapshot_contributions",
+            "contribution_digest",
+        )?
+    {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "ALTER TABLE extension_platform_snapshot_contributions ADD COLUMN contribution_digest TEXT;",
     )?;
     Ok(())
 }

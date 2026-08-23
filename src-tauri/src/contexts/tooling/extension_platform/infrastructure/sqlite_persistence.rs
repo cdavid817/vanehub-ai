@@ -133,6 +133,11 @@ impl VersionClaimRepository for SqliteVersionClaimRepository {
                     .map_err(|error| error.to_string())?;
             }
             ClaimOutcome::AlreadyBound => {}
+            // Nothing is written, deliberately, and it is not recorded as a conflict either. A
+            // claim nobody was entitled to make did not conflict with the incumbent -- filing it
+            // beside the genuine claims would tell an operator that two publishers disagree about
+            // a version, when what happened is that one of them had no business naming it.
+            ClaimOutcome::NamespaceMismatch(_) => {}
             // The refused hash is kept. A conflict that leaves no trace is a finding nobody can
             // act on, and "this version was claimed twice with different bytes" is the finding.
             ClaimOutcome::Conflict(conflict) => {
@@ -326,11 +331,28 @@ impl RuntimeGenerationRepository for SqliteRuntimeGenerationRepository {
 ///
 /// Written once, with the snapshot, and never edited: an installation has to be describable when
 /// the package is gone from disk and when the reading code has changed.
+/// One contribution a snapshot declares.
+///
+/// `declared_digest` is what makes drift detectable at all. Without a second, independently
+/// written copy of "what this contribution is", the consuming subdomain's own record would be the
+/// only copy -- and a single copy cannot disagree with itself, so `drifted` would be a state the
+/// code could name and never reach.
+///
+/// Optional because not every contribution kind has one yet; a contribution with no declared
+/// digest reads downstream as "nothing to dispatch", which is the conservative answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecordedContribution {
+    pub(crate) global_id: String,
+    pub(crate) kind: String,
+    pub(crate) local_id: String,
+    pub(crate) declared_digest: Option<String>,
+}
+
 pub(crate) fn record_snapshot_detail(
     database: &NativeDatabase,
     snapshot: &SnapshotId,
     dependencies: &[(String, String, String, bool)],
-    contributions: &[(String, String, String)],
+    contributions: &[RecordedContribution],
 ) -> Result<(), String> {
     let connection = database.connection().map_err(|error| error.to_string())?;
     let transaction = begin_write_transaction(&connection).map_err(|error| error.to_string())?;
@@ -352,14 +374,20 @@ pub(crate) fn record_snapshot_detail(
             )
             .map_err(|error| error.to_string())?;
     }
-    for (global_id, kind, local_id) in contributions {
+    for contribution in contributions {
         transaction
             .execute(
                 "INSERT INTO extension_platform_snapshot_contributions \
-                     (snapshot_id, global_id, kind, local_id) \
-                 VALUES (?1, ?2, ?3, ?4) \
+                     (snapshot_id, global_id, kind, local_id, contribution_digest) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
                  ON CONFLICT(snapshot_id, global_id) DO NOTHING",
-                params![snapshot.as_str(), global_id, kind, local_id],
+                params![
+                    snapshot.as_str(),
+                    contribution.global_id,
+                    contribution.kind,
+                    contribution.local_id,
+                    contribution.declared_digest,
+                ],
             )
             .map_err(|error| error.to_string())?;
     }

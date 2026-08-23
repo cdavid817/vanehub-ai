@@ -5,6 +5,7 @@
 
 mod activation;
 mod canonical;
+mod contribution_projection;
 mod decode_error;
 mod decode_reader;
 mod error;
@@ -129,6 +130,10 @@ pub(crate) use package_path::{PathRejection, PortablePackagePath, MAX_PACKAGE_PA
 // Package provenance (Task 2.3). Verification is a pure function of bytes and lives here; finding
 // the key is a lookup against stored trust and lives behind an application port.
 #[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use contribution_projection::{
+    all_active_contribution_errors, ActiveContribution, ActiveContributionError,
+};
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use install_witness::{
     capability_diff, capability_lines, CapabilityDiff, CompatibilityOutcome, DependencySummary,
     ExtensionInstallWitness, InstallWitnessSubject, InstalledSummary, SignatureSummary,
@@ -187,6 +192,6 @@ pub(crate) use snapshot::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use version_claim::{
-    decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, VersionClaim,
+    decide_claim, ClaimAuthority, ClaimOutcome, ClaimProvenance, NamespaceMismatch, VersionClaim,
     VersionContentConflict, LOCAL_DEVELOPER_NAMESPACE,
 };

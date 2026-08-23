@@ -2,11 +2,12 @@
 
 use super::developer_mode::DeveloperModeView;
 use crate::contexts::tooling::extension_platform::domain::{
-    ActiveGeneration, ClaimOutcome, ContentPublication, DeveloperMode, DeveloperModeError,
-    ExtensionId, ExtensionPlatformFeature, FeatureGateDegradation, FeatureGateError,
-    InstallationId, PackageHash, PrerequisiteReason, PublisherKeyFingerprint, PublisherKeyRecord,
-    RuntimeGenerationError, RuntimeGenerationId, RuntimeGenerationRecord, SnapshotPointer,
-    SnapshotPublicationError, SnapshotRecord, TrustedPublisherKey, VersionClaim,
+    ActiveContribution, ActiveContributionError, ActiveGeneration, ClaimOutcome,
+    ContentPublication, DeveloperMode, DeveloperModeError, ExtensionId, ExtensionPlatformFeature,
+    FeatureGateDegradation, FeatureGateError, InstallationId, PackageHash, PrerequisiteReason,
+    PublisherKeyFingerprint, PublisherKeyRecord, RuntimeGenerationError, RuntimeGenerationId,
+    RuntimeGenerationRecord, SnapshotPointer, SnapshotPublicationError, SnapshotRecord,
+    TrustedPublisherKey, VersionClaim,
 };
 use std::path::Path;
 
@@ -201,6 +202,17 @@ pub(crate) trait VersionClaimRepository: Send + Sync {
 
     /// The hashes that were offered for a version already held by other bytes. Kept as evidence.
     fn conflicts(&self, extension: &ExtensionId) -> Result<Vec<String>, String>;
+}
+
+/// What the platform currently runs for one contribution id.
+///
+/// Read-only, and deliberately narrow: one contribution, one answer. Consumers -- Hooks,
+/// Connectors, rule sources -- ask through the context API rather than joining installations,
+/// generations, and snapshots themselves, so the authority chain has exactly one implementation
+/// and cannot be approximated by "the most recently recorded definition" in a consumer.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait ActiveContributionReader: Send + Sync {
+    fn active(&self, global_id: &str) -> Result<ActiveContribution, ActiveContributionError>;
 }
 
 /// Runtime generations, and the one pointer per installation that says which is live.

@@ -5,11 +5,11 @@
 //! branches on it.
 
 use super::{
-    all_decode_reasons, all_developer_mode_errors, all_gate_errors, all_integrity_reasons,
-    all_publisher_key_errors, all_runtime_generation_errors, all_snapshot_publication_errors,
-    registered_failures, ErrorArea, RegisteredFailure, ALL_ADMISSION_REFUSALS,
-    ALL_IDENTIFIER_KINDS, ALL_ORIGIN_REJECTIONS, ALL_PATH_REJECTIONS, ALL_PUBLISHER_KEY_REJECTIONS,
-    ALL_SIGNATURE_REJECTIONS,
+    all_active_contribution_errors, all_decode_reasons, all_developer_mode_errors, all_gate_errors,
+    all_integrity_reasons, all_publisher_key_errors, all_runtime_generation_errors,
+    all_snapshot_publication_errors, registered_failures, ErrorArea, RegisteredFailure,
+    ALL_ADMISSION_REFUSALS, ALL_IDENTIFIER_KINDS, ALL_ORIGIN_REJECTIONS, ALL_PATH_REJECTIONS,
+    ALL_PUBLISHER_KEY_REJECTIONS, ALL_SIGNATURE_REJECTIONS,
 };
 
 #[test]
@@ -77,6 +77,7 @@ fn every_area_that_has_landed_contributes_at_least_one_failure() {
         ErrorArea::PackageAdmission,
         ErrorArea::SnapshotPublication,
         ErrorArea::RuntimeGeneration,
+        ErrorArea::ContributionProjection,
     ] {
         assert!(
             failures.iter().any(|failure| failure.area == area),
@@ -133,6 +134,10 @@ fn the_catalog_covers_every_variant_of_every_enum_it_registers() {
     assert_eq!(
         counted(ErrorArea::RuntimeGeneration),
         all_runtime_generation_errors().len()
+    );
+    assert_eq!(
+        counted(ErrorArea::ContributionProjection),
+        all_active_contribution_errors().len()
     );
 }
 

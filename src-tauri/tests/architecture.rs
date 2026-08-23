@@ -2508,9 +2508,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // of `apply_transactional_migration` plus 1 in `EXPECTED_MIGRATIONS`. Migration 87's schema and
     // its tests live in `contexts/tooling/lifecycle_hooks`, which owns the tables; what is here is
     // the registration. Migrations 88 and 89 will add 7 lines each.
+    //
+    // Raised again from 3,152 by +6 for one unconditional repair call and the comment saying why
+    // it is outside the version gate: migration 86 gained a column while this change was still
+    // unreleased, and `apply_transactional_migration` skips a version a database has already
+    // recorded, so the column would never appear there. Same shape as the
+    // `repair_missing_stable_participant_schema` call above it, and a no-op wherever the column is
+    // present.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_152,
+        budget: 3_158,
         owner: "add-unified-extension-platform",
     },
 ];

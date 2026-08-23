@@ -3,7 +3,7 @@
 use super::{
     registered_hook_failures, DefinitionDigest, HookExecutionId, HookGlobalId, HookIdentifierKind,
     HookIdentityError, HookOutcomeCode, HookScope, HookScopeKind, SnapshotRef,
-    ALL_HOOK_IDENTIFIER_KINDS, ALL_HOOK_SCOPE_KINDS, GLOBAL_SCOPE_KEY,
+    ALL_HOOK_IDENTIFIER_KINDS, ALL_HOOK_OUTCOME_CODES, ALL_HOOK_SCOPE_KINDS, GLOBAL_SCOPE_KEY,
 };
 
 const DIGEST: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -58,6 +58,41 @@ fn a_rejection_carries_the_offending_value_but_cannot_be_made_unbounded_by_it() 
 }
 
 #[test]
+fn the_outcome_vocabulary_is_closed_and_the_host_owns_it() {
+    // A grammar was not enough: `failed_to_open_c_users_alice_project_hook_ps1` is lower_snake_case
+    // and under 64 characters, and it is a path, a message, and a durable leak of a session's
+    // contents. A closed set cannot be extended at a call site, so there is nowhere to put one.
+    for code in ALL_HOOK_OUTCOME_CODES.iter().copied() {
+        assert_eq!(HookOutcomeCode::parse(code.as_str()), Ok(code));
+    }
+
+    let mut spellings: Vec<&str> = ALL_HOOK_OUTCOME_CODES
+        .iter()
+        .map(|code| code.as_str())
+        .collect();
+    let total = spellings.len();
+    spellings.sort_unstable();
+    spellings.dedup();
+    assert_eq!(spellings.len(), total, "two outcomes share a spelling");
+
+    for spelling in spellings {
+        assert!(!spelling.is_empty());
+        assert!(
+            spelling.len() <= 64,
+            "{spelling} is too long to be a stable code"
+        );
+        assert!(
+            spelling
+                .chars()
+                .all(|character| character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || character == '_'),
+            "{spelling} is not lower_snake_case"
+        );
+    }
+}
+
+#[test]
 fn an_outcome_code_cannot_carry_an_error_message() {
     // The redaction floor. Every string below is what a caller reaches for when there is a
     // free-text field to reach for, and each one carries something that must not reach a durable
@@ -69,28 +104,28 @@ fn an_outcome_code_cannot_carry_an_error_message() {
         "Error: ENOENT",
         "timed out after 30s",
         "failed (exit 1)",
+        // And the ones that defeat a grammar: a message snake-cased until it satisfies the shape.
+        // These are the reason the vocabulary is closed rather than merely well-formed.
+        "failed_to_open_c_users_alice_project_hook_ps1",
+        "connection_refused_to_internal_example_com",
+        "exit_nonzero",
     ] {
         let error = HookOutcomeCode::parse(message).expect_err(message);
         assert_eq!(error.code(), "invalid_hook_outcome_code", "{message:?}");
     }
 
     // What it is for.
-    for code in [
-        "timed_out",
-        "denied_by_policy",
-        "exit_nonzero",
-        "gate_closed",
-    ] {
+    for code in ["timed_out", "denied_by_policy", "gate_closed", "completed"] {
         assert!(HookOutcomeCode::parse(code).is_ok(), "{code} should parse");
     }
 }
 
 #[test]
 fn an_outcome_code_is_bounded_so_a_row_cannot_grow_without_limit() {
-    let long = "a".repeat(65);
-
-    assert!(HookOutcomeCode::parse(&long).is_err());
-    assert!(HookOutcomeCode::parse(&"a".repeat(64)).is_ok());
+    // Bounded by the vocabulary rather than by a length check: an arbitrarily long value is not
+    // truncated to something that looks like a code, it is simply not one of them.
+    assert!(HookOutcomeCode::parse(&"a".repeat(65)).is_err());
+    assert!(HookOutcomeCode::parse(&"a".repeat(64)).is_err());
 }
 
 #[test]

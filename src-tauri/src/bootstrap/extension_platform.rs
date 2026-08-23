@@ -3,7 +3,8 @@ use crate::contexts::tooling::extension_platform::application::{
     DefaultPrerequisites, FeatureGateService, NoForcedDisables,
 };
 use crate::contexts::tooling::extension_platform::infrastructure::{
-    FeatureGateSystemClock, SqliteFeatureGateAuditSink, SqliteFeatureGateRepository,
+    FeatureGateSystemClock, SqliteActiveContributionReader, SqliteFeatureGateAuditSink,
+    SqliteFeatureGateRepository,
 };
 use crate::platform::database::NativeDatabase;
 use std::sync::Arc;
@@ -15,11 +16,14 @@ use std::sync::Arc;
 /// correct answer when gate state is unknown.
 pub(crate) fn assemble_extension_platform_api(database: NativeDatabase) -> ExtensionPlatformApi {
     let database = Arc::new(database);
-    ExtensionPlatformApi::new(Arc::new(FeatureGateService::new(
-        Arc::new(SqliteFeatureGateRepository::new(Arc::clone(&database))),
-        Arc::new(SqliteFeatureGateAuditSink::new(database)),
-        Arc::new(NoForcedDisables),
-        Arc::new(DefaultPrerequisites),
-        Arc::new(FeatureGateSystemClock),
-    )))
+    ExtensionPlatformApi::new(
+        Arc::new(FeatureGateService::new(
+            Arc::new(SqliteFeatureGateRepository::new(Arc::clone(&database))),
+            Arc::new(SqliteFeatureGateAuditSink::new(Arc::clone(&database))),
+            Arc::new(NoForcedDisables),
+            Arc::new(DefaultPrerequisites),
+            Arc::new(FeatureGateSystemClock),
+        )),
+        Arc::new(SqliteActiveContributionReader::new(database)),
+    )
 }

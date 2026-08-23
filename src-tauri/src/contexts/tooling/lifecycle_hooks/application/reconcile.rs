@@ -1,23 +1,20 @@
 // The report that surfaces this lands with Task Group 7; Task Group 3 lands the computation.
 #![cfg_attr(not(test), allow(dead_code))]
 
-//! Reconciling Hook subjects against the snapshots their definitions name.
+//! Reconciling Hook subjects against the snapshot the platform is actually running.
 //!
-//! `snapshot_id` on a definition revision carries no foreign key — `extension_platform` owns
-//! snapshots, and an enforced reference would couple two subdomains' storage and let one's
-//! deletions reach into the other's evidence. This makes up the difference, and it is a **read
-//! that computes a state, not a write that stores one**.
+//! The gathering half of the rule whose deciding half is in `domain::reconciliation`. It asks the
+//! platform what is running, then reads the definition recorded for *exactly* that snapshot. It
+//! never reads "the latest revision": see the domain module for why that answer is wrong in two
+//! separate ways.
 //!
-//! Nothing here deletes a row, rebinds anything, or activates anything. The failure mode of a read
-//! is a wrong report; the failure mode of a write is a user's enablement quietly disappearing
-//! because a projection was momentarily behind, and only one of those is recoverable.
-//!
-//! A stored `orphaned` mark would be worse still: it goes stale the moment the snapshot comes
-//! back, and is then a lie that outlives its cause.
+//! Nothing here writes. The repositories are used through their reading methods only, and the
+//! tests drive fakes that panic on every write method so that stays true.
 
-use super::{HookDefinitionRepository, HookSubjectRepository, SnapshotProjectionPort};
+use super::{ActiveExtensionSnapshotPort, HookDefinitionRepository, HookSubjectRepository};
 use crate::contexts::tooling::lifecycle_hooks::domain::{
-    judge_subject, HookGlobalId, SubjectProjection, SubjectVerdict,
+    judge_subject, ActiveSnapshot, HookDefinitionRevision, HookGlobalId, SubjectFacts,
+    SubjectVerdict,
 };
 
 /// Every subject, and what this installation currently knows about it.
@@ -27,39 +24,54 @@ use crate::contexts::tooling::lifecycle_hooks::domain::{
 pub(crate) fn reconcile_subjects(
     subjects: &dyn HookSubjectRepository,
     definitions: &dyn HookDefinitionRepository,
-    projection: &dyn SnapshotProjectionPort,
+    active: &dyn ActiveExtensionSnapshotPort,
 ) -> Result<Vec<SubjectVerdict>, String> {
     let mut verdicts = Vec::new();
     for subject in subjects.all()? {
-        verdicts.push(reconcile_subject(&subject.hook, definitions, projection)?);
+        verdicts.push(reconcile_subject(&subject.hook, definitions, active)?);
     }
     Ok(verdicts)
 }
 
-/// One subject's readiness.
-///
-/// The revision considered is the most recently recorded one. A subject with several — an upgrade
-/// records beside the old revision rather than over it — is judged on the one it would dispatch
-/// from, because that is the question the verdict answers.
+/// One subject's readiness, against the snapshot the platform is running.
 pub(crate) fn reconcile_subject(
     hook: &HookGlobalId,
     definitions: &dyn HookDefinitionRepository,
-    projection: &dyn SnapshotProjectionPort,
+    active: &dyn ActiveExtensionSnapshotPort,
 ) -> Result<SubjectVerdict, String> {
-    let latest = definitions.revisions(hook)?.into_iter().next();
-    let projected = SubjectProjection {
+    let active = active.active_snapshot(hook)?;
+
+    // Looked up only for a running snapshot, and only for that snapshot. Reaching for any other
+    // revision here is the defect this function exists to remove.
+    let recorded_at_active = match &active {
+        ActiveSnapshot::Running { snapshot, .. } => definitions
+            .recorded(hook, snapshot)?
+            .map(|revision| revision.digest),
+        _ => None,
+    };
+
+    // Only distinguishes "uninstalled, with evidence of what it was" from "a subject that exists
+    // because something mentions it". Never used to pick a revision.
+    let has_any_revision = !definitions.revisions(hook)?.is_empty();
+
+    Ok(judge_subject(&SubjectFacts {
         hook: hook.clone(),
-        revision: latest
-            .as_ref()
-            .map(|revision| (revision.snapshot.clone(), revision.digest.clone())),
-    };
+        active,
+        recorded_at_active,
+        has_any_revision,
+    }))
+}
 
-    let fact = match &projected.revision {
-        Some((snapshot, _)) => projection.fact(hook, snapshot)?,
-        // Nothing to look up: the subject names no snapshot, which the domain reads as
-        // `Unavailable` without needing the projection's opinion.
-        None => None,
-    };
-
-    Ok(judge_subject(&projected, fact.as_ref()))
+/// Every revision recorded for a subject, most recently recorded first.
+///
+/// **Diagnostic only.** This is the ordering that must not decide readiness: a recorded-but-not-
+/// activated version leads it, and after a rollback the abandoned newer version still leads it.
+/// Kept because "what does this installation know about this Hook" is a real question for an
+/// operator looking at a subject that will not run — it is just not the question `reconcile_subject`
+/// answers.
+pub(crate) fn recorded_revisions(
+    hook: &HookGlobalId,
+    definitions: &dyn HookDefinitionRepository,
+) -> Result<Vec<HookDefinitionRevision>, String> {
+    definitions.revisions(hook)
 }

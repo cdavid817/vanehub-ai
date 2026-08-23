@@ -11,8 +11,8 @@ mod reconcile_tests;
 
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use ports::{
-    HookBindingRepository, HookDefinitionRepository, HookExecutionRepository,
-    HookSubjectRepository, SnapshotProjectionPort,
+    ActiveExtensionSnapshotPort, HookBindingRepository, HookDefinitionRepository,
+    HookExecutionRepository, HookSubjectRepository,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use reconcile::{reconcile_subject, reconcile_subjects};
+pub(crate) use reconcile::{reconcile_subject, reconcile_subjects, recorded_revisions};

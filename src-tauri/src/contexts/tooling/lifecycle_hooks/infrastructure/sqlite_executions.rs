@@ -110,7 +110,10 @@ impl HookExecutionRepository for SqliteHookExecutionRepository {
             .optional()
             .map_err(execution_error)?
             .flatten();
-        let sequence = highest.unwrap_or(0) + 1;
+        let sequence = highest
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(HookExecutionError::SequenceExhausted)?;
 
         transaction
             .execute(
@@ -124,7 +127,7 @@ impl HookExecutionRepository for SqliteHookExecutionRepository {
                     sequence,
                     record.status.as_str(),
                     i64::from(record.status.is_terminal()),
-                    record.outcome.as_ref().map(HookOutcomeCode::as_str),
+                    record.outcome.map(HookOutcomeCode::as_str),
                     record.duration_ms,
                     record.started_at,
                     record.finished_at,

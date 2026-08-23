@@ -1,5 +1,8 @@
 //! SQLite adapters for Hook storage, and the schema they are written against.
 
+mod active_snapshot;
+#[cfg(test)]
+mod active_snapshot_tests;
 mod persistence_schema;
 mod sqlite_bindings;
 mod sqlite_definitions;
@@ -7,6 +10,8 @@ mod sqlite_executions;
 #[cfg(test)]
 mod sqlite_hooks_tests;
 
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use active_snapshot::{ExtensionPlatformActiveSnapshot, UnknownActiveSnapshot};
 pub(crate) use persistence_schema::apply_lifecycle_hook_schema;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use sqlite_bindings::{SqliteHookBindingRepository, ABSENT_BINDING_REVISION};

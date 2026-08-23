@@ -87,9 +87,7 @@ fn execution(id: &str, status: HookExecutionStatus) -> HookExecutionRecord {
         hook: hook(),
         sequence: 0,
         status,
-        outcome: status
-            .is_terminal()
-            .then(|| HookOutcomeCode::parse("exit_zero").expect("outcome")),
+        outcome: status.is_terminal().then_some(HookOutcomeCode::Completed),
         duration_ms: Some(12),
         started_at: AT.to_string(),
         finished_at: status.is_terminal().then(|| AT.to_string()),
@@ -171,8 +169,10 @@ fn an_execution_row_has_nowhere_to_put_a_prompt_a_path_or_a_message() {
 #[test]
 fn an_outcome_code_column_cannot_be_loaded_with_a_message_through_the_repository() {
     // The column is TEXT, so SQLite would take a stderr dump. What stops it is that the only way
-    // to build a record is through `HookOutcomeCode`, whose grammar refuses one.
+    // to build a record is through `HookOutcomeCode`, a closed vocabulary the host defines --
+    // including against the version of the attempt that satisfies a lower_snake_case grammar.
     assert!(HookOutcomeCode::parse("Failed: C:\\Users\\alice\\hook.ps1 exited 1").is_err());
+    assert!(HookOutcomeCode::parse("failed_c_users_alice_hook_ps1_exited_1").is_err());
 }
 
 #[test]

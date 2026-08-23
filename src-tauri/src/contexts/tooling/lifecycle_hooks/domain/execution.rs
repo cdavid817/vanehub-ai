@@ -14,9 +14,11 @@
 //!
 //! ## Ordering
 //!
-//! `sequence` is monotonic per subject, assigned as `MAX + 1` under a write lock. Timestamps are
-//! not an ordering: two executions inside the same clock tick tie, the clock can go backwards, and
-//! "which of these ran first" is exactly the question an execution log exists to answer.
+//! `sequence` is monotonic per subject, assigned as a *checked* `MAX + 1` under a write lock.
+//! Timestamps are not an ordering: two executions inside the same clock tick tie, the clock can go
+//! backwards, and "which of these ran first" is exactly the question an execution log exists to
+//! answer. The increment is checked rather than wrapping or saturating, because both of those turn
+//! an impossible overflow into a corrupted ordering rather than into a refusal.
 //!
 //! Retention is what makes monotonicity safe to state. Because it keeps at least one row —
 //! `HookExecutionRetention` cannot be constructed with a window of zero — `MAX` never returns to
@@ -139,6 +141,14 @@ impl Default for HookExecutionRetention {
 pub(crate) enum HookExecutionError {
     /// No subject with this id.
     UnknownSubject,
+    /// `MAX(sequence) + 1` would overflow.
+    ///
+    /// Unreachable in practice -- it needs `i64::MAX` executions of one Hook -- and included
+    /// anyway because the alternative is a wrapping or saturating increment. Wrapping would reissue
+    /// sequence 1 and silently break the ordering the whole table is keyed on; saturating would
+    /// pin every later execution to the same number and hit the unique index instead, reporting a
+    /// duplicate that is not one. A stable refusal says what actually happened.
+    SequenceExhausted,
     /// An execution id that is already recorded. Immutable rows are not re-appended, and silently
     /// treating this as an update would let a finished execution be rewritten.
     DuplicateExecution,
@@ -149,6 +159,7 @@ impl HookExecutionError {
     pub(crate) const fn code(&self) -> &'static str {
         match self {
             Self::UnknownSubject => "unknown_hook_subject_for_execution",
+            Self::SequenceExhausted => "hook_execution_sequence_exhausted",
             Self::DuplicateExecution => "duplicate_hook_execution",
             Self::Storage(_) => "hook_execution_storage_failure",
         }
@@ -158,6 +169,7 @@ impl HookExecutionError {
 pub(crate) fn all_hook_execution_errors() -> Vec<HookExecutionError> {
     vec![
         HookExecutionError::UnknownSubject,
+        HookExecutionError::SequenceExhausted,
         HookExecutionError::DuplicateExecution,
         HookExecutionError::Storage(String::new()),
     ]
