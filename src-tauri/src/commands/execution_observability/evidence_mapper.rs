@@ -287,14 +287,19 @@ pub(crate) fn detail_view_dto(
     }
 }
 
+/// The counts a record's detail can vouch for.
+///
+/// `commands`, `files`, and `usageObservations` come from the same store read that produced the
+/// record, so they describe rows this context actually holds. `logs` and `findings` belong to
+/// other contexts and read as zero next to a coverage that names them — a review finding is an
+/// unresolved comment, not a verification run, and filling the field with the verification count
+/// would put a plausible number where the honest answer is "not observed from here".
 fn related_counts_dto(counts: &EvidenceCorrelationCounts) -> EvidenceRelatedCountsDto {
     EvidenceRelatedCountsDto {
-        // Logs belong to another context and this one has no port to it, so the count is 0 and the
-        // record's coverage carries `evidence_source_not_owned`.
         logs: 0,
         commands: counts.commands,
         files: counts.file_mutations,
-        findings: counts.verifications,
+        findings: 0,
         usage_observations: counts.usage_observations,
     }
 }

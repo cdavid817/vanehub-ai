@@ -47,7 +47,7 @@ named below, and blocks only that task.
 
 - [x] 3.1 Add evidence ids, correlation, kind, status, safe payload, redaction receipt, coverage, and domain errors under `execution_observability/domain/`.
 - [x] 3.2 Enforce maximum safe-payload size, allowlisted fields, valid status/kind combinations, required session id, and fidelity invariants in domain constructors.
-- [x] 3.3 Add an application `RecordExecutionEvidence` use case and query use cases for summary, record page, record detail, and correlation counts.
+- [x] 3.3 Add an application `RecordExecutionEvidence` use case and query use cases for summary, record page, record detail, and correlation counts. Correlation counts are served through the record-detail query rather than a separate entry point: the counts and the record come from one store read, so a caller cannot receive a record whose related counts were computed against a different moment. A standalone pass-through was removed because nothing called it and an uncalled query is one nobody can vouch for.
 - [x] 3.4 Add narrow application ports for evidence repository, clock, id generation, redaction validation, post-commit notice publication, and gap diagnostics.
 - [x] 3.5 Add an additive SQLite migration for `execution_evidence_events`, projection tables, coverage/gap metadata, and required indexes.
 - [x] 3.6 Implement atomic event insert plus monotonic projection update; publish notices only after the transaction commits.

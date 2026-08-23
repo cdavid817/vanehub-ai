@@ -6,7 +6,10 @@
 //! store — a stub would let a mapping pass here that the domain rejects at run time, which is the
 //! failure mode most worth catching.
 
-use super::evidence_bridge::start_evidence_bridge;
+use super::evidence_bridge::{
+    start_evidence_bridge, DropAccumulator, EvidenceDropReason, MAX_TRACKED_DROP_REASONS,
+    MAX_TRACKED_DROP_SESSIONS,
+};
 use crate::contexts::agent_runtime::api::{
     AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
 };
@@ -68,6 +71,8 @@ struct Harness {
     _directory: TempDirectory,
     api: ExecutionEvidenceApi,
     diagnostics: Arc<CountingDiagnostics>,
+    /// Kept so a test can read the stored row rather than the mapper's own opinion of it.
+    database: NativeDatabase,
 }
 
 fn harness(name: &str) -> Harness {
@@ -75,7 +80,7 @@ fn harness(name: &str) -> Harness {
     let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
     let diagnostics = Arc::new(CountingDiagnostics::default());
     let api = ExecutionEvidenceApi::new(
-        Arc::new(SqliteEvidenceRepository::new(database)),
+        Arc::new(SqliteEvidenceRepository::new(database.clone())),
         Arc::new(SystemEvidenceClock),
         Arc::new(UuidEvidenceIdGenerator),
         Arc::new(DomainEvidenceRedactionValidator),
@@ -86,7 +91,23 @@ fn harness(name: &str) -> Harness {
         _directory: directory,
         api,
         diagnostics,
+        database,
     }
+}
+
+/// Reads the redaction rule ids the journal actually stored. Asserting on the mapper's return
+/// value would only prove the mapper agrees with itself.
+fn stored_redaction_rules(harness: &Harness) -> Vec<String> {
+    let connection = harness.database.connection().expect("connection");
+    let rules: String = connection
+        .query_row(
+            "SELECT redaction_rule_ids_json FROM execution_evidence_events \
+             ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored event");
+    serde_json::from_str(&rules).expect("rule ids")
 }
 
 fn session() -> EvidenceSessionId {
@@ -407,4 +428,152 @@ fn no_producer_content_reaches_the_journal() {
             "producer content reached the journal: {forbidden}"
         );
     }
+}
+
+/// The accumulator is keyed by producer-supplied session ids, so its size has to be capped.
+///
+/// A producer bug minting a fresh session id per event would otherwise grow it without limit, and
+/// a structure whose whole job is to report that something overflowed must not be the thing that
+/// overflows.
+#[test]
+fn the_drop_accumulator_caps_the_sessions_it_tracks() {
+    let accumulator = DropAccumulator::default();
+
+    for index in 0..(MAX_TRACKED_DROP_SESSIONS * 4) {
+        accumulator.record(&format!("session-{index}"), EvidenceDropReason::QueueFull);
+    }
+
+    let snapshot = accumulator.take();
+    let sessions: std::collections::BTreeSet<&str> = snapshot
+        .counts
+        .keys()
+        .map(|(session, _)| session.as_str())
+        .collect();
+    assert_eq!(sessions.len(), MAX_TRACKED_DROP_SESSIONS);
+    // The overflow is not discarded: it is reported without a session, so the total stays honest
+    // where the attribution cannot be.
+    assert_eq!(
+        snapshot.unattributed,
+        (MAX_TRACKED_DROP_SESSIONS * 3) as u32
+    );
+}
+
+/// One session cannot fill the table with reasons either. Every reason is an enum variant today,
+/// so the cap has slack; it is asserted so a future variant cannot slip past unnoticed.
+#[test]
+fn the_drop_accumulator_caps_the_reasons_per_session() {
+    let accumulator = DropAccumulator::default();
+    for reason in [
+        EvidenceDropReason::QueueFull,
+        EvidenceDropReason::WorkerGone,
+        EvidenceDropReason::UnmappableSignal,
+        EvidenceDropReason::PersistenceFailed,
+    ] {
+        accumulator.record(SESSION, reason);
+    }
+
+    let snapshot = accumulator.take();
+    assert!(snapshot.counts.len() <= MAX_TRACKED_DROP_REASONS);
+    assert_eq!(snapshot.counts.len(), 4, "each reason keys separately");
+    assert_eq!(snapshot.unattributed, 0);
+}
+
+/// Taking a snapshot clears the accumulator, so a drop recorded during a flush lands in a fresh
+/// entry rather than being erased by it. A read-then-clear would lose exactly the drops that
+/// happened while the report was in flight, which is when drops are most likely.
+#[test]
+fn a_drop_recorded_during_a_flush_is_not_lost() {
+    let accumulator = DropAccumulator::default();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+
+    let first = accumulator.take();
+    accumulator.record(SESSION, EvidenceDropReason::QueueFull);
+    let second = accumulator.take();
+
+    assert_eq!(first.counts.values().sum::<u32>(), 1);
+    assert_eq!(second.counts.values().sum::<u32>(), 1);
+}
+
+/// A signal the journal cannot correlate is counted, not silently forgotten. Dropping it without a
+/// trace would leave a hole no coverage state accounts for.
+#[test]
+fn an_unmappable_signal_is_counted_as_a_gap() {
+    let harness = harness("bridge-unmappable-counted");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::RunStarted {
+            session_id: SESSION.to_string(),
+            run_id: "not-a-uuid".to_string(),
+            trace_id: TRACE.to_string(),
+            agent_id: None,
+            seat_id: None,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    // Something the worker will accept, so the flush runs.
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+
+    assert!(wait_until(|| *harness
+        .diagnostics
+        .dropped
+        .lock()
+        .expect("dropped")
+        > 0));
+    worker.shutdown();
+}
+
+/// A reason code the bridge had to rewrite carries a receipt naming the rule.
+///
+/// Rewriting silently would leave a stored value that does not match what the producer sent, next
+/// to a receipt claiming nothing was redacted — and the receipt is the only way to tell a policy
+/// rewrite from a producer bug.
+#[test]
+fn a_rewritten_reason_code_carries_its_redaction_rule() {
+    let harness = harness("bridge-redaction-receipt");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    OperationsEvidencePort::try_publish(
+        &bridge,
+        OperationsEvidenceSignal::OperationFailed {
+            session_id: SESSION.to_string(),
+            operation_id: "operation-1".to_string(),
+            run_id: None,
+            // Prose, not a code: the mapper must replace it and say so.
+            reason_code: "Connection refused after 3 attempts".to_string(),
+            occurred_at: "2026-08-22T10:00:02Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 1));
+    worker.shutdown();
+    assert_eq!(
+        stored_redaction_rules(&harness),
+        vec!["reason_code_normalized".to_string()],
+        "a rewritten value must name the rule that rewrote it"
+    );
+}
+
+/// A code that already fits passes through untouched and its receipt says so. A receipt claiming a
+/// redaction on every event would make the real ones impossible to find.
+#[test]
+fn an_acceptable_reason_code_records_no_redaction() {
+    let harness = harness("bridge-redaction-none");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    OperationsEvidencePort::try_publish(
+        &bridge,
+        OperationsEvidenceSignal::OperationFailed {
+            session_id: SESSION.to_string(),
+            operation_id: "operation-1".to_string(),
+            run_id: None,
+            reason_code: "runner_unavailable".to_string(),
+            occurred_at: "2026-08-22T10:00:02Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| watermark(&harness.api) >= 1));
+    worker.shutdown();
+    assert!(stored_redaction_rules(&harness).is_empty());
 }

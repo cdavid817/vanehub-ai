@@ -42,30 +42,100 @@ pub(crate) const EVIDENCE_QUEUE_CAPACITY: usize = 256;
 /// How long shutdown waits for the worker to drain.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
-/// Sessions whose observations the queue refused, and how many.
+/// Why an observation never reached the journal. A closed set, because it is a key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum EvidenceDropReason {
+    /// The bounded queue was full when the producer published.
+    QueueFull,
+    /// The worker was gone: the process is shutting down, or the bridge outlived it.
+    WorkerGone,
+    /// The producer's values could not be mapped into anything the journal accepts.
+    UnmappableSignal,
+    /// The journal took the call and refused the row.
+    PersistenceFailed,
+}
+
+/// How many distinct sessions the accumulator tracks at once.
+///
+/// Bounded because the key comes from a producer: a bug that minted a fresh session id per event
+/// would grow this map without limit, and an unbounded structure whose whole job is to report that
+/// something overflowed is the wrong shape.
+pub(crate) const MAX_TRACKED_DROP_SESSIONS: usize = 64;
+
+/// Reasons per session. Every reason is a variant of a closed enum, so this caps at the enum's
+/// size; it is stated anyway, because adding a variant past it would silently discard the new one.
+pub(crate) const MAX_TRACKED_DROP_REASONS: usize = 8;
+
+/// What never reached the journal, keyed by session and reason.
 ///
 /// Counted rather than queued: a drop that had to be queued to be reported would be dropped by the
-/// same full queue that caused it. The worker flushes these into the journal once it has room.
+/// same full queue that caused it. The worker flushes these once it has room.
 #[derive(Default)]
-struct DropAccumulator {
-    by_session: Mutex<BTreeMap<String, u32>>,
+pub(crate) struct DropAccumulator {
+    counts: Mutex<BTreeMap<(String, EvidenceDropReason), u32>>,
+    /// Drops that arrived with the session cap already reached and no existing key to attribute
+    /// them to. Reported without a session, so the total stays honest when the attribution cannot.
+    unattributed: Mutex<u32>,
 }
 
 impl DropAccumulator {
-    fn record(&self, session_id: &str) {
-        let mut counts = match self.by_session.lock() {
-            Ok(counts) => counts,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        *counts.entry(session_id.to_string()).or_insert(0) += 1;
+    pub(crate) fn record(&self, session_id: &str, reason: EvidenceDropReason) {
+        let key = (session_id.to_string(), reason);
+        let mut counts = lock(&self.counts);
+        if let Some(existing) = counts.get_mut(&key) {
+            // Saturating: a count that wrapped would report a smaller gap than occurred, which is
+            // worse than reporting a capped one.
+            *existing = existing.saturating_add(1);
+            return;
+        }
+        let tracked_sessions = counts
+            .keys()
+            .map(|(session, _)| session.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let known_session = tracked_sessions.contains(key.0.as_str());
+        let reasons_here = counts.keys().filter(|(s, _)| *s == key.0).count();
+        if (!known_session && tracked_sessions.len() >= MAX_TRACKED_DROP_SESSIONS)
+            || reasons_here >= MAX_TRACKED_DROP_REASONS
+        {
+            drop(counts);
+            let mut unattributed = lock(&self.unattributed);
+            *unattributed = unattributed.saturating_add(1);
+            return;
+        }
+        counts.insert(key, 1);
     }
 
-    fn take(&self) -> BTreeMap<String, u32> {
-        let mut counts = match self.by_session.lock() {
-            Ok(counts) => counts,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        std::mem::take(&mut counts)
+    /// Takes a snapshot and leaves the accumulator empty.
+    ///
+    /// Taking rather than reading-then-clearing is what makes a concurrent drop safe: anything
+    /// recorded between those two steps would be erased by the clear, whereas a take leaves an
+    /// empty map and the new count lands in a fresh entry.
+    pub(crate) fn take(&self) -> DropSnapshot {
+        DropSnapshot {
+            counts: std::mem::take(&mut lock(&self.counts)),
+            unattributed: std::mem::take(&mut lock(&self.unattributed)),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct DropSnapshot {
+    pub(crate) counts: BTreeMap<(String, EvidenceDropReason), u32>,
+    pub(crate) unattributed: u32,
+}
+
+impl DropSnapshot {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.counts.is_empty() && self.unattributed == 0
+    }
+}
+
+/// A poisoned lock must not silence a diagnostic: this count is the only signal that evidence went
+/// missing, so it is read through the poison rather than raised as a panic.
+fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match value.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 
@@ -88,6 +158,10 @@ impl EvidenceBridge {
     /// waiting to be redacted by someone else later.
     fn offer(&self, session_id: &str, input: Option<RecordEvidenceInput>) {
         let Some(input) = input else {
+            // A signal the journal cannot accept is a gap, not a non-event. Reporting it as
+            // nothing would leave a hole no coverage state accounts for.
+            self.drops
+                .record(session_id, EvidenceDropReason::UnmappableSignal);
             return;
         };
         match self.sender.try_send(input) {
@@ -95,8 +169,12 @@ impl EvidenceBridge {
             // Both failures are silent to the producer by design. `Full` means the journal is
             // behind; `Disconnected` means the worker is gone. Neither says anything about whether
             // the observed work succeeded, so neither may change its result.
-            Err(TrySendError::Full(_)) => self.drops.record(session_id),
-            Err(TrySendError::Disconnected(_)) => self.drops.record(session_id),
+            Err(TrySendError::Full(_)) => {
+                self.drops.record(session_id, EvidenceDropReason::QueueFull)
+            }
+            Err(TrySendError::Disconnected(_)) => self
+                .drops
+                .record(session_id, EvidenceDropReason::WorkerGone),
         }
     }
 }
@@ -259,6 +337,7 @@ impl OperationsEvidencePort for EvidenceBridge {
             reason_code,
             occurred_at,
         } = &signal;
+        let sanitized = sanitize_reason(reason_code);
         let input = (|| {
             let mut correlation = correlation(session_id, None, None)?;
             correlation.operation_id =
@@ -281,19 +360,37 @@ impl OperationsEvidencePort for EvidenceBridge {
                 payload: SafeEvidencePayload::OperationFailed {
                     // A code, never the error text. The log store already holds the message and
                     // already redacts it; a second copy here would be a second thing to get right.
-                    reason: SafeReasonCode::parse(sanitize_reason(reason_code)).ok()?,
+                    reason: SafeReasonCode::parse(sanitized.code).ok()?,
                 },
-                redaction: RedactionReceipt::none(),
+                redaction: receipt_for(sanitized.rewritten)?,
             })
         })();
         self.offer(session_id, input);
     }
 }
 
-/// Producer reason codes are already codes, but they are not this context's codes. Anything that
-/// does not fit the journal's shape collapses to a generic one rather than being reshaped into
-/// something that looks specific but is not.
-fn sanitize_reason(reason_code: &str) -> String {
+/// The rule that fires when a producer's reason code had to be rewritten.
+///
+/// It travels on the receipt rather than being applied silently. A record whose payload does not
+/// match what the producer sent, with a receipt claiming nothing was redacted, would be a value
+/// nobody can trace back — and tracing it back is the only way to tell a policy rewrite from a
+/// producer bug.
+const REASON_NORMALIZED_RULE: &str = "reason_code_normalized";
+
+/// What became of a producer's reason code on the way in.
+struct SanitizedReason {
+    code: String,
+    /// `true` when the stored code is not the one the producer supplied.
+    rewritten: bool,
+}
+
+/// Producer reason codes are already codes, but they are not this context's codes.
+///
+/// Anything that does not fit the journal's shape collapses to a generic one rather than being
+/// reshaped into something that looks specific but is not — an error message squeezed through the
+/// character filter would come out as a long underscore-separated string that reads like a code
+/// and groups like nothing.
+fn sanitize_reason(reason_code: &str) -> SanitizedReason {
     let normalized: String = reason_code
         .chars()
         .map(|character| {
@@ -304,10 +401,27 @@ fn sanitize_reason(reason_code: &str) -> String {
             }
         })
         .collect();
-    if normalized.is_empty() || normalized.len() > 64 {
-        return "operation_failed".to_string();
+    if normalized.is_empty() || normalized.len() > MAX_REASON_CODE_CHARS {
+        return SanitizedReason {
+            code: "operation_failed".to_string(),
+            rewritten: true,
+        };
     }
-    normalized
+    SanitizedReason {
+        rewritten: normalized != reason_code,
+        code: normalized,
+    }
+}
+
+/// Longer than this and the value is prose, not a code.
+const MAX_REASON_CODE_CHARS: usize = 64;
+
+/// A receipt that names the rules applied, or an empty one when the value passed through as sent.
+fn receipt_for(rewritten: bool) -> Option<RedactionReceipt> {
+    if !rewritten {
+        return Some(RedactionReceipt::none());
+    }
+    RedactionReceipt::applied([SafeReasonCode::parse(REASON_NORMALIZED_RULE).ok()?]).ok()
 }
 
 impl SessionEvidencePort for EvidenceBridge {
@@ -438,10 +552,20 @@ fn run_worker(
     drops: Arc<DropAccumulator>,
 ) {
     while let Ok(input) = receiver.recv() {
-        let _ = evidence.record(input);
+        // Captured before the input moves: a failure has to be attributable, and the correlation
+        // is the only place the session survives once `record` has taken ownership.
+        let session = input
+            .correlation
+            .session()
+            .map(|session| session.as_str().to_string());
+        if evidence.record(input).is_err() {
+            if let Some(session) = session {
+                drops.record(&session, EvidenceDropReason::PersistenceFailed);
+            }
+        }
         flush_drops(&evidence, &drops);
     }
-    // The senders are gone; report whatever the queue refused on the way down.
+    // The senders are gone; report whatever never made it, on the way down.
     flush_drops(&evidence, &drops);
 }
 
@@ -450,7 +574,16 @@ fn run_worker(
 /// Re-queueing the report would put it behind the same full queue that produced it, so a burst
 /// would silence exactly the signal that says a burst happened.
 fn flush_drops(evidence: &ExecutionEvidenceApi, drops: &DropAccumulator) {
-    for (session_id, dropped) in drops.take() {
+    let snapshot = drops.take();
+    if snapshot.is_empty() {
+        return;
+    }
+    let mut per_session: BTreeMap<String, u32> = BTreeMap::new();
+    for ((session_id, _reason), count) in &snapshot.counts {
+        let total = per_session.entry(session_id.clone()).or_insert(0);
+        *total = total.saturating_add(*count);
+    }
+    for (session_id, dropped) in per_session {
         let Ok(session) = EvidenceSessionId::parse(session_id) else {
             continue;
         };

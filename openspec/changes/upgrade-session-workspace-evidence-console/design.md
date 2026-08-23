@@ -475,6 +475,19 @@ Four properties are normative:
 - Only allowlisted, bounded values SHALL enter the queue. A raw producer object crossing that
   boundary would make the queue a second place where unredacted content lives.
 
+### Correlation Counts Are Part of the Record Detail Read
+
+A record's related counts are computed in the same store read that produced the record, not by a
+second query a caller issues afterwards. Two reads would let the record and its counts describe
+different moments, and a detail panel showing a failed command beside a count taken after the next
+three finished is worse than showing no count -- the reader has no way to know the two disagree.
+
+The counts are also scoped to what this context owns. `commands`, `files`, and `usageObservations`
+come from its own tables. `logs` and `findings` belong to other contexts, so they read as zero next
+to a coverage state that names them: a review finding is an unresolved comment, and filling that
+field with a verification count would put a plausible number where the honest answer is "not
+observed from here".
+
 ### Review Evidence Lands in Two Stages
 
 Group 4 records what the review context can already observe: a review-level decision and an

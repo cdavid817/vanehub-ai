@@ -829,3 +829,63 @@ fn the_session_is_required_before_a_record_id_is_used() {
     let error = detail_command(&harness.api, SESSION, "  ").expect_err("blank record id");
     assert_eq!(error.reason_code, "evidence_invalid_request");
 }
+
+/// The related counts a detail reports come from the store, not from a constant.
+///
+/// They are computed in the same read that produced the record, so this checks the number tracks
+/// what was actually recorded: two commands in, two commands reported.
+#[test]
+fn a_detail_reports_counts_the_store_can_vouch_for() {
+    let harness = harness("evidence-cmd-authoritative-counts");
+    record(
+        &harness.api,
+        command_started("command-a", "2026-08-22T10:00:00Z"),
+    );
+    record(
+        &harness.api,
+        command_started("command-b", "2026-08-22T10:00:01Z"),
+    );
+    let page = list_command(&harness.api, scope(), None, None, None).expect("page");
+
+    let detail = detail_command(&harness.api, SESSION, &page.items[0].id).expect("detail");
+
+    assert_eq!(detail.related_counts.commands, 2);
+    // Owned by other contexts, so a stated zero rather than a plausible substitute. A review
+    // finding is an unresolved comment; filling the field with a verification count would put a
+    // number there that answers a different question.
+    assert_eq!(detail.related_counts.logs, 0);
+    assert_eq!(detail.related_counts.findings, 0);
+}
+
+/// Counts follow the store as it grows, which is what distinguishes a live query from a snapshot
+/// taken once and reused.
+#[test]
+fn detail_counts_track_later_records() {
+    let harness = harness("evidence-cmd-counts-track");
+    record(
+        &harness.api,
+        command_started("command-a", "2026-08-22T10:00:00Z"),
+    );
+    let page = list_command(&harness.api, scope(), None, None, None).expect("page");
+    let record_id = page.items[0].id.clone();
+    assert_eq!(
+        detail_command(&harness.api, SESSION, &record_id)
+            .expect("detail")
+            .related_counts
+            .commands,
+        1
+    );
+
+    record(
+        &harness.api,
+        command_started("command-b", "2026-08-22T10:00:01Z"),
+    );
+
+    assert_eq!(
+        detail_command(&harness.api, SESSION, &record_id)
+            .expect("detail")
+            .related_counts
+            .commands,
+        2
+    );
+}

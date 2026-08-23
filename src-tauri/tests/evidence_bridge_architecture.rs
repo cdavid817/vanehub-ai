@@ -136,6 +136,104 @@ fn the_bridge_uses_a_bounded_channel_and_a_non_blocking_send() {
     );
 }
 
+/// The bridge reaches execution_observability only through its published api.
+///
+/// It is the one file that legitimately knows both vocabularies, which makes it the likeliest
+/// place for a shortcut: reaching `infrastructure` for a repository or `domain` for a constructor
+/// the api does not publish would work, compile, and quietly move the boundary. What the api
+/// publishes is what the context is willing to support; everything else is a private detail that
+/// can change without warning.
+#[test]
+fn the_evidence_bridge_imports_only_the_published_api() {
+    let code = strip_comments(&read_bridge());
+
+    let mut violations = Vec::new();
+    for layer in ["application", "domain", "infrastructure"] {
+        let path = format!("execution_observability::{layer}");
+        if code.contains(&path) {
+            violations.push(format!(
+                "[ARCH-EVIDENCE-004] bootstrap/evidence_bridge.rs: reaches `{path}`. Repair: \
+                 publish what it needs through execution_observability::api"
+            ));
+        }
+    }
+    assert!(
+        code.contains("execution_observability::api"),
+        "the bridge must reach the context through its published api"
+    );
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Every producer assembled in bootstrap gets the real publisher.
+///
+/// Each service defaults to a no-op so tests and the Web adapter run without a journal. That
+/// default is also the failure mode: an assembly site that forgets `with_evidence` compiles, runs,
+/// and records nothing, and the only symptom is a panel reporting that a session did no work.
+#[test]
+fn every_bootstrap_producer_receives_the_real_evidence_port() {
+    let bootstrap = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bootstrap");
+    let required = [
+        ("workspaces.rs", "WorkspaceShellApplicationService::new("),
+        ("operations.rs", "persistent_run_service("),
+        ("sessions.rs", "SessionsApplicationService::new("),
+        ("agent_runtime.rs", "AgentRuntimeApplicationService::new("),
+    ];
+
+    let mut violations = Vec::new();
+    for (file, constructor) in required {
+        let source = fs::read_to_string(bootstrap.join(file))
+            .unwrap_or_else(|_| panic!("bootstrap assembles this producer: {file}"));
+        let code = strip_comments(&source);
+        assert!(
+            code.contains(constructor),
+            "{file} no longer calls {constructor}; update this rule with what replaced it"
+        );
+        if !code.contains(".with_evidence(") {
+            violations.push(format!(
+                "[ARCH-EVIDENCE-005] bootstrap/{file}: assembles a producer without \
+                 `.with_evidence(...)`, so production would silently record nothing. Repair: \
+                 inject the evidence bridge at the assembly site"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Publishing runs on the producer's thread, so it must do no storage work there.
+///
+/// A `try_publish` that touched SQLite would put a database write inside whatever operation was
+/// being observed, which is exactly the latency the queue exists to avoid. The cost is invisible
+/// at runtime until the store is slow, so the rule reads the file instead.
+#[test]
+fn the_producer_facing_half_of_the_bridge_never_touches_storage() {
+    let code = strip_comments(&read_bridge());
+    let sender_half = code
+        .split("impl EvidenceBridge {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("the sender half is an impl block");
+
+    for forbidden in ["evidence.record", "onnection", "recv(", ".join("] {
+        assert!(
+            !sender_half.contains(forbidden),
+            "the producer-facing half reaches `{forbidden}`; it may only map and try_send"
+        );
+    }
+    // The recorder is named once in the whole file, by the worker.
+    assert_eq!(
+        code.matches("evidence.record(").count(),
+        1,
+        "only the worker may call the recorder"
+    );
+}
+
+fn read_bridge() -> String {
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bootstrap/evidence_bridge.rs"),
+    )
+    .expect("read the evidence bridge")
+}
+
 /// Drops line comments so a rule cannot be tripped by the sentence that documents it. Block
 /// comments are left alone: this codebase does not use them, and half-parsing Rust to find them
 /// would be a worse failure than missing one.
