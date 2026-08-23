@@ -33,7 +33,7 @@ function clearReplay(sessionId: string) {
   terminalReplay.clear(sessionId);
 }
 
-export function AgentTerminalTab({ active, session, sessionActivationKey }: { active: boolean; session: Session | null; sessionActivationKey: number }) {
+export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: { isVisible: boolean; session: Session | null; sessionActivationKey: number }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const sessionId = session?.id ?? null;
@@ -41,7 +41,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
   const terminalRef = useRef<XtermTerminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const terminalIdRef = useRef<string | null>(null);
-  const activeRef = useRef(active);
+  const visibleRef = useRef(isVisible);
   const activationKeyRef = useRef(sessionActivationKey);
   const [state, setState] = useState<AgentTerminalState>("starting");
   const [connectNonce, setConnectNonce] = useState(0);
@@ -50,8 +50,8 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
   const [commandInput, setCommandInput] = useState("");
 
   useEffect(() => {
-    activeRef.current = active;
-  }, [active]);
+    visibleRef.current = isVisible;
+  }, [isVisible]);
 
   useEffect(() => {
     if (!sessionId || !hostRef.current) return;
@@ -95,7 +95,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
       if (terminalId) void agentService.sendAgentTerminalInput(terminalId, content);
     });
     const resizeObserver = new ResizeObserver(() => {
-      if (!activeRef.current) return;
+      if (!visibleRef.current) return;
       fit.fit();
       const terminalId = terminalIdRef.current;
       if (terminalId) void agentService.resizeAgentTerminal(terminalId, { rows: terminal.rows, cols: terminal.cols });
@@ -182,12 +182,12 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
   useEffect(() => {
     if (activationKeyRef.current === sessionActivationKey) return;
     activationKeyRef.current = sessionActivationKey;
-    if (!active || !sessionId || terminalIdRef.current || (state !== "stopped" && state !== "failed")) return;
+    if (!isVisible || !sessionId || terminalIdRef.current || (state !== "stopped" && state !== "failed")) return;
     setConnectNonce((value) => value + 1);
-  }, [active, sessionActivationKey, sessionId, state]);
+  }, [isVisible, sessionActivationKey, sessionId, state]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!isVisible) return;
     const frame = requestAnimationFrame(() => {
       fitRef.current?.fit();
       const terminal = terminalRef.current;
@@ -195,7 +195,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
       if (terminal && terminalId) void agentService.resizeAgentTerminal(terminalId, { rows: terminal.rows, cols: terminal.cols });
     });
     return () => cancelAnimationFrame(frame);
-  }, [active]);
+  }, [isVisible]);
 
   if (!session) return <WorkspaceState kind="unavailable" />;
   const canSubmitCommand = Boolean(terminalIdRef.current) && state === "running";

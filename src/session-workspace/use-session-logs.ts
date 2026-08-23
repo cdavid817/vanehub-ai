@@ -16,6 +16,8 @@ export interface SessionLogsScope {
   seatId: string | null;
   levels: SessionLogLevel[];
   search: string;
+  /** False while the panel stays mounted behind another tab. Defers reads, keeps rows. */
+  isVisible?: boolean;
 }
 
 /**
@@ -44,8 +46,18 @@ export interface SessionLogsState {
   retryInitial: () => Promise<void>;
 }
 
-export function useSessionLogs({ levels, search, seatId, sessionId }: SessionLogsScope): SessionLogsState {
+export function useSessionLogs({
+  isVisible = true,
+  levels,
+  search,
+  seatId,
+  sessionId,
+}: SessionLogsScope): SessionLogsState {
   const [entries, setEntries] = useState<SessionLogEntry[]>([]);
+  // A read the scope asked for that visibility has deferred. Without it, becoming visible again
+  // would either re-read logs that are already on screen or leave the panel showing rows from a
+  // filter the user has since changed.
+  const [pendingRead, setPendingRead] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -96,8 +108,16 @@ export function useSessionLogs({ levels, search, seatId, sessionId }: SessionLog
     setSeekStatus(null);
     setPendingFocusId(null);
     if (!sessionId) return;
-    void loadFirstPage(true);
+    setPendingRead(true);
   }, [loadFirstPage, sessionId]);
+
+  useEffect(() => {
+    // Deferred rather than dropped: a hidden panel does not read logs, and the read it owed is
+    // issued the moment it is on screen again.
+    if (!pendingRead || !isVisible || !sessionId) return;
+    setPendingRead(false);
+    void loadFirstPage(true);
+  }, [isVisible, loadFirstPage, pendingRead, sessionId]);
 
   const loadMore = useCallback(async () => {
     if (!sessionId || !cursor || loading || seeking) return;

@@ -10,19 +10,27 @@ import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { retainAsyncCleanup } from "../lib/async-cleanup";
 
-export function ShellTab({ active, seatId = null, sessionId }: { active: boolean; seatId?: string | null; sessionId: string | null }) {
+/**
+ * The xterm surface detaches when the tab is hidden; the shell itself does not.
+ *
+ * Hiding stops the fit pass, the resize round-trip, and the keystroke path — the view work. The
+ * native process, its scrollback, and its working directory are untouched, because a shell the
+ * user started is work in progress and glancing at another tab is not a request to end it. Output
+ * still lands in the terminal buffer, so nothing arrives missing when the tab comes back.
+ */
+export function ShellTab({ isVisible, seatId = null, sessionId }: { isVisible: boolean; seatId?: string | null; sessionId: string | null }) {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XtermTerminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const shellIdRef = useRef<string | null>(null);
   const runtimeRef = useRef<ShellRuntimeDescriptor | null>(null);
-  const activeRef = useRef(active);
+  const visibleRef = useRef(isVisible);
   const [state, setState] = useState<ShellConnectionState>("connecting");
   const [runtime, setRuntime] = useState<ShellRuntimeDescriptor | null>(null);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
 
-  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { visibleRef.current = isVisible; }, [isVisible]);
 
   useEffect(() => {
     if (!sessionId || !hostRef.current) return;
@@ -46,11 +54,15 @@ export function ShellTab({ active, seatId = null, sessionId }: { active: boolean
     terminal.loadAddon(fit); terminal.open(hostRef.current); fit.fit();
     terminalRef.current = terminal; fitRef.current = fit;
     const inputDisposable = terminal.onData((content) => {
+      // The input binding is inert while the view is detached. A hidden xterm can still be handed
+      // synthetic data — a paste replayed into a detached buffer, a focus race during a tab
+      // switch — and forwarding that would run a command the user never typed here.
+      if (!visibleRef.current) return;
       const shellId = shellIdRef.current;
       if (shellId) agentService.writeShellInput(shellId, content).catch(reportFailure);
     });
     const resizeObserver = new ResizeObserver(() => {
-      if (!activeRef.current) return;
+      if (!visibleRef.current) return;
       fit.fit();
       const shellId = shellIdRef.current;
       // A simulated runtime has no PTY to resize; asking it to would be a request the adapter
@@ -115,7 +127,7 @@ export function ShellTab({ active, seatId = null, sessionId }: { active: boolean
   }, [seatId, sessionId, t]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!isVisible) return;
     const frame = requestAnimationFrame(() => {
       fitRef.current?.fit();
       const terminal = terminalRef.current; const shellId = shellIdRef.current;
@@ -125,7 +137,7 @@ export function ShellTab({ active, seatId = null, sessionId }: { active: boolean
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [active]);
+  }, [isVisible]);
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
   return (

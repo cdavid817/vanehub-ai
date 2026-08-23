@@ -25,7 +25,14 @@ export function flattenFileRows(entriesByPath: Record<string, DirectoryEntry[]>,
   return result;
 }
 
-export function FilesTab({ sessionId }: { sessionId: string | null }) {
+export function FilesTab({
+  isVisible = true,
+  sessionId,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  sessionId: string | null;
+}) {
   const { t } = useTranslation();
   const [entriesByPath, setEntriesByPath] = useState<Record<string, DirectoryEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -36,7 +43,9 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const [partial, setPartial] = useState(false);
   const rootQuery = useQuery({
-    enabled: Boolean(sessionId),
+    // Disabled rather than unmounted while hidden: the listing stays in the cache and on screen,
+    // and the tab stops re-reading a directory nobody is looking at.
+    enabled: Boolean(sessionId) && isVisible,
     queryKey: ["session-workspace", "directory", sessionId, ""],
     queryFn: () => agentService.listSessionDirectory(sessionId ?? "", ""),
   });

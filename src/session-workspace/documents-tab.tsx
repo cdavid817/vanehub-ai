@@ -7,7 +7,14 @@ import type { FileContent, SessionDocument } from "../types/session-workspace";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
-export function DocumentsTab({ sessionId }: { sessionId: string | null }) {
+export function DocumentsTab({
+  isVisible = true,
+  sessionId,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  sessionId: string | null;
+}) {
   const { t } = useTranslation();
   const [documents, setDocuments] = useState<SessionDocument[]>([]);
   const [selected, setSelected] = useState<SessionDocument | null>(null);
@@ -17,6 +24,9 @@ export function DocumentsTab({ sessionId }: { sessionId: string | null }) {
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
 
   useEffect(() => {
+    // Nothing is discarded when the tab is hidden: the list, the selection, and the rendered
+    // document stay exactly as the user left them, and only the discovery walk stops.
+    if (!isVisible) return;
     setDocuments([]); setSelected(null); setContent(null); setPartial(false); setError(null);
     if (!sessionId) return;
     let cancelled = false;
@@ -28,7 +38,7 @@ export function DocumentsTab({ sessionId }: { sessionId: string | null }) {
       if (!cancelled) setError(workspaceErrorKey(reason));
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [isVisible, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !selected) { setContent(null); return; }

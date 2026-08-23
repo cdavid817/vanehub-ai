@@ -10,12 +10,19 @@ import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { ReviewCenter } from "./review-center";
 
-export function ChangesTab({ sessionId }: { sessionId: string | null }) {
+export function ChangesTab({
+  isVisible = true,
+  sessionId,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  sessionId: string | null;
+}) {
   if (sessionId && typeof agentService.openCodeReview === "function") return <ReviewCenter sessionId={sessionId} />;
-  return <LegacyChangesTab sessionId={sessionId} />;
+  return <LegacyChangesTab isVisible={isVisible} sessionId={sessionId} />;
 }
 
-function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
+function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessionId: string | null }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<GitStatusEntry | null>(null);
   const [source, setSource] = useState<GitDiffSource>("working");
@@ -25,7 +32,9 @@ function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const initialized = useRef(false);
   const statusQuery = useQuery({
-    enabled: Boolean(sessionId),
+    // Disabled rather than unmounted while hidden: the status list stays cached and on screen, and
+    // the tab stops re-reading the working tree behind another panel.
+    enabled: Boolean(sessionId) && isVisible,
     queryKey: ["session-workspace", "git-status", sessionId],
     queryFn: () => agentService.getSessionGitStatus(sessionId ?? ""),
   });

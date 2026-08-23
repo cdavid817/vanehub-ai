@@ -15,10 +15,13 @@ import { traceSeat } from "./trace-seat";
 import { WorkspaceState } from "./workspace-state";
 
 export function ExecutionTimelineTab({
+  isVisible = true,
   session = null,
   sessionId,
   service = executionObservabilityService,
 }: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
   session?: Session | null;
   sessionId: string | null;
   service?: ExecutionObservabilityService;
@@ -31,7 +34,9 @@ export function ExecutionTimelineTab({
     queryFn: ({ pageParam }) => service.listRuns({ limit: 20, pageToken: pageParam, sessionId }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextPageToken ?? undefined,
-    enabled: Boolean(sessionId),
+    // A hidden waterfall keeps every page it has fetched and the run the user selected; what stops
+    // is the polling for new runs, which is the only part of it that costs anything.
+    enabled: Boolean(sessionId) && isVisible,
   });
   const runItems = useMemo(() => runs.data?.pages.flatMap((page) => page.items) ?? [], [runs.data?.pages]);
   useEffect(() => {
@@ -42,7 +47,7 @@ export function ExecutionTimelineTab({
   const timeline = useQuery({
     queryKey: ["execution-timeline", selectedRunId],
     queryFn: () => service.getTimeline(selectedRunId ?? ""),
-    enabled: Boolean(selectedRunId),
+    enabled: Boolean(selectedRunId) && isVisible,
   });
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;

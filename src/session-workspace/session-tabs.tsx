@@ -144,6 +144,10 @@ function SessionWorkspaceTabs({
     // Resolved per tab rather than read from the switcher: a session-scoped tab must not change
     // because a control that does not apply to it happens to hold a selection.
     const seatId = effectiveSeatId(id, seats, selectedSeat);
+    // Every panel is told whether it is on screen. A mounted panel that cannot tell keeps polling,
+    // refreshing, and re-aggregating for a view nobody is reading — and the retention policy in
+    // the capability registry is a claim nothing enforces.
+    const isVisible = activeTab === id;
     if (id === "chat") {
       if (activeSession?.interactionMode === "api" || isSharedThread) {
         return (
@@ -156,20 +160,20 @@ function SessionWorkspaceTabs({
           />
         );
       }
-      return <AgentTerminalTab active={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
+      return <AgentTerminalTab isVisible={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
     }
-    if (id === "changes") return <LazyFeature componentProps={{ sessionId }} loader={loadChangesTab} />;
-    if (id === "documents") return <LazyFeature componentProps={{ sessionId }} loader={loadDocumentsTab} />;
-    if (id === "files") return <LazyFeature componentProps={{ sessionId }} loader={loadFilesTab} />;
+    if (id === "changes") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadChangesTab} />;
+    if (id === "documents") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadDocumentsTab} />;
+    if (id === "files") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
-      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", messages, partial: messagesPartial, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
+      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }
     if (id === "shell") {
-      return <LazyFeature componentProps={{ active: activeTab === "shell", seatId, sessionId }} loader={loadShellTab} />;
+      return <LazyFeature componentProps={{ isVisible, seatId, sessionId }} loader={loadShellTab} />;
     }
-    if (id === "logs") return <LazyFeature componentProps={{ seatId, sessionId }} loader={loadLogsTab} />;
-    if (id === "traces") return <LazyFeature componentProps={{ session: activeSession, sessionId }} loader={loadExecutionTimelineTab} />;
-    return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadReportTab} />;
+    if (id === "logs") return <LazyFeature componentProps={{ isVisible, seatId, sessionId }} loader={loadLogsTab} />;
+    if (id === "traces") return <LazyFeature componentProps={{ isVisible, session: activeSession, sessionId }} loader={loadExecutionTimelineTab} />;
+    return <LazyFeature componentProps={{ isVisible, messages, partial: messagesPartial }} loader={loadReportTab} />;
   }
 
   return (

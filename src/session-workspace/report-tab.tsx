@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatMessage, MessageStatus } from "../types/chat";
 import { aggregateSessionReport } from "./report-utils";
@@ -6,9 +6,23 @@ import { PartialNotice, WorkspaceState } from "./workspace-state";
 
 const messageStatuses: MessageStatus[] = ["pending", "streaming", "completed", "failed", "cancelled"];
 
-export function ReportTab({ messages, partial }: { messages: ChatMessage[]; partial: boolean }) {
+export function ReportTab({
+  isVisible = true,
+  messages,
+  partial,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  messages: ChatMessage[];
+  partial: boolean;
+}) {
   const { i18n, t } = useTranslation();
-  const report = useMemo(() => aggregateSessionReport(messages), [messages]);
+  // The last aggregation, held while the tab is hidden. Re-running it on every streamed chunk for
+  // a panel nobody is reading walks the whole message list to produce a value that is discarded.
+  const [report, setReport] = useState(() => aggregateSessionReport(messages));
+  useEffect(() => {
+    if (isVisible) setReport(aggregateSessionReport(messages));
+  }, [isVisible, messages]);
   if (messages.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.report.empty")} />;
   const number = new Intl.NumberFormat(i18n.language);
   const totalTokens = report.reportedInputTokens + report.reportedOutputTokens;

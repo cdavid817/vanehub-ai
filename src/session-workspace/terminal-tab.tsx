@@ -7,7 +7,7 @@ import { ArtifactPanel } from "./artifact-panel";
 import { DelegationPanel } from "./delegation-panel";
 export { toolUseCount } from "./terminal-utils";
 
-export function TerminalTab({ builtinToolsAvailable = false, messages, partial, seatId = null, sessionId = null, targetRoot = "" }: { builtinToolsAvailable?: boolean; messages: ChatMessage[]; partial: boolean; seatId?: string | null; sessionId?: string | null; targetRoot?: string }) {
+export function TerminalTab({ builtinToolsAvailable = false, isVisible = true, messages, partial, seatId = null, sessionId = null, targetRoot = "" }: { builtinToolsAvailable?: boolean; /** False while the panel stays mounted behind another tab. */ isVisible?: boolean; messages: ChatMessage[]; partial: boolean; seatId?: string | null; sessionId?: string | null; targetRoot?: string }) {
   const { i18n, t } = useTranslation();
   const entries = messages
     // A message written before speaker attribution existed carries no seat, so it is not shown as
@@ -16,7 +16,7 @@ export function TerminalTab({ builtinToolsAvailable = false, messages, partial, 
     .flatMap((message) => (message.toolUse ?? []).map((tool) => ({ message, tool })));
   return (
     <div className="grid gap-3 overflow-y-auto pr-1">
-      {builtinToolsAvailable && sessionId ? <BuiltinToolActivity sessionId={sessionId} /> : null}
+      {builtinToolsAvailable && sessionId ? <BuiltinToolActivity isVisible={isVisible} sessionId={sessionId} /> : null}
       {builtinToolsAvailable && sessionId ? <ArtifactPanel sessionId={sessionId} /> : null}
       {builtinToolsAvailable && sessionId ? <DelegationPanel defaultTargetRoot={targetRoot} sessionId={sessionId} /> : null}
       {partial ? <PartialNotice /> : null}

@@ -215,11 +215,11 @@ describe("session workspace components", () => {
       "antigravity-cli",
       "gemini-cli",
     ]);
-    expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
+    expect(sessionTabsSource).toContain('<AgentTerminalTab isVisible={activeTab === "chat"}');
     expect(source).toContain("requestAnimationFrame");
     expect(source).toContain("fitRef.current?.fit()");
     expect(source).toContain("resizeAgentTerminal");
-    expect(source).toContain("}, [active]);");
+    expect(source).toContain("}, [isVisible]);");
     expect(source).not.toContain("bg-zinc-950");
     // Full-screen TUIs paint 256-color/truecolor backgrounds that no per-class CSS
     // override can catch, so the terminal renders on an opaque dark canvas with a

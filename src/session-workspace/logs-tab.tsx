@@ -18,7 +18,16 @@ type VirtualLogItem =
   | { kind: "entry"; entry: SessionLogEntry }
   | { kind: "load-more" };
 
-export function LogsTab({ seatId = null, sessionId }: { seatId?: string | null; sessionId: string | null }) {
+export function LogsTab({
+  isVisible = true,
+  seatId = null,
+  sessionId,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  seatId?: string | null;
+  sessionId: string | null;
+}) {
   const { i18n, t } = useTranslation();
   const listRef = useRef<MeasuredVirtualListHandle>(null);
   const [levels, setLevels] = useState<SessionLogLevel[]>(logLevels);
@@ -27,7 +36,7 @@ export function LogsTab({ seatId = null, sessionId }: { seatId?: string | null; 
   const [timestampDraft, setTimestampDraft] = useState("");
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<WorkspaceErrorKey | null>(null);
-  const logs = useSessionLogs({ levels, search, seatId, sessionId });
+  const logs = useSessionLogs({ isVisible, levels, search, seatId, sessionId });
 
   useEffect(() => {
     setExportMessage(null);
