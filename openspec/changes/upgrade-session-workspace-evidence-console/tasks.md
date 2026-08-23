@@ -120,8 +120,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 5.9 Add one bounded `WorkspaceEvidenceSummary` query for tab badges and Basic Info health rather than mounting every panel query.
 - [x] 5.10 Add accessible badge labels for Changes, Terminal History, Shell, Logs, Traces, and Report, and omit zero badges where the existing UI rule requires it.
 - [x] 5.11 Debounce/coalesce identifier-only evidence notices and invalidate only affected query keys.
-- [ ] 5.12 Add frontend tests for navigation from log to span, span to command, command to file, finding to run, and summary row to owning tab.
-- [ ] 5.13 Add tests proving hidden mounted panels retain local selection/forms while live work is suspended.
+- [x] 5.12 Add frontend tests for navigation from log to span, span to command, command to file, finding to run, and summary row to owning tab.
+- [x] 5.13 Add tests proving hidden mounted panels retain local selection/forms while live work is suspended.
 
 ## 6. Terminal History as Execution Records
 
