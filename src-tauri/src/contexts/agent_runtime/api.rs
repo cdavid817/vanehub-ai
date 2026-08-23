@@ -6,6 +6,7 @@
 
 pub(crate) use super::application::{
     AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+    AgentWorkspaceChangeKind,
 };
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,

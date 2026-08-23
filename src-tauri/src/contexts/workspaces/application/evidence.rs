@@ -19,6 +19,59 @@ pub(crate) enum WorkspaceEvidenceSignal {
         runtime: WorkspaceShellRuntimeKind,
         occurred_at: String,
     },
+    /// The shell reached a terminal state. Attach and detach are not this: a client reconnecting
+    /// to a live shell has not opened one, and reporting it as a close would end a shell in the
+    /// journal that is still running.
+    ShellClosed {
+        session_id: String,
+        shell_id: String,
+        seat_id: Option<String>,
+        reason: WorkspaceShellCloseReason,
+        occurred_at: String,
+    },
+    /// A file the runtime changed and then confirmed changed.
+    ///
+    /// Only after a trusted mutation succeeded or a witnessed snapshot comparison saw it. A
+    /// rejected write must produce nothing: a record of a change that did not happen is worse than
+    /// no record, because nothing downstream can tell the two apart.
+    FileMutationObserved {
+        session_id: String,
+        /// The file's own name, never the directory it sits in. A path would say where the user
+        /// works; a basename says which file changed, which is what a reader needs.
+        basename: String,
+        /// A stable digest of the workspace-relative path. Two changes to one file group by it
+        /// without the path itself ever being stored.
+        path_fingerprint: String,
+        change_kind: WorkspaceFileChangeKind,
+        /// What the runtime compared against. A change reported without one cannot be told from a
+        /// change someone else made between two reads.
+        witness_fingerprint: String,
+        observed_directly: bool,
+        occurred_at: String,
+    },
+}
+
+/// Why a shell ended. Closed, because a reader groups by it and free text does not group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceShellCloseReason {
+    /// A user or an agent asked for it.
+    ExplicitClose,
+    /// The process on the other end exited on its own.
+    ProcessExit,
+    /// A remote workspace's connection dropped.
+    RemoteDisconnect,
+    /// Reclaimed after going unused.
+    IdleCleanup,
+    /// The session or the application is going away.
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceFileChangeKind {
+    Created,
+    Modified,
+    Deleted,
+    Renamed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -546,7 +546,13 @@ fn a_shell_signal_carries_identifiers_and_a_runtime_kind_only() {
         seat_id,
         runtime,
         ..
-    } = &seen[0];
+    } = &seen[0]
+    else {
+        panic!(
+            "opening a shell publishes a ShellOpened signal, not {:?}",
+            seen[0]
+        );
+    };
     assert_eq!(session_id, "session-1");
     assert_eq!(seat_id.as_deref(), Some("seat-builder"));
     assert_eq!(*runtime, WorkspaceShellRuntimeKind::Local);
@@ -559,4 +565,100 @@ fn a_shell_signal_carries_identifiers_and_a_runtime_kind_only() {
         !rendered.contains("codex-cli"),
         "the agent id is not this signal's subject"
     );
+}
+
+/// Killing a shell reports why it ended, and reports it once.
+#[test]
+fn killing_a_shell_publishes_one_explicit_close() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+    let service = service.with_evidence(Arc::new(refusing.clone()));
+
+    service.kill_shell("shell-fixture").expect("kill");
+
+    let seen = refusing.seen.lock().expect("seen");
+    assert_eq!(seen.len(), 1);
+    let WorkspaceEvidenceSignal::ShellClosed { reason, .. } = &seen[0] else {
+        panic!("killing a shell publishes ShellClosed, not {:?}", seen[0]);
+    };
+    assert_eq!(*reason, WorkspaceShellCloseReason::ExplicitClose);
+}
+
+/// A shell that was already gone reports nothing. The runtime answers `None` for it, and a close
+/// published anyway would end a shell in the journal for a second time.
+#[test]
+fn killing_an_absent_shell_publishes_nothing() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+
+    service
+        .with_evidence(Arc::new(refusing.clone()))
+        .kill_shell("missing")
+        .expect("kill");
+
+    assert!(refusing.seen.lock().expect("seen").is_empty());
+}
+
+/// Tearing a session down is a shutdown, not a user closing a shell. Reporting both the same way
+/// would make an ordinary session exit indistinguishable from someone stopping work.
+#[test]
+fn tearing_down_a_session_reports_shutdown() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+
+    service
+        .with_evidence(Arc::new(refusing.clone()))
+        .kill_for_session("session-1")
+        .expect("kill for session");
+
+    let seen = refusing.seen.lock().expect("seen");
+    let WorkspaceEvidenceSignal::ShellClosed { reason, .. } = &seen[0] else {
+        panic!(
+            "tearing down a session publishes ShellClosed, not {:?}",
+            seen[0]
+        );
+    };
+    assert_eq!(*reason, WorkspaceShellCloseReason::Shutdown);
+}
+
+/// Writing to a shell, resizing it, and resetting its directory are none of them lifecycle
+/// transitions. A client reconnecting to a live shell has not opened one, and reporting any of
+/// these would put a shell in the journal that never changed state.
+#[test]
+fn non_lifecycle_shell_operations_publish_nothing() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+    let service = service.with_evidence(Arc::new(refusing.clone()));
+
+    service.write_input("shell-fixture", "ls\n").expect("input");
+    service.reset_directory("shell-fixture").expect("reset");
+    service
+        .resize_shell(&ResizeShellRequest {
+            shell_id: "shell-fixture".to_string(),
+            rows: 40,
+            cols: 120,
+        })
+        .expect("resize");
+
+    assert!(refusing.seen.lock().expect("seen").is_empty());
+}
+
+/// A close carries the shell's identity and a reason, never what ran in it.
+#[test]
+fn a_close_signal_carries_no_terminal_content() {
+    let refusing = RefusingEvidence::default();
+    let (service, ..) = shell_service(open_shell_workspace());
+
+    service
+        .with_evidence(Arc::new(refusing.clone()))
+        .kill_shell("shell-fixture")
+        .expect("kill");
+
+    let rendered = format!("{:?}", refusing.seen.lock().expect("seen")[0]);
+    for forbidden in ["C:", "codex-cli", "ls"] {
+        assert!(
+            !rendered.contains(forbidden),
+            "a close signal carried {forbidden}: {rendered}"
+        );
+    }
 }

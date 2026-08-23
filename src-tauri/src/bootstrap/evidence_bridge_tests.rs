@@ -30,7 +30,8 @@ use crate::contexts::sessions::api::{
     SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
 };
 use crate::contexts::workspaces::api::{
-    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellRuntimeKind,
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -877,4 +878,216 @@ fn a_tool_record_carries_no_arguments_or_results() {
             "the stored payload carried a {forbidden} field: {stored}"
         );
     }
+}
+
+/// A shell that opened and closed reaches a terminal record carrying why it ended.
+#[test]
+fn a_shell_lifecycle_records_its_close_reason() {
+    let harness = harness("bridge-shell-lifecycle");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::ShellOpened {
+            session_id: SESSION.to_string(),
+            shell_id: "shell-1".to_string(),
+            seat_id: None,
+            runtime: WorkspaceShellRuntimeKind::Local,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::ShellClosed {
+            session_id: SESSION.to_string(),
+            shell_id: "shell-1".to_string(),
+            seat_id: None,
+            reason: WorkspaceShellCloseReason::RemoteDisconnect,
+            occurred_at: "2026-08-22T10:30:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    assert!(stored_payload_json(&harness).contains("shell_remote_disconnected"));
+}
+
+/// One shell ends once. A close delivered twice — a stop racing a shutdown sweep — must not put a
+/// second ending in the journal, because a reader counting closes would see two shells.
+#[test]
+fn a_shell_closes_once_however_many_times_it_is_reported() {
+    let harness = harness("bridge-shell-close-once");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..3 {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::ShellClosed {
+                session_id: SESSION.to_string(),
+                shell_id: "shell-1".to_string(),
+                seat_id: None,
+                reason: WorkspaceShellCloseReason::ExplicitClose,
+                occurred_at: "2026-08-22T10:30:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 1);
+}
+
+/// Every close reason maps to its own code. Collapsing them would make an idle sweep and a remote
+/// connection drop indistinguishable, and only one of those is worth investigating.
+#[test]
+fn every_shell_close_reason_has_its_own_code() {
+    let harness = harness("bridge-shell-close-reasons");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    let reasons = [
+        WorkspaceShellCloseReason::ExplicitClose,
+        WorkspaceShellCloseReason::ProcessExit,
+        WorkspaceShellCloseReason::RemoteDisconnect,
+        WorkspaceShellCloseReason::IdleCleanup,
+        WorkspaceShellCloseReason::Shutdown,
+    ];
+
+    for (index, reason) in reasons.into_iter().enumerate() {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            WorkspaceEvidenceSignal::ShellClosed {
+                session_id: SESSION.to_string(),
+                shell_id: format!("shell-{index}"),
+                seat_id: None,
+                reason,
+                occurred_at: "2026-08-22T10:30:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(
+        || journal_event_count(&harness) >= reasons.len() as i64
+    ));
+    worker.shutdown();
+    let codes = stored_reason_codes(&harness);
+    assert_eq!(
+        codes.len(),
+        reasons.len(),
+        "two reasons collapsed onto one code: {codes:?}"
+    );
+}
+
+fn file_mutation(basename: &str, kind: WorkspaceFileChangeKind) -> WorkspaceEvidenceSignal {
+    WorkspaceEvidenceSignal::FileMutationObserved {
+        session_id: SESSION.to_string(),
+        basename: basename.to_string(),
+        path_fingerprint: "0123456789abcdef0123456789abcdef".to_string(),
+        change_kind: kind,
+        witness_fingerprint: "witness-1".to_string(),
+        observed_directly: true,
+        occurred_at: "2026-08-22T10:00:00Z".to_string(),
+    }
+}
+
+/// A file change records the file's name and a digest of its path, never the path.
+#[test]
+fn a_file_mutation_records_a_basename_and_a_fingerprint_only() {
+    let harness = harness("bridge-file-mutation");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        file_mutation("main.rs", WorkspaceFileChangeKind::Created),
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(stored.contains("main.rs"));
+    assert!(stored.contains("0123456789abcdef0123456789abcdef"));
+    for forbidden in ["/", "\\", "C:", "content", "diff"] {
+        assert!(
+            !stored.contains(forbidden),
+            "a file mutation carried {forbidden}: {stored}"
+        );
+    }
+}
+
+/// A retried write against the same witness is one observation. Without the witness in the key a
+/// retry would double the count, and a file changed once would read as changed twice.
+#[test]
+fn a_retried_mutation_against_one_witness_is_recorded_once() {
+    let harness = harness("bridge-file-retry");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..3 {
+        WorkspaceEvidencePort::try_publish(
+            &bridge,
+            file_mutation("main.rs", WorkspaceFileChangeKind::Modified),
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 1);
+}
+
+/// A change found by comparing snapshots was not watched happening, and the runtime cannot say who
+/// made it. Recording that as native would claim otherwise.
+#[test]
+fn a_snapshot_detected_change_is_recorded_as_inferred() {
+    let harness = harness("bridge-file-inferred");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    let WorkspaceEvidenceSignal::FileMutationObserved {
+        session_id,
+        basename,
+        path_fingerprint,
+        change_kind,
+        witness_fingerprint,
+        occurred_at,
+        ..
+    } = file_mutation("main.rs", WorkspaceFileChangeKind::Modified)
+    else {
+        unreachable!("constructed above")
+    };
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::FileMutationObserved {
+            session_id,
+            basename,
+            path_fingerprint,
+            change_kind,
+            witness_fingerprint,
+            observed_directly: false,
+            occurred_at,
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(stored_fidelity(&harness), "inferred");
+}
+
+fn stored_reason_codes(harness: &Harness) -> std::collections::BTreeSet<String> {
+    let connection = harness.database.connection().expect("connection");
+    let mut statement = connection
+        .prepare("SELECT safe_payload_json FROM execution_evidence_events")
+        .expect("prepare");
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query");
+    rows.filter_map(Result::ok).collect()
+}
+
+fn stored_fidelity(harness: &Harness) -> String {
+    harness
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT fidelity FROM execution_evidence_events ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("fidelity")
 }

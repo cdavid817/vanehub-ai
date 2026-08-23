@@ -1,8 +1,9 @@
 use super::{
     CreateShellRequest, NoWorkspaceEvidence, ResizeShellRequest, ShellEvent, ShellLaunch, ShellLog,
     ShellSession, WorkspaceApplicationError, WorkspaceEvidencePort, WorkspaceEvidenceSignal,
-    WorkspaceLogLevel, WorkspaceShellContextPort, WorkspaceShellEventPort, WorkspaceShellIdPort,
-    WorkspaceShellLogPort, WorkspaceShellRuntimeKind, WorkspaceShellRuntimePort,
+    WorkspaceLogLevel, WorkspaceShellCloseReason, WorkspaceShellContextPort,
+    WorkspaceShellEventPort, WorkspaceShellIdPort, WorkspaceShellLogPort,
+    WorkspaceShellRuntimeKind, WorkspaceShellRuntimePort,
 };
 use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};
 use std::sync::Arc;
@@ -156,10 +157,16 @@ impl WorkspaceShellApplicationService {
     }
 
     pub(crate) fn kill_shell(&self, shell_id: &str) -> Result<(), WorkspaceApplicationError> {
+        // `stop` answers `None` for a shell that is already gone, which is what makes a repeated
+        // close idempotent: nothing is published for a shell that had already ended.
         let Some(session_id) = self.runtime.stop(shell_id)? else {
             return Ok(());
         };
-        self.publish_disconnected(shell_id.to_string(), session_id);
+        self.publish_disconnected(
+            shell_id.to_string(),
+            session_id,
+            WorkspaceShellCloseReason::ExplicitClose,
+        );
         Ok(())
     }
 
@@ -168,12 +175,21 @@ impl WorkspaceShellApplicationService {
         session_id: &str,
     ) -> Result<(), WorkspaceApplicationError> {
         for (shell_id, owning_session_id) in self.runtime.stop_for_session(session_id)? {
-            self.publish_disconnected(shell_id, owning_session_id);
+            self.publish_disconnected(
+                shell_id,
+                owning_session_id,
+                WorkspaceShellCloseReason::Shutdown,
+            );
         }
         Ok(())
     }
 
-    fn publish_disconnected(&self, shell_id: String, session_id: String) {
+    fn publish_disconnected(
+        &self,
+        shell_id: String,
+        session_id: String,
+        reason: WorkspaceShellCloseReason,
+    ) {
         self.logging.write(ShellLog {
             level: WorkspaceLogLevel::Info,
             session_id: session_id.clone(),
@@ -181,6 +197,14 @@ impl WorkspaceShellApplicationService {
             seat_id: None,
             message: "Shell disconnected.".to_string(),
         });
+        self.evidence
+            .try_publish(WorkspaceEvidenceSignal::ShellClosed {
+                session_id: session_id.clone(),
+                shell_id: shell_id.clone(),
+                seat_id: None,
+                reason,
+                occurred_at: chrono::Utc::now().to_rfc3339(),
+            });
         self.events.publish(ShellEvent::State {
             shell_id,
             session_id,

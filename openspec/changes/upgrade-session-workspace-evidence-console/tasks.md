@@ -99,8 +99,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 4.2 Add bootstrap adapters that map producer semantic events to `execution_observability::api` inputs without exposing the evidence aggregate to producer domains.
 - [x] 4.3 Add a bounded non-blocking publication queue and make evidence failure non-blocking to the owning Agent, Shell, log, review, or usage operation.
 - [x] 4.4 Record safe run start/completion and observable tool/delegation lifecycle references from the existing canonical execution path.
-- [ ] 4.5 Record Session Shell opened/closed and structured command start/completion references when boundaries are observable.
-- [ ] 4.6 Record safe file-mutation observations after trusted workspace mutations or witnessed snapshot comparison; do not persist file content or full paths.
+- [x] 4.5 Record Session Shell opened/closed and structured command start/completion references when boundaries are observable.
+- [x] 4.6 Record safe file-mutation observations after trusted workspace mutations or witnessed snapshot comparison; do not persist file content or full paths.
 - [ ] 4.7 Record review-level decision and automated verification outcome references. Hunk-level decisions and file Viewed resets are deferred to 13.2 and 13.5: neither has an authoritative store until 13.1 adds one, so a producer here would have to derive them from review-level state, and a derived observation recorded as an observed one is the confusion this journal exists to remove. The evidence contract for both is defined in design.md now so 13.2 and 13.5 publish against a settled shape rather than inventing one.
 - [ ] 4.8 Record usage-observed references that point to sessions-owned accounting observations without duplicating usage totals in the journal.
 - [ ] 4.9 Emit a bounded coverage-gap marker after queue overflow or persistence recovery, including counts and safe reason codes only.

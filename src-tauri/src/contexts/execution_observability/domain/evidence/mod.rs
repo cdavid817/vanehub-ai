@@ -20,12 +20,13 @@ pub(crate) use event::{ExecutionEvidenceEvent, ExecutionEvidenceEventInput, Reda
 pub(crate) use identity::{
     BoundedLabel, EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
     EvidenceOperationId, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
-    EvidenceToolCallId, SafeReasonCode, SourceEventId,
+    EvidenceToolCallId, SafeFingerprint, SafeReasonCode, SourceEventId,
 };
 pub(crate) use payload::{
-    CommandRuntimeKind, EvidenceKind, EvidenceOutcome, OutputAvailability, SafeEvidencePayload,
-    UsageQuality, VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
+    CommandRuntimeKind, EvidenceKind, EvidenceOutcome, FileChangeKind, OutputAvailability,
+    SafeEvidencePayload, UsageQuality, VerificationOutcome, EVIDENCE_SCHEMA_VERSION,
 };
+pub(crate) use safety::SafeBasename;
 
 #[cfg(test)]
 pub(crate) mod builders;

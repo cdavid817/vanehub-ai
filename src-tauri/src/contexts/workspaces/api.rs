@@ -10,7 +10,8 @@ use super::application::{
     WorkspaceApplicationService, WorkspaceQueryApplicationService, WorkspaceShellApplicationService,
 };
 pub(crate) use super::application::{
-    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellRuntimeKind,
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,

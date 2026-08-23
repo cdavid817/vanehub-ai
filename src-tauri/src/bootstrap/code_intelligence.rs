@@ -264,6 +264,7 @@ fn map_range(range: NormalizedRange) -> AgentCodeRange {
 pub(crate) struct WorkspaceMutationFanout {
     code_intelligence: CodeIntelligenceApi,
     code_index: OnceLock<CodeIndexApi>,
+    evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
 }
 
 impl WorkspaceMutationFanout {
@@ -271,7 +272,19 @@ impl WorkspaceMutationFanout {
         Self {
             code_intelligence,
             code_index: OnceLock::new(),
+            evidence: Arc::new(crate::contexts::workspaces::application::NoWorkspaceEvidence),
         }
+    }
+
+    /// Bootstrap swaps in the real publisher. The fanout is already the single point every
+    /// successful mutation passes through, so evidence joins the existing targets rather than
+    /// adding a second observation path that could disagree with them.
+    pub(crate) fn with_evidence(
+        mut self,
+        evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    ) -> Self {
+        self.evidence = evidence;
+        self
     }
 
     pub(crate) fn bind_code_index(&self, code_index: CodeIndexApi) -> Result<(), String> {
@@ -282,6 +295,8 @@ impl WorkspaceMutationFanout {
 }
 
 impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
+    /// Reached only after a mutation succeeded: the tool handlers publish on the success branch
+    /// and nowhere else, so a rejected or failed write produces no evidence at all.
     fn publish(&self, mutation: AgentWorkspaceMutation) {
         self.code_intelligence
             .invalidate_document_lease(&mutation.canonical_workspace, &mutation.relative_path);
@@ -289,7 +304,66 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
             code_index
                 .notify_targeted_change(&mutation.canonical_workspace, &mutation.relative_path);
         }
+        let Some(basename) = mutation
+            .relative_path
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+        else {
+            return;
+        };
+        self.evidence.try_publish(
+            crate::contexts::workspaces::api::WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: mutation.session_id.clone(),
+                // The file's own name. The directory it sits in stays here: a workspace path says
+                // where someone works, which is not what "this file changed" needs to say.
+                basename: basename.to_string(),
+                path_fingerprint: path_fingerprint(&mutation.relative_path),
+                change_kind: match mutation.change_kind {
+                    crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Created => {
+                        crate::contexts::workspaces::api::WorkspaceFileChangeKind::Created
+                    }
+                    crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Modified => {
+                        crate::contexts::workspaces::api::WorkspaceFileChangeKind::Modified
+                    }
+                },
+                // The runtime performed this write itself, so the witness is the write: there is
+                // no earlier snapshot to compare against, and inventing one would imply a
+                // comparison nobody made.
+                witness_fingerprint: mutation_witness(&mutation),
+                observed_directly: true,
+                occurred_at: chrono::Utc::now().to_rfc3339(),
+            },
+        );
     }
+}
+
+/// A stable digest of the workspace-relative path.
+///
+/// Groups two changes to one file without the path ever being stored. Truncated to the identifier
+/// bound the journal enforces, which is far more entropy than a workspace has files.
+fn path_fingerprint(relative_path: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(relative_path.as_bytes());
+    digest
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// What this observation was made against. A direct write witnesses itself, so the witness is the
+/// path digest and the change kind together: two writes to one file are two observations, and a
+/// witness that ignored the kind would collapse a create and a later modify into one.
+fn mutation_witness(mutation: &AgentWorkspaceMutation) -> String {
+    format!(
+        "{}:{}",
+        path_fingerprint(&mutation.relative_path),
+        match mutation.change_kind {
+            crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Created => "created",
+            crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Modified => "modified",
+        }
+    )
 }
 
 #[cfg(test)]

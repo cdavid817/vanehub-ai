@@ -9,7 +9,8 @@ mod shell_service;
 
 pub(crate) use error::WorkspaceApplicationError;
 pub(crate) use evidence::{
-    NoWorkspaceEvidence, WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellRuntimeKind,
+    NoWorkspaceEvidence, WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use models::{
     CreateShellRequest, CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing,

@@ -79,17 +79,25 @@ fn mutation_contract_contains_only_canonical_workspace_and_normalized_path() {
     let mutation = AgentWorkspaceMutation {
         canonical_workspace: PathBuf::from("C:/workspace"),
         relative_path: "src/main.rs".to_owned(),
+        session_id: "session-1".to_owned(),
+        change_kind: super::AgentWorkspaceChangeKind::Modified,
     };
 
     port.publish(mutation);
 
     let captured = port.mutations.lock().expect("mutations");
+    // Destructured exhaustively: a field added here reaches every fanout target, and one of them
+    // now writes to the evidence journal.
     let AgentWorkspaceMutation {
         canonical_workspace,
         relative_path,
+        session_id,
+        change_kind,
     } = &captured[0];
     assert_eq!(canonical_workspace, &PathBuf::from("C:/workspace"));
     assert_eq!(relative_path, "src/main.rs");
+    assert_eq!(session_id, "session-1");
+    assert_eq!(*change_kind, super::AgentWorkspaceChangeKind::Modified);
 }
 
 #[derive(Default)]

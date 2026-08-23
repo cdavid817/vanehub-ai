@@ -4436,6 +4436,8 @@ fn workspace_mutation_successful_file_write_publishes_one_normalized_path() {
                 .canonicalize()
                 .expect("canonical workspace"),
             relative_path: "src/new.rs".to_string(),
+            session_id: String::new(),
+            change_kind: crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Created,
         }]
     );
 }
@@ -4475,6 +4477,8 @@ fn workspace_mutation_successful_edit_publishes_one_normalized_path() {
                 .canonicalize()
                 .expect("canonical workspace"),
             relative_path: "src/lib.rs".to_string(),
+            session_id: String::new(),
+            change_kind: crate::contexts::agent_runtime::api::AgentWorkspaceChangeKind::Modified,
         }]
     );
 }

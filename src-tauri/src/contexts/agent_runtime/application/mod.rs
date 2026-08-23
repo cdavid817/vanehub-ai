@@ -198,7 +198,7 @@ pub(crate) use ports::{
     AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
     AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus,
     AgentCodeLocation, AgentCodeRange, AgentDocumentInput, AgentDocumentPositionInput,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    AgentWorkspaceChangeKind, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
 };
 pub(crate) use provider::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,

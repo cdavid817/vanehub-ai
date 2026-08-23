@@ -13,17 +13,19 @@ use crate::contexts::agent_runtime::api::{
     AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
 };
 use crate::contexts::execution_observability::api::evidence::{
-    BoundedLabel, CommandRuntimeKind, EvidenceCorrelation, EvidenceOutcome, EvidenceSessionId,
-    EvidenceSourceContext, EvidenceToolCallId, ExecutionEvidenceApi, ExecutionFidelity,
-    ExecutionStatus, RecordEvidenceInput, RedactionReceipt, SafeEvidencePayload, SafeReasonCode,
-    SourceEventId, SpanId, UsageQuality,
+    BoundedLabel, CommandRuntimeKind, EvidenceCorrelation, EvidenceFileMutationId, EvidenceOutcome,
+    EvidenceSessionId, EvidenceSourceContext, EvidenceToolCallId, ExecutionEvidenceApi,
+    ExecutionFidelity, ExecutionStatus, FileChangeKind, RecordEvidenceInput, RedactionReceipt,
+    SafeBasename, SafeEvidencePayload, SafeFingerprint, SafeReasonCode, SourceEventId, SpanId,
+    UsageQuality,
 };
 use crate::contexts::operations::api::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::sessions::api::{
     SessionEvidencePort, SessionEvidenceSignal, SessionUsageEvidenceQuality,
 };
 use crate::contexts::workspaces::api::{
-    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellRuntimeKind,
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 use std::collections::BTreeMap;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
@@ -502,14 +504,27 @@ fn agent_session(signal: &AgentEvidenceSignal) -> &str {
 
 impl WorkspaceEvidencePort for EvidenceBridge {
     fn try_publish(&self, signal: WorkspaceEvidenceSignal) {
-        let WorkspaceEvidenceSignal::ShellOpened {
+        self.offer(workspace_session(&signal), map_workspace_signal(&signal));
+    }
+}
+
+fn workspace_session(signal: &WorkspaceEvidenceSignal) -> &str {
+    match signal {
+        WorkspaceEvidenceSignal::ShellOpened { session_id, .. }
+        | WorkspaceEvidenceSignal::ShellClosed { session_id, .. }
+        | WorkspaceEvidenceSignal::FileMutationObserved { session_id, .. } => session_id,
+    }
+}
+
+fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEvidenceInput> {
+    match signal {
+        WorkspaceEvidenceSignal::ShellOpened {
             session_id,
             shell_id,
             seat_id,
             runtime,
             occurred_at,
-        } = &signal;
-        let input = (|| {
+        } => {
             let mut correlation = correlation(session_id, None, None)?;
             bind_agent(&mut correlation, None, seat_id.as_deref());
             Some(RecordEvidenceInput {
@@ -527,8 +542,85 @@ impl WorkspaceEvidencePort for EvidenceBridge {
                 },
                 redaction: RedactionReceipt::none(),
             })
-        })();
-        self.offer(session_id, input);
+        }
+        WorkspaceEvidenceSignal::ShellClosed {
+            session_id,
+            shell_id,
+            seat_id,
+            reason,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, None, None)?;
+            bind_agent(&mut correlation, None, seat_id.as_deref());
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Workspaces,
+                // Keyed by the shell alone, with no attempt: a shell closes once, so a replayed
+                // close converges on the event already stored rather than adding a second ending.
+                source_event_id: SourceEventId::parse(format!("shell-closed:{shell_id}")).ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: Some(ExecutionStatus::Succeeded),
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::ShellClosed {
+                    reason: SafeReasonCode::parse(shell_close_reason(*reason)).ok()?,
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        WorkspaceEvidenceSignal::FileMutationObserved {
+            session_id,
+            basename,
+            path_fingerprint,
+            change_kind,
+            witness_fingerprint,
+            observed_directly,
+            occurred_at,
+        } => {
+            let mut correlation = correlation(session_id, None, None)?;
+            correlation.file_mutation_id =
+                EvidenceFileMutationId::parse(path_fingerprint.clone()).ok();
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Workspaces,
+                // The witness is part of the key. Two writes to one file against two different
+                // snapshots are two observations; keying on the path alone would collapse them and
+                // report a file that changed twice as one that changed once.
+                source_event_id: SourceEventId::parse(format!(
+                    "file-mutated:{path_fingerprint}:{witness_fingerprint}"
+                ))
+                .ok()?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: None,
+                // A change found by comparing two snapshots was not watched happening, and the
+                // runtime cannot say who made it. Reporting that as native would claim otherwise.
+                fidelity: if *observed_directly {
+                    ExecutionFidelity::Native
+                } else {
+                    ExecutionFidelity::Inferred
+                },
+                payload: SafeEvidencePayload::FileMutationObserved {
+                    basename: SafeBasename::parse(basename.clone()).ok()?,
+                    path_fingerprint: SafeFingerprint::parse(path_fingerprint.clone()).ok()?,
+                    change_kind: match change_kind {
+                        WorkspaceFileChangeKind::Created => FileChangeKind::Added,
+                        WorkspaceFileChangeKind::Modified => FileChangeKind::Modified,
+                        WorkspaceFileChangeKind::Deleted => FileChangeKind::Deleted,
+                        WorkspaceFileChangeKind::Renamed => FileChangeKind::Renamed,
+                    },
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+    }
+}
+
+fn shell_close_reason(reason: WorkspaceShellCloseReason) -> &'static str {
+    match reason {
+        WorkspaceShellCloseReason::ExplicitClose => "shell_closed_by_request",
+        WorkspaceShellCloseReason::ProcessExit => "shell_process_exited",
+        WorkspaceShellCloseReason::RemoteDisconnect => "shell_remote_disconnected",
+        WorkspaceShellCloseReason::IdleCleanup => "shell_idle_reclaimed",
+        WorkspaceShellCloseReason::Shutdown => "shell_shutdown",
     }
 }
 
