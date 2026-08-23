@@ -47,7 +47,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         },
@@ -64,7 +65,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         },
@@ -84,7 +86,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         }
@@ -105,7 +108,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         },
@@ -127,7 +131,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         },
@@ -143,7 +148,8 @@ pub(super) const TEST_CATALOG: &str = r#"{
             "sourceId": "t",
             "sourceUrl": "https://example.invalid/x",
             "reviewedAt": "2026-08-22",
-            "verification": "verified",
+            "reviewedState": "test",
+            "verification": "repository-verified",
             "note": "test"
           }
         }

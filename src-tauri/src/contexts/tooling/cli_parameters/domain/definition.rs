@@ -196,6 +196,9 @@ pub(crate) struct CliParameterAudit {
     pub(crate) source_id: String,
     pub(crate) source_url: String,
     pub(crate) reviewed_at: String,
+    /// Which artefact the review actually read, and in what state. A date alone cannot say whether
+    /// the reviewer saw the published page, the installed binary's own help, or both.
+    pub(crate) reviewed_state: String,
     pub(crate) verification: CliParameterVerification,
     pub(crate) note: String,
 }
@@ -203,9 +206,13 @@ pub(crate) struct CliParameterAudit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum CliParameterVerification {
+    /// Confirmed against a source the vendor publishes: its documentation, or its own binary's
+    /// help and argument rejection behaviour.
     Verified,
+    /// Confirmed only against something in this repository. Never sufficient on its own.
     RepositoryVerified,
-    NeedsReview,
+    /// Carried forward without a source that settles it. It must not be presented as audited.
+    PendingReview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

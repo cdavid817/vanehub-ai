@@ -30,6 +30,11 @@
               "value": "haiku",
               "labelKey": "cliParameters.claude-code.model.values.haiku.label",
               "descriptionKey": "cliParameters.claude-code.model.values.haiku.description"
+            },
+            {
+              "value": "fable",
+              "labelKey": "cliParameters.claude-code.model.values.fable.label",
+              "descriptionKey": "cliParameters.claude-code.model.values.fable.description"
             }
           ],
           "renderer": {
@@ -44,9 +49,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Aliases are guidance; the flag accepts a full model identifier."
+            "note": "Aliases sonnet, opus, haiku and fable are documented; the binary names fable, opus and sonnet by example, so the control stays free text and the options are suggestions."
           }
         },
         {
@@ -105,9 +111,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Accepted levels remain model-dependent; the registry does not promise every model accepts every level."
+            "note": "Documented values are low, medium, high, xhigh, max, ultracode. The binary's own rejection message lists only the first five, but `--effort ultracode` produces no 'Unknown --effort value' warning while `--effort bogusvalue` does, so ultracode is accepted and merely omitted from that message."
           }
         },
         {
@@ -151,9 +158,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "note": "The binary also accepts bypassPermissions and manual. bypassPermissions is a bypass control and stays out; manual is not projected by any policy template."
           }
         },
         {
@@ -174,9 +182,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "One tri-state control replaces two independently checkable booleans; at most one flag is emitted."
+            "note": "Both --chrome and --no-chrome exist, so the tri-state can express enable, disable and inherit."
           }
         },
         {
@@ -201,9 +210,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Named agent selection; values are user-defined and cannot be enumerated offline."
+            "note": "Agent for the current session; overrides the `agent` setting."
           }
         },
         {
@@ -229,9 +239,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Advisor model selection; values are not enumerable offline."
+            "note": "Hidden from `claude --help` but accepted: an unknown option produces `error: unknown option`, and --advisor does not. Documented on the CLI reference page with the same model-alias grammar as --model."
           }
         },
         {
@@ -251,9 +262,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "One-way presence flag; an explicit false selection is inheritance."
+            "note": "Disables all skills for the session."
           }
         },
         {
@@ -276,9 +288,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Accessibility option gated on its documented minimum version."
+            "note": "Requires 2.1.181 or later, stated by the documentation and matched by the version gate."
           }
         },
         {
@@ -299,9 +312,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Scoped to scripted/chat launches; interactive behaviour is not separately verified."
+            "note": "Minimal mode; sets CLAUDE_CODE_SIMPLE=1. Scoped to chat because the interactive session relies on the discovery it skips."
           }
         },
         {
@@ -322,9 +336,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Diagnostic launch option."
+            "note": "Starts with customizations disabled; sets CLAUDE_CODE_SAFE_MODE=1."
           }
         },
         {
@@ -334,7 +349,6 @@
           "labelKey": "cliParameters.claude-code.fallbackModels.label",
           "descriptionKey": "cliParameters.claude-code.fallbackModels.description",
           "launchScopes": [
-            "interactive",
             "chat"
           ],
           "advanced": true,
@@ -353,9 +367,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Ordered list rendered as one comma-joined value token."
+            "note": "Comma-separated list tried in order. The binary states it only works with --print, so the parameter is scoped to chat; it was scoped to both before this audit."
           }
         },
         {
@@ -399,9 +414,10 @@
           "audit": {
             "sourceId": "claude-code-cli-reference",
             "sourceUrl": "https://code.claude.com/docs/en/cli-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "code.claude.com CLI reference as of 2026-08-23, cross-checked against `claude --help` on 2.1.237",
             "verification": "verified",
-            "note": "Catalog-ordered comma-joined list of documented setting sources."
+            "note": "Comma-separated list of user, project and local."
           }
         }
       ]
@@ -430,10 +446,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Bounded custom text; the previously hard-coded model list is not a supported promise."
+            "note": "`-m, --model <MODEL>`; free text, no documented alias set."
           }
         },
         {
@@ -484,11 +501,12 @@
             "MODEL_DEPENDENT_VALUE"
           ],
           "audit": {
-            "sourceId": "codex-config-reference",
+            "sourceId": "codex-cli-reference",
             "sourceUrl": "https://developers.openai.com/codex/config-reference",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Stable configuration-reference values. The historical global 'max' is not in this baseline and is quarantined for user review rather than emitted."
+            "note": "The config reference lists minimal, low, medium, high and xhigh, and states that xhigh is model-dependent; the parameter now carries the model-dependent diagnostic."
           }
         },
         {
@@ -521,10 +539,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "note": "Possible values are read-only, workspace-write and danger-full-access. The bypass value stays out of the registry."
           }
         },
         {
@@ -539,11 +558,6 @@
             "chat"
           ],
           "options": [
-            {
-              "value": "untrusted",
-              "labelKey": "cliParameters.codex-cli.approvalPolicy.values.untrusted.label",
-              "descriptionKey": "cliParameters.codex-cli.approvalPolicy.values.untrusted.description"
-            },
             {
               "value": "on-request",
               "labelKey": "cliParameters.codex-cli.approvalPolicy.values.on-request.label",
@@ -562,10 +576,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "note": "0.149.0 accepts only on-request and never: `--ask-for-approval untrusted` is rejected as an invalid value. The untrusted option was removed by this audit. No policy template ever projected it."
           }
         },
         {
@@ -584,10 +599,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Owned by the exec subcommand grammar, so it renders into the invocation slot rather than before the subcommand."
+            "note": "Documented on `codex exec`, not on the root command, which matches its invocation slot and chat-only scope."
           }
         },
         {
@@ -607,10 +623,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Fails startup on unknown configuration keys."
+            "note": "Errors out when config.toml has fields this version does not recognize."
           }
         },
         {
@@ -634,10 +651,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Named configuration profile defined in the user's Codex configuration."
+            "note": "Layers $CODEX_HOME/<name>.config.toml on top of the base user config."
           }
         },
         {
@@ -657,10 +675,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "One-way presence flag."
+            "note": "Enables the native web_search tool with no per-call approval."
           }
         },
         {
@@ -680,10 +699,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Selects the local/open-source provider mode required by localProvider."
+            "note": "Selects the open-source provider."
           }
         },
         {
@@ -702,10 +722,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Interactive terminal rendering option."
+            "note": "Runs the TUI inline; interactive only, which the binary confirms by documenting it as a TUI option."
           }
         },
         {
@@ -747,10 +768,11 @@
           },
           "audit": {
             "sourceId": "codex-cli-reference",
-            "sourceUrl": "https://developers.openai.com/codex/cli/reference",
-            "reviewedAt": "2026-08-22",
+            "sourceUrl": "https://developers.openai.com/codex/config-reference",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "developers.openai.com config reference as of 2026-08-23, cross-checked against `codex --help` and `codex exec --help` on codex-cli 0.149.0",
             "verification": "verified",
-            "note": "Only valid together with the OSS/local mode selection."
+            "note": "lmstudio or ollama, named verbatim in the flag description."
           }
         }
       ]
@@ -800,11 +822,12 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Aliases are guidance; full model identifiers remain valid."
+            "note": "Aliases auto, pro, flash and flash-lite are the same set the /model command offers; the flag also accepts a concrete model name, so the control stays free text."
           }
         },
         {
@@ -846,11 +869,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Owned by Agent Policies. 'default' is a real provider value here, which is why inheritance must not be encoded as the string 'default'."
+            "note": "Choices are exactly default, auto_edit, yolo and plan. `default` is the ask-every-time mode, not an absence of one."
           }
         },
         {
@@ -870,11 +894,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "note": "`-s, --sandbox` is a boolean."
           }
         },
         {
@@ -893,11 +918,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Diagnostic output option."
+            "note": "`-d, --debug` boolean, default false."
           }
         },
         {
@@ -915,11 +941,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Accessibility option for the interactive terminal."
+            "note": "Screen reader mode for accessibility."
           }
         },
         {
@@ -947,11 +974,12 @@
             "itemPattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "Repeated flag-value tokens. The documented 'none' value disables all extensions and is exclusive."
+            "note": "`-e, --extensions` takes an array; repeating the flag is the documented multi-value form."
           }
         },
         {
@@ -978,11 +1006,12 @@
             "MISSING_DIRECTORY"
           ],
           "audit": {
-            "sourceId": "gemini-cli-configuration",
-            "sourceUrl": "https://geminicli.com/docs/reference/configuration/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "gemini-cli-reference",
+            "sourceUrl": "https://geminicli.com/docs/cli/cli-reference/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "geminicli.com CLI reference and model docs as of 2026-08-23, cross-checked against `gemini --help` on 0.53.0",
             "verification": "verified",
-            "note": "At most five directories. A missing path is a non-blocking warning and is omitted at launch."
+            "note": "Documented as comma-separated or repeated; the registry repeats the flag so a path containing a comma stays one token."
           }
         }
       ]
@@ -1012,9 +1041,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "OpenCode identifies models as provider/model, so the constraint enforces that shape."
+            "note": "`-m, --model` on both the root command and `run`, documented as provider/model, which the constraint enforces."
           }
         },
         {
@@ -1047,11 +1077,12 @@
             "MODEL_DEPENDENT_VALUE"
           ],
           "audit": {
-            "sourceId": "opencode-config-reference",
-            "sourceUrl": "https://opencode.ai/docs/config/",
-            "reviewedAt": "2026-08-22",
+            "sourceId": "opencode-cli-reference",
+            "sourceUrl": "https://opencode.ai/docs/cli/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Variant names are defined by the selected provider/model, so no provider-independent enum is offered."
+            "note": "Exists only on `run`, which matches the chat-only scope, and is documented as a provider-specific reasoning effort of the selected model, which is what the dependency on model encodes."
           }
         },
         {
@@ -1085,9 +1116,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Projected from the Agent policy template; never returned as an editable definition."
+            "note": "Present on both the root command and `run`."
           }
         },
         {
@@ -1107,9 +1139,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Controls whether thinking blocks are displayed; it does not increase reasoning."
+            "note": "Exists only on `run`, matching the chat-only scope."
           }
         },
         {
@@ -1132,9 +1165,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "note": "`--auto` auto-approves permissions that are not explicitly denied; policy-governed for that reason."
           }
         },
         {
@@ -1154,9 +1188,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Interactive presentation option."
+            "note": "Runs without external plugins. Available on both the root command and `run`; VaneHub deliberately keeps it interactive-only, so a chat launch always loads plugins."
           }
         },
         {
@@ -1177,9 +1212,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Diagnostic output option."
+            "note": "Present on both the root command and `run`."
           }
         },
         {
@@ -1223,9 +1259,10 @@
           "audit": {
             "sourceId": "opencode-cli-reference",
             "sourceUrl": "https://opencode.ai/docs/cli/",
-            "reviewedAt": "2026-08-22",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "`opencode --help` and `opencode run --help` on 1.18.19, 2026-08-23",
             "verification": "verified",
-            "note": "Diagnostic verbosity option."
+            "note": "Choices are exactly DEBUG, INFO, WARN and ERROR."
           }
         }
       ]
@@ -1253,11 +1290,12 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
           },
           "audit": {
-            "sourceId": "antigravity-cli-repository-verified",
-            "sourceUrl": "https://antigravity.google/docs/cli",
-            "reviewedAt": "2026-08-22",
-            "verification": "repository-verified",
-            "note": "Confirmed only by this repository's recorded invocation fixtures, not by an independently reachable command reference. Live re-verification is tracked by the verify-antigravity-cli-live-runtime change; known model values are deliberately not enumerated."
+            "sourceId": "antigravity-cli-headless-reference",
+            "sourceUrl": "https://antigravity.google/docs/cli/headless/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "antigravity.google headless flag table as of 2026-08-23, cross-checked against `agy --help` on 1.1.18",
+            "verification": "verified",
+            "note": "Documented in the headless flag table and present in `agy --help`; headless exits non-zero on an unknown model rather than falling back."
           }
         },
         {
@@ -1293,11 +1331,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "antigravity-cli-repository-verified",
-            "sourceUrl": "https://antigravity.google/docs/cli",
-            "reviewedAt": "2026-08-22",
-            "verification": "repository-verified",
-            "note": "Three levels are the only independently confirmed values; xhigh and max are deliberately absent."
+            "sourceId": "antigravity-cli-headless-reference",
+            "sourceUrl": "https://antigravity.google/docs/cli/headless/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "antigravity.google headless flag table as of 2026-08-23, cross-checked against `agy --help` on 1.1.18",
+            "verification": "verified",
+            "note": "Documented as low, medium or high, matching the binary's own `(low|medium|high)` annotation."
           }
         },
         {
@@ -1329,11 +1368,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "antigravity-cli-repository-verified",
-            "sourceUrl": "https://antigravity.google/docs/cli",
-            "reviewedAt": "2026-08-22",
-            "verification": "repository-verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "sourceId": "antigravity-cli-headless-reference",
+            "sourceUrl": "https://antigravity.google/docs/cli/headless/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "antigravity.google headless flag table as of 2026-08-23, cross-checked against `agy --help` on 1.1.18",
+            "verification": "verified",
+            "note": "Not in the published headless flag table; taken from `agy --help` on 1.1.18, which states `(accept-edits, plan)`."
           }
         },
         {
@@ -1356,11 +1396,12 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "audit": {
-            "sourceId": "antigravity-cli-repository-verified",
-            "sourceUrl": "https://antigravity.google/docs/cli",
-            "reviewedAt": "2026-08-22",
-            "verification": "repository-verified",
-            "note": "Named agent selection; values cannot be enumerated offline."
+            "sourceId": "antigravity-cli-headless-reference",
+            "sourceUrl": "https://antigravity.google/docs/cli/headless/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "antigravity.google headless flag table as of 2026-08-23, cross-checked against `agy --help` on 1.1.18",
+            "verification": "verified",
+            "note": "Documented in the headless flag table as an agent name."
           }
         },
         {
@@ -1380,11 +1421,12 @@
             "slot": "global"
           },
           "audit": {
-            "sourceId": "antigravity-cli-repository-verified",
-            "sourceUrl": "https://antigravity.google/docs/cli",
-            "reviewedAt": "2026-08-22",
-            "verification": "repository-verified",
-            "note": "Owned by Agent Policies; never returned as an editable definition."
+            "sourceId": "antigravity-cli-headless-reference",
+            "sourceUrl": "https://antigravity.google/docs/cli/headless/",
+            "reviewedAt": "2026-08-23",
+            "reviewedState": "antigravity.google headless flag table as of 2026-08-23, cross-checked against `agy --help` on 1.1.18",
+            "verification": "verified",
+            "note": "Documented as a launch-time override of the persistent sandbox setting."
           }
         }
       ]

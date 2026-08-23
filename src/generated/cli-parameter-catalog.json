@@ -39,6 +39,11 @@
               "value": "haiku",
               "labelKey": "cliParameters.claude-code.model.values.haiku.label",
               "descriptionKey": "cliParameters.claude-code.model.values.haiku.description"
+            },
+            {
+              "value": "fable",
+              "labelKey": "cliParameters.claude-code.model.values.fable.label",
+              "descriptionKey": "cliParameters.claude-code.model.values.fable.description"
             }
           ],
           "renderer": {
@@ -462,7 +467,6 @@
             "state": "inherit"
           },
           "launchScopes": [
-            "interactive",
             "chat"
           ],
           "risk": "normal",
@@ -719,11 +723,6 @@
           "risk": "normal",
           "advanced": false,
           "options": [
-            {
-              "value": "untrusted",
-              "labelKey": "cliParameters.codex-cli.approvalPolicy.values.untrusted.label",
-              "descriptionKey": "cliParameters.codex-cli.approvalPolicy.values.untrusted.description"
-            },
             {
               "value": "on-request",
               "labelKey": "cliParameters.codex-cli.approvalPolicy.values.on-request.label",

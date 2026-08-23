@@ -15,7 +15,8 @@ fn audit() -> CliParameterAudit {
         source_id: "test-fixture".to_string(),
         source_url: "https://example.invalid/reference".to_string(),
         reviewed_at: "2026-08-22".to_string(),
-        verification: CliParameterVerification::Verified,
+        reviewed_state: "Domain unit-test fixture; no external artefact.".to_string(),
+        verification: CliParameterVerification::RepositoryVerified,
         note: "Domain unit-test fixture.".to_string(),
     }
 }
