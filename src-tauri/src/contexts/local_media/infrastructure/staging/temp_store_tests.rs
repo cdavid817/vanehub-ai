@@ -427,12 +427,21 @@ fn an_authorized_output_is_the_only_playable_path() {
 /// This is the shape a redirected profile, a relocated home, or a dotfile-managed data directory
 /// produces. The worker answers with a fully resolved path, so a host comparing its own unresolved
 /// join would refuse every synthesis on such a machine.
+/// Both directories are returned, not just the one holding the link. Dropping the target would
+/// leave a dangling symlink and every write through it would fail for the wrong reason.
 #[cfg(unix)]
-fn linked_root_fixture() -> (TempDir, FilesystemMediaTempStore) {
-    let real = TempDir::new().expect("real root");
-    let link_home = TempDir::new().expect("link home");
-    let link = link_home.path().join("media");
-    std::os::unix::fs::symlink(real.path(), &link).expect("link the root");
+struct LinkedRoot {
+    _target: TempDir,
+    _home: TempDir,
+    store: FilesystemMediaTempStore,
+}
+
+#[cfg(unix)]
+fn linked_root_fixture() -> LinkedRoot {
+    let target = TempDir::new().expect("real root");
+    let home = TempDir::new().expect("link home");
+    let link = home.path().join("media");
+    std::os::unix::fs::symlink(target.path(), &link).expect("link the root");
     let store = FilesystemMediaTempStore::new(
         link,
         Arc::new(SequentialIds {
@@ -443,13 +452,18 @@ fn linked_root_fixture() -> (TempDir, FilesystemMediaTempStore) {
         }),
         AdmissionLimits::HARD_CEILING,
     );
-    (link_home, store)
+    LinkedRoot {
+        _target: target,
+        _home: home,
+        store,
+    }
 }
 
 #[cfg(unix)]
 #[test]
 fn an_output_reached_through_a_symlinked_root_is_accepted() {
-    let (_home, store) = linked_root_fixture();
+    let linked = linked_root_fixture();
+    let store = &linked.store;
     let authorized = store
         .authorize_output_wav("operation-1")
         .expect("authorize");
