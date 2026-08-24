@@ -1,0 +1,11 @@
+schema: spec-driven
+created: 2026-08-24
+# No spec delta: the contract this test asserts -- an initialize timeout forces bounded
+# process-tree cleanup, reports InitializeTimedOut, then ForcedTermination, without
+# cancellation -- is unchanged and stays exactly as written. What is defective is the harness
+# around it, which measures wall clock on a shared machine and calls the result a bound.
+#
+# If investigation shows production cleanup is genuinely unbounded under load, that is a
+# behaviour change with a spec impact, and the proposal is amended rather than this flag being
+# used to carry it through unnoticed.
+skip_specs: true
