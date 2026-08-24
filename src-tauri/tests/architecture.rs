@@ -2424,11 +2424,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
         // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
-        // adds migration 82 -- five lines of registration and one inventory entry -- plus the test
-        // for the upgrade path its renumber created: a database already carrying `main`'s 81 must
-        // gain exactly one migration, and both schemas must survive. Every other line here is that
-        // test; without it the renumber's own failure mode has no coverage.
-        budget: 3_025,
+        // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
+        // tests for the upgrade paths its renumber created, and the reconciliation one of them
+        // requires. A database carrying `main`'s 81 must gain exactly one migration; a database
+        // carrying this branch's unmerged 81 must regain the CLI parameter schema the version gate
+        // legitimately skips. Nearly every line here is those three; without them the renumber's
+        // own failure modes have no coverage, and the second one is silent.
+        budget: 3_126,
         owner: "split-database-migrations",
     },
 ];
