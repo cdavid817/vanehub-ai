@@ -1864,3 +1864,130 @@ when it changes, `ApiSessionComposer` is rendered without a key, and the unmount
 saves it is an incidental consequence of a transient loading render rather than a designed
 guarantee. Depending on it for a privacy-relevant property -- whether the microphone is closed -- is
 not a dependency worth keeping.
+
+
+## 32. Windows real-engine and hardware qualification
+
+Run against commit `7d682763` on one Windows host, with real packages and real models rather than
+the deterministic fixtures. It closes none of 18.4, 19.6 or 19.7: two of the three engines qualify,
+the third is blocked by a third-party incompatibility, and every scenario that needs a human ear,
+mouth, or Windows privacy toggle was not attempted. Recorded so the next attempt starts from what is
+known rather than from scratch.
+
+Paths are described by shape only -- whether they carry a space, whether they are ASCII -- because
+the shape is the evidence and the path itself is the user's.
+
+### Environment
+
+| Item | Value |
+| --- | --- |
+| OS | Windows 11, build 10.0.26200 |
+| Architecture | AMD64 |
+| Python | 3.12.10, 64-bit, in an isolated venv created for this qualification |
+| paddlepaddle / paddleocr | 3.3.1 / 3.7.0 (paddlex 3.7.2) |
+| faster-whisper / CTranslate2 | 1.2.1 / 4.8.1 |
+| sherpa-onnx | 1.13.6 |
+| Compute mode | CPU for all three engines; no CUDA runtime involved |
+| OCR model | PP-OCRv6_medium detection + recognition, already on the host |
+| STT model | faster-whisper-base, CTranslate2 format, already on the host |
+| TTS model | vits-piper-en_US-amy-low, fetched during the install phase |
+| Input endpoint | one active: an Intel Smart Sound microphone array |
+| Output endpoint | one active: Realtek speakers |
+
+Install and inference are separated. Packages and the one missing voice were fetched with the
+network available; every inference run below had `connect`, `connect_ex`, `getaddrinfo` and
+`create_connection` replaced with raisers for the whole process, and each run reports how many
+connection attempts were denied.
+
+### 19.6 -- real-engine smoke
+
+| Engine | Result | Evidence |
+| --- | --- | --- |
+| faster-whisper | **PASSED** | Real speech through the production engine module: 12-word input, 63-character 12-word transcript; a second run from a different model directory produced 13 words / 64 characters. `denied_attempts=0`. |
+| sherpa-onnx | **PASSED** | Real synthesis: `sampleRate=16000`, `durationMs=2624`, mono 16-bit WAV, valid header, output removed afterwards. `denied_attempts=0`. |
+| PaddleOCR | **FAILED** | Third-party. See below. |
+
+19.6 stays unticked: it requires all three.
+
+The stronger STT evidence is a round trip rather than the harness default. The harness synthesizes a
+tone when given no audio, and a tone contains no speech, so `NO_SPEECH_DETECTED` is reported as a
+pass -- correct for proving the model loaded, worthless for proving transcription. Feeding
+sherpa-onnx's real output into faster-whisper exercises both engines on real audio and yields a
+transcript whose word count matches the input's.
+
+#### The PaddleOCR failure, classified
+
+Not the environment and not this change. `paddle_inference` raises
+
+```
+NotImplementedError: (Unimplemented) ConvertPirAttribute2RuntimeAttribute not support
+[pir::ArrayAttribute<pir::DoubleAttribute>] (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+```
+
+when paddlepaddle 3.3.1's oneDNN PIR executor runs the PP-OCRv6_medium graph. The models and the
+engine are both fine: constructing `PaddleOCR` with `enable_mkldnn=False` and nothing else changed
+recognizes the same image successfully. The global `FLAGS_use_mkldnn=0` does not help, because
+paddlex enables oneDNN through its own runner configuration rather than the flag.
+
+The worker never passes `enable_mkldnn`, so it inherits the default -- oneDNN on, for the CPU
+speedup it normally buys -- and there is no profile field that would let an affected user turn it
+off. Flipping the default for everyone would be a performance regression, and a silent retry with
+oneDNN disabled is an execution-provider fallback this design has not specified. Left as it is,
+reported as a gap rather than patched, because the fix is a profile field and a spec delta.
+
+Whether a PP-OCRv5 model avoids it is unknown: this host cannot reach any of paddlex's model hosting
+platforms, which report "No available model hosting platforms detected" while pip and GitHub
+downloads succeed.
+
+### 18.4 -- Windows platform qualification
+
+The interpreter used in every run below sits at a path carrying **both a space and non-ASCII
+characters**, which is the harder half of the requirement and the half that passes everywhere.
+
+| Engine | ASCII model directory | Space + non-ASCII model directory |
+| --- | --- | --- |
+| faster-whisper | PASSED | **PASSED** -- real transcription, 13 words |
+| sherpa-onnx | PASSED | **FAILED** -- espeak-ng could not open the configured data directory and fell back to its compiled-in `/usr/share/espeak-ng-data`, then aborted the process |
+| PaddleOCR | FAILED (oneDNN, above) | FAILED -- `inference.json` reads as empty: `[json.exception.parse_error.101] ... attempting to parse an empty input`, though the file is 312,150 bytes and the ASCII copy of the same bytes loads |
+
+Two of the three engines cannot open a model directory outside the active ANSI code page. CTranslate2
+can. This is in the engines' native code, not in this change -- the worker resolves the path with
+`os.path.realpath`, confirms it exists, and hands it over unchanged.
+
+**Worth treating as a release blocker even though it is third-party.** The default Windows profile
+directory for a user whose account name is not ASCII -- ordinary for the zh-CN audience this
+application defaults to -- makes every model path non-ASCII. Such a user configures a model, sees it
+validate, and gets an opaque `ENGINE_UNAVAILABLE` from OCR and a killed worker from TTS, with
+nothing anywhere naming the cause. Detecting a non-ASCII model path and saying so, by field name and
+without echoing the path, needs a spec delta and is not done here.
+
+| Item | Result |
+| --- | --- |
+| Worker launched by the product's own process adapter from a space + non-ASCII interpreter path | **PASSED** -- real OS process, handshake, request served, terminated |
+| Launch is an argument vector, not a shell | **PASSED** -- `ManagedChild::spawn_isolated` builds `std::process::Command` with `.args(...)`; no `cmd.exe`, `powershell -Command`, or concatenated string anywhere under the local-media or process layers, confirmed statically and by that real launch |
+| Inference from a space + non-ASCII model directory | **PARTIAL** -- STT only; see the table above |
+| Microphone privacy denial and recovery | **BLOCKED** -- needs the Windows privacy toggle |
+| Default versus explicitly selected input device | **BLOCKED** -- needs a recording through the UI; this host also has one active input endpoint, so the switching half is unverifiable here regardless |
+| Output device selection and absence | **BLOCKED** -- same |
+
+The real-launch evidence comes from the repository's existing real-process test with `PATH` pointed
+at the qualification venv. That test puts the stub engine modules on `PYTHONPATH`, so what it proves
+is the launch, the quoting, the working directory, and the process lifecycle -- the product's own
+code -- and not inference. Inference is proven separately, above, against the real libraries.
+
+18.4 stays unticked.
+
+### 19.7 -- manual hardware qualification
+
+**NOT RUN.** Every scenario in it needs a person: speaking into the microphone, hearing the speaker,
+holding and releasing the composer button, switching sessions mid-recording, and toggling Windows
+privacy settings. None was simulated, and no fixture stood in for any of it.
+
+### Hygiene
+
+| Check | Result |
+| --- | --- |
+| Generated WAVs removed after each run | PASSED |
+| Stray `python.exe` after all runs | none |
+| Connection attempts during inference | 0, across every run |
+| Content in this record | none -- counts, durations, sample rates and path shapes only |
