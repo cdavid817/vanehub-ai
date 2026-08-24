@@ -210,10 +210,10 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   const smoke = await readFile("tests/desktop/wdio.conf.mjs", "utf8");
   const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
 
-  // The CLI layer stays runnable on demand; the CI gate selects only the stable smoke layer.
+  // The CLI layer stays runnable on demand; the narrow CI gate selects only the core contract.
   assert.match(orchestrator, /mode === "cli-terminal"/);
   assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
-  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[smokeDesktop\]/);
+  assert.match(orchestrator, /const layers = runFullSuite \? REQUIRED_LAYERS : \[coreSmokeDesktop\]/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
 });

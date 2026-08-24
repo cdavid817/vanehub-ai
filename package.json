@@ -56,7 +56,10 @@
     "docs:build": "node scripts/build-docs.mjs",
     "docs:screenshots:update": "node scripts/run-doc-screenshots.mjs update",
     "docs:screenshots:check": "node scripts/run-doc-screenshots.mjs check",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:desktop:core-smoke": "node scripts/test-desktop.mjs core-smoke",
+    "test:desktop:external-provider": "node scripts/test-desktop.mjs external-provider",
+    "test:desktop:all": "node scripts/test-desktop.mjs everything"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",

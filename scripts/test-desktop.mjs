@@ -18,6 +18,24 @@ const latestArtifactPath = path.join(repoRoot, "test-results", "desktop", "lates
 // workflows can opt into the complete suite explicitly.
 const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
 
+/** Without all of these there is no real integration for the external suite to verify. */
+const EXTERNAL_PREREQUISITES = ["VANEHUB_DESKTOP_MUTATE_HOST", "VANEHUB_SSH_HOST", "VANEHUB_SSH_USER", "VANEHUB_SSH_PASSWORD"];
+
+/**
+ * Records a BLOCKED external run as evidence in its own right.
+ *
+ * A job that uploads nothing looks the same as a job that never ran, and "never ran" is the reading
+ * that quietly becomes "passed" when someone summarises a matrix later.
+ */
+async function writeExternalBlockedEvidence(reason, missing) {
+  const resultDir = path.join(repoRoot, "test-results", "desktop", "external-provider-blocked");
+  await mkdir(resultDir, { recursive: true });
+  await writeFile(path.join(resultDir, "summary.json"), `${JSON.stringify({
+    layers: [{ layer: "desktop-external-provider", status: "BLOCKED", reason, missingPrerequisites: missing }],
+    coverage: null,
+  }, null, 2)}\n`);
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
   if (result.error || result.status !== 0) {
@@ -76,7 +94,7 @@ async function readWdioCoverage(resultDir) {
  * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
  * and its own wdio configuration, so one layer's environment cannot change what another tests.
  */
-async function runDesktopLayer({ layer, config, label, artifact }) {
+async function runDesktopLayer({ layer, config, label, artifact, environment = {} }) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
     throw new DesktopVerificationError("BLOCKED", `${label} requires an absolute test-build artifact path.`);
@@ -88,7 +106,7 @@ async function runDesktopLayer({ layer, config, label, artifact }) {
   let processCleanup;
   let processState;
   try {
-    const env = { ...process.env, ...context.environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
+    const env = { ...process.env, ...context.environment, ...environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
     const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", config], {
       cwd: repoRoot,
       env,
@@ -155,6 +173,41 @@ function smokeDesktop(artifact) {
   });
 }
 
+function coreSmokeDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-core-smoke",
+    config: "tests/desktop/wdio.conf.mjs",
+    label: "Desktop core smoke",
+    artifact,
+    environment: { VANEHUB_DESKTOP_CORE_SMOKE: "1" },
+  });
+}
+
+/**
+ * The suite that needs a real package manager, host environment, or SSH server.
+ *
+ * Reports `BLOCKED` rather than running when its prerequisites are absent. A suite that verifies
+ * real integrations has nothing to say on a runner that has none, and saying `PASSED` there would
+ * be the most misleading result available.
+ */
+async function externalProviderDesktop(artifact) {
+  const missing = EXTERNAL_PREREQUISITES.filter((variable) => !process.env[variable]);
+  if (missing.length > 0) {
+    const reason = `External provider suite: no real prerequisites on this host (${missing.join(", ")}).`;
+    process.stdout.write(`Desktop external provider: BLOCKED\n${reason}\n`);
+    await writeExternalBlockedEvidence(reason, missing);
+    // Deliberately not an error exit. This suite never gates, so an unconfigured runner reports
+    // what it is rather than failing a pipeline that was never asking it for a verdict.
+    return { status: "BLOCKED", resultDir: null };
+  }
+  return runDesktopLayer({
+    layer: "desktop-external-provider",
+    config: "tests/desktop/wdio.external-provider.conf.mjs",
+    label: "Desktop external provider",
+    artifact,
+  });
+}
+
 function cliTerminalDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-cli-terminal",
@@ -200,31 +253,56 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+/** The layers the required hermetic gate runs. Every one of them must pass. */
+const REQUIRED_LAYERS = [
+  smokeDesktop,
+  cliTerminalDesktop,
+  cliManagementDesktop,
+  sessionWorkspaceDesktop,
+  dialogsDesktop,
+  settingsPersistenceDesktop,
+];
+
+async function runLayers(layers, artifact) {
+  const results = [];
+  // Sequential rather than concurrent: the layers share one desktop artifact, and a layer's
+  // evidence is only attributable if it owned the machine while it ran.
+  for (const layer of layers) {
+    results.push(await layer(artifact));
+  }
+  return results;
+}
+
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
   else if (mode === "smoke") await smokeDesktop();
+  else if (mode === "core-smoke") await coreSmokeDesktop();
   else if (mode === "cli-terminal") await cliTerminalDesktop();
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
-  else if (mode === "all") {
+  else if (mode === "external-provider") {
+    const result = await externalProviderDesktop(await buildDesktop());
+    // BLOCKED is a reportable outcome here, not a failure: this suite never gates.
+    process.exitCode = result.status === "FAILED" ? 1 : 0;
+  } else if (mode === "all" || mode === "everything") {
     const artifact = await buildDesktop();
-    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, cliManagementDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
-    const layers = runFullSuite ? fullSuiteLayers : [smokeDesktop];
+    const layers = runFullSuite ? REQUIRED_LAYERS : [coreSmokeDesktop];
     if (!runFullSuite) {
-      process.stdout.write("Desktop verification: CI gate runs smoke only; set VANEHUB_DESKTOP_FULL_SUITE=1 for all layers.\n");
+      process.stdout.write("Desktop verification: CI gate runs the core smoke contract; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
     }
-    const results = [];
-    // Sequential rather than concurrent: the layers share one webdriver port and one desktop
-    // artifact, and a layer's evidence is only attributable if it owned the machine while it ran.
-    for (const layer of layers) {
-      results.push(await layer(artifact));
-    }
+    const results = await runLayers(layers, artifact);
     // Each layer sets its own exit code as it finishes; the run as a whole is only green when
     // every layer is, so the worst result has to win rather than the last one.
     process.exitCode = Math.max(...results.map((result) => verificationExitCode(result.status)));
+    if (mode === "everything") {
+      // Appended, never folded in: a BLOCKED external result must not turn the required verdict
+      // red, and a passing external result must not make a failed required layer look green.
+      const external = await externalProviderDesktop(artifact);
+      if (external.status === "FAILED") process.exitCode = 1;
+    }
   } else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
 }
 

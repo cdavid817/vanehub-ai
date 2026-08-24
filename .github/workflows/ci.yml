@@ -691,3 +691,77 @@ jobs:
           path: test-results/desktop/
           if-no-files-found: warn
           retention-days: 14
+
+  # The specs that verify what no fixture can: a real package manager changing a real global
+  # install, a real host Python environment, a real SSH server.
+  #
+  # Never a required check. It cannot be one -- a hosted runner has no real CLI Agent and no
+  # credential, and giving it either is exactly what this change's side-effect rules forbid. On a
+  # runner without the prerequisites it records BLOCKED and exits zero, because a suite with nothing
+  # to verify is not a suite that failed. What it must never do is report PASSED there.
+  desktop-external-provider:
+    name: Desktop External Provider (${{ matrix.os }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      contains(github.event.pull_request.labels.*.name, 'desktop-external-provider')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record the commit under test
+        shell: bash
+        run: |
+          mkdir -p test-results/desktop
+          {
+            echo "commit=${{ github.event.pull_request.head.sha || github.sha }}"
+            echo "checked_out=$(git rev-parse HEAD)"
+            echo "runner=${{ runner.os }}/${{ runner.arch }}"
+            echo "run_id=${{ github.run_id }}"
+          } | tee test-results/desktop/commit-under-test.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang curl file libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev mold patchelf wget xvfb
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run the external provider suite on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:desktop:external-provider
+
+      - name: Run the external provider suite
+        if: runner.os != 'Linux'
+        run: npm run test:desktop:external-provider
+
+      - name: Upload external provider evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-external-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: test-results/desktop/
+          if-no-files-found: warn
+          retention-days: 14
