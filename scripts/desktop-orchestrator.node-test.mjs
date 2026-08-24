@@ -58,6 +58,36 @@ test("creates isolated run paths and rejects unsafe aliases", async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
+test("gives every run its own webdriver port and its own OS home", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-context-test-"));
+  const repoRoot = path.join(tempRoot, "repo");
+  const first = await createRunContext(repoRoot, { tempRoot, runId: "run-a" });
+  const second = await createRunContext(repoRoot, { tempRoot, runId: "run-b" });
+
+  // A fixed port is the failure this replaces: layers run back to back in one job, so the previous
+  // layer's driver can still hold the number the next one is told to bind.
+  assert.notEqual(first.environment.VANEHUB_WEBDRIVER_PORT, second.environment.VANEHUB_WEBDRIVER_PORT);
+  assert.ok(Number(first.environment.VANEHUB_WEBDRIVER_PORT) > 0);
+
+  // `browser.tauri.execute` opens its own connection and reads this variable from the worker,
+  // defaulting to 4445. If the two names disagree, the WebDriver session connects while every
+  // `core.invoke` a spec makes fails as `TypeError: fetch failed`.
+  assert.equal(first.environment.TAURI_WEBDRIVER_PORT, first.environment.VANEHUB_WEBDRIVER_PORT);
+
+  // Carried under `VANEHUB_DESKTOP_*` on purpose: applying `HOME`/`APPDATA` to this process would
+  // repoint the npm and node running the harness, not just the application under test.
+  assert.equal(first.environment.HOME, undefined);
+  assert.equal(first.environment.APPDATA, undefined);
+  for (const key of ["VANEHUB_DESKTOP_HOME", "VANEHUB_DESKTOP_APPDATA", "VANEHUB_DESKTOP_LOCALAPPDATA"]) {
+    assert.ok(first.environment[key].startsWith(first.runRoot), `${key} escapes the run root`);
+    assert.notEqual(first.environment[key], second.environment[key]);
+  }
+
+  await disposeRunContext(first);
+  await disposeRunContext(second);
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
 test("uses explicit result states and failure exit codes", () => {
   assert.equal(verificationExitCode("PASSED"), 0);
   assert.equal(verificationExitCode("FAILED"), 1);

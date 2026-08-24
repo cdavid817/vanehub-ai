@@ -579,17 +579,26 @@ jobs:
 
   # The complete native desktop suite, on the same three runners the smoke job uses.
   #
-  # Dispatched rather than automatic. `test-desktop.mjs` keeps the PR gate on the smoke contract
-  # on purpose -- the expanded layers are release coverage and cost about fifteen minutes a runner
-  # -- so this opts into them explicitly instead of changing what every push pays for.
+  # Opt-in rather than automatic. `test-desktop.mjs` keeps the PR gate on the smoke contract on
+  # purpose -- the expanded layers are release coverage and cost roughly fifteen minutes a runner
+  # -- so this asks for them explicitly instead of changing what every push pays for.
+  #
+  # Two ways to ask, because one of them does not work until this file is on the default branch:
+  # `workflow_dispatch` inputs are validated against the default branch's copy of the workflow, so
+  # a branch that adds an input cannot be dispatched with it. The label is what a pull request
+  # opened from such a branch can actually use.
   #
   # Evidence is uploaded whether it passes or fails: a platform result with no evidence directory
   # is not a platform result.
   desktop-full:
     name: Desktop Full Suite (${{ matrix.os }})
-    if: inputs.desktop_full_suite
+    if: >-
+      inputs.desktop_full_suite ||
+      contains(github.event.pull_request.labels.*.name, 'desktop-full-suite')
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Higher than the smoke job's 60. This builds the desktop artifact twice -- once for the
+    # targeted CLI layer and once for the full run -- on runners slower than a developer machine.
+    timeout-minutes: 150
     env:
       VANEHUB_DESKTOP_FULL_SUITE: "1"
     strategy:
@@ -602,6 +611,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The commit under test, recorded beside the results. A platform result that cannot name the
+      # code it ran against is not evidence for any particular commit.
+      - name: Record the commit under test
+        shell: bash
+        run: |
+          mkdir -p test-results/desktop
+          {
+            echo "commit=${{ github.event.pull_request.head.sha || github.sha }}"
+            echo "checked_out=$(git rev-parse HEAD)"
+            echo "ref=${{ github.ref }}"
+            echo "runner=${{ runner.os }}/${{ runner.arch }}"
+            echo "run_id=${{ github.run_id }}"
+            echo "job_attempt=${{ github.run_attempt }}"
+          } | tee test-results/desktop/commit-under-test.txt
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -633,6 +657,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Serial from here down, and nothing else heavy runs beside them. Every step below drives or
+      # inspects the same machine, and a desktop layer's result is only attributable if it owned
+      # that machine while it ran.
       - name: Verify desktop automation boundaries
         run: npm run desktop:unit:test
 
@@ -641,6 +668,17 @@ jobs:
 
       - name: CLI context tests
         run: cargo test --workspace tooling::cli
+
+      - name: Build the desktop test artifact
+        run: npm run test:desktop:build
+
+      - name: Run the CLI management layer on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:desktop:cli-management
+
+      - name: Run the CLI management layer
+        if: runner.os != 'Linux'
+        run: npm run test:desktop:cli-management
 
       - name: Run every native desktop layer on Linux
         if: runner.os == 'Linux'
