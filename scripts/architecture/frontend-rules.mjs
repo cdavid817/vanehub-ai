@@ -66,8 +66,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 另 +19 是 `SessionShellEvent`:gap 是客户端在序号跳变时算出来的,不是原生发过来的,所以监听器的
 // 事件类型必须比线上通知宽一档。少了这一档,视图看到的帧会紧挨着接上,缺口那段就被当成"本来就
 // 没有输出"。上限按实测值 20725 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.11):Session Log 的 live notice 是一条全新能力。新增 320 行
+// 分成四个聚焦模块,与 Session Shell 同构而非同源——契约在 `src/types/session-log-notice.ts`,不计入
+// 本预算;这里的四份是 seam 与 typed unavailable 绑定、共享的序列语义、两个运行时各自的客户端。
+// 共享那一份仍然是刻意的,而且这里的漂移比 Shell 更难看出来:日志条目本来就是断续到达的,少掉几条
+// 只会让列表短一截,而"短一截"和"这段时间确实没有日志"在界面上长得一模一样。原生 gap 与投递 gap
+// 也必须由同一处区分——前者说桥丢了 receipt,后者说通知没送到这个订阅者,两端各写一份就会把同一次
+// 丢失按两个原因报两遍。上限按实测值 21045 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20725, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21045, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

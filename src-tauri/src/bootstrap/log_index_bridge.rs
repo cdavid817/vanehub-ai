@@ -13,7 +13,7 @@
 use crate::contexts::operations::application::{
     IndexedLogLevel, LogCorrelation, LogIndexInsertOutcome, LogSourceIdentity,
     PostCommitLogNoticePublisher, RedactedLogRecord, SessionLogCoverageState,
-    SessionLogIndexRepository, SessionLogNotice,
+    SessionLogIndexRepository, SessionLogNotice, SessionLogNoticeKind,
 };
 use crate::platform::log_receipts::{RedactedLogAppendReceipt, RedactedLogAppendSink};
 use std::collections::{BTreeMap, BTreeSet};
@@ -169,7 +169,7 @@ fn spawn_worker(
             for receipt in receiver {
                 // Whatever was dropped while the queue was full is written down here, on the
                 // worker's thread, where reaching into SQLite is allowed.
-                record_dropped_sources(&repository, &dropped);
+                record_dropped_sources(&repository, &notices, &dropped);
                 let record = to_record(receipt);
                 match repository.insert(&record) {
                     // Announced after the write committed, and only for a row that was actually
@@ -182,12 +182,15 @@ fn spawn_worker(
                             .map(|coverage| coverage.state())
                             .unwrap_or(SessionLogCoverageState::Unavailable);
                         notices.publish(SessionLogNotice {
+                            kind: SessionLogNoticeKind::Appended,
                             record_id: record.record_id,
                             sequence,
                             occurred_at: record.occurred_at,
                             level: record.level,
                             correlation: record.correlation,
                             coverage_state,
+                            dropped_count: 0,
+                            reason_code: None,
                         });
                     }
                     Ok(LogIndexInsertOutcome::AlreadyIndexed) => {}
@@ -202,7 +205,7 @@ fn spawn_worker(
             // Once more on the way out. A burst that filled the queue and then went quiet would
             // otherwise leave its gaps unwritten until the next log line, and an application that
             // closed in between would come back reporting coverage it had not earned.
-            record_dropped_sources(&repository, &dropped);
+            record_dropped_sources(&repository, &notices, &dropped);
         })
         .ok()
 }
@@ -212,8 +215,12 @@ fn spawn_worker(
 /// Takes the whole set at once and clears it, so a source is recorded once per burst rather than
 /// once per lost record: the gap is "this file has a hole", and a thousand rows of the same fact
 /// would be a second unbounded structure inside the thing that exists to be bounded.
+/// A gap is also announced, not only written down. Coverage tells a page it is incomplete, but a
+/// subscriber watching the live stream never asks for a page — it accumulates notices — so without
+/// a notice its view would stay short by exactly the records nobody could deliver, and look whole.
 fn record_dropped_sources(
     repository: &Arc<dyn SessionLogIndexRepository>,
+    notices: &Arc<dyn PostCommitLogNoticePublisher>,
     dropped: &DroppedSources,
 ) {
     let pending = match dropped.lock() {
@@ -222,6 +229,27 @@ fn record_dropped_sources(
     };
     for source in pending {
         let _ = repository.record_gap(&source, "log_receipt_dropped", 1);
+        // The current watermark, so the gap lands in order among the rows it sits between rather
+        // than ahead of everything a subscriber has already seen.
+        let sequence = repository.watermark().unwrap_or_default();
+        notices.publish(SessionLogNotice {
+            kind: SessionLogNoticeKind::Gap,
+            // No row to fetch. An id here would be fetched, and the miss would be reported as an
+            // error rather than as the loss it is.
+            record_id: String::new(),
+            sequence,
+            occurred_at: String::new(),
+            level: IndexedLogLevel::Warn,
+            // No correlation either: the receipt that carried it is the thing that was dropped, so
+            // attributing the gap to a session would be a guess presented as a fact.
+            correlation: LogCorrelation::default(),
+            coverage_state: repository
+                .coverage(None)
+                .map(|coverage| coverage.state())
+                .unwrap_or(SessionLogCoverageState::Unavailable),
+            dropped_count: 1,
+            reason_code: Some("log_receipt_dropped".to_string()),
+        });
     }
 }
 

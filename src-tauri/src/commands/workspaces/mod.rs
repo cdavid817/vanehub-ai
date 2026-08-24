@@ -14,5 +14,7 @@ pub(crate) mod search_session_files;
 pub(crate) mod select_project_directory;
 pub(crate) mod session_log_index;
 pub(crate) mod session_log_mapper;
+#[cfg(test)]
+mod session_log_mapper_tests;
 pub(crate) mod session_shell;
 mod session_shell_dto;

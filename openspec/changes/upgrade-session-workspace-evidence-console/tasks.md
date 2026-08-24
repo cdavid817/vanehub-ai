@@ -168,8 +168,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [ ] 8.7 Add a bounded asynchronous repair/backfill operation with stable operation id, cancellation, checkpoints, and unified diagnostics.
 - [ ] 8.8 Handle rotation, truncation, retention deletion, and configured log-directory changes without stale index rows claiming complete coverage.
 - [ ] 8.9 Keep unified redacted log files as the durable export/repair source and keep export behavior compatible.
-- [ ] 8.10 Move the implementation of session-log query commands from workspaces-owned file scanning to operations-owned APIs while preserving public command names/DTO compatibility during migration.
-- [ ] 8.11 Publish identifier-bounded post-commit live log notices through the Tauri adapter and deterministic Web/mock event stream.
+- [x] 8.10 Move the implementation of session-log query commands from workspaces-owned file scanning to operations-owned APIs while preserving public command names/DTO compatibility during migration.
+- [x] 8.11 Publish identifier-bounded post-commit live log notices through the Tauri adapter and deterministic Web/mock event stream.
 - [ ] 8.12 Upgrade Logs toolbar with Follow/Pause, correlation filters, coverage state, active-scope chips, and Jump to latest.
 - [ ] 8.13 Stop automatic viewport movement when Follow is paused or the user scrolls away from the newest edge.
 - [ ] 8.14 Insert a live row locally only when current filters can be evaluated safely; otherwise invalidate the first page.

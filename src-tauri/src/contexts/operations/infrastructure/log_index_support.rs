@@ -42,6 +42,10 @@ impl LogIndexIdGenerator for UuidLogIndexIds {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct TauriLogNotice {
+    /// What this announces, as a discriminant the client switches on. Without it a gap would be
+    /// told apart from a row by whether `recordId` happened to be empty, and a subscriber that
+    /// missed the distinction would go looking for a record that never existed.
+    notice_kind: &'static str,
     record_id: String,
     sequence: i64,
     occurred_at: String,
@@ -61,11 +65,24 @@ struct TauriLogNotice {
     #[serde(skip_serializing_if = "Option::is_none")]
     seat_id: Option<String>,
     coverage_state: &'static str,
+    /// Gap only, and always a count with a code — never the records themselves. What was lost is
+    /// exactly what nobody was able to redact, so it is the one thing that must not be described.
+    #[serde(skip_serializing_if = "is_zero")]
+    dropped_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_code: Option<String>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 impl From<SessionLogNotice> for TauriLogNotice {
     fn from(notice: SessionLogNotice) -> Self {
         Self {
+            notice_kind: notice.kind.token(),
+            dropped_count: notice.dropped_count,
+            reason_code: notice.reason_code,
             record_id: notice.record_id,
             sequence: notice.sequence,
             occurred_at: notice.occurred_at,
@@ -184,7 +201,7 @@ impl BoundedLogIndexDiagnostics {
 mod tests {
     use super::*;
     use crate::contexts::operations::application::{
-        IndexedLogLevel, LogCorrelation, SessionLogCoverageState,
+        IndexedLogLevel, LogCorrelation, SessionLogCoverageState, SessionLogNoticeKind,
     };
 
     /// The notice carries identifiers and never the line. A payload that included the message would
@@ -192,6 +209,7 @@ mod tests {
     #[test]
     fn a_log_notice_carries_identifiers_and_no_content() {
         let notice = TauriLogNotice::from(SessionLogNotice {
+            kind: SessionLogNoticeKind::Appended,
             record_id: "record-1".to_string(),
             sequence: 12,
             occurred_at: "2026-08-24T10:00:00Z".to_string(),
@@ -201,9 +219,12 @@ mod tests {
                 ..LogCorrelation::default()
             },
             coverage_state: SessionLogCoverageState::Partial,
+            dropped_count: 0,
+            reason_code: None,
         });
 
         let payload = serde_json::to_value(notice).expect("notice");
+        assert_eq!(payload["noticeKind"], "appended");
         assert_eq!(payload["recordId"], "record-1");
         assert_eq!(payload["sequence"], 12);
         assert_eq!(payload["level"], "error");
@@ -215,6 +236,45 @@ mod tests {
         // A correlation the record does not have is absent rather than null, so a reader tests one
         // thing instead of two.
         assert!(payload.get("runId").is_none());
+        // Gap metadata is absent on a row notice, so a client reading `droppedCount` on the wrong
+        // kind gets nothing rather than a zero that looks like a measured value.
+        assert!(payload.get("droppedCount").is_none());
+        assert!(payload.get("reasonCode").is_none());
+    }
+
+    /// A gap says how many and why, and nothing else.
+    ///
+    /// The records behind a gap are the ones nobody managed to redact — they never reached the
+    /// index, so nothing downstream ever saw them redacted either. A count and a code is therefore
+    /// the most that can be published about them, and the absent `recordId` is what stops a
+    /// subscriber from trying to fetch one.
+    #[test]
+    fn a_gap_notice_carries_a_count_and_a_code_and_names_no_record() {
+        let notice = TauriLogNotice::from(SessionLogNotice {
+            kind: SessionLogNoticeKind::Gap,
+            record_id: String::new(),
+            sequence: 40,
+            occurred_at: String::new(),
+            level: IndexedLogLevel::Warn,
+            correlation: LogCorrelation::default(),
+            coverage_state: SessionLogCoverageState::Partial,
+            dropped_count: 3,
+            reason_code: Some("log_receipt_dropped".to_string()),
+        });
+
+        let payload = serde_json::to_value(notice).expect("notice");
+        assert_eq!(payload["noticeKind"], "gap");
+        assert_eq!(payload["droppedCount"], 3);
+        assert_eq!(payload["reasonCode"], "log_receipt_dropped");
+        assert_eq!(payload["coverageState"], "partial");
+        // In sequence with the rows around it: a gap a subscriber learned about out of order would
+        // be applied to the wrong part of its view.
+        assert_eq!(payload["sequence"], 40);
+        assert_eq!(payload["recordId"], "");
+        // Attributing a dropped receipt to a session would be a guess presented as a fact — the
+        // receipt that carried the correlation is the thing that was lost.
+        assert!(payload.get("sessionId").is_none());
+        assert!(payload.get("message").is_none());
     }
 
     #[test]

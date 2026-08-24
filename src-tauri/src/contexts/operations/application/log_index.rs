@@ -276,19 +276,53 @@ pub(crate) struct SessionLogSubscriptionBootstrap {
     pub(crate) coverage: SessionLogCoverage,
 }
 
-/// One bounded notice per indexed record.
+/// What a notice announces.
+///
+/// A subscriber does two different things with these, so they cannot share a shape and be told
+/// apart by whether a field happens to be set. An `Appended` notice names a row that can be
+/// fetched; a `Gap` names rows that never arrived and never will. Treating the second as the first
+/// would send the subscriber looking for a record id that does not exist, and reporting a lookup
+/// failure as an error rather than as the loss it actually is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SessionLogNoticeKind {
+    #[default]
+    Appended,
+    Gap,
+}
+
+impl SessionLogNoticeKind {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::Appended => "appended",
+            Self::Gap => "gap",
+        }
+    }
+}
+
+/// One bounded notice per indexed record, or per hole where records should have been.
 ///
 /// Identifiers, ordering, correlation, coverage. Not the line: a view that wants the row fetches it
 /// by id, which keeps the event bus from carrying the corpus and keeps one authoritative shape for
 /// a row instead of two.
+///
+/// A gap notice carries the same envelope deliberately. It has to travel in sequence with the rows
+/// around it — a subscriber that learned about a hole out of order would apply it to the wrong part
+/// of its view — and travelling in sequence means carrying a sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionLogNotice {
+    pub(crate) kind: SessionLogNoticeKind,
+    /// The row this announces. Empty for a gap: there is no row, and an id that looked fetchable
+    /// would be fetched.
     pub(crate) record_id: String,
     pub(crate) sequence: i64,
     pub(crate) occurred_at: String,
     pub(crate) level: IndexedLogLevel,
     pub(crate) correlation: LogCorrelation,
     pub(crate) coverage_state: SessionLogCoverageState,
+    /// Gap only: how many records were lost, and the stable code saying why. Never what they said —
+    /// a gap notice is the one message published about records nobody was able to redact.
+    pub(crate) dropped_count: u32,
+    pub(crate) reason_code: Option<String>,
 }
 
 /// What an export is allowed to read.

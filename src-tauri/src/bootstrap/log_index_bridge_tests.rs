@@ -2,9 +2,10 @@
 
 use super::log_index_bridge::{start_log_index_bridge, LOG_INDEX_QUEUE_CAPACITY};
 use crate::contexts::operations::application::{
-    IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord, LogIndexInsertOutcome,
-    LogSourceIdentity, OperationsLogError, PostCommitLogNoticePublisher, RedactedLogRecord,
-    SessionLogCoverage, SessionLogCoverageState, SessionLogIndexRepository, SessionLogNotice,
+    IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord, LogCorrelation,
+    LogIndexInsertOutcome, LogSourceIdentity, OperationsLogError, PostCommitLogNoticePublisher,
+    RedactedLogRecord, SessionLogCoverage, SessionLogCoverageState, SessionLogIndexRepository,
+    SessionLogNotice, SessionLogNoticeKind,
 };
 use crate::platform::log_receipts::{
     LogSourceWitness, RedactedLogAppendReceipt, RedactedLogAppendSink,
@@ -195,6 +196,48 @@ fn a_full_queue_does_not_fail_the_log_append_it_describes() {
     drop(held);
     drop(bridge);
     worker.shutdown();
+}
+
+/// A dropped receipt reaches the live stream, not only the coverage table.
+///
+/// Coverage tells a *page* that it is short. A subscriber watching the live stream never asks for a
+/// page — it accumulates notices — so a loss that only ever appeared in coverage would leave that
+/// view missing exactly the records nobody could deliver, with nothing to say so.
+#[test]
+fn a_dropped_receipt_is_announced_as_a_gap_rather_than_only_recorded() {
+    let index = Arc::new(StalledIndex::default());
+    let held = index.release.lock().expect("hold the index");
+    let notices = Arc::new(RecordingNotices::default());
+    let (bridge, worker) = start_log_index_bridge(index.clone(), notices.clone());
+
+    for entry in 0..(LOG_INDEX_QUEUE_CAPACITY * 2) {
+        bridge.record_appended(receipt(entry));
+    }
+    assert!(
+        worker.counters().dropped_full.load(Ordering::SeqCst) > 0,
+        "the queue never filled, so no gap could be announced"
+    );
+
+    // Releasing the index lets the worker drain, and draining is when the queued gaps are written
+    // down and announced.
+    drop(held);
+    drop(bridge);
+    worker.shutdown();
+
+    let published = notices.0.lock().expect("notices");
+    let gaps = published
+        .iter()
+        .filter(|notice| notice.kind == SessionLogNoticeKind::Gap)
+        .collect::<Vec<_>>();
+    assert!(!gaps.is_empty(), "receipts were dropped in silence");
+    for gap in gaps {
+        assert_eq!(gap.reason_code.as_deref(), Some("log_receipt_dropped"));
+        assert!(gap.dropped_count > 0);
+        // Nothing to fetch, and nothing attributed: the receipt that carried the correlation is
+        // the thing that was lost, so naming a session here would be a guess stated as a fact.
+        assert!(gap.record_id.is_empty());
+        assert_eq!(gap.correlation, LogCorrelation::default());
+    }
 }
 
 /// An index that cannot be written is a projection problem. The log is unaffected, and the failure

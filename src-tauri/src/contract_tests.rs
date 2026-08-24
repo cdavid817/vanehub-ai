@@ -285,6 +285,80 @@ fn workspace_query_command_registration_and_frontend_invokes_keep_stable_names()
     }
 }
 
+/// The whole session-log command surface, in one place.
+///
+/// Ten commands answer questions about logs, and they have to stay one surface: a page, the record
+/// behind a live notice, the summary badge, where a subscriber resumes, what an export may read,
+/// coverage, and the three that drive a repair. Registering nine of them is not a compile error and
+/// not a runtime error either — the tenth simply is not there, and the caller sees a generic
+/// "command not found" from a UI that has no way to say which capability went missing.
+///
+/// Registration path is asserted per command because the module is what carries the ownership: an
+/// index command registered from somewhere other than `session_log_index` would be a second
+/// implementation of a question this surface already answers.
+#[test]
+fn session_log_command_registration_covers_the_whole_index_surface() {
+    let native_registration = command_registration_source();
+    for command in [
+        "get_session_log_record",
+        "get_session_log_summary",
+        "get_session_log_subscription_bootstrap",
+        "get_session_log_export_sources",
+        "get_session_log_coverage",
+        "get_session_log_repair_status",
+        "repair_session_log_index",
+        "cancel_session_log_repair",
+    ] {
+        assert!(
+            native_registration.contains(&format!(
+                "commands::workspaces::session_log_index::{command}"
+            )),
+            "native command registration missing {command}"
+        );
+    }
+
+    // The page and the export keep their own modules and their pre-migration names: the Logs tab
+    // calls them by those names today, and the point of the migration was that it could not tell.
+    for command in ["list_session_logs", "export_session_logs"] {
+        assert!(
+            native_registration.contains(&format!("commands::workspaces::{command}::{command}")),
+            "native command registration missing {command}"
+        );
+    }
+}
+
+/// The export reads redacted files; the page reads the index. Neither borrows the other's source.
+///
+/// An export served from index rows would carry whatever the index happened to hold — a projection
+/// that can be behind, partial, or repaired mid-read — and present it as the durable record. The
+/// files are the durable record, so the export command is the one command that must not reach for
+/// the index.
+#[test]
+fn the_export_command_reads_files_while_the_page_command_reads_the_index() {
+    let export = include_str!("commands/workspaces/export_session_logs.rs");
+    let page = include_str!("commands/workspaces/list_session_logs.rs");
+
+    assert!(
+        !export.contains("SessionLogApi") && !export.contains("session_log_mapper"),
+        "the export command reached for the log index"
+    );
+    assert!(
+        export.contains("WorkspaceApi"),
+        "the export command no longer reads the redacted files"
+    );
+    assert!(
+        page.contains("SessionLogApi"),
+        "the page command no longer reads the index"
+    );
+    // The absent fallback is the assertion: a page that could quietly fall back to scanning would
+    // answer with different filters and different bounds exactly when the index was in trouble,
+    // and the reader would have no way to tell which implementation replied.
+    assert!(
+        !page.contains("WorkspaceApi"),
+        "the page command kept a file-scan fallback"
+    );
+}
+
 /// The retained Session Shell commands live in one grouped module, so their registration path is
 /// `session_shell::<command>` rather than a module per command.
 #[test]
