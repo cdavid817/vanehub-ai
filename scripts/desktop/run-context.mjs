@@ -84,20 +84,25 @@ export async function createRunContext(repoRoot, options = {}) {
   // stores and `VANEHUB_CLI_CONFIG_HOME` covers what the CLI agents store, but anything either one
   // resolves through the *platform's* home -- a cache, a keyring path, a tool's dotfile -- still
   // landed in the developer's real profile and outlived the run.
-  const home = path.join(runRoot, "home");
-  const localAppData = path.join(home, "AppData", "Local");
-  const roamingAppData = path.join(home, "AppData", "Roaming");
   const resultDir = path.join(repoRoot, "test-results", "desktop", runId);
   await Promise.all([
     mkdir(dataDir),
     mkdir(fixtureDir),
     mkdir(cliConfigHome),
-    mkdir(localAppData, { recursive: true }),
-    mkdir(roamingAppData, { recursive: true }),
     mkdir(resultDir, { recursive: true }),
   ]);
   const canonicalRoot = await realpath(runRoot);
   const canonicalData = await realpath(dataDir);
+  // Derived from the canonical root rather than the one `mkdtemp` returned. On macOS those differ
+  // -- `/var/folders/...` against `/private/var/folders/...` -- and a home that is inside the run
+  // root by one spelling and outside it by the other cannot be checked against anything.
+  const home = path.join(canonicalRoot, "home");
+  const localAppData = path.join(home, "AppData", "Local");
+  const roamingAppData = path.join(home, "AppData", "Roaming");
+  await Promise.all([
+    mkdir(localAppData, { recursive: true }),
+    mkdir(roamingAppData, { recursive: true }),
+  ]);
   validateIsolatedDataPath({
     runRoot: canonicalRoot,
     dataDir: canonicalData,
