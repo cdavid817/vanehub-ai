@@ -64,14 +64,6 @@ impl SessionLogIndexRepository for StalledIndex {
         Ok(None)
     }
 
-    fn save_checkpoint(
-        &self,
-        _source: &LogSourceIdentity,
-        _offset: u64,
-    ) -> Result<(), OperationsLogError> {
-        Ok(())
-    }
-
     fn record_gap(
         &self,
         _source: &LogSourceIdentity,
@@ -80,6 +72,8 @@ impl SessionLogIndexRepository for StalledIndex {
     ) -> Result<(), OperationsLogError> {
         Ok(())
     }
+
+    crate::contexts::operations::application::inert_repair_methods!();
 
     fn forget_sources(&self, _retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
         Ok(0)
@@ -127,14 +121,6 @@ impl SessionLogIndexRepository for FailingIndex {
         Err(OperationsLogError::IndexUnavailable("closed"))
     }
 
-    fn save_checkpoint(
-        &self,
-        _source: &LogSourceIdentity,
-        _offset: u64,
-    ) -> Result<(), OperationsLogError> {
-        Err(OperationsLogError::IndexUnavailable("closed"))
-    }
-
     fn record_gap(
         &self,
         _source: &LogSourceIdentity,
@@ -143,6 +129,8 @@ impl SessionLogIndexRepository for FailingIndex {
     ) -> Result<(), OperationsLogError> {
         Err(OperationsLogError::IndexUnavailable("closed"))
     }
+
+    crate::contexts::operations::application::inert_repair_methods!();
 
     fn forget_sources(&self, _retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
         Err(OperationsLogError::IndexUnavailable("closed"))

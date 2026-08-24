@@ -2,6 +2,9 @@
 
 #[cfg(test)]
 mod log_index_lock_tests;
+mod log_index_repair_store;
+#[cfg(test)]
+mod log_index_repair_store_tests;
 mod log_index_repository;
 #[cfg(test)]
 mod log_index_repository_tests;
@@ -9,6 +12,8 @@ mod log_index_schema;
 mod log_index_support;
 #[cfg(test)]
 mod log_source_identity_tests;
+#[cfg(test)]
+mod log_source_line_tests;
 mod log_source_reader;
 mod mission_control_repository;
 mod operation_registry;

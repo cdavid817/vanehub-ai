@@ -41,7 +41,7 @@
     "coverage:policy:test": "node --test scripts/check-coverage-policy.node-test.mjs",
     "lint:ci": "eslint . --max-warnings=0",
     "contracts:check": "vitest run src/contracts/contract-conformance.test.ts",
-    "architecture:check": "node --test scripts/architecture/*.node-test.mjs && node scripts/architecture/check.mjs && npm run lint:ci && tsc --noEmit && cargo test --manifest-path src-tauri/Cargo.toml --test architecture --test session_shell_architecture --test session_log_index_architecture",
+    "architecture:check": "node --test scripts/architecture/*.node-test.mjs && node scripts/architecture/check.mjs && npm run lint:ci && tsc --noEmit && cargo test --manifest-path src-tauri/Cargo.toml --test architecture --test session_shell_architecture --test session_log_index_architecture --test log_repair_boundaries",
     "native:panic:check": "cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used -D clippy::expect_used",
     "performance:unit:test": "node --test scripts/performance/*.node-test.mjs",
     "performance:check": "npm run performance:unit:test && node scripts/performance/cli.mjs check",

@@ -58,10 +58,10 @@ fn a_mixed_file_yields_stable_identities_on_every_pass() {
     let source = reader.sources().expect("sources").remove(0);
 
     let first = reader
-        .read_batch(&source, 0, 100, 1_000_000)
+        .read_batch(&source.identity, 0, 100, 1_000_000)
         .expect("first");
     let replay = reader
-        .read_batch(&source, 0, 100, 1_000_000)
+        .read_batch(&source.identity, 0, 100, 1_000_000)
         .expect("replay");
 
     let ids: Vec<&str> = first
@@ -74,7 +74,11 @@ fn a_mixed_file_yields_stable_identities_on_every_pass() {
     assert!(ids[0].starts_with("legacy:v1:"));
     // Identical text at two offsets is two records, not one.
     assert_ne!(ids[0], ids[2]);
-    assert_eq!(first.rejected, 1, "the malformed complete line is counted");
+    assert_eq!(
+        first.rejected_total(),
+        1,
+        "the malformed complete line is counted"
+    );
     // Deriving the same ids again is what makes a repeated repair pass add no duplicate row.
     assert_eq!(
         ids,
@@ -106,10 +110,10 @@ fn the_same_line_in_two_files_is_two_records() {
     assert_eq!(sources.len(), 2);
 
     let rotated = reader
-        .read_batch(&sources[0], 0, 10, 100_000)
+        .read_batch(&sources[0].identity, 0, 10, 100_000)
         .expect("rotated");
     let active = reader
-        .read_batch(&sources[1], 0, 10, 100_000)
+        .read_batch(&sources[1].identity, 0, 10, 100_000)
         .expect("active");
 
     assert_ne!(
@@ -193,8 +197,11 @@ fn a_different_directory_is_a_different_generation() {
 
     // Identical content, so the file half matches; the directory generation is what separates them,
     // and it is what a checkpoint is keyed by.
-    assert_ne!(left.directory_generation, right.directory_generation);
-    assert_ne!(left.as_key(), right.as_key());
+    assert_ne!(
+        left.identity.directory_generation,
+        right.identity.directory_generation
+    );
+    assert_ne!(left.identity.as_key(), right.identity.as_key());
 }
 
 /// A source identity crosses into the UI inside coverage and diagnostics. It must not carry the
@@ -211,7 +218,7 @@ fn a_source_identity_names_no_path() {
         .expect("sources")
         .remove(0);
 
-    let key = source.as_key();
+    let key = source.identity.as_key();
     let root = fixture.path().to_string_lossy().to_string();
     assert!(!key.contains(&root));
     assert!(!key.contains(LOG_FILE_NAME));

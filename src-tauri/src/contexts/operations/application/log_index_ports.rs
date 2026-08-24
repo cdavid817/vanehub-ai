@@ -50,17 +50,57 @@ pub(crate) struct RedactedLogRecord {
     pub(crate) correlation: LogCorrelation,
 }
 
-/// One repair batch's worth of source reading.
+/// One source file as a repair pass found it.
+///
+/// The end offset is captured at discovery and used twice. It is the *target* the pass is trying to
+/// reach, so "caught up" means a definite thing rather than "the file stopped growing while I was
+/// looking"; and it is the *witness* for truncation, because a file now shorter than the offset we
+/// already read past cannot be the same content we read.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LogSourceSnapshot {
+    pub(crate) identity: LogSourceIdentity,
+    pub(crate) end_offset: u64,
+}
+
+/// Why a complete line was skipped, and how many.
+///
+/// Per reason rather than one total, because the three reasons need different responses: a
+/// malformed line is a producer bug, an oversized one is a bound doing its job, and invalid UTF-8
+/// means the file itself is damaged. A single count would present them as one condition.
+pub(crate) type LineRejections = BTreeMap<&'static str, u32>;
+
+/// One repair batch's worth of source reading.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct RedactedLogBatch {
     pub(crate) records: Vec<RedactedLogRecord>,
     /// Where the next batch starts. Advanced past complete lines only: a partial trailing line is
     /// a line the writer has not finished, and consuming it would index half a record and then
     /// never see the other half.
     pub(crate) next_offset: u64,
-    /// Complete lines that could not satisfy the safe schema. Counted rather than quoted.
-    pub(crate) rejected: u32,
+    /// Complete lines that could not be indexed, by stable reason code. Counted, never quoted:
+    /// the bytes that failed are source content, and a diagnostic that echoed them would put
+    /// unredactable text somewhere redaction never ran.
+    pub(crate) rejections: LineRejections,
     pub(crate) reached_end: bool,
+}
+
+impl RedactedLogBatch {
+    #[cfg(test)]
+    pub(crate) fn rejected_total(&self) -> u32 {
+        self.rejections.values().copied().sum()
+    }
+}
+
+/// What one committed batch did.
+///
+/// Rows, gaps and the checkpoint move together or not at all, so there is one outcome for the whole
+/// batch rather than one per record. A caller that had to reconcile per-record outcomes against a
+/// single checkpoint would be reimplementing the transaction it was given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct LogBatchCommit {
+    pub(crate) inserted: u32,
+    pub(crate) already_indexed: u32,
+    pub(crate) conflicted: u32,
 }
 
 /// What an insert did. A retry has to be able to tell "already there" from "written now" without
@@ -102,12 +142,6 @@ pub(crate) trait SessionLogIndexRepository: Send + Sync {
 
     fn checkpoint(&self, source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError>;
 
-    fn save_checkpoint(
-        &self,
-        source: &LogSourceIdentity,
-        offset: u64,
-    ) -> Result<(), OperationsLogError>;
-
     /// Records that a range could not be indexed, so coverage can say so instead of a count
     /// quietly being short.
     fn record_gap(
@@ -119,6 +153,62 @@ pub(crate) trait SessionLogIndexRepository: Send + Sync {
 
     /// Drops rows whose source is gone, and moves the oldest queryable boundary with them.
     fn forget_sources(&self, retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError>;
+
+    /// Writes one batch's rows, its gaps and its checkpoint in a single transaction.
+    ///
+    /// The three have to move together. A checkpoint committed ahead of its rows would make the
+    /// next pass resume past records that were never indexed, and nothing afterwards could tell:
+    /// the offset says they were read, and read is the only claim a checkpoint makes. Rows
+    /// committed without their checkpoint are merely re-derived on the next pass, which is why the
+    /// asymmetry is safe in exactly one direction and this method exists to enforce it.
+    fn commit_batch(
+        &self,
+        source: &LogSourceIdentity,
+        records: &[RedactedLogRecord],
+        rejections: &LineRejections,
+        next_offset: u64,
+    ) -> Result<LogBatchCommit, OperationsLogError>;
+
+    /// The persisted repair, so progress survives a restart and a resumed pass can say so.
+    fn load_repair_state(&self) -> Result<Option<SessionLogBackfillStatus>, OperationsLogError>;
+
+    fn save_repair_state(
+        &self,
+        status: &SessionLogBackfillStatus,
+    ) -> Result<(), OperationsLogError>;
+
+    /// The newest gap id at the moment a repair started.
+    ///
+    /// A repair may only clear what it can prove it fixed, and it cannot prove anything about a
+    /// gap that appeared while it ran — that one describes a loss it never read. So the snapshot
+    /// is taken first and clearing is bounded by it.
+    fn gap_watermark(&self) -> Result<i64, OperationsLogError>;
+
+    /// Clears gaps for the given sources up to and including `through_id`.
+    ///
+    /// Bounded by the snapshot rather than "all gaps for this source", because a drop recorded
+    /// during the pass is a hole this pass did not fill.
+    fn clear_gaps_through(
+        &self,
+        sources: &[LogSourceIdentity],
+        through_id: i64,
+    ) -> Result<u32, OperationsLogError>;
+
+    /// How many unresolved identity conflicts exist for these sources.
+    ///
+    /// A conflict means two different records claimed one id, and the index kept the first. Until
+    /// that is understood the corpus is not provably whole, so it blocks the clearing above.
+    fn conflict_count(&self, sources: &[LogSourceIdentity]) -> Result<u32, OperationsLogError>;
+
+    /// Deletes rows and the checkpoint for one superseded source generation, in bounded batches.
+    ///
+    /// Returns how many rows went. The caller loops until it returns zero, so a corpus larger than
+    /// one transaction can hold is pruned without one transaction spanning all of it.
+    fn prune_source_generation(
+        &self,
+        source: &LogSourceIdentity,
+        limit: u32,
+    ) -> Result<u32, OperationsLogError>;
 }
 
 /// Where already-redacted source records are read from.
@@ -128,7 +218,11 @@ pub(crate) trait SessionLogIndexRepository: Send + Sync {
 /// into an application-wide stall.
 pub(crate) trait RedactedLogSourceReader: Send + Sync {
     /// Every retained source, oldest first, under the current directory generation.
-    fn sources(&self) -> Result<Vec<LogSourceIdentity>, OperationsLogError>;
+    ///
+    /// This is the authoritative inventory, and the distinction matters: an error here means the
+    /// listing failed, never that the corpus is empty. A repair that read a temporary IO failure as
+    /// "no sources retained" would delete every indexed row on a disk hiccup.
+    fn sources(&self) -> Result<Vec<LogSourceSnapshot>, OperationsLogError>;
 
     fn read_batch(
         &self,

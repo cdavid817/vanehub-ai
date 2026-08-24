@@ -134,7 +134,7 @@ fn a_conflicting_witness_keeps_the_original_row_and_degrades_coverage() {
     // caveat than "I lost a record", and it would otherwise mask the conflict under `indexing`.
     harness
         .repository
-        .save_checkpoint(&source("file-1"), 100)
+        .commit_batch(&source("file-1"), &[], &Default::default(), 100)
         .expect("checkpoint");
     let mut moved = record("record-1", 4096, &at(2));
     moved.message = "a different line entirely".to_string();
@@ -478,7 +478,7 @@ fn coverage_is_complete_only_once_the_sources_are_checkpointed_and_whole() {
         .expect("insert");
     harness
         .repository
-        .save_checkpoint(&source("file-1"), 100)
+        .commit_batch(&source("file-1"), &[], &Default::default(), 100)
         .expect("checkpoint");
 
     let coverage = harness
@@ -509,7 +509,7 @@ fn each_kind_of_loss_reports_its_own_reason_code() {
             .expect("insert");
         harness
             .repository
-            .save_checkpoint(&source("file-1"), 100)
+            .commit_batch(&source("file-1"), &[], &Default::default(), 100)
             .expect("checkpoint");
         harness
             .repository
@@ -534,7 +534,7 @@ fn a_search_that_hits_its_candidate_bound_reports_partial_and_truncated() {
     let harness = harness("log-index-search-bound");
     harness
         .repository
-        .save_checkpoint(&source("file-1"), 0)
+        .commit_batch(&source("file-1"), &[], &Default::default(), 0)
         .expect("checkpoint");
     // One more than the bound, none of which match, so the scan stops without finding anything.
     for index in 0..=MAX_LOG_SEARCH_CANDIDATES {
@@ -576,7 +576,7 @@ fn forgetting_a_source_removes_its_rows_and_its_checkpoint() {
         .expect("insert");
     harness
         .repository
-        .save_checkpoint(&source("file-1"), 100)
+        .commit_batch(&source("file-1"), &[], &Default::default(), 100)
         .expect("checkpoint");
 
     let removed = harness

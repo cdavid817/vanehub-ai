@@ -13,8 +13,8 @@ use super::log_index::{
 };
 use super::log_index_ports::{
     BackfillOperationPublisher, LogIndexClock, LogIndexDiagnostics, LogIndexIdGenerator,
-    LogIndexInsertOutcome, LogSourceIdentity, RedactedLogBatch, RedactedLogRecord,
-    RedactedLogSourceReader, SessionLogIndexRepository,
+    LogIndexInsertOutcome, LogSourceIdentity, LogSourceSnapshot, RedactedLogBatch,
+    RedactedLogRecord, RedactedLogSourceReader, SessionLogIndexRepository,
 };
 use super::log_query_service::SessionLogQueryService;
 use std::collections::BTreeMap;
@@ -77,14 +77,6 @@ impl SessionLogIndexRepository for CountingIndex {
         Ok(None)
     }
 
-    fn save_checkpoint(
-        &self,
-        _source: &LogSourceIdentity,
-        _offset: u64,
-    ) -> Result<(), OperationsLogError> {
-        Ok(())
-    }
-
     fn record_gap(
         &self,
         _source: &LogSourceIdentity,
@@ -94,6 +86,8 @@ impl SessionLogIndexRepository for CountingIndex {
         Ok(())
     }
 
+    super::log_index_test_doubles::inert_repair_methods!();
+
     fn forget_sources(&self, _retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
         Ok(0)
     }
@@ -102,7 +96,7 @@ impl SessionLogIndexRepository for CountingIndex {
 struct EmptySources;
 
 impl RedactedLogSourceReader for EmptySources {
-    fn sources(&self) -> Result<Vec<LogSourceIdentity>, OperationsLogError> {
+    fn sources(&self) -> Result<Vec<LogSourceSnapshot>, OperationsLogError> {
         Ok(Vec::new())
     }
 
@@ -117,7 +111,7 @@ impl RedactedLogSourceReader for EmptySources {
             records: Vec::new(),
             next_offset: 0,
             reached_end: true,
-            rejected: 0,
+            rejections: Default::default(),
         })
     }
 

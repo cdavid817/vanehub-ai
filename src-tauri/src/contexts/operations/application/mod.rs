@@ -3,9 +3,14 @@ mod evidence;
 mod log_cursor;
 mod log_index;
 mod log_index_ports;
+#[cfg(test)]
+mod log_index_test_doubles;
 mod log_query_service;
 #[cfg(test)]
 mod log_query_service_tests;
+mod log_repair;
+#[cfg(test)]
+mod log_repair_tests;
 mod logging;
 mod mission_control;
 mod operation_service;
@@ -25,10 +30,13 @@ pub(crate) use log_index::{
     MAX_LOG_SEARCH_CANDIDATES,
 };
 pub(crate) use log_index_ports::{
-    BackfillOperationPublisher, LogIndexClock, LogIndexDiagnostics, LogIndexIdGenerator,
-    LogIndexInsertOutcome, LogSourceIdentity, PostCommitLogNoticePublisher, RedactedLogBatch,
-    RedactedLogRecord, RedactedLogSourceReader, SessionLogIndexRepository,
+    BackfillOperationPublisher, LineRejections, LogBatchCommit, LogIndexClock, LogIndexDiagnostics,
+    LogIndexIdGenerator, LogIndexInsertOutcome, LogSourceIdentity, LogSourceSnapshot,
+    PostCommitLogNoticePublisher, RedactedLogBatch, RedactedLogRecord, RedactedLogSourceReader,
+    SessionLogIndexRepository,
 };
+#[cfg(test)]
+pub(crate) use log_index_test_doubles::inert_repair_methods;
 pub(crate) use log_query_service::SessionLogQueryService;
 pub(crate) use logging::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,

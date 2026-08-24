@@ -231,10 +231,26 @@ pub(crate) struct SessionLogSummary {
     pub(crate) coverage: SessionLogCoverage,
 }
 
+/// Where a repair is in its life.
+///
+/// The three working states are separated because they fail differently and a reader acts
+/// differently on each. `Discovering` is listing the corpus, so a failure there is "I do not know
+/// what exists" and nothing may be deleted on the strength of it. `Indexing` is reading and
+/// writing, where a failure costs a batch. `Reconciling` is the part that removes things —
+/// superseded generations, gaps that were proven filled — and it runs last precisely because it
+/// must not act on a corpus that was never fully read. Collapsing them into one `Running` would
+/// make the state say a repair is busy while hiding which of those three claims it can make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionLogBackfillState {
+    /// Nothing has run. Distinct from `Completed` with zero records, which is a finished pass over
+    /// an empty corpus.
     Idle,
-    Running,
+    /// Accepted and waiting for the worker. A repair is announced before it starts so a caller is
+    /// never told "nothing is happening" about a request that was taken.
+    Queued,
+    Discovering,
+    Indexing,
+    Reconciling,
     Cancelled,
     Failed,
     Completed,
@@ -244,11 +260,39 @@ impl SessionLogBackfillState {
     pub(crate) fn token(self) -> &'static str {
         match self {
             Self::Idle => "idle",
-            Self::Running => "running",
+            Self::Queued => "queued",
+            Self::Discovering => "discovering",
+            Self::Indexing => "indexing",
+            Self::Reconciling => "reconciling",
             Self::Cancelled => "cancelled",
             Self::Failed => "failed",
             Self::Completed => "completed",
         }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "idle" => Some(Self::Idle),
+            "queued" => Some(Self::Queued),
+            "discovering" => Some(Self::Discovering),
+            "indexing" => Some(Self::Indexing),
+            "reconciling" => Some(Self::Reconciling),
+            "cancelled" => Some(Self::Cancelled),
+            "failed" => Some(Self::Failed),
+            "completed" => Some(Self::Completed),
+            _ => None,
+        }
+    }
+
+    /// Whether a repair in this state is still working.
+    ///
+    /// What `indexing` coverage is derived from, and what single-flight tests: a second request
+    /// joins one of these rather than starting a competing pass over the same files.
+    pub(crate) fn is_active(self) -> bool {
+        matches!(
+            self,
+            Self::Queued | Self::Discovering | Self::Indexing | Self::Reconciling
+        )
     }
 }
 

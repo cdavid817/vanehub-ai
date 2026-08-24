@@ -4,12 +4,13 @@
 //! transaction: a transaction held across file IO holds the write lock for as long as the disk
 //! takes, which turns one slow read into an application-wide stall.
 
+use super::log_index_repair_store as repair_store;
 use crate::contexts::operations::application::{
     filter_fingerprint, IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery,
-    IndexedSessionLogRecord, LogCorrelation, LogIndexInsertOutcome, LogPageCursor,
-    LogSortDirection, LogSourceIdentity, OperationsLogError, RedactedLogRecord, SessionLogCoverage,
-    SessionLogCoverageState, SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE,
-    MAX_LOG_SEARCH_CANDIDATES,
+    IndexedSessionLogRecord, LineRejections, LogBatchCommit, LogCorrelation, LogIndexInsertOutcome,
+    LogPageCursor, LogSortDirection, LogSourceIdentity, OperationsLogError, RedactedLogRecord,
+    SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState,
+    SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE, MAX_LOG_SEARCH_CANDIDATES,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -36,11 +37,11 @@ impl SqliteLogIndexRepository {
     }
 }
 
-fn storage_error(_error: rusqlite::Error) -> OperationsLogError {
+pub(crate) fn storage_error(_error: rusqlite::Error) -> OperationsLogError {
     OperationsLogError::IndexUnavailable("log_index_storage_failed")
 }
 
-fn context_json(context: &BTreeMap<String, String>) -> String {
+pub(crate) fn context_json(context: &BTreeMap<String, String>) -> String {
     serde_json::to_string(context).unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -469,27 +470,6 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
         Ok(offset.map(|value| value.max(0) as u64))
     }
 
-    fn save_checkpoint(
-        &self,
-        source: &LogSourceIdentity,
-        offset: u64,
-    ) -> Result<(), OperationsLogError> {
-        let connection = self.connection()?;
-        connection
-            .execute(
-                "INSERT INTO unified_log_source_checkpoints
-                     (source_file_id, directory_generation, next_offset, updated_at)
-                 VALUES (?1, ?2, ?3, datetime('now'))
-                 ON CONFLICT(source_file_id) DO UPDATE SET
-                     next_offset = excluded.next_offset,
-                     directory_generation = excluded.directory_generation,
-                     updated_at = excluded.updated_at",
-                params![source.as_key(), source.directory_generation, offset as i64],
-            )
-            .map_err(storage_error)?;
-        Ok(())
-    }
-
     fn record_gap(
         &self,
         source: &LogSourceIdentity,
@@ -541,5 +521,52 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
             )
             .map_err(storage_error)?;
         Ok(u32::try_from(removed).unwrap_or(u32::MAX))
+    }
+
+    fn commit_batch(
+        &self,
+        source: &LogSourceIdentity,
+        records: &[RedactedLogRecord],
+        rejections: &LineRejections,
+        next_offset: u64,
+    ) -> Result<LogBatchCommit, OperationsLogError> {
+        let mut connection = self.connection()?;
+        repair_store::commit_batch(&mut connection, source, records, rejections, next_offset)
+    }
+
+    fn load_repair_state(&self) -> Result<Option<SessionLogBackfillStatus>, OperationsLogError> {
+        repair_store::load_repair_state(&*self.connection()?)
+    }
+
+    fn save_repair_state(
+        &self,
+        status: &SessionLogBackfillStatus,
+    ) -> Result<(), OperationsLogError> {
+        repair_store::save_repair_state(&*self.connection()?, status)
+    }
+
+    fn gap_watermark(&self) -> Result<i64, OperationsLogError> {
+        repair_store::gap_watermark(&*self.connection()?)
+    }
+
+    fn clear_gaps_through(
+        &self,
+        sources: &[LogSourceIdentity],
+        through_id: i64,
+    ) -> Result<u32, OperationsLogError> {
+        repair_store::clear_gaps_through(&*self.connection()?, sources, through_id)
+    }
+
+    fn conflict_count(&self, sources: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
+        repair_store::conflict_count(&*self.connection()?, sources)
+    }
+
+    fn prune_source_generation(
+        &self,
+        source: &LogSourceIdentity,
+        limit: u32,
+    ) -> Result<u32, OperationsLogError> {
+        let mut connection = self.connection()?;
+        repair_store::prune_source_generation(&mut connection, source, limit)
     }
 }

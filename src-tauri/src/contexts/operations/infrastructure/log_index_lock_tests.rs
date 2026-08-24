@@ -69,7 +69,7 @@ fn reading_a_source_file_does_not_wait_on_the_database_write_lock() {
     let reader = UnifiedLogSourceReader::new(logs);
     let source = reader.sources().expect("sources").remove(0);
     let batch = reader
-        .read_batch(&source, 0, 10, 10_000)
+        .read_batch(&source.identity, 0, 10, 10_000)
         .expect("the read completed while the write lock was held elsewhere");
 
     assert_eq!(batch.records.len(), 1);
@@ -168,7 +168,9 @@ fn a_source_batch_is_fully_materialised_before_any_insert() {
     let reader = UnifiedLogSourceReader::new(logs.clone());
     let source = reader.sources().expect("sources").remove(0);
 
-    let batch = reader.read_batch(&source, 0, 10, 100_000).expect("batch");
+    let batch = reader
+        .read_batch(&source.identity, 0, 10, 100_000)
+        .expect("batch");
     // The file can be removed before a single row is written: the batch is already whole.
     std::fs::remove_file(logs.join(LOG_FILE_NAME)).expect("remove the source");
 

@@ -5,8 +5,8 @@
 //! satisfy the safe schema is counted as rejected rather than repaired into something plausible.
 
 use crate::contexts::operations::application::{
-    IndexedLogLevel, LogCorrelation, LogSourceIdentity, OperationsLogError, RedactedLogBatch,
-    RedactedLogRecord, RedactedLogSourceReader,
+    IndexedLogLevel, LineRejections, LogCorrelation, LogSourceIdentity, LogSourceSnapshot,
+    OperationsLogError, RedactedLogBatch, RedactedLogRecord, RedactedLogSourceReader,
 };
 use crate::platform::logging::{active_file_id, directory_generation, LogEntry, LOG_FILE_NAME};
 use std::collections::BTreeMap;
@@ -143,12 +143,120 @@ fn to_record(
     })
 }
 
+/// How many bytes one log line may occupy before it is skipped rather than read.
+///
+/// Generous for a log line and small next to the memory a process can lose to one. The bound is
+/// not about typical lines at all — it is about the atypical one: a producer that concatenates a
+/// payload it should have redacted away, or a file whose newline was lost to a partial write, in
+/// which case "the line" is the rest of the file. Without a ceiling the indexer's memory is
+/// decided by the worst line anyone ever wrote.
+pub(crate) const MAX_LOG_LINE_BYTES: u64 = 1024 * 1024;
+
+/// How much is discarded per read while skipping past an oversized line.
+const SKIP_CHUNK_BYTES: usize = 64 * 1024;
+
+enum BoundedLine {
+    Eof,
+    /// A line with no newline yet. The writer is still on it.
+    Partial,
+    Complete {
+        text: String,
+        read: u64,
+    },
+    /// Consumed and deliberately not returned. Carries the stable reason and how far to advance.
+    Skipped {
+        reason: &'static str,
+        read: u64,
+    },
+}
+
+/// Reads one line, never allocating more than the ceiling.
+///
+/// `read_line` would allocate whatever the line happens to be and fail the whole batch on invalid
+/// UTF-8, which turns one damaged byte into a file that can never be indexed. Here both are
+/// bounded, local, and reported as a reason code — and in neither case does a byte of the offending
+/// line reach a diagnostic, because those bytes are exactly the content nobody managed to redact.
+fn read_bounded_line(reader: &mut BufReader<File>) -> Result<BoundedLine, OperationsLogError> {
+    let mut raw = Vec::new();
+    let read = std::io::Read::take(std::io::Read::by_ref(reader), MAX_LOG_LINE_BYTES)
+        .read_until(b'\n', &mut raw)
+        .map_err(|_| OperationsLogError::RepairFailed("log_source_read_failed"))?
+        as u64;
+    if read == 0 {
+        return Ok(BoundedLine::Eof);
+    }
+    if !raw.ends_with(b"\n") {
+        if read < MAX_LOG_LINE_BYTES {
+            return Ok(BoundedLine::Partial);
+        }
+        // The ceiling was reached with no newline. Walk forward to the next one in fixed chunks so
+        // the skip costs a constant amount of memory however long the line turns out to be.
+        drop(raw);
+        let skipped = skip_to_newline(reader)?;
+        return Ok(match skipped {
+            // No newline before the end of the file: the rest is one unterminated line, and it is
+            // still being written or was truncated mid-write. Leaving it costs nothing.
+            None => BoundedLine::Partial,
+            Some(extra) => BoundedLine::Skipped {
+                reason: "log_line_too_large",
+                read: read + extra,
+            },
+        });
+    }
+    match String::from_utf8(raw) {
+        Ok(text) => Ok(BoundedLine::Complete { text, read }),
+        // The line is complete and its bytes are not text. Advancing past it is what keeps one
+        // damaged region from stalling the file forever.
+        Err(_) => Ok(BoundedLine::Skipped {
+            reason: "log_line_invalid_utf8",
+            read,
+        }),
+    }
+}
+
+/// Discards up to the next newline in fixed chunks, returning how many bytes went.
+fn skip_to_newline(reader: &mut BufReader<File>) -> Result<Option<u64>, OperationsLogError> {
+    let mut discarded = 0u64;
+    let mut chunk = Vec::with_capacity(SKIP_CHUNK_BYTES);
+    loop {
+        chunk.clear();
+        let read = std::io::Read::take(std::io::Read::by_ref(reader), SKIP_CHUNK_BYTES as u64)
+            .read_until(b'\n', &mut chunk)
+            .map_err(|_| OperationsLogError::RepairFailed("log_source_read_failed"))?
+            as u64;
+        if read == 0 {
+            return Ok(None);
+        }
+        discarded += read;
+        if chunk.ends_with(b"\n") {
+            return Ok(Some(discarded));
+        }
+    }
+}
+
 impl RedactedLogSourceReader for UnifiedLogSourceReader {
-    fn sources(&self) -> Result<Vec<LogSourceIdentity>, OperationsLogError> {
+    /// The retained corpus as it stands right now, with each file's length captured alongside it.
+    ///
+    /// The length is read once, here, rather than per batch. A pass that re-read it would chase a
+    /// file that is still being appended to and never declare itself caught up; capturing it makes
+    /// "caught up" mean "reached the end that existed when I started", which is a claim that can
+    /// actually become true.
+    fn sources(&self) -> Result<Vec<LogSourceSnapshot>, OperationsLogError> {
+        let directory = std::fs::read_dir(&self.log_dir);
+        // A directory that cannot be listed is not an empty directory. Reporting it as one would
+        // let retention conclude that every source expired and delete the whole index.
+        if let Err(error) = directory {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(OperationsLogError::RepairFailed("log_directory_unreadable"));
+            }
+        }
         Ok(self
             .files()
             .iter()
-            .map(|path| self.identity(path))
+            .map(|path| LogSourceSnapshot {
+                identity: self.identity(path),
+                end_offset: std::fs::metadata(path).map(|data| data.len()).unwrap_or(0),
+            })
             .collect())
     }
 
@@ -168,10 +276,9 @@ impl RedactedLogSourceReader for UnifiedLogSourceReader {
             // The file is gone. That is retention doing its job, not a failure: the batch reports
             // the end so the caller stops rather than retrying a path that will never return.
             return Ok(RedactedLogBatch {
-                records: Vec::new(),
                 next_offset: from_offset,
-                rejected: 0,
                 reached_end: true,
+                ..RedactedLogBatch::default()
             });
         };
         let mut file = File::open(&path)
@@ -181,7 +288,7 @@ impl RedactedLogSourceReader for UnifiedLogSourceReader {
         let mut reader = BufReader::new(file);
 
         let mut records = Vec::new();
-        let mut rejected = 0u32;
+        let mut rejections = LineRejections::new();
         let mut offset = from_offset;
         let mut consumed = 0u64;
         let mut reached_end = false;
@@ -189,34 +296,44 @@ impl RedactedLogSourceReader for UnifiedLogSourceReader {
             if records.len() >= max_records || consumed >= max_bytes {
                 break;
             }
-            let mut line = String::new();
-            let read = reader
-                .read_line(&mut line)
-                .map_err(|_| OperationsLogError::RepairFailed("log_source_read_failed"))?;
-            if read == 0 {
-                reached_end = true;
-                break;
+            match read_bounded_line(&mut reader)? {
+                BoundedLine::Eof => {
+                    reached_end = true;
+                    break;
+                }
+                // A partial trailing line. Stop without advancing: the writer has not finished it,
+                // and the next pass will see it whole.
+                BoundedLine::Partial => {
+                    reached_end = true;
+                    break;
+                }
+                BoundedLine::Complete { text, read } => {
+                    let trimmed = text.trim_end_matches(['\n', '\r']);
+                    match to_record(source, offset, offset + read, trimmed) {
+                        Some(record) => records.push(record),
+                        // Complete but unusable. Counted so coverage can say a record is missing,
+                        // and the offset still advances so one bad line cannot stall the file.
+                        None if !trimmed.is_empty() => {
+                            *rejections.entry("log_record_rejected").or_default() += 1;
+                        }
+                        None => {}
+                    }
+                    offset += read;
+                    consumed += read;
+                }
+                // Skipped without ever holding the whole line: a single pathological line must not
+                // decide how much memory the indexer uses.
+                BoundedLine::Skipped { reason, read } => {
+                    *rejections.entry(reason).or_default() += 1;
+                    offset += read;
+                    consumed += read;
+                }
             }
-            if !line.ends_with('\n') {
-                // A partial trailing line. Stop without advancing: the next pass will see it whole.
-                reached_end = true;
-                break;
-            }
-            let trimmed = line.trim_end_matches(['\n', '\r']);
-            match to_record(source, offset, offset + read as u64, trimmed) {
-                Some(record) => records.push(record),
-                // Complete but unusable. Counted so coverage can say a record is missing, and the
-                // offset still advances so one bad line cannot stall the whole file forever.
-                None if !trimmed.is_empty() => rejected += 1,
-                None => {}
-            }
-            offset += read as u64;
-            consumed += read as u64;
         }
         Ok(RedactedLogBatch {
             records,
             next_offset: offset,
-            rejected,
+            rejections,
             reached_end,
         })
     }
@@ -273,7 +390,7 @@ mod tests {
         let source = reader.sources().expect("sources").remove(0);
 
         let batch = reader
-            .read_batch(&source, 0, 100, 1_000_000)
+            .read_batch(&source.identity, 0, 100, 1_000_000)
             .expect("batch");
 
         assert_eq!(batch.records[0].record_id, "record-7");
@@ -294,10 +411,10 @@ mod tests {
         let source = reader.sources().expect("sources").remove(0);
 
         let first = reader
-            .read_batch(&source, 0, 100, 1_000_000)
+            .read_batch(&source.identity, 0, 100, 1_000_000)
             .expect("first");
         let again = reader
-            .read_batch(&source, 0, 100, 1_000_000)
+            .read_batch(&source.identity, 0, 100, 1_000_000)
             .expect("again");
 
         assert_eq!(first.records[0].record_id, again.records[0].record_id);
@@ -322,7 +439,7 @@ mod tests {
         let source = reader.sources().expect("sources").remove(0);
 
         let batch = reader
-            .read_batch(&source, 0, 100, 1_000_000)
+            .read_batch(&source.identity, 0, 100, 1_000_000)
             .expect("batch");
 
         assert_eq!(batch.records.len(), 1);
@@ -348,10 +465,10 @@ mod tests {
         let source = reader.sources().expect("sources").remove(0);
 
         let batch = reader
-            .read_batch(&source, 0, 100, 1_000_000)
+            .read_batch(&source.identity, 0, 100, 1_000_000)
             .expect("batch");
 
-        assert_eq!(batch.rejected, 1);
+        assert_eq!(batch.rejected_total(), 1);
         assert_eq!(batch.records.len(), 1);
         assert_eq!(batch.records[0].record_id, "record-2");
     }
@@ -367,9 +484,11 @@ mod tests {
         let reader = UnifiedLogSourceReader::new(fixture.path().to_path_buf());
         let source = reader.sources().expect("sources").remove(0);
 
-        let first = reader.read_batch(&source, 0, 2, 1_000_000).expect("first");
+        let first = reader
+            .read_batch(&source.identity, 0, 2, 1_000_000)
+            .expect("first");
         let second = reader
-            .read_batch(&source, first.next_offset, 2, 1_000_000)
+            .read_batch(&source.identity, first.next_offset, 2, 1_000_000)
             .expect("second");
 
         assert_eq!(first.records.len(), 2);
