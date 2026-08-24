@@ -890,19 +890,54 @@ interactive session:
 `desktop-external-provider` job runs the external suite on dispatch, schedule, or
 a protected label.
 
-### Result: still one required spec short
+### Result: Windows green, the other two short by a credential store
 
-The gate no longer needs a real Agent. On Windows, 28 of 29 required specs pass.
-`domain-loop` fails, and only inside the layer: run alone against the same
-fixture PATH, all five of its tests pass in 2.3 seconds. Its two agent-dependent
-cases fail with `agent is unavailable: Command 'codex' was not found on PATH`
-while the CLI Management page in the same run lists all five Agents as runnable
-from the fixture directory, with zero unrunnable.
+The gate no longer needs a real Agent anywhere. Windows CI now passes it
+completely -- run `32752686297`, and again on `32758070852`:
 
-That is the page and the runtime disagreeing again, this time in a state only
-reachable after other specs have shared the layer's database. Chasing it further
-means changing CLI product behaviour, which this round explicitly excludes, so it
-is recorded rather than papered over. What it is not: a missing prerequisite, a
-skipped assertion, or a timeout to widen.
+| Layer | Windows x64 | macOS ARM64 | Linux x64 |
+| --- | --- | --- | --- |
+| `desktop-smoke` (29 required specs) | **PASSED 29/0** | FAILED 27/2 | FAILED 27/2 |
+| `desktop-cli-terminal` | PASSED | PASSED | PASSED |
+| `desktop-cli-management` | PASSED | PASSED | PASSED |
+| `desktop-session-workspace` | PASSED | PASSED | PASSED |
+| `desktop-dialogs` | PASSED | PASSED | PASSED |
+| `desktop-settings-persistence` | PASSED | PASSED | PASSED |
+| **Required gate** | **PASSED** | FAILED | FAILED |
+
+`Desktop External Provider` was correctly skipped: it is not a required check and
+its label was not set. Run locally it prints `BLOCKED`, names all four missing
+prerequisites, writes evidence, exits 0, and does not build the application.
+
+Every remaining macOS and Linux failure is one thing -- the OS credential store:
+
+```
+macOS: Platform failure: A default keychain could not be found.
+Linux: No default store has been set, so cannot search or create entries
+```
+
+Provisioning an empty keychain and an empty gnome-keyring on the runners moved it
+but did not fix it, and the reason is this change's own doing: round 7 gave the
+application an isolated OS `HOME`, so it looks for the keychain under the run's
+temporary home, where there is none. A store provisioned in the runner's real
+home is somewhere the application under test can no longer see.
+
+So the fix is not more runner provisioning. It is either a credential store
+created *inside* the isolated home, or a credential backend the harness can point
+at -- and choosing between those is a decision about the desktop gate's
+isolation model. Windows is unaffected because Credential Manager is per-user and
+not resolved through `HOME`.
+
+Not done: relaxing home isolation to make the failures disappear, or moving the
+affected specs to the external suite. Neither is honest -- they verify local
+credential storage, not a provider, so by this change's own classification rule
+they are `required-fixture`.
+
+### Local Windows note
+
+Locally, `domain-loop` fails inside the layer while passing alone against the
+same fixture PATH; on Windows CI it passes both ways. The developer machine has
+real Agents installed and CI does not, which is the difference the gate exists to
+remove. The CI result is the one that counts.
 
 **14.17 and 14.20 stay unchecked. Tasks remain 162/164.**

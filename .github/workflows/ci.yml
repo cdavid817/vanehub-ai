@@ -701,7 +701,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a dbus-run-session -- bash -c '
-            echo -n "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
+            # The daemon prints the addresses its clients need on stdout. Discarding them starts a
+            # secret service nothing can reach, which fails as "result not returned from SS API"
+            # rather than as a missing store -- the same symptom one step further along.
+            eval "$(echo -n "" | gnome-keyring-daemon --unlock --components=secrets)"
+            export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
             npm run test:desktop
           '
 
