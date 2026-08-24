@@ -350,3 +350,94 @@ fn push_optional_path(
         }
     }
 }
+
+/// Every model-related field on the profile, per engine.
+///
+/// Listed rather than derived so the inventory is reviewable: a field that stops being classified
+/// because someone renamed it is a field whose path problems stop being explainable.
+pub(crate) const CLASSIFIED_MODEL_FIELDS: &[(LocalMediaEngine, &str)] = &[
+    (LocalMediaEngine::Ocr, "paddleXConfigPath"),
+    (LocalMediaEngine::Ocr, "textDetectionModelDir"),
+    (LocalMediaEngine::Ocr, "textRecognitionModelDir"),
+    (LocalMediaEngine::Ocr, "textLineOrientationModelDir"),
+    (LocalMediaEngine::Stt, "modelDirectory"),
+    (LocalMediaEngine::Tts, "modelPath"),
+    (LocalMediaEngine::Tts, "acousticModelPath"),
+    (LocalMediaEngine::Tts, "tokensPath"),
+    (LocalMediaEngine::Tts, "dataDir"),
+    (LocalMediaEngine::Tts, "dictDir"),
+    (LocalMediaEngine::Tts, "lexiconPath"),
+    (LocalMediaEngine::Tts, "voicesPath"),
+    (LocalMediaEngine::Tts, "vocoderPath"),
+    (LocalMediaEngine::Tts, "ruleFsts"),
+];
+
+/// One model-related field's path, described by shape rather than by content.
+///
+/// Never carries the path. The two flags are what a user needs when an engine cannot open their
+/// model -- spaces and non-ASCII are the two shapes that break native loaders -- and neither
+/// discloses where their files are. Note that `contains_non_ascii` is a description, not a verdict:
+/// faster-whisper reads non-ASCII paths, so only a failed canary makes one an error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PathClassification {
+    pub(crate) engine: LocalMediaEngine,
+    pub(crate) field: String,
+    pub(crate) configured: bool,
+    pub(crate) contains_spaces: bool,
+    pub(crate) contains_non_ascii: bool,
+}
+
+/// Classify every model-related field on the profile.
+///
+/// Shape only, and no filesystem access: whether a path exists is already answered by validation
+/// and by the engine itself, and stat-ing nine paths on every status read would put I/O in the
+/// path the settings page polls.
+pub(crate) fn classify_model_paths(profile: &LocalMediaProfile) -> Vec<PathClassification> {
+    CLASSIFIED_MODEL_FIELDS
+        .iter()
+        .map(|(engine, field)| {
+            let value = model_field_value(profile, *engine, field);
+            let raw = value.as_deref().unwrap_or_default();
+            PathClassification {
+                engine: *engine,
+                field: (*field).to_string(),
+                configured: !raw.is_empty(),
+                contains_spaces: raw.contains(' '),
+                contains_non_ascii: !raw.is_ascii(),
+            }
+        })
+        .collect()
+}
+
+fn model_field_value(
+    profile: &LocalMediaProfile,
+    engine: LocalMediaEngine,
+    field: &str,
+) -> Option<String> {
+    match (engine, field) {
+        (LocalMediaEngine::Ocr, "paddleXConfigPath") => profile.ocr.paddle_x_config_path.clone(),
+        (LocalMediaEngine::Ocr, "textDetectionModelDir") => {
+            profile.ocr.text_detection_model_dir.clone()
+        }
+        (LocalMediaEngine::Ocr, "textRecognitionModelDir") => {
+            profile.ocr.text_recognition_model_dir.clone()
+        }
+        (LocalMediaEngine::Ocr, "textLineOrientationModelDir") => {
+            profile.ocr.text_line_orientation_model_dir.clone()
+        }
+        (LocalMediaEngine::Stt, "modelDirectory") => Some(profile.stt.model_directory.clone()),
+        (LocalMediaEngine::Tts, "modelPath") => Some(profile.tts.model_path.clone()),
+        // The acoustic half of a matcha voice is configured through `modelPath`; the separate name
+        // exists so an error can say which half a matcha user should look at.
+        (LocalMediaEngine::Tts, "acousticModelPath") => Some(profile.tts.model_path.clone()),
+        (LocalMediaEngine::Tts, "tokensPath") => Some(profile.tts.tokens_path.clone()),
+        (LocalMediaEngine::Tts, "dataDir") => profile.tts.data_dir.clone(),
+        (LocalMediaEngine::Tts, "dictDir") => profile.tts.dict_dir.clone(),
+        (LocalMediaEngine::Tts, "lexiconPath") => profile.tts.lexicon_path.clone(),
+        (LocalMediaEngine::Tts, "voicesPath") => profile.tts.voices_path.clone(),
+        (LocalMediaEngine::Tts, "vocoderPath") => profile.tts.vocoder_path.clone(),
+        (LocalMediaEngine::Tts, "ruleFsts") => profile.tts.rule_fsts.first().cloned(),
+        _ => None,
+    }
+}

@@ -337,7 +337,14 @@ pub(super) fn request_params(snapshot: &LocalMediaProfileSnapshot, call: &Worker
                 Value::String(stt.compute_type.as_str().to_string()),
             );
             params.insert("language".into(), Value::String(stt.language.clone()));
-            params.insert("vadFilter".into(), Value::Bool(stt.vad_filter));
+            // The readiness canary is the only caller that overrides the saved setting, and it
+            // overrides it in one direction only: off. A call that could turn the filter on would
+            // be changing what the user configured rather than bypassing a shortcut.
+            let bypass = matches!(
+                call,
+                WorkerCall::Transcribe(request) if request.bypass_voice_activity_filter
+            );
+            params.insert("vadFilter".into(), Value::Bool(stt.vad_filter && !bypass));
             params.insert("beamSize".into(), Value::from(stt.beam_size));
         }
         LocalMediaEngine::Tts => {

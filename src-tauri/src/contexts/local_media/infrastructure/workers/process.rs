@@ -29,11 +29,29 @@ use crate::platform::process::{BlockingStderrDrain, ManagedChild};
 const POLL_SLICE: Duration = Duration::from_millis(25);
 const STDERR_LIMIT: usize = 16 * 1024;
 
+/// What sherpa-onnx prints before calling `exit()` when a voice needs phonemizer data it was not
+/// given. Two markers rather than one because the wording differs between the espeak path and the
+/// lexicon path, and both end the process the same way.
+const PHONEMIZER_MARKERS: [&str; 2] = [
+    "not a model using characters as modeling unit",
+    "espeak-ng-data",
+];
+
 pub(super) trait WorkerTransport: Send {
     fn send_line(&mut self, frame: &[u8]) -> Result<(), LocalMediaError>;
     /// `Ok(None)` means the slice elapsed with nothing to read; `Err` means the process is gone.
     fn recv_line(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>, LocalMediaError>;
     fn terminate(&mut self);
+
+    /// Whatever the child wrote to stderr before it died, for classification only.
+    ///
+    /// Read exactly once, on the crash path, and never retained: some third-party libraries call
+    /// `exit()` instead of raising, so the only evidence that a crash was a configuration problem
+    /// rather than a defect is the line they printed on the way out. The bytes are matched against
+    /// a fixed signature here and dropped -- nothing reaches a log, a DTO, or the frontend.
+    fn crash_diagnostics(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
 }
 
 pub(super) struct WorkerSession {
@@ -196,8 +214,45 @@ impl WorkerSession {
 
     fn poison(&mut self, code: LocalMediaErrorCode) -> LocalMediaError {
         self.poisoned = true;
+        let classified = if code == LocalMediaErrorCode::WorkerCrashed {
+            self.classify_crash()
+        } else {
+            code
+        };
         self.transport.terminate();
-        LocalMediaError::new(code).with_text("engine", self.engine.as_str())
+        let error = LocalMediaError::new(classified).with_text("engine", self.engine.as_str());
+        if classified == LocalMediaErrorCode::TtsPhonemizerDataUnavailable {
+            return error.with_text("field", "dataDir");
+        }
+        error
+    }
+
+    /// Turn a dead worker into a code the user can act on, when the evidence supports one.
+    ///
+    /// Only sherpa-onnx, because it is the engine measured to `exit()` rather than raise, and only
+    /// on a signature it prints for exactly one reason. Everything else stays `WORKER_CRASHED`: a
+    /// crash that cannot be attributed is not improved by guessing at it, and the profile's shape
+    /// is not evidence -- a model that uses characters as its modelling unit legitimately needs
+    /// neither a data directory nor a lexicon.
+    fn classify_crash(&mut self) -> LocalMediaErrorCode {
+        if self.engine != LocalMediaEngine::Tts {
+            return LocalMediaErrorCode::WorkerCrashed;
+        }
+        let diagnostics = self.transport.crash_diagnostics();
+        if diagnostics.is_empty() {
+            return LocalMediaErrorCode::WorkerCrashed;
+        }
+        // Bounded, lowercased, and matched against fixed markers. The buffer is dropped at the end
+        // of this function: it is the child's raw output and belongs nowhere else.
+        let text = String::from_utf8_lossy(&diagnostics[..diagnostics.len().min(STDERR_LIMIT)])
+            .to_ascii_lowercase();
+        if PHONEMIZER_MARKERS
+            .iter()
+            .any(|marker| text.contains(marker))
+        {
+            return LocalMediaErrorCode::TtsPhonemizerDataUnavailable;
+        }
+        LocalMediaErrorCode::WorkerCrashed
     }
 }
 
@@ -282,6 +337,19 @@ impl WorkerTransport for ChildProcessTransport {
             Err(RecvTimeoutError::Disconnected) => {
                 Err(LocalMediaError::new(LocalMediaErrorCode::WorkerCrashed))
             }
+        }
+    }
+
+    fn crash_diagnostics(&mut self) -> Vec<u8> {
+        // The drain resolves when the pipe reaches EOF, which the child's death has already caused
+        // by the time this runs. The deadline is short because a grandchild holding the pipe open
+        // must not stall the error the caller is waiting for.
+        let Some(stderr) = self.stderr.take() else {
+            return Vec::new();
+        };
+        match stderr.finish(Duration::from_millis(250)) {
+            Ok(capture) => capture.retained().to_vec(),
+            Err(_) => Vec::new(),
         }
     }
 

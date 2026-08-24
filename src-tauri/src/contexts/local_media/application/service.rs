@@ -12,8 +12,8 @@ use super::ports::{
     OperationBridge, WorkerSupervisorPort,
 };
 use crate::contexts::local_media::domain::{
-    first_error, validate_profile, AudioDeviceCatalog, EngineReadiness, EngineStatus,
-    LocalMediaEngine, LocalMediaError, LocalMediaErrorCode, LocalMediaOperationKind,
+    classify_model_paths, first_error, validate_profile, AudioDeviceCatalog, EngineReadiness,
+    EngineStatus, LocalMediaEngine, LocalMediaError, LocalMediaErrorCode, LocalMediaOperationKind,
     LocalMediaOperationResult, LocalMediaProfile, LocalMediaProfileSnapshot,
     LocalMediaRuntimeStatus, PlatformSupport, PlaybackId, ProfileFieldIssue, RecordingId,
     RecordingSummary, StagedInputId,
@@ -231,6 +231,7 @@ impl LocalMediaApplicationService {
             enabled: profile.enabled,
             profile_revision: profile.revision,
             engines,
+            path_classifications: classify_model_paths(profile),
         }
     }
 
@@ -243,6 +244,8 @@ impl LocalMediaApplicationService {
             return EngineStatus {
                 readiness: EngineReadiness::Unavailable {
                     code: LocalMediaErrorCode::EngineUnavailable,
+                    // A platform this feature does not run on is not one field's fault.
+                    field: None,
                 },
                 worker_state,
                 ..EngineStatus::disabled(engine, profile.revision)

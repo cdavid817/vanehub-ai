@@ -77,6 +77,19 @@ pub(crate) trait MediaTempStore: Send + Sync {
     /// Reserve the operation-owned output path for synthesized speech.
     fn authorize_output_wav(&self, operation_id: &str) -> Result<PathBuf, LocalMediaError>;
 
+    /// Write a readiness canary's input into the probe operation's own directory.
+    ///
+    /// Separate from `stage_bytes` because that one sniffs content against the OCR admission list,
+    /// which is right for a file the user picked and wrong for bytes this context authored: an
+    /// audio canary is not an image, and running it through image admission would reject it.
+    /// `cleanup_operation` removes it, so a canary leaves nothing behind even if the probe fails.
+    fn authorize_canary_input(
+        &self,
+        operation_id: &str,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, LocalMediaError>;
+
     /// Confirm a worker-returned path is exactly the authorized one and holds a bounded WAV.
     fn verify_output_wav(
         &self,

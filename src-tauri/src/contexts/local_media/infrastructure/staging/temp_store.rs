@@ -122,6 +122,19 @@ impl FilesystemMediaTempStore {
             })
     }
 
+    /// `stem.extension`, where both halves are opaque components.
+    ///
+    /// Built from `is_opaque_component` rather than loosening it, so the one character this admits
+    /// -- a single separating dot -- cannot combine into `..` or a drive-relative reference.
+    fn is_opaque_file_name(name: &str) -> bool {
+        match name.split_once('.') {
+            Some((stem, extension)) => {
+                Self::is_opaque_component(stem) && Self::is_opaque_component(extension)
+            }
+            None => false,
+        }
+    }
+
     /// Read a bounded prefix without following a link and without reading a non-regular file.
     fn read_admitted_prefix(source: &Path) -> Result<(Vec<u8>, u64), LocalMediaError> {
         if !source.is_absolute() {
@@ -361,6 +374,25 @@ impl MediaTempStore for FilesystemMediaTempStore {
         let directory = self.owned_directory(OPERATIONS_DIR, operation_id)?;
         Self::ensure_directory(&directory)?;
         Ok(directory.join(OUTPUT_FILE))
+    }
+
+    fn authorize_canary_input(
+        &self,
+        operation_id: &str,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, LocalMediaError> {
+        // The name is this context's own constant, but it is validated anyway: this is the last
+        // point before a string becomes a path component, and the rule does not get an exception
+        // for callers that are currently trustworthy.
+        if !Self::is_opaque_file_name(file_name) {
+            return Err(LocalMediaError::new(LocalMediaErrorCode::InputNotFound));
+        }
+        let directory = self.owned_directory(OPERATIONS_DIR, operation_id)?;
+        Self::ensure_directory(&directory)?;
+        let path = directory.join(file_name);
+        Self::write_private_file(&path, bytes)?;
+        Ok(path)
     }
 
     /// Confirm the worker wrote to the one path it was authorized to write to.

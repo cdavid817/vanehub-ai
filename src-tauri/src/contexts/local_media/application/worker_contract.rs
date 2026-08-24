@@ -37,6 +37,10 @@ pub(crate) struct OcrWorkerRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SttWorkerRequest {
     pub(crate) audio_path: PathBuf,
+    /// Set only by the readiness canary. Its input is silence, and the profile's voice-activity
+    /// filter would find no speech in it and return before the decoder ever ran -- so the canary
+    /// would pass on a model that cannot decode at all.
+    pub(crate) bypass_voice_activity_filter: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

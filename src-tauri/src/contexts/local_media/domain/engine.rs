@@ -70,6 +70,13 @@ pub(crate) enum EngineReadiness {
     #[serde(rename_all = "camelCase")]
     Unavailable {
         code: LocalMediaErrorCode,
+        /// The single profile field the failure is attributable to, when the engine named one.
+        ///
+        /// `None` rather than a guess: with several paths configured, blaming the first one in a
+        /// list sends the user to edit a field that is fine. Only a field the worker itself
+        /// reported, or one the host can prove opened the failure, appears here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        field: Option<String>,
     },
     RestartRequired,
 }
@@ -178,6 +185,13 @@ pub(crate) struct LocalMediaRuntimeStatus {
     pub(crate) enabled: bool,
     pub(crate) profile_revision: i64,
     pub(crate) engines: Vec<EngineStatus>,
+    /// Every model-related field's path shape, whether or not anything is wrong with it.
+    ///
+    /// Reported unconditionally rather than only on failure: a non-ASCII path is a description and
+    /// not a verdict -- faster-whisper reads them -- so the settings page needs the shape available
+    /// even when the engine is `Ready`.
+    #[serde(default)]
+    pub(crate) path_classifications: Vec<crate::contexts::local_media::domain::PathClassification>,
 }
 
 impl LocalMediaRuntimeStatus {

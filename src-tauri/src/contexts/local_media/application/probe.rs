@@ -4,6 +4,7 @@
 //! page says so in its own copy, and this is where that promise is kept: the profile is re-read
 //! from the repository rather than passed in.
 
+use super::cleanup::OperationMediaGuard;
 use super::service::{
     EngineRuntimeState, LocalMediaApplicationService, LocalMediaJob, PreparedLocalMediaOperation,
 };
@@ -41,7 +42,27 @@ impl LocalMediaApplicationService {
         self.advance(operation_id, LocalMediaPhase::LoadingEngine);
         let flag = self.inner.operations.cancellation_flag(operation_id);
 
-        let outcome = self.inner.workers.call(snapshot, WorkerCall::Probe, flag);
+        // Covers the canary's input and output for every exit below, including the failing ones.
+        let _media = OperationMediaGuard::new(self.inner.temp.clone(), operation_id);
+
+        let outcome = self
+            .inner
+            .workers
+            .call(snapshot, WorkerCall::Probe, flag.clone());
+
+        // Metadata alone is not readiness. The failure this exists for is a model the runtime
+        // accepts on load and cannot execute, which a construction-only probe reports as `Ready`
+        // and the user then meets on their first real operation.
+        let outcome = match outcome {
+            Ok(WorkerReply::Probe(reply)) => {
+                self.advance(operation_id, LocalMediaPhase::Processing);
+                match self.run_readiness_canary(operation_id, snapshot, flag) {
+                    Ok(()) => Ok(WorkerReply::Probe(reply)),
+                    Err(error) => Err(error),
+                }
+            }
+            other => other,
+        };
         let now_ms = self.inner.clock.now_ms();
 
         match outcome {
@@ -122,7 +143,11 @@ impl LocalMediaApplicationService {
         self.record_engine_state(
             engine,
             EngineRuntimeState {
-                readiness: Some(EngineReadiness::Unavailable { code: error.code() }),
+                readiness: Some(EngineReadiness::Unavailable {
+                    code: error.code(),
+                    // Whatever the engine itself named, and nothing when it named nothing.
+                    field: error.field().map(str::to_string),
+                }),
                 installed_version: None,
                 model_identity: None,
                 device_summary: None,

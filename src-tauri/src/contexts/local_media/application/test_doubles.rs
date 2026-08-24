@@ -122,6 +122,8 @@ pub(super) struct TempStoreLog {
     pub(super) cleaned_staged: Vec<String>,
     pub(super) cleaned_recordings: Vec<String>,
     pub(super) authorized_outputs: Vec<String>,
+    /// `(operation, file name, byte length)` for every canary input the host wrote.
+    pub(super) canary_inputs: Vec<(String, String, usize)>,
     pub(super) swept: usize,
 }
 
@@ -232,6 +234,22 @@ impl MediaTempStore for FakeTempStore {
             .push(operation_id.to_string());
         Ok(PathBuf::from(format!(
             "/tmp/local-media/{operation_id}/output.wav"
+        )))
+    }
+
+    fn authorize_canary_input(
+        &self,
+        operation_id: &str,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, LocalMediaError> {
+        self.log.lock().expect("log lock").canary_inputs.push((
+            operation_id.to_string(),
+            file_name.to_string(),
+            bytes.len(),
+        ));
+        Ok(PathBuf::from(format!(
+            "/tmp/local-media/{operation_id}/{file_name}"
         )))
     }
 

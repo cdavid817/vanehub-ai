@@ -251,6 +251,17 @@ impl LocalMediaError {
         self.code
     }
 
+    /// The single profile field this failure names, if it named one.
+    ///
+    /// Read from the same allowlisted detail map everything else goes through, so a field name is
+    /// subject to the identical length and control-character filter as any other safe detail.
+    pub(crate) fn field(&self) -> Option<&str> {
+        match self.details.get("field") {
+            Some(SafeDetail::Text(value)) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
     /// Test-only.
     ///
     /// Nothing in production reads the details back: the command contract serializes a bare

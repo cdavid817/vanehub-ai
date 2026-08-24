@@ -74,6 +74,7 @@ function unavailableStatus(): LocalMediaRuntimeStatus {
     platformSupport: "unsupported",
     enabled: false,
     profileRevision: 0,
+    pathClassifications: [],
     engines: (["ocr", "stt", "tts"] as const).map((engine) => ({
       engine,
       readiness: { state: "unavailable", code: NATIVE_ONLY },

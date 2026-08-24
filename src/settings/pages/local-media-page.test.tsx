@@ -7,6 +7,7 @@ import { activateAppLanguage } from "../../i18n";
 import type { LocalMediaService } from "../../services/local-media-service";
 import type {
   LocalMediaProfile,
+  LocalMediaErrorCode,
   LocalMediaRuntimeStatus,
   ProfileFieldIssue,
 } from "../../types/local-media";
@@ -85,6 +86,7 @@ function status(overrides: Partial<LocalMediaRuntimeStatus> = {}): LocalMediaRun
     platformSupport: "supported",
     enabled: true,
     profileRevision: 4,
+    pathClassifications: [],
     engines: [
       {
         engine: "ocr",
@@ -241,6 +243,139 @@ describe("LocalMediaPage", () => {
 
     const control = screen.getByLabelText("CPU 加速") as HTMLSelectElement;
     expect(control.value).toBe("library-default");
+  });
+
+  /** Readiness that blames exactly one field, the way a classified compatibility failure does. */
+  function unavailableOn(engineIndex: number, code: LocalMediaErrorCode, field: string) {
+    const next = status();
+    next.engines[engineIndex] = {
+      ...next.engines[engineIndex]!,
+      readiness: { state: "unavailable", code, field },
+    };
+    return next;
+  }
+
+  /**
+   * The alert attached to one labelled input, or null.
+   *
+   * Asserting on the card's text would prove nothing: the card already renders the readiness code
+   * as localized copy, so every one of these tests passed with the field marking removed until this
+   * looked at the field's own container instead.
+   */
+  function fieldAlert(label: string): string | null {
+    const input = screen.getByLabelText(label, { exact: true });
+    const container = input.closest("div.grid");
+    return container?.querySelector('[role="alert"]')?.textContent ?? null;
+  }
+
+  it.each([
+    ["textDetectionModelDir", "文本检测模型目录", "文本识别模型目录"],
+    ["textRecognitionModelDir", "文本识别模型目录", "文本检测模型目录"],
+  ])("marks only the OCR field a compatibility failure named", async (field, marked, other) => {
+    install({
+      getStatus: vi.fn(async () => unavailableOn(0, "MODEL_PATH_ENCODING_UNSUPPORTED", field)),
+    });
+    renderPage();
+    await whenLoaded();
+
+    await waitFor(() => expect(fieldAlert(marked)).toContain("该引擎无法打开位于此路径的模型"));
+    // The other path field is fine, and marking it too would send the user to edit it.
+    expect(fieldAlert(other)).toBeNull();
+  });
+
+  it("marks the STT model directory without touching the other engines", async () => {
+    install({
+      getStatus: vi.fn(async () =>
+        unavailableOn(1, "MODEL_PATH_ENCODING_UNSUPPORTED", "modelDirectory"),
+      ),
+    });
+    renderPage();
+    await whenLoaded();
+
+    await waitFor(() => expect(fieldAlert("模型目录")).toContain("该引擎无法打开位于此路径的模型"));
+    expect(fieldAlert("文本检测模型目录")).toBeNull();
+    expect(fieldAlert("模型文件")).toBeNull();
+  });
+
+  it("marks the TTS data directory rather than its model or tokens", async () => {
+    install({
+      getStatus: vi.fn(async () =>
+        unavailableOn(2, "TTS_DATA_PATH_ENCODING_UNSUPPORTED", "dataDir"),
+      ),
+    });
+    renderPage();
+    await whenLoaded();
+
+    await waitFor(() =>
+      expect(fieldAlert("espeak-ng 数据目录")).toContain("该引擎无法打开位于此路径的发音数据"),
+    );
+    expect(fieldAlert("模型文件")).toBeNull();
+    expect(fieldAlert("tokens 文件")).toBeNull();
+  });
+
+  it("marks the TTS model file when that is the field named", async () => {
+    install({
+      getStatus: vi.fn(async () =>
+        unavailableOn(2, "MODEL_PATH_ENCODING_UNSUPPORTED", "modelPath"),
+      ),
+    });
+    renderPage();
+    await whenLoaded();
+
+    await waitFor(() =>
+      expect(fieldAlert("模型文件")).toContain("该引擎无法打开位于此路径的模型"),
+    );
+    expect(fieldAlert("espeak-ng 数据目录")).toBeNull();
+  });
+
+  it("marks no field when the failure named none", async () => {
+    // A guess is worse than silence: the banner still says what went wrong.
+    const next = status();
+    next.engines[2] = {
+      ...next.engines[2]!,
+      readiness: { state: "unavailable", code: "TTS_PHONEMIZER_DATA_UNAVAILABLE" },
+    };
+    install({ getStatus: vi.fn(async () => next) });
+    renderPage();
+    await whenLoaded();
+
+    expect(fieldAlert("模型文件")).toBeNull();
+    expect(fieldAlert("espeak-ng 数据目录")).toBeNull();
+  });
+
+  it("says nothing about a path that merely contains spaces", async () => {
+    // Spaces are not an error. faster-whisper reads them, and so do the other two.
+    install();
+    renderPage();
+    await whenLoaded();
+
+    expect(fieldAlert("文本检测模型目录")).toBeNull();
+    expect(fieldAlert("模型目录")).toBeNull();
+  });
+
+  it("says nothing about a non-ASCII path whose canary succeeded", async () => {
+    const ready = status();
+    ready.engines[1] = { ...ready.engines[1]!, readiness: { state: "ready" } };
+    install({ getStatus: vi.fn(async () => ready) });
+    renderPage();
+    await whenLoaded();
+
+    await waitFor(() => expect(fieldAlert("模型目录")).toBeNull());
+  });
+
+  it("keeps raw paths and exception text out of the document", async () => {
+    install({
+      getStatus: vi.fn(async () =>
+        unavailableOn(2, "TTS_DATA_PATH_ENCODING_UNSUPPORTED", "dataDir"),
+      ),
+    });
+    renderPage();
+    await whenLoaded();
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).not.toContain("espeak-ng-data");
+    expect(rendered).not.toContain("RuntimeError");
+    expect(rendered).not.toContain("parse_error");
   });
 
   it("renders one independent card per engine", async () => {

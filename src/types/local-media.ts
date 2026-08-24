@@ -138,7 +138,9 @@ export type EngineReadiness =
   | { state: "unconfigured" }
   | { state: "checking" }
   | { state: "ready" }
-  | { state: "unavailable"; code: LocalMediaErrorCode }
+  // `field` is present only when the engine itself named one. With several paths configured,
+  // blaming the first in a list would send the user to edit a field that is fine.
+  | { state: "unavailable"; code: LocalMediaErrorCode; field?: string }
   | { state: "restartRequired" };
 
 export type WorkerState =
@@ -162,12 +164,27 @@ export interface EngineStatus {
   lastCheckedAt: string | null;
 }
 
+/**
+ * One model-related field's path, described by shape rather than by content.
+ *
+ * Never carries the path. `containsNonAscii` is a description and not a verdict: faster-whisper
+ * reads non-ASCII paths, so only a failed canary makes one an error.
+ */
+export interface PathClassification {
+  engine: LocalMediaEngine;
+  field: string;
+  configured: boolean;
+  containsSpaces: boolean;
+  containsNonAscii: boolean;
+}
+
 export interface LocalMediaRuntimeStatus {
   nativeAvailable: boolean;
   platformSupport: PlatformSupport;
   enabled: boolean;
   profileRevision: number;
   engines: EngineStatus[];
+  pathClassifications: PathClassification[];
 }
 
 export interface AudioDevice {

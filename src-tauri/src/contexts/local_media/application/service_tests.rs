@@ -13,7 +13,7 @@ use crate::contexts::local_media::domain::{
     LocalMediaOperationResult, LocalMediaProfile, RecordingId, StagedInputId,
 };
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 struct Harness {
     service: LocalMediaApplicationService,
@@ -203,15 +203,24 @@ fn readiness(harness: &Harness, engine: LocalMediaEngine) -> EngineReadiness {
 }
 
 fn probe_engine_successfully(harness: &Harness, engine: LocalMediaEngine) {
+    // A probe is two calls now: metadata, then the readiness canary's real inference. Scripting
+    // only the first would leave every one of these tests asserting a readiness the engine never
+    // demonstrated -- which is the whole point of the canary.
     harness.workers.respond_with(Box::new(|_, call| match call {
         WorkerCall::Probe => Ok(WorkerReply::Probe(ProbeReply {
             package_version: Some("3.0.1".to_string()),
             device: Some("cpu".to_string()),
             model_identity: Some("det+rec:ch".to_string()),
         })),
-        _ => Err(LocalMediaError::new(
-            LocalMediaErrorCode::WorkerProtocolError,
-        )),
+        WorkerCall::Ocr(_) => Ok(WorkerReply::Ocr(OcrReply::default())),
+        WorkerCall::Transcribe(_) => Ok(WorkerReply::Transcribe(TranscribeReply::default())),
+        WorkerCall::Synthesize(_) => Ok(WorkerReply::Synthesize(SynthesizeReply {
+            audio_path: std::path::PathBuf::from("/tmp/local-media/operation-0/output.wav"),
+            sample_rate: 16_000,
+            sample_count: 1_600,
+            duration_ms: 100,
+            engine_version: Some("1.10.0".to_string()),
+        })),
     }));
     let prepared = harness
         .service
@@ -285,7 +294,8 @@ fn a_failed_probe_marks_only_its_own_engine_unavailable() {
     assert_eq!(
         readiness(&harness, LocalMediaEngine::Ocr),
         EngineReadiness::Unavailable {
-            code: LocalMediaErrorCode::EngineImportFailed
+            code: LocalMediaErrorCode::EngineImportFailed,
+            field: None,
         }
     );
     assert_eq!(
@@ -1195,4 +1205,168 @@ fn a_running_operation_keeps_its_snapshot_when_the_profile_changes() {
         *revision, 3,
         "the operation must run against the revision it captured"
     );
+}
+
+// --------------------------------------------------------------- canaries ---
+
+/// Script a probe whose metadata succeeds and whose real inference fails.
+///
+/// This is the shape the whole canary exists for: the runtime accepts the model on load and cannot
+/// execute its graph. A construction-only probe calls that `Ready`.
+fn probe_with_failing_inference(
+    harness: &Harness,
+    engine: LocalMediaEngine,
+    code: LocalMediaErrorCode,
+) {
+    harness
+        .workers
+        .respond_with(Box::new(move |_, call| match call {
+            WorkerCall::Probe => Ok(WorkerReply::Probe(ProbeReply {
+                package_version: Some("3.0.1".to_string()),
+                device: Some("cpu".to_string()),
+                model_identity: Some("det+rec:ch".to_string()),
+            })),
+            _ => Err(LocalMediaError::new(code)),
+        }));
+    let prepared = harness
+        .service
+        .prepare_probe(engine)
+        .expect("prepare probe");
+    harness.service.execute(prepared);
+}
+
+#[test]
+fn an_ocr_model_that_loads_and_cannot_run_is_never_reported_ready() {
+    let harness = harness();
+    probe_with_failing_inference(
+        &harness,
+        LocalMediaEngine::Ocr,
+        LocalMediaErrorCode::PaddleOnednnModelIncompatible,
+    );
+    assert_eq!(
+        readiness(&harness, LocalMediaEngine::Ocr),
+        EngineReadiness::Unavailable {
+            code: LocalMediaErrorCode::PaddleOnednnModelIncompatible,
+            field: None,
+        }
+    );
+}
+
+#[test]
+fn a_transcriber_that_raises_while_being_drained_is_never_reported_ready() {
+    let harness = harness();
+    probe_with_failing_inference(
+        &harness,
+        LocalMediaEngine::Stt,
+        LocalMediaErrorCode::EngineUnavailable,
+    );
+    assert_eq!(
+        readiness(&harness, LocalMediaEngine::Stt),
+        EngineReadiness::Unavailable {
+            code: LocalMediaErrorCode::EngineUnavailable,
+            field: None,
+        }
+    );
+}
+
+#[test]
+fn a_synthesizer_that_fails_to_generate_is_never_reported_ready() {
+    let harness = harness();
+    probe_with_failing_inference(
+        &harness,
+        LocalMediaEngine::Tts,
+        LocalMediaErrorCode::TtsPhonemizerDataUnavailable,
+    );
+    assert_eq!(
+        readiness(&harness, LocalMediaEngine::Tts),
+        EngineReadiness::Unavailable {
+            code: LocalMediaErrorCode::TtsPhonemizerDataUnavailable,
+            field: None,
+        }
+    );
+}
+
+#[test]
+fn a_synthesis_that_reports_success_and_wrote_nothing_playable_is_not_ready() {
+    // The one canary whose output is inspected rather than discarded unread. A worker that answers
+    // with a zero sample rate has not demonstrated an engine, whatever its reply says.
+    let harness = harness();
+    harness.workers.respond_with(Box::new(|_, call| match call {
+        WorkerCall::Probe => Ok(WorkerReply::Probe(ProbeReply::default())),
+        _ => Ok(WorkerReply::Synthesize(SynthesizeReply {
+            audio_path: std::path::PathBuf::from("/tmp/local-media/operation-0/output.wav"),
+            sample_rate: 0,
+            sample_count: 0,
+            duration_ms: 0,
+            engine_version: None,
+        })),
+    }));
+    let prepared = harness
+        .service
+        .prepare_probe(LocalMediaEngine::Tts)
+        .expect("prepare probe");
+    harness.service.execute(prepared);
+
+    assert!(matches!(
+        readiness(&harness, LocalMediaEngine::Tts),
+        EngineReadiness::Unavailable { .. }
+    ));
+}
+
+#[test]
+fn a_successful_canary_reports_ready_and_keeps_only_safe_metadata() {
+    let harness = harness();
+    probe_engine_successfully(&harness, LocalMediaEngine::Ocr);
+
+    let status = harness.service.get_status().expect("status");
+    let ocr = status.engine(LocalMediaEngine::Ocr).expect("ocr");
+    assert_eq!(ocr.readiness, EngineReadiness::Ready);
+    assert_eq!(ocr.installed_version.as_deref(), Some("3.0.1"));
+    assert_eq!(ocr.model_identity.as_deref(), Some("det+rec:ch"));
+}
+
+#[test]
+fn the_canary_writes_its_input_into_the_probe_operation_and_leaves_nothing_behind() {
+    let harness = harness();
+    probe_engine_successfully(&harness, LocalMediaEngine::Ocr);
+
+    let log = harness.temp.log.lock().expect("log");
+    let (operation, file_name, byte_length) =
+        log.canary_inputs.first().expect("a canary input").clone();
+    assert_eq!(operation, "operation-0");
+    assert_eq!(file_name, "canary.png");
+    assert!(byte_length > 0);
+    // The operation directory is deleted on every exit, so the image does not outlive the probe.
+    assert!(log.cleaned_operations.contains(&"operation-0".to_string()));
+}
+
+#[test]
+fn the_stt_canary_bypasses_the_voice_activity_filter_and_a_real_transcription_does_not() {
+    // Silence plus the user's filter is a probe that never reaches the decoder: the filter finds no
+    // speech and returns, and the canary passes on a model that cannot decode at all.
+    let harness = harness();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let recorder = seen.clone();
+    harness
+        .workers
+        .respond_with(Box::new(move |_, call| match call {
+            WorkerCall::Probe => Ok(WorkerReply::Probe(ProbeReply::default())),
+            WorkerCall::Transcribe(request) => {
+                recorder
+                    .lock()
+                    .expect("seen")
+                    .push(request.bypass_voice_activity_filter);
+                Ok(WorkerReply::Transcribe(TranscribeReply::default()))
+            }
+            _ => Err(LocalMediaError::new(
+                LocalMediaErrorCode::WorkerProtocolError,
+            )),
+        }));
+    let prepared = harness
+        .service
+        .prepare_probe(LocalMediaEngine::Stt)
+        .expect("prepare probe");
+    harness.service.execute(prepared);
+
+    assert_eq!(*seen.lock().expect("seen"), vec![true]);
 }

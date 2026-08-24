@@ -23,6 +23,8 @@ struct ScriptedTransport {
     steps: VecDeque<Step>,
     sent: Vec<Vec<u8>>,
     terminated: bool,
+    /// What the dead child is pretending to have written to stderr.
+    diagnostics: Vec<u8>,
 }
 
 impl ScriptedTransport {
@@ -31,7 +33,13 @@ impl ScriptedTransport {
             steps: steps.into(),
             sent: Vec::new(),
             terminated: false,
+            diagnostics: Vec::new(),
         }
+    }
+
+    fn with_diagnostics(mut self, text: &str) -> Self {
+        self.diagnostics = text.as_bytes().to_vec();
+        self
     }
 }
 
@@ -63,6 +71,10 @@ impl WorkerTransport for ScriptedTransport {
 
     fn terminate(&mut self) {
         self.terminated = true;
+    }
+
+    fn crash_diagnostics(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.diagnostics)
     }
 }
 
@@ -133,6 +145,7 @@ fn snapshot() -> LocalMediaProfileSnapshot {
 fn transcribe_call() -> WorkerCall {
     WorkerCall::Transcribe(SttWorkerRequest {
         audio_path: PathBuf::from("/tmp/local-media/recordings/lmr-1/input.wav"),
+        bypass_voice_activity_filter: false,
     })
 }
 
@@ -453,4 +466,85 @@ fn shutdown_asks_before_it_terminates() {
         serde_json::from_slice(sent.last().expect("a frame")).expect("decode");
     assert_eq!(frame["type"], "shutdown");
     assert!(terminated.load(Ordering::SeqCst));
+}
+
+// --------------------------------------------- phonemizer crash classification ---
+
+/// sherpa-onnx calls `exit()` rather than raising when a voice needs phonemizer data it was not
+/// given, so the only evidence that the crash was a configuration problem is what it printed.
+fn crashed_tts_session(diagnostics: &str) -> LocalMediaError {
+    let hello = hello_line(
+        "sherpa-onnx",
+        &["probe", "synthesize", "cancel", "shutdown"],
+    );
+    let transport =
+        ScriptedTransport::new(vec![Step::Line(hello), Step::Dead]).with_diagnostics(diagnostics);
+    let mut session = WorkerSession::establish(
+        LocalMediaEngine::Tts,
+        Box::new(transport),
+        Duration::from_millis(50),
+        2,
+    )
+    .expect("handshake");
+    session
+        .call(
+            &snapshot(),
+            &WorkerCall::Synthesize(
+                crate::contexts::local_media::application::worker_contract::TtsWorkerRequest {
+                    text: "a".to_string(),
+                    output_path: std::path::PathBuf::from("/tmp/local-media/op/output.wav"),
+                },
+            ),
+            never_cancelled(),
+            never_cancelled(),
+            Duration::from_millis(50),
+            Duration::from_millis(10),
+        )
+        .expect_err("the worker died")
+}
+
+#[test]
+fn a_phonemizer_signature_on_a_dead_tts_worker_is_classified() {
+    let error = crashed_tts_session(
+        "sherpa-onnx/csrc/offline-tts-vits-impl.h:InitFrontend:471 Not a model using characters \
+         as modeling unit. Please provide --vits-lexicon if you leave --vits-data-dir empty",
+    );
+    assert_eq!(
+        error.code(),
+        LocalMediaErrorCode::TtsPhonemizerDataUnavailable
+    );
+    assert!(format!("{:?}", error.details()).contains("dataDir"));
+}
+
+#[test]
+fn a_missing_espeak_directory_is_the_same_classification() {
+    let error = crashed_tts_session("Error processing file '/usr/share/espeak-ng-data/phontab'.");
+    assert_eq!(
+        error.code(),
+        LocalMediaErrorCode::TtsPhonemizerDataUnavailable
+    );
+}
+
+#[test]
+fn an_unrelated_tts_crash_stays_a_worker_crash() {
+    // Guessing here would send the user to configure a data directory that has nothing to do with
+    // why their worker died.
+    let error = crashed_tts_session("MemoryError: cannot allocate 2 GiB");
+    assert_eq!(error.code(), LocalMediaErrorCode::WorkerCrashed);
+}
+
+#[test]
+fn a_crash_with_nothing_on_stderr_stays_a_worker_crash() {
+    let error = crashed_tts_session("");
+    assert_eq!(error.code(), LocalMediaErrorCode::WorkerCrashed);
+}
+
+#[test]
+fn the_raw_diagnostics_never_reach_the_error() {
+    let error = crashed_tts_session(
+        "Error processing file '/home/someone/models/espeak-ng-data/phontab': No such file",
+    );
+    let rendered = format!("{:?}", error.details());
+    assert!(!rendered.contains("/home/someone"));
+    assert!(!rendered.contains("phontab"));
 }

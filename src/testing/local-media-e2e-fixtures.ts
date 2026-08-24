@@ -108,6 +108,7 @@ export function fixtureStatus(state: FakeState): LocalMediaRuntimeStatus {
     platformSupport: state.nativeAvailable ? "supported" : "unsupported",
     enabled: true,
     profileRevision: 4,
+    pathClassifications: [],
     engines: (["ocr", "stt", "tts"] as const).map((engine) => ({
       engine,
       readiness: state.unavailable[engine]

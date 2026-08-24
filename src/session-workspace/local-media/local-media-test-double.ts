@@ -66,6 +66,7 @@ export function readyStatus(
     platformSupport: "supported",
     enabled: true,
     profileRevision: 3,
+    pathClassifications: [],
     engines: (["ocr", "stt", "tts"] as const).map((engine) => ({
       engine,
       readiness: ready.includes(engine)

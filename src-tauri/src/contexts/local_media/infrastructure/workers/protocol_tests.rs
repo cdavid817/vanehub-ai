@@ -228,6 +228,7 @@ fn a_synthesis_reply_without_an_audio_path_is_a_protocol_error() {
 fn a_transcription_reply_keeps_its_language_metadata() {
     let call = WorkerCall::Transcribe(SttWorkerRequest {
         audio_path: PathBuf::from("/tmp/local-media/recordings/lmr-1/input.wav"),
+        bypass_voice_activity_filter: false,
     });
     let frame = serde_json::to_vec(&json!({
         "v": 1, "type": "response", "id": "req-1", "ok": true,
@@ -280,6 +281,7 @@ fn stt_params_mirror_the_snapshot_not_the_live_profile() {
         &snapshot,
         &WorkerCall::Transcribe(SttWorkerRequest {
             audio_path: PathBuf::from("/tmp/local-media/recordings/lmr-1/input.wav"),
+            bypass_voice_activity_filter: false,
         }),
     );
     assert_eq!(params["modelDirectory"], "/models/whisper");

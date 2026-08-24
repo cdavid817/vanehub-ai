@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { localMediaMessageKey } from "../../session-workspace/local-media/local-media-errors";
 import type { LocalMediaEngine } from "../../types/local-media";
+import { compatibilityMessageKey } from "./local-media/compatibility-notice";
 import { OcrCard } from "./local-media/ocr-card";
 import { SttCard } from "./local-media/stt-card";
 import { TtsCard } from "./local-media/tts-card";
@@ -24,10 +25,25 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
   const model = useLocalMediaSettings(isActive);
   const { draft, status } = model;
 
-  const issueFor = (engine: LocalMediaEngine | null, field: string) =>
-    model.issues.get(issueKeyFor(engine, field))?.messageKey;
   const statusFor = (engine: LocalMediaEngine) =>
     status?.engines.find((entry) => entry.engine === engine);
+
+  /**
+   * A field's current problem: a validation issue, or the one field a readiness failure named.
+   *
+   * Both are reported against the same input, because to the user they are the same question --
+   * "what is wrong with this box?" -- and a compatibility failure that only appeared in a banner
+   * would leave every path field looking fine while none of them worked. Exactly one field is
+   * marked: `readiness.field` is absent unless the engine attributed the failure itself.
+   */
+  const issueFor = (engine: LocalMediaEngine | null, field: string) => {
+    const validation = model.issues.get(issueKeyFor(engine, field))?.messageKey;
+    if (validation) return validation;
+    if (!engine) return undefined;
+    const readiness = statusFor(engine)?.readiness;
+    if (readiness?.state !== "unavailable" || readiness.field !== field) return undefined;
+    return compatibilityMessageKey(readiness.code);
+  };
 
   // Probing the draft would answer a question about a configuration that is not stored, so a
   // dirty form disables the check rather than silently probing the previous values.

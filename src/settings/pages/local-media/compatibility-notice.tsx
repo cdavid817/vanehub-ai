@@ -23,6 +23,11 @@ const ERROR_KEYS: Partial<Record<LocalMediaErrorCode, string>> = {
   TTS_PHONEMIZER_DATA_UNAVAILABLE: "localMedia.errors.ttsPhonemizerDataUnavailable",
 };
 
+/** The localized message key for a vendor-compatibility code, or `undefined` for anything else. */
+export function compatibilityMessageKey(code: LocalMediaErrorCode): string | undefined {
+  return ERROR_KEYS[code];
+}
+
 export function compatibilityCodeOf(status: EngineStatus | undefined): LocalMediaErrorCode | null {
   if (!status || status.readiness.state !== "unavailable") return null;
   return status.readiness.code in ERROR_KEYS ? status.readiness.code : null;

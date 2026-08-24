@@ -47,4 +47,6 @@ pub(crate) use staged_input::{
     sanitize_display_name, sniff_media, OcrMediaType, SniffedFormat, StagedInputRecord,
     StagedOcrSource,
 };
-pub(crate) use validation::{first_error, validate_profile, ProfileFieldIssue};
+pub(crate) use validation::{
+    classify_model_paths, first_error, validate_profile, PathClassification, ProfileFieldIssue,
+};

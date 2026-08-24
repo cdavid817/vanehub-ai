@@ -447,6 +447,7 @@ fn a_transcribe_call_reaches_the_worker_unchanged() {
     let fixture = fixture(vec![]);
     let call = WorkerCall::Transcribe(SttWorkerRequest {
         audio_path: PathBuf::from("/tmp/local-media/recordings/lmr-1/input.wav"),
+        bypass_voice_activity_filter: false,
     });
     assert!(fixture
         .supervisor

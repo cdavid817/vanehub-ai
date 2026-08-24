@@ -1,5 +1,6 @@
 //! Local-media use cases.
 
+mod canary;
 mod cleanup;
 mod execute;
 mod ocr;

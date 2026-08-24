@@ -1,6 +1,9 @@
 use super::super::engine::LocalMediaEngine;
 use super::super::error::LocalMediaErrorCode;
-use super::super::validation::{first_error, is_valid_path, validate_profile, ProfileFieldIssue};
+use super::super::validation::{
+    classify_model_paths, first_error, is_valid_path, validate_profile, PathClassification,
+    ProfileFieldIssue, CLASSIFIED_MODEL_FIELDS,
+};
 use super::*;
 
 /// Absolute on the host that is running the test. Hard-coding one spelling would make the suite
@@ -361,4 +364,67 @@ fn missing_json_fields_fall_back_to_disabled_defaults() {
     assert_eq!(profile.ocr.max_pdf_pages, 20);
     assert_eq!(profile.stt.beam_size, 5);
     assert_eq!(profile.tts.model_kind, TtsModelKind::Vits);
+}
+
+// ------------------------------------------------- model path classification ---
+
+fn classified(profile: &LocalMediaProfile, field: &str) -> PathClassification {
+    classify_model_paths(profile)
+        .into_iter()
+        .find(|entry| entry.field == field)
+        .unwrap_or_else(|| panic!("{field} is not classified"))
+}
+
+#[test]
+fn every_model_related_field_is_classified() {
+    // The inventory is the point: a field that stops being classified is a field whose path
+    // problems stop being explainable to the user.
+    let profile = base();
+    let entries = classify_model_paths(&profile);
+    assert_eq!(entries.len(), CLASSIFIED_MODEL_FIELDS.len());
+    for (engine, field) in CLASSIFIED_MODEL_FIELDS {
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.engine == *engine && entry.field == *field),
+            "{field} missing"
+        );
+    }
+}
+
+#[test]
+fn spaces_and_non_ascii_are_described_independently() {
+    let mut profile = base();
+    profile.ocr.text_detection_model_dir = Some(absolute("models/plain"));
+    profile.ocr.text_recognition_model_dir = Some(absolute("models/with space"));
+    profile.stt.model_directory = absolute("模型/whisper");
+
+    let plain = classified(&profile, "textDetectionModelDir");
+    assert!(!plain.contains_spaces && !plain.contains_non_ascii && plain.configured);
+
+    let spaced = classified(&profile, "textRecognitionModelDir");
+    assert!(spaced.contains_spaces && !spaced.contains_non_ascii);
+
+    // Described, not condemned: CTranslate2 reads this path, and only a failed canary makes it an
+    // error. A classifier that treated non-ASCII as invalid would break users who are fine.
+    let wide = classified(&profile, "modelDirectory");
+    assert!(wide.contains_non_ascii);
+}
+
+#[test]
+fn an_unconfigured_field_is_marked_unconfigured_rather_than_clean() {
+    let mut profile = base();
+    profile.tts.data_dir = None;
+    let entry = classified(&profile, "dataDir");
+    assert!(!entry.configured);
+    assert!(!entry.contains_spaces && !entry.contains_non_ascii);
+}
+
+#[test]
+fn a_classification_never_carries_the_path() {
+    let mut profile = base();
+    profile.tts.model_path = absolute("home/someone/声音/voice.onnx");
+    let rendered = format!("{:?}", classify_model_paths(&profile));
+    assert!(!rendered.contains("someone"));
+    assert!(!rendered.contains("voice.onnx"));
 }

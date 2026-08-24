@@ -20,6 +20,7 @@ fn runtime(engines: Vec<EngineStatus>) -> LocalMediaRuntimeStatus {
         enabled: true,
         profile_revision: 3,
         engines,
+        path_classifications: Vec::new(),
     }
 }
 
@@ -57,6 +58,7 @@ fn only_ready_permits_an_operation() {
         EngineReadiness::RestartRequired,
         EngineReadiness::Unavailable {
             code: LocalMediaErrorCode::ModelNotFound,
+            field: None,
         },
     ] {
         assert!(
@@ -73,6 +75,7 @@ fn one_failed_engine_does_not_disable_the_others() {
             LocalMediaEngine::Ocr,
             EngineReadiness::Unavailable {
                 code: LocalMediaErrorCode::EngineImportFailed,
+                field: None,
             },
         ),
         status(LocalMediaEngine::Stt, EngineReadiness::Ready),
@@ -174,6 +177,7 @@ fn worker_running_covers_only_idle_and_busy() {
 fn readiness_serializes_as_a_tagged_state_with_a_stable_code() {
     let json = serde_json::to_value(EngineReadiness::Unavailable {
         code: LocalMediaErrorCode::PythonNotFound,
+        field: None,
     })
     .expect("serialize readiness");
     assert_eq!(json["state"], "unavailable");

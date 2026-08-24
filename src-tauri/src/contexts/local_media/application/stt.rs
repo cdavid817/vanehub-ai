@@ -170,7 +170,11 @@ impl LocalMediaApplicationService {
         self.advance(operation_id, LocalMediaPhase::Processing);
         let outcome = self.inner.workers.call(
             snapshot,
-            WorkerCall::Transcribe(SttWorkerRequest { audio_path }),
+            WorkerCall::Transcribe(SttWorkerRequest {
+                audio_path,
+                // A real utterance: the user's own voice-activity setting decides.
+                bypass_voice_activity_filter: false,
+            }),
             flag,
         );
 
