@@ -151,8 +151,6 @@ export interface SessionLogExportResult {
   path: string | null;
 }
 
-export type ShellConnectionState = "connecting" | "connected" | "disconnected" | "failed";
-
 export type ShellRuntimeKind = "native" | "remote" | "simulated" | "unavailable";
 
 /**
@@ -187,28 +185,3 @@ export type ShellRuntimeDescriptor =
       reasonCode: string;
       remediation?: string;
     };
-
-export interface ShellSession {
-  shellId: string;
-  sessionId: string;
-  state: ShellConnectionState;
-  runtime: ShellRuntimeDescriptor;
-}
-
-export interface CreateShellInput {
-  sessionId: string;
-  rows: number;
-  cols: number;
-  /** Which participant owns this shell. Absent in a single-seat session, which has only one. */
-  seatId?: string | null;
-}
-
-export interface ResizeShellInput {
-  shellId: string;
-  rows: number;
-  cols: number;
-}
-
-export type ShellEvent =
-  | { type: "output"; shellId: string; sessionId: string; content: string }
-  | { type: "state"; shellId: string; sessionId: string; state: ShellConnectionState; error?: string };

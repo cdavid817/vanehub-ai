@@ -404,8 +404,7 @@ type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.SessionLogQuery, SessionWorkspaceTypes.SessionLogQuery>>,
   Assert<Equal<SessionWorkspaceContracts.SessionLogPage, SessionWorkspaceTypes.SessionLogPage>>,
   Assert<Equal<SessionWorkspaceContracts.SessionLogExportResult, SessionWorkspaceTypes.SessionLogExportResult>>,
-  Assert<Equal<SessionWorkspaceContracts.ShellSession, SessionWorkspaceTypes.ShellSession>>,
-  Assert<Equal<SessionWorkspaceContracts.ShellEvent, SessionWorkspaceTypes.ShellEvent>>,
+  Assert<Equal<SessionWorkspaceContracts.ShellRuntimeDescriptor, SessionWorkspaceTypes.ShellRuntimeDescriptor>>,
 ];
 
 type ContextQualityAssertions = [

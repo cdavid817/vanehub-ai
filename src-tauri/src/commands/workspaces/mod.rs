@@ -14,8 +14,3 @@ pub(crate) mod search_session_files;
 pub(crate) mod select_project_directory;
 pub(crate) mod session_shell;
 mod session_shell_dto;
-pub(crate) mod shell_cd;
-pub(crate) mod shell_create;
-pub(crate) mod shell_input;
-pub(crate) mod shell_kill;
-pub(crate) mod shell_resize;

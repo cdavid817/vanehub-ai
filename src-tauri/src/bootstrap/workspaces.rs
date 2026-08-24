@@ -4,15 +4,14 @@ use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
     SessionShellRegistry, ShellCapacities, ShellStore, WorkspaceApplicationService,
-    WorkspaceQueryApplicationService, WorkspaceShellApplicationService,
+    WorkspaceQueryApplicationService,
 };
 use crate::contexts::workspaces::infrastructure::{
-    PortablePtyShellRuntime, RetainedLocalShellRuntime, RetainedRemoteShellRuntime,
-    RoutedShellRuntime, SessionWorkspaceQueryAdapter, SqliteSessionShellWorkspace,
-    SqliteShellWorkspaceAdapter, SqliteWorkspaceHistoryRepository, SystemShellClock,
-    SystemWorkspaceClock, TauriProjectDirectorySelection, TauriSessionShellNotices,
-    TauriWorkspaceShellEventPublisher, UuidShellIds, UuidWorkspaceShellId,
-    WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceShellLoggingAdapter,
+    RetainedLocalShellRuntime, RetainedRemoteShellRuntime, RoutedShellRuntime,
+    SessionWorkspaceQueryAdapter, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
+    SqliteWorkspaceHistoryRepository, SystemShellClock, SystemWorkspaceClock,
+    TauriProjectDirectorySelection, TauriSessionShellNotices, UuidShellIds,
+    WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -34,20 +33,7 @@ pub(crate) fn assemble_workspace_api(
         app.clone(),
     ));
     let queries = WorkspaceQueryApplicationService::new(review_adapter.clone());
-    let shell_events = Arc::new(TauriWorkspaceShellEventPublisher::new(app.clone()));
-    let shell_logging = Arc::new(WorkspaceShellLoggingAdapter::new(logging.clone()));
     let shell_workspaces = Arc::new(SqliteShellWorkspaceAdapter::new(database.clone()));
-    let shell = WorkspaceShellApplicationService::new(
-        shell_workspaces.clone(),
-        Arc::new(PortablePtyShellRuntime::new(
-            shell_events.clone(),
-            shell_logging.clone(),
-        )),
-        Arc::new(UuidWorkspaceShellId),
-        shell_events,
-        shell_logging,
-        evidence.clone(),
-    );
     let shells = assemble_session_shell_registry(
         database.clone(),
         app.clone(),
@@ -62,7 +48,7 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(TauriProjectDirectorySelection::new(app)),
         Arc::new(SystemWorkspaceClock),
     );
-    WorkspaceApi::new(service, queries, shell, review_adapter, shells)
+    WorkspaceApi::new(service, queries, review_adapter, shells)
 }
 
 /// How often idle Shells are considered for reclamation.

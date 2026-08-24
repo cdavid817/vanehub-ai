@@ -11,7 +11,7 @@ import {
   statusFixture,
 } from "./web-session-workspace-fixtures";
 import { sessionWorkspaceLimits } from "../session-workspace/session-workspace-limits";
-import type { FileContent, ShellEvent, ShellSession } from "../types/session-workspace";
+import type { FileContent } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../types/folder-opener";
 
 type SessionWorkspaceMethods = Pick<
@@ -24,12 +24,6 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitDiff"
   | "listSessionLogs"
   | "exportSessionLogs"
-  | "createShell"
-  | "writeShellInput"
-  | "resetShellDirectory"
-  | "resizeShell"
-  | "killShell"
-  | "subscribeShellEvents"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
   | "getFolderOpenerPreferences"
@@ -38,10 +32,6 @@ type SessionWorkspaceMethods = Pick<
   | "subscribeFolderOpenerEvents"
 >;
 
-
-let nextShellId = 1;
-const shells = new Map<string, ShellSession>();
-const shellSubscribers = new Map<string, Set<(event: ShellEvent) => void>>();
 
 const mockOpeners: FolderOpenerAvailability[] = [
   ["vscode", "editor", true],
@@ -68,10 +58,6 @@ let mockPreferences: FolderOpenerPreferences = {
   fallbackActive: false,
 };
 const openerSubscribers = new Set<() => void>();
-
-function publishShellEvent(event: ShellEvent) {
-  shellSubscribers.get(event.shellId)?.forEach((handler) => handler(event));
-}
 
 export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async listFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
@@ -134,50 +120,5 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   async exportSessionLogs() {
     return { status: "unavailable", path: null };
-  },
-  async createShell(input) {
-    const shell: ShellSession = {
-      shellId: `web-shell-${nextShellId}`,
-      sessionId: input.sessionId,
-      state: "connected",
-      runtime: { kind: "simulated", supportsResize: false, supportsReplay: true, supportsReconnect: false },
-    };
-    nextShellId += 1;
-    shells.set(shell.shellId, shell);
-    return shell;
-  },
-  async writeShellInput(shellId, content) {
-    const shell = shells.get(shellId);
-    if (!shell) throw new Error(`Mock shell not found: ${shellId}`);
-    publishShellEvent({
-      type: "output",
-      shellId,
-      sessionId: shell.sessionId,
-      content: `\r\n[WEB MOCK] ${content.replace(/[\r\n]+$/u, "")}\r\nmock> `,
-    });
-  },
-  async resetShellDirectory(shellId) {
-    const shell = shells.get(shellId);
-    if (!shell) throw new Error(`Mock shell not found: ${shellId}`);
-    publishShellEvent({ type: "output", shellId, sessionId: shell.sessionId, content: "\r\n[WEB MOCK] cd <session-root>\r\nmock> " });
-  },
-  async resizeShell(input) {
-    if (!shells.has(input.shellId)) throw new Error(`Mock shell not found: ${input.shellId}`);
-  },
-  async killShell(shellId) {
-    const shell = shells.get(shellId);
-    if (!shell) return;
-    shells.delete(shellId);
-    publishShellEvent({ type: "state", shellId, sessionId: shell.sessionId, state: "disconnected" });
-  },
-  async subscribeShellEvents(shellId, handler) {
-    const subscribers = shellSubscribers.get(shellId) ?? new Set<(event: ShellEvent) => void>();
-    subscribers.add(handler);
-    shellSubscribers.set(shellId, subscribers);
-    return () => {
-      const current = shellSubscribers.get(shellId);
-      current?.delete(handler);
-      if (current?.size === 0) shellSubscribers.delete(shellId);
-    };
   },
 };

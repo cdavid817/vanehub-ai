@@ -93,7 +93,6 @@ import type {
   OnePieceProviderService,
 } from "./api-provider-service";
 import type {
-  CreateShellInput,
   DirectoryListing,
   DocumentListing,
   FileContent,
@@ -101,12 +100,9 @@ import type {
   GitDiffResult,
   GitDiffSource,
   GitStatusResult,
-  ResizeShellInput,
   SessionLogExportResult,
   SessionLogPage,
   SessionLogQuery,
-  ShellEvent,
-  ShellSession,
 } from "../types/session-workspace";
 import type { SkillBindingService, SkillCatalogService, SkillOverlayService } from "./skill-service";
 import type { PromptHookService } from "./prompt-hook-service";
@@ -213,12 +209,6 @@ export interface AgentService extends
   saveFolderOpenerPreferences(input: SaveFolderOpenerPreferencesInput): Promise<FolderOpenerPreferences>;
   openSessionFolder(sessionId: string, openerId: FolderOpenerId): Promise<OpenSessionFolderResult>;
   subscribeFolderOpenerEvents(handler: () => void): Promise<() => void>;
-  createShell(input: CreateShellInput): Promise<ShellSession>;
-  writeShellInput(shellId: string, content: string): Promise<void>;
-  resetShellDirectory(shellId: string): Promise<void>;
-  resizeShell(input: ResizeShellInput): Promise<void>;
-  killShell(shellId: string): Promise<void>;
-  subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
 }
 

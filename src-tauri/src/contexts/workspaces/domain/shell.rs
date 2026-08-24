@@ -21,12 +21,6 @@ impl TerminalDimensions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ShellHost {
-    Windows,
-    Unix,
-}
-
 /// What a Session Shell runtime can actually do. The capabilities travel with the variant so a
 /// caller cannot ask a simulated shell to resize a PTY it does not have, and a remote shell
 /// carries the witnesses that identify which connection it belongs to — the previous
@@ -76,16 +70,6 @@ impl ShellRuntimeDescriptor {
     }
 }
 
-pub(crate) fn reset_directory_command(root: &str, host: ShellHost) -> String {
-    match host {
-        ShellHost::Windows => format!("cd /d \"{root}\"\r\n"),
-        ShellHost::Unix => {
-            let escaped = root.replace('\'', "'\"'\"'");
-            format!("cd '{escaped}'\n")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,17 +79,5 @@ mod tests {
         assert_eq!(TerminalDimensions::bounded(0, 0).rows(), 1);
         assert_eq!(TerminalDimensions::bounded(800, 900).cols(), 500);
         assert_eq!(TerminalDimensions::bounded(24, 80).cols(), 80);
-    }
-
-    #[test]
-    fn reset_directory_commands_preserve_platform_escaping() {
-        assert_eq!(
-            reset_directory_command("C:\\folder with spaces", ShellHost::Windows),
-            "cd /d \"C:\\folder with spaces\"\r\n"
-        );
-        assert_eq!(
-            reset_directory_command("/work/it's here", ShellHost::Unix),
-            "cd '/work/it'\"'\"'s here'\n"
-        );
     }
 }

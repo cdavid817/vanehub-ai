@@ -1,10 +1,9 @@
 use super::dto;
 use crate::contexts::workspaces::api::{
-    CreateShellRequest, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult,
-    KnownProject, KnownRemoteWorkspace, ProjectInspection, ResizeShellRequest,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext,
-    ShellRuntimeDescriptor, ShellSession, WorkspaceLogLevel,
+    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile, GitDiffHunk,
+    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
+    ProjectInspection, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    SessionWorkspaceContext, ShellRuntimeDescriptor, WorkspaceLogLevel,
 };
 
 pub(super) fn known_project_to_dto(project: KnownProject) -> dto::KnownProject {
@@ -238,32 +237,6 @@ pub(super) fn session_log_export_to_dto(
     }
 }
 
-pub(super) fn create_shell_request_from_dto(input: dto::CreateShellInput) -> CreateShellRequest {
-    CreateShellRequest {
-        session_id: input.session_id,
-        rows: input.rows,
-        cols: input.cols,
-        seat_id: input.seat_id.filter(|value| !value.trim().is_empty()),
-    }
-}
-
-pub(super) fn resize_shell_request_from_dto(input: dto::ResizeShellInput) -> ResizeShellRequest {
-    ResizeShellRequest {
-        shell_id: input.shell_id,
-        rows: input.rows,
-        cols: input.cols,
-    }
-}
-
-pub(super) fn shell_session_to_dto(shell: ShellSession) -> dto::ShellSession {
-    dto::ShellSession {
-        shell_id: shell.shell_id,
-        session_id: shell.session_id,
-        state: shell.state,
-        runtime: shell_runtime_to_dto(shell.runtime),
-    }
-}
-
 pub(super) fn shell_runtime_to_dto(runtime: ShellRuntimeDescriptor) -> dto::ShellRuntimeDescriptor {
     let supports_resize = runtime.supports_resize();
     let supports_replay = runtime.supports_replay();
@@ -449,49 +422,6 @@ mod tests {
         assert_eq!(query.cursor.as_deref(), Some("20"));
         assert_eq!(query.limit, Some(10));
         assert_eq!(git_diff_source_from_dto(source), GitDiffSource::Working);
-    }
-
-    #[test]
-    fn shell_command_dtos_preserve_camel_case_input_and_session_output() {
-        let create: dto::CreateShellInput = serde_json::from_value(json!({
-            "sessionId": "session-1",
-            "rows": 24,
-            "cols": 80
-        }))
-        .expect("create shell DTO");
-        let resize: dto::ResizeShellInput = serde_json::from_value(json!({
-            "shellId": "shell-1",
-            "rows": 30,
-            "cols": 100
-        }))
-        .expect("resize shell DTO");
-        let create = create_shell_request_from_dto(create);
-        let resize = resize_shell_request_from_dto(resize);
-        let output = shell_session_to_dto(ShellSession {
-            shell_id: "shell-1".to_string(),
-            session_id: "session-1".to_string(),
-            state: "connected",
-            runtime: ShellRuntimeDescriptor::Native,
-        });
-
-        assert_eq!(create.session_id, "session-1");
-        assert_eq!((create.rows, create.cols), (24, 80));
-        assert_eq!(resize.shell_id, "shell-1");
-        assert_eq!((resize.rows, resize.cols), (30, 100));
-        assert_eq!(
-            serde_json::to_value(output).expect("shell session DTO"),
-            json!({
-                "shellId": "shell-1",
-                "sessionId": "session-1",
-                "state": "connected",
-                "runtime": {
-                    "kind": "native",
-                    "supportsResize": true,
-                    "supportsReplay": true,
-                    "supportsReconnect": false
-                }
-            })
-        );
     }
 
     /// The frontend narrows on `kind`, so every variant's wire shape is pinned here rather than

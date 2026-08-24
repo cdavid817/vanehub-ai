@@ -1,6 +1,5 @@
 export type {
   BoundedResult,
-  CreateShellInput,
   DirectoryEntry,
   DirectoryEntryKind,
   DirectoryListing,
@@ -19,7 +18,6 @@ export type {
   GitDiffSource,
   GitStatusEntry,
   GitStatusResult,
-  ResizeShellInput,
   SessionDocument,
   SessionLogEntry,
   SessionLogExportResult,
@@ -28,26 +26,12 @@ export type {
   SessionLogPage,
   SessionLogQuery,
   SessionWorkspaceContext,
-  ShellConnectionState,
-  ShellEvent,
   ShellRuntimeDescriptor,
   ShellRuntimeKind,
-  ShellSession,
   WorkspaceAvailability,
 } from "../types/session-workspace";
 
-import type {
-  ShellConnectionState as ShellConnectionStateType,
-  ShellRuntimeDescriptor as ShellRuntimeDescriptorType,
-  ShellSession as ShellSessionType,
-} from "../types/session-workspace";
-
-const shellConnectionStates: ShellConnectionStateType[] = [
-  "connecting",
-  "connected",
-  "disconnected",
-  "failed",
-];
+import type { ShellRuntimeDescriptor as ShellRuntimeDescriptorType } from "../types/session-workspace";
 
 /**
  * Capabilities are derived from the runtime kind instead of being read off the wire. A transport
@@ -84,19 +68,4 @@ export function normalizeShellRuntimeDescriptor(value: unknown): ShellRuntimeDes
     default:
       throw invalid;
   }
-}
-
-export function normalizeShellSession(value: unknown): ShellSessionType {
-  const invalid = new Error("Invalid shell session.");
-  if (!value || typeof value !== "object") throw invalid;
-  const shell = value as Record<string, unknown>;
-  if (typeof shell.shellId !== "string" || shell.shellId.length === 0) throw invalid;
-  if (typeof shell.sessionId !== "string" || shell.sessionId.length === 0) throw invalid;
-  if (!shellConnectionStates.includes(shell.state as ShellConnectionStateType)) throw invalid;
-  return {
-    shellId: shell.shellId,
-    sessionId: shell.sessionId,
-    state: shell.state as ShellConnectionStateType,
-    runtime: normalizeShellRuntimeDescriptor(shell.runtime),
-  };
 }

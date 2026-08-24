@@ -10,11 +10,9 @@ import type {
   GitStatusResult,
   SessionLogExportResult,
   SessionLogPage,
-  ShellEvent,
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
-import { normalizeShellSession } from "../contracts/session-workspace";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
@@ -26,12 +24,6 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitDiff"
   | "listSessionLogs"
   | "exportSessionLogs"
-  | "createShell"
-  | "writeShellInput"
-  | "resetShellDirectory"
-  | "resizeShell"
-  | "killShell"
-  | "subscribeShellEvents"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
   | "getFolderOpenerPreferences"
@@ -82,25 +74,5 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   exportSessionLogs(input) {
     return invoke<SessionLogExportResult>("export_session_logs", { input });
-  },
-  async createShell(input) {
-    return normalizeShellSession(await invoke<unknown>("shell_create", { input }));
-  },
-  async writeShellInput(shellId, content) {
-    await invoke<void>("shell_input", { shellId, content });
-  },
-  async resetShellDirectory(shellId) {
-    await invoke<void>("shell_cd", { shellId });
-  },
-  async resizeShell(input) {
-    await invoke<void>("shell_resize", { input });
-  },
-  async killShell(shellId) {
-    await invoke<void>("shell_kill", { shellId });
-  },
-  async subscribeShellEvents(shellId, handler) {
-    return listen<ShellEvent>("shell:event", (event) => {
-      if (event.payload.shellId === shellId) handler(event.payload);
-    });
   },
 };

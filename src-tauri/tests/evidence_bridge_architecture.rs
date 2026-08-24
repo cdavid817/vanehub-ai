@@ -221,8 +221,11 @@ fn production_never_constructs_a_no_op_evidence_publisher() {
 fn every_producer_constructor_requires_an_evidence_publisher() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/contexts");
     let constructors = [
+        // Shell evidence moved here with the one-view service's retirement: the retained registry
+        // is now the only thing that opens or closes a Session Shell, so it is the only thing that
+        // can report one.
         (
-            "workspaces/application/shell_service.rs",
+            "workspaces/application/session_shell_registry.rs",
             "evidence: Arc<dyn WorkspaceEvidencePort>",
         ),
         (

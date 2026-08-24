@@ -8,29 +8,24 @@ mod service;
 mod session_shell;
 mod session_shell_registry;
 mod session_shell_store;
-mod shell_service;
 
 pub(crate) use error::WorkspaceApplicationError;
-#[cfg(test)]
-pub(crate) use evidence::NoWorkspaceEvidence;
 pub(crate) use evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use models::{
-    CreateShellRequest, CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing,
-    FileContent, FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk,
-    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, KnownProject,
-    KnownRemoteWorkspace, ResizeShellRequest, SessionDocument, SessionLogEntry,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellEvent,
-    ShellLaunch, ShellLog, ShellRemoteEndpoint, ShellSession, ShellSshBinding, ShellWorkspace,
-    ShellWorkspacePolicy, WorkspaceLogLevel,
+    CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
+    FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine,
+    GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, KnownProject,
+    KnownRemoteWorkspace, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, SessionWorkspaceContext, ShellLog, ShellRemoteEndpoint, ShellSshBinding,
+    ShellWorkspace, ShellWorkspacePolicy, WorkspaceLogLevel,
 };
 pub(crate) use ports::{
     ProjectDirectorySelectionPort, WorkspaceClockPort, WorkspaceFilesystemPort, WorkspaceGitPort,
     WorkspaceHistoryRepository, WorkspaceSessionQueryPort, WorkspaceShellContextPort,
-    WorkspaceShellEventPort, WorkspaceShellIdPort, WorkspaceShellLogPort,
-    WorkspaceShellRuntimePort,
+    WorkspaceShellLogPort,
 };
 pub(crate) use query_service::WorkspaceQueryApplicationService;
 pub(crate) use review::{
@@ -48,13 +43,10 @@ pub(crate) use session_shell::{
 };
 pub(crate) use session_shell_registry::SessionShellRegistry;
 pub(crate) use session_shell_store::ShellStore;
-pub(crate) use shell_service::WorkspaceShellApplicationService;
 
 #[cfg(test)]
 mod session_shell_retention_tests;
 #[cfg(test)]
 mod session_shell_tests;
-#[cfg(test)]
-mod shell_tests;
 #[cfg(test)]
 mod tests;

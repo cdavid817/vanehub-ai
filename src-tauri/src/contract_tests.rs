@@ -273,14 +273,37 @@ fn workspace_query_command_registration_and_frontend_invokes_keep_stable_names()
         "get_session_git_diff",
         "list_session_logs",
         "export_session_logs",
-        "shell_create",
-        "shell_input",
-        "shell_cd",
-        "shell_resize",
-        "shell_kill",
     ] {
         assert!(
             native_registration.contains(&format!("commands::workspaces::{command}::{command}")),
+            "native command registration missing {command}"
+        );
+        assert!(
+            tauri_client.contains(&format!("\"{command}\"")),
+            "frontend invoke missing {command}"
+        );
+    }
+}
+
+/// The retained Session Shell commands live in one grouped module, so their registration path is
+/// `session_shell::<command>` rather than a module per command.
+#[test]
+fn session_shell_command_registration_and_frontend_invokes_keep_stable_names() {
+    let native_registration = command_registration_source();
+    let tauri_client = include_str!("../../src/services/tauri-session-shell-client.ts");
+    for command in [
+        "list_session_shells",
+        "create_session_shell",
+        "attach_session_shell",
+        "detach_session_shell",
+        "write_session_shell",
+        "resize_session_shell",
+        "rename_session_shell",
+        "close_session_shell",
+    ] {
+        assert!(
+            native_registration
+                .contains(&format!("commands::workspaces::session_shell::{command}")),
             "native command registration missing {command}"
         );
         assert!(

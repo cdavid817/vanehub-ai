@@ -1,11 +1,11 @@
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, ShellEvent, ShellLaunch, ShellLog,
-    ShellWorkspace, WorkspaceApplicationError,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, ShellLog, ShellWorkspace,
+    WorkspaceApplicationError,
 };
 use crate::contexts::workspaces::domain::{
-    ProjectInspection, ProjectPath, RemoteWorkspace, TerminalDimensions, WorktreeName,
+    ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
 };
 
 pub(crate) trait WorkspaceHistoryRepository: Send + Sync {
@@ -162,35 +162,11 @@ pub(crate) trait WorkspaceShellContextPort: Send + Sync {
     ) -> Result<ShellWorkspace, WorkspaceApplicationError>;
 }
 
-pub(crate) trait WorkspaceShellRuntimePort: Send + Sync {
-    fn open_shell(&self, launch: &ShellLaunch) -> Result<(), WorkspaceApplicationError>;
-
-    fn write_input(&self, shell_id: &str, content: &str) -> Result<(), WorkspaceApplicationError>;
-
-    fn reset_directory(&self, shell_id: &str) -> Result<(), WorkspaceApplicationError>;
-
-    fn resize(
-        &self,
-        shell_id: &str,
-        dimensions: TerminalDimensions,
-    ) -> Result<(), WorkspaceApplicationError>;
-
-    fn stop(&self, shell_id: &str) -> Result<Option<String>, WorkspaceApplicationError>;
-
-    fn stop_for_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Vec<(String, String)>, WorkspaceApplicationError>;
-}
-
-pub(crate) trait WorkspaceShellIdPort: Send + Sync {
-    fn next_shell_id(&self) -> String;
-}
-
-pub(crate) trait WorkspaceShellEventPort: Send + Sync {
-    fn publish(&self, event: ShellEvent);
-}
-
+/// Where a remote terminal's own diagnostics go.
+///
+/// The only shell-shaped port left here. Its Session Shell counterparts went with the one-view
+/// service they served; this one belongs to the remote terminal capability, which has its own
+/// lifecycle and its own logging.
 pub(crate) trait WorkspaceShellLogPort: Send + Sync {
     fn write(&self, log: ShellLog);
 }

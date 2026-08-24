@@ -35,9 +35,7 @@ pub(crate) use session_shell::{
     ShellStream, ShellTitle,
 };
 pub(crate) use session_shell_replay::{shell_reason, ShellReplayBuffer, ShellReplaySnapshot};
-pub(crate) use shell::{
-    reset_directory_command, ShellHost, ShellRuntimeDescriptor, TerminalDimensions,
-};
+pub(crate) use shell::{ShellRuntimeDescriptor, TerminalDimensions};
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};
 
 #[cfg(test)]

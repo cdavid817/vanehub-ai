@@ -4,16 +4,14 @@ pub(crate) use super::application::{
     WriteSessionShellRequest,
 };
 pub(crate) use super::application::{
-    CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
-    FileSearchListing, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
-    GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, ResizeShellRequest,
-    ReviewDiffFile, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
-    WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel, WorkspaceReviewPort,
+    CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
+    GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
+    GitStatusResult, KnownProject, KnownRemoteWorkspace, ReviewDiffFile, ReviewRevertReceipt,
+    ReviewRevertRequest, ReviewSnapshot, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    SessionWorkspaceContext, WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
+    WorkspaceReviewPort,
 };
-use super::application::{
-    WorkspaceApplicationService, WorkspaceQueryApplicationService, WorkspaceShellApplicationService,
-};
+use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationService};
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
@@ -31,7 +29,6 @@ use std::sync::Arc;
 pub(crate) struct WorkspaceApi {
     service: WorkspaceApplicationService,
     queries: WorkspaceQueryApplicationService,
-    shell: WorkspaceShellApplicationService,
     review: Arc<dyn WorkspaceReviewPort>,
     shells: Arc<SessionShellRegistry>,
 }
@@ -63,14 +60,12 @@ impl WorkspaceApi {
     pub(crate) fn new(
         service: WorkspaceApplicationService,
         queries: WorkspaceQueryApplicationService,
-        shell: WorkspaceShellApplicationService,
         review: Arc<dyn WorkspaceReviewPort>,
         shells: Arc<SessionShellRegistry>,
     ) -> Self {
         Self {
             service,
             queries,
-            shell,
             review,
             shells,
         }
@@ -320,34 +315,7 @@ impl WorkspaceApi {
         .map_err(|_| WorkspaceError::Storage("session file search task failed".to_string()))?
     }
 
-    pub(crate) fn create_shell(
-        &self,
-        request: &CreateShellRequest,
-    ) -> Result<ShellSession, WorkspaceError> {
-        self.shell.create_shell(request)
-    }
-
-    pub(crate) fn write_shell_input(
-        &self,
-        shell_id: &str,
-        content: &str,
-    ) -> Result<(), WorkspaceError> {
-        self.shell.write_input(shell_id, content)
-    }
-
-    pub(crate) fn reset_shell_directory(&self, shell_id: &str) -> Result<(), WorkspaceError> {
-        self.shell.reset_directory(shell_id)
-    }
-
-    pub(crate) fn resize_shell(&self, request: &ResizeShellRequest) -> Result<(), WorkspaceError> {
-        self.shell.resize_shell(request)
-    }
-
-    pub(crate) fn kill_shell(&self, shell_id: &str) -> Result<(), WorkspaceError> {
-        self.shell.kill_shell(shell_id)
-    }
-
-    /// Ends every Shell a session owns, retained ones included.
+    /// Ends every Shell a session owns.
     ///
     /// Called on the "this session is done" edge — archive and delete — and on no other. A retained
     /// Shell outlives its view by design, so nothing else would ever close it: the session it
@@ -357,7 +325,7 @@ impl WorkspaceApi {
         for descriptor in self.shells.list(Some(session_id)) {
             let _ = self.shells.close(&descriptor.shell_id);
         }
-        self.shell.kill_for_session(session_id)
+        Ok(())
     }
 
     pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
