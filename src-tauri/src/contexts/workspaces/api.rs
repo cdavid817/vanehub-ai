@@ -7,7 +7,7 @@ pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
     GitStatusResult, KnownProject, KnownRemoteWorkspace, ReviewDiffFile, ReviewRevertReceipt,
-    ReviewRevertRequest, ReviewSnapshot, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    ReviewRevertRequest, ReviewSnapshot, SessionLogExportResult, SessionLogQuery,
     SessionWorkspaceContext, WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
     WorkspaceReviewPort,
 };
@@ -252,24 +252,10 @@ impl WorkspaceApi {
         .map_err(|_| WorkspaceError::Storage("git diff task failed".to_string()))?
     }
 
-    pub(crate) fn list_session_logs(
-        &self,
-        query: &SessionLogQuery,
-    ) -> Result<SessionLogPage, WorkspaceError> {
-        self.queries.list_logs(query)
-    }
-
-    /// Async wrapper for log listing, which reads and filters whole log files.
-    pub(crate) async fn list_session_logs_blocking(
-        &self,
-        query: SessionLogQuery,
-    ) -> Result<SessionLogPage, WorkspaceError> {
-        let api = self.clone();
-        tauri::async_runtime::spawn_blocking(move || api.list_session_logs(&query))
-            .await
-            .map_err(|_| WorkspaceError::Storage("session logs task failed".to_string()))?
-    }
-
+    // The interactive log query moved to the operations-owned index. Nothing here scans log
+    // files for a query any more: a fallback would be a second implementation with different
+    // bounds and different coverage semantics, reached exactly when a reader is least able to
+    // tell which one answered. Export still reads the redacted files, which is what an export is.
     pub(crate) fn export_session_logs(
         &self,
         query: &SessionLogQuery,

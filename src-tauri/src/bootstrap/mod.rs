@@ -13,6 +13,9 @@ mod evidence_bridge;
 mod evidence_bridge_tests;
 mod execution_observability;
 mod extensions;
+mod log_index_bridge;
+#[cfg(test)]
+mod log_index_bridge_tests;
 mod managed_mcp_relay;
 mod mcp;
 mod operations;
@@ -51,10 +54,14 @@ pub(crate) use execution_observability::{
     relay_telemetry, start_evidence_maintenance_job, start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
+pub(crate) use log_index_bridge::{start_log_index_bridge, LogIndexBridgeWorker};
 pub(crate) use mcp::assemble_mcp_api;
 #[cfg(test)]
 pub(crate) use operations::assemble_agent_runs_api;
-pub(crate) use operations::{assemble_agent_runs_api_with_recovery, assemble_operations_api};
+pub(crate) use operations::{
+    assemble_agent_runs_api_with_recovery, assemble_operations_api, assemble_session_log_api,
+    start_log_index_repair_job,
+};
 pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;

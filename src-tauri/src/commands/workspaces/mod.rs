@@ -12,5 +12,7 @@ mod mapper;
 pub(crate) mod read_session_file;
 pub(crate) mod search_session_files;
 pub(crate) mod select_project_directory;
+pub(crate) mod session_log_index;
+pub(crate) mod session_log_mapper;
 pub(crate) mod session_shell;
 mod session_shell_dto;

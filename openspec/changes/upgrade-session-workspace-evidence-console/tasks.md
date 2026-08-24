@@ -159,9 +159,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 8. Operations-Owned Log Query Index and Live Logs
 
-- [ ] 8.1 Define an `operations` application contract for indexed session-log queries, coverage, backfill status, live notices, and safe export preparation.
-- [ ] 8.2 Add additive SQLite migrations for the redacted log query index, correlation indexes, source-file checkpoints, gaps, and repair status.
-- [ ] 8.3 Publish an already-redacted log record notice from `platform::logging` after durable file append; do not expose unredacted input to the indexer.
+- [x] 8.1 Define an `operations` application contract for indexed session-log queries, coverage, backfill status, live notices, and safe export preparation.
+- [x] 8.2 Add additive SQLite migrations for the redacted log query index, correlation indexes, source-file checkpoints, gaps, and repair status.
+- [x] 8.3 Publish an already-redacted log record notice from `platform::logging` after durable file append; do not expose unredacted input to the indexer.
 - [ ] 8.4 Implement idempotent index insertion keyed by stable record id and source file/offset witness.
 - [ ] 8.5 Implement stable keyset pagination and structured filters for level, text, session, run, trace, span, operation, agent, seat, and time.
 - [ ] 8.6 Add complete/indexing/partial/unavailable coverage with oldest/newest/indexed-through timestamps and dropped counts.

@@ -204,6 +204,12 @@ pub(crate) struct SessionLogPage {
     pub(crate) items: Vec<SessionLogEntry>,
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// What the index can honestly claim about this page.
+    ///
+    /// Additive: a client that predates the field keeps working, and one that reads it stops
+    /// rendering an incomplete answer as a definitive one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) coverage: Option<super::session_log_mapper::SessionLogCoverageDto>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

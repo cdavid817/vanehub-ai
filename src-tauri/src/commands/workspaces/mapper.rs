@@ -2,8 +2,8 @@ use super::dto;
 use crate::contexts::workspaces::api::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile, GitDiffHunk,
     GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
-    ProjectInspection, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    SessionWorkspaceContext, ShellRuntimeDescriptor, WorkspaceLogLevel,
+    ProjectInspection, SessionLogExportResult, SessionLogQuery, SessionWorkspaceContext,
+    ShellRuntimeDescriptor, WorkspaceLogLevel,
 };
 
 pub(super) fn known_project_to_dto(project: KnownProject) -> dto::KnownProject {
@@ -189,15 +189,6 @@ fn log_level_from_dto(level: dto::WorkspaceLogLevel) -> WorkspaceLogLevel {
     }
 }
 
-fn log_level_to_dto(level: WorkspaceLogLevel) -> dto::WorkspaceLogLevel {
-    match level {
-        WorkspaceLogLevel::Error => dto::WorkspaceLogLevel::Error,
-        WorkspaceLogLevel::Warn => dto::WorkspaceLogLevel::Warn,
-        WorkspaceLogLevel::Info => dto::WorkspaceLogLevel::Info,
-        WorkspaceLogLevel::Debug => dto::WorkspaceLogLevel::Debug,
-    }
-}
-
 pub(super) fn session_log_query_from_dto(query: dto::SessionLogQuery) -> SessionLogQuery {
     SessionLogQuery {
         session_id: query.session_id,
@@ -206,25 +197,6 @@ pub(super) fn session_log_query_from_dto(query: dto::SessionLogQuery) -> Session
         seat_id: query.seat_id.filter(|value| !value.trim().is_empty()),
         cursor: query.cursor,
         limit: query.limit,
-    }
-}
-
-pub(super) fn session_log_page_to_dto(page: SessionLogPage) -> dto::SessionLogPage {
-    dto::SessionLogPage {
-        items: page
-            .items
-            .into_iter()
-            .map(|entry| dto::SessionLogEntry {
-                id: entry.id,
-                timestamp: entry.timestamp,
-                level: log_level_to_dto(entry.level),
-                category: entry.category,
-                message: entry.message,
-                context: entry.context,
-            })
-            .collect(),
-        truncated: page.truncated,
-        next_cursor: page.next_cursor,
     }
 }
 
@@ -359,12 +331,6 @@ mod tests {
             files: Vec::new(),
             truncated: false,
         });
-        let logs = session_log_page_to_dto(SessionLogPage {
-            items: Vec::new(),
-            truncated: true,
-            next_cursor: Some("25".to_string()),
-        });
-
         assert_eq!(
             serde_json::to_value(directory).expect("directory DTO"),
             json!({
@@ -393,10 +359,6 @@ mod tests {
                 "files": [],
                 "truncated": false
             })
-        );
-        assert_eq!(
-            serde_json::to_value(logs).expect("log DTO"),
-            json!({"items": [], "truncated": true, "nextCursor": "25"})
         );
     }
 

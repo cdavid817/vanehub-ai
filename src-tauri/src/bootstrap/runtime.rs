@@ -56,6 +56,13 @@ pub(crate) fn run() {
                 if let Some(bridge) = app.try_state::<super::EvidenceBridgeShutdown>() {
                     bridge.shutdown();
                 }
+                // Drains the receipts already queued. Bounded by the queue's own capacity, because
+                // the sender is dropped first and the worker then sees the channel close.
+                if let Some(worker) =
+                    app.try_state::<std::sync::Arc<super::LogIndexBridgeWorker>>()
+                {
+                    worker.shutdown();
+                }
             }
             // Retained Shells outlive their views by design, so nothing else closes them. Joining
             // each runtime's workers here is the difference between a clean exit and a window that
@@ -125,6 +132,31 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     );
     let (evidence_bridge, evidence_bridge_worker) =
         super::start_evidence_bridge(execution_evidence_api.clone());
+    // Installed before anything else logs, so the index sees the startup records too. The sink is
+    // process-wide because `write_entry` is reached from every layer, including the ones that log
+    // while this function is still assembling.
+    let (log_index_bridge, log_index_worker) = super::start_log_index_bridge(
+        std::sync::Arc::new(
+            crate::contexts::operations::infrastructure::SqliteLogIndexRepository::new(
+                database.clone(),
+            ),
+        ),
+        std::sync::Arc::new(
+            crate::contexts::operations::infrastructure::TauriLogNoticePublisher::new(
+                app.handle().clone(),
+            ),
+        ),
+    );
+    crate::platform::log_receipts::set_append_sink(Box::new(log_index_bridge));
+    let session_log_api = super::assemble_session_log_api(
+        database.clone(),
+        app.handle().clone(),
+        fallback_log_directory.clone(),
+    );
+    // Brings the index up to date with whatever the files already hold, off the startup path.
+    // Queries answer with `indexing` coverage until it finishes, which is the honest report: the
+    // rows are real and the set is not yet final.
+    super::start_log_index_repair_job(session_log_api.clone());
     crate::contexts::desktop::infrastructure::install_main_webview_recovery(
         app.handle(),
         fallback_log_directory.clone(),
@@ -388,6 +420,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(super::EvidenceBridgeShutdown::new(evidence_bridge_worker));
+    app.manage(log_index_worker);
+    app.manage(session_log_api);
     super::start_evidence_maintenance_job(
         execution_evidence_api.clone(),
         fallback_log_directory.clone(),

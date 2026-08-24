@@ -515,6 +515,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "execution-evidence-journal",
         crate::contexts::execution_observability::infrastructure::apply_evidence_schema,
     )?;
+    apply_migration(
+        conn,
+        82,
+        "unified-log-query-index",
+        crate::contexts::operations::infrastructure::apply_log_query_index_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
 
@@ -615,6 +621,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
     (81, "execution-evidence-journal"),
+    (82, "unified-log-query-index"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

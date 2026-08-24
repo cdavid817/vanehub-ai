@@ -1,8 +1,9 @@
+use super::log_receipts::{publish_append_receipt, LogSourceWitness, RedactedLogAppendReceipt};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
@@ -36,6 +37,17 @@ pub enum LogLevel {
     Debug,
 }
 
+impl LogLevel {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
@@ -44,6 +56,14 @@ pub struct LogEntry {
     pub category: String,
     pub message: String,
     pub context: BTreeMap<String, String>,
+    /// The record's own identity, assigned before the append and written into the line.
+    ///
+    /// Optional on the way in and always present on the way out: a caller has no reason to invent
+    /// one, and every line written from here on carries one so a retry, a restart, and a backfill
+    /// of the same line all present the same id. Lines written before this field existed have
+    /// `None`, and a reader derives a deterministic legacy id from where the line sits instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -105,14 +125,74 @@ pub fn write_entry(log_dir: &Path, entry: LogEntry) -> Result<(), LogStoreError>
     let log_dir = validate_log_dir(log_dir)?;
     maintain_log_dir(&log_dir, Utc::now())?;
     let path = log_dir.join(LOG_FILE_NAME);
-    let line = serde_json::to_string(&redact_entry(entry))
+    // The id is assigned before the line is serialized, so what lands on disk and what a consumer
+    // is told are the same identity rather than two that have to be matched up afterwards.
+    let mut redacted = redact_entry(entry);
+    let record_id = redacted
+        .record_id
+        .get_or_insert_with(|| uuid::Uuid::new_v4().to_string())
+        .clone();
+    let line = serde_json::to_string(&redacted)
         .map_err(|error| LogStoreError::Storage(error.to_string()))?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(path)
+        .open(&path)
         .map_err(|error| LogStoreError::Storage(error.to_string()))?;
-    writeln!(file, "{line}").map_err(|error| LogStoreError::Storage(error.to_string()))
+    // The offset before the write is where this line begins. Read from the handle rather than
+    // computed from a running total, because another process appending to the same file would make
+    // a computed total point somewhere else.
+    let offset = file.seek(SeekFrom::End(0)).unwrap_or_default();
+    writeln!(file, "{line}").map_err(|error| LogStoreError::Storage(error.to_string()))?;
+
+    // Published after the append succeeded, and only then. A receipt for a line that is not on disk
+    // would let a consumer index a record no later repair could find a source for.
+    publish_append_receipt(RedactedLogAppendReceipt {
+        record_id,
+        source: LogSourceWitness {
+            directory_generation: directory_generation(&log_dir),
+            file_id: active_file_id(&path),
+            offset,
+        },
+        timestamp: redacted.timestamp,
+        level: redacted.level.token(),
+        category: redacted.category,
+        message: redacted.message,
+        context: redacted.context,
+    });
+    Ok(())
+}
+
+/// A stable name for the directory a corpus lives in.
+///
+/// Used rather than the path itself so a consumer's checkpoints from one directory cannot attach
+/// to sources in another: a directory change replaces the corpus, and rows indexed from the old
+/// one must not let the new one claim to be complete.
+pub(crate) fn directory_generation(log_dir: &Path) -> String {
+    format!("{:016x}", stable_hash(&log_dir.to_string_lossy()))
+}
+
+/// A stable name for one file generation.
+///
+/// Derived from the path plus the file's creation witness where the platform offers one, so a
+/// truncate-and-recreate at the same path is a different generation with its own offsets. Falling
+/// back to the path alone is the honest degradation: it keeps rotation working, and a recreated
+/// file at the same path is then caught by the offset conflict rather than by the name.
+pub(crate) fn active_file_id(path: &Path) -> String {
+    let witness = fs::metadata(path)
+        .ok()
+        .and_then(|metadata| metadata.created().ok())
+        .and_then(|created| created.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_nanos())
+        .unwrap_or_default();
+    format!("{:016x}-{witness:x}", stable_hash(&path.to_string_lossy()))
+}
+
+fn stable_hash(value: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub(crate) fn write_message_raw(
@@ -130,6 +210,7 @@ pub(crate) fn write_message_raw(
             category: category.to_string(),
             message: message.to_string(),
             context,
+            record_id: None,
         },
     )
 }
@@ -367,6 +448,7 @@ pub(crate) fn redact_log_fields(
         category: String::new(),
         message: message.to_string(),
         context,
+        record_id: None,
     });
     (entry.message, entry.context)
 }

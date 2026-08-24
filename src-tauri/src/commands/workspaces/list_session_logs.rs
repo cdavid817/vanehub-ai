@@ -1,16 +1,21 @@
-use super::{dto, mapper};
-use crate::commands::error::{map_command_error, CommandError};
-use crate::contexts::workspaces::api::WorkspaceApi;
+use super::{dto, session_log_mapper};
+use crate::commands::error::CommandError;
+use crate::contexts::operations::log_api::SessionLogApi;
 use tauri::State;
 
+/// Reads one page of session logs from the operations-owned index.
+///
+/// The command name and the DTO are unchanged; what moved is where the rows come from. There is no
+/// fallback to scanning log files: a fallback would be a second query implementation with different
+/// filters, different bounds and different coverage semantics, reached exactly when a reader is
+/// least able to tell which one answered. When the index cannot answer, it says so.
 #[tauri::command]
 pub(crate) async fn list_session_logs(
-    api: State<'_, WorkspaceApi>,
+    logs: State<'_, SessionLogApi>,
     input: dto::SessionLogQuery,
 ) -> Result<dto::SessionLogPage, CommandError> {
-    let query = mapper::session_log_query_from_dto(input);
-    api.list_session_logs_blocking(query)
+    logs.query_blocking(session_log_mapper::indexed_query_from_dto(input))
         .await
-        .map(mapper::session_log_page_to_dto)
-        .map_err(map_command_error)
+        .map(session_log_mapper::indexed_page_to_dto)
+        .map_err(session_log_mapper::log_command_error)
 }
