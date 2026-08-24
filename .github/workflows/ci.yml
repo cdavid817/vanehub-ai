@@ -345,6 +345,29 @@ jobs:
       - name: Native cargo build
         run: cargo build --manifest-path src-tauri/Cargo.toml
 
+      # The relay privacy contract is a Windows DACL, and this leg is the only place a GitHub
+      # Windows runner executes it. It is targeted rather than a full workspace run because the
+      # question is narrow: what does the ACL actually look like on this host.
+      #
+      # The guard matters as much as the command. A libtest filter that matches nothing exits 0
+      # and reads exactly like a pass -- which is how the original filter for this test, missing
+      # its `tests::` segment, selected zero tests and reported success. So the run is required
+      # to prove a test ran before either outcome is believed.
+      - name: Windows relay DACL contract reading
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          output=$(cargo test --workspace \
+            private_relay_fs::tests::windows_directory_and_file_dacls_allow_only_the_current_user \
+            -- --nocapture 2>&1)
+          status=$?
+          echo "$output"
+          if ! grep -q "running 1 test" <<< "$output"; then
+            echo "::error::the filter selected no test; a zero-match run is not a pass"
+            exit 1
+          fi
+          exit $status
+
       - name: Windows Skill Tool hostile fixtures (declarative-only)
         if: runner.os == 'Windows'
         run: cargo test --manifest-path src-tauri/Cargo.toml skill_tool --lib
