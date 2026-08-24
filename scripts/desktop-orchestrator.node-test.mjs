@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { clearTimeout, setTimeout } from "node:timers";
@@ -12,6 +12,7 @@ import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, ownedProcessIds } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
 import { createRunContext, disposeRunContext, validateIsolatedDataPath } from "./desktop/run-context.mjs";
+import { cliFixtureIsCurrent } from "../tests/desktop/wdio-cli-fixture.mjs";
 
 const exists = async (target) => access(target).then(() => true, () => false);
 
@@ -85,6 +86,27 @@ test("gives every run its own webdriver port and its own OS home", async () => {
 
   await disposeRunContext(first);
   await disposeRunContext(second);
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
+test("rebuilds the fixture CLI only when its source is newer than the committed binary", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-fixture-test-"));
+  const source = path.join(tempRoot, "opencode.rs");
+  const binary = path.join(tempRoot, "opencode.exe");
+
+  assert.equal(await cliFixtureIsCurrent(source, binary), false, "nothing built yet");
+
+  await writeFile(source, "fn main() {}\n");
+  await writeFile(binary, "");
+  // Three layers call `prepareCliFixture`, and by the time the second one does, an earlier layer
+  // has run this stub. Windows had not released the handle, so `rustc` could not write the file and
+  // the layer died at config load with `LNK1104` before a single spec ran.
+  assert.equal(await cliFixtureIsCurrent(source, binary), true, "committed binary is current");
+
+  await writeFile(source, "fn main() { println!(\"changed\"); }\n");
+  await utimes(source, new Date(Date.now() + 10_000), new Date(Date.now() + 10_000));
+  assert.equal(await cliFixtureIsCurrent(source, binary), false, "a newer source still rebuilds");
+
   await rm(tempRoot, { recursive: true, force: true });
 });
 

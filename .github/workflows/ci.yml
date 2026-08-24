@@ -669,17 +669,12 @@ jobs:
       - name: CLI context tests
         run: cargo test --workspace tooling::cli
 
-      - name: Build the desktop test artifact
-        run: npm run test:desktop:build
-
-      - name: Run the CLI management layer on Linux
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:desktop:cli-management
-
-      - name: Run the CLI management layer
-        if: runner.os != 'Linux'
-        run: npm run test:desktop:cli-management
-
+      # One invocation, not a build and a targeted layer and then this. `npm run test:desktop`
+      # already builds the artifact and runs all six layers, CLI management among them, so running
+      # the pieces first only built the desktop app twice in one job. That was not free: on the
+      # macOS and Windows runners the second build left the suite failing on persistence -- no
+      # session surviving in the database, a workspace still on its bootstrap shell -- while the
+      # same layers passed in the smoke job that built once.
       - name: Run every native desktop layer on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:desktop
