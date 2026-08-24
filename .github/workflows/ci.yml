@@ -644,15 +644,35 @@ jobs:
             build-essential \
             clang \
             curl \
+            dbus-x11 \
             file \
+            gnome-keyring \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libsecret-1-0 \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             mold \
             patchelf \
             wget \
             xvfb
+
+      # An empty credential store, which a hosted runner does not have. Several specs store and
+      # then clear a value of their own -- an IM connector token, a provider config -- and without
+      # any store at all the platform reports "A default keychain could not be found" or "No
+      # default store has been set", which fails them for the absence of the store rather than for
+      # anything about the code.
+      #
+      # Empty and throwaway on purpose: nothing real is put in it. Provisioning a *credential*
+      # would break this gate's rules; provisioning somewhere to put one does not.
+      - name: Create an empty keychain
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p "" vanehub-e2e.keychain
+          security set-keychain-settings -lut 21600 vanehub-e2e.keychain
+          security unlock-keychain -p "" vanehub-e2e.keychain
+          security default-keychain -s vanehub-e2e.keychain
+          security list-keychains -d user -s vanehub-e2e.keychain
 
       - name: Install npm dependencies
         run: npm ci
@@ -675,9 +695,15 @@ jobs:
       # macOS and Windows runners the second build left the suite failing on persistence -- no
       # session surviving in the database, a workspace still on its bootstrap shell -- while the
       # same layers passed in the smoke job that built once.
+      # `dbus-run-session` gives gnome-keyring a bus to register its secret service on; without one
+      # the daemon starts and nothing can reach it, which reads exactly like having no store.
       - name: Run every native desktop layer on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:desktop
+        run: |
+          xvfb-run -a dbus-run-session -- bash -c '
+            echo -n "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
+            npm run test:desktop
+          '
 
       - name: Run every native desktop layer
         if: runner.os != 'Linux'

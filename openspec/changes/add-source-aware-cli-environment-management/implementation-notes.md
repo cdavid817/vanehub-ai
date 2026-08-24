@@ -817,3 +817,92 @@ passes with the other 35 left alone.
 at 162/164. Unblocking 14.17 needs the host-dependent smoke specs either given a
 provisioned CLI Agent on the runners or converted to the repository's BLOCKED
 convention -- a decision about the desktop gate, not about this change.
+
+## Round 8: two gates, and the one spec still standing between them and green
+
+Round 7 ended by naming the choice: provision a real Agent on the runners, or
+change what the gate is. Provisioning is what this change's own side-effect rules
+forbid, so the gate changed.
+
+### The decision, recorded before the code
+
+`specs/desktop-runtime-verification/spec.md` in this change now defines two gates
+as requirements rather than as a convention:
+
+- **Required Hermetic Desktop Gate** -- every pull request, all three native
+  runners, temporary HOME/PATH/user-data/SQLite, fixture CLI and package manager,
+  no real provider, credential, vendor network, or user state. Any failing
+  required spec fails the gate.
+- **External Provider Desktop Suite** -- real CLI, login, and model response;
+  manual, scheduled, or protected-label trigger only; never a required check;
+  `BLOCKED` when its prerequisites are absent, and `BLOCKED` is not `PASSED`.
+
+A third requirement makes the split enforceable rather than aspirational: every
+spec carries exactly one classification, and the desktop unit tests fail on an
+unclassified spec, a manifest entry with no file, a required spec declaring an
+external prerequisite, an external spec reaching the required command, or a
+replaced spec naming a replacement that does not exist.
+
+### Classification
+
+`tests/desktop/spec-manifest.mjs` is the source of truth. 31 entries, no
+unclassified spec.
+
+| Gate | Count | Specs |
+| --- | --- | --- |
+| `required-fixture` | 29 | every `domain-*`, `ui-*`, `feature-sweep`, `screen-sweep`, `sessions`, `smoke` |
+| `external-provider` | 1 | `native-flows` -- real npm global install, real host Python environment, real SSH |
+| `duplicate-replaced` | 2 | `ui-cli-management`, `domain-cli-install`, both replaced by `specs-cli-management/cli-lifecycle` |
+
+`native-flows` is the only genuinely external file: every case in it already
+refused to run without an explicit opt-in variable, which is the shape of an
+external-suite spec rather than a gate spec. Everything else verifies this
+application's behaviour -- process lifecycle, session creation, tabs, operations,
+cancellation, persistence, PATH resolution, the Agent Runtime boundary -- which a
+fixture can stand up, so per the rule above none of it was moved out.
+
+### Fixture Agents, reusing what exists
+
+The gate places a fixture executable for all five managed Agent names --
+`claude`, `codex`, `gemini`, `opencode`, `agy` -- ahead of the inherited PATH.
+It is the same stub and the same protocol the CLI-terminal layer already drives,
+copied under each name rather than recompiled, so there is no second fixture
+framework. Three defects in it surfaced once it had to serve probes as well as an
+interactive session:
+
+- The POSIX stub never handled `--version` at all.
+- Neither stub exited for a non-interactive invocation, so a readiness probe such
+  as `auth list` blocked on stdin until its budget expired.
+- The fixture directory was created per config load, and wdio evaluates the
+  config in every worker -- so each spec file in one layer got a different
+  directory, a different PATH, and a different environment fingerprint.
+
+### Command semantics
+
+| Command | Meaning |
+| --- | --- |
+| `npm run test:desktop` | the required hermetic gate: build plus all six layers |
+| `npm run test:desktop:core-smoke` | launch, IPC and shutdown contract alone |
+| `npm run test:desktop:external-provider` | the external suite; `BLOCKED` without prerequisites |
+| `npm run test:desktop:all` | both, with the external result appended and never folded into the required verdict |
+
+`desktop_full_suite` runs the required gate only. A separate non-gating
+`desktop-external-provider` job runs the external suite on dispatch, schedule, or
+a protected label.
+
+### Result: still one required spec short
+
+The gate no longer needs a real Agent. On Windows, 28 of 29 required specs pass.
+`domain-loop` fails, and only inside the layer: run alone against the same
+fixture PATH, all five of its tests pass in 2.3 seconds. Its two agent-dependent
+cases fail with `agent is unavailable: Command 'codex' was not found on PATH`
+while the CLI Management page in the same run lists all five Agents as runnable
+from the fixture directory, with zero unrunnable.
+
+That is the page and the runtime disagreeing again, this time in a state only
+reachable after other specs have shared the layer's database. Chasing it further
+means changing CLI product behaviour, which this round explicitly excludes, so it
+is recorded rather than papered over. What it is not: a missing prerequisite, a
+skipped assertion, or a timeout to widen.
+
+**14.17 and 14.20 stay unchecked. Tasks remain 162/164.**

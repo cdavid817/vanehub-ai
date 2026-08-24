@@ -190,8 +190,12 @@ function coreSmokeDesktop(artifact) {
  * real integrations has nothing to say on a runner that has none, and saying `PASSED` there would
  * be the most misleading result available.
  */
+function missingExternalPrerequisites() {
+  return EXTERNAL_PREREQUISITES.filter((variable) => !process.env[variable]);
+}
+
 async function externalProviderDesktop(artifact) {
-  const missing = EXTERNAL_PREREQUISITES.filter((variable) => !process.env[variable]);
+  const missing = missingExternalPrerequisites();
   if (missing.length > 0) {
     const reason = `External provider suite: no real prerequisites on this host (${missing.join(", ")}).`;
     process.stdout.write(`Desktop external provider: BLOCKED\n${reason}\n`);
@@ -284,7 +288,10 @@ async function main() {
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
   else if (mode === "external-provider") {
-    const result = await externalProviderDesktop(await buildDesktop());
+    // Prerequisites before the build. A runner with no real Agent has nothing for this suite to
+    // verify, and spending ten minutes compiling the application to say so buys nothing.
+    const blocked = missingExternalPrerequisites().length > 0;
+    const result = await externalProviderDesktop(blocked ? null : await buildDesktop());
     // BLOCKED is a reportable outcome here, not a failure: this suite never gates.
     process.exitCode = result.status === "FAILED" ? 1 : 0;
   } else if (mode === "all" || mode === "everything") {
