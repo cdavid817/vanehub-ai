@@ -182,6 +182,27 @@ function dialogsDesktop(artifact) {
   });
 }
 
+// Opt-in only, never part of `all`: it drives the REAL codex-cli and claude-code against a real
+// requirement, so it spends model tokens and needs both CLIs authenticated on the host.
+function multiAgentRequirementDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-multi-agent-requirement",
+    config: "tests/desktop/wdio.multi-agent-requirement.conf.mjs",
+    label: "Desktop multi-agent requirement",
+    artifact,
+  });
+}
+
+// Opt-in only: a long-running three-seat feature build with real model calls.
+function multiAgentLongrunDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-multi-agent-longrun",
+    config: "tests/desktop/wdio.multi-agent-longrun.conf.mjs",
+    label: "Desktop multi-agent longrun",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -199,6 +220,8 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
+  else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "all") {
     const artifact = await buildDesktop();
     const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
