@@ -23,5 +23,5 @@
 
 - [x] 4.1 Add focused unit/component tests for layout, dialog validation, path display, recovery, help/documentation routing, and update retry behavior.
 - [x] 4.2 Run `npm run lint:ci`, `npm run test`, and `npm run build`.
-- [ ] 4.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `npm run native:panic:check`, and `cargo test --workspace` when native recovery changes.
-- [ ] 4.4 Run affected Playwright and desktop verification, then validate `openspec validate improve-desktop-usability-and-recovery --strict` and `openspec validate --specs --strict`.
+- [x] 4.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `npm run native:panic:check`, and `cargo test --workspace` when native recovery changes.
+- [x] 4.4 Run affected Playwright and desktop verification, then validate `openspec validate improve-desktop-usability-and-recovery --strict` and `openspec validate --specs --strict`.
