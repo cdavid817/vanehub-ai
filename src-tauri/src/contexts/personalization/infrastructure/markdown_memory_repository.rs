@@ -25,7 +25,10 @@ pub(crate) const DERIVED_INDEX_FILE_NAME: &str = "MEMORY.md";
 
 /// Malformed and unsafe entries are moved here rather than deleted. Losing a user's text because
 /// this build could not parse it is worse than any amount of maintenance noise.
-const QUARANTINE_DIRECTORY_NAME: &str = "quarantine";
+///
+/// Shared with legacy migration rather than duplicated: one directory is one place for a user to
+/// look, and two would mean a file could be quarantined into whichever the last writer preferred.
+pub(crate) const QUARANTINE_DIRECTORY_NAME: &str = "quarantine";
 
 const MEMORY_EXTENSION: &str = "md";
 /// Suffix used by the temporary file an update writes before it is renamed into place.
@@ -304,10 +307,21 @@ impl MemoryRepository for MarkdownMemoryRepository {
     }
 
     fn create(&self, input: CreateMemoryInput, now: DateTime<Utc>) -> Result<MemoryRecord> {
+        let id = self.ids.generate();
+        self.create_with_id(&id, input, now, now)
+    }
+
+    fn create_with_id(
+        &self,
+        id: &MemoryId,
+        input: CreateMemoryInput,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<MemoryRecord> {
         let _guard = self.lock.acquire_with_retry()?;
 
         let record = MemoryRecord {
-            id: self.ids.generate(),
+            id: id.clone(),
             name: input.name,
             description: input.description,
             memory_type: input.memory_type,
@@ -323,8 +337,8 @@ impl MemoryRepository for MarkdownMemoryRepository {
             // Starts at 1 so that "revision 0" is never a valid stored value a stale client could
             // guess its way past.
             revision: 1,
-            created_at: now,
-            updated_at: now,
+            created_at,
+            updated_at,
             verified_at: None,
             last_used_at: None,
             use_count: 0,

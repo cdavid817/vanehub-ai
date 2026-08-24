@@ -150,6 +150,57 @@ impl MigrationJournalPort for SqliteMigrationJournal {
         Ok(entries)
     }
 
+    fn claim(
+        &self,
+        entry: &MigrationJournalEntry,
+        now: DateTime<Utc>,
+    ) -> Result<MigrationJournalEntry> {
+        let conn = self.connection()?;
+        let timestamp = now.to_rfc3339_opts(SecondsFormat::Millis, true);
+        let (kind, path, table, row_id) = locator_columns(&entry.locator);
+        // `DO NOTHING` rather than `DO UPDATE`: a row that already exists describes progress this
+        // caller does not have, and overwriting it with a fresh `Discovered` entry would re-allocate
+        // a target id for a source that already has one — the duplicate-record path this exists to
+        // close.
+        conn.execute(
+            "INSERT INTO personalization_memory_migration_journal (
+                 source_id, locator_kind, locator_path, locator_table, locator_row_id,
+                 target_memory_id, stage, backup_relative_path, source_raw_sha256,
+                 source_byte_length, last_error_code, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+             ON CONFLICT(source_id) DO NOTHING",
+            params![
+                entry.source_id.as_str(),
+                kind,
+                path,
+                table,
+                row_id,
+                entry.target_memory_id.as_ref().map(MemoryId::as_str),
+                entry.stage.as_str(),
+                entry.backup_relative_path.as_deref(),
+                entry
+                    .source_fingerprint
+                    .as_ref()
+                    .map(|fingerprint| fingerprint.raw_sha256.as_str()),
+                entry
+                    .source_fingerprint
+                    .as_ref()
+                    .map(|fingerprint| i64::try_from(fingerprint.byte_length).unwrap_or(i64::MAX)),
+                entry.last_error_code.as_deref(),
+                timestamp,
+            ],
+        )
+        .map_err(storage)?;
+        drop(conn);
+        // Read back rather than assume the insert won. Whichever entry is stored is the one every
+        // racing caller must proceed with.
+        self.get(&entry.source_id)?.ok_or_else(|| {
+            PersonalizationApplicationError::Storage(
+                "a claimed journal entry vanished immediately after it was written".to_string(),
+            )
+        })
+    }
+
     fn upsert(&self, entry: &MigrationJournalEntry, now: DateTime<Utc>) -> Result<()> {
         let conn = self.connection()?;
         let now = now.to_rfc3339_opts(SecondsFormat::Millis, true);

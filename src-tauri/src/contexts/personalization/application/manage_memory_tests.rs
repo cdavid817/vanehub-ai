@@ -68,14 +68,26 @@ impl MemoryRepository for FakeFiles {
 
     fn create(&self, input: CreateMemoryInput, at: DateTime<Utc>) -> Result<MemoryRecord> {
         let index = self.next_index.fetch_add(1, Ordering::SeqCst);
-        let mut created = record(index, input.status);
+        let id = memory_id(index);
+        self.create_with_id(&id, input, at, at)
+    }
+
+    fn create_with_id(
+        &self,
+        id: &MemoryId,
+        input: CreateMemoryInput,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<MemoryRecord> {
+        let mut created = record(0, input.status);
+        created.id = id.clone();
         created.name = input.name;
         created.content = input.content;
         created.scope = input.scope;
         created.audience = input.audience;
         created.source = input.source;
-        created.created_at = at;
-        created.updated_at = at;
+        created.created_at = created_at;
+        created.updated_at = updated_at;
         self.records.lock().expect("records").push(created.clone());
         Ok(created)
     }

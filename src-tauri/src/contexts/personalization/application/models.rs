@@ -1,6 +1,9 @@
+use chrono::{DateTime, Utc};
+
 use crate::contexts::personalization::domain::{
-    MaintenanceFailure, MemoryAudience, MemoryProvenance, MemoryScope, MemorySensitivity,
-    MemorySource, MemoryStatus, MemoryType,
+    LegacySourceFingerprint, LegacySourceId, LegacySourceLocator, MaintenanceFailure,
+    MemoryAudience, MemoryProvenance, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
+    MemoryType,
 };
 
 /// Everything needed to create one memory. Deliberately has no id field: allocating the immutable
@@ -62,6 +65,78 @@ pub(crate) struct ResetCounts {
     pub(crate) workspace: usize,
     pub(crate) candidates: usize,
     pub(crate) malformed: usize,
+}
+
+/// The fields a readable legacy memory carries.
+///
+/// `memory_type` is `Option` because v1 permitted an absent or unrecognized type and degraded to
+/// untyped. Migration preserves that rather than guessing: a wrong type is worse than a missing
+/// one, and the management UI can ask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LegacyMemoryFields {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    /// The raw v1 `type` value. Mapped onto the v2 taxonomy in one place, so an unrecognized value
+    /// becomes explicitly untyped rather than being guessed at differently by two callers.
+    pub(crate) memory_type: Option<String>,
+    pub(crate) content: String,
+    pub(crate) source_agent_id: Option<String>,
+    /// The raw workspace path v1 recorded, not a workspace key. v1 stored the display path, and two
+    /// remote workspaces can share one; deriving a stable key from it is the identity resolver's
+    /// job, not this struct's.
+    pub(crate) folder: Option<String>,
+    /// Both timestamps are carried because both are real. `created_at` is what the file declared;
+    /// `modified_at` is what the filesystem knows, and it is what recency ordering used under v1 —
+    /// dropping it would put a memory the model had just corrected behind every stale one.
+    pub(crate) created_at: Option<DateTime<Utc>>,
+    pub(crate) modified_at: Option<DateTime<Utc>>,
+}
+
+/// One source as enumeration found it.
+///
+/// `fields` is `None` for a source that will not parse. That is a first-class outcome rather than a
+/// skip: the source still has a locator and a fingerprint, so it can be journalled, quarantined,
+/// and reported instead of silently vanishing the way the previous parse-dependent scan let it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiscoveredLegacySource {
+    pub(crate) locator: LegacySourceLocator,
+    /// `None` for a source whose bytes were never read — one that is unreadable, or one that
+    /// resolves outside the directory and must not be opened at all. Absent rather than a
+    /// placeholder value, so nothing downstream can compare against a fingerprint of nothing and
+    /// conclude the source is unchanged.
+    pub(crate) fingerprint: Option<LegacySourceFingerprint>,
+    pub(crate) fields: Option<LegacyMemoryFields>,
+}
+
+impl DiscoveredLegacySource {
+    pub(crate) fn source_id(&self) -> LegacySourceId {
+        self.locator.source_id()
+    }
+}
+
+/// What one migration run did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MigrationRunOutcome {
+    pub(crate) discovered: usize,
+    /// Reached `Completed` in this run.
+    pub(crate) migrated: usize,
+    /// Already terminal before this run started.
+    pub(crate) already_done: usize,
+    pub(crate) quarantined: usize,
+    /// Changed between discovery and a checkpoint. Nothing was overwritten or deleted.
+    pub(crate) source_changed: usize,
+    /// Left for the next run because the directory was held by someone else. Not a failure: the
+    /// journal still describes exactly where each source stopped, and nothing was half-applied.
+    pub(crate) deferred: usize,
+    pub(crate) failed: usize,
+    /// Codes only — never a path or a memory body, because this is reported and logged.
+    pub(crate) failure_codes: Vec<String>,
+}
+
+impl MigrationRunOutcome {
+    pub(crate) fn requires_repair(&self) -> bool {
+        self.failed > 0 || self.source_changed > 0
+    }
 }
 
 /// What the caller knows about a workspace before an identity is derived from it.

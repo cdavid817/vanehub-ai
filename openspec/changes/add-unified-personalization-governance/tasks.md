@@ -46,12 +46,12 @@
 - [x] 4.1 Implement a typed workspace identity resolver that prefers existing stable project/workspace ids and otherwise hashes the normalized root plus remote connection identity.
 - [ ] 4.2 Implement one-time migration of legacy `AppSettings` custom instruction fields and toggles into the global policy plus a OnePiece extraction override when required.
 - [ ] 4.3 Keep legacy personalization settings deserializable for the compatibility window but remove them from the new UI and runtime source-of-truth path.
-- [ ] 4.4 Implement complete v1 memory enumeration, excluding derived/temporary/lock/quarantine files by explicit rules rather than parse success.
-- [ ] 4.5 Convert each valid legacy memory to a v2 immutable-id file, active global scope, all-Agent audience, preserved content/provenance/timestamps, and `legacy_migration` source.
-- [ ] 4.6 Quarantine malformed or unsafe legacy files with diagnostic metadata instead of deleting or activating them.
-- [ ] 4.7 Write a migration manifest/backup map before removing a legacy source file and make every migration step idempotent after interruption.
+- [x] 4.4 Implement complete v1 memory enumeration, excluding derived/temporary/lock/quarantine files by explicit rules rather than parse success.
+- [x] 4.5 Convert each valid legacy memory to a v2 immutable-id file, active global scope, all-Agent audience, preserved content/provenance/timestamps, and `legacy_migration` source.
+- [x] 4.6 Quarantine malformed or unsafe legacy files with diagnostic metadata instead of deleting or activating them.
+- [x] 4.7 Write a migration manifest/backup map before removing a legacy source file and make every migration step idempotent after interruption.
 - [ ] 4.8 Rebuild the SQLite projection, `MEMORY.md`, and retrieval index from migrated active memories; set repair-required state if a derived rebuild fails.
-- [ ] 4.9 Add migration tests for empty, mixed-validity, 201+, 1,000-file, interrupted, duplicate-content, already-v2, and repeated-startup cases.
+- [x] 4.9 Add migration tests for empty, mixed-validity, 201+, 1,000-file, interrupted, duplicate-content, already-v2, and repeated-startup cases.
 - [ ] 4.10 Add a startup/application-state path that prevents memory use until migration is complete or a validated prior generation is available, without blocking unrelated application startup.
 
 ## 5. Policy Resolution and Effective Preview

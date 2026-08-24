@@ -3,15 +3,16 @@ use chrono::{DateTime, Utc};
 use super::error::PersonalizationApplicationError;
 use super::migrate_legacy_policy::MigratedPolicy;
 use super::models::{
-    CreateMemoryInput, DeleteMemoryOutcome, ResetCounts, UpdateMemoryPatch,
+    CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, ResetCounts, UpdateMemoryPatch,
     WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, MemoryCandidate, MemoryId,
-    MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter, MemoryStatus, MigrationJournalEntry,
-    MigrationState, PatchPolicyResult, PersonalizationLayers, PersonalizationPolicyPatch,
-    PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
-    ResetMemoryOutcome, ResetMemoryRequest, StorageEntry, WorkspaceIdentity, WorkspaceKey,
+    AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, LegacySourceLocator,
+    MemoryCandidate, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter,
+    MemoryStatus, MigrationJournalEntry, MigrationState, PatchPolicyResult, PersonalizationLayers,
+    PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
+    ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest, StorageEntry,
+    WorkspaceIdentity, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -74,6 +75,26 @@ pub(crate) trait MemoryRepository: Send + Sync {
     /// Create-new semantics. Never replaces an existing file, so a duplicate display name produces
     /// a second independent record instead of overwriting the first.
     fn create(&self, input: CreateMemoryInput, now: DateTime<Utc>) -> Result<MemoryRecord>;
+
+    /// Creates at a caller-chosen id. Migration only.
+    ///
+    /// Ordinary creation deliberately gives no way to propose an id, so no caller can reuse one.
+    /// Migration is the exception because its id has to be journalled *before* the file is written:
+    /// if the id were allocated at write time, a crash between the write and the journal entry
+    /// would leave an orphan file that the next run could not recognize, and it would create a
+    /// second record for the same source. Create-new semantics still apply, so a resumed run that
+    /// finds its own earlier file gets an error rather than silently overwriting it.
+    ///
+    /// Takes both timestamps because a migrated record has two real ones: the creation time its
+    /// source declared, and the modification time the filesystem knows. Ordinary creation collapses
+    /// them because for a record being created now they genuinely are the same instant.
+    fn create_with_id(
+        &self,
+        id: &MemoryId,
+        input: CreateMemoryInput,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<MemoryRecord>;
 
     fn update(
         &self,
@@ -194,6 +215,38 @@ pub(crate) trait LegacyPolicyMigrationPort: Send + Sync {
     fn commit(&self, migrated: &MigratedPolicy, now: DateTime<Utc>) -> Result<bool>;
 }
 
+/// The pre-v2 store, read for migration only.
+///
+/// Separate from every other port because its lifetime is the migration's: once no legacy source
+/// remains, nothing calls it. Keeping it apart is what makes "is anything still reading v1" a
+/// question with a grep-able answer.
+pub(crate) trait LegacyMemorySourcePort: Send + Sync {
+    /// Every application-owned legacy source, with its raw fingerprint and parsed fields.
+    ///
+    /// Complete and uncapped. Excludes the derived index, the lock file, temporaries, the backup
+    /// and quarantine directories, and anything already in v2 format — the last decided by reading
+    /// the declared schema version, never by the shape of the filename.
+    fn enumerate_sources(&self) -> Result<Vec<DiscoveredLegacySource>>;
+
+    /// Raw bytes, for fingerprinting and for the backup. Never the parsed body: a backup has to
+    /// restore the file an older build could read, which means the original bytes.
+    fn read_raw(&self, locator: &LegacySourceLocator) -> Result<Vec<u8>>;
+
+    /// Writes a byte-for-byte copy into the backup directory and returns its relative path.
+    fn write_backup(&self, locator: &LegacySourceLocator, bytes: &[u8]) -> Result<String>;
+
+    /// Re-reads a backup so its bytes can be checked against the source's fingerprint.
+    fn read_backup(&self, relative_path: &str) -> Result<Vec<u8>>;
+
+    /// Removes a legacy source. Only ever called after its backup and its v2 record are verified.
+    fn remove_source(&self, locator: &LegacySourceLocator) -> Result<()>;
+
+    /// Moves an unusable source into quarantine, returning its new relative path. Quarantine and
+    /// backup are different directories with different meanings: a backup exists so a good source
+    /// can be restored, a quarantine exists so a bad one is not lost.
+    fn quarantine_source(&self, locator: &LegacySourceLocator) -> Result<String>;
+}
+
 /// Compatibility addressing: which v2 record an old display-name-derived address points at.
 ///
 /// Typed on `LegacyAddressKey` so a source id cannot be passed here. The two identities answer
@@ -215,6 +268,18 @@ pub(crate) trait MigrationJournalPort: Send + Sync {
 
     /// Reverse lookup, so a target's journal history can be found from the record.
     fn find_by_memory(&self, memory_id: &MemoryId) -> Result<Vec<MigrationJournalEntry>>;
+
+    /// Inserts one entry only if this source has none, and returns whichever entry is stored.
+    ///
+    /// Atomic, and the reason two migrators over one directory converge instead of duplicating: the
+    /// target memory id is chosen here, before anything is written, so the loser of the race adopts
+    /// the winner's id rather than allocating a second one and producing a second record for the
+    /// same source.
+    fn claim(
+        &self,
+        entry: &MigrationJournalEntry,
+        now: DateTime<Utc>,
+    ) -> Result<MigrationJournalEntry>;
 
     /// Inserts or advances one entry. Persisted before the step it authorizes, never after.
     fn upsert(&self, entry: &MigrationJournalEntry, now: DateTime<Utc>) -> Result<()>;

@@ -1,4 +1,13 @@
 mod derived_index;
+mod legacy_memory_document;
+#[cfg(test)]
+mod legacy_memory_document_tests;
+/// End-to-end migration, assembled from the real adapters this module owns.
+#[cfg(test)]
+mod legacy_memory_migration_tests;
+mod legacy_memory_source;
+#[cfg(test)]
+mod legacy_memory_source_tests;
 mod markdown_memory_repository;
 #[cfg(test)]
 mod markdown_memory_repository_tests;
@@ -8,6 +17,8 @@ mod memory_directory_lock_tests;
 mod memory_document;
 mod memory_id_generator;
 mod schema;
+#[cfg(test)]
+mod schema_tests;
 mod sqlite_candidate_repository;
 #[cfg(test)]
 mod sqlite_candidate_repository_tests;
@@ -25,7 +36,12 @@ mod sqlite_policy_repository;
 mod sqlite_policy_repository_tests;
 
 pub(crate) use derived_index::MarkdownDerivedIndex;
-pub(crate) use markdown_memory_repository::{MarkdownMemoryRepository, DERIVED_INDEX_FILE_NAME};
+#[cfg(test)]
+pub(crate) use legacy_memory_source::LegacyOperation;
+pub(crate) use legacy_memory_source::{FileLegacyMemorySource, LEGACY_BACKUP_DIRECTORY_NAME};
+pub(crate) use markdown_memory_repository::{
+    MarkdownMemoryRepository, DERIVED_INDEX_FILE_NAME, QUARANTINE_DIRECTORY_NAME,
+};
 pub(crate) use memory_directory_lock::{
     is_lock_file, MemoryDirectoryGuard, MemoryDirectoryLock, MemoryLockRejection,
     MEMORY_LOCK_FILE_NAME,
