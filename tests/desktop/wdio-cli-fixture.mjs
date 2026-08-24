@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, copyFile, mkdtemp, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -64,9 +64,20 @@ export async function prepareManagedCliFixtures() {
   await prepareCliFixture();
   const windows = process.platform === "win32";
   const source = windows ? fixtureBinary : path.join(cliFixtureDir, "opencode");
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vanehub-agent-fixtures-"));
+  // One directory per run, not per call. wdio evaluates this config in every worker, so a fresh
+  // `mkdtemp` each time gave each spec file a different fixture directory -- and therefore a
+  // different PATH and a different environment fingerprint -- inside a single layer that shares one
+  // database. Deriving it from the run id keeps the layer's PATH identical for every spec in it.
+  const runId = process.env.VANEHUB_TEST_RUN_ID;
+  const directory = runId
+    ? path.join(os.tmpdir(), `vanehub-agent-fixtures-${runId}`)
+    : await mkdtemp(path.join(os.tmpdir(), "vanehub-agent-fixtures-"));
+  await mkdir(directory, { recursive: true });
   for (const name of MANAGED_AGENT_EXECUTABLES) {
     const target = path.join(directory, windows ? `${name}.exe` : name);
+    // Idempotent: a second worker preparing the same directory must not fail on an existing copy,
+    // and must not rewrite a binary another worker's application may already be running.
+    if (await cliFixtureIsCurrent(source, target)) continue;
     await copyFile(source, target);
     // The copy inherits the source's mode on POSIX, but only if the source is executable in the
     // checkout; setting it explicitly means a fresh clone cannot produce an Agent that will not run.

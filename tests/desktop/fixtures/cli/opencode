@@ -11,6 +11,20 @@ const READY = "VANEHUB-FIXTURE-CLI READY";
 const ECHO = "VANEHUB-FIXTURE-ECHO";
 const STOP = "vanehub-fixture-stop";
 
+if (process.argv.slice(2).includes("--version")) {
+  process.stdout.write("vanehub-fixture 1.0.0\n");
+  process.exit(0);
+}
+
+// Anything that is not a terminal is a probe, not a session: readiness checks such as `auth list`
+// run this with pipes and a bounded budget. Falling through to the interactive loop blocked on
+// stdin until that budget expired, and a timed-out probe marks the executable faulty -- which made
+// launch resolution refuse an Agent the management page had just listed as runnable.
+if (!process.stdin.isTTY) {
+  process.stdout.write(`${READY}\n`);
+  process.exit(0);
+}
+
 process.stdout.write(`${READY}\n`);
 
 let pending = "";
