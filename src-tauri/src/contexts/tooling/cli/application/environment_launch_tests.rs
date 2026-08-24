@@ -212,3 +212,93 @@ fn every_resolution_is_an_absolute_path_rather_than_a_bare_command_name() {
     assert!(std::path::Path::new(&path).is_absolute());
     assert_ne!(path, "claude");
 }
+
+#[test]
+fn installation_facts_report_the_binary_a_launch_would_actually_use() {
+    let harness = Harness::new();
+    let mut healthy = healthy_npm_installation("claude", "/opt/npm/bin/claude");
+    healthy.executable_status = CliExecutableStatus::Healthy;
+    healthy.reported_version =
+        Some(crate::contexts::tooling::cli::domain::version::NormalizedCliVersion::parse("1.2.0"));
+    save(&harness, &scanned_snapshot("claude-code", vec![healthy]));
+
+    let facts = harness
+        .service
+        .installation_facts("claude-code")
+        .expect("facts");
+
+    // The parameter context judges a flag against this version, so it has to be the version of the
+    // binary the runtime would start -- not of some other copy on the machine.
+    assert_eq!(
+        facts,
+        CliInstallationFacts {
+            installed: true,
+            runnable: true,
+            active_path: Some("/opt/npm/bin/claude".to_string()),
+            version: Some("1.2.0".to_string()),
+            conflict: false,
+        }
+    );
+}
+
+#[test]
+fn installation_facts_withhold_a_path_when_the_launch_path_refuses_one() {
+    let harness = Harness::new();
+    let mut broken = healthy_npm_installation("claude", "/opt/npm/bin/claude");
+    broken.executable_status = CliExecutableStatus::Broken;
+    save(&harness, &scanned_snapshot("claude-code", vec![broken]));
+
+    let facts = harness
+        .service
+        .installation_facts("claude-code")
+        .expect("facts");
+
+    // Installed and not runnable is a real state, and it is not the same as "nothing is there".
+    assert!(facts.installed);
+    assert!(!facts.runnable);
+    assert_eq!(facts.active_path, None);
+}
+
+#[test]
+fn installation_facts_report_a_conflict_the_snapshot_recorded() {
+    let harness = Harness::new();
+    let mut healthy = healthy_npm_installation("claude", "/opt/npm/bin/claude");
+    healthy.executable_status = CliExecutableStatus::Healthy;
+    let mut snapshot = scanned_snapshot("claude-code", vec![healthy]);
+    snapshot.conflicts = vec![CliConflict {
+        kind: CliConflictKind::PathShadowing,
+        severity: CliConflictSeverity::Warning,
+        installations: vec![CliInstallationId::new("claude").expect("id")],
+        reason_code: CliConflictKind::PathShadowing.as_str(),
+        blocks_mutation: false,
+        blocks_launch: false,
+    }];
+    save(&harness, &snapshot);
+
+    assert!(
+        harness
+            .service
+            .installation_facts("claude-code")
+            .expect("facts")
+            .conflict
+    );
+}
+
+#[test]
+fn installation_facts_answer_nothing_for_a_tool_that_was_never_scanned() {
+    let harness = Harness::new();
+    harness.discovery.set(
+        "claude-code",
+        vec![healthy_npm_installation("live", "/live/claude")],
+    );
+
+    // Deliberately no live lookup: this is a compatibility question, and answering it from a scan
+    // the page has not run would judge a parameter against a version the user cannot see.
+    assert_eq!(
+        harness
+            .service
+            .installation_facts("claude-code")
+            .expect("facts"),
+        CliInstallationFacts::default()
+    );
+}

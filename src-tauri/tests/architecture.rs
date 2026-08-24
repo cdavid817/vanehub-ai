@@ -2397,9 +2397,11 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
     // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
-    // migrations 81-83 for `cli_environment_snapshots`, `cli_version_catalogs`, and
+    // migrations 82-84 for `cli_environment_snapshots`, `cli_version_catalogs`, and
     // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
     // `migration_versions_are_unique_and_dense` plus the derived `expected_migration_versions`.
+    // Raised again from 3,029 to 3,036 on merging `upgrade-cli-parameter-management`, which
+    // registers migration 81 beside these three. Measured on the merged tree, not summed.
     //
     // The test is the point of the raise. Every worktree shares one `ai.vanehub.app` database, and
     // a duplicate version number is silently skipped rather than rejected -- it surfaces much later
@@ -2407,7 +2409,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // that collision fail a test instead of a user's launch.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_029,
+        budget: 3_036,
         owner: "split-database-migrations",
     },
 ];
