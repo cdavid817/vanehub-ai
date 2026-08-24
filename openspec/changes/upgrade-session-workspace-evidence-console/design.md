@@ -512,6 +512,23 @@ retried callback doubles a count nobody can then correct.
 | Usage observed | `usage-observed:{invocationId}` | same id | none | invocation ids are minted per model call | a re-reported observation | a new invocation |
 | Coverage gap | `coverage-gap:{sessionId}:{reason}:{bridgeInstanceId}:{generation}` | same instance and generation | generation, inside a runtime namespace | the generation is assigned once per accumulation; the instance is 64 random bits minted per bridge bootstrap | a retry after an ambiguous marker write | every new accumulation, in every runtime |
 
+Every id above is built through one bounded builder rather than by formatting a string. A source
+event id is capped at 128 characters, and several of the parts are the producer's: a tool call id,
+a delegation id, and a model invocation id are all bounded only by that same cap, so a prefix, a
+separator, and an attempt are enough to push a legal id past it. When that happened the journal
+refused the write, the bridge counted the signal as unmappable, and the console showed a coverage
+gap where a tool call should have been.
+
+The builder keeps the readable form whenever it fits, because that form is what is already stored —
+changing the shape of an id that fits would make every retry of an older event look like a new one.
+Past the cap the parts fold into `{namespace}:v1:{sha256}`, with each part length-prefixed so two
+part lists that concatenate identically cannot fold into one digest. Nothing is truncated: a
+truncated id is a shorter id that two events can share, which trades a refused write for a silent
+collision. The namespace carries the kind and the phase, the parts carry the authoritative id and
+the attempt, and the whole thing is a pure function of its inputs — so a retry converges and two
+attempts, phases, or events stay distinct. A part list that still cannot produce a valid id yields
+no event and one honest coverage gap, exactly as before.
+
 Three of these were wrong when first written and are corrected here. Two more were found by
 auditing what the corrections had left, and are corrected below them.
 

@@ -18,6 +18,7 @@ use crate::contexts::execution_observability::api::evidence::{
     ExecutionFidelity, ExecutionStatus, FileChangeKind, RecordEvidenceInput, RedactionReceipt,
     ReviewDecisionScope, ReviewDecisionValue, SafeBasename, SafeEvidencePayload, SafeFingerprint,
     SafeReasonCode, SourceEventId, SpanId, UsageQuality, VerificationOutcome,
+    MAX_IDENTIFIER_LENGTH,
 };
 use crate::contexts::operations::api::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::sessions::api::{
@@ -377,7 +378,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
             bind_agent(&mut correlation, agent_id.as_deref(), seat_id.as_deref());
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::AgentRuntime,
-                source_event_id: SourceEventId::parse(format!("run-started:{run_id}")).ok()?,
+                source_event_id: source_event_id("run-started", &[run_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Running),
@@ -402,7 +403,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
             bind_agent(&mut correlation, agent_id.as_deref(), seat_id.as_deref());
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::AgentRuntime,
-                source_event_id: SourceEventId::parse(format!("run-finished:{run_id}")).ok()?,
+                source_event_id: source_event_id("run-finished", &[run_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(match outcome {
@@ -443,12 +444,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
                 // The call id, plus the attempt when there is one. A retry of the same call is a
                 // second observation of a second execution: sharing one id would make the journal
                 // treat the retry as a duplicate of the first and drop it.
-                source_event_id: SourceEventId::parse(attempt_scoped(
-                    "tool-started",
-                    call_id,
-                    *attempt,
-                ))
-                .ok()?,
+                source_event_id: attempt_scoped("tool-started", call_id, *attempt)?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Running),
@@ -480,12 +476,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
             bind_tool(&mut correlation, span_id.as_deref(), call_id);
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::AgentRuntime,
-                source_event_id: SourceEventId::parse(attempt_scoped(
-                    "tool-finished",
-                    call_id,
-                    *attempt,
-                ))
-                .ok()?,
+                source_event_id: attempt_scoped("tool-finished", call_id, *attempt)?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(execution_status(*outcome)),
@@ -521,12 +512,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
             bind_tool(&mut correlation, span_id.as_deref(), call_id);
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::AgentRuntime,
-                source_event_id: SourceEventId::parse(attempt_scoped(
-                    "delegation-started",
-                    delegation_id,
-                    *attempt,
-                ))
-                .ok()?,
+                source_event_id: attempt_scoped("delegation-started", delegation_id, *attempt)?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Running),
@@ -561,12 +547,7 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
             bind_tool(&mut correlation, span_id.as_deref(), call_id);
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::AgentRuntime,
-                source_event_id: SourceEventId::parse(attempt_scoped(
-                    "delegation-finished",
-                    delegation_id,
-                    *attempt,
-                ))
-                .ok()?,
+                source_event_id: attempt_scoped("delegation-finished", delegation_id, *attempt)?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(execution_status(*outcome)),
@@ -587,11 +568,58 @@ fn map_agent_signal(signal: &AgentEvidenceSignal) -> Option<RecordEvidenceInput>
 /// journal treat the second as a duplicate of the first and keep only the first. An id without the
 /// attempt is used when the producer never reported one, which is the same value on every replay of
 /// that same observation — that is what makes a duplicate callback idempotent.
-fn attempt_scoped(prefix: &str, id: &str, attempt: Option<u32>) -> String {
+fn attempt_scoped(prefix: &str, id: &str, attempt: Option<u32>) -> Option<SourceEventId> {
     match attempt {
-        Some(attempt) => format!("{prefix}:{id}:{attempt}"),
-        None => format!("{prefix}:{id}"),
+        Some(attempt) => source_event_id(prefix, &[id, &attempt.to_string()]),
+        None => source_event_id(prefix, &[id]),
     }
+}
+
+/// Builds a source event id whose length does not depend on how long a producer's identifiers are.
+///
+/// The readable form is kept whenever it fits, because it is what is already stored: changing the
+/// shape of an id that fits would make every retry of an event recorded before this change look
+/// like a new event, and the journal would hold both.
+///
+/// It does not always fit. A tool call id, a delegation id, and a model invocation id all come from
+/// a provider and are bounded only by the journal's own 128-character limit, so a prefix, a
+/// separator, and an attempt are enough to push a legal id past it — and `SourceEventId::parse`
+/// then refuses, the signal is dropped as unmappable, and the console records nothing while
+/// claiming a coverage gap it cannot explain. That is the same failure the review decision id had,
+/// arriving through a different door.
+///
+/// Over the limit, the parts fold into one digest. Nothing is truncated: a truncated id is a
+/// shorter id that two different events can share, which trades a refused write for a silent
+/// collision. The digest is a pure function of the parts, so a retry of one observation produces
+/// one id, and the kind and phase ride in the namespace while the attempt and the authoritative id
+/// ride in the parts — so two attempts, two phases, and two events stay distinct.
+fn source_event_id(namespace: &str, parts: &[&str]) -> Option<SourceEventId> {
+    let readable = std::iter::once(namespace)
+        .chain(parts.iter().copied())
+        .collect::<Vec<_>>()
+        .join(":");
+    if readable.chars().count() <= MAX_IDENTIFIER_LENGTH {
+        return SourceEventId::parse(readable).ok();
+    }
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(namespace.as_bytes());
+    hasher.update([0u8]);
+    for part in parts {
+        // Length-prefixed, so `["a", "bc"]` and `["ab", "c"]` cannot fold into one digest. A
+        // separator alone would not do it: a part is free to contain the separator.
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part.as_bytes());
+    }
+    let digest = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    // `v1` names the folding scheme. Changing how parts are canonicalised later has to change this,
+    // or one event would own two identities across the versions.
+    SourceEventId::parse(format!("{namespace}:v1:{digest}")).ok()
 }
 
 /// Never upgrades. A reconstruction reported as a direct observation is a claim the runtime cannot
@@ -682,7 +710,7 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
             bind_agent(&mut correlation, None, seat_id.as_deref());
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Workspaces,
-                source_event_id: SourceEventId::parse(format!("shell-opened:{shell_id}")).ok()?,
+                source_event_id: source_event_id("shell-opened", &[shell_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Running),
@@ -709,7 +737,7 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
                 source_context: EvidenceSourceContext::Workspaces,
                 // Keyed by the shell alone, with no attempt: a shell closes once, so a replayed
                 // close converges on the event already stored rather than adding a second ending.
-                source_event_id: SourceEventId::parse(format!("shell-closed:{shell_id}")).ok()?,
+                source_event_id: source_event_id("shell-closed", &[shell_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Succeeded),
@@ -744,11 +772,17 @@ fn map_workspace_signal(signal: &WorkspaceEvidenceSignal) -> Option<RecordEviden
                 // converges. Folded into a fixed-width revision rather than pasted on: the witness
                 // is chosen by the producer, and an identity whose validity depends on how long
                 // that choice is fails silently when someone lengthens it.
-                source_event_id: SourceEventId::parse(format!(
-                    "file-mutated:{session_id}:{path_fingerprint}:{}",
-                    transition_revision(&[change_kind_token(*change_kind), witness_fingerprint])
-                ))
-                .ok()?,
+                source_event_id: source_event_id(
+                    "file-mutated",
+                    &[
+                        session_id,
+                        path_fingerprint,
+                        &transition_revision(&[
+                            change_kind_token(*change_kind),
+                            witness_fingerprint,
+                        ]),
+                    ],
+                )?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: None,
@@ -855,8 +889,7 @@ impl OperationsEvidencePort for EvidenceBridge {
             });
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Operations,
-                source_event_id: SourceEventId::parse(format!("operation-failed:{operation_id}"))
-                    .ok()?,
+                source_event_id: source_event_id("operation-failed", &[operation_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(ExecutionStatus::Failed),
@@ -958,8 +991,7 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
             });
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Sessions,
-                source_event_id: SourceEventId::parse(format!("usage-observed:{invocation_id}"))
-                    .ok()?,
+                source_event_id: source_event_id("usage-observed", &[invocation_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: None,
@@ -1003,15 +1035,17 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
                 // published, so a replay of the same transition carries the same revision. It is
                 // not a clock read here — that would mint a new identity per attempt and turn one
                 // decision into as many events as the bridge retried it.
-                source_event_id: SourceEventId::parse(format!(
-                    "review-decision:{review_id}:{}",
-                    transition_revision(&[
-                        witness_fingerprint,
-                        review_decision_token(*decision),
-                        occurred_at,
-                    ])
-                ))
-                .ok()?,
+                source_event_id: source_event_id(
+                    "review-decision",
+                    &[
+                        review_id,
+                        &transition_revision(&[
+                            witness_fingerprint,
+                            review_decision_token(*decision),
+                            occurred_at,
+                        ]),
+                    ],
+                )?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: None,
@@ -1048,10 +1082,7 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
             });
             Some(RecordEvidenceInput {
                 source_context: EvidenceSourceContext::Sessions,
-                source_event_id: SourceEventId::parse(format!(
-                    "verification:{verification_run_id}"
-                ))
-                .ok()?,
+                source_event_id: source_event_id("verification", &[verification_run_id])?,
                 occurred_at: occurred_at.clone(),
                 correlation,
                 status: Some(match outcome {
@@ -1244,12 +1275,14 @@ fn record_gap_marker(
     // second collide with the first — which the journal reports as a conflicting duplicate rather
     // than storing. The namespace is what keeps this run's generation one from colliding with the
     // previous run's, which the journal outlives.
-    let Ok(source_event_id) = SourceEventId::parse(format!(
-        "coverage-gap:{}:{}:{}",
-        session.as_str(),
-        reason.as_str(),
-        identity.as_source_fragment()
-    )) else {
+    let Some(source_event_id) = source_event_id(
+        "coverage-gap",
+        &[
+            session.as_str(),
+            reason.as_str(),
+            &identity.as_source_fragment(),
+        ],
+    ) else {
         return Err(());
     };
     let input = RecordEvidenceInput {

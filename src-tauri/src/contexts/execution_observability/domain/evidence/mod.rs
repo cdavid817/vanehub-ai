@@ -20,7 +20,7 @@ pub(crate) use event::{ExecutionEvidenceEvent, ExecutionEvidenceEventInput, Reda
 pub(crate) use identity::{
     BoundedLabel, EvidenceAgentId, EvidenceCommandId, EvidenceEventId, EvidenceFileMutationId,
     EvidenceOperationId, EvidenceSeatId, EvidenceSessionId, EvidenceSourceContext,
-    EvidenceToolCallId, SafeFingerprint, SafeReasonCode, SourceEventId,
+    EvidenceToolCallId, SafeFingerprint, SafeReasonCode, SourceEventId, MAX_IDENTIFIER_LENGTH,
 };
 pub(crate) use payload::{
     CommandRuntimeKind, EvidenceKind, EvidenceOutcome, FileChangeKind, OutputAvailability,

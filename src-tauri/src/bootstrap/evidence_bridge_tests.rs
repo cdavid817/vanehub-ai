@@ -2500,3 +2500,201 @@ fn two_equal_batches_across_restarts_are_distinct_events() {
         "a session that lost evidence in two runs reported losing it once"
     );
 }
+
+/// The longest identifier the journal accepts, which is exactly what a provider is free to send.
+fn maximal_provider_id(marker: &str) -> String {
+    let mut id = marker.to_string();
+    while id.chars().count() < 128 {
+        id.push('a');
+    }
+    id
+}
+
+/// Every source event id the journal holds, so a test can assert identity rather than counts.
+fn source_event_ids(harness: &Harness) -> Vec<String> {
+    let connection = harness.database.connection().expect("connection");
+    let mut statement = connection
+        .prepare("SELECT source_event_id FROM execution_evidence_events ORDER BY sequence")
+        .expect("prepare");
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("rows");
+    ids
+}
+
+/// A tool call id at the journal's own limit still produces an event.
+///
+/// `tool-started:` plus a 128-character call id plus an attempt is 143 characters against a
+/// 128-character bound, so the id was refused, the signal was counted as unmappable, and the
+/// console showed a coverage gap where a tool call should have been. Provider call ids are the
+/// producer's, not ours: the bound has to hold for every legal one.
+#[test]
+fn a_maximal_tool_call_id_still_records_both_phases() {
+    let harness = harness("bridge-maximal-tool-id");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    let call_id = maximal_provider_id("call-");
+
+    AgentEvidencePort::try_publish(&bridge, tool_started(&call_id, Some(2)));
+    AgentEvidencePort::try_publish(
+        &bridge,
+        tool_finished(
+            &call_id,
+            Some(2),
+            AgentEvidenceObservation::Direct,
+            AgentRunEvidenceOutcome::Succeeded,
+        ),
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    assert_eq!(gap_marker_count(&harness), 0, "a tool call became a gap");
+    let ids = source_event_ids(&harness);
+    assert_eq!(ids.len(), 2);
+    // Folded, not truncated: a truncated id is a shorter id two events can share.
+    for id in &ids {
+        assert!(id.chars().count() <= 128, "{id}");
+        assert!(id.contains(":v1:"), "{id}");
+    }
+    assert_ne!(ids[0], ids[1], "two phases of one call shared one identity");
+}
+
+/// A folded id is a pure function of its parts, so a retry converges and an attempt does not.
+#[test]
+fn a_folded_identity_is_stable_per_attempt_and_distinct_across_attempts() {
+    let harness = harness("bridge-folded-attempts");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    let call_id = maximal_provider_id("call-");
+
+    // The same attempt twice is one observation redelivered.
+    AgentEvidencePort::try_publish(&bridge, tool_started(&call_id, Some(1)));
+    AgentEvidencePort::try_publish(&bridge, tool_started(&call_id, Some(1)));
+    // A second attempt is a second execution.
+    AgentEvidencePort::try_publish(&bridge, tool_started(&call_id, Some(2)));
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    let ids = source_event_ids(&harness);
+    assert_eq!(ids.len(), 2, "a redelivered attempt became a second event");
+    assert_ne!(ids[0], ids[1], "two attempts shared one identity");
+}
+
+/// Two different part lists cannot fold into one digest.
+///
+/// Without a length prefix, `["ab", "c"]` and `["a", "bc"]` concatenate identically, and two calls
+/// whose ids differ only in where the boundary falls would collide — silently, as a replay.
+#[test]
+fn folded_identities_separate_parts_that_concatenate_the_same_way() {
+    let harness = harness("bridge-folded-boundaries");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    let stem = maximal_provider_id("call-");
+
+    // Same total characters across the id and the attempt, different boundary.
+    AgentEvidencePort::try_publish(&bridge, tool_started(&format!("{stem}1"), Some(23)));
+    AgentEvidencePort::try_publish(&bridge, tool_started(&format!("{stem}12"), Some(3)));
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    let ids = source_event_ids(&harness);
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+}
+
+/// An id that fits keeps the exact shape already stored.
+///
+/// Changing it would make every retry of an event recorded before the fold look like a new event,
+/// and the journal would then hold the same observation twice under two identities.
+#[test]
+fn an_identity_that_fits_keeps_its_readable_form() {
+    let harness = harness("bridge-readable-identity");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+    AgentEvidencePort::try_publish(&bridge, tool_started("call-1", Some(1)));
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    let ids = source_event_ids(&harness);
+    assert!(
+        ids.contains(&format!("run-started:{}", run_id(1))),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"tool-started:call-1:1".to_string()),
+        "{ids:?}"
+    );
+}
+
+/// Every producer's longest legal identifier reaches the journal.
+#[test]
+fn every_producer_bounds_its_longest_identifier() {
+    let harness = harness("bridge-longest-per-producer");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    AgentEvidencePort::try_publish(
+        &bridge,
+        AgentEvidenceSignal::DelegationStarted {
+            session_id: SESSION.to_string(),
+            run_id: run_id(1),
+            trace_id: TRACE.to_string(),
+            span_id: None,
+            parent_agent_id: Some("agent-1".to_string()),
+            seat_id: None,
+            delegation_id: maximal_provider_id("delegation-"),
+            call_id: "call-1".to_string(),
+            attempt: Some(7),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::UsageObserved {
+            session_id: SESSION.to_string(),
+            invocation_id: maximal_provider_id("invocation-"),
+            run_id: Some(run_id(1)),
+            quality: SessionUsageEvidenceQuality::Reported,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    WorkspaceEvidencePort::try_publish(
+        &bridge,
+        WorkspaceEvidenceSignal::ShellOpened {
+            session_id: SESSION.to_string(),
+            shell_id: maximal_provider_id("shell-"),
+            seat_id: None,
+            runtime: WorkspaceShellRuntimeKind::Local,
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    OperationsEvidencePort::try_publish(
+        &bridge,
+        OperationsEvidenceSignal::OperationFailed {
+            session_id: SESSION.to_string(),
+            operation_id: maximal_provider_id("operation-"),
+            run_id: None,
+            reason_code: "operation_failed".to_string(),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::VerificationCompleted {
+            session_id: SESSION.to_string(),
+            run_id: Some(run_id(1)),
+            verification_run_id: maximal_provider_id("verification-"),
+            name: "cargo test".to_string(),
+            outcome: SessionVerificationOutcome::Passed,
+            passed_count: Some(1),
+            failed_count: Some(0),
+            occurred_at: "2026-08-22T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 5));
+    worker.shutdown();
+    // Not one of them became a coverage gap, and not one of them reached the bound.
+    assert_eq!(gap_marker_count(&harness), 0);
+    assert_eq!(source_event_ids(&harness).len(), 5);
+    assert!(longest_source_event_id(&harness) <= 128);
+}

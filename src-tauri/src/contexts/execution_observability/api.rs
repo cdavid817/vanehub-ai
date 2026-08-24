@@ -44,7 +44,7 @@ pub(crate) mod evidence {
         EvidenceSourceContext, EvidenceToolCallId, ExecutionFidelity, ExecutionStatus,
         FileChangeKind, QueryCoverage, RedactionReceipt, ReviewDecisionScope, ReviewDecisionValue,
         SafeBasename, SafeEvidencePayload, SafeFingerprint, SafeReasonCode, SourceEventId, SpanId,
-        UsageQuality, VerificationOutcome,
+        UsageQuality, VerificationOutcome, MAX_IDENTIFIER_LENGTH,
     };
     pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
 }
