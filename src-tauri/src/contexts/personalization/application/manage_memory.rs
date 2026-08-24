@@ -273,9 +273,26 @@ impl MemoryApplicationService {
         Ok(())
     }
 
-    /// Every record still readable from the authoritative store.
+    /// Every record still readable from the authoritative store, bodies included.
     ///
-    /// Reads bodies, so it belongs to maintenance paths only — never to a list page.
+    /// Reads every body, so it belongs to maintenance and to the pre-governance compatibility view
+    /// — never to a list page, which is what the projection is for. Returns `Err` only when the
+    /// directory itself cannot be enumerated, so a caller can tell "no memories" from "could not
+    /// look", which the compatibility view has to fail closed on.
+    pub(crate) fn all_records(&self) -> Result<Vec<MemoryRecord>> {
+        let entries = self.maintenance.enumerate_owned_entries()?;
+        Ok(entries
+            .into_iter()
+            .filter_map(|entry| entry.memory_id)
+            .filter_map(|id| self.repository.get(&id).ok().flatten())
+            .collect())
+    }
+
+    /// Infallible variant for paths that must make progress even when enumeration fails.
+    ///
+    /// Reconciliation and reset use this deliberately: a derived rebuild that refused to run
+    /// because the directory hiccuped would leave the store in exactly the inconsistent state it
+    /// exists to repair.
     fn surviving_records(&self) -> Vec<MemoryRecord> {
         let Ok(entries) = self.maintenance.enumerate_owned_entries() else {
             return Vec::new();

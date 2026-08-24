@@ -9,6 +9,7 @@
 //! It also does not own any CLI's internal context compaction or native memory/instruction files.
 //! VaneHub governs what it injects; a wrapped CLI keeps its own context machinery.
 
+pub(crate) mod api;
 pub(crate) mod application;
 pub(crate) mod domain;
 pub(crate) mod infrastructure;
