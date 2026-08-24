@@ -98,6 +98,15 @@ def _build_engine(params: Dict[str, Any]) -> Any:
         "use_doc_unwarping": False,
         "use_textline_orientation": orientation_dir is not None,
     }
+    # Passed to the constructor, which is what reaches every pipeline stage. The global
+    # `FLAGS_use_mkldnn` was measured and does nothing here: PaddleX builds its runners from its own
+    # pipeline configuration and never reads it, so a process-wide setting would look right in
+    # review and be silently ignored at runtime.
+    acceleration = str(params.get("cpuAcceleration") or "library-default")
+    if acceleration == "disabled":
+        kwargs["enable_mkldnn"] = False
+    elif acceleration == "enabled":
+        kwargs["enable_mkldnn"] = True
     if orientation_dir is not None:
         kwargs["textline_orientation_model_dir"] = orientation_dir
     if paddlex_config is not None:
@@ -110,7 +119,14 @@ def _build_engine(params: Dict[str, Any]) -> Any:
     try:
         return PaddleOCR(**kwargs)
     except Exception as exc:  # noqa: BLE001
-        raise errors.classify_exception(exc, engine=ENGINE) from exc
+        raise errors.classify_vendor_exception(
+            exc,
+            engine=ENGINE,
+            field="textDetectionModelDir",
+            path=detection_dir or paddlex_config,
+            package_version=package_version(),
+            acceleration=acceleration,
+        ) from exc
 
 
 def _cache_key(params: Dict[str, Any]) -> str:
@@ -291,7 +307,16 @@ def ocr(params: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
         # Some builds expose only the positional form.
         raw = engine.predict(source_path)
     except Exception as exc:  # noqa: BLE001
-        raise errors.classify_exception(exc, engine=ENGINE) from exc
+        # The acceleration incompatibility surfaces here rather than at construction: the graph is
+        # accepted on load and only fails when an operator actually runs.
+        raise errors.classify_vendor_exception(
+            exc,
+            engine=ENGINE,
+            field="textDetectionModelDir",
+            path=params.get("textDetectionModelDir"),
+            package_version=package_version(),
+            acceleration=str(params.get("cpuAcceleration") or "library-default"),
+        ) from exc
 
     if raw is None:
         raw = []

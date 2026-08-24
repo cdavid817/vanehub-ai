@@ -25,6 +25,7 @@ function disabledProfile(): LocalMediaProfile {
     ocr: {
       enabled: false,
       pythonExecutable: "",
+      cpuAcceleration: "library-default",
       paddleXConfigPath: null,
       textDetectionModelDir: null,
       textRecognitionModelDir: null,

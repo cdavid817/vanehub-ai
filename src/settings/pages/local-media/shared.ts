@@ -1,6 +1,7 @@
 import type {
   LocalMediaDevice,
   LocalMediaEngine,
+  OcrCpuAcceleration,
   TtsModelKind,
   WhisperComputeType,
 } from "../../../types/local-media";
@@ -15,6 +16,15 @@ export const DEVICE_OPTIONS: ReadonlyArray<{ value: LocalMediaDevice; labelKey: 
   { value: "auto", labelKey: "localMedia.settings.device.auto" },
   { value: "cpu", labelKey: "localMedia.settings.device.cpu" },
   { value: "cuda", labelKey: "localMedia.settings.device.cuda" },
+];
+
+export const CPU_ACCELERATION_OPTIONS: ReadonlyArray<{
+  value: OcrCpuAcceleration;
+  labelKey: string;
+}> = [
+  { value: "library-default", labelKey: "localMedia.ocr.cpuAcceleration.libraryDefault" },
+  { value: "enabled", labelKey: "localMedia.ocr.cpuAcceleration.enabled" },
+  { value: "disabled", labelKey: "localMedia.ocr.cpuAcceleration.disabled" },
 ];
 
 export const COMPUTE_TYPE_OPTIONS: ReadonlyArray<{

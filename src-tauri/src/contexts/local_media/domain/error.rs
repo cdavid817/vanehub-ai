@@ -54,6 +54,12 @@ pub(crate) enum LocalMediaErrorCode {
     OperationResultExpired,
     TempStorageFailed,
     TempCleanupFailed,
+    /// Vendor-compatibility codes. Each names a third-party limitation the user can act on, which
+    /// a generic `EngineUnavailable` cannot: one is fixed by a setting, the others by moving files.
+    PaddleOnednnModelIncompatible,
+    ModelPathEncodingUnsupported,
+    TtsDataPathEncodingUnsupported,
+    TtsPhonemizerDataUnavailable,
 }
 
 impl LocalMediaErrorCode {
@@ -101,6 +107,10 @@ impl LocalMediaErrorCode {
             Self::OperationResultExpired => "OPERATION_RESULT_EXPIRED",
             Self::TempStorageFailed => "TEMP_STORAGE_FAILED",
             Self::TempCleanupFailed => "TEMP_CLEANUP_FAILED",
+            Self::PaddleOnednnModelIncompatible => "PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
+            Self::ModelPathEncodingUnsupported => "MODEL_PATH_ENCODING_UNSUPPORTED",
+            Self::TtsDataPathEncodingUnsupported => "TTS_DATA_PATH_ENCODING_UNSUPPORTED",
+            Self::TtsPhonemizerDataUnavailable => "TTS_PHONEMIZER_DATA_UNAVAILABLE",
         }
     }
 
@@ -136,7 +146,7 @@ impl LocalMediaErrorCode {
         key
     }
 
-    pub(crate) const ALL: [Self; 40] = [
+    pub(crate) const ALL: [Self; 44] = [
         Self::LocalMediaNativeOnly,
         Self::LocalMediaDisabled,
         Self::EngineDisabled,
@@ -177,6 +187,10 @@ impl LocalMediaErrorCode {
         Self::OperationResultExpired,
         Self::TempStorageFailed,
         Self::TempCleanupFailed,
+        Self::PaddleOnednnModelIncompatible,
+        Self::ModelPathEncodingUnsupported,
+        Self::TtsDataPathEncodingUnsupported,
+        Self::TtsPhonemizerDataUnavailable,
     ];
 }
 

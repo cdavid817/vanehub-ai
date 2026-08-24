@@ -1,10 +1,11 @@
 use super::*;
+
 use crate::contexts::local_media::application::worker_contract::{
     OcrWorkerRequest, SttWorkerRequest, TtsWorkerRequest,
 };
 use crate::contexts::local_media::domain::{
     ComposerScopeId, LocalMediaOperationId, LocalMediaOperationKind, LocalMediaProfile,
-    OcrMediaType, TtsModelKind,
+    OcrCpuAcceleration, OcrMediaType, TtsModelKind,
 };
 
 fn snapshot(engine: LocalMediaEngine) -> LocalMediaProfileSnapshot {
@@ -353,3 +354,55 @@ fn control_frames_reference_the_request_they_act_on() {
 // operands are compile-time constants, so this belongs to the build, not to the suite.
 const _: () = assert!(MAX_RESPONSE_FRAME_BYTES > 200_000 * 4);
 const _: () = assert!(MAX_REQUEST_FRAME_BYTES < MAX_RESPONSE_FRAME_BYTES);
+
+#[test]
+fn ocr_params_carry_the_acceleration_mode_from_the_snapshot() {
+    // The mode travels with the snapshot rather than being read live, so a settings change while an
+    // operation is in flight cannot alter the acceleration that operation was accepted under.
+    let mut snapshot = snapshot(LocalMediaEngine::Ocr);
+    assert_eq!(
+        request_params(&snapshot, &ocr_call())["cpuAcceleration"],
+        "library-default"
+    );
+
+    snapshot = snapshot_with_acceleration(OcrCpuAcceleration::Disabled);
+    assert_eq!(
+        request_params(&snapshot, &ocr_call())["cpuAcceleration"],
+        "disabled"
+    );
+
+    snapshot = snapshot_with_acceleration(OcrCpuAcceleration::Enabled);
+    assert_eq!(
+        request_params(&snapshot, &ocr_call())["cpuAcceleration"],
+        "enabled"
+    );
+}
+
+#[test]
+fn the_acceleration_mode_is_always_present_so_the_worker_never_guesses() {
+    // An absent key would leave the worker deciding for itself, which is how a mode that was
+    // explicitly chosen becomes a mode nobody can account for afterwards.
+    let snapshot = snapshot(LocalMediaEngine::Ocr);
+    assert!(request_params(&snapshot, &ocr_call())
+        .get("cpuAcceleration")
+        .is_some());
+}
+
+fn snapshot_with_acceleration(mode: OcrCpuAcceleration) -> LocalMediaProfileSnapshot {
+    let mut profile = LocalMediaProfile::disabled_default("2026-01-01T00:00:00Z".to_string());
+    profile.revision = 5;
+    profile.enabled = true;
+    profile.ocr.enabled = true;
+    profile.ocr.python_executable = "/usr/bin/python3".to_string();
+    profile.ocr.text_detection_model_dir = Some("/models/det".to_string());
+    profile.ocr.text_recognition_model_dir = Some("/models/rec".to_string());
+    profile.ocr.cpu_acceleration = mode;
+    LocalMediaProfileSnapshot::capture(
+        LocalMediaOperationId::new("lmo-0123456789abcdef0123456789abcdef"),
+        LocalMediaOperationKind::Probe,
+        LocalMediaEngine::Ocr,
+        &profile,
+        Some(ComposerScopeId::new("session-1")),
+        "2026-01-01T00:00:01Z".to_string(),
+    )
+}

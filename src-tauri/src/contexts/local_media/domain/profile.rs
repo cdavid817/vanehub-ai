@@ -83,11 +83,43 @@ impl TtsModelKind {
     }
 }
 
+/// Whether the OCR worker asks PaddleOCR to use its CPU acceleration backend.
+///
+/// Three values rather than a boolean, because "the user has not chosen" and "the user chose the
+/// library's own default" are the same state and it must not be confused with an explicit `enabled`:
+/// `LibraryDefault` passes no argument at all, leaving the decision where PaddleOCR put it.
+///
+/// This exists because paddlepaddle's oneDNN executor cannot run every graph -- PP-OCRv6 raises an
+/// unimplemented-operator error on load-and-run while the same models succeed with acceleration off.
+/// Without a field, an affected user has no recovery path; with a silent fallback, no result would be
+/// attributable to a recorded configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum OcrCpuAcceleration {
+    #[default]
+    LibraryDefault,
+    Enabled,
+    Disabled,
+}
+
+impl OcrCpuAcceleration {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::LibraryDefault => "library-default",
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct PaddleOcrProfile {
     pub(crate) enabled: bool,
     pub(crate) python_executable: String,
+    /// Not a global flag: PaddleX builds its runners from its own pipeline configuration and never
+    /// reads `FLAGS_use_mkldnn`, so a process-wide setting is silently ignored.
+    pub(crate) cpu_acceleration: OcrCpuAcceleration,
     /// A PaddleX pipeline configuration, or explicit detection + recognition directories. One of
     /// the two forms is required when the engine is enabled.
     pub(crate) paddle_x_config_path: Option<String>,
@@ -106,6 +138,7 @@ impl Default for PaddleOcrProfile {
         Self {
             enabled: false,
             python_executable: String::new(),
+            cpu_acceleration: OcrCpuAcceleration::LibraryDefault,
             paddle_x_config_path: None,
             text_detection_model_dir: None,
             text_recognition_model_dir: None,

@@ -40,6 +40,54 @@ def _model_path(params: Dict[str, Any], field: str, *, required: bool, directory
     )
 
 
+# Fields whose value reaches sherpa-onnx's native layer as a path it opens itself.
+_NATIVE_PATH_FIELDS = (
+    ("modelPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("acousticModelPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("vocoderPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("tokensPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("voicesPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("lexiconPath", errors.MODEL_PATH_ENCODING_UNSUPPORTED),
+    ("dataDir", errors.TTS_DATA_PATH_ENCODING_UNSUPPORTED),
+    ("dictDir", errors.TTS_DATA_PATH_ENCODING_UNSUPPORTED),
+)
+
+
+def _refuse_unopenable_paths(params: Dict[str, Any], resolved: Dict[str, Any]) -> None:
+    """Refuse a path this build of sherpa-onnx cannot open, before it tries.
+
+    Measured on Windows: given a data directory outside the active code page, espeak-ng fails to
+    open `phontab`, falls back to its compiled-in `/usr/share/espeak-ng-data`, and calls ``exit()``.
+    The worker dies with no exception to classify and no frame to attribute it to, so the host sees
+    an unexplained crash rather than a configuration problem.
+
+    This is the canary's answer encoded, not a blanket rule: the same check is deliberately absent
+    for faster-whisper, whose CTranslate2 backend opens these paths correctly. Revisit per field if
+    a future sherpa-onnx release fixes its path handling.
+    """
+
+    version = package_version()
+    for field, code in _NATIVE_PATH_FIELDS:
+        raw = params.get(field)
+        if not raw or str(raw).isascii():
+            continue
+        raise errors.path_encoding_error(
+            code,
+            engine=ENGINE,
+            field=field,
+            path=str(raw),
+            package_version=version,
+        )
+
+    # No pre-check for a missing phonemizer data directory, deliberately. Given a vits model with
+    # neither a data directory nor a lexicon, sherpa-onnx prints "Not a model using characters as
+    # modeling unit" and calls `exit()` -- but that message names the condition exactly: a model
+    # that *does* use characters needs neither, and refusing here on shape alone rejects those
+    # configurations too. Proven by doing it: the refusal broke a supervisor test whose voice is
+    # configured that way and works. `TTS_PHONEMIZER_DATA_UNAVAILABLE` therefore has to be raised
+    # from the crash the supervisor observes, not guessed at from the profile.
+
+
 def _validated_paths(params: Dict[str, Any]) -> Dict[str, Any]:
     """Resolve exactly the files the configured ``modelKind`` requires."""
 
@@ -52,6 +100,7 @@ def _validated_paths(params: Dict[str, Any]) -> Dict[str, Any]:
     resolved["lexicon"] = _model_path(params, "lexiconPath", required=False, directory=False) or ""
     resolved["dataDir"] = _model_path(params, "dataDir", required=False, directory=True) or ""
     resolved["dictDir"] = _model_path(params, "dictDir", required=False, directory=True) or ""
+    _refuse_unopenable_paths(params, resolved)
 
     if kind == "matcha":
         # matcha splits acoustic model and vocoder; `modelPath` is the acoustic half.

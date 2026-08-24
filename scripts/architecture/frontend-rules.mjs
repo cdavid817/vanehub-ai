@@ -77,7 +77,9 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 上面那条"旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉、随 task 10.4 一起下线"的说明
 // 已随合并作废:`c37caa4a` 把该文件删了,预留的余量也已不在这个数字里。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19942, owner: "add-local-composer-media-tools" },
+  // +1 for the OCR profile's `cpuAcceleration` default in the Web/mock adapter. The field has to
+  // exist there, or the mock profile stops satisfying the native contract it mirrors.
+  { root: "src/services", budget: 19943, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([

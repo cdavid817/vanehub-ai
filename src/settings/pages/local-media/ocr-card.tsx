@@ -4,14 +4,17 @@ import { useTranslation } from "react-i18next";
 import type {
   EngineStatus,
   LocalMediaDevice,
+  OcrCpuAcceleration,
   PaddleOcrProfile,
 } from "../../../types/local-media";
+import { CompatibilityNotice, compatibilityCodeOf } from "./compatibility-notice";
 import { EngineCard } from "./engine-card";
 import { NumberField, PathField, SelectField, TextField } from "./profile-fields";
-import { DEVICE_OPTIONS, type FieldIssueLookup } from "./shared";
+import { CPU_ACCELERATION_OPTIONS, DEVICE_OPTIONS, type FieldIssueLookup } from "./shared";
 
 export function OcrCard({
   issueFor,
+  onDisableAcceleration,
   onProbe,
   onUpdate,
   probeDisabledReasonKey,
@@ -20,6 +23,7 @@ export function OcrCard({
   status,
 }: {
   issueFor: FieldIssueLookup;
+  onDisableAcceleration: () => void;
   onProbe: () => void;
   onUpdate: (mutate: (current: PaddleOcrProfile) => PaddleOcrProfile) => void;
   probeDisabledReasonKey: string | null;
@@ -29,6 +33,7 @@ export function OcrCard({
 }) {
   const { t } = useTranslation();
   const issue = (field: string) => issueFor("ocr", field);
+  const compatibility = compatibilityCodeOf(status);
 
   return (
     <EngineCard
@@ -43,6 +48,18 @@ export function OcrCard({
       status={status}
       title={t("localMedia.settings.ocr.title")}
     >
+      {compatibility ? (
+        <CompatibilityNotice
+          code={compatibility}
+          // Only the acceleration case is actionable from here. The encoding cases are answered by
+          // the user moving files, and a button that relocated a model on their behalf would be
+          // touching files they chose without being asked.
+          onConfirm={
+            compatibility === "PADDLE_ONEDNN_MODEL_INCOMPATIBLE" ? onDisableAcceleration : undefined
+          }
+          pending={probing}
+        />
+      ) : null}
       <PathField
         hintKey="localMedia.settings.hint.pythonExecutable"
         id="local-media-ocr-python"
@@ -115,6 +132,15 @@ export function OcrCard({
         onChange={(device) => onUpdate((current) => ({ ...current, device }))}
         options={DEVICE_OPTIONS}
         value={profile.device}
+      />
+      <SelectField<OcrCpuAcceleration>
+        hintKey="localMedia.ocr.cpuAcceleration.hint"
+        id="local-media-ocr-cpu-acceleration"
+        issueKey={issue("cpuAcceleration")}
+        label={t("localMedia.ocr.cpuAcceleration.label")}
+        onChange={(cpuAcceleration) => onUpdate((current) => ({ ...current, cpuAcceleration }))}
+        options={CPU_ACCELERATION_OPTIONS}
+        value={profile.cpuAcceleration}
       />
       <NumberField
         hintKey="localMedia.settings.hint.maxPdfPages"

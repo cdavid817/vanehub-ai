@@ -53,7 +53,9 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
             <Button
               data-testid="local-media-save"
               disabled={!model.dirty || model.saveState.kind === "saving"}
-              onClick={model.save}
+              // Wrapped, not passed: `save` now takes an optional profile, and handing it straight
+              // to onClick would offer it the MouseEvent as one.
+              onClick={() => model.save()}
               type="button"
             >
               {t(model.saveState.kind === "saving" ? "localMedia.settings.saving" : "localMedia.settings.save")}
@@ -105,6 +107,12 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
 
             <OcrCard
               issueFor={issueFor}
+              // Saved through the ordinary save path, then re-probed. Nothing here retries or
+              // degrades on its own: this runs only when the user presses the confirm button.
+              onDisableAcceleration={() => {
+                model.save({ ...draft, ocr: { ...draft.ocr, cpuAcceleration: "disabled" } });
+                model.probe("ocr");
+              }}
               onProbe={() => model.probe("ocr")}
               onUpdate={(mutate) => model.update((current) => ({ ...current, ocr: mutate(current.ocr) }))}
               probeDisabledReasonKey={probeBlockedKey}

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
+from typing import Dict, Optional
 
 from . import errors
 
@@ -96,3 +96,16 @@ def diagnostic(engine: str, event: str, **fields: object) -> None:
     parts.extend(f"{key}={value}" for key, value in sorted(safe.items()))
     sys.stderr.write(" ".join(parts) + "\n")
     sys.stderr.flush()
+
+
+def path_shape(raw: Optional[str]) -> Dict[str, bool]:
+    """Describe a configured path by shape rather than by content.
+
+    The two facts a user needs when their engine cannot open a path are whether it contains spaces
+    and whether it leaves ASCII. Both are answerable without echoing a location that belongs to
+    them, which is why every vendor-compatibility error carries this instead of the path.
+    """
+
+    if not raw:
+        return {"containsSpaces": False, "containsNonAscii": False}
+    return {"containsSpaces": " " in raw, "containsNonAscii": not raw.isascii()}

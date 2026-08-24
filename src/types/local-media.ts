@@ -50,6 +50,10 @@ export const localMediaErrorCodes = [
   "OPERATION_RESULT_EXPIRED",
   "TEMP_STORAGE_FAILED",
   "TEMP_CLEANUP_FAILED",
+  "PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
+  "MODEL_PATH_ENCODING_UNSUPPORTED",
+  "TTS_DATA_PATH_ENCODING_UNSUPPORTED",
+  "TTS_PHONEMIZER_DATA_UNAVAILABLE",
 ] as const;
 export type LocalMediaErrorCode = (typeof localMediaErrorCodes)[number];
 
@@ -57,9 +61,19 @@ export type LocalMediaDevice = "auto" | "cpu" | "cuda";
 export type WhisperComputeType = "auto" | "int8" | "float16" | "int8_float16" | "float32";
 export type TtsModelKind = "vits" | "piper" | "kokoro" | "matcha";
 
+/**
+ * Whether the OCR worker asks PaddleOCR to use its CPU acceleration backend.
+ *
+ * Three values rather than a boolean: `library-default` passes no argument at all, which is not the
+ * same statement as choosing `enabled`. It exists because paddlepaddle's oneDNN executor cannot run
+ * every graph, and without a field an affected user has no recovery path.
+ */
+export type OcrCpuAcceleration = "library-default" | "enabled" | "disabled";
+
 export interface PaddleOcrProfile {
   enabled: boolean;
   pythonExecutable: string;
+  cpuAcceleration: OcrCpuAcceleration;
   paddleXConfigPath: string | null;
   textDetectionModelDir: string | null;
   textRecognitionModelDir: string | null;

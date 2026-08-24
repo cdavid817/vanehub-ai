@@ -35,6 +35,7 @@ function profile(overrides: Partial<LocalMediaProfile> = {}): LocalMediaProfile 
     ocr: {
       enabled: true,
       pythonExecutable: "/opt/ocr/bin/python",
+      cpuAcceleration: "library-default",
       paddleXConfigPath: null,
       textDetectionModelDir: "/models/det",
       textRecognitionModelDir: "/models/rec",
@@ -167,6 +168,79 @@ describe("LocalMediaPage", () => {
   beforeEach(async () => {
     invokeMock.mockClear();
     await activateAppLanguage("zh-CN");
+  });
+
+  it("offers the acceleration remedy only for the incompatibility it fixes", async () => {
+    const incompatible = status();
+    incompatible.engines[0] = {
+      ...incompatible.engines[0],
+      readiness: { state: "unavailable", code: "PADDLE_ONEDNN_MODEL_INCOMPATIBLE" },
+    };
+    install({ getStatus: vi.fn(async () => incompatible) });
+    renderPage();
+    await whenLoaded();
+
+    const notice = await screen.findByTestId(
+      "local-media-compatibility-PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
+    );
+    // The caveat matters as much as the offer: disabling acceleration is a real performance choice.
+    expect(notice.textContent).toContain("识别速度可能下降");
+    expect(notice.querySelector("button")).toBeTruthy();
+  });
+
+  it("states an encoding failure without offering to move the user's files", async () => {
+    const unopenable = status();
+    unopenable.engines[0] = {
+      ...unopenable.engines[0],
+      readiness: { state: "unavailable", code: "MODEL_PATH_ENCODING_UNSUPPORTED" },
+    };
+    install({ getStatus: vi.fn(async () => unopenable) });
+    renderPage();
+    await whenLoaded();
+
+    const notice = await screen.findByTestId(
+      "local-media-compatibility-MODEL_PATH_ENCODING_UNSUPPORTED",
+    );
+    expect(notice.textContent).toContain("重新选择");
+    // No button: relocating a model the user chose is not something this application does for them.
+    expect(notice.querySelector("button")).toBeNull();
+  });
+
+  it("saves the disabled mode only when the remedy is confirmed", async () => {
+    const incompatible = status();
+    incompatible.engines[0] = {
+      ...incompatible.engines[0],
+      readiness: { state: "unavailable", code: "PADDLE_ONEDNN_MODEL_INCOMPATIBLE" },
+    };
+    const saveProfile = vi.fn(async (input: { profile: LocalMediaProfile }) => ({
+      ...input.profile,
+      revision: input.profile.revision + 1,
+    }));
+    install({ getStatus: vi.fn(async () => incompatible), saveProfile });
+    renderPage();
+    await whenLoaded();
+
+    const notice = await screen.findByTestId(
+      "local-media-compatibility-PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
+    );
+    expect(saveProfile).not.toHaveBeenCalled();
+
+    const confirm = notice.querySelector("button");
+    expect(confirm).toBeTruthy();
+    confirm?.click();
+
+    await waitFor(() => expect(saveProfile).toHaveBeenCalledTimes(1));
+    const saved = saveProfile.mock.calls[0]![0] as { profile: LocalMediaProfile };
+    expect(saved.profile.ocr.cpuAcceleration).toBe("disabled");
+  });
+
+  it("keeps the acceleration control at the library default", async () => {
+    install();
+    renderPage();
+    await whenLoaded();
+
+    const control = screen.getByLabelText("CPU 加速") as HTMLSelectElement;
+    expect(control.value).toBe("library-default");
   });
 
   it("renders one independent card per engine", async () => {

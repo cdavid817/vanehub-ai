@@ -315,6 +315,12 @@ pub(super) fn request_params(snapshot: &LocalMediaProfileSnapshot, call: &Worker
                 "device".into(),
                 Value::String(ocr.device.as_str().to_string()),
             );
+            // Sent from the snapshot like everything else here, so a settings change mid-operation
+            // cannot alter the acceleration a running inference was accepted under.
+            params.insert(
+                "cpuAcceleration".into(),
+                Value::String(ocr.cpu_acceleration.as_str().to_string()),
+            );
         }
         LocalMediaEngine::Stt => {
             let stt = snapshot.stt();

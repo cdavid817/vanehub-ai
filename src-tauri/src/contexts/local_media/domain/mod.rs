@@ -29,6 +29,10 @@ pub(crate) use profile::{
     FasterWhisperProfile, LocalMediaProfile, PaddleOcrProfile, SherpaOnnxTtsProfile,
     DEFAULT_PROFILE_ID, MAX_TTS_CODE_POINTS,
 };
+// Production code reaches the acceleration mode through `PaddleOcrProfile::cpu_acceleration` and
+// never names the type, so re-exporting it unconditionally is an unused import outside tests.
+#[cfg(test)]
+pub(crate) use profile::OcrCpuAcceleration;
 pub(crate) use recording::{
     duration_ms_for, CommittedRecording, RecordingHandle, RecordingOutcome, RecordingSummary,
 };

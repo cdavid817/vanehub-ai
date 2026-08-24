@@ -36,7 +36,8 @@ export interface LocalMediaSettingsModel {
   discard: () => void;
   probe: (engine: LocalMediaEngine) => void;
   reloadFromNative: () => void;
-  save: () => void;
+  /** `override` saves a profile the draft does not hold yet, which is what remediation needs. */
+  save: (override?: LocalMediaProfile) => void;
   update: (mutate: (draft: LocalMediaProfile) => LocalMediaProfile) => void;
 }
 
@@ -74,6 +75,10 @@ export function useLocalMediaSettings(isActive: boolean): LocalMediaSettingsMode
   // Unmount can happen while a probe is still polling; without this the poll would keep calling
   // setState on a dead component and, worse, keep a worker's result alive for nobody.
   const alive = useRef(true);
+  // Read by `save`, so it saves what the draft holds now rather than what it held when the
+  // callback was created. Without it `save` has to depend on `draft` and is rebuilt every edit.
+  const draftRef = useRef<LocalMediaProfile | null>(null);
+  draftRef.current = draft;
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -127,36 +132,45 @@ export function useLocalMediaSettings(isActive: boolean): LocalMediaSettingsMode
     setSaveState({ kind: "idle" });
   }, [saved]);
 
-  const save = useCallback(() => {
-    if (!draft) return;
-    setSaveState({ kind: "saving" });
-    void (async () => {
-      try {
-        // Native validation is authoritative and runs first, so a rejected field is reported
-        // against its input rather than as one opaque code from the save.
-        const found = await localMediaService.validateProfile(draft);
-        if (!alive.current) return;
-        setIssues(indexIssues(found));
-        if (found.length > 0) {
-          setSaveState({ kind: "failed", code: found[0].code });
-          return;
+  // `override` exists for remediation, which has to save a profile the draft does not hold yet:
+  // `update` then `save` would save the stale draft this callback closed over.
+  const save = useCallback(
+    (override?: LocalMediaProfile) => {
+      const draft = override ?? draftRef.current;
+      if (!draft) return;
+      setSaveState({ kind: "saving" });
+      if (override) setDraft(override);
+      void (async () => {
+        try {
+          // Native validation is authoritative and runs first, so a rejected field is reported
+          // against its input rather than as one opaque code from the save.
+          const found = await localMediaService.validateProfile(draft);
+          if (!alive.current) return;
+          setIssues(indexIssues(found));
+          if (found.length > 0) {
+            setSaveState({ kind: "failed", code: found[0].code });
+            return;
+          }
+          const stored = await localMediaService.saveProfile({
+            profile: draft,
+            expectedRevision: draft.revision,
+          });
+          if (!alive.current) return;
+          setSaved(stored);
+          setDraft(stored);
+          setSaveState({ kind: "saved" });
+          setStatus(await localMediaService.getStatus());
+        } catch (error) {
+          if (!alive.current) return;
+          const code = localMediaErrorCodeFrom(error);
+          setSaveState(
+            code === "PROFILE_REVISION_CONFLICT" ? { kind: "conflict" } : { kind: "failed", code },
+          );
         }
-        const stored = await localMediaService.saveProfile({
-          profile: draft,
-          expectedRevision: draft.revision,
-        });
-        if (!alive.current) return;
-        setSaved(stored);
-        setDraft(stored);
-        setSaveState({ kind: "saved" });
-        setStatus(await localMediaService.getStatus());
-      } catch (error) {
-        if (!alive.current) return;
-        const code = localMediaErrorCodeFrom(error);
-        setSaveState(code === "PROFILE_REVISION_CONFLICT" ? { kind: "conflict" } : { kind: "failed", code });
-      }
-    })();
-  }, [draft]);
+      })();
+    },
+    [],
+  );
 
   const probe = useCallback((engine: LocalMediaEngine) => {
     setProbing(engine);

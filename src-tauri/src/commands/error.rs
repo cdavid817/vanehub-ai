@@ -825,6 +825,12 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             | Code::EngineImportFailed
             | Code::EngineVersionUnsupported
             | Code::ModelIncompatible
+            // Vendor-compatibility failures are configuration problems the user can act on, not
+            // transient runtime ones: the model, the acceleration mode, or the path has to change.
+            | Code::PaddleOnednnModelIncompatible
+            | Code::ModelPathEncodingUnsupported
+            | Code::TtsDataPathEncodingUnsupported
+            | Code::TtsPhonemizerDataUnavailable
             | Code::ModelDownloadBlocked
             | Code::MicPermissionDenied
             | Code::MicDeviceUnavailable

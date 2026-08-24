@@ -61,6 +61,7 @@ export function fixtureProfile(): LocalMediaProfile {
     enabled: true,
     ocr: {
       ...shared,
+      cpuAcceleration: "library-default",
       paddleXConfigPath: null,
       textDetectionModelDir: "/fixture/det",
       textRecognitionModelDir: "/fixture/rec",
