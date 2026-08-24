@@ -48,6 +48,7 @@
 - [ ] 8.5 `cargo test --workspace`: Linux.
 - [ ] 8.6 `cargo test --workspace`: macOS — the platform this change exists for.
 - [x] 8.7 `clippy`, `fmt`, `architecture:check`, `native:panic:check`, and `openspec validate --strict`.
+- [x] 8.8 Carry the CI change that makes 8.3 and 8.6 possible. `main`'s `native-platform-check` runs `cargo build` on macOS and then two steps both gated `if: runner.os == 'Windows'`, so macOS executes no tests and reports green. That step was written on the SQLite branch and is not on `main`, so without it this PR could not produce macOS evidence for its own fix. It moves here, which is also where it belongs: the configuration that lets macOS run tests should land with the fix that makes those tests pass. Adds a named `PTY shell termination suite` step on both legs, `cargo test --workspace` on macOS, a Rust cache, and a 180-minute ceiling that bounds a cold run rather than targeting one.
 
 ## Forbidden
 
