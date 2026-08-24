@@ -44,10 +44,11 @@ async function capture(name) {
  */
 async function assertScreenRendered(name) {
   const root = await globalThis.$("#root");
+  const fatalDetail = await root.getAttribute("data-vanehub-fatal-error-detail");
   assert.equal(
     await root.getAttribute("data-vanehub-fatal-error"),
     null,
-    `${name} tripped the fatal error boundary`,
+    `${name} tripped the fatal error boundary: ${fatalDetail ?? "diagnostic detail unavailable"}`,
   );
   const text = (await root.getText()).trim();
   assert.ok(text.length > 0, `${name} rendered no text`);
