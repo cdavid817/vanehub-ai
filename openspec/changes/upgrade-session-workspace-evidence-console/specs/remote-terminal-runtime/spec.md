@@ -80,6 +80,34 @@ A session SHALL support a bounded set of independently named Session Shell insta
 - **THEN** the descriptor SHALL identify one concrete owning seat
 - **AND** changing the selected seat SHALL not silently reassign an existing Shell
 
+### Requirement: Attachment ownership is explicit and stale-safe
+
+Attaching a view to a retained Session Shell SHALL return an attachment identifier, and detach, write, and resize SHALL carry it. A Shell SHALL hold at most one current attachment, and an operation naming an attachment that is no longer current SHALL NOT affect the attachment that replaced it.
+
+#### Scenario: Cleanup runs after a newer view has attached
+
+- **WHEN** a view's cleanup detaches with an attachment identifier that is no longer current
+- **THEN** the operation SHALL succeed as an idempotent no-op
+- **AND** the current attachment SHALL remain attached and continue receiving frames
+
+#### Scenario: Write from a replaced view
+
+- **WHEN** a write or resize carries an attachment identifier that is no longer current
+- **THEN** the service SHALL refuse it with a typed `shell_attachment_stale` result
+- **AND** the input SHALL NOT reach the Shell
+
+#### Scenario: Attach a Shell that does not exist
+
+- **WHEN** a view attaches to a Shell id the registry does not hold
+- **THEN** the service SHALL return a typed not-found result
+- **AND** it SHALL NOT create a Shell
+
+#### Scenario: Application restarts
+
+- **WHEN** the application restarts
+- **THEN** no attachment and no Session Shell SHALL be restored from before the restart
+- **AND** the workspace SHALL show no retained Shell rather than replay for a process that no longer exists
+
 ### Requirement: Sequence-numbered Shell replay and attach
 
 Every retained Session Shell SHALL emit UTF-8-safe sequence-numbered output frames, retain bounded replay, and attach a view from a declared sequence without duplicating replay and live output.
@@ -89,6 +117,18 @@ Every retained Session Shell SHALL emit UTF-8-safe sequence-numbered output fram
 - **WHEN** a view attaches to a live retained Shell with a last-consumed sequence
 - **THEN** the service SHALL return a bounded replay snapshot after that sequence plus the next sequence boundary
 - **AND** subsequent live frames SHALL continue monotonically
+
+#### Scenario: Frames arrive while the attach request is in flight
+
+- **WHEN** a view registers its listener before requesting attach and frames arrive before the snapshot returns
+- **THEN** those frames SHALL be buffered rather than dropped
+- **AND** they SHALL be reconciled against the snapshot by Shell id and sequence so each frame is applied once
+
+#### Scenario: Distinguish a dropped frame from a race
+
+- **WHEN** a subscriber holds an attach snapshot and receives a live frame
+- **THEN** the snapshot's next sequence SHALL be the exact sequence the next frame carries
+- **AND** the subscriber SHALL treat a higher sequence as a gap rather than inferring one from timing
 
 #### Scenario: Retained output exceeds capacity
 

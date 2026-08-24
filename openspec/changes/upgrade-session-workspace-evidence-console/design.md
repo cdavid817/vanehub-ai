@@ -837,6 +837,7 @@ interface ShellOutputFrame {
 }
 
 interface ShellAttachSnapshot {
+  attachmentId: string;
   descriptor: SessionShellDescriptor;
   replay: ShellOutputFrame[];
   nextSequence: number;
@@ -847,6 +848,68 @@ interface ShellAttachSnapshot {
 The native registry retains UTF-8-safe chunks up to 1 MiB per Shell. Eviction inserts one replay gap marker. Component cleanup calls detach; explicit close terminates the process/channel. Inactive Shells close after the configured idle window and all Shells close on application shutdown.
 
 Input and resize errors are returned or published as state events; fire-and-forget calls must attach rejection handling and update UI state.
+
+### Attachment Ownership
+
+An attach returns a `ShellAttachmentId`, and `detach`, `write`, and `resize` carry it. Without one,
+every one of those operations names only the Shell — and a React cleanup that runs after a newer
+view has already attached would detach that newer view, or write into it, with nothing able to tell
+the two apart. This is not a rare interleaving: it is what a hidden-then-visible tab does on every
+switch, and what StrictMode does on every mount.
+
+The registry holds at most one current attachment per Shell, so the rules are stated in terms of
+"current":
+
+- **Stale detach is an idempotent no-op.** A detach naming an attachment that is no longer current
+  succeeds and changes nothing. Failing it would make a correct cleanup look like an error; honouring
+  it would tear down the attachment that replaced it.
+- **Stale write and resize are refused** with `shell_attachment_stale`. These are not idempotent —
+  a write is input the user typed into a view that no longer exists, and delivering it would run it
+  in a session the user is now looking at.
+- **Attach never creates.** Attaching to a Shell that does not exist is a typed not-found, not an
+  implicit create; a create that happened because a view mounted would spawn a process nobody asked
+  for.
+- **Attachments are not persisted.** They are in-memory ownership tokens for one view, and they do
+  not survive an application restart. Neither do Shells: a retained Shell outlives a tab switch and a
+  session switch, and nothing outlives the process. A replay offered after a restart would be replay
+  of a process that no longer exists.
+
+### Attach Ordering
+
+The listener is registered before the attach request is sent, and frames arriving between those two
+points are buffered rather than dropped. Attaching first and listening second loses every frame
+emitted in the window, and loses it invisibly: the sequences the subscriber then sees are
+contiguous, so nothing downstream can tell that a frame is missing.
+
+The buffered frames are reconciled against the snapshot by `(shellId, sequence)`. A frame present in
+both is one frame. `nextSequence` is exact — it is the sequence the next frame will carry, so a
+subscriber that has consumed the snapshot can tell a gap from a race by comparing rather than
+guessing.
+
+Two counters, two meanings, and they are not interchangeable:
+
+- **Output sequence** is per Shell, monotonic, and counts frames. It never resets while the Shell
+  lives, and eviction advances the floor rather than the counter.
+- **State revision** is per Shell, monotonic, and counts descriptor changes — state, title, runtime.
+  A view compares revisions to decide whether a state notice is newer than what it holds, which a
+  timestamp cannot do reliably when two changes land inside one clock tick.
+
+### Bounds
+
+Every structure named here has a stated ceiling, because each of them is fed by something outside
+the registry's control:
+
+| Structure | Bound |
+| --- | --- |
+| Retained replay | 1 MiB per Shell, whole frames evicted oldest first |
+| Shells per session | configured capacity; creation fails typed rather than evicting |
+| Shells per application | configured capacity, checked before per-session capacity |
+| Attachments per Shell | one current attachment |
+| Output notice | one bounded frame per event; replay never travels in an event |
+| Input | bounded per write |
+| Title | bounded length, validated on rename |
+| Idle cleanup | bounded batch per sweep |
+| Shutdown | bounded grace, then workers are joined or cancelled |
 
 ## Provider-Neutral Workspace Inspection
 

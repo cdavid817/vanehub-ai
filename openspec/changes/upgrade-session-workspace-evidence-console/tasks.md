@@ -140,9 +140,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 7. Retained Multi-Shell Lifecycle
 
-- [ ] 7.1 Add `SessionShellDescriptor`, state, runtime descriptor, output frame, attach snapshot, replay gap, and typed Shell errors to the workspaces domain/application contracts.
+- [ ] 7.1 Add `SessionShellDescriptor`, state, runtime descriptor, output frame, attach snapshot with its `ShellAttachmentId`, replay gap, and typed Shell errors to the workspaces domain/application contracts.
 - [ ] 7.2 Replace the one-view lifecycle with a native `SessionShellRegistry` keyed by Shell id and indexed by session/seat.
-- [ ] 7.3 Implement `list`, `create`, `attach`, `detach`, `write`, `resize`, `rename`, and `close` use cases through application ports.
+- [ ] 7.3 Implement `list`, `create`, `attach`, `detach`, `write`, `resize`, `rename`, and `close` use cases through application ports, with detach/write/resize carrying an attachment id so a stale view cannot detach or write into the attachment that replaced it.
 - [ ] 7.4 Retain UTF-8-safe sequence-numbered Shell frames up to 1 MiB per Shell and insert one gap marker when old content is evicted.
 - [ ] 7.5 Serialize concurrent create/attach requests so duplicate default Shells are not spawned for the same requested identity.
 - [ ] 7.6 Keep local PTY and remote SSH channel infrastructure behind workspaces ports; preserve independent remote channel lifecycle on pooled transports.
@@ -152,7 +152,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [ ] 7.10 Implement deterministic Web/mock multiple Shells, detach/attach replay, gap behavior, and explicit close.
 - [ ] 7.11 Refactor the Shell tab to render Shell tabs, Add, Rename, runtime/status metadata, and explicit Close confirmation.
 - [ ] 7.12 Change component cleanup and hidden-tab handling from close/kill to detach.
-- [ ] 7.13 Reattach using `nextSequence`, de-duplicate replay/live frames, and display a gap marker when content was evicted or dropped.
+- [ ] 7.13 Register the listener before attaching, buffer frames that arrive in the window, reattach using `nextSequence`, de-duplicate replay/live frames by shell id and sequence, and display a gap marker when content was evicted or dropped.
 - [ ] 7.14 Keep a foreground-process warning visible before explicit close when the runtime can report it; do not claim process state when opaque.
 - [ ] 7.15 Add local registry, remote channel, Web/mock, React lifecycle, and desktop E2E tests proving session/tab switches do not terminate Shells.
 - [ ] 7.16 Remove obsolete kill-on-unmount code only after the desktop Shell lifecycle tests pass.
