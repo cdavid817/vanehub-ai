@@ -50,15 +50,50 @@ The desktop shell runtime SHALL report the result of terminating a managed PTY c
 - **WHEN** the deadline passes and no exit has been observed
 - **THEN** the outcome SHALL be the stable code `reap_timed_out`
 - **AND** it SHALL NOT be reported as terminated, reaped, or successful
-- **AND** the runtime SHALL record redacted evidence naming the session and shell whose child was left unreaped, so that cleanup ownership of that child remains visible
+- **AND** the runtime SHALL transfer ownership of the child to the pending-reap registry before releasing the shell, so the sole handle to a live process is never dropped
+- **AND** the cleanup state SHALL be `pending`
+- **AND** the runtime SHALL record redacted evidence naming the session and shell whose child was left unreaped
 
 #### Scenario: The signal itself is refused
-- **WHEN** the kill operation returns an error
+- **WHEN** the kill operation returns an error and a fresh poll shows the child still running
 - **THEN** the outcome SHALL be `kill_failed`, distinct from a reap that timed out
+- **AND** the child SHALL be transferred to the pending-reap registry, because a refused signal also leaves a live process
 
 #### Scenario: Polling the child reports an error
 - **WHEN** a non-blocking poll returns an error rather than an exit status
 - **THEN** the outcome SHALL be `reap_failed`, distinct from `reap_timed_out`
+
+### Requirement: Pending shell reaps are owned until they resolve
+The desktop shell runtime SHALL retain ownership of any managed PTY child that outlives its termination attempt, SHALL reclaim it without blocking when it later exits, and SHALL report the cleanup state separately from the outcome of the attempt that failed to reap it.
+
+#### Scenario: A later exit is reclaimed
+- **WHEN** a child held as `pending` is observed to have exited during a subsequent sweep
+- **THEN** its cleanup state SHALL become `reaped_later`
+- **AND** the original termination outcome SHALL be left unchanged, because a reap that timed out and was later reclaimed is not the same history as one that succeeded
+
+#### Scenario: Sweeps never block
+- **WHEN** the runtime reclaims pending children
+- **THEN** it SHALL use only non-blocking polling
+- **AND** it SHALL NOT call a blocking wait, which would rebuild inside the recovery path the hang that recovery path exists for
+
+#### Scenario: Shutdown names what it could not resolve
+- **WHEN** the runtime shuts down with children still pending
+- **THEN** their cleanup state SHALL become `unresolved_at_shutdown` with redacted evidence naming each session and shell
+- **AND** the runtime SHALL NOT report those children as cleaned up
+
+### Requirement: Shell runtime shutdown is explicit and bounded
+The desktop shell runtime SHALL own its shutdown signal, its monitor threads, its active shells, and its pending reaps, and SHALL complete shutdown within a bounded, monotonic deadline shared across all shells.
+
+#### Scenario: Shutdown ends every monitor
+- **WHEN** the last handle to the shell runtime is released
+- **THEN** the runtime SHALL signal shutdown, wake every exit monitor, and wait for them to exit
+- **AND** no monitor SHALL remain running afterwards
+- **AND** shutdown SHALL NOT be skipped on the basis of how many references some internal structure happens to have
+
+#### Scenario: One wedged child does not consume the whole shutdown
+- **WHEN** several shells are terminated during shutdown and one child does not exit
+- **THEN** every other child SHALL still be signalled and reaped
+- **AND** all of them SHALL share one deadline rather than one deadline each
 
 #### Scenario: Outcomes carry no raw shell content
 - **WHEN** any termination outcome is written to unified logging

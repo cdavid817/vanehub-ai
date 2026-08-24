@@ -255,6 +255,13 @@ jobs:
       - name: Rust production panic shortcuts
         run: npm run native:panic:check
 
+      # Named separately on all three platforms so the PTY result is readable from the job list
+      # rather than only from inside a full test log. Terminating a PTY child is a per-OS story
+      # -- which signal lands, when the child is reaped, whether a wait ever returns -- so a
+      # pass on one platform is not evidence about another.
+      - name: PTY shell termination suite
+        run: cargo test --workspace --lib -- portable_pty
+
       - name: Rust tests
         run: cargo test --workspace
 
@@ -382,12 +389,12 @@ jobs:
       - name: PTY shell termination suite
         run: cargo test --workspace --lib -- portable_pty
 
-      # Linux gets this from the `rust` job above; macOS had no test step at all until this
-      # change, so it built the tree and reported success without executing a single test.
-      # Windows is covered by the two fixture steps below plus local full-suite runs; giving it
-      # the workspace run too is a standing runner-cost decision, not a gap hidden here.
+      # Unconditional, and that is the point. macOS used to run no tests at all here, and
+      # Windows ran only the two fixture steps below, so "the workspace suite passed on
+      # Windows" could only ever be a local claim. A qualification gate that accepts a
+      # developer's machine for one platform and CI for the others is not one gate, it is two
+      # standards. Linux runs the same pair in the `rust` job above.
       - name: Rust tests
-        if: runner.os == 'macOS'
         run: cargo test --workspace
 
       - name: Windows Skill Tool hostile fixtures (declarative-only)

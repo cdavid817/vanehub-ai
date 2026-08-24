@@ -15,6 +15,7 @@ mod session_queries;
 mod session_search;
 mod session_shell_workspace;
 mod shell_support;
+mod shell_termination;
 mod sqlite_repository;
 
 pub(crate) use evaluation_fixture::{

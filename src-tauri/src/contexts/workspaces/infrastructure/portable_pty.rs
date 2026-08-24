@@ -1,5 +1,5 @@
 use crate::contexts::workspaces::application::{
-    ShellEvent, ShellLaunch, ShellLog, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
+    ShellEvent, ShellLaunch, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
     WorkspaceShellEventPort, WorkspaceShellLogPort, WorkspaceShellRuntimePort,
 };
 use crate::contexts::workspaces::domain::{reset_directory_command, ShellHost, TerminalDimensions};
@@ -9,10 +9,16 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+use super::shell_termination::{
+    log_termination, poll_until_exit, probe_shared_child, reap_shared_child, requires_adoption,
+    settled_cleanup, write_shell_log, PendingReapRegistry, PollEnd, ShellTermination,
+    ShutdownToken, TerminationOutcome, TerminationReport, MONITOR_INTERVAL_CEILING, REAP_DEADLINE,
+    SHUTDOWN_REAP_DEADLINE,
+};
 
 /// The blocking halves of a shell, shared out of the registry so PTY writes and resizes
 /// never run while the registry lock is held. A shell whose child stopped draining its
@@ -31,194 +37,34 @@ struct ManagedShell {
     termination: Arc<ShellTermination>,
 }
 
-/// How long a kill is given to become an *observed* exit. Past this the runtime reports
-/// `reap_timed_out` and says so, rather than returning as though the child were gone.
-const REAP_DEADLINE: Duration = Duration::from_secs(5);
-
-/// Poll backoff floor and ceilings. Not a fixed sleep: every iteration reads the child's real
-/// state through the non-blocking `try_wait`, and the loop ends on a real answer or a real
-/// deadline. The interval only decides how often the truth is sampled. Starting at 1 ms means
-/// the overwhelmingly common case -- a child that exits at once -- is observed in about a
-/// millisecond, while a wedged one costs a few syscalls a second instead of a spin.
-const POLL_INTERVAL_FLOOR: Duration = Duration::from_millis(1);
-const POLL_INTERVAL_CEILING: Duration = Duration::from_millis(25);
-/// The exit monitor waits for a *natural* exit, which is legitimately unbounded -- a user may
-/// keep a shell open for hours. It settles at a slower cadence because a quarter second of
-/// latency on a "disconnected" event is imperceptible, and unlike the previous implementation
-/// it never holds the child lock while waiting.
-const MONITOR_INTERVAL_CEILING: Duration = Duration::from_millis(250);
-
-/// Every way terminating a managed shell can end. Closed on purpose: a timeout is a distinct
-/// answer from a refused signal and from a failed probe, because each calls for a different
-/// response, and none of them may be reported as a completed termination.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ShellTerminationOutcome {
-    /// The child was already gone before any signal was sent.
-    AlreadyExited,
-    /// The signal was delivered but the exit has not been observed yet.
-    KillRequested,
-    /// Another caller already owns the reap for this child.
-    Reaping,
-    /// The exit was observed within the deadline.
-    Reaped,
-    /// The deadline passed with the child still alive. A live process is still out there.
-    ReapTimedOut,
-    /// The signal itself was refused, and the child had not exited.
-    KillFailed,
-    /// Probing the child returned an error rather than a status.
-    ReapFailed,
-}
-
-impl ShellTerminationOutcome {
-    /// Stable codes. These reach diagnostics, so they are a vocabulary rather than prose.
-    fn code(self) -> &'static str {
-        match self {
-            Self::AlreadyExited => "already_exited",
-            Self::KillRequested => "kill_requested",
-            Self::Reaping => "reaping",
-            Self::Reaped => "reaped",
-            Self::ReapTimedOut => "reap_timed_out",
-            Self::KillFailed => "kill_failed",
-            Self::ReapFailed => "reap_failed",
-        }
-    }
-
-    /// True only when the child is known to be gone. `ReapTimedOut` is deliberately not here:
-    /// that is the whole point of naming it separately.
-    fn is_settled_exit(self) -> bool {
-        matches!(self, Self::AlreadyExited | Self::Reaped)
-    }
-
-    fn as_state(self) -> u8 {
-        SETTLED_BASE
-            + match self {
-                Self::AlreadyExited => 0,
-                Self::KillRequested => 1,
-                Self::Reaping => 2,
-                Self::Reaped => 3,
-                Self::ReapTimedOut => 4,
-                Self::KillFailed => 5,
-                Self::ReapFailed => 6,
-            }
-    }
-
-    fn from_state(state: u8) -> Option<Self> {
-        match state.checked_sub(SETTLED_BASE)? {
-            0 => Some(Self::AlreadyExited),
-            1 => Some(Self::KillRequested),
-            2 => Some(Self::Reaping),
-            3 => Some(Self::Reaped),
-            4 => Some(Self::ReapTimedOut),
-            5 => Some(Self::KillFailed),
-            6 => Some(Self::ReapFailed),
-            _ => None,
-        }
-    }
-}
-
-const STATE_IDLE: u8 = 0;
-const STATE_IN_FLIGHT: u8 = 1;
-/// Settled states carry the outcome itself, offset past the two live states so the two ranges
-/// can never collide. Storing the outcome rather than a bare "done" flag is what lets a repeated
-/// stop answer truthfully -- a shell that timed out reports `reap_timed_out` again, instead of
-/// the second call inventing a success the first one never had.
-const SETTLED_BASE: u8 = 2;
-
-/// Single-flight termination state for one shell.
-#[derive(Default)]
-struct ShellTermination {
-    state: AtomicU8,
-}
-
-impl ShellTermination {
-    /// Claims the reap. `Ok(())` means this caller owns it; `Err(outcome)` means someone else
-    /// does, or it already finished, and the caller must return that answer without touching
-    /// the child. This is what stops a second `stop` from queueing behind the first on the
-    /// child mutex, which is how repeated termination used to become a second way to block.
-    fn claim(&self) -> Result<(), ShellTerminationOutcome> {
-        match self.state.compare_exchange(
-            STATE_IDLE,
-            STATE_IN_FLIGHT,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => Ok(()),
-            Err(STATE_IN_FLIGHT) => Err(ShellTerminationOutcome::Reaping),
-            Err(settled) => Err(ShellTerminationOutcome::from_state(settled)
-                .unwrap_or(ShellTerminationOutcome::Reaping)),
-        }
-    }
-
-    fn settle(&self, outcome: ShellTerminationOutcome) {
-        self.state.store(outcome.as_state(), Ordering::Release);
-    }
-
-    fn is_settled(&self) -> bool {
-        self.state.load(Ordering::Acquire) >= SETTLED_BASE
-    }
-}
-
-/// One non-blocking look at the child.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChildProbe {
-    Exited,
-    Running,
-    Failed,
-}
-
-fn probe_child(child: &mut dyn Child) -> ChildProbe {
-    match child.try_wait() {
-        Ok(Some(_)) => ChildProbe::Exited,
-        Ok(None) => ChildProbe::Running,
-        Err(_) => ChildProbe::Failed,
-    }
-}
-
-/// Polls until the child exits, the probe fails, or the deadline passes.
-///
-/// `deadline` of `None` is an unbounded wait for a *natural* exit and is only used by the exit
-/// monitor, which stops as soon as a terminate path settles the shell. `park_timeout` rather
-/// than `sleep` so an unpark can cut the wait short; a spurious wake just re-probes.
-fn poll_until_exit(
-    mut probe: impl FnMut() -> ChildProbe,
-    mut keep_waiting: impl FnMut() -> bool,
-    deadline: Option<Instant>,
-    ceiling: Duration,
-) -> ShellTerminationOutcome {
-    let mut interval = POLL_INTERVAL_FLOOR;
-    loop {
-        match probe() {
-            ChildProbe::Exited => return ShellTerminationOutcome::Reaped,
-            ChildProbe::Failed => return ShellTerminationOutcome::ReapFailed,
-            ChildProbe::Running => {}
-        }
-        if !keep_waiting() {
-            return ShellTerminationOutcome::Reaping;
-        }
-        let mut wait_for = interval;
-        if let Some(deadline) = deadline {
-            let now = Instant::now();
-            if now >= deadline {
-                return ShellTerminationOutcome::ReapTimedOut;
-            }
-            wait_for = interval.min(deadline - now);
-        }
-        thread::park_timeout(wait_for);
-        interval = interval.saturating_mul(2).min(ceiling);
-    }
-}
-
 /// Larger reads coalesce bursty PTY output into fewer IPC events without adding latency:
 /// a read still returns as soon as any bytes are available, so interactive echo is
 /// unaffected, while a flood of build output emits far fewer events than a 4 KiB buffer.
 /// Matches the agent terminal's read width.
 const SHELL_READ_BUFFER_BYTES: usize = 64 * 1024;
 
-#[derive(Clone)]
-pub(crate) struct PortablePtyShellRuntime {
+/// Everything the runtime owns for as long as any handle to it exists.
+///
+/// The manager used to be a bag of `Arc`s cloned by value, with a `Drop` that checked
+/// `Arc::strong_count` and bailed out unless it happened to be the last one. That check was the
+/// wrong shape twice over: monitor threads held clones of the same map, so the count was almost
+/// never one, and a manager that "owns" its shells only when it can prove it is alone does not
+/// really own them. Ownership is expressed here instead -- the handle is a thin
+/// `Arc<ManagerCore>`, and `Drop for ManagerCore` runs exactly once, when the last handle goes,
+/// with `&mut self` proving it. Monitors deliberately do *not* hold a `ManagerCore`; they hold
+/// only the pieces they use, so they can never keep the manager alive.
+struct ManagerCore {
     shells: Arc<Mutex<HashMap<String, ManagedShell>>>,
+    pending: Arc<PendingReapRegistry>,
+    monitors: Mutex<Vec<thread::JoinHandle<()>>>,
+    shutdown: Arc<ShutdownToken>,
     events: Arc<dyn WorkspaceShellEventPort>,
     logging: Arc<dyn WorkspaceShellLogPort>,
+}
+
+#[derive(Clone)]
+pub(crate) struct PortablePtyShellRuntime {
+    core: Arc<ManagerCore>,
 }
 
 impl PortablePtyShellRuntime {
@@ -227,10 +73,100 @@ impl PortablePtyShellRuntime {
         logging: Arc<dyn WorkspaceShellLogPort>,
     ) -> Self {
         Self {
-            shells: Arc::new(Mutex::new(HashMap::new())),
-            events,
-            logging,
+            core: Arc::new(ManagerCore {
+                shells: Arc::new(Mutex::new(HashMap::new())),
+                pending: Arc::new(PendingReapRegistry::default()),
+                monitors: Mutex::new(Vec::new()),
+                shutdown: Arc::new(ShutdownToken::default()),
+                events,
+                logging,
+            }),
         }
+    }
+
+    fn shells(&self) -> &Mutex<HashMap<String, ManagedShell>> {
+        &self.core.shells
+    }
+
+    fn logging(&self) -> &dyn WorkspaceShellLogPort {
+        self.core.logging.as_ref()
+    }
+}
+
+/// Ends a registered shell within a bounded deadline, and hands its child to the pending
+/// registry if the child outlives the attempt.
+///
+/// Single-flight: the first caller out of `Idle` is the owner and runs exactly one kill and one
+/// reap loop. Every other caller is a follower and returns immediately with no outcome of its
+/// own -- it does not queue on the child mutex, and it does not claim a result it did not
+/// produce. Once the owner settles, later callers read that one final outcome.
+///
+/// The adoption is the part that closes the lifecycle: on `ReapTimedOut` or `KillFailed` the
+/// child is transferred to `pending` *before* this returns, so the caller can release its
+/// `ManagedShell` without dropping the last handle to a live process.
+fn terminate_shell(
+    shell: &ManagedShell,
+    pending: &PendingReapRegistry,
+    logging: &dyn WorkspaceShellLogPort,
+    shell_id: &str,
+    deadline: Instant,
+    shutdown: bool,
+) -> TerminationReport {
+    if let Err(existing) = shell.termination.claim() {
+        return existing;
+    }
+    let outcome = reap_shared_child(&shell.child, &shell.killer, deadline);
+    if requires_adoption(outcome) {
+        pending.adopt(
+            &shell.session_id,
+            shell_id,
+            shell.child.clone(),
+            shell.termination.clone(),
+        );
+    }
+    let cleanup = settled_cleanup(outcome);
+    shell.termination.settle(outcome, cleanup);
+    let report = TerminationReport {
+        outcome: Some(outcome),
+        cleanup: shell.termination.cleanup(),
+    };
+    log_termination(logging, &shell.session_id, shell_id, report, shutdown);
+    report
+}
+
+impl PortablePtyShellRuntime {
+    /// Terminates a child that never made it into the registry, on `open_shell`'s failure
+    /// paths. Same route and same ownership transfer as a registered shell — the only
+    /// difference is that there is no map entry to remove.
+    fn terminate_unregistered(
+        &self,
+        child: &Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+        killer: &Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
+        termination: &Arc<ShellTermination>,
+        session_id: &str,
+        shell_id: &str,
+    ) -> TerminationOutcome {
+        if termination.claim().is_err() {
+            return TerminationOutcome::Reaped;
+        }
+        let outcome = reap_shared_child(child, killer, Instant::now() + REAP_DEADLINE);
+        if requires_adoption(outcome) {
+            self.core
+                .pending
+                .adopt(session_id, shell_id, child.clone(), termination.clone());
+        }
+        termination.settle(outcome, settled_cleanup(outcome));
+        log_termination(
+            self.logging(),
+            session_id,
+            shell_id,
+            TerminationReport {
+                outcome: Some(outcome),
+                cleanup: termination.cleanup(),
+            },
+            false,
+        );
+        outcome
     }
 }
 
@@ -255,151 +191,6 @@ fn shell_root_path(root: &str) -> PathBuf {
     PathBuf::from(normalize_windows_extended_length_path(root))
 }
 
-fn write_shell_log(
-    logging: &dyn WorkspaceShellLogPort,
-    level: WorkspaceLogLevel,
-    session_id: &str,
-    shell_id: &str,
-    message: &str,
-) {
-    logging.write(ShellLog {
-        level,
-        session_id: session_id.to_string(),
-        shell_id: shell_id.to_string(),
-        message: message.to_string(),
-    });
-}
-
-/// Writes the outcome of a termination, and only when it is worth writing. A clean reap is not
-/// a diagnostic; a timeout is, because it means a live process was left behind and somebody has
-/// to know that. The code is the whole message -- no raw command or PTY output goes near it.
-fn log_termination_outcome(
-    logging: &dyn WorkspaceShellLogPort,
-    session_id: &str,
-    shell_id: &str,
-    outcome: ShellTerminationOutcome,
-    shutdown: bool,
-) {
-    if outcome.is_settled_exit() || outcome == ShellTerminationOutcome::Reaping {
-        return;
-    }
-    let phase = if shutdown { " during shutdown" } else { "" };
-    let message = match outcome {
-        ShellTerminationOutcome::ReapTimedOut => format!(
-            "Shell process was not reaped within the termination deadline{phase} \
-             (outcome: {}). The child may still be running and remains unreaped.",
-            outcome.code()
-        ),
-        _ => format!(
-            "Shell process termination did not complete{phase} (outcome: {}).",
-            outcome.code()
-        ),
-    };
-    write_shell_log(
-        logging,
-        WorkspaceLogLevel::Warn,
-        session_id,
-        shell_id,
-        &message,
-    );
-}
-
-/// Terminates a child the caller owns exclusively, used on `open_shell`'s failure paths before
-/// the shell ever reaches the registry.
-fn terminate_child(
-    child: &mut dyn Child,
-    logging: &dyn WorkspaceShellLogPort,
-    session_id: &str,
-    shell_id: &str,
-    shutdown: bool,
-) -> ShellTerminationOutcome {
-    let outcome = reap_owned_child(child, Instant::now() + REAP_DEADLINE);
-    log_termination_outcome(logging, session_id, shell_id, outcome, shutdown);
-    outcome
-}
-
-fn reap_owned_child(child: &mut dyn Child, deadline: Instant) -> ShellTerminationOutcome {
-    match probe_child(child) {
-        ChildProbe::Exited => return ShellTerminationOutcome::AlreadyExited,
-        ChildProbe::Failed => return ShellTerminationOutcome::ReapFailed,
-        ChildProbe::Running => {}
-    }
-    if child.kill().is_err() {
-        // A refused signal can also mean the child exited between the probe and the kill, so
-        // ask once more before calling it a failure.
-        return match probe_child(child) {
-            ChildProbe::Exited => ShellTerminationOutcome::AlreadyExited,
-            _ => ShellTerminationOutcome::KillFailed,
-        };
-    }
-    poll_until_exit(
-        || probe_child(child),
-        || true,
-        Some(deadline),
-        POLL_INTERVAL_CEILING,
-    )
-}
-
-/// Probes the shared child without ever holding its lock across a wait. Each call is one
-/// `try_wait`, so the lock is held for microseconds and a terminate can always acquire it --
-/// which is exactly what the previous implementation could not promise, because its monitor
-/// thread held this lock for the whole of a blocking `wait()`.
-fn probe_shared_child(child: &Mutex<Box<dyn Child + Send + Sync>>) -> ChildProbe {
-    match child.lock() {
-        Ok(mut child) => probe_child(&mut **child),
-        Err(_) => ChildProbe::Failed,
-    }
-}
-
-/// Terminates a registry-owned shell within a bounded deadline.
-///
-/// Single-flight: the first caller out of `Idle` owns the reap and every other caller is told
-/// `reaping` immediately instead of queueing on the child mutex. Repeated termination is
-/// therefore both idempotent and non-blocking, and a shell that timed out keeps reporting
-/// `reap_timed_out` rather than a later call inventing a success the first one never had.
-fn terminate_shell(
-    shell: &ManagedShell,
-    logging: &dyn WorkspaceShellLogPort,
-    shell_id: &str,
-    shutdown: bool,
-) -> ShellTerminationOutcome {
-    if let Err(existing) = shell.termination.claim() {
-        return existing;
-    }
-    let outcome = reap_shared_child(shell, Instant::now() + REAP_DEADLINE);
-    shell.termination.settle(outcome);
-    log_termination_outcome(logging, &shell.session_id, shell_id, outcome, shutdown);
-    outcome
-}
-
-fn reap_shared_child(shell: &ManagedShell, deadline: Instant) -> ShellTerminationOutcome {
-    match probe_shared_child(&shell.child) {
-        ChildProbe::Exited => return ShellTerminationOutcome::AlreadyExited,
-        ChildProbe::Failed => return ShellTerminationOutcome::ReapFailed,
-        ChildProbe::Running => {}
-    }
-    // portable-pty 0.9 inverts the Windows TerminateProcess result, so the signal's own return
-    // value is not authoritative on its own. A refused kill is only reported as such once a
-    // fresh probe confirms the child is still there.
-    let kill_refused = match shell.killer.lock() {
-        Ok(mut killer) => killer.kill().is_err(),
-        Err(_) => true,
-    };
-    if kill_refused {
-        return match probe_shared_child(&shell.child) {
-            ChildProbe::Exited => ShellTerminationOutcome::AlreadyExited,
-            ChildProbe::Failed => ShellTerminationOutcome::ReapFailed,
-            ChildProbe::Running => ShellTerminationOutcome::KillFailed,
-        };
-    }
-    poll_until_exit(
-        || probe_shared_child(&shell.child),
-        || true,
-        Some(deadline),
-        POLL_INTERVAL_CEILING,
-    )
-}
-
 impl PortablePtyShellRuntime {
     fn insert(&self, shell_id: String, shell: ManagedShell) -> Result<(), AppError> {
         // The guard is bound and dropped explicitly rather than left to a temporary's lifetime.
@@ -408,13 +199,20 @@ impl PortablePtyShellRuntime {
         // edit must not be able to break by accident.
         let replaced = {
             let mut shells = self
-                .shells
+                .shells()
                 .lock()
                 .map_err(|error| AppError::Storage(error.to_string()))?;
             shells.insert(shell_id, shell)
         };
         if let Some(replaced) = replaced {
-            terminate_shell(&replaced, self.logging.as_ref(), "replaced", false);
+            terminate_shell(
+                &replaced,
+                &self.core.pending,
+                self.logging(),
+                "replaced",
+                Instant::now() + REAP_DEADLINE,
+                false,
+            );
         }
         Ok(())
     }
@@ -423,7 +221,7 @@ impl PortablePtyShellRuntime {
     /// registry lock before the caller performs any blocking PTY operation.
     fn checkout(&self, shell_id: &str) -> Result<(String, Arc<ShellIo>), AppError> {
         let shells = self
-            .shells
+            .shells()
             .lock()
             .map_err(|error| AppError::Storage(error.to_string()))?;
         let shell = shells
@@ -439,7 +237,7 @@ impl PortablePtyShellRuntime {
         shell_id: &str,
     ) -> Result<(String, PathBuf, Arc<ShellIo>), AppError> {
         let shells = self
-            .shells
+            .shells()
             .lock()
             .map_err(|error| AppError::Storage(error.to_string()))?;
         let shell = shells
@@ -463,6 +261,12 @@ impl PortablePtyShellRuntime {
             .map_err(|error| AppError::Storage(error.to_string()))
     }
 
+    /// Starts the thread that notices a shell exiting on its own.
+    ///
+    /// The handle is kept so shutdown can unpark and join it. The thread holds only the pieces
+    /// it uses -- never a `ManagerCore` -- so it can never be the reason the manager stays
+    /// alive, which is precisely how the old `Arc::strong_count` guard ended up disabling
+    /// shutdown entirely.
     fn start_exit_monitor(
         &self,
         shell_id: &str,
@@ -471,41 +275,50 @@ impl PortablePtyShellRuntime {
         child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
         termination: Arc<ShellTermination>,
     ) -> Result<(), AppError> {
-        let shells = self.shells.clone();
-        let logging = self.logging.clone();
-        let events = self.events.clone();
+        let shells = self.core.shells.clone();
+        let logging = self.core.logging.clone();
+        let events = self.core.events.clone();
+        let shutdown = self.core.shutdown.clone();
         let shell_id = shell_id.to_owned();
         let session_id = session_id.to_owned();
-        thread::Builder::new()
+        let handle = thread::Builder::new()
             .name(format!("vanehub-shell-monitor-{shell_id}"))
             .spawn(move || {
                 // Waiting for a *natural* exit is legitimately open-ended -- a user may keep a
-                // shell open for hours -- but it must never be open-ended while holding the
-                // child lock, which is what made a wedged child able to park every terminate.
-                // Each probe takes the lock for one `try_wait` and releases it, and the loop
-                // ends the moment a terminate path settles the shell.
-                let outcome = poll_until_exit(
+                // shell open for hours. What must be bounded is the lock and the lifetime: each
+                // probe holds the child mutex for one `try_wait`, and the wait ends when a
+                // terminate settles the shell or the manager starts shutting down. Without that
+                // second exit, a shell nobody ever stops keeps its monitor alive forever.
+                let ended = poll_until_exit(
                     || probe_shared_child(&child),
-                    || !termination.is_settled(),
+                    || !termination.is_settled() && !shutdown.is_signalled(),
                     None,
                     MONITOR_INTERVAL_CEILING,
                 );
-                if outcome == ShellTerminationOutcome::Reaping {
-                    // A terminate path owns this child now; it publishes its own state.
+                if ended == PollEnd::Abandoned {
+                    // Either a terminate path owns this child now and publishes its own state,
+                    // or shutdown does. Neither wants a second opinion from here.
                     return;
                 }
-                if outcome == ShellTerminationOutcome::Reaped {
-                    termination.settle(ShellTerminationOutcome::Reaped);
-                } else {
-                    termination.settle(outcome);
-                    log_termination_outcome(
-                        logging.as_ref(),
-                        &session_id,
-                        &shell_id,
-                        outcome,
-                        false,
-                    );
+                let outcome = match ended {
+                    PollEnd::Exited => TerminationOutcome::Reaped,
+                    _ => TerminationOutcome::ReapFailed,
+                };
+                // A natural exit races the first `stop`. Only the winner reports.
+                if termination.claim().is_err() {
+                    return;
                 }
+                termination.settle(outcome, settled_cleanup(outcome));
+                log_termination(
+                    logging.as_ref(),
+                    &session_id,
+                    &shell_id,
+                    TerminationReport {
+                        outcome: Some(outcome),
+                        cleanup: termination.cleanup(),
+                    },
+                    false,
+                );
                 if let Ok(mut shells) = shells.lock() {
                     let owns_entry = shells
                         .get(&shell_id)
@@ -521,8 +334,11 @@ impl PortablePtyShellRuntime {
                     error: None,
                 });
             })
-            .map(|_| ())
-            .map_err(|error| AppError::Storage(error.to_string()))
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        if let Ok(mut monitors) = self.core.monitors.lock() {
+            monitors.push(handle);
+        }
+        Ok(())
     }
 }
 
@@ -534,7 +350,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             .openpty(terminal_size(launch.dimensions))
             .map_err(|error| {
                 write_shell_log(
-                    self.logging.as_ref(),
+                    self.logging(),
                     WorkspaceLogLevel::Error,
                     &launch.session_id,
                     &launch.shell_id,
@@ -544,9 +360,9 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             })?;
         let mut command = CommandBuilder::new(default_shell());
         command.cwd(&root);
-        let mut child = pair.slave.spawn_command(command).map_err(|error| {
+        let child = pair.slave.spawn_command(command).map_err(|error| {
             write_shell_log(
-                self.logging.as_ref(),
+                self.logging(),
                 WorkspaceLogLevel::Error,
                 &launch.session_id,
                 &launch.shell_id,
@@ -555,15 +371,23 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             AppError::LaunchFailed(error.to_string())
         })?;
         drop(pair.slave);
+        // Shared and registered before the fallible setup below, so the two failure paths end
+        // the child through the same route as every other termination. Terminating it as a
+        // locally owned handle would have been the one place a `kill_failed` could still drop
+        // the last reference to a live process -- a hole in exactly the invariant this change
+        // exists to close.
+        let killer = Mutex::new(child.clone_killer());
+        let child = Arc::new(Mutex::new(child));
+        let termination = Arc::new(ShellTermination::default());
         let mut reader = match pair.master.try_clone_reader() {
             Ok(reader) => reader,
             Err(error) => {
-                terminate_child(
-                    child.as_mut(),
-                    self.logging.as_ref(),
+                self.terminate_unregistered(
+                    &child,
+                    &killer,
+                    &termination,
                     &launch.session_id,
                     &launch.shell_id,
-                    false,
                 );
                 return Err(AppError::Storage(error.to_string()));
             }
@@ -571,20 +395,18 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let writer = match pair.master.take_writer() {
             Ok(writer) => writer,
             Err(error) => {
-                terminate_child(
-                    child.as_mut(),
-                    self.logging.as_ref(),
+                self.terminate_unregistered(
+                    &child,
+                    &killer,
+                    &termination,
                     &launch.session_id,
                     &launch.shell_id,
-                    false,
                 );
                 return Err(AppError::Storage(error.to_string()));
             }
         };
 
-        let killer = child.clone_killer();
-        let child = Arc::new(Mutex::new(child));
-        let events = self.events.clone();
+        let events = self.core.events.clone();
         let reader_shell_id = launch.shell_id.clone();
         let reader_session_id = launch.session_id.clone();
         let io = Arc::new(ShellIo {
@@ -593,7 +415,6 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         });
         let monitor_io = io.clone();
         let monitor_child = child.clone();
-        let termination = Arc::new(ShellTermination::default());
         let monitor_termination = termination.clone();
         self.insert(
             launch.shell_id.clone(),
@@ -602,7 +423,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
                 root,
                 io,
                 child,
-                killer: Mutex::new(killer),
+                killer,
                 termination,
             },
         )?;
@@ -654,7 +475,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let result = Self::write_all(&io, content.as_bytes());
         if result.is_err() {
             write_shell_log(
-                self.logging.as_ref(),
+                self.logging(),
                 WorkspaceLogLevel::Warn,
                 &session_id,
                 shell_id,
@@ -675,7 +496,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let result = Self::write_all(&io, command.as_bytes());
         if result.is_err() {
             write_shell_log(
-                self.logging.as_ref(),
+                self.logging(),
                 WorkspaceLogLevel::Warn,
                 &session_id,
                 shell_id,
@@ -698,7 +519,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             });
         if result.is_err() {
             write_shell_log(
-                self.logging.as_ref(),
+                self.logging(),
                 WorkspaceLogLevel::Warn,
                 &session_id,
                 shell_id,
@@ -709,9 +530,13 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
     }
 
     fn stop(&self, shell_id: &str) -> Result<Option<String>, AppError> {
+        // Anything still owed from an earlier timeout gets one non-blocking look first, so a
+        // child that has since exited is reclaimed on the next ordinary operation rather than
+        // waiting for shutdown.
+        self.core.pending.sweep(self.logging());
         let shell = {
             let mut shells = self
-                .shells
+                .shells()
                 .lock()
                 .map_err(|error| AppError::Storage(error.to_string()))?;
             shells.remove(shell_id)
@@ -719,14 +544,24 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let Some(shell) = shell else {
             return Ok(None);
         };
-        terminate_shell(&shell, self.logging.as_ref(), shell_id, false);
+        // `terminate_shell` hands the child to the pending registry before returning if it
+        // outlives the attempt, so dropping `shell` here cannot drop the last handle to a live
+        // process.
+        terminate_shell(
+            &shell,
+            &self.core.pending,
+            self.logging(),
+            shell_id,
+            Instant::now() + REAP_DEADLINE,
+            false,
+        );
         Ok(Some(shell.session_id))
     }
 
     fn stop_for_session(&self, session_id: &str) -> Result<Vec<(String, String)>, AppError> {
         let shell_ids = {
             let shells = self
-                .shells
+                .shells()
                 .lock()
                 .map_err(|error| AppError::Storage(error.to_string()))?;
             shells
@@ -745,31 +580,73 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
     }
 }
 
-impl Drop for PortablePtyShellRuntime {
+impl Drop for ManagerCore {
+    /// Shutdown, in the order the ownership requires.
+    ///
+    /// This runs exactly once, when the last handle to the runtime goes, because `&mut self` on
+    /// an `Arc`'s contents can only happen then. The old code approximated that with an
+    /// `Arc::strong_count(&self.shells) != 1` early return, which was not the same test: every
+    /// monitor thread held a clone of that map, so the count was almost never one and shutdown
+    /// almost never ran.
     fn drop(&mut self) {
-        if Arc::strong_count(&self.shells) != 1 {
-            return;
-        }
-        // Drain first, release the routing lock, then terminate. Terminating inside the guard
-        // meant one wedged child blocked shutdown for every other shell -- and, before the
-        // reap was bounded, blocked it permanently.
-        let shells: Vec<ManagedShell> = match self.shells.lock() {
-            Ok(mut shells) => shells.drain().map(|(_, shell)| shell).collect(),
-            Err(_) => return,
+        // 1. Say we are going down, so monitors stop waiting for natural exits, and
+        // 2. wake them, so they notice now instead of at the end of a backoff.
+        self.shutdown.signal();
+        let handles: Vec<thread::JoinHandle<()>> = match self.monitors.lock() {
+            Ok(mut monitors) => monitors.drain(..).collect(),
+            Err(_) => Vec::new(),
         };
-        for shell in &shells {
-            terminate_shell(shell, self.logging.as_ref(), "shutdown", true);
+        for handle in &handles {
+            handle.thread().unpark();
         }
+        // Joining is bounded by construction rather than by a timer: an unparked monitor
+        // re-probes, sees the shutdown flag, and returns without touching a lock we hold.
+        for handle in handles {
+            let _ = handle.join();
+        }
+
+        // 3. Drain, then release the routing lock before any process work. Terminating inside
+        // the guard made one wedged child block shutdown for every other shell.
+        let shells: Vec<(String, ManagedShell)> = match self.shells.lock() {
+            Ok(mut shells) => shells.drain().collect(),
+            Err(_) => Vec::new(),
+        };
+
+        // 4-5. One budget for the whole shutdown, not one per shell: ten wedged shells must not
+        // multiply into ten deadlines.
+        let deadline = Instant::now() + SHUTDOWN_REAP_DEADLINE;
+        for (shell_id, shell) in &shells {
+            terminate_shell(
+                shell,
+                &self.pending,
+                self.logging.as_ref(),
+                shell_id,
+                deadline,
+                true,
+            );
+        }
+
+        // 6. One last non-blocking look, so a child that exited while we worked through the
+        // others is recorded as reclaimed rather than as unresolved.
+        self.pending.sweep(self.logging.as_ref());
+        // 7. Whatever is still owed is named as such. An unreaped child is not erased by the
+        // process that failed to reap it going away.
+        self.pending.mark_unresolved(self.logging.as_ref());
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::shell_termination::{
+        reap_shared_child as reap_child_of, ChildProbe, CleanupState, POLL_INTERVAL_CEILING,
+    };
     use super::*;
+    use crate::contexts::workspaces::application::ShellLog;
     use portable_pty::{ChildKiller, ExitStatus};
     use std::io;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Barrier;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn temp_dir(label: &str) -> PathBuf {
@@ -897,8 +774,13 @@ mod tests {
     struct FakeChildState {
         exit: Option<FakeExit>,
         kill_refused: bool,
-        killed: AtomicBool,
+        /// Counted rather than flagged: "only the owner signalled" is a claim about *how many*
+        /// kills happened, and a boolean cannot tell one from eight.
+        kills: AtomicUsize,
         polls: AtomicUsize,
+        /// Lets a test make a previously wedged child finally exit, so a later sweep has
+        /// something real to observe.
+        released: AtomicBool,
         /// Set if the *blocking* wait is ever entered. No production path may reach it.
         blocking_wait_reached: AtomicBool,
     }
@@ -916,8 +798,17 @@ mod tests {
             self.polls.load(Ordering::Acquire)
         }
 
+        fn kills(&self) -> usize {
+            self.kills.load(Ordering::Acquire)
+        }
+
         fn was_killed(&self) -> bool {
-            self.killed.load(Ordering::Acquire)
+            self.kills() > 0
+        }
+
+        /// The child finally exits.
+        fn release(&self) {
+            self.released.store(true, Ordering::Release);
         }
 
         fn blocking_wait_reached(&self) -> bool {
@@ -930,7 +821,7 @@ mod tests {
 
     impl ChildKiller for FakeChild {
         fn kill(&mut self) -> io::Result<()> {
-            self.0.killed.store(true, Ordering::Release);
+            self.0.kills.fetch_add(1, Ordering::AcqRel);
             if self.0.kill_refused {
                 return Err(io::Error::other("fake kill refused"));
             }
@@ -945,6 +836,9 @@ mod tests {
     impl Child for FakeChild {
         fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
             self.0.polls.fetch_add(1, Ordering::AcqRel);
+            if self.0.released.load(Ordering::Acquire) {
+                return Ok(Some(ExitStatus::with_exit_code(0)));
+            }
             match self.0.exit {
                 Some(FakeExit::Immediately) => Ok(Some(ExitStatus::with_exit_code(0))),
                 Some(FakeExit::ProbeError) => Err(io::Error::other("fake probe failure")),
@@ -1031,18 +925,28 @@ mod tests {
 
     #[test]
     fn child_shutdown_failures_write_generic_warnings() {
-        let logging = CapturingLogs::default();
+        let logging = Arc::new(CapturingLogs::default());
+        let manager =
+            PortablePtyShellRuntime::new(Arc::new(CapturingEvents::default()), logging.clone());
         // `FailingChild` refuses the kill and keeps reporting itself as running, so this is a
-        // refused signal rather than a reap that ran out of time. One outcome, one warning:
-        // the old pair of messages described the same event twice and named neither.
-        let outcome = terminate_child(
-            &mut FailingChild,
-            &logging,
+        // refused signal rather than a reap that ran out of time. One outcome, one warning: the
+        // old pair of messages described the same event twice and named neither.
+        let child: Arc<Mutex<Box<dyn Child + Send + Sync>>> =
+            Arc::new(Mutex::new(Box::new(FailingChild)));
+        let killer: Mutex<Box<dyn ChildKiller + Send + Sync>> = Mutex::new(Box::new(FailingChild));
+        let termination = Arc::new(ShellTermination::default());
+        let outcome = manager.terminate_unregistered(
+            &child,
+            &killer,
+            &termination,
             "session-one",
             "shell-one",
-            false,
         );
-        assert_eq!(outcome, ShellTerminationOutcome::KillFailed);
+        assert_eq!(outcome, TerminationOutcome::KillFailed);
+        // A refused kill leaves a live child, so even a shell that never reached the registry
+        // hands its handle over rather than dropping it.
+        assert_eq!(termination.cleanup(), CleanupState::Pending);
+
         let messages = logging
             .logs
             .lock()
@@ -1050,10 +954,9 @@ mod tests {
             .iter()
             .map(|log| log.message.clone())
             .collect::<Vec<_>>();
-        assert_eq!(
-            messages,
-            vec!["Shell process termination did not complete (outcome: kill_failed)."]
-        );
+        assert_eq!(messages.len(), 1, "one outcome, one warning");
+        assert!(messages[0].contains("kill_failed"), "{}", messages[0]);
+        assert!(messages[0].contains("pending"), "{}", messages[0]);
         // The child's own error text carries a secret; the outcome code carries none of it.
         assert!(!messages.join(" ").contains("secret"));
     }
@@ -1103,7 +1006,7 @@ mod tests {
         manager
             .insert("shell-two".to_string(), second)
             .expect("insert second");
-        assert_eq!(manager.shells.lock().expect("shell map").len(), 2);
+        assert_eq!(manager.shells().lock().expect("shell map").len(), 2);
         manager
             .write_input(
                 "shell-one",
@@ -1126,7 +1029,7 @@ mod tests {
             manager.stop("shell-two").expect("stop second").as_deref(),
             Some("session-two")
         );
-        assert!(manager.shells.lock().expect("shell map").is_empty());
+        assert!(manager.shells().lock().expect("shell map").is_empty());
         for state in [&first_state, &second_state] {
             assert!(state.was_killed(), "each shell's child was signalled");
             assert!(
@@ -1194,11 +1097,15 @@ mod tests {
             .expect("insert healthy");
 
         let outcome = {
-            let shells = manager.shells.lock().expect("shell map");
+            let shells = manager.shells().lock().expect("shell map");
             let wedged = shells.get("shell-one").expect("wedged shell");
-            reap_shared_child(wedged, Instant::now() + TEST_DEADLINE)
+            reap_child_of(
+                &wedged.child,
+                &wedged.killer,
+                Instant::now() + TEST_DEADLINE,
+            )
         };
-        assert_eq!(outcome, ShellTerminationOutcome::ReapTimedOut);
+        assert_eq!(outcome, TerminationOutcome::ReapTimedOut);
         assert!(wedged_state.was_killed());
         assert!(
             wedged_state.polls() > 1,
@@ -1228,38 +1135,39 @@ mod tests {
             (
                 FakeExit::Immediately,
                 false,
-                ShellTerminationOutcome::AlreadyExited,
-                "already_exited",
+                TerminationOutcome::Reaped,
+                "reaped",
             ),
             (
                 FakeExit::AfterKill,
                 false,
-                ShellTerminationOutcome::Reaped,
+                TerminationOutcome::Reaped,
                 "reaped",
             ),
             (
                 FakeExit::Never,
                 false,
-                ShellTerminationOutcome::ReapTimedOut,
+                TerminationOutcome::ReapTimedOut,
                 "reap_timed_out",
             ),
             (
                 FakeExit::Never,
                 true,
-                ShellTerminationOutcome::KillFailed,
+                TerminationOutcome::KillFailed,
                 "kill_failed",
             ),
             (
                 FakeExit::ProbeError,
                 false,
-                ShellTerminationOutcome::ReapFailed,
+                TerminationOutcome::ReapFailed,
                 "reap_failed",
             ),
         ];
 
         for (exit, kill_refused, expected, code) in cases {
             let (shell, _slave, state) = scripted_shell("session", &root, exit, kill_refused);
-            let outcome = reap_shared_child(&shell, Instant::now() + TEST_DEADLINE);
+            let outcome =
+                reap_child_of(&shell.child, &shell.killer, Instant::now() + TEST_DEADLINE);
             assert_eq!(outcome, expected, "outcome for {exit:?}/{kill_refused}");
             assert_eq!(outcome.code(), code);
             assert!(
@@ -1267,31 +1175,36 @@ mod tests {
                 "no outcome path may reach the blocking wait"
             );
         }
-
-        // The distinction the whole enum exists for.
-        assert!(!ShellTerminationOutcome::ReapTimedOut.is_settled_exit());
-        assert!(!ShellTerminationOutcome::KillFailed.is_settled_exit());
-        assert!(!ShellTerminationOutcome::ReapFailed.is_settled_exit());
-        assert!(ShellTerminationOutcome::Reaped.is_settled_exit());
-        assert!(ShellTerminationOutcome::AlreadyExited.is_settled_exit());
         remove_test_dir(&root);
     }
 
     #[test]
-    fn a_timed_out_reap_records_the_child_it_left_behind() {
-        let root = temp_dir("timeout-evidence");
+    fn a_timed_out_reap_keeps_the_child_instead_of_dropping_the_last_handle() {
+        let root = temp_dir("timeout-ownership");
         std::fs::create_dir_all(&root).expect("root");
         let logging = CapturingLogs::default();
-        let (shell, _slave, _state) = scripted_shell("session-one", &root, FakeExit::Never, false);
+        let pending = PendingReapRegistry::default();
+        let (shell, _slave, state) = scripted_shell("session-one", &root, FakeExit::Never, false);
 
-        log_termination_outcome(
+        let report = terminate_shell(
+            &shell,
+            &pending,
             &logging,
-            &shell.session_id,
             "shell-one",
-            reap_shared_child(&shell, Instant::now() + TEST_DEADLINE),
+            Instant::now() + TEST_DEADLINE,
             false,
         );
 
+        assert_eq!(report.outcome, Some(TerminationOutcome::ReapTimedOut));
+        assert_eq!(report.cleanup, CleanupState::Pending);
+        assert_eq!(
+            pending.len(),
+            1,
+            "the registry owns the child that outlived its termination"
+        );
+        assert!(state.was_killed());
+
+        // The evidence has to name the child, not merely admit that something went wrong.
         let entries = logging.logs.lock().expect("logs");
         let entry = entries
             .first()
@@ -1300,34 +1213,96 @@ mod tests {
         assert_eq!(entry.shell_id, "shell-one");
         assert!(
             entry.message.contains("reap_timed_out"),
-            "the stable code reaches diagnostics: {}",
+            "{}",
             entry.message
         );
-        assert!(
-            entry.message.contains("remains unreaped"),
-            "cleanup ownership of the surviving child stays visible: {}",
-            entry.message
-        );
+        assert!(entry.message.contains("pending"), "{}", entry.message);
         drop(entries);
         remove_test_dir(&root);
     }
 
     #[test]
-    fn a_clean_reap_is_not_a_diagnostic() {
-        let root = temp_dir("clean-reap-quiet");
+    fn a_child_that_exits_later_becomes_reaped_later_without_rewriting_the_timeout() {
+        let root = temp_dir("reaped-later");
         std::fs::create_dir_all(&root).expect("root");
         let logging = CapturingLogs::default();
-        let (shell, _slave, _state) =
-            scripted_shell("session-one", &root, FakeExit::AfterKill, false);
+        let pending = PendingReapRegistry::default();
+        let (shell, _slave, state) = scripted_shell("session-one", &root, FakeExit::Never, false);
 
-        log_termination_outcome(
+        let report = terminate_shell(
+            &shell,
+            &pending,
             &logging,
-            &shell.session_id,
             "shell-one",
-            reap_shared_child(&shell, Instant::now() + TEST_DEADLINE),
+            Instant::now() + TEST_DEADLINE,
+            false,
+        );
+        assert_eq!(report.cleanup, CleanupState::Pending);
+
+        // The child finally goes. A sweep is a pure `try_wait` pass -- a blocking wait here
+        // would rebuild, inside the recovery path, the hang the recovery path exists for.
+        state.release();
+        assert_eq!(pending.sweep(&logging), 1);
+        assert_eq!(pending.len(), 0);
+
+        assert_eq!(shell.termination.cleanup(), CleanupState::ReapedLater);
+        assert_eq!(
+            shell.termination.outcome(),
+            Some(TerminationOutcome::ReapTimedOut),
+            "recovering later does not rewrite the history: it timed out, and then was reclaimed"
+        );
+        assert!(!state.blocking_wait_reached());
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn a_refused_kill_on_a_live_child_also_keeps_ownership() {
+        let root = temp_dir("kill-failed-ownership");
+        std::fs::create_dir_all(&root).expect("root");
+        let logging = CapturingLogs::default();
+        let pending = PendingReapRegistry::default();
+        let (shell, _slave, _state) = scripted_shell("session-one", &root, FakeExit::Never, true);
+
+        let report = terminate_shell(
+            &shell,
+            &pending,
+            &logging,
+            "shell-one",
+            Instant::now() + TEST_DEADLINE,
             false,
         );
 
+        assert_eq!(report.outcome, Some(TerminationOutcome::KillFailed));
+        assert_eq!(
+            report.cleanup,
+            CleanupState::Pending,
+            "a signal that was refused leaves a live child, so ownership must not be dropped"
+        );
+        assert_eq!(pending.len(), 1);
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn a_clean_reap_owes_nothing_and_is_not_a_diagnostic() {
+        let root = temp_dir("clean-reap-quiet");
+        std::fs::create_dir_all(&root).expect("root");
+        let logging = CapturingLogs::default();
+        let pending = PendingReapRegistry::default();
+        let (shell, _slave, _state) =
+            scripted_shell("session-one", &root, FakeExit::AfterKill, false);
+
+        let report = terminate_shell(
+            &shell,
+            &pending,
+            &logging,
+            "shell-one",
+            Instant::now() + TEST_DEADLINE,
+            false,
+        );
+
+        assert_eq!(report.outcome, Some(TerminationOutcome::Reaped));
+        assert_eq!(report.cleanup, CleanupState::NotRequired);
+        assert_eq!(pending.len(), 0, "nothing is owed after a clean reap");
         assert!(
             logging.logs.lock().expect("logs").is_empty(),
             "a shell that shut down cleanly is not a warning"
@@ -1336,25 +1311,72 @@ mod tests {
     }
 
     #[test]
-    fn repeated_termination_is_idempotent_and_starts_only_one_reap() {
-        let root = temp_dir("single-flight");
+    fn concurrent_stops_elect_one_owner_and_the_rest_do_not_claim_a_result() {
+        let root = temp_dir("stop-race");
         std::fs::create_dir_all(&root).expect("root");
-        let logging = CapturingLogs::default();
-        let (shell, _slave, state) =
-            scripted_shell("session-one", &root, FakeExit::AfterKill, false);
+        let logging = Arc::new(CapturingLogs::default());
+        let pending = Arc::new(PendingReapRegistry::default());
+        // Slow enough that followers genuinely arrive mid-flight rather than after the owner
+        // has already settled, which is the interleaving worth testing.
+        let (shell, _slave, state) = scripted_shell("session-one", &root, FakeExit::Never, false);
+        let shell = Arc::new(shell);
 
-        let first = terminate_shell(&shell, &logging, "shell-one", false);
-        assert_eq!(first, ShellTerminationOutcome::Reaped);
-        let polls_after_first = state.polls();
+        const RACERS: usize = 8;
+        let barrier = Arc::new(Barrier::new(RACERS));
+        let mut handles = Vec::with_capacity(RACERS);
+        for _ in 0..RACERS {
+            let shell = shell.clone();
+            let pending = pending.clone();
+            let logging = logging.clone();
+            let barrier = barrier.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                terminate_shell(
+                    &shell,
+                    &pending,
+                    logging.as_ref(),
+                    "shell-one",
+                    Instant::now() + TEST_DEADLINE,
+                    false,
+                )
+            }));
+        }
+        let reports: Vec<TerminationReport> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("racer"))
+            .collect();
 
-        // A second stop must answer from the settled state rather than touch the child again.
-        let second = terminate_shell(&shell, &logging, "shell-one", false);
-        assert_eq!(second, ShellTerminationOutcome::Reaped);
-        assert_eq!(
-            state.polls(),
-            polls_after_first,
-            "the second termination started no second reap"
+        // Exactly one kill and exactly one reap loop, no matter how many callers asked.
+        assert_eq!(state.kills(), 1, "only the owner signalled the child");
+        let owners = reports
+            .iter()
+            .filter(|report| report.outcome == Some(TerminationOutcome::ReapTimedOut))
+            .count();
+        assert_eq!(owners, 1, "exactly one caller produced the outcome");
+
+        // Followers report that a reap is in flight. They do not block on the child, and they
+        // do not claim a success -- or any outcome -- that another thread produced.
+        for report in &reports {
+            match report.outcome {
+                Some(TerminationOutcome::ReapTimedOut) => {}
+                None => assert_eq!(report.cleanup, CleanupState::Reaping),
+                other => panic!("a follower reported an outcome it did not produce: {other:?}"),
+            }
+        }
+        assert_eq!(pending.len(), 1, "one owner, one adoption");
+        assert!(!state.blocking_wait_reached());
+
+        // Once settled there is exactly one final answer, and asking again returns it.
+        let after = terminate_shell(
+            &shell,
+            &pending,
+            logging.as_ref(),
+            "shell-one",
+            Instant::now() + TEST_DEADLINE,
+            false,
         );
+        assert_eq!(after.outcome, Some(TerminationOutcome::ReapTimedOut));
+        assert_eq!(state.kills(), 1, "a later ask starts no second kill");
         remove_test_dir(&root);
     }
 
@@ -1363,16 +1385,109 @@ mod tests {
         let root = temp_dir("timeout-repeat");
         std::fs::create_dir_all(&root).expect("root");
         let logging = CapturingLogs::default();
-        let (shell, _slave, _state) = scripted_shell("session-one", &root, FakeExit::Never, false);
-        shell
-            .termination
-            .settle(ShellTerminationOutcome::ReapTimedOut);
+        let pending = PendingReapRegistry::default();
+        let (shell, _slave, state) = scripted_shell("session-one", &root, FakeExit::Never, false);
 
-        // The settled outcome is carried, not replaced by a cheerful default. A shell whose
-        // child was never reaped must not start reporting success on the second ask.
-        let repeated = terminate_shell(&shell, &logging, "shell-one", false);
-        assert_eq!(repeated, ShellTerminationOutcome::ReapTimedOut);
-        assert!(!repeated.is_settled_exit());
+        let first = terminate_shell(
+            &shell,
+            &pending,
+            &logging,
+            "shell-one",
+            Instant::now() + TEST_DEADLINE,
+            false,
+        );
+        assert_eq!(first.outcome, Some(TerminationOutcome::ReapTimedOut));
+
+        // The settled outcome is carried, not replaced by a cheerful default, and the second
+        // ask does not touch the child again.
+        let polls_after_first = state.polls();
+        let repeated = terminate_shell(
+            &shell,
+            &pending,
+            &logging,
+            "shell-one",
+            Instant::now() + TEST_DEADLINE,
+            false,
+        );
+        assert_eq!(repeated.outcome, Some(TerminationOutcome::ReapTimedOut));
+        assert_eq!(state.polls(), polls_after_first);
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn manager_drop_ends_within_the_deadline_and_leaves_no_monitor_running() {
+        let root = temp_dir("drop-shutdown");
+        std::fs::create_dir_all(&root).expect("root");
+        let logging = Arc::new(CapturingLogs::default());
+        let manager =
+            PortablePtyShellRuntime::new(Arc::new(CapturingEvents::default()), logging.clone());
+
+        // A child that never exits, with a monitor watching it. Before the shutdown token the
+        // monitor waited for a natural exit that was never coming, and because it held a clone
+        // of the shells map, `Drop`'s `strong_count` guard then made shutdown do nothing at all.
+        let (shell, _slave, state) = scripted_shell("session-one", &root, FakeExit::Never, false);
+        let io = shell.io.clone();
+        let child = shell.child.clone();
+        let termination = shell.termination.clone();
+        manager
+            .insert("shell-one".to_string(), shell)
+            .expect("insert");
+        manager
+            .start_exit_monitor("shell-one", "session-one", io, child, termination)
+            .expect("monitor");
+
+        let started = Instant::now();
+        drop(manager);
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < SHUTDOWN_REAP_DEADLINE * 3,
+            "shutdown must finish on its own budget, took {elapsed:?}"
+        );
+        assert!(state.was_killed(), "shutdown signalled the child");
+        assert!(!state.blocking_wait_reached());
+
+        // The child could not be reaped, so it is named as unresolved rather than forgotten.
+        let messages = logging
+            .logs
+            .lock()
+            .expect("logs")
+            .iter()
+            .map(|log| log.message.clone())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            messages.contains("unresolved_at_shutdown"),
+            "an unreaped child survives the process that failed to reap it: {messages}"
+        );
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn one_shell_pending_cleanup_does_not_hold_up_another_shells_shutdown() {
+        let root = temp_dir("drop-isolation");
+        std::fs::create_dir_all(&root).expect("root");
+        let logging = Arc::new(CapturingLogs::default());
+        let manager =
+            PortablePtyShellRuntime::new(Arc::new(CapturingEvents::default()), logging.clone());
+        let (wedged, _wedged_slave, wedged_state) =
+            scripted_shell("session-one", &root, FakeExit::Never, false);
+        let (healthy, _healthy_slave, healthy_state) =
+            scripted_shell("session-two", &root, FakeExit::AfterKill, false);
+        manager
+            .insert("shell-one".to_string(), wedged)
+            .expect("insert wedged");
+        manager
+            .insert("shell-two".to_string(), healthy)
+            .expect("insert healthy");
+
+        drop(manager);
+
+        // The wedged shell consumed the budget; the healthy one still got signalled and reaped.
+        assert!(wedged_state.was_killed());
+        assert!(healthy_state.was_killed());
+        assert!(!wedged_state.blocking_wait_reached());
+        assert!(!healthy_state.blocking_wait_reached());
         remove_test_dir(&root);
     }
 
@@ -1380,57 +1495,34 @@ mod tests {
     fn an_in_flight_reap_turns_a_concurrent_stop_away_rather_than_queueing_it() {
         let termination = ShellTermination::default();
         termination.claim().expect("first caller owns the reap");
-        assert_eq!(
-            termination.claim(),
-            Err(ShellTerminationOutcome::Reaping),
-            "a concurrent caller is told a reap is in flight instead of blocking on the child"
-        );
-        termination.settle(ShellTerminationOutcome::Reaped);
-        assert!(termination.is_settled());
-        assert_eq!(
-            termination.claim(),
-            Err(ShellTerminationOutcome::Reaped),
-            "once settled, the recorded outcome is what every later caller sees"
-        );
-    }
+        let follower = termination
+            .claim()
+            .expect_err("a second caller is a follower");
+        assert_eq!(follower.outcome, None, "a follower produced no outcome");
+        assert_eq!(follower.cleanup, CleanupState::Reaping);
 
-    #[test]
-    fn every_outcome_survives_the_round_trip_through_termination_state() {
-        for outcome in [
-            ShellTerminationOutcome::AlreadyExited,
-            ShellTerminationOutcome::KillRequested,
-            ShellTerminationOutcome::Reaping,
-            ShellTerminationOutcome::Reaped,
-            ShellTerminationOutcome::ReapTimedOut,
-            ShellTerminationOutcome::KillFailed,
-            ShellTerminationOutcome::ReapFailed,
-        ] {
-            let state = outcome.as_state();
-            assert!(
-                state >= SETTLED_BASE,
-                "a settled state can never collide with idle or in-flight"
-            );
-            assert_eq!(ShellTerminationOutcome::from_state(state), Some(outcome));
-        }
-        assert_eq!(ShellTerminationOutcome::from_state(STATE_IDLE), None);
-        assert_eq!(ShellTerminationOutcome::from_state(STATE_IN_FLIGHT), None);
+        termination.settle(TerminationOutcome::Reaped, CleanupState::NotRequired);
+        assert!(termination.is_settled());
+        let after = termination.claim().expect_err("settled");
+        assert_eq!(after.outcome, Some(TerminationOutcome::Reaped));
+        assert_eq!(after.cleanup, CleanupState::NotRequired);
     }
 
     #[test]
     fn polling_stops_as_soon_as_a_terminate_path_takes_ownership() {
         let polls = AtomicUsize::new(0);
-        let outcome = poll_until_exit(
+        let ended = poll_until_exit(
             || {
                 polls.fetch_add(1, Ordering::AcqRel);
                 ChildProbe::Running
             },
-            // Stands in for the exit monitor seeing a terminate settle the shell: an unbounded
-            // wait for a natural exit must still be able to stop.
+            // Stands in for the exit monitor seeing a terminate settle the shell, or shutdown
+            // being signalled: an open-ended wait for a natural exit must still be able to end.
             || polls.load(Ordering::Acquire) < 3,
             None,
             POLL_INTERVAL_CEILING,
         );
-        assert_eq!(outcome, ShellTerminationOutcome::Reaping);
+        assert_eq!(ended, PollEnd::Abandoned);
         assert_eq!(polls.load(Ordering::Acquire), 3);
     }
 
@@ -1461,7 +1553,7 @@ mod tests {
             vec![("shell-one".to_string(), "session-one".to_string())]
         );
         assert!(manager
-            .shells
+            .shells()
             .lock()
             .expect("shell map")
             .contains_key("shell-two"));
@@ -1538,7 +1630,7 @@ mod tests {
 
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while std::time::Instant::now() < deadline {
-            if manager.shells.lock().expect("shell map").is_empty() {
+            if manager.shells().lock().expect("shell map").is_empty() {
                 remove_test_dir(&root);
                 return;
             }
