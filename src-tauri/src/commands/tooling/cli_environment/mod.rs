@@ -3,9 +3,6 @@
 //! One file per command, each thin: validate, hand off, return an operation id. Nothing here
 //! contains policy -- policy lives in the application service, so a rule cannot hold in the UI path
 //! and not in a test or a future caller.
-//!
-//! These are built alongside the flat `list_cli_tools` / `install_cli_version` commands they
-//! replace. Task 9.8 removes those once the frontend has moved.
 
 pub(crate) mod background;
 pub(crate) mod dto;
