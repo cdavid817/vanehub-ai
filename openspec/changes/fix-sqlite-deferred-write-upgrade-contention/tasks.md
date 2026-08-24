@@ -52,18 +52,43 @@
 - [x] 6.2 `cargo test --workspace` green (Windows).
 - [x] 6.3 `clippy`, `fmt`, `architecture:check`, `contracts:check`, `docs:check`, and `openspec validate --strict` green (Windows).
 - [ ] 6.4 Report the concurrency suite separately for Windows, Linux, and macOS as PASSED / FAILED / BLOCKED / NOT RUN. A result on one platform is never reported for another.
+
+  **Qualification evidence.** PR #211 head `d494fb65a5956eff016c4633929d910387bccf30`, base `c37caa4af7d5d8d2a2df88bb3f6a968891286843`, actual checkout `036f7709b55d9864e89e702108d4b2f117953778` (`refs/pull/211/merge`), workflow run `32675752815`, macOS job `97283440248`.
+
+  | platform | focused concurrency suite | `cargo test --workspace` |
+  | --- | --- | --- |
+  | Windows | PASSED — 13 passed / 0 failed (CI job `97283440125`) | PASSED — 4492 lib + 53 architecture + all integration, local |
+  | Linux | PASSED — within the workspace run | PASSED — CI `Rust` job, 17m32s |
+  | macOS | **PASSED** — 13 passed / 0 failed / 0 ignored, 4.71s, step conclusion `success` (not skipped) | **FAILED (cancelled at the job ceiling)** — step conclusion `cancelled`, not skipped |
+
+  The macOS concurrency suite covers all six tests this change adds, including `a_deferred_read_then_write_cannot_upgrade_but_an_immediate_one_waits_and_wins` — the reproduction of the defect itself. So the SQLite question this change exists to answer **is** answered on macOS.
+
+- [ ] 6.4.2 macOS `cargo test --workspace` is blocked by an unrelated pre-existing hang. Classified as **test synchronisation**, not product semantics, not a platform SQLite difference, and not CI infrastructure.
+
+  Evidence: the step ran 00:20:30 → 03:09:39 and was cancelled at the ceiling, having emitted its last output at 00:29:51 — **two hours and forty minutes of silence**. The final two lines name it:
+
+  ```
+  00:29:50 test contexts::workspaces::infrastructure::portable_pty::tests::a_blocked_shell_writer_does_not_stall_other_shells has been running for over 60 seconds
+  00:29:51 test contexts::workspaces::infrastructure::portable_pty::tests::manager_routes_input_resize_and_cleanup_by_shell_id has been running for over 60 seconds
+  ```
+
+  Root cause is in existing code this change never touched: `portable_pty.rs::terminate_shell` calls `killer.kill()` and then `child.wait()`, and that wait has no deadline. Both tests spawn a real `$SHELL` into a real PTY. On macOS the killed child is not reaped, so `wait()` blocks forever and the test has no timeout of its own to escape it.
+
+  Not a SQLite difference: the concurrency suite passed on the same runner minutes earlier. Not infrastructure: 169 minutes is not a slow compile, and raising the ceiling again would only buy more silence — which is why the ceiling is not being raised again. Not this change's product semantics: `workspaces::portable_pty` has no transaction and no migration in it.
+
+  It went unseen because **macOS ran no tests at all** until 6.4.1 added them; the first real macOS test run is what surfaced it. Fixing it means giving the reap a bounded wait and the tests a deadline, which is a `workspaces` change with its own review, not something to graft onto a storage fix. Forbidden here and there: no fixed sleep, no unbounded retry, no wider timeout, no skipped or ignored test.
 - [x] 6.4.1 Make CI capable of producing that report. It was not. The `rust` job runs `cargo test --workspace` on `ubuntu-latest`, so Linux was covered; `native-platform-check` on `macos-latest` ran `cargo build` and then two steps both gated `if: runner.os == 'Windows'`, so **macOS executed no tests at all** and still reported a green check. Waiting on that check would have produced a passing macOS result that proved nothing — the same failure mode this change's own fitness rule exists to prevent. `native-platform-check` now pins Node, runs the focused concurrency suite on both legs, and runs `cargo test --workspace` on macOS; its timeout moves 45 → 75 for the added compile. Which lock SQLite takes and whether it waits is decided per-OS in the VFS layer, so this is the platform evidence the gate asks for rather than a formality.
-- [x] 6.5 Report the Desktop Smoke scenario. **NOT APPLICABLE** to this change: the recorded `database is locked` is Windows, and its cause -- specs sharing one data directory with one app instance after another -- involves no concurrent transactions. Tracked by 4.5.1. Not a completion gate here.
-- [x] 6.6 Working tree clean.
+- [x] 6.5 Report the Desktop Smoke scenario. **NOT APPLICABLE TO THIS DEFECT**, and it stays tracked by 4.5.1. The recorded `database is locked` is Windows, and its cause -- specs sharing one data directory with one app instance after another -- involves no concurrent transactions, while this defect needs two. Not a completion gate here. On run `32675752815` Desktop Smoke passes on all three platforms (Windows 11m59s, macOS 8m48s, Linux 6m35s); the one Linux failure on the previous run was intermittent, confirmed by the same job passing here on a tree that differs by one comment character, with a clean native log and no SQLite, migration, or panic entry in it.
+- [x] 6.6 Working tree clean. `git status` empty, `git diff --check` clean, both `openspec validate --strict` valid, and `origin/main` re-fetched: it advanced two dependabot commits touching only `package.json` and `package-lock.json`, so migrations 82-91 and every transaction call site remain conflict-free (`git merge-tree` reports none).
 - [ ] 6.7 Only then unblock `add-unified-extension-platform` Task Group 4.
 
 ## Status
 
 - Implementation: **COMPLETE**
 - Windows: **PASSED** — focused concurrency suite and `cargo test --workspace`
-- Linux: **NOT RUN**
-- macOS: **NOT RUN**
-- Archive: **BLOCKED** on 6.4
+- Linux: **PASSED** — focused concurrency suite and `cargo test --workspace`, CI run `32675752815`
+- macOS: **SPLIT** — focused concurrency suite **PASSED** (13/13); `cargo test --workspace` **FAILED**, cancelled at the ceiling by the pre-existing `portable_pty` hang recorded in 6.4.2
+- Archive: **BLOCKED** on 6.4 — the gate requires both macOS steps and only one of them passed
 - `add-unified-extension-platform` Task Group 4: **BLOCKED** on this change's archive
 
 ## Forbidden
