@@ -13,6 +13,7 @@ mod retained_remote_shell;
 mod retained_shell_runtime;
 #[cfg(test)]
 mod retained_shell_runtime_tests;
+mod retained_shell_support;
 mod runtime_support;
 mod selection;
 mod session_queries;
@@ -29,6 +30,11 @@ pub(crate) use filesystem::WorkspaceFilesystemAdapter;
 pub(crate) use git::WorkspaceGitAdapter;
 pub(crate) use portable_pty::PortablePtyShellRuntime;
 pub(crate) use remote_terminal_schema::apply_remote_terminal_schema;
+pub(crate) use retained_remote_shell::{RetainedRemoteShellRuntime, RoutedShellRuntime};
+pub(crate) use retained_shell_runtime::RetainedLocalShellRuntime;
+pub(crate) use retained_shell_support::{
+    SqliteSessionShellWorkspace, SystemShellClock, TauriSessionShellNotices, UuidShellIds,
+};
 pub(crate) use runtime_support::SystemWorkspaceClock;
 pub(crate) use selection::TauriProjectDirectorySelection;
 pub(crate) use session_queries::SessionWorkspaceQueryAdapter;

@@ -126,7 +126,12 @@ pub(crate) fn coverage_dto(coverage: &QueryCoverage) -> QueryCoverageDto {
     }
 }
 
-pub(crate) fn summary_dto(summary: &WorkspaceEvidenceSummary) -> WorkspaceEvidenceSummaryDto {
+/// `live_shells` is supplied by the caller because the Shell registry belongs to workspaces. It is
+/// a real count, unlike the figures below that this context genuinely cannot see.
+pub(crate) fn summary_dto(
+    summary: &WorkspaceEvidenceSummary,
+    live_shells: usize,
+) -> WorkspaceEvidenceSummaryDto {
     // The figures this context does not own read as zero next to an `unavailable` coverage that
     // names each of them. Group 8 replaces them with real counts; until then the panel must render
     // "not observed" rather than "none happened".
@@ -157,7 +162,9 @@ pub(crate) fn summary_dto(summary: &WorkspaceEvidenceSummary) -> WorkspaceEviden
             running: summary.running_records,
             failed: summary.failed_records,
         },
-        shells: EvidenceShellsDto { live: 0 },
+        shells: EvidenceShellsDto {
+            live: u32::try_from(live_shells).unwrap_or(u32::MAX),
+        },
         logs: EvidenceLogsDto { new_errors: 0 },
         traces: EvidencePairDto {
             running: summary.running_records,

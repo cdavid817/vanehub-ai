@@ -57,6 +57,16 @@ pub(crate) fn run() {
                     bridge.shutdown();
                 }
             }
+            // Retained Shells outlive their views by design, so nothing else closes them. Joining
+            // each runtime's workers here is the difference between a clean exit and a window that
+            // has closed while the process waits on a thread reading a dead PTY.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(workspaces) =
+                    app.try_state::<crate::contexts::workspaces::api::WorkspaceApi>()
+                {
+                    workspaces.shutdown_session_shells();
+                }
+            }
             if matches!(event, tauri::RunEvent::Exit)
                 && app
                 .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
@@ -210,6 +220,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         fallback_log_directory.clone(),
         Arc::new(evidence_bridge.clone()),
+        ssh_connections_api.clone(),
     );
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
@@ -367,6 +378,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(skill_tool_api);
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
+    super::start_session_shell_idle_job(workspace_api.clone());
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());

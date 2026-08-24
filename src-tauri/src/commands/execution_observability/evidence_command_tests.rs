@@ -184,10 +184,22 @@ fn summary_command(
     super::evidence_dto::WorkspaceEvidenceSummaryDto,
     super::evidence_dto::EvidenceCommandErrorDto,
 > {
+    summary_command_with_live_shells(api, session_id, 0)
+}
+
+fn summary_command_with_live_shells(
+    api: &ExecutionEvidenceApi,
+    session_id: &str,
+    live_shells: usize,
+) -> Result<
+    super::evidence_dto::WorkspaceEvidenceSummaryDto,
+    super::evidence_dto::EvidenceCommandErrorDto,
+> {
     super::get_workspace_evidence_summary::workspace_evidence_summary(
         api,
         session_id.to_string(),
         None,
+        live_shells,
     )
 }
 
@@ -278,9 +290,20 @@ fn a_summary_marks_sources_this_context_does_not_own() {
 
     assert_eq!(summary.usage.coverage, "unavailable");
     assert_eq!(summary.logs.new_errors, 0);
-    assert_eq!(summary.shells.live, 0);
     assert_eq!(summary.changes.changed_files, 0);
     assert_ne!(summary.coverage.state, "complete");
+}
+
+/// The Shell figure is the one that left that list. It is joined from the workspaces registry, so
+/// it is a real count rather than a placeholder — and a summary that kept reporting zero while
+/// three Shells were open would tell the user their session is idle while it is not.
+#[test]
+fn a_summary_reports_the_live_shells_the_registry_is_holding() {
+    let harness = harness("evidence-cmd-live-shells");
+
+    let summary = summary_command_with_live_shells(&harness.api, SESSION, 3).expect("summary");
+
+    assert_eq!(summary.shells.live, 3);
 }
 
 #[test]

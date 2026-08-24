@@ -42,6 +42,27 @@ bounded_shell_id!(ShellAttachmentId, "attachment id");
 bounded_shell_id!(ShellCreateRequestId, "create request id");
 bounded_shell_id!(ShellReasonCode, "reason code");
 
+impl ShellReasonCode {
+    /// Builds a reason code from anything, without a fallible parse.
+    ///
+    /// Reason codes are produced on failure paths — a lost transport, an evicted buffer, a runtime
+    /// that would not start. A constructor that could itself fail there would leave each call site
+    /// choosing between a panic and a lost reason, and the reason is the only thing the user has to
+    /// go on. So the invariant is enforced by repair rather than rejection: control characters are
+    /// dropped, the length is bounded, and an input with nothing left says so.
+    pub(crate) fn sanitized(code: &str) -> Self {
+        let cleaned = code
+            .chars()
+            .filter(|character| !character.is_control())
+            .take(MAX_SHELL_IDENTIFIER_LENGTH)
+            .collect::<String>();
+        if cleaned.is_empty() {
+            return Self("shell_reason_unavailable".to_string());
+        }
+        Self(cleaned)
+    }
+}
+
 /// What the user named a Shell.
 ///
 /// Bounded and control-free because it is rendered in a tab strip and written into diagnostics; a
@@ -105,6 +126,25 @@ impl SessionShellState {
         }
     }
 
+    /// The reason code the state carries, for the states that have one.
+    ///
+    /// Kept apart from the exit code rather than flattened into one string, because a reader that
+    /// had to parse prose could not tell a crash from a dropped transport.
+    pub(crate) fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Disconnected { reason } | Self::Failed { reason } => Some(reason.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The process exit code, when the runtime reported one.
+    pub(crate) fn exit_code(&self) -> Option<i32> {
+        match self {
+            Self::Exited { code } => *code,
+            _ => None,
+        }
+    }
+
     /// Whether the runtime can still accept input. A view uses this to decide whether to bind a
     /// keyboard, and it is deliberately narrower than "the Shell still exists".
     pub(crate) fn accepts_input(&self) -> bool {
@@ -119,7 +159,7 @@ impl SessionShellState {
 
     /// Whether the runtime behind it has stopped.
     ///
-    /// A different question from , and the difference is the point: an exited Shell
+    /// A different question from `is_terminal`, and the difference is the point: an exited Shell
     /// has ended and is still held. Once a Shell has ended it does not end again — a second
     /// terminal state would publish two endings for one Shell, and a reader counting them would
     /// see work that never happened.

@@ -1,4 +1,9 @@
 pub(crate) use super::application::{
+    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
+    SessionShellDescriptor, SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope,
+    WriteSessionShellRequest,
+};
+pub(crate) use super::application::{
     CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
     GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, ResizeShellRequest,
@@ -17,6 +22,7 @@ pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
     ShellRuntimeDescriptor,
 };
+pub(crate) use super::domain::{SessionShellError, ShellId};
 pub(crate) use super::infrastructure::PreparedEvaluationFixture;
 use std::path::Path;
 use std::sync::Arc;
@@ -27,6 +33,7 @@ pub(crate) struct WorkspaceApi {
     queries: WorkspaceQueryApplicationService,
     shell: WorkspaceShellApplicationService,
     review: Arc<dyn WorkspaceReviewPort>,
+    shells: Arc<SessionShellRegistry>,
 }
 
 impl WorkspaceApi {
@@ -58,12 +65,14 @@ impl WorkspaceApi {
         queries: WorkspaceQueryApplicationService,
         shell: WorkspaceShellApplicationService,
         review: Arc<dyn WorkspaceReviewPort>,
+        shells: Arc<SessionShellRegistry>,
     ) -> Self {
         Self {
             service,
             queries,
             shell,
             review,
+            shells,
         }
     }
 
@@ -340,5 +349,78 @@ impl WorkspaceApi {
 
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
         self.shell.kill_for_session(session_id)
+    }
+
+    pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
+        self.shells.list(Some(session_id))
+    }
+
+    pub(crate) fn create_session_shell(
+        &self,
+        request: &CreateSessionShellRequest,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.shells.create(request)
+    }
+
+    pub(crate) fn attach_session_shell(
+        &self,
+        request: &AttachSessionShellRequest,
+    ) -> Result<ShellAttachSnapshot, SessionShellError> {
+        self.shells.attach(request)
+    }
+
+    pub(crate) fn detach_session_shell(
+        &self,
+        scope: &ShellAttachmentScope,
+    ) -> Result<(), SessionShellError> {
+        self.shells.detach(scope)
+    }
+
+    pub(crate) fn write_session_shell(
+        &self,
+        request: &WriteSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.shells.write(request)
+    }
+
+    pub(crate) fn resize_session_shell(
+        &self,
+        request: &ResizeSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.shells.resize(request)
+    }
+
+    pub(crate) fn rename_session_shell(
+        &self,
+        shell_id: &ShellId,
+        title: &str,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.shells.rename(shell_id, title)
+    }
+
+    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
+        self.shells.close(shell_id)
+    }
+
+    /// How many Shells a session is holding, for the workspace summary.
+    ///
+    /// Owned by the registry rather than counted by the panel: a badge produced by mounting a list
+    /// is a badge that opens what it is describing.
+    pub(crate) fn live_session_shell_count(&self, session_id: &str) -> usize {
+        self.shells.live_count(session_id)
+    }
+
+    /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
+    pub(crate) fn sweep_idle_session_shells(&self) -> usize {
+        self.shells.sweep_idle().len()
+    }
+
+    /// Closes every Shell and joins its runtime workers.
+    ///
+    /// Called on the way out rather than left to the process teardown, because a joined worker is
+    /// the difference between a clean exit and a window that has closed while the process is still
+    /// waiting on a thread reading a dead PTY.
+    pub(crate) fn shutdown_session_shells(&self) {
+        self.shells.shutdown();
     }
 }

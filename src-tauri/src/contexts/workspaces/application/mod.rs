@@ -40,12 +40,14 @@ pub(crate) use review::{
 };
 pub(crate) use service::WorkspaceApplicationService;
 pub(crate) use session_shell::{
-    SessionShellRuntimePort, ShellOutputSink, ShellRuntimeOpen, ShellRuntimeOpened,
+    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
+    SessionShellDescriptor, SessionShellNotice, SessionShellNoticePort, SessionShellRuntimePort,
+    SessionShellWorkspace, SessionShellWorkspacePort, ShellAttachSnapshot, ShellAttachmentScope,
+    ShellCapacities, ShellClockPort, ShellIdPort, ShellOutputSink, ShellRemoteTarget,
+    ShellRuntimeOpen, ShellRuntimeOpened, WriteSessionShellRequest,
 };
-// Production code only ever reads `ShellRuntimeOpen::remote`; naming the type is something only a
-// test that builds one from scratch has to do.
-#[cfg(test)]
-pub(crate) use session_shell::ShellRemoteTarget;
+pub(crate) use session_shell_registry::SessionShellRegistry;
+pub(crate) use session_shell_store::ShellStore;
 pub(crate) use shell_service::WorkspaceShellApplicationService;
 
 #[cfg(test)]

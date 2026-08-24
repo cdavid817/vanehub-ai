@@ -7,7 +7,12 @@ import type {
   SessionRunReport,
   WorkspaceEvidenceSummary,
 } from "../types/session-workspace-evidence";
-import type { ShellAttachSnapshot, ShellOutputFrame } from "../types/session-workspace-shell-frames";
+import type {
+  SessionShellDescriptor,
+  SessionShellNotice,
+  ShellAttachSnapshot,
+  ShellOutputFrame,
+} from "../types/session-workspace-shell-frames";
 import {
   cursorPageSchema,
   evidenceSubscriptionBootstrapSchema,
@@ -20,6 +25,8 @@ import {
 } from "./session-workspace-evidence-records";
 import { sessionRunReportSchema } from "./session-workspace-evidence-report";
 import {
+  sessionShellDescriptorSchema,
+  sessionShellNoticeSchema,
   shellAttachSnapshotSchema,
   shellOutputFrameSchema,
 } from "./session-workspace-shell-frames";
@@ -72,13 +79,27 @@ export function parseShellOutputFrame(value: unknown): ShellOutputFrame {
   return shellOutputFrameSchema.parse(value);
 }
 
+export function parseSessionShellDescriptor(value: unknown): SessionShellDescriptor {
+  const descriptor = sessionShellDescriptorSchema.parse(value);
+  return { ...descriptor, runtime: normalizeShellRuntimeDescriptor(descriptor.runtime) };
+}
+
 export function parseShellAttachSnapshot(value: unknown): ShellAttachSnapshot {
   const snapshot = shellAttachSnapshotSchema.parse(value);
+  return { ...snapshot, descriptor: parseSessionShellDescriptor(snapshot.descriptor) };
+}
+
+/**
+ * Nullish `reason` and `exitCode` become absent rather than `null`, so a reader tests one thing.
+ * The native side omits the field it does not have and Tauri sends `null` for the other, and a view
+ * that had to handle both would eventually check only one.
+ */
+export function parseSessionShellNotice(value: unknown): SessionShellNotice {
+  const notice = sessionShellNoticeSchema.parse(value);
+  if (notice.type === "output") return notice;
   return {
-    ...snapshot,
-    descriptor: {
-      ...snapshot.descriptor,
-      runtime: normalizeShellRuntimeDescriptor(snapshot.descriptor.runtime),
-    },
+    ...notice,
+    reason: notice.reason ?? undefined,
+    exitCode: notice.exitCode ?? undefined,
   };
 }

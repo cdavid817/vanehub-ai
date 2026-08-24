@@ -2,6 +2,17 @@ import { z } from "zod";
 
 export const shellStreamSchema = z.enum(["pty", "stdout", "stderr", "system"]);
 
+export const sessionShellStateSchema = z.enum([
+  "starting",
+  "running",
+  "exited",
+  "disconnected",
+  "failed",
+  "closed",
+]);
+
+export const shellForegroundProcessStateSchema = z.enum(["present", "absent", "unknown"]);
+
 export const shellOutputFrameSchema = z.object({
   shellId: z.string().min(1),
   sequence: z.number().int().nonnegative(),
@@ -27,14 +38,42 @@ export const sessionShellDescriptorSchema = z.object({
   seatId: z.string().min(1).optional(),
   title: z.string(),
   runtime: z.unknown(),
-  state: z.enum(["connecting", "connected", "disconnected", "failed"]),
+  state: sessionShellStateSchema,
+  reason: z.string().optional(),
+  exitCode: z.number().int().optional(),
   createdAt: z.string(),
   lastActivityAt: z.string(),
+  revision: z.number().int().nonnegative(),
+  foregroundProcess: shellForegroundProcessStateSchema,
 });
 
 export const shellAttachSnapshotSchema = z.object({
+  attachmentId: z.string().min(1),
   descriptor: sessionShellDescriptorSchema,
   replay: z.array(shellOutputFrameSchema),
   nextSequence: z.number().int().nonnegative(),
   gap: shellReplayGapSchema.optional(),
 });
+
+export const sessionShellStateNoticeSchema = z.object({
+  shellId: z.string().min(1),
+  sessionId: z.string().min(1),
+  state: sessionShellStateSchema,
+  reason: z.string().nullish(),
+  exitCode: z.number().int().nullish(),
+  revision: z.number().int().nonnegative(),
+  occurredAt: z.string(),
+});
+
+/**
+ * The event payload, discriminated on `type`. Output and state are separate shapes because they
+ * carry different facts: a frame has a sequence and a state change has a revision, and a single
+ * flattened shape would make every reader check which half of it is meaningful.
+ */
+export const sessionShellNoticeSchema = z.discriminatedUnion("type", [
+  shellOutputFrameSchema.extend({
+    type: z.literal("output"),
+    sessionId: z.string().min(1),
+  }),
+  sessionShellStateNoticeSchema.extend({ type: z.literal("state") }),
+]);

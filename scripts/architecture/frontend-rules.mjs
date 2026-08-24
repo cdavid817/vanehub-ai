@@ -52,8 +52,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 定义 seam 与 typed unavailable 绑定,前者是唯一接触 Tauri API 的实现,拆开正是为了让"哪些命令
 // 已注册"只有一处写法。`tauri-session-workspace-evidence-client.ts` 里订阅改成先挂监听再取
 // watermark,净增几行。上限按实测值 20116 记录,不留余量。
+// 再次上调(同一 change,Task Group 7.9/7.10):Session Shell 是一条全新能力,不是把既有代码挪个
+// 位置。新增的 592 行分成四个聚焦模块——service 接口(定义"离开"与"停止"是两个不同的调用,这正是
+// 标签页切换不再杀掉构建的前提)、两个运行时各自的适配器、以及它们共用的帧对账模块。共用那一份
+// 是刻意的:去重与 gap 检测如果两端各写一份,漂移的恰好是最难看出来的行为——重复交付的帧看起来
+// 像 shell 回显,漏掉的帧看起来像命令少输出了几行。旧的 `session-workspace-shell-frames` 契约是
+// 净改而非净增:它此前描述的 state 取值(connecting/connected/…)与原生注册表实际发布的六个状态
+// 对不上,attachmentId、revision、foregroundProcess 三个字段则根本不存在。上限按实测值 20693
+// 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20116, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 20693, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

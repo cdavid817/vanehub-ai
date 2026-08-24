@@ -1,8 +1,6 @@
 //! Bounded, UTF-8-safe replay for one retained Session Shell.
 
-use super::session_shell::{
-    ShellOutputFrame, ShellReasonCode, ShellReplayGap, ShellStream, MAX_SHELL_IDENTIFIER_LENGTH,
-};
+use super::session_shell::{ShellOutputFrame, ShellReasonCode, ShellReplayGap, ShellStream};
 use std::collections::VecDeque;
 
 /// How much output one Shell keeps for a view that comes back.
@@ -148,15 +146,10 @@ impl ShellReplayBuffer {
             Some(ShellReplayGap {
                 from_sequence: start,
                 to_sequence: retained_floor - 1,
-                reason: ShellReasonCode::parse(if self.evicted {
+                reason: shell_reason(if self.evicted {
                     "shell_replay_evicted"
                 } else {
                     "shell_replay_unavailable"
-                })
-                .unwrap_or_else(|_| {
-                    // Unreachable: both literals are short and control-free. Falling back keeps a
-                    // gap reportable rather than turning a bounded id failure into a lost gap.
-                    ShellReasonCode::parse("shell_replay_gap").expect("static reason code")
                 }),
             })
         } else {
@@ -192,12 +185,7 @@ impl ShellReplayBuffer {
     }
 }
 
-/// A reason code short enough to be built without a fallible parse at every call site.
+/// A reason code built without a fallible parse at every call site.
 pub(crate) fn shell_reason(code: &str) -> ShellReasonCode {
-    ShellReasonCode::parse(if code.chars().count() <= MAX_SHELL_IDENTIFIER_LENGTH {
-        code
-    } else {
-        "shell_reason_unavailable"
-    })
-    .unwrap_or_else(|_| ShellReasonCode::parse("shell_reason_unavailable").expect("static code"))
+    ShellReasonCode::sanitized(code)
 }

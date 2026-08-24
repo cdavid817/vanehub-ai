@@ -264,7 +264,7 @@ pub(super) fn shell_session_to_dto(shell: ShellSession) -> dto::ShellSession {
     }
 }
 
-fn shell_runtime_to_dto(runtime: ShellRuntimeDescriptor) -> dto::ShellRuntimeDescriptor {
+pub(super) fn shell_runtime_to_dto(runtime: ShellRuntimeDescriptor) -> dto::ShellRuntimeDescriptor {
     let supports_resize = runtime.supports_resize();
     let supports_replay = runtime.supports_replay();
     let supports_reconnect = runtime.supports_reconnect();

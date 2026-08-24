@@ -69,4 +69,4 @@ pub(crate) use sessions::{
 };
 pub(crate) use skills::{assemble_skill_api, assemble_skill_tool_api};
 pub(crate) use ssh_connections::assemble_ssh_connections_api;
-pub(crate) use workspaces::assemble_workspace_api;
+pub(crate) use workspaces::{assemble_workspace_api, start_session_shell_idle_job};
