@@ -77,6 +77,8 @@
   Not a SQLite difference: the concurrency suite passed on the same runner minutes earlier. Not infrastructure: 169 minutes is not a slow compile, and raising the ceiling again would only buy more silence — which is why the ceiling is not being raised again. Not this change's product semantics: `workspaces::portable_pty` has no transaction and no migration in it.
 
   It went unseen because **macOS ran no tests at all** until 6.4.1 added them; the first real macOS test run is what surfaced it. Fixing it means giving the reap a bounded wait and the tests a deadline, which is a `workspaces` change with its own review, not something to graft onto a storage fix. Forbidden here and there: no fixed sleep, no unbounded retry, no wider timeout, no skipped or ignored test.
+
+  Owned by change **`fix-portable-pty-bounded-termination`**, implemented on its own branch off `origin/main` so no PTY production code enters this change. The gate here is not relaxed: once that change lands on `main`, `main` merges back into PR #211 and all three platforms re-run both steps on the new merge SHA.
 - [x] 6.4.1 Make CI capable of producing that report. It was not. The `rust` job runs `cargo test --workspace` on `ubuntu-latest`, so Linux was covered; `native-platform-check` on `macos-latest` ran `cargo build` and then two steps both gated `if: runner.os == 'Windows'`, so **macOS executed no tests at all** and still reported a green check. Waiting on that check would have produced a passing macOS result that proved nothing — the same failure mode this change's own fitness rule exists to prevent. `native-platform-check` now pins Node, runs the focused concurrency suite on both legs, and runs `cargo test --workspace` on macOS; its timeout moves 45 → 75 for the added compile. Which lock SQLite takes and whether it waits is decided per-OS in the VFS layer, so this is the platform evidence the gate asks for rather than a formality.
 - [x] 6.5 Report the Desktop Smoke scenario. **NOT APPLICABLE TO THIS DEFECT**, and it stays tracked by 4.5.1. The recorded `database is locked` is Windows, and its cause -- specs sharing one data directory with one app instance after another -- involves no concurrent transactions, while this defect needs two. Not a completion gate here. On run `32675752815` Desktop Smoke passes on all three platforms (Windows 11m59s, macOS 8m48s, Linux 6m35s); the one Linux failure on the previous run was intermittent, confirmed by the same job passing here on a tree that differs by one comment character, with a clean native log and no SQLite, migration, or panic entry in it.
 - [x] 6.6 Working tree clean. `git status` empty, `git diff --check` clean, both `openspec validate --strict` valid, and `origin/main` re-fetched: it advanced two dependabot commits touching only `package.json` and `package-lock.json`, so migrations 82-91 and every transaction call site remain conflict-free (`git merge-tree` reports none).
@@ -87,9 +89,13 @@
 - Implementation: **COMPLETE**
 - Windows: **PASSED** — focused concurrency suite and `cargo test --workspace`
 - Linux: **PASSED** — focused concurrency suite and `cargo test --workspace`, CI run `32675752815`
-- macOS: **SPLIT** — focused concurrency suite **PASSED** (13/13); `cargo test --workspace` **FAILED**, cancelled at the ceiling by the pre-existing `portable_pty` hang recorded in 6.4.2
-- Archive: **BLOCKED** on 6.4 — the gate requires both macOS steps and only one of them passed
-- `add-unified-extension-platform` Task Group 4: **BLOCKED** on this change's archive
+- macOS focused SQLite concurrency: **PASSED** — 13/13, 4.71s, step conclusion `success`
+- macOS `cargo test --workspace`: **BLOCKED / CANCELLED**
+- Blocker: `workspaces::portable_pty` unbounded termination/reap — owned by `fix-portable-pty-bounded-termination`
+- SQLite Change archive: **BLOCKED**
+- `add-unified-extension-platform` Task Group 4: **BLOCKED**
+
+The macOS workspace gate is **not** relaxed. It clears only when the PTY change lands on `main`, `main` merges back here, and all three platforms re-run both the focused SQLite suite and `cargo test --workspace` on the resulting merge SHA.
 
 ## Forbidden
 
