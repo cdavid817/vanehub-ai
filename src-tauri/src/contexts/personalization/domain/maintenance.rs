@@ -164,12 +164,116 @@ pub(crate) struct StorageEntry {
     pub(crate) memory_id: Option<MemoryId>,
 }
 
+/// How far startup maintenance has got, as persisted.
+///
+/// Deliberately smaller than [`MemoryRuntimeHealth`]: this is what one process wrote down, while
+/// health is what a caller in *this* process may conclude, which also depends on whether another
+/// process currently holds maintenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MigrationPhase {
+    NotStarted,
+    /// Legacy policy, legacy rows, and legacy files are being converted.
+    Migrating,
+    /// Conversion finished; the projection, the index, and the retrieval entries are being rebuilt
+    /// from the authoritative files.
+    RebuildingDerived,
+    /// Every phase completed and a generation was committed.
+    Ready,
+    /// A phase failed in a way that leaves memory unusable until it is retried.
+    Failed,
+}
+
+impl MigrationPhase {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::Migrating => "migrating",
+            Self::RebuildingDerived => "rebuilding_derived",
+            Self::Ready => "ready",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// An unreadable value reads as `NotStarted` rather than failing.
+    ///
+    /// The alternative is refusing to start because a marker this build does not recognize exists,
+    /// and `NotStarted` is the safe reading: it keeps memory unavailable and schedules the work.
+    pub(crate) fn parse(value: &str) -> Self {
+        match value {
+            "migrating" => Self::Migrating,
+            "rebuilding_derived" => Self::RebuildingDerived,
+            "ready" => Self::Ready,
+            "failed" => Self::Failed,
+            _ => Self::NotStarted,
+        }
+    }
+}
+
+/// Whether stored memory may be used, and if not, why.
+///
+/// One value, checked in one place, by every path that would read or write a governed memory. The
+/// question "is this data trustworthy" has exactly one answer per process at any moment, and making
+/// it an enum rather than a boolean is what lets a surface say *why* without a second source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemoryRuntimeHealth {
+    NotStarted,
+    /// Another process holds maintenance. Transient by construction: re-reading the persisted state
+    /// is what resolves it, so nothing stays here once the holder finishes.
+    Busy,
+    Migrating,
+    RebuildingDerived,
+    Ready {
+        generation: u64,
+    },
+    /// Authoritative data is intact but a derived view is not. Memory stays unavailable, because a
+    /// derived view that disagrees with the files is how a deleted memory stays recallable.
+    RepairRequired,
+    Failed,
+}
+
+impl MemoryRuntimeHealth {
+    /// The single question every runtime path asks. Only a committed generation answers yes.
+    pub(crate) fn allows_memory_use(self) -> bool {
+        matches!(self, Self::Ready { .. })
+    }
+
+    /// A stable code for diagnostics and for the UI. Never a message, never a path.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::Busy => "busy",
+            Self::Migrating => "migrating",
+            Self::RebuildingDerived => "rebuilding_derived",
+            Self::Ready { .. } => "ready",
+            Self::RepairRequired => "repair_required",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Whether this value came from durable state rather than from what one process observed.
+    ///
+    /// A persisted conclusion always wins over a local one: a process that gave up on a held lock
+    /// must see `Ready` as soon as the holder commits, or it would stay `Busy` forever.
+    pub(crate) fn is_settled(self) -> bool {
+        matches!(
+            self,
+            Self::Ready { .. } | Self::RepairRequired | Self::Failed
+        )
+    }
+}
+
 /// Durable record of how far personalization data migration has got.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MigrationState {
     pub(crate) generation: u64,
+    pub(crate) phase: MigrationPhase,
     pub(crate) started_at: Option<DateTime<Utc>>,
     pub(crate) completed_at: Option<DateTime<Utc>>,
+    /// When the pre-file row store was converted. A dedicated marker rather than the presence of a
+    /// derived index file: `MEMORY.md` is rebuilt from v2 records too, so treating its existence as
+    /// "the rows already migrated" would make a v2-only installation look mid-migration, and a
+    /// rebuilt index would silently re-authorize a conversion that had already run.
+    pub(crate) legacy_rows_migrated_at: Option<DateTime<Utc>>,
     /// A stable code, never a message: this is persisted and surfaced.
     pub(crate) last_error_code: Option<String>,
     pub(crate) repair_required: bool,
@@ -179,8 +283,10 @@ impl MigrationState {
     pub(crate) fn not_started() -> Self {
         Self {
             generation: 0,
+            phase: MigrationPhase::NotStarted,
             started_at: None,
             completed_at: None,
+            legacy_rows_migrated_at: None,
             last_error_code: None,
             repair_required: false,
         }
@@ -189,6 +295,27 @@ impl MigrationState {
     /// Memory stays unavailable until a generation actually completed. An interrupted migration
     /// looks identical to a completed one from the outside unless this is checked.
     pub(crate) fn is_complete(&self) -> bool {
-        self.completed_at.is_some()
+        self.completed_at.is_some() && matches!(self.phase, MigrationPhase::Ready)
+    }
+
+    /// What this durable row alone says about whether memory may be used.
+    ///
+    /// `repair_required` outranks everything, including a committed generation: a generation says
+    /// the files were converted, and repair says a derived view no longer agrees with them.
+    pub(crate) fn health(&self) -> MemoryRuntimeHealth {
+        if self.repair_required {
+            return MemoryRuntimeHealth::RepairRequired;
+        }
+        match self.phase {
+            MigrationPhase::Failed => MemoryRuntimeHealth::Failed,
+            MigrationPhase::Migrating => MemoryRuntimeHealth::Migrating,
+            MigrationPhase::RebuildingDerived => MemoryRuntimeHealth::RebuildingDerived,
+            // A `Ready` phase with no completion timestamp is not ready. Trusting the phase alone
+            // would let a half-written commit answer the one question that must never be guessed.
+            MigrationPhase::Ready if self.completed_at.is_some() => MemoryRuntimeHealth::Ready {
+                generation: self.generation,
+            },
+            MigrationPhase::Ready | MigrationPhase::NotStarted => MemoryRuntimeHealth::NotStarted,
+        }
     }
 }

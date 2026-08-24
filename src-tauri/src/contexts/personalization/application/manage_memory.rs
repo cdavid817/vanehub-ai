@@ -166,6 +166,20 @@ impl MemoryApplicationService {
                     phase: MaintenancePhase::SqliteProjection,
                 }),
             }
+            // Republished, not merely swept. Sweeping orphans alone would leave a migrated record
+            // that was never indexed permanently unrecallable — invisible to the very sweep meant
+            // to notice it, because a record with no entry has nothing to be an orphan of.
+            let published = if matches!(record.status, MemoryStatus::Active) {
+                self.retrieval_index.upsert(record)
+            } else {
+                self.retrieval_index.revoke(&record.id)
+            };
+            if published.is_err() {
+                outcome.failures.push(MaintenanceFailure {
+                    memory_id: Some(record.id.clone()),
+                    phase: MaintenancePhase::RetrievalIndex,
+                });
+            }
         }
 
         // A projection row or retrieval entry with no authoritative file behind it is the shape

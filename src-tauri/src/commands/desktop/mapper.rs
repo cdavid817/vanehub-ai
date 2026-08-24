@@ -30,6 +30,10 @@ pub(super) fn setting_input(
 }
 
 pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
+    // Zero when the dedicated policy is unreachable. A save carrying zero is refused by the
+    // revision check, which is the correct outcome: the page is showing legacy values it must not
+    // write back on top of a policy nobody could read.
+    let personalization_revision = view.personalization_revision.unwrap_or_default();
     let settings = view.settings;
     let archival = settings.automatic_archival();
     dto::AppSettings {
@@ -51,6 +55,7 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         custom_instructions_enabled: settings.custom_instructions_enabled(),
         memory_enabled: settings.memory_enabled(),
         memory_tool_assisted_chats_enabled: settings.memory_tool_assisted_chats_enabled(),
+        personalization_revision,
         logging_policy: logging_policy_to_dto(view.logging_policy),
     }
 }
@@ -203,6 +208,18 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn a_bound_policy_revision_reaches_the_response() {
+        // The page echoes this back on save, so a response that dropped it would silently turn
+        // every personalization write into one the revision check must refuse.
+        let settings = DesktopSettings::defaults("D:/data/logs");
+        let view = DesktopSettingsView::native(settings).with_personalization_revision(7);
+
+        let value = serde_json::to_value(settings_to_dto(view)).expect("settings DTO");
+
+        assert_eq!(value["personalizationRevision"], json!(7));
+    }
+
+    #[test]
     fn settings_response_preserves_the_complete_legacy_contract() {
         let mut settings = DesktopSettings::defaults("D:/data/logs");
         settings
@@ -233,6 +250,9 @@ mod tests {
                 "customInstructionsEnabled": true,
                 "memoryEnabled": true,
                 "memoryToolAssistedChatsEnabled": true,
+                // Zero until the dedicated policy is bound. A save carrying zero is refused, which
+                // is the correct outcome for a page showing legacy values nobody could verify.
+                "personalizationRevision": 0,
                 "loggingPolicy": {
                     "retentionDays": 30,
                     "archiveEnabled": true,

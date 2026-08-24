@@ -16,7 +16,8 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{
     MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity,
-    MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType, MigrationState,
+    MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType, MigrationPhase,
+    MigrationState,
 };
 use crate::contexts::personalization::infrastructure::SqliteMigrationState;
 use crate::platform::database::NativeDatabase;
@@ -99,8 +100,10 @@ fn mark_ready(fixture: &Fixture) {
         .migration_state
         .save(&MigrationState {
             generation: 1,
+            phase: MigrationPhase::Ready,
             started_at: Some(now()),
             completed_at: Some(now()),
+            legacy_rows_migrated_at: Some(now()),
             last_error_code: None,
             repair_required: false,
         })

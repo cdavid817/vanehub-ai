@@ -13,12 +13,13 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CreateMemoryInput, LegacyAddressAliasPort, MemoryApplicationService, MigrationStatePort,
+    CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility,
+    LegacySettingsView, MemoryApplicationService, MemoryHealthPort,
     PersonalizationApplicationError, UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
-    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
+    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord,
+    MemoryRuntimeHealth, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -92,7 +93,8 @@ pub(crate) struct CompatibilitySaveInput {
 #[derive(Clone)]
 pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
-    migration_state: Arc<dyn MigrationStatePort>,
+    health: Arc<dyn MemoryHealthPort>,
+    settings: Arc<LegacySettingsCompatibility>,
     aliases: Arc<dyn LegacyAddressAliasPort>,
     /// Used only to derive a comparable key from the display path a pre-governance caller sends.
     /// The raw path is preserved regardless, so a failure to derive one loses nothing.
@@ -102,27 +104,63 @@ pub(crate) struct PersonalizationApi {
 impl PersonalizationApi {
     pub(crate) fn new(
         memories: Arc<MemoryApplicationService>,
-        migration_state: Arc<dyn MigrationStatePort>,
+        health: Arc<dyn MemoryHealthPort>,
+        settings: Arc<LegacySettingsCompatibility>,
         aliases: Arc<dyn LegacyAddressAliasPort>,
         workspace_identity: Arc<dyn WorkspaceIdentityPort>,
     ) -> Self {
         Self {
             memories,
-            migration_state,
+            health,
+            settings,
             aliases,
             workspace_identity,
         }
     }
 
-    /// Whether stored memory is safe for a runtime to use.
+    /// Whether stored memory is safe for a runtime to use, and if not, why.
     ///
-    /// Fails closed on every uncertainty: an unreadable migration row reads as not ready, because
-    /// the alternative is answering "is this data trustworthy" with a guess.
+    /// Fails closed on every uncertainty: an unreadable marker reads as failed, because the
+    /// alternative is answering "is this data trustworthy" with a guess.
+    pub(crate) fn memory_health(&self) -> MemoryRuntimeHealth {
+        self.health.health()
+    }
+
     pub(crate) fn memory_is_ready(&self) -> bool {
-        match self.migration_state.load() {
-            Ok(state) => state.is_complete() && !state.repair_required,
-            Err(_) => false,
+        self.memory_health().allows_memory_use()
+    }
+
+    /// Refuses a write while memory is unavailable.
+    ///
+    /// Typed rather than silent: a read that fails closed can honestly return nothing, but a write
+    /// that quietly did nothing would let a caller believe a memory was saved.
+    fn require_ready(&self) -> Result<()> {
+        if self.memory_is_ready() {
+            return Ok(());
         }
+        Err(PersonalizationApplicationError::MaintenanceRequired)
+    }
+
+    /// The dedicated policy in the shape the pre-governance settings page understands.
+    ///
+    /// Read-through: the policy is the source of truth from the moment migration completes, and the
+    /// legacy rows are never consulted again. Available regardless of memory health — instructions
+    /// are policy, not memory, and a migration that has not finished converting files says nothing
+    /// about whether the user's instructions can be shown.
+    pub(crate) fn legacy_settings(&self) -> Result<LegacySettingsView> {
+        self.settings.view()
+    }
+
+    /// Write-through for one field of the pre-governance settings page.
+    ///
+    /// The expected revision is the one the caller's screen was rendered from, so a save from a
+    /// stale copy is refused with a typed conflict rather than silently reverting another edit.
+    pub(crate) fn save_legacy_setting(
+        &self,
+        field: LegacySettingField,
+        expected_revision: u64,
+    ) -> Result<LegacySettingsView> {
+        self.settings.apply(field, expected_revision)
     }
 
     /// The pre-governance view: active, global, all-Agents.
@@ -157,6 +195,36 @@ impl PersonalizationApi {
         Ok(memories)
     }
 
+    /// The subset of the compatibility view a caller already holds handles for.
+    ///
+    /// Reads only the named records rather than the whole pool. The retrieval path resolves at most
+    /// a page of hits per query, and answering it from a full snapshot would load and clone every
+    /// memory body inside a generation.
+    ///
+    /// A handle with no record behind it is simply absent, which is what stops a deleted memory
+    /// being surfaced again from an index row that outlived it.
+    pub(crate) fn compatibility_memories_by_handle(
+        &self,
+        handles: &[String],
+    ) -> Result<Vec<CompatibilityMemory>> {
+        if !self.memory_is_ready() {
+            return Ok(Vec::new());
+        }
+        let mut memories = Vec::new();
+        for handle in handles {
+            let Some(id) = memory_id_from_file_name(handle) else {
+                continue;
+            };
+            let Some(record) = self.memories.detail(&id)? else {
+                continue;
+            };
+            if is_compatibility_visible(&record) {
+                memories.push(CompatibilityMemory::from_record(&record));
+            }
+        }
+        Ok(memories)
+    }
+
     /// Creates, or updates the one record this legacy name identifies.
     ///
     /// Preserves the previous contract — saving under an existing name replaced that memory — but
@@ -174,6 +242,10 @@ impl PersonalizationApi {
         &self,
         input: CompatibilitySaveInput,
     ) -> Result<CompatibilityMemory> {
+        // Refused rather than queued. A save accepted now would be written into a store whose
+        // derived views are mid-rebuild, and the rebuild would then either miss it or resurrect a
+        // record the same run was removing.
+        self.require_ready()?;
         // A name that could never have been a v1 filename has no legacy identity, and therefore no
         // alias. That is correct rather than restrictive: nothing under v1 could have created it.
         let address = LegacyAddressKey::from_display_name(&input.name).ok();
@@ -292,6 +364,7 @@ impl PersonalizationApi {
 
     /// Deletes by the v2 file name a compatibility listing handed out.
     pub(crate) fn delete_compatibility_memory(&self, file_name: &str) -> Result<bool> {
+        self.require_ready()?;
         let Some(id) = memory_id_from_file_name(file_name) else {
             // An unrecognized handle is not an error: the previous store treated deleting
             // something that is not there as the caller's desired end state.
@@ -308,6 +381,7 @@ impl PersonalizationApi {
     /// matches the previous behavior exactly, including leaving unparseable files alone; the
     /// complete reset arrives with the maintenance UI.
     pub(crate) fn delete_all_compatibility_memories(&self) -> Result<usize> {
+        self.require_ready()?;
         let mut removed = 0;
         for record in self.memories.all_records()? {
             if !is_compatibility_visible(&record) {
@@ -348,8 +422,9 @@ pub(crate) fn build_for_tests(
     clock: Arc<dyn super::application::ClockPort>,
 ) -> (PersonalizationApi, Arc<MemoryApplicationService>) {
     use super::infrastructure::{
-        MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteLegacyAddressAlias,
-        SqliteMemoryProjection, SqliteMigrationState, UuidMemoryIdGenerator,
+        DurableMemoryHealth, MarkdownDerivedIndex, MarkdownMemoryRepository,
+        SqliteLegacyAddressAlias, SqliteMemoryProjection, SqliteMigrationState,
+        SqlitePolicyRepository, UuidMemoryIdGenerator,
     };
 
     let repository = Arc::new(
@@ -362,11 +437,17 @@ pub(crate) fn build_for_tests(
         Arc::new(SqliteMemoryProjection::new(database.clone())),
         Arc::new(MarkdownDerivedIndex::new(memory_root)),
         retrieval_index,
-        clock,
+        clock.clone(),
     ));
     let api = PersonalizationApi::new(
         service.clone(),
-        Arc::new(SqliteMigrationState::new(database.clone())),
+        Arc::new(DurableMemoryHealth::new(Arc::new(
+            SqliteMigrationState::new(database.clone()),
+        ))),
+        Arc::new(LegacySettingsCompatibility::new(
+            Arc::new(SqlitePolicyRepository::new(database.clone())),
+            clock,
+        )),
         Arc::new(SqliteLegacyAddressAlias::new(database)),
         Arc::new(super::application::WorkspaceIdentityResolver::for_this_platform()),
     );

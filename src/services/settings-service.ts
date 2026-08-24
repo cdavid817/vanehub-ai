@@ -5,7 +5,7 @@ import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
   getSettings(): Promise<AppSettings>;
-  saveSetting(input: { key: AppSettingKey; value: AppSettings[AppSettingKey] }): Promise<AppSettings>;
+  saveSetting(input: { key: AppSettingKey; value: AppSettings[AppSettingKey]; expectedPersonalizationRevision?: number }): Promise<AppSettings>;
   setLaunchOnStartup(enabled: boolean): Promise<AppSettings>;
   getNodeInfo(): Promise<NodeInfo>;
   getDataManagementInfo(): Promise<DataManagementInfo>;
@@ -48,6 +48,7 @@ export const defaultAppSettings: AppSettings = {
   memoryToolAssistedChatsEnabled: true,
   automaticContextCompactionEnabled: true,
   contextQualityRetentionDays: 30,
+  personalizationRevision: 0,
 };
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
@@ -83,7 +84,9 @@ function normalizeLoggingPolicy(input: unknown): LoggingPolicy {
   };
 }
 
-type AppSettingsInput = Partial<Record<AppSettingKey | "loggingPolicy", unknown>>;
+// `personalizationRevision` is read-only: the native side reports it and no caller may set it, so
+// it is not an `AppSettingKey` and is admitted here separately.
+type AppSettingsInput = Partial<Record<AppSettingKey | "loggingPolicy" | "personalizationRevision", unknown>>;
 
 export function normalizeNetworkProxyBypass(value: string): string {
   return value
@@ -161,6 +164,10 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
     contextQualityRetentionDays: isContextQualityRetentionDays(input.contextQualityRetentionDays)
       ? input.contextQualityRetentionDays
       : defaultAppSettings.contextQualityRetentionDays,
+    personalizationRevision:
+      typeof input.personalizationRevision === "number" && Number.isInteger(input.personalizationRevision) && input.personalizationRevision >= 0
+        ? input.personalizationRevision
+        : defaultAppSettings.personalizationRevision,
   };
 }
 

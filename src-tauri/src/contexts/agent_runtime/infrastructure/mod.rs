@@ -68,7 +68,6 @@ mod native_tool_schema;
 mod onepiece_model_discovery;
 mod openai_compatible_provider;
 mod permission_adapter;
-mod personalization_gateway;
 mod process_adapter;
 mod prompt_gateway;
 pub(crate) mod providers;
@@ -164,7 +163,6 @@ pub(crate) use native_tool_repository::SqliteNativeToolRepository;
 pub(crate) use native_tool_schema::apply_native_tool_schema;
 pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
 pub(crate) use permission_adapter::PermissionsPortAdapter;
-pub(crate) use personalization_gateway::RuntimeAgentPersonalizationAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
     RuntimeAgentProcessDependencies, RuntimeProcessEvidenceDependencies,

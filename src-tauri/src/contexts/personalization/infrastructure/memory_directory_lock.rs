@@ -12,6 +12,16 @@ use crate::contexts::personalization::application::PersonalizationApplicationErr
 /// the directory. Its presence means nothing on its own — only the OS lock on an open handle does.
 pub(crate) const MEMORY_LOCK_FILE_NAME: &str = ".personalization-memory.lock";
 
+/// The startup-maintenance lock, deliberately a different file.
+///
+/// Maintenance runs for the length of a whole migration and calls the ordinary write paths while it
+/// does, and those take the directory lock themselves. One lock for both would mean maintenance
+/// deadlocking against its own writes — reported as busy by the non-blocking acquisition, which is
+/// worse than a hang because it looks like contention that is not there. Two locks with distinct
+/// scopes is the honest shape: this one answers "is another process running maintenance", the other
+/// answers "is another writer touching this directory right now".
+pub(crate) const MAINTENANCE_LOCK_FILE_NAME: &str = ".personalization-maintenance.lock";
+
 /// Bounded retry budget for callers that would rather wait briefly than fail.
 ///
 /// Deliberately bounded: nothing here ever calls the blocking `File::lock`, so no path can park a
@@ -66,8 +76,16 @@ impl From<MemoryLockRejection> for PersonalizationApplicationError {
 
 impl MemoryDirectoryLock {
     pub(crate) fn new(root: &Path) -> Self {
+        Self::named(root, MEMORY_LOCK_FILE_NAME)
+    }
+
+    /// Builds a lock over a named file in the same directory.
+    ///
+    /// The name is chosen from the constants above and never derived from user input, so no caller
+    /// can point a lock at a memory file and have it truncated or held open.
+    pub(crate) fn named(root: &Path, file_name: &str) -> Self {
         Self {
-            lock_path: root.join(MEMORY_LOCK_FILE_NAME),
+            lock_path: root.join(file_name),
             in_process: Mutex::new(()),
         }
     }
@@ -110,6 +128,35 @@ impl MemoryDirectoryLock {
             Err(TryLockError::WouldBlock) => Err(MemoryLockRejection::Busy),
             Err(TryLockError::Error(_)) => Err(MemoryLockRejection::Unavailable),
         }
+    }
+
+    /// Takes the cross-process lock and hands back the handle holding it.
+    ///
+    /// Used only by startup maintenance, which has to hold the lock across a whole run and past the
+    /// borrow a `MemoryDirectoryGuard` would impose. The in-process mutex is deliberately not taken
+    /// here: this lock is never contended within a process — one process runs maintenance once —
+    /// and taking a guard that cannot be returned would leave it poisoned for the process lifetime.
+    pub(crate) fn try_acquire_owned(&self) -> Result<File, MemoryLockRejection> {
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.lock_path)
+            .map_err(|_| MemoryLockRejection::Unavailable)?;
+        match file.try_lock() {
+            Ok(()) => Ok(file),
+            Err(TryLockError::WouldBlock) => Err(MemoryLockRejection::Busy),
+            Err(TryLockError::Error(_)) => Err(MemoryLockRejection::Unavailable),
+        }
+    }
+
+    /// Releases a handle taken by `try_acquire_owned`.
+    ///
+    /// Best effort: closing the handle releases the operating-system lock regardless, so a failure
+    /// here cannot leave maintenance permanently locked out.
+    pub(crate) fn release_owned(&self, file: File) {
+        let _ = file.unlock();
     }
 
     /// Takes the lock, retrying a bounded number of times before reporting busy.
@@ -175,7 +222,7 @@ impl Drop for MemoryDirectoryGuard<'_> {
 /// Enumeration excludes it explicitly rather than relying on its extension, so it can never be
 /// classified, listed, counted, or deleted as if it were a memory.
 pub(crate) fn is_lock_file(file_name: &str) -> bool {
-    file_name == MEMORY_LOCK_FILE_NAME
+    file_name == MEMORY_LOCK_FILE_NAME || file_name == MAINTENANCE_LOCK_FILE_NAME
 }
 
 /// Ensures the directory exists before a lock file is created inside it.

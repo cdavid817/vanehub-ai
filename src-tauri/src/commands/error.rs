@@ -279,6 +279,19 @@ impl From<DesktopSettingsError> for CommandError {
                 message,
                 "native localization failed: ",
             ),
+            // Its own category so the page can keep the user's draft and offer a reload, which it
+            // cannot decide to do if a conflict looks like a disk failure.
+            DesktopSettingsError::PersonalizationConflict { expected, current } => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!(
+                    "This setting changed since it was loaded (expected revision {expected}, current {current})."
+                ),
+            },
+            DesktopSettingsError::Personalization(message) => command_error_with_default(
+                CommandErrorCategory::Unavailable,
+                message,
+                "personalization is unavailable: ",
+            ),
             DesktopSettingsError::LogDirectory(message)
             | DesktopSettingsError::Startup(message)
             | DesktopSettingsError::Directory(message)

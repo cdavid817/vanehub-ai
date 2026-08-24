@@ -15,7 +15,8 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{
     LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationState, WorkspaceKey,
+    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationPhase, MigrationState,
+    WorkspaceKey,
 };
 use crate::contexts::personalization::infrastructure::{
     SqliteLegacyAddressAlias, SqliteMigrationState,
@@ -107,8 +108,10 @@ fn mark_ready(fixture: &Fixture) {
         .migration_state
         .save(&MigrationState {
             generation: 1,
+            phase: MigrationPhase::Ready,
             started_at: Some(now()),
             completed_at: Some(now()),
+            legacy_rows_migrated_at: Some(now()),
             last_error_code: None,
             repair_required: false,
         })
@@ -242,8 +245,10 @@ fn a_repair_required_generation_is_not_usable() {
         .migration_state
         .save(&MigrationState {
             generation: 1,
+            phase: MigrationPhase::Ready,
             started_at: Some(now()),
             completed_at: Some(now()),
+            legacy_rows_migrated_at: Some(now()),
             last_error_code: Some("derived_rebuild_failed".to_string()),
             repair_required: true,
         })

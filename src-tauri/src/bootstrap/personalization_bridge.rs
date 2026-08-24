@@ -3,9 +3,11 @@ use crate::contexts::personalization::api::{
 };
 
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
+    AgentMemory, AgentMemoryPort, AgentPersonalizationPort, AgentRuntimeApplicationError,
+    MemorySource, PersonalizationSettings, SaveMemoryInput,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
+use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::personalization::domain::MemoryType as GovernedMemoryType;
 
 /// Satisfies `agent_runtime`'s pre-governance memory port from the governed v2 store.
@@ -149,5 +151,73 @@ impl AgentMemoryPort for LegacyMemoryPortBridge {
             .delete_all_compatibility_memories()
             .map(|_| ())
             .map_err(bridge_error)
+    }
+}
+
+/// Satisfies `agent_runtime`'s personalization port from the governed policy.
+///
+/// Instructions and the memory switches come from the dedicated policy. Automatic context
+/// compaction and the context-quality retention window stay on the desktop settings, because those
+/// were never personalization and this change does not move them.
+///
+/// Fails closed on a policy it cannot read, and on memory that is not `Ready`: instructions are
+/// omitted and memory is reported off rather than falling back to permissive defaults. Generation
+/// continues either way — an unavailable policy makes an answer less personal, never absent.
+#[derive(Clone)]
+pub(crate) struct GovernedPersonalizationAdapter {
+    personalization: PersonalizationApi,
+    settings: DesktopSettingsApi,
+}
+
+impl GovernedPersonalizationAdapter {
+    pub(crate) fn new(personalization: PersonalizationApi, settings: DesktopSettingsApi) -> Self {
+        Self {
+            personalization,
+            settings,
+        }
+    }
+}
+
+impl AgentPersonalizationPort for GovernedPersonalizationAdapter {
+    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
+        let view = self
+            .settings
+            .get_settings()
+            .map_err(|error| AgentRuntimeApplicationError::Personalization(error.to_string()))?
+            .settings;
+
+        let policy = self.personalization.legacy_settings().ok();
+        let memory_ready = self.personalization.memory_is_ready();
+        Ok(PersonalizationSettings {
+            custom_instructions_about_user: policy
+                .as_ref()
+                .and_then(|policy| policy.settings.about_user.clone())
+                .unwrap_or_default(),
+            custom_instructions_style_rules: policy
+                .as_ref()
+                .and_then(|policy| policy.settings.style_rules.clone())
+                .unwrap_or_default(),
+            // An unreadable policy means no instructions are applied at all, not "apply the empty
+            // ones": an enabled flag with empty text and a disabled flag are different states, and
+            // only the second is honest about not knowing.
+            custom_instructions_enabled: policy
+                .as_ref()
+                .and_then(|policy| policy.settings.custom_instructions_enabled)
+                .unwrap_or(false),
+            // Two conditions, and both must hold. A policy that permits memory says nothing about
+            // whether the store behind it is safe to read.
+            memory_enabled: memory_ready
+                && policy
+                    .as_ref()
+                    .and_then(|policy| policy.settings.memory_enabled)
+                    .unwrap_or(false),
+            memory_tool_assisted_chats_enabled: memory_ready
+                && policy
+                    .as_ref()
+                    .and_then(|policy| policy.settings.tool_assisted_extraction_enabled)
+                    .unwrap_or(false),
+            automatic_context_compaction_enabled: view.automatic_context_compaction_enabled(),
+            context_quality_retention_days: view.context_quality_retention_days(),
+        })
     }
 }

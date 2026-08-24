@@ -9,7 +9,8 @@ use crate::contexts::personalization::application::{
 use crate::contexts::personalization::domain::{
     AgentId, ArchiveMemoryCandidate, CandidateReviewStatus, CreateMemoryCandidate, MemoryAudience,
     MemoryCandidate, MemoryCandidateOperation, MemoryId, MemoryProvenance, MemoryScope,
-    MemorySource, MemoryType, MigrationState, SessionId, UpdateMemoryCandidate, WorkspaceKey,
+    MemorySource, MemoryType, MigrationPhase, MigrationState, SessionId, UpdateMemoryCandidate,
+    WorkspaceKey,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -290,8 +291,10 @@ fn the_migration_state_row_is_seeded_and_round_trips() {
 
     let updated = MigrationState {
         generation: 3,
+        phase: MigrationPhase::Ready,
         started_at: Some(base_time()),
         completed_at: Some(base_time() + Duration::seconds(30)),
+        legacy_rows_migrated_at: Some(base_time()),
         last_error_code: Some("quarantined_entries".to_string()),
         repair_required: true,
     };

@@ -143,8 +143,16 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), DatabaseError> {
         CREATE TABLE IF NOT EXISTS personalization_migration_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             generation INTEGER NOT NULL DEFAULT 0,
+            -- How far startup maintenance got. Persisted rather than inferred from the timestamps:
+            -- "started but not completed" cannot distinguish converting files from rebuilding the
+            -- views they feed, and only the second is safe to resume without re-reading every file.
+            phase TEXT NOT NULL DEFAULT 'not_started',
             started_at TEXT,
             completed_at TEXT,
+            -- The pre-file row conversion's own marker. Deliberately not the existence of
+            -- `MEMORY.md`: that file is rebuilt from v2 records too, so its presence says nothing
+            -- about whether the rows were ever converted.
+            legacy_rows_migrated_at TEXT,
             last_error_code TEXT,
             repair_required INTEGER NOT NULL DEFAULT 0
         );

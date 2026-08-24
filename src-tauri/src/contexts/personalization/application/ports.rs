@@ -1,18 +1,18 @@
 use chrono::{DateTime, Utc};
 
 use super::error::PersonalizationApplicationError;
-use super::migrate_legacy_policy::MigratedPolicy;
+use super::migrate_legacy_policy::{LegacyPersonalizationSettings, MigratedPolicy};
 use super::models::{
     CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, ResetCounts, UpdateMemoryPatch,
     WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
     AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, LegacySourceLocator,
-    MemoryCandidate, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter,
-    MemoryStatus, MigrationJournalEntry, MigrationState, PatchPolicyResult, PersonalizationLayers,
-    PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
-    ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest, StorageEntry,
-    WorkspaceIdentity, WorkspaceKey,
+    MemoryCandidate, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
+    MemoryScopeFilter, MemoryStatus, MigrationJournalEntry, MigrationState, PatchPolicyResult,
+    PersonalizationLayers, PersonalizationPolicyPatch, PersonalizationPolicyRecord,
+    PersonalizationPolicyScope, ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest,
+    StorageEntry, WorkspaceIdentity, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -193,6 +193,15 @@ pub(crate) trait WorkspaceIdentityPort: Send + Sync {
     fn resolve(&self, request: &WorkspaceIdentityRequest) -> Result<Option<WorkspaceIdentity>>;
 }
 
+/// Whether stored memory may be used right now.
+///
+/// A port rather than a direct read of the durable row because the answer is not the row alone: a
+/// process that found maintenance held by another one knows something the row does not say. One
+/// port means every runtime path asks the same question of the same authority.
+pub(crate) trait MemoryHealthPort: Send + Sync {
+    fn health(&self) -> MemoryRuntimeHealth;
+}
+
 pub(crate) trait MigrationStatePort: Send + Sync {
     fn load(&self) -> Result<MigrationState>;
     fn save(&self, state: &MigrationState) -> Result<()>;
@@ -213,6 +222,44 @@ pub(crate) trait LegacyPolicyMigrationPort: Send + Sync {
     /// it was. Returns `false` when migration had already completed, so a repeated startup is a
     /// no-op rather than an error.
     fn commit(&self, migrated: &MigratedPolicy, now: DateTime<Utc>) -> Result<bool>;
+}
+
+/// Exclusive ownership of startup maintenance for one data directory, across processes.
+///
+/// Deliberately not the same lock ordinary writes take. Maintenance runs for the length of a whole
+/// migration and calls those write paths while it does, so one lock for both would have maintenance
+/// contend with itself — reported as busy by a non-blocking acquisition, which looks like
+/// contention that is not there.
+pub(crate) trait MaintenanceLockPort: Send + Sync {
+    /// Takes the lock, or reports that someone else holds it. Never blocks: a second process must
+    /// report busy and let unrelated features start, not park a thread until the first finishes.
+    fn try_acquire(&self) -> Result<Option<Box<dyn MaintenanceLease>>>;
+}
+
+/// Held for as long as maintenance runs, and released on drop — including on panic, and by the
+/// operating system if the process dies outright, so a crash leaves nothing stale behind.
+pub(crate) trait MaintenanceLease: Send {}
+
+/// The frozen conversion from the pre-file row store into v1 files.
+///
+/// A port rather than a direct call because the row store belongs to another context. Frozen
+/// because it gains no behaviour: it exists so the rows and the files are converted by one
+/// orchestration in one order, instead of two startup paths racing over one directory.
+pub(crate) trait LegacyRowMigrationPort: Send + Sync {
+    /// Converts every pre-file row into a v1 file, and reports how many were written.
+    ///
+    /// Idempotence is the orchestration's, not this port's: it is called once, gated by a durable
+    /// marker, because re-running it after v2 records exist would resurrect memories the user has
+    /// since deleted.
+    fn convert_rows_to_legacy_files(&self) -> Result<usize>;
+}
+
+/// The pre-governance settings, read once so their personalization fields can be migrated.
+///
+/// Read-only on purpose. After migration the dedicated policy is the source of truth, and a write
+/// back through here would recreate the second truth this change exists to end.
+pub(crate) trait LegacyPersonalizationSettingsPort: Send + Sync {
+    fn load(&self) -> Result<LegacyPersonalizationSettings>;
 }
 
 /// The pre-v2 store, read for migration only.

@@ -14,9 +14,9 @@ mod managed_mcp_relay;
 mod mcp;
 mod operations;
 mod permissions;
+mod personalization;
 // Transitional: satisfies the pre-governance memory port from the governed store. Removed when the
 // snapshot runtime adapters take over.
-#[allow(dead_code)]
 mod personalization_bridge;
 #[cfg(test)]
 mod personalization_bridge_tests;
@@ -58,6 +58,10 @@ pub(crate) use mcp::assemble_mcp_api;
 pub(crate) use operations::assemble_agent_runs_api;
 pub(crate) use operations::{assemble_agent_runs_api_with_recovery, assemble_operations_api};
 pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
+pub(crate) use personalization::{
+    assemble_personalization, spawn_startup_maintenance, DeferredRetrievalIndex,
+    PersonalizationAssembly,
+};
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;
 pub(crate) use retrieval::{

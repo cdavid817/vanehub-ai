@@ -67,13 +67,6 @@ impl FileAgentMemoryStore {
         &self.root
     }
 
-    /// Whether the directory has been initialized. The index's presence is the marker: it is
-    /// legitimate directory content rather than a hidden sentinel, and it survives the user
-    /// deleting every memory — which must not cause migration to resurrect them from the rows.
-    pub(crate) fn has_index(&self) -> bool {
-        self.root.join(INDEX_FILE_NAME).is_file()
-    }
-
     /// Every memory in the directory, newest-modified first, capped at [`MAX_SCANNED_FILES`].
     ///
     /// A file whose frontmatter will not parse is skipped rather than failing the scan. This is
@@ -301,13 +294,17 @@ pub(crate) fn is_within_memory_directory(path: &str) -> bool {
 impl FileAgentMemoryStore {
     /// The memories behind an explicit path list, in no particular order.
     ///
-    /// Deliberately off `AgentMemoryPort`, mirroring the row repository it replaces: its only
-    /// caller is the composition root's retrieval index source, and no use case inside this
-    /// context resolves memories by path.
+    /// Deliberately off `AgentMemoryPort`, mirroring the row repository it replaces. Its production
+    /// caller was the retrieval index source, which now reads the governed store; it survives for
+    /// the migration tests that assert what this directory held before conversion.
     ///
     /// A path with no file is simply absent from the result rather than an error. That is what
     /// keeps a deleted memory from ever being surfaced again: the index can outlive the file, and
     /// results resolve against the directory rather than against the indexed copy.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "retained for the migration tests")
+    )]
     pub(crate) fn list_by_paths(
         &self,
         relative_paths: &[String],

@@ -9,6 +9,10 @@ use crate::contexts::personalization::domain::{MemoryRecord, MemoryStatus};
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 
+/// The sibling an index rebuild writes before renaming it into place. Ends in `.tmp` so enumeration
+/// classifies it transient rather than as a memory or a second index.
+const TEMPORARY_INDEX_FILE_NAME: &str = "MEMORY.md.tmp";
+
 /// `MEMORY.md`: a derived, bounded pointer list over active memories.
 ///
 /// Always rebuilt from the authoritative records rather than edited in place. Incremental
@@ -62,9 +66,19 @@ impl DerivedIndexPort for MarkdownDerivedIndex {
                 "memory directory is unavailable: {error}"
             ))
         })?;
-        fs::write(self.root.join(DERIVED_INDEX_FILE_NAME), rendered).map_err(|error| {
+        // Written to a sibling and renamed over the target rather than truncated in place. A crash
+        // mid-write would otherwise leave a half-listed index that a model would read as the
+        // complete set of what it knows, which is worse than an index one rebuild out of date.
+        let destination = self.root.join(DERIVED_INDEX_FILE_NAME);
+        let temporary = self.root.join(TEMPORARY_INDEX_FILE_NAME);
+        fs::write(&temporary, rendered).map_err(|error| {
             PersonalizationApplicationError::Storage(format!(
                 "memory index cannot be written: {error}"
+            ))
+        })?;
+        fs::rename(&temporary, &destination).map_err(|error| {
+            PersonalizationApplicationError::Storage(format!(
+                "memory index cannot be replaced: {error}"
             ))
         })?;
         Ok(included.len())

@@ -34,9 +34,9 @@ pub(crate) use legacy_identity::{
     LegacyTableKind, MigrationJournalEntry, MigrationStage, NormalizedLegacyPath,
 };
 pub(crate) use maintenance::{
-    MaintenanceFailure, MaintenancePhase, MigrationState, OwnedEntryClassification,
-    ReconcileMemoryOutcome, ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview,
-    ResetMemoryRequest, ResetRefusal, StorageEntry, RESET_CONFIRMATION_PHRASE,
+    MaintenanceFailure, MaintenancePhase, MemoryRuntimeHealth, MigrationPhase, MigrationState,
+    OwnedEntryClassification, ReconcileMemoryOutcome, ResetConfirmationToken, ResetMemoryOutcome,
+    ResetMemoryPreview, ResetMemoryRequest, ResetRefusal, StorageEntry, RESET_CONFIRMATION_PHRASE,
     RESET_TOKEN_TTL_SECONDS,
 };
 pub(crate) use memory::{
