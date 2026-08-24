@@ -11,6 +11,13 @@ pub(crate) const MEMORY_DESCRIPTION_MAX_CHARS: usize = 500;
 pub(crate) const MEMORY_CONTENT_MAX_CHARS: usize = 32_000;
 pub(crate) const MEMORY_AUDIENCE_MAX_AGENTS: usize = 100;
 
+/// Upper bound on the raw strings carried over from a v1 file.
+///
+/// Generous enough for any real workspace path, bounded because these arrive from a file this
+/// build did not write and end up in durable state. An over-long value fails the migration and
+/// leaves its source in place rather than being truncated into a path that points somewhere else.
+pub(crate) const MEMORY_LEGACY_FIELD_MAX_CHARS: usize = 1_024;
+
 /// Long enough that a generated UUID or ULID fits, short enough that nothing hand-written and
 /// path-shaped can. Both bounds exist to keep this from becoming a place user text can arrive.
 const MEMORY_ID_MIN_CHARS: usize = 8;
@@ -202,6 +209,19 @@ string_enum!(
 );
 
 string_enum!(
+    LegacyMemorySaveSource,
+    UnknownLegacyMemorySaveSource,
+    "How a pre-governance memory was originally produced.
+
+Distinct from `MemorySource`, which records how a record entered the v2 store. Every migrated
+record's `MemorySource` is `LegacyMigration` — that is the entry route and it is the same for all
+of them — so without this the difference between a fact the user stated and one an Agent inferred
+would be lost at migration, and there is no second chance to recover it.",
+    (Explicit, "explicit"),
+    (Automatic, "automatic"),
+);
+
+string_enum!(
     MemorySensitivity,
     UnknownMemorySensitivity,
     "Whether the user has marked this record as sensitive.",
@@ -216,7 +236,23 @@ pub(crate) struct MemoryProvenance {
     pub(crate) source_agent_id: Option<AgentId>,
     pub(crate) source_session_id: Option<SessionId>,
     pub(crate) source_message_id: Option<String>,
+    /// The stable workspace key, derived only when the recorded origin identifies one precisely.
+    ///
+    /// `None` alongside a present `legacy_folder` is meaningful rather than missing: it says the
+    /// origin was recorded but could not be resolved into a key that would compare correctly, and
+    /// inventing one would silently merge or split workspaces.
     pub(crate) source_workspace_key: Option<WorkspaceKey>,
+    /// How the memory was produced before governance existed. `None` when the source file recorded
+    /// nothing, or recorded a value this build does not know — never defaulted to a guess.
+    pub(crate) legacy_original_save_source: Option<LegacyMemorySaveSource>,
+    /// The raw `folder` string a v1 file carried, kept verbatim beside the derived key.
+    ///
+    /// A display path, not an identity: it never participates in scope or audience, never reaches a
+    /// prompt, and never appears in an ordinary log line. It exists so provenance a user can see
+    /// today survives migration even where a key cannot be derived from it.
+    pub(crate) legacy_folder: Option<String>,
+    /// Where the migrated file was, relative to the memory directory. Diagnostics only.
+    pub(crate) legacy_source_relative_path: Option<String>,
 }
 
 /// One governed memory. The Markdown file remains authoritative for this content; SQLite and the
@@ -278,6 +314,18 @@ impl MemoryRecord {
                     limit: MEMORY_AUDIENCE_MAX_AGENTS,
                     actual: agent_ids.len(),
                 });
+            }
+        }
+
+        for (field, value) in [
+            ("legacy_folder", self.provenance.legacy_folder.as_deref()),
+            (
+                "legacy_source_relative_path",
+                self.provenance.legacy_source_relative_path.as_deref(),
+            ),
+        ] {
+            if let Some(value) = value {
+                validate_bounded(field, value, 1, MEMORY_LEGACY_FIELD_MAX_CHARS)?;
             }
         }
 

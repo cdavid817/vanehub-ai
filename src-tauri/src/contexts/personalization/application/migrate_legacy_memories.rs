@@ -10,9 +10,9 @@ use super::ports::{
     MemoryProjectionPort, MemoryRepository, MigrationJournalPort, WorkspaceIdentityPort,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, LegacyAddressKey, LegacySourceFingerprint, LegacySourceId, MemoryAudience, MemoryId,
-    MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType, MigrationJournalEntry, MigrationStage, WorkspaceKey,
+    AgentId, LegacyAddressKey, LegacyMemorySaveSource, LegacySourceFingerprint, LegacySourceId,
+    MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity,
+    MemorySource, MemoryStatus, MemoryType, MigrationJournalEntry, MigrationStage, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -522,28 +522,97 @@ impl LegacyMemoryMigrationService {
                     .and_then(|id| AgentId::parse(id).ok()),
                 source_session_id: None,
                 source_message_id: None,
+                // Both are recorded, and they answer different questions. The key is what scope
+                // comparisons would use if one can be derived; the raw folder is what the user's
+                // file actually said. Keeping only the key would lose the origin wherever it cannot
+                // be resolved, and keeping only the folder would leave nothing comparable.
                 source_workspace_key: self.workspace_key_for(fields.folder.as_deref()),
+                // Mapped explicitly, and an unrecognized or absent value stays absent. Defaulting
+                // to `Automatic` would relabel a fact the user stated as one an Agent inferred, and
+                // there is no second chance to tell them apart after the source is gone.
+                legacy_original_save_source: fields
+                    .save_source
+                    .as_deref()
+                    .map(str::trim)
+                    .and_then(|value| LegacyMemorySaveSource::parse(value).ok()),
+                legacy_folder: fields.folder.clone(),
+                legacy_source_relative_path: fields.source_relative_path.clone(),
             },
             sensitivity: MemorySensitivity::Normal,
         }
     }
 
-    /// The stable key for the raw path v1 recorded.
+    /// The stable key for the raw path v1 recorded, when that path identifies a workspace precisely.
     ///
-    /// Resolved rather than parsed: v1 stored a display path, and a display path is not a workspace
-    /// key — it contains separators no key may hold, and two hosts can expose the same one. Dropping
-    /// it instead would lose provenance the user can see today.
+    /// v1 stored a display path, and a display path is not a workspace identity. It is only enough
+    /// when it is unambiguously one root: an absolute local path, or a remote URI carrying a host.
+    /// A relative path depends on a working directory nobody recorded, and a UNC path names a share
+    /// that the same host can expose under more than one spelling — deriving a key from either
+    /// would produce a value that compares equal to workspaces it is not, which is worse than
+    /// having no key. Those keep `legacy_folder` and no key, and that pairing is itself the
+    /// diagnostic: an origin was recorded, and it could not be resolved.
     fn workspace_key_for(&self, folder: Option<&str>) -> Option<WorkspaceKey> {
-        let folder = folder?;
+        let request = legacy_workspace_request(folder?)?;
         self.identity
-            .resolve(&WorkspaceIdentityRequest {
-                project_path: Some(folder.to_string()),
-                ..WorkspaceIdentityRequest::default()
-            })
+            .resolve(&request)
             .ok()
             .flatten()
             .map(|identity| identity.key().clone())
     }
+}
+
+/// Turns a raw v1 `folder` into an identity request, or refuses to guess.
+///
+/// Shared with the pre-governance compatibility save path: both receive the same kind of value from
+/// the same frozen contract, and two rules for one input is how they would come to disagree about
+/// which workspace a memory belongs to.
+pub(crate) fn legacy_workspace_request(folder: &str) -> Option<WorkspaceIdentityRequest> {
+    let folder = folder.trim();
+    if folder.is_empty() {
+        return None;
+    }
+    // A scheme means connection identity is present; the resolver discards any password component
+    // and returns nothing when the host is empty, so an unusable URI still resolves to no key.
+    if folder.contains("://") {
+        return Some(WorkspaceIdentityRequest {
+            remote_uri: Some(folder.to_string()),
+            ..WorkspaceIdentityRequest::default()
+        });
+    }
+    if is_unc_path(folder) || !is_absolute_local_path(folder) {
+        return None;
+    }
+    Some(WorkspaceIdentityRequest {
+        project_path: Some(folder.to_string()),
+        ..WorkspaceIdentityRequest::default()
+    })
+}
+
+/// A UNC path — `\\server\share`, or the same thing spelled with forward slashes.
+///
+/// Refused rather than treated as a local root: the same share reached through two mappings, or
+/// through a drive letter on one machine and a UNC path on another, would otherwise derive two keys
+/// for one workspace, or one key for two.
+fn is_unc_path(folder: &str) -> bool {
+    folder.starts_with(r"\\") || folder.starts_with("//")
+}
+
+/// Whether the path names one root on its own, with no working directory to resolve against.
+///
+/// A single leading backslash is deliberately not absolute: on Windows `\projects` is relative to
+/// the current drive, so the same string names a different directory depending on where the process
+/// happened to be.
+fn is_absolute_local_path(folder: &str) -> bool {
+    if folder.starts_with('/') {
+        return true;
+    }
+    // A drive-relative path such as `C:notes` is not absolute either; the separator is what makes
+    // it one.
+    let mut characters = folder.chars();
+    matches!(
+        (characters.next(), characters.next(), characters.next()),
+        (Some(letter), Some(':'), Some('/' | '\\')) if letter.is_ascii_alphabetic()
+    )
 }
 
 enum SourceOutcome {
@@ -611,6 +680,17 @@ fn verify_migrated_record(record: &MemoryRecord, fields: &LegacyMemoryFields) ->
                 "v2_timestamp_mismatch".to_string(),
             ));
         }
+    }
+    // Provenance is verified from the re-read file, not from the record that was just built: the
+    // point is that it survived the write, and a check against the in-memory value would pass even
+    // if the writer dropped the field.
+    if record.provenance.legacy_folder.as_deref() != fields.folder.as_deref()
+        || record.provenance.legacy_source_relative_path.as_deref()
+            != fields.source_relative_path.as_deref()
+    {
+        return Err(PersonalizationApplicationError::Storage(
+            "v2_legacy_provenance_mismatch".to_string(),
+        ));
     }
     Ok(())
 }

@@ -8,6 +8,9 @@ mod legacy_memory_migration_tests;
 mod legacy_memory_source;
 #[cfg(test)]
 mod legacy_memory_source_tests;
+/// What survives migration about where a memory came from.
+#[cfg(test)]
+mod legacy_provenance_tests;
 mod markdown_memory_repository;
 #[cfg(test)]
 mod markdown_memory_repository_tests;
@@ -15,6 +18,8 @@ mod memory_directory_lock;
 #[cfg(test)]
 mod memory_directory_lock_tests;
 mod memory_document;
+#[cfg(test)]
+mod memory_document_tests;
 mod memory_id_generator;
 mod schema;
 #[cfg(test)]

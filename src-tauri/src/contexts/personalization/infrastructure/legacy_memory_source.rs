@@ -282,6 +282,8 @@ impl LegacyMemorySourcePort for FileLegacyMemorySource {
                     content: document.body,
                     source_agent_id: document.agent_id,
                     folder: document.folder,
+                    save_source: document.save_source,
+                    source_relative_path: Some(file_name.to_string()),
                     created_at: document
                         .created_at
                         .as_deref()

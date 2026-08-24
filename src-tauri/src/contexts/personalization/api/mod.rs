@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 
 use super::application::{
     CreateMemoryInput, LegacyAddressAliasPort, MemoryApplicationService, MigrationStatePort,
-    PersonalizationApplicationError, UpdateMemoryPatch,
+    PersonalizationApplicationError, UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
     LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
@@ -57,11 +57,10 @@ impl CompatibilityMemory {
                 .source_agent_id
                 .as_ref()
                 .map(|id| id.as_str().to_string()),
-            source_workspace: record
-                .provenance
-                .source_workspace_key
-                .as_ref()
-                .map(|key| key.as_str().to_string()),
+            // The raw folder, not the derived key. The contract this replaces carried a display
+            // path, so a caller that shows it to a user must keep receiving one; the key exists for
+            // comparison, and it is `None` for most of these anyway.
+            source_workspace: record.provenance.legacy_folder.clone(),
             is_automatic: matches!(
                 record.source,
                 MemorySource::OnePieceAutomatic
@@ -95,6 +94,9 @@ pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
     migration_state: Arc<dyn MigrationStatePort>,
     aliases: Arc<dyn LegacyAddressAliasPort>,
+    /// Used only to derive a comparable key from the display path a pre-governance caller sends.
+    /// The raw path is preserved regardless, so a failure to derive one loses nothing.
+    workspace_identity: Arc<dyn WorkspaceIdentityPort>,
 }
 
 impl PersonalizationApi {
@@ -102,11 +104,13 @@ impl PersonalizationApi {
         memories: Arc<MemoryApplicationService>,
         migration_state: Arc<dyn MigrationStatePort>,
         aliases: Arc<dyn LegacyAddressAliasPort>,
+        workspace_identity: Arc<dyn WorkspaceIdentityPort>,
     ) -> Self {
         Self {
             memories,
             migration_state,
             aliases,
+            workspace_identity,
         }
     }
 
@@ -215,10 +219,26 @@ impl PersonalizationApi {
                         .and_then(|id| super::domain::AgentId::parse(id).ok()),
                     source_session_id: None,
                     source_message_id: None,
+                    // A pre-governance caller sends a display path, not a key. Parsing it as a key
+                    // succeeds only for the rare value that happens to hold no separator, so the
+                    // raw value is kept alongside whatever the shared rule can derive — the same
+                    // pairing migration records, because it is the same input from the same frozen
+                    // contract.
                     source_workspace_key: input
                         .workspace
                         .as_deref()
-                        .and_then(|key| super::domain::WorkspaceKey::parse(key).ok()),
+                        .and_then(super::application::legacy_workspace_request)
+                        .and_then(|request| self.workspace_identity.resolve(&request).ok())
+                        .flatten()
+                        .map(|identity| identity.key().clone()),
+                    legacy_original_save_source: Some(if input.is_automatic {
+                        super::domain::LegacyMemorySaveSource::Automatic
+                    } else {
+                        super::domain::LegacyMemorySaveSource::Explicit
+                    }),
+                    legacy_folder: input.workspace.clone(),
+                    // Nothing was migrated: this record was created here, not read off disk.
+                    legacy_source_relative_path: None,
                 },
                 sensitivity: MemorySensitivity::Normal,
             })?,
@@ -348,6 +368,7 @@ pub(crate) fn build_for_tests(
         service.clone(),
         Arc::new(SqliteMigrationState::new(database.clone())),
         Arc::new(SqliteLegacyAddressAlias::new(database)),
+        Arc::new(super::application::WorkspaceIdentityResolver::for_this_platform()),
     );
     (api, service)
 }

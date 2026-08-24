@@ -41,6 +41,29 @@ fn object_exists(conn: &Connection, kind: &str, name: &str) -> bool {
         > 0
 }
 
+/// Columns migration 82 must create beyond the ones a summary reads.
+///
+/// Listed explicitly because a missing one is a silent provenance loss rather than a failure: the
+/// insert would error at runtime, long after the migration reported success.
+const EXPECTED_PROJECTION_COLUMNS: &[&str] = &[
+    "source_workspace_key",
+    "legacy_save_source",
+    "legacy_folder",
+    "legacy_source_path",
+];
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+    conn.prepare(&format!("PRAGMA table_info({table})"))
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+        })
+        .expect("table info")
+        .iter()
+        .any(|name| name == column)
+}
+
 fn assert_full_schema(conn: &Connection) {
     for table in EXPECTED_TABLES {
         assert!(
@@ -52,6 +75,12 @@ fn assert_full_schema(conn: &Connection) {
         assert!(
             object_exists(conn, "index", index),
             "{index} must exist after migration 82"
+        );
+    }
+    for column in EXPECTED_PROJECTION_COLUMNS {
+        assert!(
+            column_exists(conn, "personalization_memory_projection", column),
+            "personalization_memory_projection.{column} must exist after migration 82"
         );
     }
 }

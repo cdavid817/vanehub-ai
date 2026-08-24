@@ -40,10 +40,10 @@ pub(crate) use maintenance::{
     RESET_TOKEN_TTL_SECONDS,
 };
 pub(crate) use memory::{
-    content_hash, eligibility, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord,
-    MemoryScope, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
+    content_hash, eligibility, LegacyMemorySaveSource, MemoryAudience, MemoryId, MemoryProvenance,
+    MemoryRecord, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
     MEMORY_AUDIENCE_MAX_AGENTS, MEMORY_CONTENT_MAX_CHARS, MEMORY_DESCRIPTION_MAX_CHARS,
-    MEMORY_NAME_MAX_CHARS,
+    MEMORY_LEGACY_FIELD_MAX_CHARS, MEMORY_NAME_MAX_CHARS,
 };
 pub(crate) use policy::{
     InstructionMergeMode, PatchPolicyResult, PersonalizationPolicyPatch,

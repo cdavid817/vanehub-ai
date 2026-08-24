@@ -15,7 +15,7 @@ mod resolve_workspace_identity_tests;
 pub(crate) use error::PersonalizationApplicationError;
 pub(crate) use manage_memory::{CoordinatedMemory, MemoryApplicationService};
 pub(crate) use migrate_legacy_memories::{
-    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
+    legacy_workspace_request, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
 };
 pub(crate) use migrate_legacy_policy::{
     map_legacy_settings, project_to_legacy_settings, LegacyPersonalizationSettings, MigratedPolicy,

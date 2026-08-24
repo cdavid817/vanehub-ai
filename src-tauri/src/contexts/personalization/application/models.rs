@@ -85,6 +85,13 @@ pub(crate) struct LegacyMemoryFields {
     /// remote workspaces can share one; deriving a stable key from it is the identity resolver's
     /// job, not this struct's.
     pub(crate) folder: Option<String>,
+    /// The raw v1 `source` value. Mapped to a typed value in one place, and an unrecognized one
+    /// becomes absent rather than being folded into whichever variant happens to be first.
+    pub(crate) save_source: Option<String>,
+    /// Where the file was, relative to the memory directory. Carried on the fields rather than
+    /// re-derived from the locator downstream so the value that reaches provenance is the value
+    /// enumeration actually found.
+    pub(crate) source_relative_path: Option<String>,
     /// Both timestamps are carried because both are real. `created_at` is what the file declared;
     /// `modified_at` is what the filesystem knows, and it is what recency ordering used under v1 —
     /// dropping it would put a memory the model had just corrected behind every stale one.

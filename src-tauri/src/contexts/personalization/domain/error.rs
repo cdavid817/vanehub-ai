@@ -48,6 +48,7 @@ pub(crate) enum PersonalizationDomainError {
     UntypedMemoryRequiresLegacySource,
     UnknownMemoryStatus(String),
     UnknownMemorySource(String),
+    UnknownLegacyMemorySaveSource(String),
     UnknownMemoryType(String),
     UnknownMemorySensitivity(String),
     UnknownMemoryScopeKind(String),
@@ -159,6 +160,9 @@ impl std::fmt::Display for PersonalizationDomainError {
             }
             Self::UnknownMemorySource(value) => {
                 write!(formatter, "Unknown memory source \"{value}\".")
+            }
+            Self::UnknownLegacyMemorySaveSource(value) => {
+                write!(formatter, "Unknown legacy memory save source \"{value}\".")
             }
             Self::UnknownMemoryType(value) => write!(formatter, "Unknown memory type \"{value}\"."),
             Self::UnknownMemorySensitivity(value) => {

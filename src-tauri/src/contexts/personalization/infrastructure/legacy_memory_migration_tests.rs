@@ -849,13 +849,19 @@ fn a_failure_code_never_carries_a_path_or_a_body() {
     // These reach diagnostics and logs. A code that embedded a file name would put the user's
     // directory layout, and a code that embedded a message would put their text, into both.
     let fixture = fixture("codes");
+    // Both kinds of thing a code must never carry: the user's directory layout, and a credential
+    // that happened to be recorded in a workspace URI.
     fixture.write_legacy(
         "secret-project-notes.md",
-        &legacy_file("huge", &"x".repeat(40_000)),
+        &legacy_file("huge", &"x".repeat(40_000)).replace(
+            "D:/code/vanehub-ai",
+            "ssh://alice:hunter2@host.example.test/srv/secret",
+        ),
     );
 
     let outcome = fixture.run();
 
+    assert!(!outcome.failure_codes.is_empty());
     for code in &outcome.failure_codes {
         assert!(
             code.chars()
@@ -863,6 +869,7 @@ fn a_failure_code_never_carries_a_path_or_a_body() {
             "{code:?} must be a code, not prose"
         );
         assert!(!code.contains("secret-project-notes"));
+        assert!(!code.contains("hunter2"));
     }
 }
 

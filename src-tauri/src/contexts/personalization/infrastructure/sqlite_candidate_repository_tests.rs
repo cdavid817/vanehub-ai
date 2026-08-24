@@ -63,6 +63,7 @@ fn create_candidate(index: usize) -> MemoryCandidate {
             source_session_id: Some(SessionId::parse("ses_1").expect("session")),
             source_message_id: Some("msg_1".to_string()),
             source_workspace_key: None,
+            ..MemoryProvenance::default()
         },
         status: CandidateReviewStatus::Pending,
         created_at: base_time() + Duration::minutes(index as i64),

@@ -46,6 +46,14 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), DatabaseError> {
             source TEXT NOT NULL,
             source_agent_id TEXT,
             source_session_id TEXT,
+            source_workspace_key TEXT,
+            -- Provenance carried over from the pre-governance store. `legacy_folder` is the raw
+            -- value that file recorded and `source_workspace_key` is what could be derived from it;
+            -- both are projected so "recorded an origin but no key could be derived" is a query
+            -- rather than a re-read of every file.
+            legacy_save_source TEXT,
+            legacy_folder TEXT,
+            legacy_source_path TEXT,
             sensitivity TEXT NOT NULL DEFAULT 'normal',
             revision INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT NOT NULL,

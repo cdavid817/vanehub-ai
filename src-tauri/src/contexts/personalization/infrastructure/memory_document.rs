@@ -2,8 +2,9 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::contexts::personalization::application::PersonalizationApplicationError;
 use crate::contexts::personalization::domain::{
-    AgentId, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, SessionId, WorkspaceKey,
+    AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord,
+    MemoryScope, MemorySensitivity, MemorySource, MemoryStatus, MemoryType, SessionId,
+    WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -167,6 +168,18 @@ pub(crate) fn compose(record: &MemoryRecord) -> String {
     if let Some(workspace_key) = record.provenance.source_workspace_key.as_ref() {
         lines.push(format!("source_workspace_key: {workspace_key}"));
     }
+    // Written only when present, and read back through `optional`, so a file produced before these
+    // existed still parses. The schema version does not move for a purely additive optional field —
+    // bumping it would make every already-written file unreadable to gain nothing.
+    if let Some(save_source) = record.provenance.legacy_original_save_source {
+        lines.push(format!("legacy_save_source: {}", save_source.as_str()));
+    }
+    if let Some(folder) = record.provenance.legacy_folder.as_ref() {
+        lines.push(format!("legacy_folder: {}", encode_text(folder)));
+    }
+    if let Some(path) = record.provenance.legacy_source_relative_path.as_ref() {
+        lines.push(format!("legacy_source_path: {}", encode_text(path)));
+    }
     lines.push(format!("sensitivity: {}", record.sensitivity.as_str()));
     lines.push(format!("revision: {}", record.revision));
     lines.push(format!("created_at: {}", timestamp(record.created_at)));
@@ -298,6 +311,18 @@ pub(crate) fn parse(raw: &str) -> Result<MemoryRecord> {
             source_workspace_key: frontmatter
                 .optional("source_workspace_key")
                 .map(WorkspaceKey::parse)
+                .transpose()?,
+            legacy_original_save_source: frontmatter
+                .optional("legacy_save_source")
+                .map(LegacyMemorySaveSource::parse)
+                .transpose()?,
+            legacy_folder: frontmatter
+                .optional("legacy_folder")
+                .map(decode_text)
+                .transpose()?,
+            legacy_source_relative_path: frontmatter
+                .optional("legacy_source_path")
+                .map(decode_text)
                 .transpose()?,
         },
         sensitivity: frontmatter

@@ -5,9 +5,9 @@ use crate::contexts::personalization::application::{
     MemoryProjectionPort, PersonalizationApplicationError, ResetCounts,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, MemoryAudience, MemoryCursor, MemoryId, MemoryOrder, MemoryPage, MemoryQuery,
-    MemoryRecord, MemoryScopeFilter, MemorySource, MemoryStatus, MemorySummary, MemoryType,
-    WorkspaceKey,
+    AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryCursor, MemoryId, MemoryOrder,
+    MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter, MemorySource, MemoryStatus,
+    MemorySummary, MemoryType, WorkspaceKey,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 
@@ -246,11 +246,12 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
         conn.execute(
             "INSERT INTO personalization_memory_projection (
                  memory_id, file_name, name, description, memory_type, scope_kind, workspace_key,
-                 audience_json, status, source, source_agent_id, source_session_id, sensitivity,
-                 revision, content_hash, created_at, updated_at, verified_at, last_used_at,
-                 use_count
+                 audience_json, status, source, source_agent_id, source_session_id,
+                 source_workspace_key, legacy_save_source, legacy_folder, legacy_source_path,
+                 sensitivity, revision, content_hash, created_at, updated_at, verified_at,
+                 last_used_at, use_count
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                       ?18, ?19, ?20)
+                       ?18, ?19, ?20, ?21, ?22, ?23, ?24)
              ON CONFLICT(memory_id) DO UPDATE SET
                  file_name = excluded.file_name,
                  name = excluded.name,
@@ -263,6 +264,10 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                  source = excluded.source,
                  source_agent_id = excluded.source_agent_id,
                  source_session_id = excluded.source_session_id,
+                 source_workspace_key = excluded.source_workspace_key,
+                 legacy_save_source = excluded.legacy_save_source,
+                 legacy_folder = excluded.legacy_folder,
+                 legacy_source_path = excluded.legacy_source_path,
                  sensitivity = excluded.sensitivity,
                  revision = excluded.revision,
                  content_hash = excluded.content_hash,
@@ -291,6 +296,17 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                     .source_session_id
                     .as_ref()
                     .map(|id| id.as_str()),
+                record
+                    .provenance
+                    .source_workspace_key
+                    .as_ref()
+                    .map(WorkspaceKey::as_str),
+                record
+                    .provenance
+                    .legacy_original_save_source
+                    .map(LegacyMemorySaveSource::as_str),
+                record.provenance.legacy_folder.as_deref(),
+                record.provenance.legacy_source_relative_path.as_deref(),
                 record.sensitivity.as_str(),
                 i64::try_from(record.revision).unwrap_or(i64::MAX),
                 content_hash,

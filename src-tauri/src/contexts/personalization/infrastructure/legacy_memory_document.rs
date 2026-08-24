@@ -27,6 +27,10 @@ pub(crate) struct LegacyDocument {
     /// The raw workspace path v1 recorded. Not a workspace key: v1 stored the display path, and
     /// turning it into a stable key is the identity resolver's job.
     pub(crate) folder: Option<String>,
+    /// The raw `source` value — `explicit` or `automatic` under v1. Left as a string so the
+    /// decision that an unrecognized value means "unknown", not "automatic", is made once, at the
+    /// boundary that knows the v2 taxonomy.
+    pub(crate) save_source: Option<String>,
     pub(crate) created_at: Option<String>,
     pub(crate) body: String,
 }
@@ -68,6 +72,7 @@ pub(crate) fn parse_legacy_document(content: &str) -> Option<LegacyDocument> {
             "type" => fields.memory_type = Some(value),
             "agent" => fields.agent_id = Some(value),
             "folder" => fields.folder = Some(value),
+            "source" => fields.save_source = Some(value),
             "created" => fields.created_at = Some(value),
             _ => {}
         }
@@ -95,6 +100,7 @@ pub(crate) fn parse_legacy_document(content: &str) -> Option<LegacyDocument> {
         memory_type: fields.memory_type,
         agent_id: fields.agent_id,
         folder: fields.folder,
+        save_source: fields.save_source,
         created_at: fields.created_at,
         body,
     })
@@ -107,5 +113,6 @@ struct LegacyFields {
     memory_type: Option<String>,
     agent_id: Option<String>,
     folder: Option<String>,
+    save_source: Option<String>,
     created_at: Option<String>,
 }

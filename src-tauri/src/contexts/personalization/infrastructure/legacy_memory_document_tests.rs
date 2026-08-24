@@ -17,11 +17,36 @@ fn a_canonical_v1_file_yields_every_field() {
     assert_eq!(document.memory_type.as_deref(), Some("user"));
     assert_eq!(document.agent_id.as_deref(), Some("onepiece"));
     assert_eq!(document.folder.as_deref(), Some("D:/code/vanehub-ai"));
+    assert_eq!(document.save_source.as_deref(), Some("explicit"));
     assert_eq!(
         document.created_at.as_deref(),
         Some("2026-08-01T10:00:00.000Z")
     );
     assert_eq!(document.body, "Prefers concise answers.");
+}
+
+#[test]
+fn the_save_source_is_read_verbatim_and_absent_when_the_file_omits_it() {
+    // Read as a string rather than resolved here, so the one place that knows the v2 taxonomy is
+    // also the one place that decides an unrecognized value means "unknown".
+    for (raw, expected) in [
+        ("source: explicit\n", Some("explicit")),
+        ("source: automatic\n", Some("automatic")),
+        ("source: something-new\n", Some("something-new")),
+        // An empty value is dropped by the frontmatter reader, exactly as v1 dropped it.
+        ("source: \n", None),
+        ("", None),
+    ] {
+        let file = format!("---\nname: n\ndescription: d\n{raw}---\n\nBody.\n");
+        assert_eq!(
+            parse_legacy_document(&file)
+                .expect("parses")
+                .save_source
+                .as_deref(),
+            expected,
+            "for {raw:?}"
+        );
+    }
 }
 
 #[test]

@@ -197,6 +197,9 @@ fn read_candidate(row: &Row<'_>) -> rusqlite::Result<Result<MemoryCandidate>> {
                     .transpose()?,
                 source_message_id,
                 source_workspace_key: None,
+                // A candidate is a proposal, not a migrated record: it has no legacy origin, and
+                // approving one produces a memory whose provenance is the proposal's.
+                ..MemoryProvenance::default()
             },
             status: parse_review_status(&review_status)?,
             created_at: parse_timestamp(&created_at)?,
