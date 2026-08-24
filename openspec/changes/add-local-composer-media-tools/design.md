@@ -2090,3 +2090,65 @@ aggregate result hides which one fails. Every cell keeps the network denier and 
 `denied_attempts`. 19.6 stays unticked until all three pass, and 18.4 and 19.7 stay unticked until a
 person at a Windows machine completes the microphone, device, and interaction scenarios that no
 harness can stand in for.
+
+
+## 34. Renewed Windows qualification, after the compatibility work
+
+Same host and same models as section 32, re-run against the remediation. Each cell is its own
+process: two of the failure modes under test end in a native `exit()`, and a shared process would
+report the first abort and lose everything after it. Every cell denies `connect`, `connect_ex`,
+`getaddrinfo` and `create_connection` for its whole lifetime and reports how many attempts were made.
+
+| Engine | Cell | Result |
+| --- | --- | --- |
+| paddleocr | ASCII, `library-default` | `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, remediation `disable-cpu-acceleration` |
+| paddleocr | ASCII, `disabled` | **PASSED** -- 1 page, 70 lines, 1,348 characters |
+| paddleocr | non-ASCII, `disabled` | `MODEL_PATH_ENCODING_UNSUPPORTED`, field `textDetectionModelDir` |
+| paddleocr | missing model, offline | `MODEL_NOT_FOUND`, field `textDetectionModelDir` |
+| faster-whisper | ASCII | **PASSED** -- 8 words |
+| faster-whisper | spaces | **PASSED** -- 8 words |
+| faster-whisper | non-ASCII | **PASSED** -- 8 words |
+| faster-whisper | missing model, local-only | `MODEL_NOT_FOUND`, field `modelDirectory` |
+| sherpa-onnx | ASCII model/tokens/data | **PASSED** -- 16 kHz, valid mono WAV, removed afterwards |
+| sherpa-onnx | non-ASCII model/tokens/data | `MODEL_PATH_ENCODING_UNSUPPORTED`, field `modelPath` |
+| sherpa-onnx | missing data directory | process died, no diagnosable error -- see below |
+
+`denied_attempts=0` in every cell: nothing reached for the network at all, rather than being stopped
+when it tried.
+
+Four of those rows are failures by design. They are the reproductions, and what changed is that each
+now arrives as a code naming a field and a remedy instead of one `ENGINE_UNAVAILABLE` covering all of
+them. The one that matters most is the second row: **PaddleOCR recognizes a real image on this host**,
+which it could not do before, using a mode the settings page now exposes.
+
+### 19.6 is ticked; 18.4 and 19.7 are not
+
+All three engines performed real inference against real models with the network denied, and the
+package and model versions are recorded. OCR qualifies in the `disabled` mode, which is a supported,
+user-selectable configuration rather than a workaround applied behind their back.
+
+18.4 still needs the microphone privacy path and device selection, and 19.7 needs a person speaking,
+listening, and changing operating-system settings. Neither was attempted and nothing stood in for
+either.
+
+### The pre-check that was removed again
+
+A vits voice configured with neither pronunciation data nor a lexicon kills the worker: sherpa-onnx
+prints "Not a model using characters as modeling unit" and calls `exit()`. Refusing that shape before
+the native call looked obviously right, and it was wrong -- the message names the condition, and a
+model that *does* use characters as its modelling unit needs neither file. The refusal broke a
+supervisor test whose voice is configured exactly that way and works, which is how the overreach was
+found rather than shipped.
+
+`TTS_PHONEMIZER_DATA_UNAVAILABLE` therefore has to be raised from the crash the supervisor observes,
+where the evidence is a dead worker rather than a guess about a profile. Recorded as task 21.23 and
+not done here; until it is, this configuration is the one row in the matrix that still dies without
+saying why.
+
+### Still open in the compatibility work
+
+The readiness canary (21.5, 21.7) and the per-field classification surfaced to the settings UI
+(21.6, 21.14) are not implemented. Probes still report `Ready` on a successful construction, which is
+exactly the signal the acceleration failure defeats -- that model constructs and then fails when an
+operator runs. Until the canary lands, a user on the incompatible combination sees `Ready` in
+settings and the failure on their first real operation.
