@@ -9,17 +9,17 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import { turnStatusFromEvent, waitedMinutes } from "../services/turn-status";
-import { applyChatEvents } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import { useFileReferences } from "./use-file-references";
 import { useMentionCandidates } from "./use-mention-candidates";
-import { MAX_CHAT_FILE_REFERENCES, type ChatMessage, type ChatStreamEvent } from "../types/chat";
+import { MAX_CHAT_FILE_REFERENCES, type ChatMessage } from "../types/chat";
 import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
 import { useSessionRecoverySync } from "./use-session-recovery-sync";
+import { useSessionStreamEvents } from "./use-session-stream-events";
 import { useSessionSwitch } from "./use-session-switch";
 export function useMainLayoutModel() {
   const { t } = useTranslation();
@@ -172,52 +172,15 @@ export function useMainLayoutModel() {
     onSuccess: invalidateRuntime,
     onError: (reason, sessionId) => reportChatFailure("MainLayout.stopGeneration", reason, sessionId),
   });
-  useEffect(() => {
-    if (!activeSessionId) return;
-    let cleanup: (() => void) | null = null;
-    let cancelled = false;
-    // Token events arrive in the thousands per turn; buffer them and flush on an animation
-    // frame so the message array is rebuilt once per frame instead of once per token.
-    let pending: ChatStreamEvent[] = [];
-    let frame = 0;
-    const flush = () => {
-      frame = 0;
-      if (pending.length === 0) return;
-      const batch = pending;
-      pending = [];
-      queryClient.setQueryData<ChatMessage[]>(messagesKey, (current) =>
-        applyChatEvents(current ?? [], batch),
-      );
-    };
-    void agentService.subscribeMessageEvents(activeSessionId, (event) => {
-      if (event.type === "turn_status") {
-        // turn_status is session-scoped, not message-scoped, and drives the waiting bar; it
-        // must update immediately rather than ride a frame delay.
-        waitingSince.current = event.status.kind === "waiting_human" ? event.status.since : null;
-        setTurnStatus(turnStatusFromEvent(event.status));
-        return;
-      }
-      pending.push(event);
-      if (event.type === "completed" && event.tokenUsage) {
-        void queryClient.invalidateQueries({ queryKey: ["session-usage-summary", event.sessionId] });
-        void queryClient.invalidateQueries({ queryKey: ["usage-statistics"] });
-      }
-      // A round that ends leaves nobody holding the turn, so the bar has to go rather than freeze.
-      if (["completed", "failed", "cancelled"].includes(event.type)) {
-        invalidateSessions();
-        // Flush the buffered tokens now so the terminal message lands with the status change.
-        if (frame !== 0) { cancelAnimationFrame(frame); frame = 0; }
-        flush();
-      } else if (frame === 0) {
-        frame = requestAnimationFrame(flush);
-      }
-    }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
-    return () => {
-      cancelled = true;
-      if (frame !== 0) cancelAnimationFrame(frame);
-      cleanup?.();
-    };
-  }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
+  useSessionStreamEvents({
+    invalidateSessions,
+    messagesKey,
+    onTurnStatus: (status) => {
+      waitingSince.current = status.kind === "waiting_human" ? status.since : null;
+      setTurnStatus(turnStatusFromEvent(status));
+    },
+    sessionId: activeSessionId,
+  });
   useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId, setFileReferences]);
   // Keep a human-wait duration moving without backend minute-by-minute events.
   useEffect(() => {
