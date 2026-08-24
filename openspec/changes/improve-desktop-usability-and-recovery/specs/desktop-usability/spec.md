@@ -5,7 +5,7 @@ Provide a responsive and comprehensible desktop workspace whose primary actions 
 ## ADDED Requirements
 
 ### Requirement: Responsive workspace and startup feedback
-The desktop workspace SHALL reserve non-overlapping regions for the session list, conversation surface, and auxiliary panels at supported widths, SHALL collapse or resize auxiliary content before obscuring the active conversation, and SHALL show a localized loading indicator before application readiness completes.
+The desktop workspace SHALL reserve non-overlapping regions for the session list, conversation surface, and auxiliary panels at supported widths, SHALL collapse or resize auxiliary content before obscuring the active conversation, and SHALL show a branded startup indicator before application readiness completes.
 
 #### Scenario: Narrow desktop workspace
 - **WHEN** the application window becomes narrower than the preferred three-column layout
@@ -14,7 +14,8 @@ The desktop workspace SHALL reserve non-overlapping regions for the session list
 
 #### Scenario: Startup is in progress
 - **WHEN** application initialization has not completed
-- **THEN** the user sees a localized loading state rather than an unresponsive blank surface
+- **THEN** the user sees the application icon, an activity spinner, and `Starting...` rather than an unresponsive blank surface
+- **AND** that same startup surface remains visible until the React application mounts or startup reports a terminal failure
 
 ### Requirement: Reachable help and action feedback
 The workspace SHALL route its help action to the user guide and SHALL present session-creation feedback in a non-obstructive, readable position that does not compete with primary navigation.

@@ -1,9 +1,10 @@
 ## 1. Workspace shell and session creation
 
 - [x] 1.1 Audit the workspace shell breakpoints and make the session list, conversation surface, and auxiliary panels non-overlapping at supported widths.
-- [x] 1.2 Add a localized startup loading surface and route the workspace help action to the user guide.
+- [x] 1.2 Add a branded startup loading surface and route the workspace help action to the user guide.
 - [x] 1.3 Implement the responsive multi-Agent creation dialog with seat validation and focused keyboard interaction.
 - [x] 1.4 Reposition session-creation feedback and verify it does not cover navigation or the composer.
+- [x] 1.5 Keep the static application icon, spinner, and `Starting...` shell visible until React mounts without replacing it with feature-loading copy.
 
 ## 2. Human-centered workflow surfaces
 
@@ -25,3 +26,4 @@
 - [x] 4.2 Run `npm run lint:ci`, `npm run test`, and `npm run build`.
 - [x] 4.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `npm run native:panic:check`, and `cargo test --workspace` when native recovery changes.
 - [x] 4.4 Run affected Playwright and desktop verification, then validate `openspec validate improve-desktop-usability-and-recovery --strict` and `openspec validate --specs --strict`.
+- [x] 4.5 Add focused startup-shell regression coverage and rerun the affected frontend, Playwright, desktop, and OpenSpec verification.

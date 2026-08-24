@@ -24,4 +24,12 @@ describe("static bootstrap shell", () => {
     expect(css).toContain("prefers-color-scheme: dark");
     expect(css).toContain("prefers-reduced-motion: reduce");
   });
+
+  it("keeps the static shell visible until React mounts", () => {
+    const entry = readFileSync(`${projectRoot}/src/main.tsx`, "utf8");
+
+    expect(entry).not.toContain("renderStartupLoading");
+    expect(entry).not.toContain('i18n.t("featureLoad.loading")');
+    expect(entry).not.toContain("root.replaceChildren");
+  });
 });
