@@ -71,12 +71,30 @@ The third is the most insidious — you believe you are using A while B is what 
 
 ![The CLI Parameters settings page](assets/screenshots/settings-cli-parameters-en.png)
 
-Parameters carry two annotations:
+The rail on the left lists the five external CLIs. Each entry shows the **detected version or installation state** plus counts of unsaved edits, warnings and errors. OnePiece is not here — it does not launch through an external CLI, and its configuration lives under **Settings → Agent configurations**.
+
+**"Inherit" is its own state, not a value named `default`.** While a parameter is inherited VaneHub sends nothing and the CLI decides; only an explicit choice appears in the launch command. The distinction is necessary: in Gemini CLI's `--approval-mode default`, `default` is the real "ask every time" mode, not the absence of a setting.
+
+Parameters carry these annotations:
 
 - **Risk annotation** — dangerous flags are marked prominently
-- **Launch scenario** — distinguishing "interactive terminal" from "conversation", because the same CLI needs different parameters in the two cases
+- **Launch scope** — a Chat / Interactive switch at the top. The same CLI needs different parameters in the two cases, and the page lists only the ones that actually apply to the selected scope
+- **Maturity and compatibility** — preview, experimental and deprecated states, plus verdicts such as "the installed version does not support this value"
+- **Dependencies and conflicts** — OpenCode's `--variant` depends on `--model` being set, for instance, and says so when it is not
 
-> **A policy template overrides the choices you save here.** For example, while the Read-only template is active, a permissive option ticked in the parameters still yields to the template. Security policy takes precedence over convenience configuration.
+**Filtering and search**: filter by All / Modified / Warnings / Unsupported / Advanced. Search matches the label, the description, the option text and the literal flag.
+
+**The preview is tokenized and grouped into global and invocation options.** It deliberately does not join into a pasteable command line: a value containing a space is one argv entry here and two after a shell splits it, so a joined string would misinform. Use **Copy argv JSON** when you need the exact content.
+
+**Saving and concurrency**: the page remembers the revision it opened. If the same profile changed elsewhere, saving is refused with a prompt to reload rather than silently overwriting the other change. **Discard draft** returns to the last saved state and **Restore inherited values** clears every parameter for that CLI back to inherited. Switching CLIs does not lose a draft.
+
+**Repairing older data**: on upgrade, a historical value that cannot be read unambiguously is quarantined — it is neither sent nor deleted. The page says so, and re-selecting it repairs it.
+
+**Web preview limits**: the browser Web/mock adapter has no CLI to detect, so every CLI reports "not installed" and it never claims a version. It can demonstrate editing and previewing, but it launches nothing.
+
+**When changes take effect**: parameters are read at the **next launch**. Conversations and terminals that are already running are unaffected, and saving does not interrupt them.
+
+> **A policy template overrides the choices you save here.** For example, while the Read-only template is active, a permissive option ticked in the parameters still yields to the template. Security policy takes precedence over convenience configuration. Approval, auto-approval, sandbox and dangerous-bypass parameters are not on this page at all — they belong to [Permissions and approvals](permissions.md).
 
 #### Common parameter reference across CLIs
 
@@ -104,11 +122,11 @@ High-frequency parameters for each CLI:
 
 > **Permission parameters are the ones that matter most.** All five CLIs have a "skip confirmation / auto-approve" class of parameter. VaneHub's permission templates (Read-only/Standard/Trusted/Yolo) decide whether these high-risk parameters get attached — **security policy takes precedence over convenience configuration** — see [Permission approvals](permissions.md) for the details.
 
-The table above only lists the high-frequency items. For the **complete reference per parameter family** — invocation shapes, session management, model selection, permissions and sandboxing, output formats, configuration injection, and the matrix projecting a host task model onto each CLI's parameters — see the [AI coding CLI parameter reference](../../../agent-infrastructure/builtin-cli-reference.md) (Simplified Chinese).
+The table above only lists the high-frequency items. The **complete matrix, generated from the registry and updated with the code** — every parameter's literal flag, argument slot, launch scope, control type, ownership, minimum version and verification state — is the [CLI parameter matrix](../../../agent-infrastructure/cli-parameter-matrix.md). For the **complete reference per parameter family** — invocation shapes, session management, model selection, permissions and sandboxing, output formats, configuration injection, and the matrix projecting a host task model onto each CLI's parameters — see the [AI coding CLI parameter reference](../../../agent-infrastructure/builtin-cli-reference.md) (Simplified Chinese).
 
 #### OnePiece's equivalent configuration
 
-OnePiece doesn't go through an external CLI and has none of the command-line parameters above. Its equivalent is a **provider configuration** (managed under **Settings → Agent configurations**): pick an entry from the provider catalog, fill in an API key (validated before saving), discover and select a model, or configure a custom compatible endpoint as needed. See the next section and [Native API Agent](native-agent.md).
+OnePiece doesn't go through an external CLI and has none of the command-line parameters above, so it is not a tab on the CLI Parameters page. Everything it *does* have lives under **Settings → Agent configurations**: the **provider configuration** — pick an entry from the provider catalog, fill in an API key (validated before saving), discover and select a model, or configure a custom compatible endpoint — and, below it, OnePiece's retrieval, context-compaction and context-health parameters. See the next section and [Native API Agent](native-agent.md).
 
 ## Agent configurations
 

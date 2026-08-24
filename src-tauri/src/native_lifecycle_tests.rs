@@ -569,6 +569,7 @@ impl AgentCliProfileGateway for LifecycleDoubles {
         &self,
         _agent_id: &str,
         _configuration: &crate::contexts::agent_runtime::application::AgentChatConfiguration,
+        _operation_id: Option<&str>,
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError> {
         self.load_interactive("codex-cli")
     }
@@ -579,8 +580,8 @@ impl AgentCliProfileGateway for LifecycleDoubles {
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError> {
         Ok(CliProfileSnapshot {
             executable: "deterministic-process-double".to_string(),
-            selections: BTreeMap::new(),
-            managed_args: Vec::new(),
+            global_args: Vec::new(),
+            invocation_args: Vec::new(),
             env: BTreeMap::new(),
         })
     }

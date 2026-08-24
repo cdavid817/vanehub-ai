@@ -88,9 +88,9 @@ use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
+use crate::contexts::tooling::api::CliParameterRuntimeApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
-use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
@@ -120,7 +120,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) local_media: LocalMediaApi,
     pub(crate) agent_runs: AgentRunsApi,
     pub(crate) cli: CliApi,
-    pub(crate) cli_parameters: CliParametersApi,
+    pub(crate) cli_parameter_runtime: CliParameterRuntimeApi,
     pub(crate) prompts: PromptHookApi,
     pub(crate) skills: SkillApi,
     pub(crate) skill_tools: SkillToolApi,
@@ -787,7 +787,7 @@ pub(crate) fn assemble_agent_runtime_api(
             api_processes,
         ));
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
-        dependencies.cli_parameters,
+        dependencies.cli_parameter_runtime,
         dependencies.cli,
         dependencies.permissions,
     ));

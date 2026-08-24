@@ -45,7 +45,8 @@ fn assert_provider_conformance(provider: &Arc<dyn AgentProvider>) {
             executable: provider.readiness_prerequisites().executable_names()[0].clone(),
             prompt: "fixture prompt",
             provider_session: None,
-            managed_args: &[],
+            global_args: &[],
+            invocation_args: &[],
             role_briefing: None,
         })
         .expect("generation mapping");
@@ -144,7 +145,8 @@ fn compatibility_provider_preserves_invocation_and_session_ownership() {
             executable: "codex".to_string(),
             prompt: "hello",
             provider_session: Some(&provider_session),
-            managed_args: &[],
+            global_args: &[],
+            invocation_args: &[],
             role_briefing: None,
         })
         .expect("invocation");
@@ -161,7 +163,8 @@ fn compatibility_provider_preserves_invocation_and_session_ownership() {
             executable: "codex".to_string(),
             prompt: "hello",
             provider_session: Some(&foreign_session),
-            managed_args: &[],
+            global_args: &[],
+            invocation_args: &[],
             role_briefing: None,
         }),
         Err(AgentProviderError::Preparation { .. })

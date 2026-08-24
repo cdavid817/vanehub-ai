@@ -7,9 +7,13 @@ describe("frontend feature module boundaries", () => {
     // page through a static import.
     const loaders = read("settings/settings-page-loaders.ts");
     const pages = read("settings/settings-pages.ts");
-    const pageModules = loaders.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
+    // A page may live in its own directory rather than under `pages/`, so the count is of dynamic
+    // imports rather than of one path shape; what must not appear is a static import of either.
+    // 20 after merging both branches: 19 from the CLI-parameter cutover plus the Local media page.
+    const pageModules = loaders.match(/import\("\.\/[^"]+"\)/g) ?? [];
     expect(pageModules).toHaveLength(20);
     expect(loaders).not.toMatch(/from "\.\/pages\//);
+    expect(loaders).not.toMatch(/from "\.\/cli-parameters\//);
     expect(pages).not.toMatch(/from "\.\/pages\//);
   });
 

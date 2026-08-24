@@ -9,7 +9,7 @@ export const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => impor
   .then((module) => ({ default: module.BasicSettingsPage }));
 export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
   .then((module) => ({ default: module.ProvidersPage }));
-export const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-parameters-page")
+export const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./cli-parameters/cli-parameters-page")
   .then((module) => ({ default: module.CliParametersPage }));
 export const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
   .then((module) => ({ default: module.ExtensionsPage }));

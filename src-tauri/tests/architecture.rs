@@ -173,6 +173,80 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
     );
 }
 
+/// Ratchet for the native runtime read cutover: every real managed-CLI launch resolves its
+/// user-profile argv through `tooling::api`. Production code in `agent_runtime` and `sessions` may
+/// not reach back into the CLI-parameter subdomain's private modules, nor re-acquire the legacy
+/// reader that the cutover removed. Test sources are exempt: the dual-read suites deliberately seed
+/// `cli_parameter_settings` rows and transcribe the pre-cutover renderer to prove equivalence.
+#[test]
+fn cli_parameter_consumers_only_reach_the_published_tooling_api() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let roots = [
+        source_root.join("contexts/agent_runtime"),
+        source_root.join("contexts/sessions"),
+    ];
+    // `tooling::api` is the only permitted path into the subdomain. Everything else here is either
+    // a private module of it or a symbol of the launch reader the cutover deleted.
+    let forbidden = [
+        (
+            "crate::contexts::tooling::cli_parameters::",
+            "imports a private CLI-parameter module",
+        ),
+        (
+            "tooling::cli_parameters::domain",
+            "imports the CLI-parameter domain",
+        ),
+        (
+            "tooling::cli_parameters::application",
+            "imports the CLI-parameter application layer",
+        ),
+        (
+            "tooling::cli_parameters::infrastructure",
+            "imports CLI-parameter persistence",
+        ),
+        (
+            "cli_parameter_settings",
+            "reads the CLI-parameter table directly",
+        ),
+        ("preview_args", "calls the removed legacy renderer"),
+        (
+            "load_selections",
+            "calls the removed legacy selection reader",
+        ),
+        (
+            "normalize_selections",
+            "calls the removed legacy normalizer",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for root in roots {
+        for path in rust_files(&root).expect("enumerate CLI-parameter consumer sources") {
+            let relative = path
+                .strip_prefix(&source_root)
+                .expect("relative source path")
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if is_test_source(&relative) {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read CLI-parameter consumer source");
+            let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+            for (needle, reason) in forbidden {
+                if production.contains(needle) {
+                    violations.push(format!("{relative}: {reason} (`{needle}`)"));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "CLI parameters must be consumed through contexts::tooling::api:\n{}",
+        violations.join("\n")
+    );
+}
+
 #[test]
 fn token_accounting_keeps_parsing_policy_storage_and_ui_at_their_boundaries() {
     let native_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -2305,9 +2379,40 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // which failures it catches -- and the rest is the test that could not exist before it: port
     // doubles whose catalog and blob store disagree, covering exact, short, early-terminated,
     // over-long, and multi-chunk reads plus the stable `IntegrityFailure` contract.
+    // Raised from 59,467 to 60,547 by `upgrade-cli-parameter-management`'s native runtime cutover.
+    // The subtree grows 1,476 lines against `ee3eaf3f`; 396 fit the existing headroom, so the
+    // budget rises by 1,080. Production here does not grow at all — it falls by 328 — and every
+    // line of the raise is `#[cfg(test)]`:
+    //
+    // +693 `baseline_argv_equivalence_tests.rs`, which transcribes the pre-cutover
+    // `build_invocation`, `build_interactive_invocation`, `apply_policy_template_overrides` and
+    // `force_gemini_standard_approval_flag` verbatim from `ee3eaf3f`, recomputes each provider's
+    // argv through the legacy renderer, and asserts equality against the live resolver for all
+    // five providers across interactive, fresh chat and resume. Its duplication of the old bodies
+    // is the point: without a second, independent computation of the old argv there is no way to
+    // show the cutover preserved it rather than to assert that it did. It also pins the only two
+    // differences that are intended, so a third one cannot appear silently. It falls with the
+    // legacy monolith.
+    //
+    // +932 `cli_profile_tests.rs`, which is `cli_profile.rs`'s own `mod tests` moved out (that
+    // move is most of the -327 on `cli_profile.rs`) and extended to 23 tests: the policy
+    // projection per agent and template, the legacy and v2 read paths, quarantine that does not
+    // fail a launch, launch-time re-evaluation of profile, policy and CLI version, and the
+    // diagnostics' operation association and freedom from prompts, credentials and session ids.
+    //
+    // +179 across `providers/tests.rs`, `compatibility_tests.rs` and the three JSON fixtures for
+    // the table-driven runtime coverage the change requires.
+    //
+    // -328 production: `invocation.rs` loses its per-parameter-id renderer branches and
+    // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
+    // resolver.
+    //
+    // Re-measured after merging `origin/main`. The two branches raised this to 59,847 and
+    // 60,547 against the same base but for different files, so neither figure and no sum of
+    // them describes the merged tree. The number below is a direct measurement of it.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 59_847,
+        budget: 61_304,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2318,8 +2423,37 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // No migration body was duplicated — every one of them moved byte-identically.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_965,
+        // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
+        // adds migration 82 -- five lines of registration and one inventory entry -- plus the test
+        // for the upgrade path its renumber created: a database already carrying `main`'s 81 must
+        // gain exactly one migration, and both schemas must survive. Every other line here is that
+        // test; without it the renumber's own failure mode has no coverage.
+        budget: 3_025,
         owner: "split-database-migrations",
+    },
+];
+
+/// Production-only ceilings. Set from the measurement taken when the entry was added, so they can
+/// only be raised by an explicit decision about production code — never as a side effect of adding
+/// tests.
+const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
+    // `upgrade-cli-parameter-management` raised the aggregate ceiling for this subtree by 1,080
+    // lines of characterization tests. That raise must not become production headroom, so this
+    // records what production actually measured on the same commit.
+    SubtreeBudget {
+        root: "src-tauri/src/contexts/agent_runtime/infrastructure",
+        // The first version of this entry read 26,998, because the measurement truncated each file
+        // at its first `#[cfg(test)]` and several files declare `#[cfg(test)] mod tests;` near the
+        // top and continue with production code below. That discarded 5,966 real production lines
+        // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
+        //
+        // Re-measured after merging `add-local-composer-media-tools`, which adds one production
+        // file here: `local_media_ocr_adapter.rs`, the OnePiece OCR tool re-pointed at the shared
+        // local-media runtime. That is relocation rather than growth — the PaddleOCR runtime it
+        // replaces is deleted from `tooling/extensions` — but the deletion lands in a different
+        // subtree, so this ceiling only sees the arrival.
+        budget: 33_372,
+        owner: "upgrade-cli-parameter-management",
     },
 ];
 
@@ -2343,6 +2477,105 @@ fn measure_budgeted_subtree(root: &Path, relative: &str) -> usize {
         .iter()
         .map(|path| physical_lines(&fs::read_to_string(path).expect("read budgeted source")))
         .sum()
+}
+
+/// Production lines only.
+///
+/// The aggregate budget above counts tests too, so raising it for a characterization suite silently
+/// hands the same number of lines to production. This measurement is what stops that: a subtree can
+/// grow a thousand lines of tests without gaining room for one line of production code.
+///
+/// Truncating at the first `#[cfg(test)]` would have been wrong, and provably so — several files
+/// declare `#[cfg(test)] mod tests;` near the top and continue with production code below it, which
+/// a truncating count would have discarded. Test regions are therefore matched by brace instead,
+/// and anything the matcher is not certain about is counted as production: a ceiling that is too
+/// tight forces an explicit decision, whereas one that is too loose grants silent headroom.
+fn production_lines(source: &str) -> usize {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut counted = 0usize;
+    let mut index = 0usize;
+    while index < lines.len() {
+        if lines[index].trim() != "#[cfg(test)]" {
+            counted += 1;
+            index += 1;
+            continue;
+        }
+        let mut next = index + 1;
+        while next < lines.len() && lines[next].trim().is_empty() {
+            next += 1;
+        }
+        let Some(declaration) = lines.get(next) else {
+            counted += 1;
+            index += 1;
+            continue;
+        };
+        let trimmed = declaration.trim();
+        if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+            // A test module declared in its own file. The file itself is skipped by name; only the
+            // two lines that point at it are test-only here.
+            index = next + 1;
+            continue;
+        }
+        if trimmed.starts_with("mod ") && trimmed.ends_with('{') {
+            let indent = declaration.len() - declaration.trim_start().len();
+            let closing = format!("{}}}", " ".repeat(indent));
+            let mut scan = next + 1;
+            while scan < lines.len() && lines[scan] != closing {
+                scan += 1;
+            }
+            index = if scan < lines.len() {
+                scan + 1
+            } else {
+                lines.len()
+            };
+            continue;
+        }
+        // A `#[cfg(test)]` on something other than a module: counted, deliberately.
+        counted += 1;
+        index += 1;
+    }
+    counted
+}
+
+fn measure_production_subtree(root: &Path, relative: &str) -> usize {
+    let subtree = root.join(relative);
+    rust_files(&subtree)
+        .expect("enumerate production subtree")
+        .iter()
+        .filter(|path| {
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            !is_test_source(&relative_path)
+        })
+        .map(|path| production_lines(&fs::read_to_string(path).expect("read production source")))
+        .sum()
+}
+
+#[test]
+fn the_production_measurement_skips_test_modules_without_swallowing_the_code_after_them() {
+    let source = "\
+fn kept_before() {}
+
+#[cfg(test)]
+mod inline {
+    fn hidden() {}
+}
+
+#[cfg(test)]
+mod declared;
+
+fn kept_after() {}
+";
+
+    // Seven counted lines: the two `fn` declarations, and the blank separators that survive around
+    // them. What matters is that `kept_after` is not discarded.
+    assert!(production_lines(source) < physical_lines(source));
+    assert!(source.contains("fn kept_after"));
+    assert_eq!(production_lines("fn only() {}\n"), 1);
+    assert_eq!(production_lines("#[cfg(test)]\nmod declared;\n"), 0);
 }
 
 /// `None` for `measured` means the path is gone. That is satisfied, not skipped: the subtree
@@ -2386,6 +2619,19 @@ fn oversized_native_paths_stay_within_their_recorded_line_budgets() {
     for budget in NATIVE_SUBTREE_BUDGETS {
         let measured = measure_budgeted_subtree(&root, budget.root);
         violations.extend(subtree_budget_diagnostic(budget, measured));
+    }
+
+    for budget in NATIVE_PRODUCTION_SUBTREE_BUDGETS {
+        let measured = measure_production_subtree(&root, budget.root);
+        if measured > budget.budget {
+            violations.push(format!(
+                "[ARCH-NATIVE-008] {}: {measured} production physical lines exceeds budget {}. \
+                 Owner: {}. Repair: this ceiling skips test files and brace-matched test \
+                 modules and nothing else, so a test-driven raise of the aggregate budget does \
+                 not move it",
+                budget.root, budget.budget, budget.owner
+            ));
+        }
     }
 
     assert!(

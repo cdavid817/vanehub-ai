@@ -8,7 +8,7 @@ async function openAgentConfigurations(page: Page) {
 }
 
 async function openOnePieceParameters(page: Page) {
-  await page.getByRole("button", { name: /^(CLI 参数|CLI Parameters)$/ }).click();
+  await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await page.getByRole("button", { name: "OnePiece" }).click();
   await expect(page.getByRole("region", { name: /检索索引配置|Retrieval index configuration/ })).toBeVisible();
 }
@@ -33,8 +33,10 @@ function agentButton(dialog: Locator, name: string) {
 test.describe("OnePiece retrieval configuration", () => {
   test("manages retrieval and Embedding parameters from CLI Parameter Management", async ({ page }) => {
     await createEmbeddingProvider(page, "检索 Embedding 源");
+    // Retrieval, compaction and context health now sit with the rest of OnePiece rather than on the
+    // CLI Parameters page, which owns launch flags and OnePiece has none.
     const providerPanel = page.getByRole("region", { name: "OnePiece" });
-    await expect(providerPanel.getByRole("region", { name: "检索索引配置" })).toHaveCount(0);
+    await expect(providerPanel.getByRole("region", { name: "检索索引配置" })).toHaveCount(1);
 
     await openOnePieceParameters(page);
     const retrieval = page.getByRole("region", { name: "检索索引配置" });

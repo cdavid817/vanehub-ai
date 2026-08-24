@@ -507,6 +507,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         81,
+        "cli-parameter-profiles",
+        crate::contexts::tooling::cli_parameters::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        82,
         "local-media-profiles",
         crate::contexts::local_media::infrastructure::apply_schema,
     )?;
@@ -608,7 +614,8 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
-    (81, "local-media-profiles"),
+    (81, "cli-parameter-profiles"),
+    (82, "local-media-profiles"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

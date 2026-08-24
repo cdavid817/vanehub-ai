@@ -10,3 +10,11 @@ src-tauri/resources/skills/system/** text eol=lf
 # substrings written with LF. CRLF in the checkout makes those replacements match
 # nothing, so a rejection test silently asserts against an unmodified manifest.
 src-tauri/tests/fixtures/skill-tools/** text eol=lf
+
+# The generated CLI parameter contract and the generated provider matrix are compared byte for
+# byte by `npm run contracts:check`. The generators write LF; a Windows checkout under
+# core.autocrlf=true rewrites them to CRLF, and the drift check then reports a file as stale that
+# nobody touched. This cannot reproduce locally, because a local file is usually the one the
+# generator just wrote rather than the one git checked out.
+src/generated/** text eol=lf
+docs/agent-infrastructure/cli-parameter-matrix.md text eol=lf

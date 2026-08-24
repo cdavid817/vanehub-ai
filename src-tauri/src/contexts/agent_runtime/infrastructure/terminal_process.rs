@@ -378,7 +378,8 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             .prepare_interactive(ProviderInteractiveInvocationRequest {
                 executable,
                 provider_session: provider_session.as_ref(),
-                managed_args: &request.cli_profile.managed_args,
+                global_args: &request.cli_profile.global_args,
+                invocation_args: &request.cli_profile.invocation_args,
             })
             .map_err(|error| {
                 let message = format!("Failed to prepare Agent terminal invocation: {error}");
@@ -1345,7 +1346,6 @@ mod tests {
     use crate::contexts::agent_runtime::application::CliProfileSnapshot;
     use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
     use crate::test_support::TempDirectory;
-    use serde_json::json;
     use std::collections::BTreeMap;
 
     fn managed_terminal(runtime_session_id: Option<&str>) -> ManagedAgentTerminal {
@@ -1779,8 +1779,8 @@ mod tests {
                 },
                 cli_profile: CliProfileSnapshot {
                     executable: "codex".to_string(),
-                    selections: BTreeMap::from([("model".to_string(), json!("gpt-5"))]),
-                    managed_args: vec!["--model".to_string(), "gpt-5".to_string()],
+                    global_args: vec!["--model".to_string(), "gpt-5".to_string()],
+                    invocation_args: Vec::new(),
                     env: BTreeMap::new(),
                 },
                 size: AgentTerminalSize { rows: 24, cols: 80 },

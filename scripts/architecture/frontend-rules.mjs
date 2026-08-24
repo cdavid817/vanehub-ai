@@ -62,8 +62,22 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 这类真实缺陷会在无人应答的 headless runner 上变成挂起,而不是一条能读的失败。现在只有恰好等于
 // `FIXTURE_OCR_SOURCE_UNAVAILABLE` 的稳定码才回退,其余一律重新抛出——多出来的是一个从错误串尾部
 // 取稳定码的小函数,以及说明为什么只有这一个码允许回退的注释。
+// 上调理由(upgrade-cli-parameter-management):CLI 参数命令切到 v2 DTO 后,Web/mock 适配器不能再
+// 依赖手工维护的 catalog。新增的 273 行是这条边界的固定开销:`cli-parameter-registry.ts` 用 zod
+// 解析 generated 契约(裸 `as` 会让生成器回归变成运行期形状错配,而适配器恰恰是 native 测试照不到
+// 的地方),`cli-parameter-renderer.ts` 是 native 渲染策略的镜像,两者都没有可搬移的现成实现。
+// 其余 +215 是 `web-cli-parameter-client.ts` 补上 revision/catalogVersion 乐观并发与结构化错误
+// (mock 若放行冲突,页面的冲突分支就永远不会被跑到),以及两个适配器的新 preview 方法。
+// 另有 51 行是 v1 浏览器存储的一次性迁移:v1 用 `"default"` 与 `false` 两个哨兵表示"未设置",
+// 但定义里真有 `default` 选项或本身是 tri-state 时它们都不是哨兵,所以转换必须按定义而不是按字符串
+// 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
+// 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
+// 一起下线,届时这条上限应当回落。
+// 合并 `origin/main` 后重新实测:两侧各自在自己的分支上报了上限(19656 / 19727),但它们改的是
+// 不同文件,合并树的真实总数既不是两者之一,也不是两者之和。下面这个数字是对合并后的
+// `src/services` 直接测量得到的,不含任何余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19656, owner: "add-local-composer-media-tools" },
+  { root: "src/services", budget: 19942, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -11,7 +11,7 @@ const requiredDynamicEntries = [
   "src/session-workspace/logs-tab.tsx",
   "src/settings/pages/about-page.tsx",
   "src/settings/pages/basic-settings-page.tsx",
-  "src/settings/pages/cli-parameters-page.tsx",
+  "src/settings/cli-parameters/cli-parameters-page.tsx",
   "src/settings/pages/extensions-page.tsx",
   "src/settings/pages/im-page.tsx",
   "src/settings/pages/mcp-page.tsx",

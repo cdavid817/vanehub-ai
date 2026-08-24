@@ -1,5 +1,6 @@
 use super::{
     build_interactive_invocation, build_invocation_with_role, manifest::ValidatedProviderManifest,
+    ProviderLaunchSegments,
 };
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::ProviderPromptDelivery;
@@ -225,7 +226,8 @@ impl AgentProvider for CompatibilityCliProvider {
             if let Some(external_id) = external_id {
                 args.extend(["--resume".to_string(), external_id.to_string()]);
             }
-            args.extend_from_slice(request.managed_args);
+            args.extend_from_slice(request.global_args);
+            args.extend_from_slice(request.invocation_args);
             return Ok(ProviderInvocationSpec {
                 executable: request.executable,
                 args,
@@ -237,7 +239,10 @@ impl AgentProvider for CompatibilityCliProvider {
             request.executable,
             request.prompt,
             external_id,
-            request.managed_args,
+            ProviderLaunchSegments {
+                global: request.global_args,
+                invocation: request.invocation_args,
+            },
             request.role_briefing,
         )
         .map_err(|error| preparation_error(self.metadata.id().as_str(), error))
@@ -250,7 +255,8 @@ impl AgentProvider for CompatibilityCliProvider {
         let external_id = self.external_session_id(request.provider_session)?;
         #[cfg(test)]
         if self.metadata.id().as_str() == "fixture-cli" {
-            let mut args = request.managed_args.to_vec();
+            let mut args = request.global_args.to_vec();
+            args.extend_from_slice(request.invocation_args);
             if let Some(external_id) = external_id {
                 args.extend(["--resume".to_string(), external_id.to_string()]);
             }
@@ -264,7 +270,10 @@ impl AgentProvider for CompatibilityCliProvider {
             self.metadata.id().as_str(),
             request.executable,
             external_id,
-            request.managed_args,
+            ProviderLaunchSegments {
+                global: request.global_args,
+                invocation: request.invocation_args,
+            },
         )
         .map_err(|error| preparation_error(self.metadata.id().as_str(), error))
     }
