@@ -192,16 +192,67 @@ fn windows_directory_and_file_dacls_allow_only_the_current_user() {
 /// what is under test is whether the *reader* can see the defect at all. A check that judges a
 /// struct correctly but cannot observe an extra ACE on disk would still pass every negative case
 /// and still miss a real one.
+/// Restores a deletable DACL when the fixture goes out of scope, including on a panic.
+///
+/// Several negative cases deliberately deny the current user -- `D:P(A;;FA;;;S-1-5-32-544)`
+/// hands the object to Administrators alone, and `D:P(A;;FR;;;{user})` grants read only. Left
+/// that way, the object cannot be removed by the account that made it: `TempDirectory`'s cleanup
+/// fails quietly and the runner keeps an undeletable directory for every case, every run. A test
+/// that proves the checker rejects a bad ACL is not worth leaving a bad ACL behind.
+#[cfg(windows)]
+struct RestoreDeletableAcl {
+    path: std::path::PathBuf,
+    user: String,
+}
+
+#[cfg(windows)]
+impl Drop for RestoreDeletableAcl {
+    fn drop(&mut self) {
+        let _ =
+            windows_acl::apply_sddl_for_tests(&self.path, &format!("D:P(A;;FA;;;{})", self.user));
+    }
+}
+
 #[cfg(windows)]
 fn reading_after_applying(sddl: &str) -> Vec<String> {
+    // Its own temp root per case, so one fixture's DACL cannot affect the next one's cleanup.
     let root = crate::test_support::TempDirectory::new("private-relay-negative-acl");
     let target = root.path().join("object");
     std::fs::create_dir_all(&target).expect("negative fixture directory");
     let user = windows_acl_report::current_process_user_sid().expect("current user SID");
+
+    // Armed before the wrong DACL is applied, so the restore happens even if applying, reading,
+    // or an assertion further up panics.
+    let _restore = RestoreDeletableAcl {
+        path: target.clone(),
+        user: user.clone(),
+    };
     windows_acl::apply_sddl_for_tests(&target, &sddl.replace("{user}", &user))
         .expect("apply negative DACL");
     let reading = windows_acl_report::read_dacl(&target, user).expect("read negative DACL");
     reading.violations()
+}
+
+#[cfg(windows)]
+#[test]
+fn a_negative_fixture_leaves_nothing_undeletable_behind() {
+    // The guard above is only worth having if it works. This drives the harshest case -- an
+    // object handed to Administrators alone -- and then requires the directory to be removable
+    // by this account afterwards.
+    let root = crate::test_support::TempDirectory::new("private-relay-negative-cleanup");
+    let target = root.path().join("object");
+    std::fs::create_dir_all(&target).expect("fixture directory");
+    let user = windows_acl_report::current_process_user_sid().expect("current user SID");
+    {
+        let _restore = RestoreDeletableAcl {
+            path: target.clone(),
+            user: user.clone(),
+        };
+        windows_acl::apply_sddl_for_tests(&target, "D:P(A;;FA;;;S-1-5-32-544)")
+            .expect("apply administrators-only DACL");
+    }
+    std::fs::remove_dir_all(&target).expect("the restored DACL leaves the fixture removable");
+    assert!(!target.exists());
 }
 
 #[cfg(windows)]

@@ -20,7 +20,7 @@ use windows::Win32::Security::Authorization::{
 };
 use windows::Win32::Security::{
     AclSizeInformation, GetAce, GetAclInformation, GetFileSecurityW, GetSecurityDescriptorControl,
-    GetSecurityDescriptorDacl, GetSecurityDescriptorOwner, ACCESS_ALLOWED_ACE, ACCESS_DENIED_ACE,
+    GetSecurityDescriptorDacl, GetSecurityDescriptorOwner, IsValidSid, ACCESS_ALLOWED_ACE,
     ACE_HEADER, ACL, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
     PSECURITY_DESCRIPTOR, PSID, SE_DACL_AUTO_INHERITED, SE_DACL_PRESENT, SE_DACL_PROTECTED,
 };
@@ -387,23 +387,42 @@ pub(super) fn read_dacl(path: &Path, current_user_sid: String) -> io::Result<Dac
             if ace_ptr.is_null() {
                 continue;
             }
-            let header = unsafe { *ace_ptr.cast::<ACE_HEADER>() };
+            // `GetAce` hands back a pointer into the ACL's own bytes, and how far it is safe to
+            // read from there is described by the ACL itself. Taking that on trust is precisely
+            // the wrong move in a reader whose job is to notice a DACL that is not what it
+            // should be: a malformed or truncated ACE would be read past its end. So the header
+            // is read unaligned first, and its own `AceSize` must account for the larger type
+            // before anything reads that far in.
+            let header = unsafe { std::ptr::read_unaligned(ace_ptr.cast::<ACE_HEADER>()) };
+            let ace_size = usize::from(header.AceSize);
             let allowed = match header.AceType {
                 ACCESS_ALLOWED_ACE_TYPE => Some(true),
                 ACCESS_DENIED_ACE_TYPE => Some(false),
                 _ => None,
             };
-            // Allowed and denied ACEs share a layout: header, mask, then the SID inline.
+            // Allowed and denied ACEs share a layout: header, mask, then the SID inline. Both
+            // are read through the allowed shape because the two are identical up to `SidStart`.
+            let body_fits = ace_size >= std::mem::size_of::<ACCESS_ALLOWED_ACE>();
             let (mask, sid) = match allowed {
-                Some(true) => {
-                    let ace = unsafe { &*ace_ptr.cast::<ACCESS_ALLOWED_ACE>() };
-                    let sid_ptr = PSID(std::ptr::addr_of!(ace.SidStart) as *mut core::ffi::c_void);
-                    (ace.Mask, sid_to_string(sid_ptr)?)
-                }
-                Some(false) => {
-                    let ace = unsafe { &*ace_ptr.cast::<ACCESS_DENIED_ACE>() };
-                    let sid_ptr = PSID(std::ptr::addr_of!(ace.SidStart) as *mut core::ffi::c_void);
-                    (ace.Mask, sid_to_string(sid_ptr)?)
+                Some(_) if !body_fits => (
+                    0,
+                    format!("<ACE truncated: AceSize {ace_size} too small for its type>"),
+                ),
+                Some(_) => {
+                    let ace =
+                        unsafe { std::ptr::read_unaligned(ace_ptr.cast::<ACCESS_ALLOWED_ACE>()) };
+                    // The SID lives in the ACL's bytes, not in the copy just made, so it is read
+                    // through the original pointer -- and validated before conversion, since
+                    // `ConvertSidToStringSidW` on a malformed SID is the same unchecked read
+                    // one layer down.
+                    let sid_ptr = PSID(unsafe {
+                        ace_ptr.byte_add(std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart))
+                    });
+                    if unsafe { IsValidSid(sid_ptr) }.as_bool() {
+                        (ace.Mask, sid_to_string(sid_ptr)?)
+                    } else {
+                        (ace.Mask, "<invalid SID>".to_string())
+                    }
                 }
                 None => (0, "<unmodelled ACE type>".to_string()),
             };

@@ -358,12 +358,16 @@ jobs:
         shell: bash
         run: |
           output=$(cargo test --workspace \
-            private_relay_fs::tests::windows_directory_and_file_dacls_allow_only_the_current_user \
-            -- --nocapture 2>&1)
+            platform::private_relay_fs::tests::windows_directory_and_file_dacls_allow_only_the_current_user \
+            -- --exact --nocapture 2>&1)
           status=$?
           echo "$output"
-          if ! grep -q "running 1 test" <<< "$output"; then
-            echo "::error::the filter selected no test; a zero-match run is not a pass"
+          # `--exact` with the full path names one test and cannot drag in a neighbour by
+          # prefix. The count guard stays regardless: libtest exits 0 when a filter matches
+          # nothing, so a renamed test would turn this step into a silent pass -- which is how
+          # the earlier filter, missing its `tests::` segment, reported success on zero tests.
+          if ! grep -q "^running 1 test$" <<< "$output"; then
+            echo "::error::expected exactly one executed test; a zero-match run is not a pass"
             exit 1
           fi
           exit $status
