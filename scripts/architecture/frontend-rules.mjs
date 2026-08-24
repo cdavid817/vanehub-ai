@@ -71,11 +71,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 另有 51 行是 v1 浏览器存储的一次性迁移:v1 用 `"default"` 与 `false` 两个哨兵表示"未设置",
 // 但定义里真有 `default` 选项或本身是 tri-state 时它们都不是哨兵,所以转换必须按定义而不是按字符串
 // 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
-// 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
-// 一起下线,届时这条上限应当回落。
 // 合并 `origin/main` 后重新实测:两侧各自在自己的分支上报了上限(19656 / 19727),但它们改的是
 // 不同文件,合并树的真实总数既不是两者之一,也不是两者之和。下面这个数字是对合并后的
 // `src/services` 直接测量得到的,不含任何余量。
+// 上面那条"旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉、随 task 10.4 一起下线"的说明
+// 已随合并作废:`c37caa4a` 把该文件删了,预留的余量也已不在这个数字里。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   { root: "src/services", budget: 19942, owner: "add-local-composer-media-tools" },
 ]);

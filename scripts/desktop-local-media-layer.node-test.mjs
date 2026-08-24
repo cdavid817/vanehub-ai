@@ -80,20 +80,24 @@ test("the scenario writer is atomic and clears its markers", async () => {
  * was named, not as a missing package. A job added while this branch was unmerged copied the
  * prerequisite list from before `cpal` existed and failed exactly that way, so the list is checked
  * rather than trusted to be copied correctly next time.
+ *
+ * The selector is "installs apt packages at all", not "runs cargo": `desktop-smoke` compiles the
+ * whole workspace on its Linux leg through `npm run test:desktop`, with no `cargo` token anywhere
+ * in the block, and a check keyed on the command would have let exactly that job regress. A Linux
+ * job that needs no native build installs nothing and is not selected; one that installs packages
+ * for some other reason is asked for one more, which costs install time and nothing else.
  */
-test("every Linux CI job that runs cargo installs the ALSA headers", async () => {
+test("every Linux CI job that installs build prerequisites installs the ALSA headers", async () => {
   const workflow = (await read(".github/workflows/ci.yml")).replaceAll("\r\n", "\n");
   // Comment lines are dropped first: this very requirement is explained in a comment beside one of
   // the package lists, and a check that reads comments passes on the explanation alone.
   const jobs = workflow
     .split(/\n {2}(?=[a-z][\w-]*:\n)/)
     .map((job) => job.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n"));
-  const linuxCargoJobs = jobs.filter(
-    (job) => job.includes("ubuntu-latest") && /\n\s+run:[^\n]*\bcargo\b|\n\s+cargo\b/.test(job),
-  );
+  const aptJobs = jobs.filter((job) => job.includes("apt-get install"));
 
-  assert.ok(linuxCargoJobs.length > 0, "no Linux cargo job was found -- the block split is wrong");
-  for (const job of linuxCargoJobs) {
+  assert.ok(aptJobs.length >= 4, `expected every Linux build job, found ${aptJobs.length}`);
+  for (const job of aptJobs) {
     const name = job.match(/^([\w-]+):/)?.[1] ?? job.slice(0, 40);
     assert.ok(job.includes("libasound2-dev"), `${name} compiles the workspace without libasound2-dev`);
   }
