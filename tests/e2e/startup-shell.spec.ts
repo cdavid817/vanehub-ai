@@ -13,7 +13,15 @@ test("shows branded startup feedback before React is available", async ({ browse
     await expect(shell.locator(".bootstrap-shell__progress")).toBeVisible();
     await expect(shell.getByText("Starting...", { exact: true })).toBeVisible();
     await expect(shell).not.toContainText(/正在加载功能|Loading feature/);
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(7, 17, 31)");
   } finally {
     await context.close();
   }
+});
+
+test("removes the startup overlay only after the application is ready", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("#bootstrap-shell")).toHaveCount(0);
+  await expect(page.locator("#root[data-vanehub-bootstrap='ready']")).toBeVisible();
 });

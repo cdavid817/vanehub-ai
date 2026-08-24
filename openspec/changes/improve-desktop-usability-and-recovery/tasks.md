@@ -5,6 +5,7 @@
 - [x] 1.3 Implement the responsive multi-Agent creation dialog with seat validation and focused keyboard interaction.
 - [x] 1.4 Reposition session-creation feedback and verify it does not cover navigation or the composer.
 - [x] 1.5 Keep the static application icon, spinner, and `Starting...` shell visible until React mounts without replacing it with feature-loading copy.
+- [x] 1.6 Keep the branded startup overlay outside the React root, match the native window background, and dismiss it only after the application paints.
 
 ## 2. Human-centered workflow surfaces
 
@@ -27,3 +28,4 @@
 - [x] 4.3 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `npm run native:panic:check`, and `cargo test --workspace` when native recovery changes.
 - [x] 4.4 Run affected Playwright and desktop verification, then validate `openspec validate improve-desktop-usability-and-recovery --strict` and `openspec validate --specs --strict`.
 - [x] 4.5 Add focused startup-shell regression coverage and rerun the affected frontend, Playwright, desktop, and OpenSpec verification.
+- [x] 4.6 Verify the no-blank-frame startup transition in focused browser and native desktop checks.

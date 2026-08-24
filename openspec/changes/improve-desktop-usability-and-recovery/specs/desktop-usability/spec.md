@@ -16,6 +16,7 @@ The desktop workspace SHALL reserve non-overlapping regions for the session list
 - **WHEN** application initialization has not completed
 - **THEN** the user sees the application icon, an activity spinner, and `Starting...` rather than an unresponsive blank surface
 - **AND** that same startup surface remains visible until the React application mounts or startup reports a terminal failure
+- **AND** the native window background, startup surface, and mounted application transition without exposing an intermediate blank frame
 
 ### Requirement: Reachable help and action feedback
 The workspace SHALL route its help action to the user guide and SHALL present session-creation feedback in a non-obstructive, readable position that does not compete with primary navigation.
