@@ -655,8 +655,15 @@ credential store, no user database.
 
 `desktop-smoke` does not pass on this host, and not for a reason this change
 introduced. It sets none of those variables, so it runs against the developer's
-real `%APPDATA%\ai.vanehub.app\vanehub.sqlite` and real PATH, shared with every
-other worktree on the machine. Six runs:
+real PATH and real OS home. Six runs:
+
+> **Round 7 corrects two claims in this section.** The application's own database
+> was never the developer's: `createRunContext` has always given each run its own
+> `VANEHUB_APP_DATA_DIR`, and `validateIsolatedDataPath` refuses a path that
+> aliases real application data. What was shared is the OS home and PATH. And the
+> six results below are not, as this section concludes, host contention: two
+> harness defects were doing most of the work, and with them fixed all six layers
+> pass on this host in one run. See "Round 7".
 
 | Run | Result | Failing spec | Symptom |
 | --- | --- | --- | --- |
@@ -692,3 +699,121 @@ framework, and it has never run.
 real Linux run, and a green Windows `desktop-smoke` on an uncontended host. A
 fixture unit test is not a substitute for a platform result, and NOT RUN is not
 PASSED.
+
+## Round 7: the matrix actually ran, and what it found
+
+### Two harness defects, not host contention
+
+Round 6 attributed six consecutive desktop failures to load on the developer's
+machine, because the failing spec moved every run and every spec passed in some
+run. Non-determinism was real; the cause was not the machine.
+
+**`browser.tauri.execute` never used the WebDriver session.** It opens its own
+connection and resolves the port from `TAURI_WEBDRIVER_PORT` *in the worker
+process*, defaulting to 4445, while `@wdio/tauri-service` sets that variable only
+for the application it spawns. The two agreed solely because both defaulted to
+the same number, which made the port unconfigurable in practice: on any other
+port the session connected and every `core.invoke` a spec made failed as
+`TypeError: fetch failed`. Round 6's diagnosis had it backwards -- the port was
+not incidental, it was load-bearing and silently pinned.
+
+With both names exported, the port could finally move, which mattered because
+**4445 was shared by every layer in a run and every checkout on the machine**. A
+layer could be told to bind a port the previous layer's driver had not released:
+`Embedded WebDriver server did not become ready on port 4445 within 120000ms`,
+one whole layer lost to an address. Each run now reserves a free port.
+
+Each run also gets an isolated OS home, passed as `VANEHUB_DESKTOP_*` and mapped
+onto `HOME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA` for the application alone --
+not for this process, which would repoint the npm and node running the harness.
+
+With those three changes all six layers pass on Windows in one run, exit 0.
+
+**A third defect surfaced only in CI.** `prepareCliFixture` shelled out to
+`rustc` on every call, though the stub it produces is committed. Three layers
+call it, and by the second one an earlier layer had just executed that stub;
+Windows had not released the handle, so the link failed with
+`LNK1104: cannot open file` and took the layer down at config load, before a
+single spec ran. It now rebuilds only when the source is newer. That fix turned
+`cli-terminal`, `session-workspace` and `dialogs` green on the Windows runner.
+
+### Getting the matrix to run at all
+
+`workflow_dispatch` inputs are validated against the **default branch's** copy of
+a workflow. The `desktop_full_suite` input exists only on this branch, so the job
+could never have been dispatched with it -- which is why, after a round of being
+described as "available", it had never once executed. The job now also triggers
+on a `desktop-full-suite` pull-request label, which is a trigger a branch can
+actually use. Note that `pull_request` does not include `labeled` by default, so
+the label takes effect on the next push rather than when it is applied.
+
+### Three-platform result
+
+PR **#218**, head **`5187cf06`**, base `main` at `42b6a649`. CI checks out the
+pull-request *merge* ref, so the tree tested is `12e73a60` (macOS job), not the
+head commit itself. Workflow run **32733693411**.
+
+| Layer | Windows x64 | macOS ARM64 | Linux x64 |
+| --- | --- | --- | --- |
+| `desktop-cli-terminal` | PASSED | PASSED | PASSED |
+| `desktop-cli-management` | PASSED | PASSED | PASSED |
+| `desktop-session-workspace` | PASSED | PASSED | PASSED |
+| `desktop-dialogs` | PASSED | PASSED | PASSED |
+| `desktop-settings-persistence` | PASSED | PASSED | PASSED |
+| `desktop-smoke` | FAILED 27/3 | FAILED 24/6 | FAILED 25/5 |
+
+Five of six layers pass on all three platforms, including the one that covers
+this change. Preceding steps in every job -- `npm run desktop:unit:test`,
+`cargo check --workspace`, `cargo test --workspace tooling::cli` -- passed on all
+three.
+
+### Why `desktop-smoke` cannot pass on a hosted runner
+
+Every failure across the three platforms has one cause:
+
+```
+Error: agent is unavailable: Command 'codex' was not found on PATH.
+AssertionError: the session tab sweep needs one installed CLI Agent
+AssertionError: no session survived in the native database
+```
+
+The broad spec sweep needs a real CLI Agent installed on the machine. Hosted
+runners have none, and installing one would mean a real vendor download and a
+real credential, which this change's own rules forbid. `wdio.conf.mjs` says as
+much in its own comment: the sweep "remains opt-in while its host-dependent cases
+are promoted into the gate individually". Locally these specs pass because the
+developer's machine has `claude`, `opencode`, `gemini` and `agy` on PATH.
+
+This is an environment block, not a defect in this change, and it is **not**
+being resolved by editing the specs. They assert rather than recording a BLOCKED
+reason the way `native-flows` does; making them self-block would turn a real
+prerequisite into a green tick, which is exactly the move this change's task list
+forbids. Promoting those cases into the gate is its own piece of work.
+
+An earlier attempt in this round also ran `test:desktop:build` and
+`test:desktop:cli-management` before the full suite. That built the desktop app
+twice per job and left macOS and Windows failing on persistence -- no session
+surviving in the database, a workspace still on its bootstrap shell -- so the job
+now makes the single `npm run test:desktop` call, which already builds once and
+runs all six layers including CLI management.
+
+### Documentation screenshots
+
+The guide still showed the flat lifecycle page, so `docs:screenshots:check`
+failed in CI. Regenerating rewrote 37 files; 35 of them differed by roughly fifty
+bytes at identical 1440x900 dimensions, which is renderer noise inside the
+comparison tolerance. Only the two `cli-*` captures are committed, and the check
+passes with the other 35 left alone.
+
+### Final status
+
+| Platform | Full `npm run test:desktop` |
+| --- | --- |
+| Windows | **BLOCKED** -- 5/6 layers PASSED; `desktop-smoke` needs a host CLI Agent |
+| macOS | **BLOCKED** -- same |
+| Linux | **BLOCKED** -- same |
+
+**14.17 stays unchecked**, and therefore **14.20 stays unchecked**. Tasks remain
+at 162/164. Unblocking 14.17 needs the host-dependent smoke specs either given a
+provisioned CLI Agent on the runners or converted to the repository's BLOCKED
+convention -- a decision about the desktop gate, not about this change.
