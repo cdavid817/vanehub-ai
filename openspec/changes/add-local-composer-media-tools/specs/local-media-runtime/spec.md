@@ -342,3 +342,153 @@ Production Web mode SHALL report local-media inference as native-only/unavailabl
 * WHEN a test injects the documented fake `LocalMediaService`
 * THEN the test MAY drive deterministic results
 * AND production Web service behavior SHALL remain unchanged
+
+### Requirement: PaddleOCR CPU acceleration SHALL be explicitly controllable
+
+The OCR profile SHALL carry a `cpuAcceleration` field with exactly three values: `library-default`,
+`enabled`, and `disabled`. The default SHALL be `library-default`, which passes no acceleration
+argument and leaves the decision to PaddleOCR. The worker SHALL map `disabled` to
+`enable_mkldnn=False` and `enabled` to `enable_mkldnn=True`, and SHALL apply the mapping to every
+pipeline stage the request passes through, including both text detection and text recognition. The
+system SHALL NOT set a process-wide acceleration flag, because PaddleX configures its runners
+independently of the global flag and a process-wide setting would silently fail to take effect.
+
+#### Scenario: The default is unchanged behaviour
+
+* WHEN an OCR profile does not name a CPU acceleration mode
+* THEN the mode SHALL be `library-default`
+* AND the worker SHALL pass no acceleration argument to PaddleOCR
+
+#### Scenario: Acceleration is disabled
+
+* WHEN an OCR profile sets `cpuAcceleration` to `disabled`
+* THEN every pipeline stage of the resulting inference SHALL receive `enable_mkldnn=False`
+* AND a model that fails under the library default SHALL be recognized successfully
+
+#### Scenario: The mode belongs to the operation snapshot
+
+* WHEN an operation is accepted and the saved profile's acceleration mode changes before it finishes
+* THEN the running operation SHALL continue with the mode captured in its snapshot
+* AND the changed mode SHALL apply only to operations accepted afterwards
+
+### Requirement: Engine readiness SHALL be established by real inference, not by loading
+
+An engine probe SHALL execute a minimal real inference and SHALL NOT report `Ready` on the strength
+of an import or a model load alone. A canary that loads successfully and then fails to infer SHALL
+report `Unavailable` with the classifying error, because the failure this distinguishes -- a runtime
+that accepts a model and cannot execute its graph -- is invisible to a load-only probe and surfaces
+later as a failed user operation.
+
+#### Scenario: A model loads but cannot execute
+
+* WHEN an engine constructs successfully and its minimal canary inference raises
+* THEN readiness SHALL be `Unavailable`
+* AND the reported error SHALL be the classified stable code for that failure, not a generic one
+
+#### Scenario: A canary succeeds
+
+* WHEN the canary inference completes
+* THEN readiness SHALL be `Ready`
+* AND no canary input or output SHALL be retained after the probe returns
+
+### Requirement: Model paths SHALL be classified per field and verified when they leave ASCII
+
+For every model-related profile field the system SHALL record whether the configured path contains
+spaces and whether it contains non-ASCII characters. A path that contains non-ASCII characters SHALL
+be verified by a real canary inference before its engine is reported `Ready`, because a path outside
+the active code page can be resolved and stated by the host and still be unopenable by the engine's
+native code. The system SHALL NOT reject non-ASCII paths categorically: they are supported wherever
+the underlying runtime supports them.
+
+#### Scenario: A non-ASCII path an engine supports
+
+* WHEN a faster-whisper model directory contains non-ASCII characters and the canary transcribes
+* THEN readiness SHALL be `Ready`
+* AND no warning SHALL be raised about the path
+
+#### Scenario: A non-ASCII path an engine cannot open
+
+* WHEN a PaddleOCR or sherpa-onnx model path contains non-ASCII characters and the canary fails to
+  open it
+* THEN readiness SHALL be `Unavailable`
+* AND the error SHALL name the single profile field whose path could not be opened
+
+### Requirement: Third-party incompatibilities SHALL surface as stable, actionable errors
+
+The system SHALL classify known third-party incompatibilities into stable error codes rather than a
+generic engine failure. The codes SHALL include `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`,
+`MODEL_PATH_ENCODING_UNSUPPORTED`, `TTS_DATA_PATH_ENCODING_UNSUPPORTED`, and
+`TTS_PHONEMIZER_DATA_UNAVAILABLE`. Each error SHALL carry exactly `engine`, `field`,
+`containsSpaces`, `containsNonAscii`, `packageVersion`, the stable code, and a remediation
+identifier. An error SHALL NOT carry a full path, a raw exception message, or a traceback.
+
+#### Scenario: An acceleration incompatibility is classified
+
+* WHEN PaddleOCR fails with an unimplemented-operator error from its acceleration backend
+* THEN the operation SHALL fail with `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`
+* AND the payload SHALL name the engine and the package version and SHALL NOT contain a path
+
+#### Scenario: A path encoding failure is attributed to one field
+
+* WHEN sherpa-onnx cannot open its phonemizer data directory
+* THEN the operation SHALL fail with `TTS_DATA_PATH_ENCODING_UNSUPPORTED`
+* AND `field` SHALL identify the data directory rather than the model or the tokens file
+
+### Requirement: Acceleration remediation SHALL require explicit user confirmation
+
+When an operation fails with `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, the system SHALL offer to disable
+CPU acceleration and re-probe, and SHALL apply that change only after the user confirms it. The
+system SHALL NOT retry automatically, SHALL NOT degrade automatically, and SHALL NOT modify the
+saved profile without confirmation.
+
+#### Scenario: The user declines
+
+* WHEN the incompatibility is reported and the user does not confirm
+* THEN the saved profile SHALL be unchanged
+* AND the engine SHALL remain `Unavailable`
+
+#### Scenario: The user confirms
+
+* WHEN the user confirms the remediation
+* THEN `cpuAcceleration` SHALL be saved as `disabled` through the ordinary optimistic-concurrency
+  save path
+* AND a new probe SHALL run against the saved profile
+
+### Requirement: The system SHALL NOT fall back between execution providers silently
+
+The system SHALL NOT retry a failed inference under a different execution provider, device, or
+acceleration mode without an explicit saved profile change. A result SHALL always be attributable to
+the mode recorded in its operation snapshot.
+
+#### Scenario: An acceleration failure is not retried
+
+* WHEN inference fails with an acceleration-backend incompatibility
+* THEN the operation SHALL fail
+* AND no second attempt SHALL be made under a different acceleration mode
+
+### Requirement: The system SHALL NOT relocate, copy, or acquire models on the user's behalf
+
+When a model path is incompatible with its engine, the system SHALL state which field is affected and
+SHALL direct the user to move the files themselves. The system SHALL NOT copy, move, hard-link,
+junction, short-path, rename, or download any model or data directory.
+
+#### Scenario: An unopenable model path is reported
+
+* WHEN a model path cannot be opened by its engine because of its encoding
+* THEN the remediation SHALL be to relocate the files to a path the engine can open and reselect them
+* AND no file SHALL be created, copied, or moved by the application
+
+### Requirement: Real-engine qualification SHALL cover spaces and non-ASCII paths per engine
+
+The opt-in real-engine qualification SHALL record, per engine, the outcome for an ASCII path, a path
+containing spaces, and a path containing non-ASCII characters, together with the missing-model
+offline case. The record SHALL state the outcome per engine rather than in aggregate, because the
+three engines do not share a path-handling implementation and an aggregate result would hide which
+of them fails.
+
+#### Scenario: The matrix is recorded
+
+* WHEN the real-engine qualification runs
+* THEN each engine SHALL have a recorded outcome for ASCII, spaces, and non-ASCII paths
+* AND each inference SHALL record the number of denied network attempts
+* AND no recognized text, transcript, synthesis input, or full path SHALL appear in the record

@@ -129,3 +129,41 @@ The page SHALL follow existing semantic styling, compact control density, valida
 * WHEN the user navigates to another settings page
 * THEN the probe operation MAY continue under operation ownership
 * AND the disposed page SHALL not update React state after unmount
+
+### Requirement: The Local media page SHALL expose CPU acceleration and vendor-compatibility remediation
+
+The OCR card SHALL offer the three CPU acceleration modes as an explicit control defaulting to
+`library-default`. When a probe reports `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, the page SHALL state that
+the configured model is incompatible with the acceleration backend, SHALL offer to disable it and
+re-check, SHALL warn that performance may drop, and SHALL apply nothing until the user confirms.
+
+#### Scenario: The incompatibility is offered a remedy
+
+* WHEN an OCR probe reports `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`
+* THEN the card SHALL present the disable-and-recheck action alongside the performance caveat
+* AND declining SHALL leave the saved profile and the readiness state untouched
+
+#### Scenario: The control is a saved profile field
+
+* WHEN the user changes the acceleration mode directly
+* THEN it SHALL be saved through the same optimistic-concurrency path as every other profile field
+* AND the probe SHALL run against the saved value rather than the draft
+
+### Requirement: Path-encoding incompatibility SHALL be reported against the exact field
+
+When an engine cannot open a configured path, the page SHALL identify which single field is affected
+-- detection model, recognition model, text-line orientation model, TTS model, tokens file, data
+directory, lexicon, voices, vocoder, or rule FST -- and SHALL state the remediation as relocating
+those files to a path the engine can open and reselecting them. The page SHALL NOT display the path,
+and SHALL NOT offer to move, copy, or download anything.
+
+#### Scenario: One field of several is incompatible
+
+* WHEN the TTS data directory cannot be opened but the model and tokens can
+* THEN the page SHALL mark the data directory field and SHALL leave the other two unmarked
+* AND the message SHALL name the field, not the path
+
+#### Scenario: The path is supported
+
+* WHEN a field's path contains non-ASCII characters and its engine opens it successfully
+* THEN no warning SHALL be shown for that field

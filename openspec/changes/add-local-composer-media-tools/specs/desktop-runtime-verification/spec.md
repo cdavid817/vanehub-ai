@@ -94,3 +94,23 @@ The change SHALL pass the repository's existing lint, unit, build, architecture,
 * THEN `openspec validate add-local-composer-media-tools --strict` SHALL pass
 * AND `openspec validate --specs --strict` SHALL pass
 * AND required repository gates SHALL be reported with their actual outcomes
+
+### Requirement: Vendor-compatibility qualification SHALL be separated from fixture verification
+
+The record SHALL distinguish four kinds of evidence and SHALL NOT let one stand for another:
+deterministic fixture verification, real-engine qualification, real-hardware qualification performed
+by a person, and platforms with no host. A real-engine result SHALL name the package version and the
+path shape it was obtained under. A fixture result SHALL NOT be recorded as evidence about an engine,
+a device, or an operating-system permission prompt.
+
+#### Scenario: An engine passes under one path shape and fails under another
+
+* WHEN an engine qualifies with an ASCII path and fails with a non-ASCII one
+* THEN both outcomes SHALL be recorded against that engine
+* AND the engine SHALL NOT be recorded as qualified
+
+#### Scenario: A scenario needs a person
+
+* WHEN a scenario requires speaking, listening, or changing an operating-system setting
+* THEN it SHALL be recorded as NOT RUN or BLOCKED until a person performs it
+* AND no fixture or automated substitute SHALL be recorded in its place

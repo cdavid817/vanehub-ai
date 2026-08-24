@@ -238,3 +238,28 @@
 - [x] 20.13 Review `git diff --check`, generated artifacts, lockfile, bundle resource list, and architecture/context-map synchronization.
 - [x] 20.14 Confirm there is exactly one PaddleOCR runtime owner and no component-level Tauri invoke.
 - [x] 20.15 Confirm every requested success criterion and scenario has direct automated or explicitly recorded manual evidence.
+
+## 21. Real-engine compatibility remediation
+
+- [ ] 21.1 Add `cpuAcceleration` (`library-default` | `enabled` | `disabled`) to the OCR profile domain type, defaulting to `library-default`, with validation and round-trip persistence tests.
+- [ ] 21.2 Carry the acceleration mode through the profile snapshot so a mid-flight operation keeps the mode it was accepted under.
+- [ ] 21.3 Map the mode in the PaddleOCR worker to `enable_mkldnn`, applied to every pipeline stage the request passes through, and prove detection and recognition both receive it.
+- [ ] 21.4 Reject any process-wide acceleration flag as the mechanism, with a test that pins the reason: PaddleX configures its runners independently of the global flag.
+- [ ] 21.5 Replace the load-only probe with a minimal real-inference canary for all three engines, retaining nothing it produced.
+- [ ] 21.6 Classify every model-related profile field for spaces and non-ASCII characters, per field rather than per engine.
+- [ ] 21.7 Require a canary inference before reporting `Ready` for any engine whose configured path contains non-ASCII characters.
+- [ ] 21.8 Add the stable codes `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, `MODEL_PATH_ENCODING_UNSUPPORTED`, `TTS_DATA_PATH_ENCODING_UNSUPPORTED`, and `TTS_PHONEMIZER_DATA_UNAVAILABLE`, each carrying engine, field, `containsSpaces`, `containsNonAscii`, `packageVersion`, and a remediation identifier.
+- [ ] 21.9 Classify the unimplemented-operator failure from the acceleration backend into `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, with a fake-package test that reproduces the exception shape.
+- [ ] 21.10 Classify an unopenable model, tokens, or data path into its field-specific encoding code, with fake-package tests per field.
+- [ ] 21.11 Assert by test that no compatibility error payload contains a path, a raw exception message, or a traceback.
+- [ ] 21.12 Add the acceleration control to the OCR settings card, defaulting to `library-default` and saving through the existing optimistic-concurrency path.
+- [ ] 21.13 Present the acceleration remediation with its performance caveat, applying it only on explicit confirmation and leaving the profile untouched when declined.
+- [ ] 21.14 Mark the single incompatible field in the settings UI -- detection, recognition, orientation, TTS model, tokens, data directory, lexicon, voices, vocoder, or rule FST -- without displaying the path.
+- [ ] 21.15 Localize every new code, field name, and remediation string in `zh-CN`, `en`, `zh-TW`, `ja`, and `ko`, assembled from templates rather than concatenated engine text.
+- [ ] 21.16 Assert by test that no execution-provider, device, or acceleration retry occurs without a saved profile change.
+- [ ] 21.17 Assert by test that no code path copies, moves, links, short-paths, renames, or downloads a model or data directory.
+- [ ] 21.18 Extend the opt-in real-engine harness to the path matrix: PaddleOCR ASCII/library-default, ASCII/disabled, non-ASCII/disabled, missing-model offline.
+- [ ] 21.19 Extend it for faster-whisper: ASCII, spaces, non-ASCII, missing-model local-only.
+- [ ] 21.20 Extend it for sherpa-onnx: ASCII model/tokens/data, non-ASCII model/tokens/data, missing data directory, and output WAV cleanup.
+- [ ] 21.21 Keep the network denier on every inference and record `denied_attempts` for each matrix cell.
+- [ ] 21.22 Run the extended real-engine qualification on Windows and record the per-engine matrix; 19.6 remains unticked until all three pass.

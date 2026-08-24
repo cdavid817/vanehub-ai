@@ -46,3 +46,15 @@ Durations, counts, engine names, devices, and safe versions SHALL be formatted t
 
 * WHEN the review dialog shows page and character counts
 * THEN counts SHALL use locale-aware plural/number formatting supported by the repository
+
+### Requirement: Vendor-compatibility errors and remediation SHALL be localized by field
+
+Every stable vendor-compatibility code and every model-related field name SHALL resolve through a
+localized key in each registered locale. A message SHALL be assembled from a localized template and
+a localized field name, never by concatenating an engine-supplied string.
+
+#### Scenario: A compatibility error is displayed
+
+* WHEN `MODEL_PATH_ENCODING_UNSUPPORTED` is displayed for the recognition model field
+* THEN both the template and the field name SHALL come from the active locale's catalog
+* AND no part of the message SHALL originate from the engine's exception text

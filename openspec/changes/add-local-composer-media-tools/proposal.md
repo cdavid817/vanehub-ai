@@ -141,3 +141,46 @@ The application does not install Python packages or models. The user configures 
 6. OnePiece OCR and composer OCR use one worker supervisor and one PaddleOCR model configuration.
 7. All new strings exist in `zh-CN`, `en`, `zh-TW`, `ja`, and `ko`; controls are keyboard-operable and screen-reader-labelled.
 8. Existing architecture, lint, unit, build, Rust, OpenSpec, Web E2E, and desktop verification gates pass or have explicit platform evidence marked `BLOCKED`/`NOT RUN` with a reason.
+
+## Amendment: real-engine compatibility remediation
+
+The Windows real-engine qualification recorded in design.md section 32 qualified faster-whisper and
+sherpa-onnx and failed PaddleOCR, and the two failures it found are not this change's code. They are
+still this change's problem, because in both the user is left holding an engine that will not run and
+a message that does not say why.
+
+- PaddlePaddle's acceleration backend cannot execute the PP-OCRv6 graph. The models are fine --
+  the same image is recognized with `enable_mkldnn=False` -- but no profile field exposes that, so
+  an affected user has no recovery path at all.
+- Two of the three engines cannot open a model directory whose path leaves the active code page.
+  The host resolves the path, confirms it exists, hands it over, and the engine fails; what reaches
+  the user is `ENGINE_UNAVAILABLE` with nothing naming the field, the cause, or the remedy. A Windows
+  account named in a non-Latin script -- ordinary for the audience this application defaults to --
+  puts every model under such a path.
+
+Neither is a memory-safety, process-launch, or path-quoting defect: those were exercised and hold.
+Both are integration gaps, and both are acceptance blockers for this change rather than follow-up
+work, because 19.6 cannot pass while one engine cannot run and 18.4 cannot pass while the path
+matrix is unexplained.
+
+This amendment adds explicit CPU-acceleration control, a readiness canary that performs real
+inference instead of trusting a successful load, per-field path classification with stable
+field-level errors, and user-confirmed remediation -- with no automatic retry, no silent provider
+fallback, and no model relocation or download.
+
+## Success Criteria (amendment)
+
+9. The OCR profile carries an explicit CPU acceleration mode defaulting to `library-default`, and
+   `disabled` reaches every pipeline stage of a real inference.
+10. Engine readiness is established by a real minimal inference; a model that loads and cannot
+    execute reports `Unavailable` with its classified code.
+11. Every model-related field is classified for spaces and non-ASCII characters, and a non-ASCII
+    path is confirmed by canary inference before its engine is called ready.
+12. `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, `MODEL_PATH_ENCODING_UNSUPPORTED`,
+    `TTS_DATA_PATH_ENCODING_UNSUPPORTED`, and `TTS_PHONEMIZER_DATA_UNAVAILABLE` are raised with
+    engine, field, path-shape flags, package version, and remediation -- and with no path, raw
+    exception, or traceback.
+13. Acceleration remediation is applied only after the user confirms it; nothing retries or degrades
+    on its own, and no model is copied, moved, linked, or downloaded.
+14. The real-engine qualification records ASCII, spaces, and non-ASCII outcomes per engine, and all
+    three engines pass.

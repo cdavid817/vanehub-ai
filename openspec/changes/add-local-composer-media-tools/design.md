@@ -1991,3 +1991,102 @@ privacy settings. None was simulated, and no fixture stood in for any of it.
 | Stray `python.exe` after all runs | none |
 | Connection attempts during inference | 0, across every run |
 | Content in this record | none -- counts, durations, sample rates and path shapes only |
+
+
+## 33. Real-engine compatibility remediation
+
+Section 32 qualified two engines and failed one. Neither failure is this change's code, and both are
+this change's problem: in each the user ends up with an engine that will not run and a message that
+does not say why. What follows is the smallest design that gives them a way out without inventing a
+fallback nobody asked for.
+
+The accurate classification, which the PR description now uses: **no VaneHub memory-safety,
+process-launch, or path-quoting defect was found** -- those were exercised against a real interpreter
+at a path carrying both a space and non-ASCII characters, and they hold. **Two integration gaps were
+found**, each triggered by a third-party runtime and each requiring a product-layer answer.
+
+### 33.1 CPU acceleration is a profile field, not a heuristic
+
+`OcrProfile` gains `cpuAcceleration` with three values and a default of `library-default`, which
+passes no argument at all. `disabled` maps to `enable_mkldnn=False`, `enabled` to `True`.
+
+Three decisions worth stating, because each has a wrong version that looks reasonable:
+
+**The default stays `library-default`, not `disabled`.** Acceleration is a large CPU speedup that
+works for most models. Turning it off for everyone to spare the minority that hits the incompatible
+graph trades a visible failure for an invisible one.
+
+**The mechanism is the constructor argument, not the process flag.** `FLAGS_use_mkldnn=0` was
+measured on the failing host and does nothing, because PaddleX configures its runners from its own
+pipeline config rather than reading the global flag. A process-wide flag would look like it worked
+in review and fail in production, which is the worst available outcome.
+
+**The mode belongs to the operation snapshot.** Every operation already captures the profile it was
+accepted under; the acceleration mode joins it, so a result is always attributable to a recorded mode
+and changing the setting mid-flight cannot alter a running operation.
+
+### 33.2 Readiness means it inferred, not that it loaded
+
+The measured failure is precisely a model that constructs successfully and then raises when its graph
+executes. A probe that stops at construction reports `Ready` for it, and the user discovers otherwise
+on their first real operation -- with an operation-shaped error rather than a settings-shaped one.
+
+So the probe performs a minimal real inference for all three engines and retains nothing it produced.
+This costs a little probe latency and buys the only signal that distinguishes "the runtime accepted
+this model" from "the runtime can run this model".
+
+### 33.3 Path classification is per field, and non-ASCII is not rejected
+
+The measured matrix is not uniform, so a uniform rule would be wrong in both directions:
+
+| Engine | ASCII | non-ASCII |
+| --- | --- | --- |
+| faster-whisper (CTranslate2) | works | works |
+| sherpa-onnx (espeak-ng data) | works | fails |
+| PaddleOCR (paddle_inference) | works | fails |
+
+Rejecting non-ASCII paths outright would break faster-whisper users who are fine, and a Python-side
+`os.path.exists` check passes in every cell of that table -- the host can see the file the engine
+cannot open. Neither a blanket rule nor a stat is capable of producing this table.
+
+So each model-related field is classified for spaces and non-ASCII independently, and a field
+carrying non-ASCII is confirmed by a canary inference before its engine is called ready. The
+classification is per field rather than per engine because sherpa-onnx fails on its data directory
+while its model and tokens are fine, and telling the user "TTS has a path problem" when three
+separate paths are configured is not an actionable message.
+
+### 33.4 Errors carry shape, never the path
+
+Four stable codes -- `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, `MODEL_PATH_ENCODING_UNSUPPORTED`,
+`TTS_DATA_PATH_ENCODING_UNSUPPORTED`, `TTS_PHONEMIZER_DATA_UNAVAILABLE` -- each carrying exactly
+`engine`, `field`, `containsSpaces`, `containsNonAscii`, `packageVersion`, the code, and a
+remediation identifier.
+
+The path itself is deliberately absent, and the two booleans exist to make that absence workable: the
+user needs to know *why* their path is unacceptable, and its shape answers that without echoing a
+location that belongs to them. Raw exception text is absent for the reason section 14 already gives
+-- model loaders routinely put the model path into `str(exc)`.
+
+### 33.5 Remediation is offered, never taken
+
+Disabling acceleration is a real performance decision, so the application proposes it and waits. On
+confirmation it saves `cpuAcceleration = disabled` through the ordinary optimistic-concurrency path
+and re-probes; on decline the saved profile and the readiness state are untouched.
+
+There is no automatic retry under another provider, device, or mode. A silent second attempt would
+make results unattributable to a recorded configuration and would turn a diagnosable failure into an
+intermittent one.
+
+For an unopenable path, V1 says which field is affected and asks the user to relocate those files and
+reselect them. It copies nothing, moves nothing, junctions nothing, short-paths nothing, and
+downloads nothing -- an application that silently relocates a user's model is doing something they
+did not ask for to files they chose, and the short-path and junction tricks that would work here fail
+differently on machines where 8.3 names are disabled.
+
+### 33.6 What the qualification must show
+
+Per engine rather than in aggregate -- the three do not share a path-handling implementation, and an
+aggregate result hides which one fails. Every cell keeps the network denier and records
+`denied_attempts`. 19.6 stays unticked until all three pass, and 18.4 and 19.7 stay unticked until a
+person at a Windows machine completes the microphone, device, and interaction scenarios that no
+harness can stand in for.
