@@ -512,3 +512,183 @@ measured on the merged tree, **19803**, not the sum of the two: main's deletion 
 
 Both settings pages stay code-split. The parameters page moved directory on main, so its old path
 leaves the chunk check and the visible-text guard rather than sitting beside the new one.
+
+## Round 6: final validation, and the two audits that found something
+
+### The target branch moved twice more
+
+`origin/main` advanced twice during this round: first to `48d6ea90` (two
+dependency bumps, one of them `expect-webdriverio` 5.6.5 -> 6.0.5), then to
+`42b6a649` (`c48f556f fix(test): stabilize desktop WebDriver worker lifecycle`,
+`a4ce6b28 chore(release): prepare v1.1.0`, and a docs correction). Both merged,
+neither rebased -- the branch's own commits are untouched. The first merge
+conflicted only in `package.json`/`package-lock.json`; the second was clean.
+
+### Migration numbering: re-verified mechanically, unchanged
+
+Scanned rather than recalled. `origin/main`'s highest migration is still **81**
+(`cli-parameter-profiles`), so this change keeps **82, 83, 84**. The registry
+holds 84 registrations across both `apply_migration` and
+`apply_transactional_migration`, dense from 1 to 84, no duplicates, and the three
+this change owns are exactly the next three consecutive numbers after main's
+maximum. No renumbering was needed, so no renumbering commit was made. Every
+derived assertion still reads the migration list rather than a literal, so
+nothing else needed syncing.
+
+### Audit 1: the Agent Runtime resolution path
+
+`CliApi` holds one field, `CliEnvironmentApi`, and both its methods read the
+snapshot the CLI Management page renders. It has four consumers -- Agent Runtime
+availability and CLI profile, CLI delegation's tool execution and passive probe
+-- all through that one entry point. The two other functions in this repository
+named `resolve_executable` belong to `code_execution` (locates `python`/`node`
+via `where`/`which`) and `skill_tools` (locates a skill binary); neither manages
+a CLI agent, so neither is a second authority.
+
+The contracts hold, each with a test that would notice if it stopped holding:
+the answer is always absolute, a `blocks_launch` conflict refuses rather than
+picking a winner, a broken recommended installation refuses rather than silently
+swapping to another copy, a scanned-and-empty host refuses **without** a live
+lookup while a never-scanned tool gets exactly one bounded one, and
+recommended-before-PATH-selected is what `launch_target_of` encodes. The legacy
+table's `active_installation_path`, `lifecycle_eligibility` and `conflict_state`
+columns are read by nothing.
+
+### Audit 2: the legacy boundary, where the split had been rebuilt
+
+`cli_tool_status` survives, no production statement writes it, and the
+architecture test that enforces this passes. But the audit found the
+page-and-runtime divergence this context exists to end, reassembled inside the
+compatibility shim.
+
+`load_snapshot` fell back to a leftover legacy row when no authoritative snapshot
+existed. `list_snapshots` did not. `list_cli_environments` -- what the page reads
+-- synthesises `never_scanned` for an agent with no row. So an upgrading user,
+before their first refresh, saw a never-scanned tool on the page while
+`resolve_launch_target` read the legacy row, found `FoundOne` and an `Unknown`
+(therefore not faulty) executable, and resolved a launch to the old
+`detected_path`. The runtime started a binary the page did not show and nothing
+had verified. `installation_facts` inherited the same split, so the parameter
+context judged flags against a version the user could not see.
+
+Fixed by having one query serve both reads, which is also what makes "exactly one
+reader" mean something: the invariant was never that one SQL statement exists, it
+was that both consumers see the same thing.
+
+A second, smaller finding: the `LEGACY_FINGERPRINT` comment claimed the value
+made a legacy snapshot "always rejected as the basis for a mutation". It does not
+-- planning computes the live fingerprint and stamps the plan with that, so
+`legacy-import` is never on either side of that comparison. The guarantee holds
+by another route: a legacy snapshot carries no `allowed_actions`, and the row's
+`Unknown` source confidence fails `owns_active_installation`. The comment and the
+test now say that instead.
+
+### Three desktop specs still called commands this change deleted
+
+Running every layer -- not only the CLI one -- found `ui-cli-management`,
+`domain-cli-install` and `native-flows` still invoking `list_cli_tools`,
+`refresh_cli_detections` and `install_cli_version`. The first two are superseded
+by the `desktop-cli-management` layer, which covers the same ground against a
+fixture instead of the developer's machine, and were deleted. `native-flows`
+kept its opencode reinstall, ported onto prepare/execute: it is the only test
+here that drives a real package manager against a real host, and a fixture cannot
+show that the real npm, the real global prefix and the real PATH agree.
+
+### Group 14 command results
+
+Final HEAD `1081655b`, `origin/main` `42b6a649`, 47 commits ahead. Every command
+below ran on that HEAD, serially, one at a time.
+
+| Task | Command | Result |
+| --- | --- | --- |
+| 14.1 | `openspec validate add-source-aware-cli-environment-management --strict` | exit 0 |
+| 14.2 | `npm run lint:ci` | exit 0 |
+| 14.3 | `npm run test` | 306 files, 1462 tests, 0 failed |
+| 14.4 | `npm run test:coverage` | 306 files, 1462 tests, 0 failed; lines 76.13%, statements 72.44%, branches 67.93%, functions 68.95% |
+| 14.5 | `npm run coverage:policy:test` | 5 passed |
+| 14.6 | `npm run version:unit:test` | 9 passed |
+| 14.7 | `npm run contracts:check` | 3 files, 16 tests |
+| 14.8 | `npm run architecture:check` | 48 passed |
+| 14.9 | `npm run build` | 16 lazy chunks, 137.9 KiB gzip static closure |
+| 14.10 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | exit 0 |
+| 14.11 | `cargo check --workspace` | exit 0 |
+| 14.12 | `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| 14.13 | `npm run native:panic:check` | exit 0 |
+| 14.14 | `cargo test --workspace` | 4263 passed, 0 failed, 15 ignored |
+| 14.15 | `npx playwright test` | 175 passed, exit 0 |
+| 14.16 | `npm run desktop:unit:test` | 30 passed |
+| 14.18 | `openspec validate --specs --strict` | 136 passed, 0 failed |
+
+Three flakes, all handled by isolating and re-running rather than by loosening
+anything. No timeout was widened, no assertion weakened, nothing skipped.
+
+- `test:coverage` once failed `onepiece-context-health-section.test.tsx:80` on a
+  `findByText` timeout. Alone with coverage: 8/8. Full re-run: green.
+- `npx playwright test` failed once on `hybrid-local-model-runtime.spec.ts:39`
+  and once, on the next attempt, on `application-locales.spec.ts:74` -- a
+  different test each time. Each passed in isolation (5/5 and 4/4), and the third
+  full run was green at 175/175.
+
+None of the three is in a file this change touches. The suite duration over
+those three Playwright runs went 14.4m, 18.1m, 16.4m against 12.0m earlier in the
+day, which is the same host-load signal the desktop layer shows below.
+
+### 14.17: the native desktop matrix is incomplete
+
+**Windows x64 -- five of six layers PASSED.**
+
+| Layer | Result |
+| --- | --- |
+| `desktop-cli-terminal` | PASSED |
+| `desktop-cli-management` | PASSED (2 specs) |
+| `desktop-session-workspace` | PASSED |
+| `desktop-dialogs` | PASSED |
+| `desktop-settings-persistence` | PASSED (2 specs) |
+| `desktop-smoke` | **FAILED** |
+
+`desktop-cli-management` is the layer that covers this change, and it passes
+against a fixture that owns `PATH`, `PATHEXT`, `APPDATA`, `LOCALAPPDATA`,
+`USERPROFILE` and `HOME`, so its SQLite is a temporary database and its CLIs and
+package manager are fakes. Its side-effect guard runs as an assertion inside the
+passing spec and reported no violation: no real npm, no WinGet, no vendor URL, no
+credential store, no user database.
+
+`desktop-smoke` does not pass on this host, and not for a reason this change
+introduced. It sets none of those variables, so it runs against the developer's
+real `%APPDATA%\ai.vanehub.app\vanehub.sqlite` and real PATH, shared with every
+other worktree on the machine. Six runs:
+
+| Run | Result | Failing spec | Symptom |
+| --- | --- | --- | --- |
+| A | 29 passed / 3 failed | `ui-cli-management`, `domain-cli-install`, `native-flows` | called deleted commands -- **a real defect, fixed** |
+| B | 28 / 2 | `domain-loop`, `screen-sweep` | app process fast-fail (`0xC0000409`) |
+| C | 29 / 1 | `domain-prompt-hooks` | SQLite `database is locked` |
+| D | 29 / 1 | `feature-sweep` | `EBUSY` removing a temp terminal directory |
+| E | 27 started, 0 failed | 3 specs never started | embedded WebDriver not ready on fixed port 4445 within 120s |
+| F | 29 / 1 | `domain-skills` | failed, retried, no assertion recorded |
+
+After run A's real defect was fixed, five runs produced five different failing
+specs and five different infrastructure symptoms, none CLI-related, and every
+spec passed in at least one run -- runs C and D used identical code and failed on
+different specs. Concurrent load on the host was visible throughout: a foreign
+`vanehub_ai_lib-*` test binary under a different build hash, and 13 orphaned
+`msedgewebview2.exe` processes. `origin/main` shipped
+`c48f556f fix(test): stabilize desktop WebDriver worker lifecycle` mid-round,
+which is the same class of problem; it is merged here and run E still hit the
+port-4445 timeout.
+
+This is reported as FAILED -- not as PASSED, and not as flaky-therefore-green.
+
+**macOS -- NOT RUN. Linux -- NOT RUN.** No runner is reachable from this
+session, the branch is not pushed, and there is no PR, so no CI has executed. The
+repository's existing three-platform `Desktop Smoke` matrix runs the smoke layer
+only, by design, so a `desktop-full` job was added to `.github/workflows/ci.yml`:
+`workflow_dispatch` with a `desktop_full_suite` input, the same three runners,
+`VANEHUB_DESKTOP_FULL_SUITE=1`, `xvfb-run` on Linux, evidence uploaded
+`if: always()`. It is wiring on the existing harness rather than a parallel
+framework, and it has never run.
+
+**14.17 and 14.20 stay unchecked.** Completing them needs a real macOS run, a
+real Linux run, and a green Windows `desktop-smoke` on an uncontended host. A
+fixture unit test is not a substitute for a platform result, and NOT RUN is not
+PASSED.

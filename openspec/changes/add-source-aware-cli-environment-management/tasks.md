@@ -189,23 +189,23 @@
 
 ## 14. Validation and completion evidence
 
-- [ ] 14.1 Run `openspec validate add-source-aware-cli-environment-management --strict`.
-- [ ] 14.2 Run `npm run lint:ci`.
-- [ ] 14.3 Run `npm run test`.
-- [ ] 14.4 Run `npm run test:coverage`.
-- [ ] 14.5 Run `npm run coverage:policy:test`.
-- [ ] 14.6 Run `npm run version:unit:test`.
-- [ ] 14.7 Run `npm run contracts:check`.
-- [ ] 14.8 Run `npm run architecture:check`.
-- [ ] 14.9 Run `npm run build`.
-- [ ] 14.10 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
-- [ ] 14.11 Run `cargo check --workspace`.
-- [ ] 14.12 Run `cargo clippy --workspace --all-targets -- -D warnings`.
-- [ ] 14.13 Run `npm run native:panic:check`.
-- [ ] 14.14 Run `cargo test --workspace`.
-- [ ] 14.15 Run `npx playwright test`.
-- [ ] 14.16 Run `npm run desktop:unit:test`.
+- [x] 14.1 Run `openspec validate add-source-aware-cli-environment-management --strict`.
+- [x] 14.2 Run `npm run lint:ci`.
+- [x] 14.3 Run `npm run test`.
+- [x] 14.4 Run `npm run test:coverage`.
+- [x] 14.5 Run `npm run coverage:policy:test`.
+- [x] 14.6 Run `npm run version:unit:test`.
+- [x] 14.7 Run `npm run contracts:check`.
+- [x] 14.8 Run `npm run architecture:check`.
+- [x] 14.9 Run `npm run build`.
+- [x] 14.10 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
+- [x] 14.11 Run `cargo check --workspace`.
+- [x] 14.12 Run `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] 14.13 Run `npm run native:panic:check`.
+- [x] 14.14 Run `cargo test --workspace`.
+- [x] 14.15 Run `npx playwright test`.
+- [x] 14.16 Run `npm run desktop:unit:test`.
 - [ ] 14.17 Run the relevant `npm run test:desktop:<layer>` suites and then `npm run test:desktop` on each available native platform.
-- [ ] 14.18 Run `openspec validate --specs --strict`.
-- [ ] 14.19 Record command results, platform-specific desktop status, and any genuine platform block in the implementation notes or PR description.
+- [x] 14.18 Run `openspec validate --specs --strict`.
+- [x] 14.19 Record command results, platform-specific desktop status, and any genuine platform block in the implementation notes or PR description.
 - [ ] 14.20 Mark this change complete only when all internal callers use the new contract, old CLI lifecycle APIs are removed, documentation is aligned, and no unchecked task is being hidden by a compatibility layer.
