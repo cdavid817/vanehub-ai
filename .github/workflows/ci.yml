@@ -318,9 +318,12 @@ jobs:
   native-platform-check:
     name: Native Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Raised from 45 for the macOS workspace test run below, which compiles the test targets
-    # on top of an already-cold build.
-    timeout-minutes: 75
+    # Raised from 45 to 75 for the macOS workspace test run below, and then to 180 because 75 was
+    # not enough: the concurrency suite finished but `cargo test --workspace` was still compiling
+    # test targets when the clock ran out, and a cancelled step reports as a failure that looks
+    # like a test result. The cache below should keep the usual run far under this; the ceiling is
+    # for a cold one.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -344,6 +347,21 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      # This job now builds the tree *and* its test targets, twice over on macOS. Without a cache
+      # that is a cold Tauri dependency compile every run, which is what pushed the previous
+      # attempt past its timeout. Same action and same shape as the documentation job's cache, so
+      # there is one caching convention here rather than two.
+      - name: Restore Rust caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-platform-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            native-platform-${{ runner.os }}-
 
       - name: Verify Windows LLD
         if: runner.os == 'Windows'
