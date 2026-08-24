@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 
+use super::memory_directory_lock::{ensure_directory, is_lock_file, MemoryDirectoryLock};
 use super::memory_document::{compose, normalize_body, parse, peek_kind, DocumentKind};
 use crate::contexts::personalization::application::{
     CreateMemoryInput, DeleteMemoryOutcome, MemoryIdGeneratorPort, MemoryMaintenanceRepository,
@@ -44,32 +45,86 @@ fn storage(error: impl std::fmt::Display) -> PersonalizationApplicationError {
 pub(crate) struct MarkdownMemoryRepository {
     root: PathBuf,
     ids: Arc<dyn MemoryIdGeneratorPort>,
-    /// Serializes directory mutations within this process.
+    /// Serializes every mutation of this directory, in this process and across processes.
     ///
-    /// Not a cross-process lock: the current dependency set has no file-locking crate, and adding
-    /// one for this is a decision for the group that needs it. Two VaneHub processes sharing an
-    /// application data directory can therefore still interleave writes; each individual file
-    /// write stays atomic, so the failure mode is a lost update, not a corrupted file.
-    mutation_lock: Arc<Mutex<()>>,
+    /// Shared as an `Arc` so migration, reconciliation, and ordinary writes contend on one lock
+    /// rather than three. See `MemoryDirectoryLock` for the lock order every path follows.
+    lock: Arc<MemoryDirectoryLock>,
+    /// Test-only injection point for a removal that fails.
+    ///
+    /// A seam rather than a real filesystem condition because the real ones are not portable: a
+    /// read-only file is deletable on Linux and not on Windows, and an open file is deletable on
+    /// POSIX and not on Windows. Partial-failure semantics have to be reproducible on every
+    /// developer's machine, so they are injected here and the platform-specific behaviors are left
+    /// to the platform tests in task 3.10.
+    #[cfg(test)]
+    delete_failures: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 
 impl MarkdownMemoryRepository {
     pub(crate) fn new(root: PathBuf, ids: Arc<dyn MemoryIdGeneratorPort>) -> Result<Self> {
-        fs::create_dir_all(&root).map_err(|error| {
-            storage(format!(
-                "memory directory {} is unavailable: {error}",
-                root.display()
-            ))
-        })?;
+        ensure_directory(&root)?;
+        let lock = Arc::new(MemoryDirectoryLock::new(&root));
         Ok(Self {
             root,
             ids,
-            mutation_lock: Arc::new(Mutex::new(())),
+            lock,
+            #[cfg(test)]
+            delete_failures: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+        })
+    }
+
+    /// Builds a repository that shares an existing directory lock.
+    ///
+    /// Migration needs to hold the directory for a whole multi-stage run while still using the
+    /// repository's own write paths. Handing it the same lock is what keeps that from
+    /// self-deadlocking on a second acquisition.
+    pub(crate) fn with_shared_lock(
+        root: PathBuf,
+        ids: Arc<dyn MemoryIdGeneratorPort>,
+        lock: Arc<MemoryDirectoryLock>,
+    ) -> Result<Self> {
+        ensure_directory(&root)?;
+        Ok(Self {
+            root,
+            ids,
+            lock,
+            #[cfg(test)]
+            delete_failures: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
         })
     }
 
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(crate) fn lock(&self) -> Arc<MemoryDirectoryLock> {
+        self.lock.clone()
+    }
+
+    /// Marks a file name whose removal must fail on the next attempt.
+    #[cfg(test)]
+    pub(crate) fn inject_delete_failure(&self, file_name: &str) {
+        self.delete_failures
+            .lock()
+            .expect("delete failures")
+            .insert(file_name.to_string());
+    }
+
+    fn removal_is_injected_to_fail(&self, file_name: &str) -> bool {
+        #[cfg(test)]
+        {
+            return self
+                .delete_failures
+                .lock()
+                .expect("delete failures")
+                .contains(file_name);
+        }
+        #[cfg(not(test))]
+        {
+            let _ = file_name;
+            false
+        }
     }
 
     fn quarantine_root(&self) -> PathBuf {
@@ -249,10 +304,7 @@ impl MemoryRepository for MarkdownMemoryRepository {
     }
 
     fn create(&self, input: CreateMemoryInput, now: DateTime<Utc>) -> Result<MemoryRecord> {
-        let _guard = self
-            .mutation_lock
-            .lock()
-            .map_err(|_| storage("the memory directory lock was poisoned by a previous failure"))?;
+        let _guard = self.lock.acquire_with_retry()?;
 
         let record = MemoryRecord {
             id: self.ids.generate(),
@@ -291,10 +343,7 @@ impl MemoryRepository for MarkdownMemoryRepository {
         patch: UpdateMemoryPatch,
         now: DateTime<Utc>,
     ) -> Result<MemoryRecord> {
-        let _guard = self
-            .mutation_lock
-            .lock()
-            .map_err(|_| storage("the memory directory lock was poisoned by a previous failure"))?;
+        let _guard = self.lock.acquire_with_retry()?;
 
         let path = self.path_for(id)?;
         if !path.exists() {
@@ -343,10 +392,7 @@ impl MemoryRepository for MarkdownMemoryRepository {
     }
 
     fn delete(&self, id: &MemoryId, expected_revision: Option<u64>) -> Result<DeleteMemoryOutcome> {
-        let _guard = self
-            .mutation_lock
-            .lock()
-            .map_err(|_| storage("the memory directory lock was poisoned by a previous failure"))?;
+        let _guard = self.lock.acquire_with_retry()?;
 
         let path = self.path_for(id)?;
         if !path.exists() {
@@ -364,6 +410,9 @@ impl MemoryRepository for MarkdownMemoryRepository {
                     },
                 ));
             }
+        }
+        if self.removal_is_injected_to_fail(&format!("{id}.{MEMORY_EXTENSION}")) {
+            return Err(storage("memory cannot be deleted: injected failure"));
         }
         fs::remove_file(&path)
             .map_err(|error| storage(format!("memory cannot be deleted: {error}")))?;
@@ -404,6 +453,13 @@ impl MemoryMaintenanceRepository for MarkdownMemoryRepository {
             let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
+            // The lock file is excluded by name rather than by extension, so it can never be
+            // classified, counted, or deleted as if it were a memory. Deleting it would be worse
+            // than noise: the next two holders would each create their own and both believe they
+            // owned the directory.
+            if is_lock_file(file_name) {
+                continue;
+            }
             let head = read_head(&path);
             let mut classification = classify(file_name, head.as_deref());
             let mut memory_id = None;
@@ -499,10 +555,7 @@ impl MemoryMaintenanceRepository for MarkdownMemoryRepository {
             .authorize(now)
             .map_err(PersonalizationApplicationError::ResetRefused)?;
 
-        let _guard = self
-            .mutation_lock
-            .lock()
-            .map_err(|_| storage("the memory directory lock was poisoned by a previous failure"))?;
+        let _guard = self.lock.acquire_with_retry()?;
 
         let mut outcome = ResetMemoryOutcome::default();
         let unrestricted = matches!(request.scope, MemoryScopeFilter::Any);
@@ -544,6 +597,13 @@ impl MemoryMaintenanceRepository for MarkdownMemoryRepository {
                 continue;
             }
             outcome.matched += 1;
+            if self.removal_is_injected_to_fail(&entry.file_name) {
+                outcome.failures.push(MaintenanceFailure {
+                    memory_id: entry.memory_id.clone(),
+                    phase: MaintenancePhase::AuthoritativeFile,
+                });
+                continue;
+            }
             match fs::remove_file(&path) {
                 Ok(()) => {
                     if is_quarantined {
@@ -564,10 +624,7 @@ impl MemoryMaintenanceRepository for MarkdownMemoryRepository {
     }
 
     fn reconcile(&self, _now: DateTime<Utc>) -> Result<ReconcileMemoryOutcome> {
-        let _guard = self
-            .mutation_lock
-            .lock()
-            .map_err(|_| storage("the memory directory lock was poisoned by a previous failure"))?;
+        let _guard = self.lock.acquire_with_retry()?;
 
         let mut outcome = ReconcileMemoryOutcome::default();
         for entry in self.enumerate_owned_entries()? {

@@ -20,6 +20,12 @@ pub(crate) enum PersonalizationApplicationError {
     Storage(String),
     /// Migration or reconciliation has not established a safe generation.
     MaintenanceRequired,
+    /// Another holder — in this process or another one — owns the memory-directory lock.
+    ///
+    /// Typed rather than folded into `Storage` because the caller's correct response is entirely
+    /// different: retry later, keep long-term memory unavailable, and report a maintenance state,
+    /// as opposed to surfacing a disk error.
+    MaintenanceBusy,
 }
 
 impl From<PersonalizationDomainError> for PersonalizationApplicationError {
@@ -59,6 +65,10 @@ impl std::fmt::Display for PersonalizationApplicationError {
             Self::MaintenanceRequired => write!(
                 formatter,
                 "Personalization data is being migrated or repaired and is temporarily unavailable."
+            ),
+            Self::MaintenanceBusy => write!(
+                formatter,
+                "Another personalization maintenance operation is in progress. Try again shortly."
             ),
         }
     }
