@@ -164,8 +164,105 @@ fn windows_directory_and_file_dacls_allow_only_the_current_user() {
     let file_path = directory.path().join("server.json");
     drop(directory.create_file("server.json").expect("file"));
 
-    assert!(windows_acl::has_private_current_user_dacl(directory.path()).expect("directory ACL"));
-    assert!(windows_acl::has_private_current_user_dacl(&file_path).expect("file ACL"));
+    let user = windows_acl_report::current_process_user_sid().expect("current user SID");
+    let readings = [
+        ("directory", directory.path().to_path_buf()),
+        ("file", file_path),
+    ];
+
+    // Read both before asserting either, so one run reports the whole picture instead of
+    // stopping at whichever object happens to be examined first.
+    let mut failures = String::new();
+    for (label, path) in &readings {
+        let reading =
+            windows_acl_report::read_dacl(path, user.clone()).expect("read DACL for reading");
+        // Printed on success too. A security contract that only speaks when it breaks gives
+        // nobody a baseline to compare the break against.
+        eprintln!("{}", reading.describe(label, path));
+        if !reading.satisfies_private_current_user_contract() {
+            failures.push_str(&reading.describe(label, path));
+        }
+    }
+    assert!(failures.is_empty(), "{failures}");
+}
+
+/// Applies a deliberately wrong DACL to a real directory and returns what the check makes of it.
+///
+/// Written against the filesystem rather than by hand-building a `DaclReading`, because half of
+/// what is under test is whether the *reader* can see the defect at all. A check that judges a
+/// struct correctly but cannot observe an extra ACE on disk would still pass every negative case
+/// and still miss a real one.
+#[cfg(windows)]
+fn reading_after_applying(sddl: &str) -> Vec<String> {
+    let root = crate::test_support::TempDirectory::new("private-relay-negative-acl");
+    let target = root.path().join("object");
+    std::fs::create_dir_all(&target).expect("negative fixture directory");
+    let user = windows_acl_report::current_process_user_sid().expect("current user SID");
+    windows_acl::apply_sddl_for_tests(&target, &sddl.replace("{user}", &user))
+        .expect("apply negative DACL");
+    let reading = windows_acl_report::read_dacl(&target, user).expect("read negative DACL");
+    reading.violations()
+}
+
+#[cfg(windows)]
+#[test]
+fn the_windows_privacy_check_rejects_every_way_the_dacl_can_be_wrong() {
+    // Each case is a DACL that grants more, or differently, than the contract allows. If any of
+    // them produced no violation, the check would be decoration: a structural comparison nothing
+    // has ever falsified is worth exactly as much as the string comparison it replaced.
+    let cases: [(&str, &str); 8] = [
+        (
+            "extra ACE for Everyone",
+            "D:P(A;;FA;;;{user})(A;;FA;;;S-1-1-0)",
+        ),
+        (
+            "extra ACE for Users",
+            "D:P(A;;FA;;;{user})(A;;FA;;;S-1-5-32-545)",
+        ),
+        (
+            "extra ACE for Authenticated Users",
+            "D:P(A;;FA;;;{user})(A;;FA;;;S-1-5-11)",
+        ),
+        (
+            "missing ACE for the current user",
+            "D:P(A;;FA;;;S-1-5-32-544)",
+        ),
+        ("DACL not protected", "D:(A;;FA;;;{user})"),
+        ("inheritance flags set", "D:P(A;OICI;FA;;;{user})"),
+        ("wrong access mask", "D:P(A;;FR;;;{user})"),
+        (
+            // A deny placed after an allow does not deny: Windows stops at the first match. The
+            // ordering is the guarantee, which is why the reader never sorts.
+            "non-canonical ACE order",
+            "D:P(A;;FA;;;{user})(D;;FA;;;S-1-1-0)",
+        ),
+    ];
+
+    for (label, sddl) in cases {
+        let violations = reading_after_applying(sddl);
+        assert!(
+            !violations.is_empty(),
+            "the check accepted a DACL it must reject: {label} ({sddl})"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn the_windows_privacy_check_names_the_specific_defect_it_found() {
+    // Rejecting for the wrong reason is only accidentally correct, and would keep passing if the
+    // reader stopped observing the field the case is actually about.
+    let everyone = reading_after_applying("D:P(A;;FA;;;{user})(A;;FA;;;S-1-1-0)").join(" ");
+    assert!(everyone.contains("S-1-1-0"), "{everyone}");
+
+    let unprotected = reading_after_applying("D:(A;;FA;;;{user})").join(" ");
+    assert!(unprotected.contains("not protected"), "{unprotected}");
+
+    let inheritance = reading_after_applying("D:P(A;OICI;FA;;;{user})").join(" ");
+    assert!(inheritance.contains("inheritance flags"), "{inheritance}");
+
+    let mask = reading_after_applying("D:P(A;;FR;;;{user})").join(" ");
+    assert!(mask.contains("expected 0x001f01ff"), "{mask}");
 }
 
 #[cfg(unix)]

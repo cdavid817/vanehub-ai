@@ -309,6 +309,12 @@ fn restrict_to_current_user(path: &Path) -> io::Result<()> {
 #[path = "private_relay_fs_windows.rs"]
 mod windows_acl;
 
+/// Read-only structural reading of a Windows DACL, used by the privacy contract test. Kept out
+/// of `windows_acl` because that module applies access control and this one only observes it.
+#[cfg(all(windows, test))]
+#[path = "private_relay_fs_windows_acl_report.rs"]
+mod windows_acl_report;
+
 #[cfg(test)]
 #[path = "private_relay_fs_tests.rs"]
 mod tests;
