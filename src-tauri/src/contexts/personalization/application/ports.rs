@@ -224,17 +224,33 @@ pub(crate) trait LegacyPolicyMigrationPort: Send + Sync {
     fn commit(&self, migrated: &MigratedPolicy, now: DateTime<Utc>) -> Result<bool>;
 }
 
-/// Exclusive ownership of startup maintenance for one data directory, across processes.
+/// Decides who owns one memory directory right now: an ordinary mutation, or maintenance.
 ///
-/// Deliberately not the same lock ordinary writes take. Maintenance runs for the length of a whole
-/// migration and calls those write paths while it does, so one lock for both would have maintenance
-/// contend with itself — reported as busy by a non-blocking acquisition, which looks like
-/// contention that is not there.
-pub(crate) trait MaintenanceLockPort: Send + Sync {
-    /// Takes the lock, or reports that someone else holds it. Never blocks: a second process must
-    /// report busy and let unrelated features start, not park a thread until the first finishes.
-    fn try_acquire(&self) -> Result<Option<Box<dyn MaintenanceLease>>>;
+/// The two are mutually exclusive, and that exclusion is this gate rather than a health check.
+/// Reading `MemoryRuntimeHealth` and then taking the directory lock leaves a window: a writer that
+/// read `Ready` and resumed after maintenance began would still get the directory lock, because
+/// maintenance releases it between each of its own operations and holds none at all during the
+/// derived rebuild. It would then mutate underneath a reconciliation that is about to rebuild the
+/// projection and the index from a snapshot taken before that write.
+///
+/// So an ordinary mutation holds a shared admission for the whole operation — health check
+/// included — and maintenance holds the gate exclusively for its whole run.
+pub(crate) trait MaintenanceGatePort: Send + Sync {
+    /// Admits one ordinary mutation, or reports that maintenance owns the directory.
+    ///
+    /// Re-entrant on one thread: a coordinated write takes this around the whole operation and the
+    /// store takes it again inside, and maintenance's own writes take it while maintenance holds
+    /// the gate. A non-re-entrant lock would report each of those busy.
+    fn enter_mutation(&self) -> Result<Box<dyn MutationAdmission>>;
+
+    /// Takes the gate exclusively, or reports that someone else already has it. Never blocks: a
+    /// second process must report busy and let unrelated features start, not park a thread until
+    /// the first finishes.
+    fn try_enter_maintenance(&self) -> Result<Option<Box<dyn MaintenanceLease>>>;
 }
+
+/// One ordinary mutation's claim, released on drop.
+pub(crate) trait MutationAdmission: Send {}
 
 /// Held for as long as maintenance runs, and released on drop — including on panic, and by the
 /// operating system if the process dies outright, so a crash leaves nothing stale behind.

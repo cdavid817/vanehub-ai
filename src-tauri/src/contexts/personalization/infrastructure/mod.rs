@@ -51,7 +51,7 @@ pub(crate) use durable_memory_health::DurableMemoryHealth;
 #[cfg(test)]
 pub(crate) use legacy_memory_source::LegacyOperation;
 pub(crate) use legacy_memory_source::{FileLegacyMemorySource, LEGACY_BACKUP_DIRECTORY_NAME};
-pub(crate) use maintenance_lock::FileMaintenanceLock;
+pub(crate) use maintenance_lock::MaintenanceGate;
 pub(crate) use markdown_memory_repository::{
     MarkdownMemoryRepository, DERIVED_INDEX_FILE_NAME, QUARANTINE_DIRECTORY_NAME,
 };

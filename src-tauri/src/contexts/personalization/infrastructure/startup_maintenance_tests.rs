@@ -12,7 +12,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 
 use super::{
-    DurableMemoryHealth, FileLegacyMemorySource, FileMaintenanceLock, MarkdownDerivedIndex,
+    DurableMemoryHealth, FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex,
     MarkdownMemoryRepository, SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration,
     SqliteMemoryProjection, SqliteMigrationJournal, SqliteMigrationState, SqlitePolicyRepository,
     UuidMemoryIdGenerator,
@@ -21,10 +21,10 @@ use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
     ClockPort, DerivedIndexPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
     LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
-    LegacySettingField, LegacySettingsCompatibility, MemoryApplicationService, MemoryHealthPort,
-    MemoryProjectionPort, MemoryRepository, MigrationStatePort, PersonalizationApplicationError,
-    PolicyRepository, ResetCounts, RetrievalIndexPort, StartupMaintenancePorts,
-    StartupMaintenanceService, WorkspaceIdentityResolver,
+    LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
+    MemoryHealthPort, MemoryProjectionPort, MemoryRepository, MigrationStatePort,
+    PersonalizationApplicationError, PolicyRepository, ResetCounts, RetrievalIndexPort,
+    StartupMaintenancePorts, StartupMaintenanceService, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemoryScopeFilter,
@@ -260,8 +260,12 @@ fn reopen(
         },
     ));
     let legacy_settings = Arc::new(FakeLegacySettings::default());
+    // One gate object shared by the orchestration and the boundary, exactly as bootstrap assembles
+    // it: the exclusion has to be between those two, not between two copies that never meet.
+    let gate: Arc<dyn MaintenanceGatePort> =
+        Arc::new(MaintenanceGate::new(&root).expect("maintenance gate"));
     let maintenance = Arc::new(StartupMaintenanceService::new(StartupMaintenancePorts {
-        lock: Arc::new(FileMaintenanceLock::new(&root).expect("maintenance lock")),
+        gate: gate.clone(),
         state: state.clone(),
         policies: policies.clone(),
         policy_migration: Arc::new(SqliteLegacyPolicyMigration::new(database.clone())),
@@ -273,6 +277,7 @@ fn reopen(
     }));
     let api = PersonalizationApi::new(
         memories,
+        gate,
         maintenance.clone(),
         Arc::new(LegacySettingsCompatibility::new(
             policies.clone(),
@@ -320,6 +325,18 @@ impl Fixture {
             .expect("view")
             .into_iter()
             .map(|memory| memory.name)
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Every id-addressed memory file in the directory, sorted. The derived index is not one.
+    fn memory_file_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(&self.root)
+            .expect("read dir")
+            .flatten()
+            .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+            .filter(|name| name.ends_with(".md") && name != "MEMORY.md")
             .collect();
         names.sort();
         names
@@ -767,6 +784,51 @@ fn a_completed_journal_entry_alone_does_not_make_the_installation_ready() {
 // Concurrency and restart
 // =================================================================================================
 
+/// A maintenance lease held on another thread, standing in for another process.
+///
+/// Another *thread* rather than the test's own: the gate is re-entrant per thread on purpose, so a
+/// lease taken here would wave this thread's own writes straight through and prove nothing. A
+/// separate thread has its own re-entrance state and its own file handle, which is what a separate
+/// process has.
+struct ForeignMaintainer {
+    release: std::sync::mpsc::Sender<()>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ForeignMaintainer {
+    fn hold(root: &std::path::Path) -> Self {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (held, confirmed) = std::sync::mpsc::channel::<()>();
+        let root = root.to_path_buf();
+        let thread = std::thread::spawn(move || {
+            let gate = MaintenanceGate::new(&root).expect("gate");
+            let lease = gate
+                .try_enter_maintenance()
+                .expect("acquire")
+                .expect("the foreign maintainer takes the gate");
+            held.send(()).expect("signal held");
+            let _ = wait.recv();
+            drop(lease);
+        });
+        confirmed
+            .recv()
+            .expect("the gate is held before the test proceeds");
+        Self {
+            release,
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for ForeignMaintainer {
+    fn drop(&mut self) {
+        let _ = self.release.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 #[test]
 fn a_second_process_reports_busy_and_then_observes_ready() {
     let fixture = fixture("busy");
@@ -777,19 +839,14 @@ fn a_second_process_reports_busy_and_then_observes_ready() {
         Arc::new(FakeRows::default()),
     );
 
-    // The first process takes the maintenance lock and holds it.
-    let lock = FileMaintenanceLock::new(&fixture.root).expect("lock");
-    let held = {
-        use crate::contexts::personalization::application::MaintenanceLockPort;
-        lock.try_acquire().expect("acquire").expect("held")
-    };
+    let foreign = ForeignMaintainer::hold(&fixture.root);
     assert_eq!(second.maintenance.run(), MemoryRuntimeHealth::Busy);
     assert!(!second.api.memory_is_ready());
     // And it did not read the pre-v2 directory or half-build anything.
     assert!(second.root.join("subject.md").exists());
     assert!(second.memory_names().is_empty());
 
-    drop(held);
+    drop(foreign);
     assert!(fixture.maintenance.run().allows_memory_use());
 
     // The second process re-reads the durable row and stops reporting busy without being told.
@@ -801,12 +858,10 @@ fn a_second_process_reports_busy_and_then_observes_ready() {
 }
 
 #[test]
-fn the_lock_is_released_when_its_holder_goes_away() {
+fn the_gate_is_released_when_its_holder_goes_away() {
     let fixture = fixture("lock-release");
     {
-        use crate::contexts::personalization::application::MaintenanceLockPort;
-        let lock = FileMaintenanceLock::new(&fixture.root).expect("lock");
-        let _held = lock.try_acquire().expect("acquire").expect("held");
+        let _foreign = ForeignMaintainer::hold(&fixture.root);
         assert_eq!(fixture.maintenance.run(), MemoryRuntimeHealth::Busy);
     }
 
@@ -814,6 +869,171 @@ fn the_lock_is_released_when_its_holder_goes_away() {
         fixture.maintenance.run().allows_memory_use(),
         "a dropped lease frees the next run"
     );
+}
+
+#[test]
+fn maintenance_started_elsewhere_refuses_an_ordinary_save_and_changes_nothing() {
+    // The barrier this gate exists for. Health stays `Ready` throughout — the foreign holder never
+    // touches the durable row in this test — so a refusal here can only come from the gate. A
+    // writer that had merely checked health would sail past and mutate underneath a reconciliation
+    // about to rebuild every derived view from an earlier snapshot.
+    use crate::contexts::personalization::api::CompatibilitySaveInput;
+
+    let fixture = fixture("barrier-save");
+    fixture.write_legacy("subject.md", &legacy_file("subject", "Body."));
+    fixture.maintenance.run();
+    assert!(fixture.api.memory_is_ready());
+
+    let before_ids = fixture.projection.projected_ids().expect("projected");
+    let before_index = fixture.index_contents();
+    let before_retrieval = fixture.retrieval.indexed_ids().expect("retrieval");
+    let before_files = fixture.memory_file_names();
+
+    let foreign = ForeignMaintainer::hold(&fixture.root);
+
+    // Still `Ready`: exactly the stale reading a health-only check would have trusted.
+    assert!(
+        fixture.api.memory_is_ready(),
+        "health is the stale value; the gate is what must refuse"
+    );
+    let refused = fixture
+        .api
+        .save_compatibility_memory(CompatibilitySaveInput {
+            agent_id: Some("onepiece".to_string()),
+            workspace: None,
+            name: "written-during-maintenance".to_string(),
+            description: "d".to_string(),
+            memory_type: None,
+            content: "Body.".to_string(),
+            is_automatic: false,
+        });
+    assert!(
+        matches!(
+            refused,
+            Err(PersonalizationApplicationError::MaintenanceBusy)
+        ),
+        "expected a typed busy, got {refused:?}"
+    );
+
+    // Nothing moved, on any surface.
+    assert_eq!(fixture.memory_file_names(), before_files);
+    assert_eq!(
+        fixture.projection.projected_ids().expect("projected"),
+        before_ids
+    );
+    assert_eq!(fixture.index_contents(), before_index);
+    assert_eq!(
+        fixture.retrieval.indexed_ids().expect("retrieval"),
+        before_retrieval
+    );
+
+    // And the same write succeeds once the directory is free again.
+    drop(foreign);
+    fixture
+        .api
+        .save_compatibility_memory(CompatibilitySaveInput {
+            agent_id: Some("onepiece".to_string()),
+            workspace: None,
+            name: "written-during-maintenance".to_string(),
+            description: "d".to_string(),
+            memory_type: None,
+            content: "Body.".to_string(),
+            is_automatic: false,
+        })
+        .expect("the retry succeeds");
+    assert_eq!(fixture.memory_file_names().len(), before_files.len() + 1);
+}
+
+#[test]
+fn maintenance_started_elsewhere_refuses_an_ordinary_delete_and_changes_nothing() {
+    // The delete case is the one with teeth: a delete that slipped through would be undone by the
+    // reconciliation inside that maintenance, from a snapshot taken before it — putting a memory
+    // the user removed back into the projection and the index.
+    let fixture = fixture("barrier-delete");
+    fixture.write_legacy("subject.md", &legacy_file("subject", "Body."));
+    fixture.maintenance.run();
+    let handle = fixture
+        .api
+        .compatibility_memories()
+        .expect("view")
+        .first()
+        .expect("one memory")
+        .file_name
+        .clone();
+    let before_ids = fixture.projection.projected_ids().expect("projected");
+    let before_index = fixture.index_contents();
+
+    let foreign = ForeignMaintainer::hold(&fixture.root);
+
+    assert!(matches!(
+        fixture.api.delete_compatibility_memory(&handle),
+        Err(PersonalizationApplicationError::MaintenanceBusy)
+    ));
+    assert!(matches!(
+        fixture.api.delete_all_compatibility_memories(),
+        Err(PersonalizationApplicationError::MaintenanceBusy)
+    ));
+
+    assert!(fixture.root.join(&handle).exists(), "the file survives");
+    assert_eq!(
+        fixture.projection.projected_ids().expect("projected"),
+        before_ids
+    );
+    assert_eq!(fixture.index_contents(), before_index);
+
+    drop(foreign);
+    assert!(fixture
+        .api
+        .delete_compatibility_memory(&handle)
+        .expect("the retry succeeds"));
+}
+
+#[test]
+fn a_read_during_maintenance_fails_closed_to_the_empty_view() {
+    // A read that slipped through would see a half-migrated directory and hand a caller a partial
+    // set as the whole truth — the same failure the unavailable case already refuses.
+    let fixture = fixture("barrier-read");
+    fixture.write_legacy("subject.md", &legacy_file("subject", "Body."));
+    fixture.maintenance.run();
+    assert_eq!(fixture.memory_names(), vec!["subject".to_string()]);
+
+    let foreign = ForeignMaintainer::hold(&fixture.root);
+    assert!(fixture.api.memory_is_ready());
+    assert!(
+        fixture.memory_names().is_empty(),
+        "a read during maintenance yields nothing rather than a partial set"
+    );
+
+    drop(foreign);
+    assert_eq!(fixture.memory_names(), vec!["subject".to_string()]);
+}
+
+#[test]
+fn ordinary_mutations_share_the_gate_while_maintenance_is_excluded() {
+    // Why the admission is shared rather than exclusive: several ordinary writes may proceed
+    // together — the directory lock is what serializes them — but none may overlap maintenance.
+    let fixture = fixture("barrier-shared");
+    fixture.maintenance.run();
+
+    let gate = MaintenanceGate::new(&fixture.root).expect("gate");
+    let admission = gate.enter_mutation().expect("admitted");
+
+    let root = fixture.root.clone();
+    let observed = std::thread::spawn(move || {
+        let gate = MaintenanceGate::new(&root).expect("gate");
+        let concurrent = gate.enter_mutation().is_ok();
+        let maintenance_blocked = matches!(gate.try_enter_maintenance(), Ok(None));
+        (concurrent, maintenance_blocked)
+    })
+    .join()
+    .expect("prober");
+
+    assert_eq!(
+        observed,
+        (true, true),
+        "another mutation is admitted alongside; maintenance is not"
+    );
+    drop(admission);
 }
 
 #[test]

@@ -90,8 +90,8 @@ fn a_held_lock_makes_an_independent_holder_report_busy() {
     let root = directory.path().join("memory");
     fs::create_dir_all(&root).expect("root");
 
-    let first = MemoryDirectoryLock::new(&root);
-    let second = MemoryDirectoryLock::new(&root);
+    let first = MemoryDirectoryLock::new(&root).expect("lock");
+    let second = MemoryDirectoryLock::new(&root).expect("lock");
 
     let guard = first.try_acquire().expect("first acquisition");
     assert_eq!(
@@ -112,8 +112,8 @@ fn the_guard_releases_on_an_early_return_or_a_panic() {
     let directory = TempDir::with_prefix("personalization-lock-panic-").expect("directory");
     let root = directory.path().join("memory");
     fs::create_dir_all(&root).expect("root");
-    let lock = MemoryDirectoryLock::new(&root);
-    let observer = MemoryDirectoryLock::new(&root);
+    let lock = MemoryDirectoryLock::new(&root).expect("lock");
+    let observer = MemoryDirectoryLock::new(&root).expect("lock");
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _guard = lock.try_acquire().expect("acquire");
@@ -134,7 +134,7 @@ fn a_reentrant_acquisition_reports_busy_instead_of_deadlocking() {
     let directory = TempDir::with_prefix("personalization-lock-reentrant-").expect("directory");
     let root = directory.path().join("memory");
     fs::create_dir_all(&root).expect("root");
-    let lock = MemoryDirectoryLock::new(&root);
+    let lock = MemoryDirectoryLock::new(&root).expect("lock");
 
     let _guard = lock.try_acquire().expect("first");
     assert_eq!(
@@ -149,8 +149,8 @@ fn a_bounded_retry_gives_up_rather_than_waiting_forever() {
     let directory = TempDir::with_prefix("personalization-lock-retry-").expect("directory");
     let root = directory.path().join("memory");
     fs::create_dir_all(&root).expect("root");
-    let holder = MemoryDirectoryLock::new(&root);
-    let waiter = MemoryDirectoryLock::new(&root);
+    let holder = MemoryDirectoryLock::new(&root).expect("lock");
+    let waiter = MemoryDirectoryLock::new(&root).expect("lock");
 
     let _guard = holder.try_acquire().expect("hold");
     let started = Instant::now();
@@ -295,7 +295,7 @@ fn a_stale_lock_file_alone_does_not_block_anyone() {
     fs::create_dir_all(&root).expect("root");
     fs::write(root.join(MEMORY_LOCK_FILE_NAME), b"").expect("stale lock file");
 
-    let lock = MemoryDirectoryLock::new(&root);
+    let lock = MemoryDirectoryLock::new(&root).expect("lock");
     assert!(
         lock.try_acquire().is_ok(),
         "an unlocked lock file grants the directory to the next caller"

@@ -14,8 +14,8 @@ use chrono::{DateTime, Utc};
 
 use super::application::{
     CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility,
-    LegacySettingsView, MemoryApplicationService, MemoryHealthPort,
-    PersonalizationApplicationError, UpdateMemoryPatch, WorkspaceIdentityPort,
+    LegacySettingsView, MaintenanceGatePort, MemoryApplicationService, MemoryHealthPort,
+    MutationAdmission, PersonalizationApplicationError, UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
     LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord,
@@ -93,6 +93,9 @@ pub(crate) struct CompatibilitySaveInput {
 #[derive(Clone)]
 pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
+    /// Held across every read and every write, so a `Ready` answer cannot go stale between the
+    /// check and the work it authorizes.
+    gate: Arc<dyn MaintenanceGatePort>,
     health: Arc<dyn MemoryHealthPort>,
     settings: Arc<LegacySettingsCompatibility>,
     aliases: Arc<dyn LegacyAddressAliasPort>,
@@ -104,6 +107,7 @@ pub(crate) struct PersonalizationApi {
 impl PersonalizationApi {
     pub(crate) fn new(
         memories: Arc<MemoryApplicationService>,
+        gate: Arc<dyn MaintenanceGatePort>,
         health: Arc<dyn MemoryHealthPort>,
         settings: Arc<LegacySettingsCompatibility>,
         aliases: Arc<dyn LegacyAddressAliasPort>,
@@ -111,6 +115,7 @@ impl PersonalizationApi {
     ) -> Self {
         Self {
             memories,
+            gate,
             health,
             settings,
             aliases,
@@ -130,15 +135,28 @@ impl PersonalizationApi {
         self.memory_health().allows_memory_use()
     }
 
-    /// Refuses a write while memory is unavailable.
+    /// Claims the directory for one operation, then refuses it if memory is unavailable.
+    ///
+    /// The order is the point. Taking the admission first is what makes the health answer binding:
+    /// maintenance cannot begin while this admission lives, so `Ready` cannot become `Migrating`
+    /// between the check below and the write it authorizes. Checking health first and admitting
+    /// afterwards would leave exactly the window this exists to close.
     ///
     /// Typed rather than silent: a read that fails closed can honestly return nothing, but a write
     /// that quietly did nothing would let a caller believe a memory was saved.
-    fn require_ready(&self) -> Result<()> {
-        if self.memory_is_ready() {
-            return Ok(());
+    fn admit_write(&self) -> Result<Box<dyn MutationAdmission>> {
+        let admission = self.gate.enter_mutation()?;
+        if !self.memory_is_ready() {
+            return Err(PersonalizationApplicationError::MaintenanceRequired);
         }
-        Err(PersonalizationApplicationError::MaintenanceRequired)
+        Ok(admission)
+    }
+
+    /// The read counterpart. A read while maintenance owns the directory would see a half-migrated
+    /// set, so it fails closed to the empty view the unavailable case already returns.
+    fn admit_read(&self) -> Option<Box<dyn MutationAdmission>> {
+        let admission = self.gate.enter_mutation().ok()?;
+        self.memory_is_ready().then_some(admission)
     }
 
     /// The dedicated policy in the shape the pre-governance settings page understands.
@@ -172,11 +190,11 @@ impl PersonalizationApi {
     /// Reads bodies, which the previous store's `list_all` also did; this is not a new cost. It
     /// disappears when the runtime adapters take snapshots instead.
     pub(crate) fn compatibility_memories(&self) -> Result<Vec<CompatibilityMemory>> {
-        if !self.memory_is_ready() {
-            // Fail closed: an incomplete or repair-required migration yields no memories rather
-            // than a partial set a caller would treat as the whole truth.
+        // Fail closed: an incomplete or repair-required migration — or one running right now —
+        // yields no memories rather than a partial set a caller would treat as the whole truth.
+        let Some(_admission) = self.admit_read() else {
             return Ok(Vec::new());
-        }
+        };
         let mut memories: Vec<CompatibilityMemory> = self
             .memories
             .all_records()?
@@ -207,9 +225,9 @@ impl PersonalizationApi {
         &self,
         handles: &[String],
     ) -> Result<Vec<CompatibilityMemory>> {
-        if !self.memory_is_ready() {
+        let Some(_admission) = self.admit_read() else {
             return Ok(Vec::new());
-        }
+        };
         let mut memories = Vec::new();
         for handle in handles {
             let Some(id) = memory_id_from_file_name(handle) else {
@@ -242,10 +260,10 @@ impl PersonalizationApi {
         &self,
         input: CompatibilitySaveInput,
     ) -> Result<CompatibilityMemory> {
-        // Refused rather than queued. A save accepted now would be written into a store whose
-        // derived views are mid-rebuild, and the rebuild would then either miss it or resurrect a
-        // record the same run was removing.
-        self.require_ready()?;
+        // Refused rather than queued, and held for the whole operation rather than checked once. A
+        // save accepted now would be written into a store whose derived views are mid-rebuild, and
+        // the rebuild would then either miss it or resurrect a record the same run was removing.
+        let _admission = self.admit_write()?;
         // A name that could never have been a v1 filename has no legacy identity, and therefore no
         // alias. That is correct rather than restrictive: nothing under v1 could have created it.
         let address = LegacyAddressKey::from_display_name(&input.name).ok();
@@ -364,7 +382,7 @@ impl PersonalizationApi {
 
     /// Deletes by the v2 file name a compatibility listing handed out.
     pub(crate) fn delete_compatibility_memory(&self, file_name: &str) -> Result<bool> {
-        self.require_ready()?;
+        let _admission = self.admit_write()?;
         let Some(id) = memory_id_from_file_name(file_name) else {
             // An unrecognized handle is not an error: the previous store treated deleting
             // something that is not there as the caller's desired end state.
@@ -381,7 +399,7 @@ impl PersonalizationApi {
     /// matches the previous behavior exactly, including leaving unparseable files alone; the
     /// complete reset arrives with the maintenance UI.
     pub(crate) fn delete_all_compatibility_memories(&self) -> Result<usize> {
-        self.require_ready()?;
+        let _admission = self.admit_write()?;
         let mut removed = 0;
         for record in self.memories.all_records()? {
             if !is_compatibility_visible(&record) {
@@ -422,7 +440,7 @@ pub(crate) fn build_for_tests(
     clock: Arc<dyn super::application::ClockPort>,
 ) -> (PersonalizationApi, Arc<MemoryApplicationService>) {
     use super::infrastructure::{
-        DurableMemoryHealth, MarkdownDerivedIndex, MarkdownMemoryRepository,
+        DurableMemoryHealth, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
         SqliteLegacyAddressAlias, SqliteMemoryProjection, SqliteMigrationState,
         SqlitePolicyRepository, UuidMemoryIdGenerator,
     };
@@ -435,12 +453,13 @@ pub(crate) fn build_for_tests(
         repository.clone(),
         repository,
         Arc::new(SqliteMemoryProjection::new(database.clone())),
-        Arc::new(MarkdownDerivedIndex::new(memory_root)),
+        Arc::new(MarkdownDerivedIndex::new(memory_root.clone())),
         retrieval_index,
         clock.clone(),
     ));
     let api = PersonalizationApi::new(
         service.clone(),
+        Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
         Arc::new(DurableMemoryHealth::new(Arc::new(
             SqliteMigrationState::new(database.clone()),
         ))),

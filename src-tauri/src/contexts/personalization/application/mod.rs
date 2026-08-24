@@ -33,10 +33,10 @@ pub(crate) use models::{
 pub(crate) use ports::{
     CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,
     LegacyMemorySourcePort, LegacyPersonalizationSettingsPort, LegacyPolicyMigrationPort,
-    LegacyRowMigrationPort, MaintenanceLease, MaintenanceLockPort, MemoryHealthPort,
+    LegacyRowMigrationPort, MaintenanceGatePort, MaintenanceLease, MemoryHealthPort,
     MemoryIdGeneratorPort, MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository,
-    MigrationJournalPort, MigrationStatePort, PolicyRepository, RetrievalIndexPort,
-    WorkspaceIdentityPort,
+    MigrationJournalPort, MigrationStatePort, MutationAdmission, PolicyRepository,
+    RetrievalIndexPort, WorkspaceIdentityPort,
 };
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
 pub(crate) use run_startup_maintenance::{StartupMaintenancePorts, StartupMaintenanceService};

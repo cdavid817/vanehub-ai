@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use crate::contexts::personalization::application::PersonalizationApplicationError;
+use super::maintenance_lock::MaintenanceGate;
+use crate::contexts::personalization::application::{
+    MaintenanceGatePort, MutationAdmission, PersonalizationApplicationError,
+};
 
 /// The application-owned lock file.
 ///
@@ -52,6 +55,12 @@ const DEFAULT_RETRY_BACKOFF: Duration = Duration::from_millis(25);
 pub(crate) struct MemoryDirectoryLock {
     lock_path: PathBuf,
     in_process: Mutex<()>,
+    /// Taken before the directory lock, always.
+    ///
+    /// Derived from the same root rather than injected, so there is no construction in which a
+    /// directory has a mutation lock but no maintenance gate — the two describe one directory and
+    /// are fully determined by it.
+    gate: MaintenanceGate,
 }
 
 /// Why a lock could not be taken.
@@ -75,19 +84,12 @@ impl From<MemoryLockRejection> for PersonalizationApplicationError {
 }
 
 impl MemoryDirectoryLock {
-    pub(crate) fn new(root: &Path) -> Self {
-        Self::named(root, MEMORY_LOCK_FILE_NAME)
-    }
-
-    /// Builds a lock over a named file in the same directory.
-    ///
-    /// The name is chosen from the constants above and never derived from user input, so no caller
-    /// can point a lock at a memory file and have it truncated or held open.
-    pub(crate) fn named(root: &Path, file_name: &str) -> Self {
-        Self {
-            lock_path: root.join(file_name),
+    pub(crate) fn new(root: &Path) -> Result<Self, PersonalizationApplicationError> {
+        Ok(Self {
+            lock_path: root.join(MEMORY_LOCK_FILE_NAME),
             in_process: Mutex::new(()),
-        }
+            gate: MaintenanceGate::new(root)?,
+        })
     }
 
     pub(crate) fn lock_path(&self) -> &Path {
@@ -96,6 +98,16 @@ impl MemoryDirectoryLock {
 
     /// Takes the lock or reports why it could not, without ever blocking.
     pub(crate) fn try_acquire(&self) -> Result<MemoryDirectoryGuard<'_>, MemoryLockRejection> {
+        // The gate first, and never the other way round. Enforced here rather than at each call
+        // site so that every mutation of this directory — ordinary, migration, reconciliation, or
+        // one written later — is excluded during maintenance by construction. Re-entrant, so a
+        // caller that already holds an admission (the API around a whole coordinated write, or
+        // maintenance around its own writes) is not reported busy against itself.
+        let admission = self.gate.enter_mutation().map_err(|error| match error {
+            PersonalizationApplicationError::MaintenanceBusy => MemoryLockRejection::Busy,
+            _ => MemoryLockRejection::Unavailable,
+        })?;
+
         // `try_lock` rather than `lock` on the in-process mutex too: a reentrant acquisition is a
         // caller bug, and reporting it as busy is far better than deadlocking a thread against
         // itself with no diagnostic.
@@ -122,41 +134,13 @@ impl MemoryDirectoryLock {
 
         match file.try_lock() {
             Ok(()) => Ok(MemoryDirectoryGuard {
+                _admission: admission,
                 _in_process: in_process,
                 file: Some(file),
             }),
             Err(TryLockError::WouldBlock) => Err(MemoryLockRejection::Busy),
             Err(TryLockError::Error(_)) => Err(MemoryLockRejection::Unavailable),
         }
-    }
-
-    /// Takes the cross-process lock and hands back the handle holding it.
-    ///
-    /// Used only by startup maintenance, which has to hold the lock across a whole run and past the
-    /// borrow a `MemoryDirectoryGuard` would impose. The in-process mutex is deliberately not taken
-    /// here: this lock is never contended within a process — one process runs maintenance once —
-    /// and taking a guard that cannot be returned would leave it poisoned for the process lifetime.
-    pub(crate) fn try_acquire_owned(&self) -> Result<File, MemoryLockRejection> {
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&self.lock_path)
-            .map_err(|_| MemoryLockRejection::Unavailable)?;
-        match file.try_lock() {
-            Ok(()) => Ok(file),
-            Err(TryLockError::WouldBlock) => Err(MemoryLockRejection::Busy),
-            Err(TryLockError::Error(_)) => Err(MemoryLockRejection::Unavailable),
-        }
-    }
-
-    /// Releases a handle taken by `try_acquire_owned`.
-    ///
-    /// Best effort: closing the handle releases the operating-system lock regardless, so a failure
-    /// here cannot leave maintenance permanently locked out.
-    pub(crate) fn release_owned(&self, file: File) {
-        let _ = file.unlock();
     }
 
     /// Takes the lock, retrying a bounded number of times before reporting busy.
@@ -202,6 +186,8 @@ impl MemoryDirectoryLock {
 /// panic release the lock; the OS also releases it when the handle closes, so a process that dies
 /// outright leaves nothing stale behind.
 pub(crate) struct MemoryDirectoryGuard<'a> {
+    /// Declared first so it is dropped last, releasing in the reverse of the acquisition order.
+    _admission: Box<dyn MutationAdmission>,
     _in_process: MutexGuard<'a, ()>,
     /// `Option` so `Drop` can take ownership and close the handle after unlocking.
     file: Option<File>,

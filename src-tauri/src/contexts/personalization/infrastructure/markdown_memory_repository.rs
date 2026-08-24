@@ -67,7 +67,7 @@ pub(crate) struct MarkdownMemoryRepository {
 impl MarkdownMemoryRepository {
     pub(crate) fn new(root: PathBuf, ids: Arc<dyn MemoryIdGeneratorPort>) -> Result<Self> {
         ensure_directory(&root)?;
-        let lock = Arc::new(MemoryDirectoryLock::new(&root));
+        let lock = Arc::new(MemoryDirectoryLock::new(&root)?);
         Ok(Self {
             root,
             ids,

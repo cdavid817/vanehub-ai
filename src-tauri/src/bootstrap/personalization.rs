@@ -28,7 +28,7 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{MemoryId, MemoryRecord};
 use crate::contexts::personalization::infrastructure::{
-    FileLegacyMemorySource, FileMaintenanceLock, MarkdownDerivedIndex, MarkdownMemoryRepository,
+    FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
     SqliteCandidateRepository, SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration,
     SqliteMemoryProjection, SqliteMigrationJournal, SqliteMigrationState, SqlitePolicyRepository,
     UuidMemoryIdGenerator,
@@ -94,11 +94,16 @@ pub(crate) fn assemble_personalization(
         },
     ));
 
+    // One gate object, shared by the orchestration and the published boundary, so both name the
+    // same directory. The store builds its own from the same root; they agree because the lock file
+    // is derived from the root, not passed around.
+    let gate: Arc<dyn crate::contexts::personalization::application::MaintenanceGatePort> =
+        Arc::new(
+            MaintenanceGate::new(&memory_root)
+                .map_err(|error| format!("Maintenance gate is unavailable: {error}"))?,
+        );
     let maintenance = Arc::new(StartupMaintenanceService::new(StartupMaintenancePorts {
-        lock: Arc::new(
-            FileMaintenanceLock::new(&memory_root)
-                .map_err(|error| format!("Maintenance lock is unavailable: {error}"))?,
-        ),
+        gate: gate.clone(),
         state,
         policies: policies.clone(),
         policy_migration: Arc::new(SqliteLegacyPolicyMigration::new(database.clone())),
@@ -118,6 +123,7 @@ pub(crate) fn assemble_personalization(
 
     let api = PersonalizationApi::new(
         memories,
+        gate,
         maintenance.clone(),
         Arc::new(LegacySettingsCompatibility::new(policies, clock)),
         aliases,

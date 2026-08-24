@@ -31,7 +31,7 @@ fn fixture(label: &str) -> Fixture {
     let directory =
         TempDir::with_prefix(format!("personalization-legacy-{label}-")).expect("temporary dir");
     let root = directory.path().join("memory");
-    let lock = Arc::new(MemoryDirectoryLock::new(&root));
+    let lock = Arc::new(MemoryDirectoryLock::new(&root).expect("lock"));
     let source = FileLegacyMemorySource::new(root.clone(), lock.clone()).expect("source");
     Fixture {
         _directory: directory,
@@ -80,9 +80,11 @@ fn an_empty_directory_holds_no_sources() {
 fn a_missing_directory_is_an_empty_store_rather_than_a_failure() {
     let directory = TempDir::with_prefix("personalization-legacy-absent-").expect("temporary dir");
     let root = directory.path().join("memory");
-    let source =
-        FileLegacyMemorySource::new(root.clone(), Arc::new(MemoryDirectoryLock::new(&root)))
-            .expect("source");
+    let source = FileLegacyMemorySource::new(
+        root.clone(),
+        Arc::new(MemoryDirectoryLock::new(&root).expect("lock")),
+    )
+    .expect("source");
     fs::remove_dir_all(&root).expect("remove the directory out from under it");
 
     assert!(source.enumerate_sources().expect("enumerate").is_empty());

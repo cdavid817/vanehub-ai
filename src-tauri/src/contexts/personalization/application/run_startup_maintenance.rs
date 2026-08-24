@@ -6,7 +6,7 @@ use super::migrate_legacy_memories::LegacyMemoryMigrationService;
 use super::migrate_legacy_policy::map_legacy_settings;
 use super::ports::{
     ClockPort, LegacyPersonalizationSettingsPort, LegacyPolicyMigrationPort,
-    LegacyRowMigrationPort, MaintenanceLockPort, MemoryHealthPort, MigrationStatePort,
+    LegacyRowMigrationPort, MaintenanceGatePort, MemoryHealthPort, MigrationStatePort,
     PolicyRepository,
 };
 use crate::contexts::personalization::domain::{
@@ -45,7 +45,7 @@ type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 /// just failed to verify. Unavailable is a worse experience and a correct answer; stale is a better
 /// experience and a guess.
 pub(crate) struct StartupMaintenanceService {
-    lock: Arc<dyn MaintenanceLockPort>,
+    gate: Arc<dyn MaintenanceGatePort>,
     state: Arc<dyn MigrationStatePort>,
     policies: Arc<dyn PolicyRepository>,
     policy_migration: Arc<dyn LegacyPolicyMigrationPort>,
@@ -63,7 +63,7 @@ pub(crate) struct StartupMaintenanceService {
 }
 
 pub(crate) struct StartupMaintenancePorts {
-    pub(crate) lock: Arc<dyn MaintenanceLockPort>,
+    pub(crate) gate: Arc<dyn MaintenanceGatePort>,
     pub(crate) state: Arc<dyn MigrationStatePort>,
     pub(crate) policies: Arc<dyn PolicyRepository>,
     pub(crate) policy_migration: Arc<dyn LegacyPolicyMigrationPort>,
@@ -77,7 +77,7 @@ pub(crate) struct StartupMaintenancePorts {
 impl StartupMaintenanceService {
     pub(crate) fn new(ports: StartupMaintenancePorts) -> Self {
         Self {
-            lock: ports.lock,
+            gate: ports.gate,
             state: ports.state,
             policies: ports.policies,
             policy_migration: ports.policy_migration,
@@ -116,7 +116,11 @@ impl StartupMaintenanceService {
     /// Returns rather than panics on every failure: this is called from a background thread at
     /// startup, and an unavailable memory subsystem must not take the application with it.
     pub(crate) fn run(&self) -> MemoryRuntimeHealth {
-        let lease = match self.lock.try_acquire() {
+        // Exclusive for the whole run, including the derived rebuild. Ordinary mutations take the
+        // same gate as shared and are therefore excluded for exactly as long as this lives — which
+        // is what stops a writer that already read `Ready` from mutating underneath a
+        // reconciliation that is about to rebuild every derived view from an earlier snapshot.
+        let lease = match self.gate.try_enter_maintenance() {
             Ok(Some(lease)) => lease,
             Ok(None) => return self.observe(MemoryRuntimeHealth::Busy),
             Err(error) => return self.fail(failure_code(&error)),
