@@ -11,3 +11,8 @@ import { createDesktopConfig } from "./wdio-shared.mjs";
 export const config = await createDesktopConfig({
   specDirectory: "specs-multi-agent-requirement",
 });
+
+// Real model turns can exceed the shared 300s mocha cap, and per-test `this.timeout()` does not
+// take effect under this wdio/mocha combination; raise the framework-level cap to the layer's
+// worst-case stage budget.
+config.mochaOpts = { ...config.mochaOpts, timeout: 25 * 60 * 1000 };

@@ -150,6 +150,41 @@ function bail(context) {
   context.skip();
 }
 
+/** The harness speaking as the human: one message into the session. */
+async function sendHuman(content) {
+  await invoke(({ core }, payload) => core.invoke("send_message", payload), {
+    sessionId: flow.session.id,
+    content,
+    config: {
+      agentId: flow.session.agentId,
+      interactionMode: "cli",
+      executionMode: "inherit",
+      providerId: null,
+      modelId: null,
+      reasoningDepth: null,
+      streaming: true,
+      thinking: false,
+      longContext: false,
+    },
+    fileReferences: null,
+  });
+}
+
+/**
+ * A seat may end on a blocking handoff the script did not plan for — a reviewer once escalated
+ * an OpenSpec-process question to the human, and per the routing rules that pause wins over the
+ * teammate mention in the same reply. Answer it and hand the turn to `handle` so the relay
+ * continues instead of timing out.
+ */
+async function answerUnplannedHandoff(handle) {
+  const rows = assistantsOf(await listMessages(flow.session.id).catch(() => []));
+  const last = rows[flow.ordinal - 1];
+  if (!/^\s*@用户\s+handoff/mu.test(last?.content ?? "")) return;
+  blocked.push(`unplanned handoff answered: routed to @${handle}`);
+  await sendHuman(`@${handle} 人类裁决:流程类事项(如 OpenSpec 提案)本轮豁免,由外部系统另行处理;`
+    + "请按审查中标记为必须修的意见继续返工,不要再等待人类。");
+}
+
 /** A stage snapshot beside the wdio evidence, so the visible run leaves visible proof. */
 async function snap(tag) {
   const resultDir = globalThis.process.env.VANEHUB_DESKTOP_RESULT_DIR;
@@ -419,6 +454,19 @@ globalThis.describe("VaneHub AI multi-Agent develops a large-granularity feature
       /buildAboutDiagnostics/u.test(turn.content),
       `the design never names buildAboutDiagnostics (got ${JSON.stringify(turn.content.slice(0, 200))})`,
     );
+
+    // The transcript on screen must show this backend-originated conversation — the requirement
+    // message and the seat's reply were injected over IPC, not typed into the composer
+    // (fix-chat-transcript-backend-message-updates). message-speaker is MessageItem's speaker
+    // label testid.
+    await globalThis.browser.waitUntil(async () => {
+      const speakers = await globalThis.$$('[data-testid="message-speaker"]');
+      return speakers.length >= 1;
+    }, {
+      timeout: 30_000,
+      interval: 2_000,
+      timeoutMsg: "the open transcript never rendered the backend-originated turns",
+    });
   });
 
   globalThis.it("the 实现者 builds the feature across files", async function implement() {
@@ -458,22 +506,7 @@ globalThis.describe("VaneHub AI multi-Agent develops a large-granularity feature
     await snap("2b-handoff-pause");
 
     // The human's adjudication: a line-leading mention hands the turn to the reviewer seat.
-    await invoke(({ core }, payload) => core.invoke("send_message", payload), {
-      sessionId: flow.session.id,
-      content: `@${flow.handles[2]} 人类裁决:实现说明已确认,请按原始分工第3条开始审查。`,
-      config: {
-        agentId: flow.session.agentId,
-        interactionMode: "cli",
-        executionMode: "inherit",
-        providerId: null,
-        modelId: null,
-        reasoningDepth: null,
-        streaming: true,
-        thinking: false,
-        longContext: false,
-      },
-      fileReferences: null,
-    });
+    await sendHuman(`@${flow.handles[2]} 人类裁决:实现说明已确认,请按原始分工第3条开始审查。`);
   });
 
   globalThis.it("the 代码审查 sends one concrete rework item back", async function review() {
@@ -491,6 +524,7 @@ globalThis.describe("VaneHub AI multi-Agent develops a large-granularity feature
   globalThis.it("the rework lands and the project's own toolchain accepts the feature", async function rework() {
     this.timeout(STAGE_BUDGET_MS * 2 + 15 * 60 * 1000);
     if (flow.failed) this.skip();
+    await answerUnplannedHandoff(flow.handles[1]);
     const turn = await relayTurn("rework", flow.seats[1], flow.handles[1]);
     await snap("4-rework");
     if (!turn) bail(this);
