@@ -16,5 +16,6 @@ describe("AboutPage", () => {
     expect(html).toContain("产品定位");
     expect(html).toContain("软件详情");
     expect(html).not.toContain("本地 CLI 环境");
+    expect(html).not.toContain("Preview");
   });
 });
