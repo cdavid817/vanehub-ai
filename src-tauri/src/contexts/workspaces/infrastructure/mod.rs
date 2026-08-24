@@ -15,6 +15,8 @@ mod retained_shell_runtime_tests;
 mod retained_shell_support;
 mod runtime_support;
 mod selection;
+#[cfg(test)]
+mod session_log_export_tests;
 mod session_queries;
 mod session_search;
 mod session_shell_workspace;

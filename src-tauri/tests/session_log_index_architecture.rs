@@ -139,6 +139,171 @@ fn production_registers_no_file_scanning_session_log_query_command() {
     );
 }
 
+/// The part of a file that ships in the binary.
+///
+/// Everything from the first `#[cfg(test)]` on is compiled out, so a rule about what the product
+/// does must not read it. The alternative — exempting whole files — would also exempt the
+/// production code sitting above the test module in the same file.
+fn production_of(relative: &str) -> String {
+    let code = code_of(relative);
+    code.split("#[cfg(test)]")
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The export path holds no handle to the index, anywhere down its chain.
+///
+/// The command-level check below catches the obvious version. This catches the version that arrives
+/// later: an export that still looks file-backed at the command, and reaches the index two calls
+/// down where nobody reviewing the command would see it.
+#[test]
+fn the_export_implementation_never_reaches_the_log_index() {
+    let code = code_of("contexts/workspaces/infrastructure/session_queries.rs");
+    let forbidden = [
+        "SqliteLogIndexRepository",
+        "SessionLogIndexRepository",
+        "unified_log_query_index",
+        "IndexedSessionLogRecord",
+        "operations::log_api",
+    ];
+
+    let mut violations = Vec::new();
+    for name in forbidden {
+        if code.contains(name) {
+            violations.push(format!(
+                "[ARCH-LOGINDEX-005] session_queries.rs: names `{name}`. Repair: an export reads \
+                 the redacted files, which are the durable record the index only projects"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Platform logging owns the durable write, and the operations index never joins it.
+///
+/// The index is rebuildable precisely because it is downstream of the append and never part of it.
+/// One write from the index side and the projection becomes a second source of truth — which would
+/// make "delete it and rebuild" lossy, and that property is what every other decision here rests
+/// on.
+#[test]
+fn the_log_index_never_writes_to_the_durable_log() {
+    let mut violations = Vec::new();
+    for relative in [
+        "contexts/operations/infrastructure/log_index_repository.rs",
+        "contexts/operations/infrastructure/log_index_repair_store.rs",
+        "contexts/operations/infrastructure/log_source_reader.rs",
+        "contexts/operations/application/log_repair.rs",
+    ] {
+        // Production only. A fixture writing a log file is how a log reader is tested at all, and
+        // that code is compiled out of the binary this rule is about.
+        let code = production_of(relative);
+        for name in [
+            "OpenOptions",
+            "File::create",
+            "fs::write",
+            "append_log",
+            "record_appended",
+        ] {
+            if code.contains(name) {
+                violations.push(format!(
+                    "[ARCH-LOGINDEX-006] {relative}: names `{name}`. Repair: the index is a \
+                     read-only projection of the log; the durable write belongs to platform logging"
+                ));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// The interactive query and the export stay two implementations of two different questions.
+///
+/// They read different stores on purpose, so the failure mode is not one calling the other — it is
+/// one quietly becoming the other's implementation, at which point the store the export reads is
+/// decided by whichever call path happened to be reused.
+#[test]
+fn the_interactive_query_and_the_export_share_no_implementation() {
+    let query = code_of("contexts/operations/application/log_query_service.rs");
+
+    // The query service knows how to prepare an export — which files, which window — and must not
+    // know how to produce one. `export_preparation` returns names and boundaries, never records.
+    assert!(
+        query.contains("export_preparation"),
+        "nothing tells an export which files it may read"
+    );
+    for forbidden in [
+        "all_filtered_log_entries",
+        "filter_log_entries",
+        "log_files(",
+    ] {
+        assert!(
+            !query.contains(forbidden),
+            "the query service names `{forbidden}`, which belongs to the export path"
+        );
+    }
+    // And the export's own scope predicate is one function, so a preview and an export cannot
+    // disagree about which records are in scope.
+    let export = code_of("contexts/workspaces/infrastructure/session_queries.rs");
+    assert_eq!(
+        export.matches("fn log_entry_matches").count(),
+        1,
+        "the export scope predicate exists more than once"
+    );
+}
+
+/// The export destination comes from the native picker and from nothing else.
+///
+/// A frontend-supplied path would make an export an arbitrary filesystem write with the
+/// application's privileges, addressed by a string that crossed the IPC boundary. The picker is
+/// what makes the destination something the user chose rather than something a caller named.
+#[test]
+fn the_export_destination_comes_only_from_the_native_picker() {
+    let code = production_of("contexts/workspaces/infrastructure/session_queries.rs");
+
+    let export = code
+        .split("pub(crate) fn export_session_logs")
+        .nth(1)
+        .expect("the export exists")
+        .split("\n}")
+        .next()
+        .unwrap_or_default();
+    assert!(
+        export.contains("blocking_save_file"),
+        "the export does not use the native destination picker"
+    );
+    // The query carries filters and a session id, never a destination — so there is no path on the
+    // wire for a caller to supply in the first place.
+    let dto = production_of("commands/workspaces/dto.rs");
+    let query = dto
+        .split("pub(crate) struct SessionLogQuery")
+        .nth(1)
+        .expect("the query DTO exists")
+        .split("\n}")
+        .next()
+        .unwrap_or_default();
+    for forbidden in ["path", "destination", "target", "file_name"] {
+        assert!(
+            !query.contains(forbidden),
+            "the log query DTO carries `{forbidden}`, which would name an export destination"
+        );
+    }
+}
+
+/// The export writes through a temporary file rather than onto the destination directly.
+///
+/// A write that failed partway through the destination leaves a truncated log under a name that
+/// promises the whole thing — and the user has no way to tell, because a log file is expected to
+/// end wherever it ends.
+#[test]
+fn the_export_writes_through_a_temporary_file() {
+    let code = production_of("contexts/workspaces/infrastructure/session_queries.rs");
+
+    assert!(
+        code.contains("NamedTempFile"),
+        "the export writes directly to its destination"
+    );
+}
+
 /// The export never reads index rows.
 ///
 /// The redacted files are the durable record; the index is a projection that can be behind,

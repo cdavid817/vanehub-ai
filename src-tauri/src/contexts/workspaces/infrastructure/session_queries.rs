@@ -1324,8 +1324,41 @@ fn filtered_log_entries_tail(
     Ok(filter_log_entries(reader, input))
 }
 
-fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logging::LogEntry> {
+/// Whether one already-parsed redacted record belongs in a filtered result.
+///
+/// Pure, and deliberately so. An export and a preview have to agree about which records are in
+/// scope, and the only way two readers of the same corpus can be guaranteed to agree is if they
+/// call the same function on the same parsed record. A predicate that re-derived the answer from a
+/// query — one reading a file, one reading an index — would drift the first time a filter gained a
+/// field, and the drift would show up as an export quietly containing more or less than the list
+/// the user was looking at when they clicked it.
+pub(crate) fn log_entry_matches(entry: &logging::LogEntry, input: &SessionLogQuery) -> bool {
+    if entry.context.get("sessionId") != Some(&input.session_id) {
+        return false;
+    }
+    if let Some(seat_id) = input.seat_id.as_ref() {
+        if entry.context.get("seatId") != Some(seat_id) {
+            return false;
+        }
+    }
+    if !input.levels.is_empty() && !input.levels.contains(&workspace_log_level(entry.level)) {
+        return false;
+    }
     let search = input.search.trim().to_lowercase();
+    if search.is_empty() {
+        return true;
+    }
+    let searchable = format!(
+        "{} {} {}",
+        entry.category,
+        entry.message,
+        serde_json::to_string(&entry.context).unwrap_or_default()
+    )
+    .to_lowercase();
+    searchable.contains(&search)
+}
+
+fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logging::LogEntry> {
     let mut entries = Vec::new();
     for line in reader.lines() {
         let Ok(line) = line else {
@@ -1334,30 +1367,9 @@ fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logg
         let Ok(entry) = serde_json::from_str::<logging::LogEntry>(&line) else {
             continue;
         };
-        if entry.context.get("sessionId") != Some(&input.session_id) {
-            continue;
+        if log_entry_matches(&entry, input) {
+            entries.push(entry);
         }
-        if let Some(seat_id) = input.seat_id.as_ref() {
-            if entry.context.get("seatId") != Some(seat_id) {
-                continue;
-            }
-        }
-        if !input.levels.is_empty() && !input.levels.contains(&workspace_log_level(entry.level)) {
-            continue;
-        }
-        if !search.is_empty() {
-            let searchable = format!(
-                "{} {} {}",
-                entry.category,
-                entry.message,
-                serde_json::to_string(&entry.context).unwrap_or_default()
-            )
-            .to_lowercase();
-            if !searchable.contains(&search) {
-                continue;
-            }
-        }
-        entries.push(entry);
     }
     entries
 }
@@ -1418,7 +1430,11 @@ fn bounded_filtered_log_entries(
     Ok(entries)
 }
 
-fn all_filtered_log_entries(
+/// Every record an export will write, in the order it will write them.
+///
+/// The one function that decides what an export contains, which is why it is reachable from a test:
+/// the destination picker decides where the file goes, and this decides what goes in it.
+pub(crate) fn all_filtered_log_entries(
     log_dir: &Path,
     input: &SessionLogQuery,
 ) -> Result<Vec<logging::LogEntry>, AppError> {

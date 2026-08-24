@@ -103,3 +103,24 @@ impl SessionLogApi {
             })
     }
 }
+
+/// A log index over a database directory, behind its port.
+///
+/// Published here rather than letting a caller construct `SqliteLogIndexRepository` directly,
+/// because the concrete repository is this context's persistence and reaching for it from another
+/// context is exactly what ARCH-NATIVE-003 forbids — including from a test, where the coupling is
+/// no less real for being compiled out of the product.
+///
+/// The one caller is the export-authority fixture in `workspaces`, which has to be able to put the
+/// index and the files into states where they disagree. That comparison is the whole point of the
+/// fixture, and it cannot be made from inside either context alone.
+#[cfg(test)]
+pub(crate) fn assemble_log_index_for_tests(
+    database_directory: &std::path::Path,
+) -> Result<Arc<dyn super::application::SessionLogIndexRepository>, String> {
+    let database = crate::platform::database::NativeDatabase::new(database_directory.to_path_buf())
+        .map_err(|error| error.to_string())?;
+    Ok(Arc::new(
+        super::infrastructure::SqliteLogIndexRepository::new(database),
+    ))
+}
