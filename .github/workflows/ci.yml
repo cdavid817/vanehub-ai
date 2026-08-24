@@ -388,7 +388,9 @@ jobs:
       # without them fails at link time with `invalid linker name in argument '-fuse-ld=mold'`
       # before a single test runs. This is the same list the repository's other Linux cargo jobs
       # install; the workspace lib pulls in Tauri, so the webkit and appindicator development
-      # packages are needed to compile it, not only to package it.
+      # packages are needed to compile it, not only to package it. The ALSA headers are here for
+      # `alsa-sys`, which `cpal` pulls into that same lib: without `alsa.pc` its build script
+      # panics in `pkg-config` and nothing in this job compiles, whatever it meant to test.
       - name: Install Linux prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -398,6 +400,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \

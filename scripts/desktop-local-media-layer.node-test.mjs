@@ -72,6 +72,33 @@ test("the scenario writer is atomic and clears its markers", async () => {
   assert.match(helper, /for \(const name of \["crashed", "hang-started", "hang-completed"\]\)/);
 });
 
+/**
+ * Every Linux job that compiles the workspace needs the ALSA headers.
+ *
+ * `cpal` pulls `alsa-sys`, whose build script panics in `pkg-config` when `alsa.pc` is absent, so
+ * a job missing `libasound2-dev` fails before it compiles anything -- reported as whatever that job
+ * was named, not as a missing package. A job added while this branch was unmerged copied the
+ * prerequisite list from before `cpal` existed and failed exactly that way, so the list is checked
+ * rather than trusted to be copied correctly next time.
+ */
+test("every Linux CI job that runs cargo installs the ALSA headers", async () => {
+  const workflow = (await read(".github/workflows/ci.yml")).replaceAll("\r\n", "\n");
+  // Comment lines are dropped first: this very requirement is explained in a comment beside one of
+  // the package lists, and a check that reads comments passes on the explanation alone.
+  const jobs = workflow
+    .split(/\n {2}(?=[a-z][\w-]*:\n)/)
+    .map((job) => job.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n"));
+  const linuxCargoJobs = jobs.filter(
+    (job) => job.includes("ubuntu-latest") && /\n\s+run:[^\n]*\bcargo\b|\n\s+cargo\b/.test(job),
+  );
+
+  assert.ok(linuxCargoJobs.length > 0, "no Linux cargo job was found -- the block split is wrong");
+  for (const job of linuxCargoJobs) {
+    const name = job.match(/^([\w-]+):/)?.[1] ?? job.slice(0, 40);
+    assert.ok(job.includes("libasound2-dev"), `${name} compiles the workspace without libasound2-dev`);
+  }
+});
+
 test("the local-media specs wait on observable state rather than on the clock", async () => {
   const spec = await read("tests/desktop/specs-local-media/domain-local-media-fixture.e2e.mjs");
 
