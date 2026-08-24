@@ -1,9 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
+const EMBEDDED_DRIVER_SHUTDOWN_GRACE_MS = 2_000;
+
+function waitForEmbeddedDriverShutdown() {
+  return delay(EMBEDDED_DRIVER_SHUTDOWN_GRACE_MS);
+}
+
+function isFailedTest(result) {
+  return !result.passed && result.skipped !== true;
+}
 
 function proxyEnvironment() {
   const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy;
@@ -73,8 +83,12 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     framework: "mocha",
     reporters: ["spec"],
     mochaOpts: { ui: "bdd", timeout: 300_000 },
+    // WDIO runs this launcher hook before the Tauri service hook. A preceding worker's clean
+    // app exit can leave the embedded driver's port alive briefly; this window lets the service
+    // detect the completed shutdown and restart the test-owned driver before session creation.
+    onWorkerStart: waitForEmbeddedDriverShutdown,
     afterTest: async (test, _context, result) => {
-      if (!result.passed) {
+      if (isFailedTest(result)) {
         const slug = `${test.parent ?? "spec"}-${test.title ?? "test"}`
           .replaceAll(/[^\p{L}\p{N}]+/gu, "-")
           .replaceAll(/^-|-$/g, "")

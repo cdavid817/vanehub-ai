@@ -98,9 +98,10 @@ describe("desktop readiness instrumentation boundary", () => {
     expect(globalEventTypes).toContain("error");
     expect(globalEventTypes).toContain("unhandledrejection");
 
-    window.dispatchEvent(new Event("error"));
+    window.dispatchEvent(new ErrorEvent("error", { error: new Error("token=desktop-test-secret") }));
 
-    expect(root.dataset.vanehubFatalError).toBe("detected");
+    expect(root.dataset.vanehubFatalError).toBe("error");
+    expect(root.dataset.vanehubFatalErrorDetail).toBe("token=[REDACTED]");
   });
 
   it("exposes the same browser-observable startup contract in both runtimes", async () => {

@@ -4,6 +4,16 @@ import { i18n } from "./i18n";
 import "./styles.css";
 import { recoverFromBootstrapFailure } from "./bootstrap-failure";
 
+const FATAL_FRONTEND_DIAGNOSTIC_LIMIT = 240;
+
+function redactFatalFrontendDiagnostic(value: unknown) {
+  const message = value instanceof Error ? value.message : typeof value === "string" ? value : "unavailable";
+  return message
+    .replace(/((?:api[-_]?key|token|secret|password|authorization)\s*[:=]\s*)[^\s,;]+/giu, "$1[REDACTED]")
+    .replace(/(bearer\s+)[^\s,;]+/giu, "$1[REDACTED]")
+    .slice(0, FATAL_FRONTEND_DIAGNOSTIC_LIMIT);
+}
+
 const floatingSurface = new URLSearchParams(window.location.search).get("surface") === "floating-assistant";
 if (floatingSurface) {
   document.body.classList.add("floating-assistant-surface");
@@ -12,11 +22,12 @@ if (floatingSurface) {
 async function renderSurface() {
   const root = document.getElementById("root") as HTMLElement;
   if (import.meta.env.VITE_DESKTOP_E2E === "1") {
-    const markFatalFrontendError = () => {
-      root.dataset.vanehubFatalError = "detected";
+    const markFatalFrontendError = (kind: string, detail: unknown) => {
+      root.dataset.vanehubFatalError = kind;
+      root.dataset.vanehubFatalErrorDetail = redactFatalFrontendDiagnostic(detail);
     };
-    window.addEventListener("error", markFatalFrontendError);
-    window.addEventListener("unhandledrejection", markFatalFrontendError);
+    window.addEventListener("error", (event) => markFatalFrontendError("error", event.error ?? event.message));
+    window.addEventListener("unhandledrejection", (event) => markFatalFrontendError("unhandledrejection", event.reason));
     await import("@wdio/tauri-plugin");
   }
   const Surface = floatingSurface
