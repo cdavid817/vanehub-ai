@@ -2152,3 +2152,89 @@ The readiness canary (21.5, 21.7) and the per-field classification surfaced to t
 exactly the signal the acceleration failure defeats -- that model constructs and then fails when an
 operator runs. Until the canary lands, a user on the incompatible combination sees `Ready` in
 settings and the failure on their first real operation.
+
+
+## 35. Readiness canaries and field-level path compatibility
+
+Section 34 left readiness meaning "the model loaded", which is exactly the signal the acceleration
+failure defeats: that model loads and then fails when an operator runs. This closes that, and the
+per-field half of the path work with it.
+
+### 35.1 What each canary actually runs
+
+No second inference implementation. Each canary writes an input into the probe operation's own
+directory and issues the same `WorkerCall` the composer issues, so what it proves is the production
+path. Everything the engine produces is dropped before the probe returns, and the operation guard
+deletes the directory on every exit including the failing ones.
+
+| Engine | Canary input | What proves it ran |
+| --- | --- | --- |
+| PaddleOCR | A 156-byte greyscale PNG of five blocky glyph shapes, embedded in source and written at runtime | Measured against the real engine: 1 line, 4 characters recognized -- detection *and* recognition executed |
+| faster-whisper | 0.1 s of 16 kHz mono silence, built in Rust rather than embedded | The decoder runs and returns an empty transcript, which is a pass |
+| sherpa-onnx | One token of text | A valid WAV, verified through the authorized-output check: non-zero bytes, sample rate and duration |
+
+Three decisions that each have a wrong version that looks right:
+
+**The OCR canary is not a blank image.** A detector finds nothing in blankness, recognition never
+runs, and the stage that fails on an incompatible graph is precisely the one skipped. Verified before
+the orchestration was written: with acceleration on, this image reproduces
+`PADDLE_ONEDNN_MODEL_INCOMPATIBLE`; with it off, it recognizes a line.
+
+**The STT canary turns the voice-activity filter off for that one call.** Left on, the filter finds
+no speech in silence and returns before the decoder is reached -- the canary would pass on a model
+that cannot decode at all. The override is one-directional: a call can bypass the filter, never
+enable one the user turned off.
+
+**The TTS canary reads its own output.** It is the only one whose result is inspected rather than
+discarded unread, because a synthesis that reports success and wrote nothing playable is not a
+working engine.
+
+Recorded limitation: the TTS canary text is a single Latin token. A voice whose lexicon has no entry
+for it could fail a canary it would pass with model-appropriate input. Selecting the token from the
+model's own `tokens.txt` is the fix and is not done here.
+
+### 35.2 Ready is bound to the revision it was proven under
+
+Unchanged from before and worth restating, because the canary makes it load-bearing: readiness
+records `checked_revision`, a save invalidates it, and an operation runs under the immutable snapshot
+it was accepted with. The canary runs on an explicit check, never at startup and never before an
+ordinary operation.
+
+### 35.3 Path classification is a description, not a verdict
+
+Every model-related field is classified -- fourteen of them, listed explicitly in
+`CLASSIFIED_MODEL_FIELDS` so a renamed field that stops being classified is visible -- for whether it
+is configured, contains spaces, and contains non-ASCII. No filesystem access: existence is already
+answered by validation and by the engine, and stat-ing fourteen paths on every status read would put
+I/O in the path the settings page polls.
+
+Non-ASCII is reported and not rejected. faster-whisper reads non-ASCII paths, proven three ways in
+the matrix, so a blanket rule would break users who are fine. Only a failed canary makes a path an
+error, and then the error names the one field the engine itself blamed. When it blames none, no field
+is marked: with several paths configured, guessing sends the user to edit one that works.
+
+### 35.4 What the settings page shows
+
+The failing field's own input carries the message, not just a banner. The first version of these
+tests asserted on the card's text and passed with the field marking removed -- the card already
+renders the readiness code as localized copy, so that assertion proved nothing. They now read the
+alert inside the field's container, and five of them fail when the marking is removed.
+
+### 35.5 The phonemizer classification, and why it is not finished
+
+The classifier is implemented and covered by five tests: the two signatures map to
+`TTS_PHONEMIZER_DATA_UNAVAILABLE` with `field: dataDir`, an unrelated crash and an empty stderr both
+stay `WORKER_CRASHED`, and no raw diagnostic reaches the error.
+
+It is **not ticked**, because the evidence it depends on was not observed. Run as a piped child on
+Windows, a real sherpa-onnx worker given a voice with neither data directory nor lexicon did not
+deliver either signature to the parent's stderr. Two attempts were inconclusive -- the first was
+rejected by a hand-written frame, the second exited cleanly without reproducing the abort at all --
+so the honest state is that the mapping may be inert in production. Task 21.23 records what remains:
+find where the native message goes when the child is piped, and if it goes nowhere, classify on a
+different observable.
+
+This is the second time this particular failure has resisted a fix that looked obviously right. The
+first was the profile-shape pre-check in section 34, removed because it rejected working
+configurations. Both attempts failed for the same underlying reason: the engine dies in native code
+without telling anyone in a way the host can read.

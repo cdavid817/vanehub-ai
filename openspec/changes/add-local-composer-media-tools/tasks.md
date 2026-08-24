@@ -245,17 +245,17 @@
 - [x] 21.2 Carry the acceleration mode through the profile snapshot so a mid-flight operation keeps the mode it was accepted under.
 - [x] 21.3 Map the mode in the PaddleOCR worker to `enable_mkldnn`, applied to every pipeline stage the request passes through, and prove detection and recognition both receive it.
 - [x] 21.4 Reject any process-wide acceleration flag as the mechanism, with a test that pins the reason: PaddleX configures its runners independently of the global flag.
-- [ ] 21.5 Replace the load-only probe with a minimal real-inference canary for all three engines, retaining nothing it produced.
-- [ ] 21.6 Classify every model-related profile field for spaces and non-ASCII characters, per field rather than per engine.
-- [ ] 21.7 Require a canary inference before reporting `Ready` for any engine whose configured path contains non-ASCII characters.
+- [x] 21.5 Replace the load-only probe with a minimal real-inference canary for all three engines, retaining nothing it produced.
+- [x] 21.6 Classify every model-related profile field for spaces and non-ASCII characters, per field rather than per engine.
+- [x] 21.7 Require a canary inference before reporting `Ready` for any engine whose configured path contains non-ASCII characters.
 - [x] 21.8 Add the stable codes `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, `MODEL_PATH_ENCODING_UNSUPPORTED`, `TTS_DATA_PATH_ENCODING_UNSUPPORTED`, and `TTS_PHONEMIZER_DATA_UNAVAILABLE`, each carrying engine, field, `containsSpaces`, `containsNonAscii`, `packageVersion`, and a remediation identifier.
 - [x] 21.9 Classify the unimplemented-operator failure from the acceleration backend into `PADDLE_ONEDNN_MODEL_INCOMPATIBLE`, with a fake-package test that reproduces the exception shape.
 - [x] 21.10 Classify an unopenable model, tokens, or data path into its field-specific encoding code, with fake-package tests per field.
-- [ ] 21.23 Raise `TTS_PHONEMIZER_DATA_UNAVAILABLE` from the worker crash the supervisor observes, not from the profile's shape: a vits model that uses characters as its modelling unit needs neither a data directory nor a lexicon, so refusing on shape alone rejects configurations that work.
+- [ ] 21.23 Raise `TTS_PHONEMIZER_DATA_UNAVAILABLE` from the worker crash the supervisor observes, not from the profile's shape: a vits model that uses characters as its modelling unit needs neither a data directory nor a lexicon, so refusing on shape alone rejects configurations that work. **Classifier and its five tests are implemented; the remaining work is evidence.** A real sherpa-onnx abort was not observed delivering the signature to the parent's stderr pipe on Windows, so the mapping may be inert in production. Establish where the native message goes when the child is piped -- and if it goes nowhere, find a different observable (exit code, a pre-abort marker the worker itself writes) before ticking this.
 - [x] 21.11 Assert by test that no compatibility error payload contains a path, a raw exception message, or a traceback.
 - [x] 21.12 Add the acceleration control to the OCR settings card, defaulting to `library-default` and saving through the existing optimistic-concurrency path.
 - [x] 21.13 Present the acceleration remediation with its performance caveat, applying it only on explicit confirmation and leaving the profile untouched when declined.
-- [ ] 21.14 Mark the single incompatible field in the settings UI -- detection, recognition, orientation, TTS model, tokens, data directory, lexicon, voices, vocoder, or rule FST -- without displaying the path.
+- [x] 21.14 Mark the single incompatible field in the settings UI -- detection, recognition, orientation, TTS model, tokens, data directory, lexicon, voices, vocoder, or rule FST -- without displaying the path.
 - [x] 21.15 Localize every new code, field name, and remediation string in `zh-CN`, `en`, `zh-TW`, `ja`, and `ko`, assembled from templates rather than concatenated engine text.
 - [x] 21.16 Assert by test that no execution-provider, device, or acceleration retry occurs without a saved profile change.
 - [x] 21.17 Assert by test that no code path copies, moves, links, short-paths, renames, or downloads a model or data directory.
