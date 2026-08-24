@@ -1,6 +1,6 @@
-# VaneHub AI 1.0.0
+# VaneHub AI 1.1.0
 
-VaneHub AI 1.0.0 is the first stable desktop release of the unified workspace for Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, and the built-in OnePiece API agent.
+VaneHub AI 1.1.0 is the stable desktop release of the unified workspace for Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, and the built-in OnePiece API agent.
 
 ## Highlights
 
