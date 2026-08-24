@@ -628,6 +628,74 @@ fn a_legacy_row_is_read_as_a_stale_snapshot_when_no_authoritative_one_exists() {
 }
 
 #[test]
+fn listing_and_loading_agree_about_a_legacy_row() {
+    // The whole point of this context: what the CLI Management page lists is what the Agent
+    // Runtime launches. When only `load_snapshot` consulted the legacy table, an upgrading user's
+    // page showed a never-scanned tool while the runtime started the leftover path behind it.
+    let (repository, _directory) = repository();
+    {
+        let connection = repository.connection().expect("connection");
+        connection
+            .execute_batch(
+                "INSERT INTO cli_tool_status (agent_id, detected_path, current_version)
+                 VALUES ('claude-code', '/usr/local/bin/claude', '1.2.0');",
+            )
+            .expect("legacy row");
+    }
+
+    let listed = repository.list_snapshots().expect("list");
+    let loaded = repository
+        .load_snapshot(&CliToolId::new("claude-code").expect("tool id"))
+        .expect("load")
+        .expect("legacy snapshot");
+
+    let listed_claude = listed
+        .iter()
+        .find(|snapshot| snapshot.agent_id.as_str() == "claude-code")
+        .expect("the legacy row is listed, not only loadable");
+    assert_eq!(listed_claude.freshness, CliFreshness::Stale);
+    assert_eq!(
+        listed_claude
+            .installations
+            .iter()
+            .map(|installation| installation.executable_path.as_str())
+            .collect::<Vec<_>>(),
+        loaded
+            .installations
+            .iter()
+            .map(|installation| installation.executable_path.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        listed_claude.recommended_installation_id,
+        loaded.recommended_installation_id
+    );
+}
+
+#[test]
+fn a_legacy_row_for_an_agent_this_build_cannot_name_does_not_hide_the_rest() {
+    let (repository, _directory) = repository();
+    {
+        let connection = repository.connection().expect("connection");
+        connection
+            .execute_batch(
+                "INSERT INTO cli_tool_status (agent_id, detected_path)
+                 VALUES ('', '/usr/local/bin/ghost'),
+                        ('claude-code', '/usr/local/bin/claude');",
+            )
+            .expect("legacy rows");
+    }
+
+    let listed = repository.list_snapshots().expect("list");
+
+    // One unusable row must not take the listing down with it, or a single piece of old data
+    // makes every still-supported tool invisible.
+    assert!(listed
+        .iter()
+        .any(|snapshot| snapshot.agent_id.as_str() == "claude-code"));
+}
+
+#[test]
 fn an_authoritative_snapshot_wins_over_the_legacy_row() {
     let (repository, _directory) = repository();
     {

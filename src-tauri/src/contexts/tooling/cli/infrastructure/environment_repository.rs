@@ -53,48 +53,67 @@ impl SqliteCliEnvironmentRepository {
         self.database.connection().map_err(storage_error)
     }
 
-    /// Reads the pre-change `cli_tool_status` row for an agent, if one is left over.
+    /// Reads every leftover pre-change `cli_tool_status` row.
     ///
     /// Read-only by construction: the legacy table is never written from here, so a legacy row can
     /// never become the new write model -- the first real refresh overwrites the snapshot instead.
-    fn legacy_snapshot(
+    ///
+    /// One query serves both `list_snapshots` and `load_snapshot` on purpose. When only the
+    /// single-agent path consulted the legacy table, the runtime resolved a launch from a leftover
+    /// row that the CLI Management page -- which lists -- never showed, which is the page-and-
+    /// runtime disagreement this context exists to end, rebuilt out of the compatibility shim.
+    /// The table holds one row per managed agent, so reading all of them to answer one is free.
+    fn legacy_snapshots(
         &self,
         connection: &crate::platform::database::PooledSqlite,
-        agent_id: &CliToolId,
-    ) -> Result<Option<CliEnvironmentSnapshot>, CliEnvironmentError> {
-        let row: Option<(Option<String>, Option<String>, Option<String>)> = connection
-            .query_row(
-                "SELECT detected_path, current_version, last_checked_at FROM cli_tool_status
-                 WHERE agent_id = ?1",
-                params![agent_id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ) -> Result<Vec<CliEnvironmentSnapshot>, CliEnvironmentError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT agent_id, detected_path, current_version, last_checked_at
+                 FROM cli_tool_status ORDER BY agent_id",
             )
-            .optional()
             .map_err(storage_error)?;
-        let Some((detected_path, current_version, last_checked_at)) = row else {
-            return Ok(None);
-        };
-
-        let checked_at = last_checked_at
-            .map(|raw| {
-                DateTime::parse_from_rfc3339(&raw)
-                    .map(|parsed| parsed.with_timezone(&Utc))
-                    .map_err(|error| {
-                        CliEnvironmentError::Storage(format!(
-                            "{}: legacy last_checked_at: {error}",
-                            agent_id.as_str()
-                        ))
-                    })
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
             })
-            .transpose()?;
+            .map_err(storage_error)?;
 
-        Ok(Some(legacy_row_to_stale_snapshot(
-            agent_id.clone(),
-            LEGACY_FINGERPRINT,
-            detected_path,
-            current_version,
-            checked_at,
-        )))
+        let mut snapshots = Vec::new();
+        for row in rows {
+            let (raw_agent_id, detected_path, current_version, last_checked_at) =
+                row.map_err(storage_error)?;
+            // A legacy row naming an agent this build no longer manages is skipped rather than
+            // failed on: it cannot be shown or launched either way, and refusing to list would let
+            // one obsolete row hide every tool that is still supported.
+            let Ok(agent_id) = CliToolId::new(&raw_agent_id) else {
+                continue;
+            };
+            let checked_at = last_checked_at
+                .map(|raw| {
+                    DateTime::parse_from_rfc3339(&raw)
+                        .map(|parsed| parsed.with_timezone(&Utc))
+                        .map_err(|error| {
+                            CliEnvironmentError::Storage(format!(
+                                "{raw_agent_id}: legacy last_checked_at: {error}"
+                            ))
+                        })
+                })
+                .transpose()?;
+            snapshots.push(legacy_row_to_stale_snapshot(
+                agent_id,
+                LEGACY_FINGERPRINT,
+                detected_path,
+                current_version,
+                checked_at,
+            ));
+        }
+        Ok(snapshots)
     }
 }
 
@@ -151,6 +170,17 @@ impl CliEnvironmentRepository for SqliteCliEnvironmentRepository {
             let (agent_id, raw) = row.map_err(storage_error)?;
             snapshots.push(decode_column(&raw, &agent_id, decode_snapshot)?);
         }
+        // Same rule as the single-agent read: a legacy row counts only where no authoritative
+        // snapshot exists, so a refreshed tool is never described by the old table.
+        for legacy in self.legacy_snapshots(&connection)? {
+            if !snapshots
+                .iter()
+                .any(|snapshot| snapshot.agent_id == legacy.agent_id)
+            {
+                snapshots.push(legacy);
+            }
+        }
+        snapshots.sort_by(|left, right| left.agent_id.as_str().cmp(right.agent_id.as_str()));
         Ok(snapshots)
     }
 
@@ -172,7 +202,10 @@ impl CliEnvironmentRepository for SqliteCliEnvironmentRepository {
             Some(raw) => decode_column(&raw, agent_id.as_str(), decode_snapshot).map(Some),
             // No authoritative snapshot yet: an upgrading user still has a legacy row, and showing
             // it as stale beats showing nothing until the first refresh lands.
-            None => self.legacy_snapshot(&connection, agent_id),
+            None => Ok(self
+                .legacy_snapshots(&connection)?
+                .into_iter()
+                .find(|snapshot| &snapshot.agent_id == agent_id)),
         }
     }
 
