@@ -154,8 +154,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 7.12 Change component cleanup and hidden-tab handling from close/kill to detach.
 - [x] 7.13 Register the listener before attaching, buffer frames that arrive in the window, reattach using `nextSequence`, de-duplicate replay/live frames by shell id and sequence, and display a gap marker when content was evicted or dropped.
 - [x] 7.14 Keep a foreground-process warning visible before explicit close when the runtime can report it; do not claim process state when opaque.
-- [ ] 7.15 Add local registry, remote channel, Web/mock, React lifecycle, and desktop E2E tests proving session/tab switches do not terminate Shells.
-- [ ] 7.16 Remove obsolete kill-on-unmount code only after the desktop Shell lifecycle tests pass.
+- [x] 7.15 Add local registry, remote channel, Web/mock, React lifecycle, and desktop E2E tests proving session/tab switches do not terminate Shells.
+- [x] 7.16 Remove obsolete kill-on-unmount code only after the desktop Shell lifecycle tests pass.
 
 ## 8. Operations-Owned Log Query Index and Live Logs
 

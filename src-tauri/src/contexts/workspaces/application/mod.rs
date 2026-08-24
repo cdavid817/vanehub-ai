@@ -51,6 +51,8 @@ pub(crate) use session_shell_store::ShellStore;
 pub(crate) use shell_service::WorkspaceShellApplicationService;
 
 #[cfg(test)]
+mod session_shell_retention_tests;
+#[cfg(test)]
 mod session_shell_tests;
 #[cfg(test)]
 mod shell_tests;

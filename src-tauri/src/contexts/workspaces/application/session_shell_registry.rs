@@ -4,6 +4,10 @@
 //! never with the store's lock still held. A registry that held its map across a PTY open would
 //! stall every other Shell in the application behind one slow SSH handshake.
 
+use super::evidence::{
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellCloseReason,
+    WorkspaceShellRuntimeKind,
+};
 use super::session_shell::ShellOutputSink;
 use super::session_shell::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
@@ -14,7 +18,7 @@ use super::session_shell::{
 use super::session_shell_store::{ShellEntry, ShellStore};
 use crate::contexts::workspaces::domain::{
     SessionShellError, SessionShellState, ShellAttachmentId, ShellCapacityScope, ShellId,
-    ShellReplayBuffer, ShellTitle, TerminalDimensions,
+    ShellReplayBuffer, ShellRuntimeDescriptor, ShellTitle, TerminalDimensions,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -41,6 +45,12 @@ pub(crate) struct SessionShellRegistry {
     ids: Arc<dyn ShellIdPort>,
     clock: Arc<dyn ShellClockPort>,
     capacities: ShellCapacities,
+    /// Where an opened or closed Shell is reported.
+    ///
+    /// A retained Shell is work a session did, and the console counts it. Without this the Shell
+    /// figures would go quiet the moment the tab stopped using the older one-view service — which
+    /// would read as "this session opened no shells" rather than as a missing wire.
+    evidence: Arc<dyn WorkspaceEvidencePort>,
     /// One gate per in-flight create identity.
     ///
     /// Held across the runtime open — which is exactly why it is not the store's lock. Two threads
@@ -57,6 +67,7 @@ impl SessionShellRegistry {
         ids: Arc<dyn ShellIdPort>,
         clock: Arc<dyn ShellClockPort>,
         capacities: ShellCapacities,
+        evidence: Arc<dyn WorkspaceEvidencePort>,
     ) -> Self {
         Self {
             store,
@@ -65,6 +76,7 @@ impl SessionShellRegistry {
             ids,
             clock,
             capacities,
+            evidence,
             gates: Mutex::new(BTreeMap::new()),
         }
     }
@@ -162,6 +174,20 @@ impl SessionShellRegistry {
             request_id: request.request_id.clone(),
             last_activity_millis: self.clock.elapsed_millis(),
         });
+        // Reported after the entry exists, so nothing is announced that a reader could then fail to
+        // find. `local` and `remote` are the whole vocabulary: a hostname would make this a
+        // location record.
+        self.evidence
+            .try_publish(WorkspaceEvidenceSignal::ShellOpened {
+                session_id: descriptor.session_id.clone(),
+                shell_id: descriptor.shell_id.as_str().to_string(),
+                seat_id: descriptor.seat_id.clone(),
+                runtime: match descriptor.runtime {
+                    ShellRuntimeDescriptor::Remote { .. } => WorkspaceShellRuntimeKind::Remote,
+                    _ => WorkspaceShellRuntimeKind::Local,
+                },
+                occurred_at: descriptor.created_at.clone(),
+            });
         Ok(descriptor)
     }
 
@@ -266,16 +292,38 @@ impl SessionShellRegistry {
     /// matters: a caller retrying after a partial failure has no way to tell "already gone" from
     /// "still there and refused".
     pub(crate) fn close(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
-        if !self.store.contains(shell_id) {
+        self.close_with(shell_id, WorkspaceShellCloseReason::ExplicitClose)
+    }
+
+    /// Why a Shell ended is carried rather than inferred.
+    ///
+    /// A reader groups by the reason, and a reclaimed Shell, a shut-down one, and one the user
+    /// closed are three different facts about a session. Nothing downstream could recover the
+    /// difference from the fact that a Shell is gone.
+    fn close_with(
+        &self,
+        shell_id: &ShellId,
+        reason: WorkspaceShellCloseReason,
+    ) -> Result<(), SessionShellError> {
+        let Some(descriptor) = self.store.descriptor(shell_id) else {
             return Ok(());
-        }
+        };
         // Announced before the entry goes, because a subscriber that learns nothing keeps showing a
         // live view of a process that has ended.
         self.store.on_state(shell_id, SessionShellState::Closed);
         if let Some(mut entry) = self.store.remove(shell_id) {
             entry.replay.release();
         }
-        self.runtime.close(shell_id)
+        let result = self.runtime.close(shell_id);
+        self.evidence
+            .try_publish(WorkspaceEvidenceSignal::ShellClosed {
+                session_id: descriptor.session_id,
+                shell_id: shell_id.as_str().to_string(),
+                seat_id: descriptor.seat_id,
+                reason,
+                occurred_at: self.clock.now(),
+            });
+        result
     }
 
     /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
@@ -284,7 +332,7 @@ impl SessionShellRegistry {
             .store
             .idle_candidates(SHELL_IDLE_MILLIS, SHELL_IDLE_SWEEP_LIMIT);
         for shell_id in &candidates {
-            let _ = self.close(shell_id);
+            let _ = self.close_with(shell_id, WorkspaceShellCloseReason::IdleCleanup);
         }
         candidates
     }
@@ -292,7 +340,7 @@ impl SessionShellRegistry {
     /// Closes everything at shutdown, joining each runtime's workers through `close`.
     pub(crate) fn shutdown(&self) {
         for shell_id in self.store.all_shell_ids() {
-            let _ = self.close(&shell_id);
+            let _ = self.close_with(&shell_id, WorkspaceShellCloseReason::Shutdown);
         }
     }
 

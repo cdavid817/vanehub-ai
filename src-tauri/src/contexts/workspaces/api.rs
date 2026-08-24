@@ -347,7 +347,16 @@ impl WorkspaceApi {
         self.shell.kill_shell(shell_id)
     }
 
+    /// Ends every Shell a session owns, retained ones included.
+    ///
+    /// Called on the "this session is done" edge — archive and delete — and on no other. A retained
+    /// Shell outlives its view by design, so nothing else would ever close it: the session it
+    /// belonged to would be gone from the list while its process kept running with no way left to
+    /// reach it.
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
+        for descriptor in self.shells.list(Some(session_id)) {
+            let _ = self.shells.close(&descriptor.shell_id);
+        }
         self.shell.kill_for_session(session_id)
     }
 
@@ -360,6 +369,59 @@ impl WorkspaceApi {
         request: &CreateSessionShellRequest,
     ) -> Result<SessionShellDescriptor, SessionShellError> {
         self.shells.create(request)
+    }
+
+    /// Opens a Shell off the main thread.
+    ///
+    /// A PTY spawn is quick and an SSH handshake is not, and a synchronous Tauri command runs where
+    /// the webview runs: the window would stop repainting until the far end answered. The four
+    /// Shell operations that reach the runtime all go through the blocking pool for that reason —
+    /// closing is the worst of them, because it kills a process, waits for it, and joins its reader.
+    pub(crate) async fn create_session_shell_blocking(
+        &self,
+        request: CreateSessionShellRequest,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.on_blocking_pool(move |api| api.create_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn write_session_shell_blocking(
+        &self,
+        request: WriteSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.write_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn resize_session_shell_blocking(
+        &self,
+        request: ResizeSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.resize_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn close_session_shell_blocking(
+        &self,
+        shell_id: ShellId,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.close_session_shell(&shell_id))
+            .await
+    }
+
+    /// A task that could not be scheduled is reported as a runtime failure rather than swallowed:
+    /// the caller has to know its Shell operation did not happen.
+    async fn on_blocking_pool<T, F>(&self, work: F) -> Result<T, SessionShellError>
+    where
+        T: Send + 'static,
+        F: FnOnce(WorkspaceApi) -> Result<T, SessionShellError> + Send + 'static,
+    {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || work(api))
+            .await
+            .map_err(|_| SessionShellError::Runtime {
+                reason: crate::contexts::workspaces::domain::shell_reason("shell_task_failed"),
+            })?
     }
 
     pub(crate) fn attach_session_shell(

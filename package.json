@@ -29,6 +29,7 @@
     "test:desktop:smoke": "node scripts/test-desktop.mjs smoke",
     "test:desktop:cli-terminal": "node scripts/test-desktop.mjs cli-terminal",
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
+    "test:desktop:session-shell": "node scripts/test-desktop.mjs session-shell",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
     "test:desktop": "node scripts/test-desktop.mjs all",

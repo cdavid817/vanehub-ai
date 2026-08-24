@@ -46,10 +46,15 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(UuidWorkspaceShellId),
         shell_events,
         shell_logging,
+        evidence.clone(),
+    );
+    let shells = assemble_session_shell_registry(
+        database.clone(),
+        app.clone(),
+        shell_workspaces,
+        ssh,
         evidence,
     );
-    let shells =
-        assemble_session_shell_registry(database.clone(), app.clone(), shell_workspaces, ssh);
     let service = WorkspaceApplicationService::new(
         Arc::new(SqliteWorkspaceHistoryRepository::new(database)),
         Arc::new(WorkspaceFilesystemAdapter::new(logging.clone())),
@@ -95,6 +100,7 @@ fn assemble_session_shell_registry(
     app: AppHandle,
     shell_workspaces: Arc<SqliteShellWorkspaceAdapter>,
     ssh: SshConnectionsApi,
+    evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
 ) -> Arc<SessionShellRegistry> {
     let clock = Arc::new(SystemShellClock::default());
     let store = Arc::new(ShellStore::new(
@@ -112,5 +118,6 @@ fn assemble_session_shell_registry(
         Arc::new(UuidShellIds),
         clock,
         ShellCapacities::default(),
+        evidence,
     ))
 }

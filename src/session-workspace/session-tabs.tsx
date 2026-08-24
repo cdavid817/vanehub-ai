@@ -226,6 +226,10 @@ function SessionWorkspaceTabs({
           <section
             aria-labelledby={`session-tab-${id}`}
             className={cn("h-full min-h-0", activeTab === id ? "block" : "hidden")}
+            // Which session this panel is showing, for verification that has to reach a native
+            // registry keyed by session id. Nothing on screen carries it, and a desktop test that
+            // guessed would be checking a different session's state than the one it is looking at.
+            data-session-id={sessionId ?? ""}
             id={`session-tab-panel-${id}`}
             key={`${sessionId ?? "none"}-${id}`}
             role="tabpanel"

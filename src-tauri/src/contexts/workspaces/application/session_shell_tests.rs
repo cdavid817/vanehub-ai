@@ -1,3 +1,4 @@
+use super::evidence::{WorkspaceEvidencePort, WorkspaceEvidenceSignal};
 use super::session_shell::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
     SessionShellNotice, SessionShellNoticePort, SessionShellRuntimePort, SessionShellWorkspace,
@@ -14,7 +15,7 @@ use crate::contexts::workspaces::domain::{
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-const SESSION: &str = "session-1";
+pub(super) const SESSION: &str = "session-1";
 
 #[derive(Default)]
 struct FakeClock {
@@ -60,6 +61,15 @@ impl ShellIdPort for SequentialIds {
 }
 
 #[derive(Default)]
+pub(super) struct RecordingEvidence(pub(super) Mutex<Vec<WorkspaceEvidenceSignal>>);
+
+impl WorkspaceEvidencePort for RecordingEvidence {
+    fn try_publish(&self, signal: WorkspaceEvidenceSignal) {
+        self.0.lock().expect("evidence").push(signal);
+    }
+}
+
+#[derive(Default)]
 struct RecordingNotices(Mutex<Vec<SessionShellNotice>>);
 
 impl SessionShellNoticePort for RecordingNotices {
@@ -69,9 +79,9 @@ impl SessionShellNoticePort for RecordingNotices {
 }
 
 #[derive(Default)]
-struct FakeRuntime {
-    opened: Mutex<Vec<ShellId>>,
-    closed: Mutex<Vec<ShellId>>,
+pub(super) struct FakeRuntime {
+    pub(super) opened: Mutex<Vec<ShellId>>,
+    pub(super) closed: Mutex<Vec<ShellId>>,
     written: Mutex<Vec<(ShellId, String)>>,
     resized: Mutex<Vec<(ShellId, TerminalDimensions)>>,
     foreground: Mutex<ShellForegroundProcessState>,
@@ -80,7 +90,7 @@ struct FakeRuntime {
 }
 
 impl FakeRuntime {
-    fn emit(&self, shell_id: &ShellId, text: &str) {
+    pub(super) fn emit(&self, shell_id: &ShellId, text: &str) {
         for sink in self.sinks.lock().expect("sinks").iter() {
             sink.on_output(shell_id, ShellStream::Pty, text.as_bytes());
         }
@@ -170,9 +180,10 @@ impl SessionShellWorkspacePort for FakeWorkspaces {
     }
 }
 
-struct Harness {
-    registry: Arc<SessionShellRegistry>,
-    runtime: Arc<FakeRuntime>,
+pub(super) struct Harness {
+    pub(super) registry: Arc<SessionShellRegistry>,
+    pub(super) evidence: Arc<RecordingEvidence>,
+    pub(super) runtime: Arc<FakeRuntime>,
     clock: Arc<FakeClock>,
     notices: Arc<RecordingNotices>,
     store: Arc<ShellStore>,
@@ -183,6 +194,7 @@ fn harness_with(workspaces: FakeWorkspaces, capacities: ShellCapacities) -> Harn
     let notices = Arc::new(RecordingNotices::default());
     let store = Arc::new(ShellStore::new(notices.clone(), clock.clone()));
     let runtime = Arc::new(FakeRuntime::default());
+    let evidence = Arc::new(RecordingEvidence::default());
     let registry = Arc::new(SessionShellRegistry::new(
         store.clone(),
         runtime.clone(),
@@ -190,21 +202,34 @@ fn harness_with(workspaces: FakeWorkspaces, capacities: ShellCapacities) -> Harn
         Arc::new(SequentialIds::default()),
         clock.clone(),
         capacities,
+        evidence.clone(),
     ));
     Harness {
         registry,
         runtime,
+        evidence,
         clock,
         notices,
         store,
     }
 }
 
-fn harness() -> Harness {
+pub(super) fn harness() -> Harness {
     harness_with(FakeWorkspaces::default(), ShellCapacities::default())
 }
 
-fn create(harness: &Harness, request_id: Option<&str>) -> Result<ShellId, SessionShellError> {
+impl Harness {
+    /// Moves the monotonic clock past the idle window, so a sweep has something to reclaim.
+    pub(super) fn advance_past_the_idle_window(&self) {
+        self.clock
+            .advance(super::session_shell_registry::SHELL_IDLE_MILLIS + 1);
+    }
+}
+
+pub(super) fn create(
+    harness: &Harness,
+    request_id: Option<&str>,
+) -> Result<ShellId, SessionShellError> {
     harness
         .registry
         .create(&CreateSessionShellRequest {
