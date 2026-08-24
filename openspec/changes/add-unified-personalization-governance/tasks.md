@@ -43,8 +43,8 @@
 
 ## 4. Legacy Personalization and Memory Migration
 
-- [ ] 4.1 Implement a typed workspace identity resolver that prefers existing stable project/workspace ids and otherwise hashes the normalized root plus remote connection identity.
-- [ ] 4.2 Implement one-time migration of legacy `AppSettings` custom instruction fields and toggles into the global policy plus a OnePiece extraction override when required.
+- [x] 4.1 Implement a typed workspace identity resolver that prefers existing stable project/workspace ids and otherwise hashes the normalized root plus remote connection identity.
+- [x] 4.2 Implement one-time migration of legacy `AppSettings` custom instruction fields and toggles into the global policy plus a OnePiece extraction override when required.
 - [ ] 4.3 Keep legacy personalization settings deserializable for the compatibility window but remove them from the new UI and runtime source-of-truth path.
 - [ ] 4.4 Implement complete v1 memory enumeration, excluding derived/temporary/lock/quarantine files by explicit rules rather than parse success.
 - [ ] 4.5 Convert each valid legacy memory to a v2 immutable-id file, active global scope, all-Agent audience, preserved content/provenance/timestamps, and `legacy_migration` source.

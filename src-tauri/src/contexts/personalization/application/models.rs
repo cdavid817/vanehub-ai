@@ -67,6 +67,10 @@ pub(crate) struct ResetCounts {
 /// What the caller knows about a workspace before an identity is derived from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct WorkspaceIdentityRequest {
+    /// A stable id the workspace subsystem already assigns. Preferred over anything derived here:
+    /// two subsystems deriving their own answer is how "the same workspace" ends up meaning two
+    /// different things.
+    pub(crate) stable_id: Option<String>,
     pub(crate) project_path: Option<String>,
     pub(crate) worktree_path: Option<String>,
     /// Present for a remote workspace. Carries connection identity, not just a path, because two

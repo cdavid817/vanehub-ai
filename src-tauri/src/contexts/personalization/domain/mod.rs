@@ -20,6 +20,9 @@ mod scope;
 #[cfg(test)]
 mod scope_tests;
 mod snapshot;
+mod workspace_identity;
+#[cfg(test)]
+mod workspace_identity_tests;
 
 pub(crate) use candidate::{
     ArchiveMemoryCandidate, CandidateReviewStatus, CreateMemoryCandidate, MemoryCandidate,
@@ -58,4 +61,7 @@ pub(crate) use snapshot::{
     PersonalizationExclusionReason, PersonalizationResolutionContext,
     PersonalizationRuntimeCapabilities, PersonalizationWarning, PersonalizationWarningCode,
     ResolvedInstructionSegment, FAIL_CLOSED_REVISION_TOKEN,
+};
+pub(crate) use workspace_identity::{
+    local_paths_fold_case, normalize_local_root, WorkspaceIdentitySource,
 };

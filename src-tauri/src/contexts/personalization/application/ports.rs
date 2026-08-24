@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use super::error::PersonalizationApplicationError;
+use super::migrate_legacy_policy::MigratedPolicy;
 use super::models::{
     CreateMemoryInput, DeleteMemoryOutcome, ResetCounts, UpdateMemoryPatch,
     WorkspaceIdentityRequest,
@@ -174,6 +175,23 @@ pub(crate) trait WorkspaceIdentityPort: Send + Sync {
 pub(crate) trait MigrationStatePort: Send + Sync {
     fn load(&self) -> Result<MigrationState>;
     fn save(&self, state: &MigrationState) -> Result<()>;
+}
+
+/// One-time migration of the legacy `AppSettings` personalization fields.
+///
+/// Separate from `PolicyRepository` because it spans two tables — the policy rows and the migration
+/// marker — and the whole point is that they move together. A marker written without its rows would
+/// make the next startup skip a migration that never happened; rows written without their marker
+/// would make it run again over data that had already moved.
+pub(crate) trait LegacyPolicyMigrationPort: Send + Sync {
+    /// Whether policy migration has already completed. Fails closed on an unreadable marker: a
+    /// second migration over already-migrated data is worse than a delayed one.
+    fn is_complete(&self) -> Result<bool>;
+
+    /// Commits the mapped rows and the marker in one transaction, or leaves the database exactly as
+    /// it was. Returns `false` when migration had already completed, so a repeated startup is a
+    /// no-op rather than an error.
+    fn commit(&self, migrated: &MigratedPolicy, now: DateTime<Utc>) -> Result<bool>;
 }
 
 /// The migration journal, which doubles as the legacy-identity alias table.
