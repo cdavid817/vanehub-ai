@@ -51,6 +51,8 @@ pub(crate) enum PersonalizationDomainError {
     UnknownMemoryType(String),
     UnknownMemorySensitivity(String),
     UnknownMemoryScopeKind(String),
+    InvalidLegacySourceId(IdentityRejection),
+    UnknownMigrationStage(String),
 }
 
 /// Why an identity string was refused. Deliberately does not echo the value — an identity is not
@@ -160,6 +162,12 @@ impl std::fmt::Display for PersonalizationDomainError {
             }
             Self::UnknownMemoryScopeKind(value) => {
                 write!(formatter, "Unknown memory scope kind \"{value}\".")
+            }
+            Self::InvalidLegacySourceId(reason) => {
+                write!(formatter, "Legacy memory source id {reason}.")
+            }
+            Self::UnknownMigrationStage(value) => {
+                write!(formatter, "Unknown migration stage \"{value}\".")
             }
         }
     }

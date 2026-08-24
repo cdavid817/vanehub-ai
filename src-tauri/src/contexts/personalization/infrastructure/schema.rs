@@ -91,6 +91,25 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), DatabaseError> {
         CREATE INDEX IF NOT EXISTS idx_personalization_candidate_target
             ON personalization_memory_candidates (target_memory_id);
 
+        -- One row per legacy source, keyed by the identity that source had *before* migration.
+        -- This is both the migration journal and the alias table: it is what makes migration
+        -- resumable, and it is what lets a pre-governance caller address a memory by the name that
+        -- used to be its identity now that duplicate display names are legal.
+        CREATE TABLE IF NOT EXISTS personalization_memory_migration_journal (
+            legacy_source_id TEXT PRIMARY KEY NOT NULL,
+            memory_id TEXT,
+            stage TEXT NOT NULL,
+            legacy_backup_path TEXT,
+            legacy_content_hash TEXT,
+            last_error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_personalization_journal_memory
+            ON personalization_memory_migration_journal (memory_id);
+        CREATE INDEX IF NOT EXISTS idx_personalization_journal_stage
+            ON personalization_memory_migration_journal (stage);
+
         CREATE TABLE IF NOT EXISTS personalization_migration_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             generation INTEGER NOT NULL DEFAULT 0,

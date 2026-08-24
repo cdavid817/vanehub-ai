@@ -20,6 +20,15 @@ pub(crate) enum PersonalizationApplicationError {
     Storage(String),
     /// Migration or reconciliation has not established a safe generation.
     MaintenanceRequired,
+    /// A pre-governance caller addressed a memory by a display name that now matches more than one
+    /// record, and no legacy-identity alias resolves the ambiguity.
+    ///
+    /// Refusing is the only safe answer. Picking the first, the newest, or any sorted position
+    /// would silently overwrite one of the user's memories, which is exactly the failure mode
+    /// immutable ids were introduced to end.
+    AmbiguousLegacyName {
+        matches: usize,
+    },
     /// Another holder — in this process or another one — owns the memory-directory lock.
     ///
     /// Typed rather than folded into `Storage` because the caller's correct response is entirely
@@ -65,6 +74,10 @@ impl std::fmt::Display for PersonalizationApplicationError {
             Self::MaintenanceRequired => write!(
                 formatter,
                 "Personalization data is being migrated or repaired and is temporarily unavailable."
+            ),
+            Self::AmbiguousLegacyName { matches } => write!(
+                formatter,
+                "This name matches {matches} memories, so it cannot identify one of them. Open the memory you meant and edit it directly."
             ),
             Self::MaintenanceBusy => write!(
                 formatter,

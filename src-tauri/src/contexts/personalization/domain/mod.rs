@@ -1,5 +1,8 @@
 mod candidate;
 mod error;
+mod legacy_identity;
+#[cfg(test)]
+mod legacy_identity_tests;
 mod maintenance;
 #[cfg(test)]
 mod maintenance_tests;
@@ -23,6 +26,7 @@ pub(crate) use candidate::{
     MemoryCandidateOperation, ReviewAction, ReviewOutcome, UpdateMemoryCandidate,
 };
 pub(crate) use error::{IdentityRejection, PersonalizationDomainError};
+pub(crate) use legacy_identity::{LegacySourceId, MigrationJournalEntry, MigrationStage};
 pub(crate) use maintenance::{
     MaintenanceFailure, MaintenancePhase, MigrationState, OwnedEntryClassification,
     ReconcileMemoryOutcome, ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview,

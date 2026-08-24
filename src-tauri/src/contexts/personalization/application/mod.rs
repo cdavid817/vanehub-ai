@@ -13,6 +13,6 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     CandidateRepository, ClockPort, DerivedIndexPort, MemoryIdGeneratorPort,
-    MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository, MigrationStatePort,
-    PolicyRepository, RetrievalIndexPort, WorkspaceIdentityPort,
+    MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository, MigrationJournalPort,
+    MigrationStatePort, PolicyRepository, RetrievalIndexPort, WorkspaceIdentityPort,
 };

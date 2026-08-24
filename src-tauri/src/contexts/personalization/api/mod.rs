@@ -7,6 +7,8 @@
 /// taken over from. Placing it there would have meant permanently raising that subtree's line
 /// ceilings for code with a scheduled deletion date — the snapshot runtime adapters remove this
 /// module wholesale.
+#[cfg(test)]
+mod legacy_alias_tests;
 mod legacy_memory_bridge;
 #[cfg(test)]
 mod legacy_memory_bridge_tests;
@@ -18,12 +20,13 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CreateMemoryInput, MemoryApplicationService, MigrationStatePort,
+    CreateMemoryInput, MemoryApplicationService, MigrationJournalPort, MigrationStatePort,
     PersonalizationApplicationError, UpdateMemoryPatch,
 };
 use super::domain::{
-    MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity,
-    MemorySource, MemoryStatus, MemoryType,
+    LegacySourceId, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
+    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationJournalEntry,
+    MigrationStage,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -99,16 +102,19 @@ pub(crate) struct CompatibilitySaveInput {
 pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
     migration_state: Arc<dyn MigrationStatePort>,
+    journal: Arc<dyn MigrationJournalPort>,
 }
 
 impl PersonalizationApi {
     pub(crate) fn new(
         memories: Arc<MemoryApplicationService>,
         migration_state: Arc<dyn MigrationStatePort>,
+        journal: Arc<dyn MigrationJournalPort>,
     ) -> Self {
         Self {
             memories,
             migration_state,
+            journal,
         }
     }
 
@@ -155,21 +161,27 @@ impl PersonalizationApi {
         Ok(memories)
     }
 
-    /// Creates, or updates in place when an active compatibility memory already has this name.
+    /// Creates, or updates the one record this legacy name identifies.
     ///
-    /// Name matching preserves the previous contract, where saving under an existing name replaced
-    /// that memory rather than adding a second one. v2 no longer treats a name as identity, so
-    /// this match is a compatibility behavior confined to this method and not a store rule.
+    /// Preserves the previous contract — saving under an existing name replaced that memory — but
+    /// cannot implement it by searching for a name any more, because v2 permits duplicates and a
+    /// search can return several. Resolution order, and none of it picks a record positionally:
+    ///
+    /// 1. a persisted `legacy source identity -> memory id` alias, addressed by stable id;
+    /// 2. a stale alias whose target is gone is removed, and resolution continues as if absent;
+    /// 3. no alias and exactly one visible record with this name: adopt it and persist the alias,
+    ///    which is how a memory that predates the journal acquires one;
+    /// 4. no alias and no match: create, then persist the alias;
+    /// 5. no alias and several matches: refuse with a typed ambiguity, because choosing the first,
+    ///    the newest, or any sorted position would silently overwrite one of the user's memories.
     pub(crate) fn save_compatibility_memory(
         &self,
         input: CompatibilitySaveInput,
     ) -> Result<CompatibilityMemory> {
-        let existing = self
-            .memories
-            .all_records()?
-            .into_iter()
-            .filter(is_compatibility_visible_ref)
-            .find(|record| record.name == input.name);
+        // A name that could never have been a v1 filename has no legacy identity, and therefore no
+        // alias. That is correct rather than restrictive: nothing under v1 could have created it.
+        let legacy_id = LegacySourceId::from_display_name(&input.name).ok();
+        let existing = self.resolve_by_legacy_identity(legacy_id.as_ref(), &input.name)?;
 
         let source = if input.is_automatic {
             MemorySource::OnePieceAutomatic
@@ -219,7 +231,62 @@ impl PersonalizationApi {
                 sensitivity: MemorySensitivity::Normal,
             })?,
         };
+
+        // Persisted after the write, not before: an alias pointing at a record that failed to be
+        // created would send the next save to a memory that does not exist.
+        if let Some(legacy_id) = legacy_id {
+            self.journal.upsert(
+                &MigrationJournalEntry {
+                    legacy_source_id: legacy_id,
+                    memory_id: Some(coordinated.record.id.clone()),
+                    // Not a migrated record: it was authored through the compatibility surface.
+                    // `Completed` records that its identity is settled and nothing is pending.
+                    stage: MigrationStage::Completed,
+                    legacy_backup_path: None,
+                    legacy_content_hash: None,
+                    last_error_code: None,
+                },
+                coordinated.record.updated_at,
+            )?;
+        }
         Ok(CompatibilityMemory::from_record(&coordinated.record))
+    }
+
+    /// Finds the single record a legacy name identifies, or explains why it cannot.
+    fn resolve_by_legacy_identity(
+        &self,
+        legacy_id: Option<&LegacySourceId>,
+        name: &str,
+    ) -> Result<Option<MemoryRecord>> {
+        if let Some(legacy_id) = legacy_id {
+            if let Some(entry) = self.journal.get(legacy_id)? {
+                if let Some(memory_id) = entry.memory_id.filter(|_| entry.stage.has_usable_memory())
+                {
+                    match self.memories.detail(&memory_id)? {
+                        Some(record) => return Ok(Some(record)),
+                        // The alias outlived its target. Removing it here is what stops a deleted
+                        // memory from permanently blocking a name from being reused.
+                        None => {
+                            self.journal.remove(legacy_id)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        let matches: Vec<MemoryRecord> = self
+            .memories
+            .all_records()?
+            .into_iter()
+            .filter(is_compatibility_visible_ref)
+            .filter(|record| record.name == name)
+            .collect();
+
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.into_iter().next()),
+            count => Err(PersonalizationApplicationError::AmbiguousLegacyName { matches: count }),
+        }
     }
 
     /// Deletes by the v2 file name a compatibility listing handed out.

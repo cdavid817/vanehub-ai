@@ -18,12 +18,12 @@ use crate::contexts::personalization::domain::{
     MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType, MigrationState,
 };
 use crate::contexts::personalization::infrastructure::{
-    MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteMemoryProjection, SqliteMigrationState,
-    UuidMemoryIdGenerator,
+    MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteMemoryProjection, SqliteMigrationJournal,
+    SqliteMigrationState, UuidMemoryIdGenerator,
 };
 use crate::platform::database::NativeDatabase;
 
-fn now() -> DateTime<Utc> {
+pub(super) fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 8, 24, 9, 0, 0).unwrap()
 }
 
@@ -66,19 +66,35 @@ impl RetrievalIndexPort for FakeRetrievalIndex {
     }
 }
 
-struct Fixture {
-    _directory: TempDir,
-    memory_root: std::path::PathBuf,
-    service: Arc<MemoryApplicationService>,
-    migration_state: Arc<SqliteMigrationState>,
-    bridge: LegacyMemoryPortBridge,
+pub(super) struct Fixture {
+    /// `None` for a reopened stack: the original fixture still owns the directory, and a second
+    /// owner would delete it out from under the test when the first one dropped.
+    pub(super) _directory: Option<TempDir>,
+    pub(super) directory_path: std::path::PathBuf,
+    pub(super) memory_root: std::path::PathBuf,
+    pub(super) service: Arc<MemoryApplicationService>,
+    pub(super) migration_state: Arc<SqliteMigrationState>,
+    pub(super) journal: Arc<SqliteMigrationJournal>,
+    pub(super) api: PersonalizationApi,
+    pub(super) bridge: LegacyMemoryPortBridge,
 }
 
-fn fixture(label: &str) -> Fixture {
+/// Builds the whole governed stack over one temporary directory.
+///
+/// Assembly lives here, at the owning context's api edge, rather than in the consumer's test file:
+/// a test that reached across a context boundary for concrete persistence would violate the
+/// inward-dependency rule, and moving the assembly is the repair rather than an exemption.
+pub(super) fn fixture(label: &str) -> Fixture {
     let directory =
         TempDir::with_prefix(format!("legacy-bridge-{label}-")).expect("temporary directory");
-    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-    let memory_root = directory.path().join("memory");
+    let directory_path = directory.path().to_path_buf();
+    reopen(directory_path.clone(), Some(directory))
+}
+
+/// Rebuilds the stack over an existing directory, standing in for an application restart.
+pub(super) fn reopen(directory_path: std::path::PathBuf, keep: Option<TempDir>) -> Fixture {
+    let database = NativeDatabase::new(directory_path.clone()).expect("database");
+    let memory_root = directory_path.join("memory");
 
     let repository = Arc::new(
         MarkdownMemoryRepository::new(memory_root.clone(), Arc::new(UuidMemoryIdGenerator))
@@ -86,7 +102,8 @@ fn fixture(label: &str) -> Fixture {
     );
     let projection = Arc::new(SqliteMemoryProjection::new(database.clone()));
     let derived = Arc::new(MarkdownDerivedIndex::new(memory_root.clone()));
-    let migration_state = Arc::new(SqliteMigrationState::new(database));
+    let migration_state = Arc::new(SqliteMigrationState::new(database.clone()));
+    let journal = Arc::new(SqliteMigrationJournal::new(database));
 
     let service = Arc::new(MemoryApplicationService::new(
         repository.clone(),
@@ -96,22 +113,23 @@ fn fixture(label: &str) -> Fixture {
         Arc::new(FakeRetrievalIndex::default()),
         Arc::new(FixedClock),
     ));
-    let bridge = LegacyMemoryPortBridge::new(PersonalizationApi::new(
-        service.clone(),
-        migration_state.clone(),
-    ));
+    let api = PersonalizationApi::new(service.clone(), migration_state.clone(), journal.clone());
+    let bridge = LegacyMemoryPortBridge::new(api.clone());
 
     Fixture {
-        _directory: directory,
+        _directory: keep,
+        directory_path,
         memory_root,
         service,
         migration_state,
+        journal,
+        api,
         bridge,
     }
 }
 
 /// Marks migration complete so the compatibility view stops failing closed.
-fn mark_ready(fixture: &Fixture) {
+pub(super) fn mark_ready(fixture: &Fixture) {
     fixture
         .migration_state
         .save(&MigrationState {
@@ -124,7 +142,7 @@ fn mark_ready(fixture: &Fixture) {
         .expect("mark migration complete");
 }
 
-fn seed(
+pub(super) fn seed(
     fixture: &Fixture,
     name: &str,
     scope: MemoryScope,

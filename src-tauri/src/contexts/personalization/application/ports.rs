@@ -6,11 +6,11 @@ use super::models::{
     WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, CandidateReviewStatus, MemoryCandidate, MemoryId, MemoryPage, MemoryQuery,
-    MemoryRecord, MemoryScopeFilter, MemoryStatus, MigrationState, PatchPolicyResult,
-    PersonalizationLayers, PersonalizationPolicyPatch, PersonalizationPolicyRecord,
-    PersonalizationPolicyScope, ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest,
-    StorageEntry, WorkspaceIdentity, WorkspaceKey,
+    AgentId, CandidateReviewStatus, LegacySourceId, MemoryCandidate, MemoryId, MemoryPage,
+    MemoryQuery, MemoryRecord, MemoryScopeFilter, MemoryStatus, MigrationJournalEntry,
+    MigrationState, PatchPolicyResult, PersonalizationLayers, PersonalizationPolicyPatch,
+    PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
+    ResetMemoryOutcome, ResetMemoryRequest, StorageEntry, WorkspaceIdentity, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -174,6 +174,27 @@ pub(crate) trait WorkspaceIdentityPort: Send + Sync {
 pub(crate) trait MigrationStatePort: Send + Sync {
     fn load(&self) -> Result<MigrationState>;
     fn save(&self, state: &MigrationState) -> Result<()>;
+}
+
+/// The migration journal, which doubles as the legacy-identity alias table.
+///
+/// Both readers need the same fact — "which v2 record did this legacy source become" — so they
+/// share one table rather than two that could disagree. Migration writes it stage by stage; the
+/// compatibility bridge reads it to address a memory by the name that used to be its identity,
+/// which searching by display name can no longer do now that duplicates are legal.
+pub(crate) trait MigrationJournalPort: Send + Sync {
+    fn get(&self, legacy_source_id: &LegacySourceId) -> Result<Option<MigrationJournalEntry>>;
+
+    /// Reverse lookup, so a deleted memory's alias can be found and cleaned up.
+    fn find_by_memory(&self, memory_id: &MemoryId) -> Result<Vec<MigrationJournalEntry>>;
+
+    /// Inserts or advances one entry. Persisted before the step it authorizes, never after.
+    fn upsert(&self, entry: &MigrationJournalEntry, now: DateTime<Utc>) -> Result<()>;
+
+    /// Every entry, for resuming an interrupted run.
+    fn list_all(&self) -> Result<Vec<MigrationJournalEntry>>;
+
+    fn remove(&self, legacy_source_id: &LegacySourceId) -> Result<bool>;
 }
 
 /// Injected rather than called directly so the domain stays clock-free and every time-dependent

@@ -14,6 +14,7 @@ mod sqlite_candidate_repository_tests;
 mod sqlite_memory_projection;
 #[cfg(test)]
 mod sqlite_memory_projection_tests;
+mod sqlite_migration_journal;
 mod sqlite_migration_state;
 mod sqlite_policy_repository;
 #[cfg(test)]
@@ -32,5 +33,6 @@ pub(crate) use memory_id_generator::UuidMemoryIdGenerator;
 pub(crate) use schema::apply_schema;
 pub(crate) use sqlite_candidate_repository::SqliteCandidateRepository;
 pub(crate) use sqlite_memory_projection::SqliteMemoryProjection;
+pub(crate) use sqlite_migration_journal::SqliteMigrationJournal;
 pub(crate) use sqlite_migration_state::SqliteMigrationState;
 pub(crate) use sqlite_policy_repository::SqlitePolicyRepository;
