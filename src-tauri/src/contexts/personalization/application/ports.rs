@@ -7,8 +7,8 @@ use super::models::{
     WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, CandidateReviewStatus, LegacySourceId, MemoryCandidate, MemoryId, MemoryPage,
-    MemoryQuery, MemoryRecord, MemoryScopeFilter, MemoryStatus, MigrationJournalEntry,
+    AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, MemoryCandidate, MemoryId,
+    MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter, MemoryStatus, MigrationJournalEntry,
     MigrationState, PatchPolicyResult, PersonalizationLayers, PersonalizationPolicyPatch,
     PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
     ResetMemoryOutcome, ResetMemoryRequest, StorageEntry, WorkspaceIdentity, WorkspaceKey,
@@ -194,16 +194,26 @@ pub(crate) trait LegacyPolicyMigrationPort: Send + Sync {
     fn commit(&self, migrated: &MigratedPolicy, now: DateTime<Utc>) -> Result<bool>;
 }
 
-/// The migration journal, which doubles as the legacy-identity alias table.
+/// Compatibility addressing: which v2 record an old display-name-derived address points at.
 ///
-/// Both readers need the same fact — "which v2 record did this legacy source become" — so they
-/// share one table rather than two that could disagree. Migration writes it stage by stage; the
-/// compatibility bridge reads it to address a memory by the name that used to be its identity,
-/// which searching by display name can no longer do now that duplicates are legal.
-pub(crate) trait MigrationJournalPort: Send + Sync {
-    fn get(&self, legacy_source_id: &LegacySourceId) -> Result<Option<MigrationJournalEntry>>;
+/// Typed on `LegacyAddressKey` so a source id cannot be passed here. The two identities answer
+/// different questions and there is deliberately no conversion between them.
+pub(crate) trait LegacyAddressAliasPort: Send + Sync {
+    fn get(&self, address: &LegacyAddressKey) -> Result<Option<MemoryId>>;
+    fn put(&self, address: &LegacyAddressKey, target: &MemoryId, now: DateTime<Utc>) -> Result<()>;
+    fn remove(&self, address: &LegacyAddressKey) -> Result<bool>;
+    fn list_all(&self) -> Result<Vec<(LegacyAddressKey, MemoryId)>>;
+}
 
-    /// Reverse lookup, so a deleted memory's alias can be found and cleaned up.
+/// The migration journal: which stage each actually-discovered source has reached.
+///
+/// Typed on `LegacySourceId`, which comes from where the source was found. Keying this on a display
+/// name would make two same-named files one journal entry, and a malformed file — which has no
+/// readable name at all — unjournalable.
+pub(crate) trait MigrationJournalPort: Send + Sync {
+    fn get(&self, source_id: &LegacySourceId) -> Result<Option<MigrationJournalEntry>>;
+
+    /// Reverse lookup, so a target's journal history can be found from the record.
     fn find_by_memory(&self, memory_id: &MemoryId) -> Result<Vec<MigrationJournalEntry>>;
 
     /// Inserts or advances one entry. Persisted before the step it authorizes, never after.
@@ -212,7 +222,7 @@ pub(crate) trait MigrationJournalPort: Send + Sync {
     /// Every entry, for resuming an interrupted run.
     fn list_all(&self) -> Result<Vec<MigrationJournalEntry>>;
 
-    fn remove(&self, legacy_source_id: &LegacySourceId) -> Result<bool>;
+    fn remove(&self, source_id: &LegacySourceId) -> Result<bool>;
 }
 
 /// Injected rather than called directly so the domain stays clock-free and every time-dependent

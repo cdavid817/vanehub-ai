@@ -29,7 +29,10 @@ pub(crate) use candidate::{
     MemoryCandidateOperation, ReviewAction, ReviewOutcome, UpdateMemoryCandidate,
 };
 pub(crate) use error::{IdentityRejection, PersonalizationDomainError};
-pub(crate) use legacy_identity::{LegacySourceId, MigrationJournalEntry, MigrationStage};
+pub(crate) use legacy_identity::{
+    LegacyAddressKey, LegacySourceFingerprint, LegacySourceId, LegacySourceLocator,
+    LegacyTableKind, MigrationJournalEntry, MigrationStage, NormalizedLegacyPath,
+};
 pub(crate) use maintenance::{
     MaintenanceFailure, MaintenancePhase, MigrationState, OwnedEntryClassification,
     ReconcileMemoryOutcome, ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview,

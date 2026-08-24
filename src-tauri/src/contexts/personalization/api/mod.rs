@@ -13,13 +13,12 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CreateMemoryInput, MemoryApplicationService, MigrationJournalPort, MigrationStatePort,
+    CreateMemoryInput, LegacyAddressAliasPort, MemoryApplicationService, MigrationStatePort,
     PersonalizationApplicationError, UpdateMemoryPatch,
 };
 use super::domain::{
-    LegacySourceId, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationJournalEntry,
-    MigrationStage,
+    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
+    MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -95,19 +94,19 @@ pub(crate) struct CompatibilitySaveInput {
 pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
     migration_state: Arc<dyn MigrationStatePort>,
-    journal: Arc<dyn MigrationJournalPort>,
+    aliases: Arc<dyn LegacyAddressAliasPort>,
 }
 
 impl PersonalizationApi {
     pub(crate) fn new(
         memories: Arc<MemoryApplicationService>,
         migration_state: Arc<dyn MigrationStatePort>,
-        journal: Arc<dyn MigrationJournalPort>,
+        aliases: Arc<dyn LegacyAddressAliasPort>,
     ) -> Self {
         Self {
             memories,
             migration_state,
-            journal,
+            aliases,
         }
     }
 
@@ -160,10 +159,10 @@ impl PersonalizationApi {
     /// cannot implement it by searching for a name any more, because v2 permits duplicates and a
     /// search can return several. Resolution order, and none of it picks a record positionally:
     ///
-    /// 1. a persisted `legacy source identity -> memory id` alias, addressed by stable id;
+    /// 1. a persisted `legacy address -> memory id` alias, addressed by stable id;
     /// 2. a stale alias whose target is gone is removed, and resolution continues as if absent;
     /// 3. no alias and exactly one visible record with this name: adopt it and persist the alias,
-    ///    which is how a memory that predates the journal acquires one;
+    ///    which is how a memory that predates the alias table acquires one;
     /// 4. no alias and no match: create, then persist the alias;
     /// 5. no alias and several matches: refuse with a typed ambiguity, because choosing the first,
     ///    the newest, or any sorted position would silently overwrite one of the user's memories.
@@ -173,8 +172,8 @@ impl PersonalizationApi {
     ) -> Result<CompatibilityMemory> {
         // A name that could never have been a v1 filename has no legacy identity, and therefore no
         // alias. That is correct rather than restrictive: nothing under v1 could have created it.
-        let legacy_id = LegacySourceId::from_display_name(&input.name).ok();
-        let existing = self.resolve_by_legacy_identity(legacy_id.as_ref(), &input.name)?;
+        let address = LegacyAddressKey::from_display_name(&input.name).ok();
+        let existing = self.resolve_by_legacy_address(address.as_ref(), &input.name)?;
 
         let source = if input.is_automatic {
             MemorySource::OnePieceAutomatic
@@ -227,41 +226,30 @@ impl PersonalizationApi {
 
         // Persisted after the write, not before: an alias pointing at a record that failed to be
         // created would send the next save to a memory that does not exist.
-        if let Some(legacy_id) = legacy_id {
-            self.journal.upsert(
-                &MigrationJournalEntry {
-                    legacy_source_id: legacy_id,
-                    memory_id: Some(coordinated.record.id.clone()),
-                    // Not a migrated record: it was authored through the compatibility surface.
-                    // `Completed` records that its identity is settled and nothing is pending.
-                    stage: MigrationStage::Completed,
-                    legacy_backup_path: None,
-                    legacy_content_hash: None,
-                    last_error_code: None,
-                },
+        if let Some(address) = address {
+            self.aliases.put(
+                &address,
+                &coordinated.record.id,
                 coordinated.record.updated_at,
             )?;
         }
         Ok(CompatibilityMemory::from_record(&coordinated.record))
     }
 
-    /// Finds the single record a legacy name identifies, or explains why it cannot.
-    fn resolve_by_legacy_identity(
+    /// Finds the single record a legacy address identifies, or explains why it cannot.
+    fn resolve_by_legacy_address(
         &self,
-        legacy_id: Option<&LegacySourceId>,
+        address: Option<&LegacyAddressKey>,
         name: &str,
     ) -> Result<Option<MemoryRecord>> {
-        if let Some(legacy_id) = legacy_id {
-            if let Some(entry) = self.journal.get(legacy_id)? {
-                if let Some(memory_id) = entry.memory_id.filter(|_| entry.stage.has_usable_memory())
-                {
-                    match self.memories.detail(&memory_id)? {
-                        Some(record) => return Ok(Some(record)),
-                        // The alias outlived its target. Removing it here is what stops a deleted
-                        // memory from permanently blocking a name from being reused.
-                        None => {
-                            self.journal.remove(legacy_id)?;
-                        }
+        if let Some(address) = address {
+            if let Some(memory_id) = self.aliases.get(address)? {
+                match self.memories.detail(&memory_id)? {
+                    Some(record) => return Ok(Some(record)),
+                    // The alias outlived its target. Removing it here is what stops a deleted
+                    // memory from permanently blocking a name from being reused.
+                    None => {
+                        self.aliases.remove(address)?;
                     }
                 }
             }
@@ -340,8 +328,8 @@ pub(crate) fn build_for_tests(
     clock: Arc<dyn super::application::ClockPort>,
 ) -> (PersonalizationApi, Arc<MemoryApplicationService>) {
     use super::infrastructure::{
-        MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteMemoryProjection,
-        SqliteMigrationJournal, SqliteMigrationState, UuidMemoryIdGenerator,
+        MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteLegacyAddressAlias,
+        SqliteMemoryProjection, SqliteMigrationState, UuidMemoryIdGenerator,
     };
 
     let repository = Arc::new(
@@ -359,7 +347,7 @@ pub(crate) fn build_for_tests(
     let api = PersonalizationApi::new(
         service.clone(),
         Arc::new(SqliteMigrationState::new(database.clone())),
-        Arc::new(SqliteMigrationJournal::new(database)),
+        Arc::new(SqliteLegacyAddressAlias::new(database)),
     );
     (api, service)
 }

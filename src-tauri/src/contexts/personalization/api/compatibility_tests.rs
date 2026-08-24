@@ -10,16 +10,15 @@ use tempfile::TempDir;
 
 use super::{build_for_tests, CompatibilitySaveInput, PersonalizationApi};
 use crate::contexts::personalization::application::{
-    ClockPort, CreateMemoryInput, MemoryApplicationService, MigrationJournalPort,
+    ClockPort, CreateMemoryInput, LegacyAddressAliasPort, MemoryApplicationService,
     MigrationStatePort, PersonalizationApplicationError, RetrievalIndexPort, UpdateMemoryPatch,
 };
 use crate::contexts::personalization::domain::{
-    LegacySourceId, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationJournalEntry,
-    MigrationStage, MigrationState, WorkspaceKey,
+    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
+    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationState, WorkspaceKey,
 };
 use crate::contexts::personalization::infrastructure::{
-    SqliteMigrationJournal, SqliteMigrationState,
+    SqliteLegacyAddressAlias, SqliteMigrationState,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -73,7 +72,7 @@ struct Fixture {
     directory_path: std::path::PathBuf,
     api: PersonalizationApi,
     service: Arc<MemoryApplicationService>,
-    journal: Arc<SqliteMigrationJournal>,
+    aliases: Arc<SqliteLegacyAddressAlias>,
     migration_state: Arc<SqliteMigrationState>,
 }
 
@@ -98,7 +97,7 @@ fn reopen(directory_path: std::path::PathBuf, keep: Option<TempDir>) -> Fixture 
         directory_path,
         api,
         service,
-        journal: Arc::new(SqliteMigrationJournal::new(database.clone())),
+        aliases: Arc::new(SqliteLegacyAddressAlias::new(database.clone())),
         migration_state: Arc::new(SqliteMigrationState::new(database)),
     }
 }
@@ -159,16 +158,12 @@ fn save(
         .map(|_| ())
 }
 
-fn legacy_id(name: &str) -> LegacySourceId {
-    LegacySourceId::from_display_name(name).expect("legacy identity")
+fn address(name: &str) -> LegacyAddressKey {
+    LegacyAddressKey::from_display_name(name).expect("legacy address")
 }
 
 fn alias_target(fixture: &Fixture, name: &str) -> Option<MemoryId> {
-    fixture
-        .journal
-        .get(&legacy_id(name))
-        .expect("journal read")
-        .and_then(|entry| entry.memory_id)
+    fixture.aliases.get(&address(name)).expect("alias read")
 }
 
 // --- compatibility view ------------------------------------------------------------------------
@@ -482,10 +477,10 @@ fn an_alias_pointing_at_a_deleted_record_does_not_block_the_name() {
 }
 
 #[test]
-fn an_alias_recorded_before_its_record_was_verified_does_not_resolve() {
-    // A journal row can exist while the v2 file is written but unproven. Addressing that record
-    // would hand a caller something that might be torn.
-    let fixture = fixture("alias-unverified");
+fn an_alias_for_one_name_never_answers_for_another() {
+    // The alias is keyed by the address a caller supplies, so an entry for one name must not be
+    // reachable from a different name that happens to point at the same record.
+    let fixture = fixture("alias-scoped-to-its-address");
     mark_ready(&fixture);
     let record = seed(
         &fixture,
@@ -494,33 +489,20 @@ fn an_alias_recorded_before_its_record_was_verified_does_not_resolve() {
         MemoryAudience::AllAgents,
     );
     fixture
-        .journal
-        .upsert(
-            &MigrationJournalEntry {
-                legacy_source_id: legacy_id("Some other name"),
-                memory_id: Some(record.id.clone()),
-                stage: MigrationStage::V2Written,
-                legacy_backup_path: None,
-                legacy_content_hash: None,
-                last_error_code: None,
-            },
-            now(),
-        )
-        .expect("journal write");
+        .aliases
+        .put(&address("Some other name"), &record.id, now())
+        .expect("alias write");
 
-    save(&fixture, "Some other name", "Created").expect("save");
-
-    assert_eq!(fixture.api.compatibility_memories().expect("view").len(), 2);
+    // Saving under "Use npm" adopts the single visible match rather than following the unrelated
+    // alias, and gains its own address entry.
+    save(&fixture, "Use npm", "Adopted").expect("save");
+    assert_eq!(alias_target(&fixture, "Use npm"), Some(record.id.clone()));
     assert_eq!(
-        fixture
-            .service
-            .detail(&record.id)
-            .expect("detail")
-            .expect("exists")
-            .content,
-        "content for Use npm",
-        "the unverified alias target was not written through"
+        alias_target(&fixture, "Some other name"),
+        Some(record.id.clone()),
+        "the unrelated alias is untouched"
     );
+    assert_eq!(fixture.api.compatibility_memories().expect("view").len(), 1);
 }
 
 #[test]
@@ -530,7 +512,7 @@ fn a_repeated_save_does_not_accumulate_alias_rows() {
     for index in 0..4 {
         save(&fixture, "Use npm", &format!("Version {index}")).expect("save");
     }
-    assert_eq!(fixture.journal.list_all().expect("journal").len(), 1);
+    assert_eq!(fixture.aliases.list_all().expect("aliases").len(), 1);
     assert_eq!(fixture.api.compatibility_memories().expect("view").len(), 1);
 }
 
@@ -543,7 +525,7 @@ fn identical_content_under_two_names_stays_two_records_with_two_aliases() {
     save(&fixture, "Second name", "Exactly the same body").expect("save");
 
     assert_eq!(fixture.api.compatibility_memories().expect("view").len(), 2);
-    assert_eq!(fixture.journal.list_all().expect("journal").len(), 2);
+    assert_eq!(fixture.aliases.list_all().expect("aliases").len(), 2);
     assert_ne!(
         alias_target(&fixture, "First name"),
         alias_target(&fixture, "Second name")
@@ -557,7 +539,7 @@ fn a_name_that_could_never_have_been_a_v1_filename_gets_no_alias() {
     save(&fixture, "Ratio 1:2 rules", "Body").expect("save");
 
     assert!(
-        fixture.journal.list_all().expect("journal").is_empty(),
+        fixture.aliases.list_all().expect("aliases").is_empty(),
         "nothing under v1 could have created this memory, so it has no legacy identity"
     );
     assert_eq!(fixture.api.compatibility_memories().expect("view").len(), 1);

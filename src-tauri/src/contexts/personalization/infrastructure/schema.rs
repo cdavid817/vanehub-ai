@@ -91,24 +91,46 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), DatabaseError> {
         CREATE INDEX IF NOT EXISTS idx_personalization_candidate_target
             ON personalization_memory_candidates (target_memory_id);
 
-        -- One row per legacy source, keyed by the identity that source had *before* migration.
-        -- This is both the migration journal and the alias table: it is what makes migration
-        -- resumable, and it is what lets a pre-governance caller address a memory by the name that
-        -- used to be its identity now that duplicate display names are legal.
+        -- Compatibility addressing: which v2 record does an old display-name-derived address point
+        -- at. Separate from the migration journal because they answer different questions — this
+        -- one exists for as long as a pre-governance caller does, and is keyed by something a
+        -- caller supplies rather than by something a scan discovered.
+        CREATE TABLE IF NOT EXISTS personalization_legacy_memory_alias (
+            legacy_address_key TEXT PRIMARY KEY NOT NULL,
+            target_memory_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_personalization_alias_target
+            ON personalization_legacy_memory_alias (target_memory_id);
+
+        -- Migration journal: which stage has each actually-discovered source reached. Keyed by the
+        -- source's own location, never by a display name — a file's frontmatter name can disagree
+        -- with its filename, two files can share a name, and a malformed file has none.
         CREATE TABLE IF NOT EXISTS personalization_memory_migration_journal (
-            legacy_source_id TEXT PRIMARY KEY NOT NULL,
-            memory_id TEXT,
+            source_id TEXT PRIMARY KEY NOT NULL,
+            locator_kind TEXT NOT NULL,
+            locator_path TEXT,
+            locator_table TEXT,
+            locator_row_id TEXT,
+            target_memory_id TEXT,
             stage TEXT NOT NULL,
-            legacy_backup_path TEXT,
-            legacy_content_hash TEXT,
+            backup_relative_path TEXT,
+            source_raw_sha256 TEXT,
+            source_byte_length INTEGER,
             last_error_code TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_personalization_journal_memory
-            ON personalization_memory_migration_journal (memory_id);
+            ON personalization_memory_migration_journal (target_memory_id);
         CREATE INDEX IF NOT EXISTS idx_personalization_journal_stage
             ON personalization_memory_migration_journal (stage);
+        -- One source per location. A second row for the same file would mean the same bytes
+        -- migrated twice.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_personalization_journal_locator
+            ON personalization_memory_migration_journal (locator_kind, locator_path, locator_table,
+                                                          locator_row_id);
 
         CREATE TABLE IF NOT EXISTS personalization_migration_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),

@@ -11,6 +11,7 @@ mod schema;
 mod sqlite_candidate_repository;
 #[cfg(test)]
 mod sqlite_candidate_repository_tests;
+mod sqlite_legacy_alias;
 mod sqlite_legacy_policy_migration;
 #[cfg(test)]
 mod sqlite_legacy_policy_migration_tests;
@@ -35,6 +36,7 @@ pub(crate) use memory_document::{
 pub(crate) use memory_id_generator::UuidMemoryIdGenerator;
 pub(crate) use schema::apply_schema;
 pub(crate) use sqlite_candidate_repository::SqliteCandidateRepository;
+pub(crate) use sqlite_legacy_alias::SqliteLegacyAddressAlias;
 pub(crate) use sqlite_legacy_policy_migration::SqliteLegacyPolicyMigration;
 pub(crate) use sqlite_memory_projection::SqliteMemoryProjection;
 pub(crate) use sqlite_migration_journal::SqliteMigrationJournal;

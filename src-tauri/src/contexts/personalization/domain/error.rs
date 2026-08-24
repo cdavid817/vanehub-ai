@@ -51,7 +51,11 @@ pub(crate) enum PersonalizationDomainError {
     UnknownMemoryType(String),
     UnknownMemorySensitivity(String),
     UnknownMemoryScopeKind(String),
+    /// The address a pre-governance caller used. Distinct from a source id on purpose.
+    InvalidLegacyAddressKey(IdentityRejection),
     InvalidLegacySourceId(IdentityRejection),
+    InvalidLegacySourcePath(IdentityRejection),
+    UnknownLegacyTableKind(String),
     UnknownMigrationStage(String),
 }
 
@@ -163,8 +167,17 @@ impl std::fmt::Display for PersonalizationDomainError {
             Self::UnknownMemoryScopeKind(value) => {
                 write!(formatter, "Unknown memory scope kind \"{value}\".")
             }
+            Self::InvalidLegacyAddressKey(reason) => {
+                write!(formatter, "Legacy memory address {reason}.")
+            }
             Self::InvalidLegacySourceId(reason) => {
                 write!(formatter, "Legacy memory source id {reason}.")
+            }
+            Self::InvalidLegacySourcePath(reason) => {
+                write!(formatter, "Legacy memory source path {reason}.")
+            }
+            Self::UnknownLegacyTableKind(value) => {
+                write!(formatter, "Unknown legacy table kind \"{value}\".")
             }
             Self::UnknownMigrationStage(value) => {
                 write!(formatter, "Unknown migration stage \"{value}\".")

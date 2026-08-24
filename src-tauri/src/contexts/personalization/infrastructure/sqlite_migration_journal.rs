@@ -5,7 +5,8 @@ use crate::contexts::personalization::application::{
     MigrationJournalPort, PersonalizationApplicationError,
 };
 use crate::contexts::personalization::domain::{
-    LegacySourceId, MemoryId, MigrationJournalEntry, MigrationStage,
+    LegacySourceFingerprint, LegacySourceId, LegacySourceLocator, LegacyTableKind, MemoryId,
+    MigrationJournalEntry, MigrationStage,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 
@@ -15,30 +16,71 @@ fn storage(error: impl std::fmt::Display) -> PersonalizationApplicationError {
     PersonalizationApplicationError::Storage(error.to_string())
 }
 
-const JOURNAL_COLUMNS: &str = "legacy_source_id, memory_id, stage, legacy_backup_path, \
-     legacy_content_hash, last_error_code";
+const JOURNAL_COLUMNS: &str = "source_id, locator_kind, locator_path, locator_table, \
+     locator_row_id, target_memory_id, stage, backup_relative_path, source_raw_sha256, \
+     source_byte_length, last_error_code";
 
 fn read_entry(row: &Row<'_>) -> rusqlite::Result<Result<MigrationJournalEntry>> {
-    let legacy_source_id: String = row.get(0)?;
-    let memory_id: Option<String> = row.get(1)?;
-    let stage: String = row.get(2)?;
-    let legacy_backup_path: Option<String> = row.get(3)?;
-    let legacy_content_hash: Option<String> = row.get(4)?;
-    let last_error_code: Option<String> = row.get(5)?;
+    let source_id: String = row.get(0)?;
+    let locator_kind: String = row.get(1)?;
+    let locator_path: Option<String> = row.get(2)?;
+    let locator_table: Option<String> = row.get(3)?;
+    let locator_row_id: Option<String> = row.get(4)?;
+    let target_memory_id: Option<String> = row.get(5)?;
+    let stage: String = row.get(6)?;
+    let backup_relative_path: Option<String> = row.get(7)?;
+    let source_raw_sha256: Option<String> = row.get(8)?;
+    let source_byte_length: Option<i64> = row.get(9)?;
+    let last_error_code: Option<String> = row.get(10)?;
 
     Ok((|| {
+        let locator = match locator_kind.as_str() {
+            "file" => LegacySourceLocator::markdown(locator_path.as_deref().ok_or_else(|| {
+                PersonalizationApplicationError::Storage(
+                    "a file journal row has no locator path".to_string(),
+                )
+            })?)?,
+            "row" => LegacySourceLocator::sqlite_row(
+                LegacyTableKind::parse(locator_table.as_deref().unwrap_or_default())?,
+                locator_row_id.as_deref().ok_or_else(|| {
+                    PersonalizationApplicationError::Storage(
+                        "a row journal row has no locator row id".to_string(),
+                    )
+                })?,
+            )?,
+            other => {
+                return Err(PersonalizationApplicationError::Storage(format!(
+                    "unknown journal locator kind {other:?}"
+                )))
+            }
+        };
+
+        // A fingerprint is only meaningful with both halves. A digest without a length would let a
+        // partial row pass a check it never actually performed.
+        let source_fingerprint = match (source_raw_sha256, source_byte_length) {
+            (Some(raw_sha256), Some(byte_length)) => Some(LegacySourceFingerprint {
+                raw_sha256,
+                byte_length: u64::try_from(byte_length).unwrap_or_default(),
+            }),
+            _ => None,
+        };
+
         Ok(MigrationJournalEntry {
-            legacy_source_id: LegacySourceId::parse(&legacy_source_id)?,
-            memory_id: memory_id.as_deref().map(MemoryId::parse).transpose()?,
+            source_id: LegacySourceId::parse(&source_id)?,
+            locator,
+            target_memory_id: target_memory_id
+                .as_deref()
+                .map(MemoryId::parse)
+                .transpose()?,
             stage: MigrationStage::parse(&stage)?,
-            legacy_backup_path,
-            legacy_content_hash,
+            backup_relative_path,
+            source_fingerprint,
             last_error_code,
         })
     })())
 }
 
-/// The migration journal and legacy-identity alias table.
+/// Migration progress per discovered source.
 #[derive(Clone)]
 pub(crate) struct SqliteMigrationJournal {
     database: NativeDatabase,
@@ -54,14 +96,38 @@ impl SqliteMigrationJournal {
     }
 }
 
+/// Splits a locator into the four nullable columns that describe it.
+fn locator_columns(
+    locator: &LegacySourceLocator,
+) -> (
+    &'static str,
+    Option<String>,
+    Option<&'static str>,
+    Option<String>,
+) {
+    match locator {
+        LegacySourceLocator::MarkdownFile {
+            normalized_relative_path,
+        } => (
+            "file",
+            Some(normalized_relative_path.as_str().to_string()),
+            None,
+            None,
+        ),
+        LegacySourceLocator::SqliteRow { table, row_id } => {
+            ("row", None, Some(table.as_str()), Some(row_id.clone()))
+        }
+    }
+}
+
 impl MigrationJournalPort for SqliteMigrationJournal {
-    fn get(&self, legacy_source_id: &LegacySourceId) -> Result<Option<MigrationJournalEntry>> {
+    fn get(&self, source_id: &LegacySourceId) -> Result<Option<MigrationJournalEntry>> {
         let conn = self.connection()?;
         let statement = format!(
             "SELECT {JOURNAL_COLUMNS} FROM personalization_memory_migration_journal \
-             WHERE legacy_source_id = ?1"
+             WHERE source_id = ?1"
         );
-        conn.query_row(&statement, params![legacy_source_id.as_str()], read_entry)
+        conn.query_row(&statement, params![source_id.as_str()], read_entry)
             .optional()
             .map_err(storage)?
             .transpose()
@@ -71,7 +137,7 @@ impl MigrationJournalPort for SqliteMigrationJournal {
         let conn = self.connection()?;
         let statement = format!(
             "SELECT {JOURNAL_COLUMNS} FROM personalization_memory_migration_journal \
-             WHERE memory_id = ?1 ORDER BY legacy_source_id"
+             WHERE target_memory_id = ?1 ORDER BY source_id"
         );
         let mut prepared = conn.prepare(&statement).map_err(storage)?;
         let rows = prepared
@@ -87,24 +153,38 @@ impl MigrationJournalPort for SqliteMigrationJournal {
     fn upsert(&self, entry: &MigrationJournalEntry, now: DateTime<Utc>) -> Result<()> {
         let conn = self.connection()?;
         let now = now.to_rfc3339_opts(SecondsFormat::Millis, true);
+        let (kind, path, table, row_id) = locator_columns(&entry.locator);
         conn.execute(
             "INSERT INTO personalization_memory_migration_journal (
-                 legacy_source_id, memory_id, stage, legacy_backup_path, legacy_content_hash,
-                 last_error_code, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
-             ON CONFLICT(legacy_source_id) DO UPDATE SET
-                 memory_id = excluded.memory_id,
+                 source_id, locator_kind, locator_path, locator_table, locator_row_id,
+                 target_memory_id, stage, backup_relative_path, source_raw_sha256,
+                 source_byte_length, last_error_code, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+             ON CONFLICT(source_id) DO UPDATE SET
+                 target_memory_id = excluded.target_memory_id,
                  stage = excluded.stage,
-                 legacy_backup_path = excluded.legacy_backup_path,
-                 legacy_content_hash = excluded.legacy_content_hash,
+                 backup_relative_path = excluded.backup_relative_path,
+                 source_raw_sha256 = excluded.source_raw_sha256,
+                 source_byte_length = excluded.source_byte_length,
                  last_error_code = excluded.last_error_code,
                  updated_at = excluded.updated_at",
             params![
-                entry.legacy_source_id.as_str(),
-                entry.memory_id.as_ref().map(MemoryId::as_str),
+                entry.source_id.as_str(),
+                kind,
+                path,
+                table,
+                row_id,
+                entry.target_memory_id.as_ref().map(MemoryId::as_str),
                 entry.stage.as_str(),
-                entry.legacy_backup_path.as_deref(),
-                entry.legacy_content_hash.as_deref(),
+                entry.backup_relative_path.as_deref(),
+                entry
+                    .source_fingerprint
+                    .as_ref()
+                    .map(|fingerprint| fingerprint.raw_sha256.as_str()),
+                entry
+                    .source_fingerprint
+                    .as_ref()
+                    .map(|fingerprint| i64::try_from(fingerprint.byte_length).unwrap_or(i64::MAX)),
                 entry.last_error_code.as_deref(),
                 now,
             ],
@@ -117,7 +197,7 @@ impl MigrationJournalPort for SqliteMigrationJournal {
         let conn = self.connection()?;
         let statement = format!(
             "SELECT {JOURNAL_COLUMNS} FROM personalization_memory_migration_journal \
-             ORDER BY legacy_source_id"
+             ORDER BY source_id"
         );
         let mut prepared = conn.prepare(&statement).map_err(storage)?;
         let rows = prepared.query_map([], read_entry).map_err(storage)?;
@@ -128,12 +208,12 @@ impl MigrationJournalPort for SqliteMigrationJournal {
         Ok(entries)
     }
 
-    fn remove(&self, legacy_source_id: &LegacySourceId) -> Result<bool> {
+    fn remove(&self, source_id: &LegacySourceId) -> Result<bool> {
         let conn = self.connection()?;
         let removed = conn
             .execute(
-                "DELETE FROM personalization_memory_migration_journal WHERE legacy_source_id = ?1",
-                params![legacy_source_id.as_str()],
+                "DELETE FROM personalization_memory_migration_journal WHERE source_id = ?1",
+                params![source_id.as_str()],
             )
             .map_err(storage)?;
         Ok(removed > 0)

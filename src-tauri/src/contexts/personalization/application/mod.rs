@@ -22,9 +22,9 @@ pub(crate) use models::{
     WorkspaceIdentityRequest,
 };
 pub(crate) use ports::{
-    CandidateRepository, ClockPort, DerivedIndexPort, LegacyPolicyMigrationPort,
-    MemoryIdGeneratorPort, MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository,
-    MigrationJournalPort, MigrationStatePort, PolicyRepository, RetrievalIndexPort,
-    WorkspaceIdentityPort,
+    CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,
+    LegacyPolicyMigrationPort, MemoryIdGeneratorPort, MemoryMaintenanceRepository,
+    MemoryProjectionPort, MemoryRepository, MigrationJournalPort, MigrationStatePort,
+    PolicyRepository, RetrievalIndexPort, WorkspaceIdentityPort,
 };
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
