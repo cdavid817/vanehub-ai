@@ -352,7 +352,7 @@ No CLI source policy, action-plan rule, snapshot derivation, or row-to-domain de
 subtree -- those live in `environment_schema.rs`, `environment_serde.rs`, and
 `environment_repository.rs`. The raise stands as recorded.
 
-## Migration numbers 81-83 remain provisional
+## Migration numbers 81-83 were provisional (superseded: see round 5)
 
 They are the only genuinely free contiguous range on this branch, because
 `assert_migration_history_is_dense` rejects a gapped history at startup and main ends at 80. They
@@ -470,7 +470,7 @@ sentences differ from both reference locales and that every CLI placeholder surv
 
 ### Still provisional
 
-- **Migrations 81-83.** Re-scanned at the start and end of this round; still the only dense range,
+- **Migrations 81-83.** (Superseded in round 5: main took 81, so these are now 82-84.) Re-scanned at the start and end of this round; still the only dense range,
   and still provisional because three unmerged branches also claim 81. Renumbering is a merge-time
   decision, and `assert_migration_history_is_dense` refuses a gap, so a higher free range cannot be
   reserved in advance.
@@ -480,3 +480,35 @@ sentences differ from both reference locales and that every CLI placeholder surv
 - **Two error variants and two request fields are declared and unraised.** `MissingDependency`,
   `ElevationRequired`, `CliPlanRequest::channel`, and `CliPlanRequest::package_reference` carry
   `expect(dead_code)` with the reason on each; no shipped adapter reaches them yet.
+
+## Round 5: merged with main, migrations finalized at 82-84
+
+### The target branch had moved
+
+`origin/main` advanced to `c37caa4a feat(cli-parameters): upgrade CLI parameter management (#210)`
+between the last round and this one. It is merged in, not rebased over: the 38 commits before it
+are untouched.
+
+Fifteen files conflicted. Three resolutions were decisions rather than concatenations:
+
+**Migration numbering is final at 82, 83, 84.** main now occupies 81 (`cli-parameter-profiles`), so
+this change's three tables take the next consecutive numbers. Not a higher range:
+`assert_migration_history_is_dense` refuses a gapped history at startup, so reserving room for
+unmerged branches would make the app unbootable. Every derived assertion in this repository already
+reads the migration list rather than a literal, which is why renumbering touched the registry and
+one doc comment and nothing else. 69 migration tests pass at the new numbers.
+
+**The parameter context's compatibility adapter.** `#210` added
+`CliLifecycleSnapshotAdapter`, which read `CliApi::list_tools` and `ConflictState` -- both deleted
+with the flat lifecycle stack in round 4. It now asks `CliApi::installation_facts`: five facts read
+off the environment snapshot rather than the snapshot itself, because the parameter context needs to
+know which version a flag would reach, not how to change it. The path it gets back is the one the
+runtime would launch, so a parameter is judged against the binary that will actually receive it
+rather than against a second detector's answer.
+
+**The `src/services` budget.** Both sides raised it -- 19516 here, 19727 there. The merged value is
+measured on the merged tree, **19803**, not the sum of the two: main's deletion of
+`cli-parameter-catalog.ts` pays for part of this side's adapters.
+
+Both settings pages stay code-split. The parameters page moved directory on main, so its old path
+leaves the chunk check and the visible-text guard rather than sitting beside the new one.

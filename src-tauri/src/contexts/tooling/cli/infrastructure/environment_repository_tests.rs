@@ -33,7 +33,7 @@ fn npm() -> CliSourceId {
 
 /// A repository over a database in its own temporary directory.
 ///
-/// `NativeDatabase::new` runs the full migration set, so these tests exercise the real 81-83
+/// `NativeDatabase::new` runs the full migration set, so these tests exercise the real 82-84
 /// migrations rather than a hand-applied schema. The `TempDir` is returned alongside the
 /// repository because dropping it deletes the directory out from under the open pool.
 fn repository() -> (SqliteCliEnvironmentRepository, tempfile::TempDir) {
