@@ -2,29 +2,49 @@ use crate::contexts::sessions::application::{
     ChatConfigurationValues, SessionChatProfilePort, SessionsApplicationError,
 };
 use crate::contexts::sessions::domain::normalize_reasoning;
+use crate::contexts::tooling::api::{
+    CliParameterRuntimeApi, CliParameterSelectionMap, CliParameterValue,
+};
 use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
-use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::platform::database::NativeDatabase;
 use rusqlite::OptionalExtension;
-use serde_json::Value;
 use std::sync::Arc;
+
+/// Chat defaults read explicit profile values only. An inherited selection means VaneHub has no
+/// opinion, so the caller falls back to native config discovery or the provider default.
+fn explicit_text<'a>(
+    selections: &'a CliParameterSelectionMap,
+    parameter_id: &str,
+) -> Option<&'a str> {
+    selections
+        .get(parameter_id)
+        .and_then(|selection| selection.as_value())
+        .and_then(CliParameterValue::as_text)
+}
+
+fn explicit_bool(selections: &CliParameterSelectionMap, parameter_id: &str) -> Option<bool> {
+    selections
+        .get(parameter_id)
+        .and_then(|selection| selection.as_value())
+        .and_then(CliParameterValue::as_bool)
+}
 
 #[derive(Clone)]
 pub(crate) struct SqliteSessionChatProfileAdapter {
     database: NativeDatabase,
-    cli_parameters: CliParametersApi,
+    cli_parameter_runtime: CliParameterRuntimeApi,
     native_config: Arc<dyn NativeConfigPort>,
 }
 
 impl SqliteSessionChatProfileAdapter {
     pub(crate) fn new(
         database: NativeDatabase,
-        cli_parameters: CliParametersApi,
+        cli_parameter_runtime: CliParameterRuntimeApi,
         native_config: Arc<dyn NativeConfigPort>,
     ) -> Self {
         Self {
             database,
-            cli_parameters,
+            cli_parameter_runtime,
             native_config,
         }
     }
@@ -40,12 +60,10 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             return self.onepiece_defaults();
         }
         let selections = self
-            .cli_parameters
-            .load_selections(agent_id)
+            .cli_parameter_runtime
+            .resolved_selections(agent_id)
             .map_err(profile_error)?;
-        let model_id = selections
-            .get("model")
-            .and_then(Value::as_str)
+        let model_id = explicit_text(&selections, "model")
             .and_then(|model| model_id_from_cli(agent_id, model))
             .or_else(|| {
                 self.native_config
@@ -61,12 +79,15 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
                     .ok_or_else(|| unsupported_agent(agent_id))
             })?;
         let reasoning_value = if agent_id == "codex-cli" {
-            selections
-                .get("reasoningEffort")
-                .and_then(Value::as_str)
-                .map(|value| if value == "xhigh" { "max" } else { value })
+            explicit_text(&selections, "reasoningEffort").map(|value| {
+                if value == "xhigh" {
+                    "max"
+                } else {
+                    value
+                }
+            })
         } else {
-            selections.get("effort").and_then(Value::as_str)
+            explicit_text(&selections, "effort")
         };
         let reasoning_depth = normalize_reasoning(reasoning_value).or_else(|| {
             if agent_id == "opencode" {
@@ -85,10 +106,7 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             model_id: Some(model_id),
             reasoning_depth,
             streaming: true,
-            thinking: selections
-                .get("thinking")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
+            thinking: explicit_bool(&selections, "thinking").unwrap_or(true),
             long_context: agent_id != "opencode",
         })
     }

@@ -507,18 +507,24 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         81,
+        "cli-parameter-profiles",
+        crate::contexts::tooling::cli_parameters::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        82,
         "cli-environment-snapshots",
         crate::contexts::tooling::cli::infrastructure::environment_schema::apply_environment_snapshot_schema,
     )?;
     apply_transactional_migration(
         conn,
-        82,
+        83,
         "cli-version-catalogs",
         crate::contexts::tooling::cli::infrastructure::environment_schema::apply_version_catalog_schema,
     )?;
     apply_transactional_migration(
         conn,
-        83,
+        84,
         "cli-action-plans",
         crate::contexts::tooling::cli::infrastructure::environment_schema::apply_action_plan_schema,
     )?;
@@ -632,9 +638,10 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (78, "hybrid-local-model-runtime"),
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
-    (81, "cli-environment-snapshots"),
-    (82, "cli-version-catalogs"),
-    (83, "cli-action-plans"),
+    (81, "cli-parameter-profiles"),
+    (82, "cli-environment-snapshots"),
+    (83, "cli-version-catalogs"),
+    (84, "cli-action-plans"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

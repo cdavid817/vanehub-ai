@@ -103,15 +103,6 @@ type AgentAssertions = [
   Assert<Equal<AgentContracts.LaunchResult, AgentTypes.LaunchResult>>,
   Assert<Equal<AgentContracts.SessionDetails, AgentTypes.SessionDetails>>,
   Assert<Equal<AgentContracts.ManagedCliAgentId, AgentTypes.ManagedCliAgentId>>,
-  Assert<Equal<AgentContracts.CliParameterControl, AgentTypes.CliParameterControl>>,
-  Assert<Equal<AgentContracts.CliParameterValue, AgentTypes.CliParameterValue>>,
-  Assert<Equal<AgentContracts.CliParameterLaunchScope, AgentTypes.CliParameterLaunchScope>>,
-  Assert<Equal<AgentContracts.CliParameterRisk, AgentTypes.CliParameterRisk>>,
-  Assert<Equal<AgentContracts.CliParameterOption, AgentTypes.CliParameterOption>>,
-  Assert<Equal<AgentContracts.CliParameterDefinition, AgentTypes.CliParameterDefinition>>,
-  Assert<Equal<AgentContracts.CliParameterSelections, AgentTypes.CliParameterSelections>>,
-  Assert<Equal<AgentContracts.CliParameterProfile, AgentTypes.CliParameterProfile>>,
-  Assert<Equal<AgentContracts.SaveCliParameterProfileInput, AgentTypes.SaveCliParameterProfileInput>>,
 ];
 
 type ChatAssertions = [

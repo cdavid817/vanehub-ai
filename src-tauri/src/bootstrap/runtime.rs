@@ -142,8 +142,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let workspace_mutations = Arc::new(super::WorkspaceMutationFanout::new(
         code_intelligence_api.clone(),
     ));
-    let cli_parameters_api =
-        super::assemble_cli_parameters_api(database.clone(), fallback_log_directory.clone());
     let cli_config_api =
         super::assemble_cli_config_api(database.clone(), fallback_log_directory.clone())
             .map_err(boxed_message)?;
@@ -161,6 +159,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     // Launch resolution reads the same environment the CLI Management page does, so what the
     // runtime starts and what the page reports cannot be two different installations.
     let cli_api = super::assemble_cli_api(cli_environment_api.clone());
+    // Assembled after `cli_api` because compatibility is read from the CLI lifecycle subdomain's
+    // cached detection state rather than from a second detector. Both facades share one service.
+    let (cli_parameter_runtime_api, cli_parameter_settings_api) =
+        super::assemble_cli_parameter_apis(
+            database.clone(),
+            cli_api.clone(),
+            fallback_log_directory.clone(),
+        );
     let sdk_api = super::assemble_sdk_api(
         database.clone(),
         operations_api.clone(),
@@ -205,7 +211,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             operations: operations_api.clone(),
             workspaces: workspace_api.clone(),
         },
-        cli_parameters_api.clone(),
+        cli_parameter_runtime_api.clone(),
         native_config_reader,
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
@@ -247,7 +253,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations: operations_api.clone(),
         agent_runs: agent_runs_api.clone(),
         cli: cli_api.clone(),
-        cli_parameters: cli_parameters_api.clone(),
+        cli_parameter_runtime: cli_parameter_runtime_api.clone(),
         prompts: prompt_hook_api.clone(),
         skills: skill_api.clone(),
         skill_tools: skill_tool_api.clone(),
@@ -338,7 +344,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(cli_api.clone());
     app.manage(cli_environment_api.clone());
     app.manage(cli_config_api);
-    app.manage(cli_parameters_api);
+    app.manage(cli_parameter_settings_api);
     app.manage(mcp_api);
     app.manage(sdk_api);
     app.manage(extension_api);

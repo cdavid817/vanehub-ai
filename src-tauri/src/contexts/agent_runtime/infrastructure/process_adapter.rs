@@ -181,7 +181,8 @@ impl RuntimeAgentProcessAdapter {
             executable,
             prompt: &request.effective_prompt,
             provider_session: provider_session.as_ref(),
-            managed_args: &request.cli_profile.managed_args,
+            global_args: &request.cli_profile.global_args,
+            invocation_args: &request.cli_profile.invocation_args,
             role_briefing: request.role_briefing.as_deref(),
         })?;
         let mut relay_guard = None;

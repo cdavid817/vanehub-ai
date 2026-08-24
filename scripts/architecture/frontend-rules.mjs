@@ -35,13 +35,26 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 上调理由(upgrade-cli-parameter-management):CLI 参数命令切到 v2 DTO 后,Web/mock 适配器不能再
+// 依赖手工维护的 catalog。新增的 273 行是这条边界的固定开销:`cli-parameter-registry.ts` 用 zod
+// 解析 generated 契约(裸 `as` 会让生成器回归变成运行期形状错配,而适配器恰恰是 native 测试照不到
+// 的地方),`cli-parameter-renderer.ts` 是 native 渲染策略的镜像,两者都没有可搬移的现成实现。
+// 其余 +215 是 `web-cli-parameter-client.ts` 补上 revision/catalogVersion 乐观并发与结构化错误
+// (mock 若放行冲突,页面的冲突分支就永远不会被跑到),以及两个适配器的新 preview 方法。
+// 另有 51 行是 v1 浏览器存储的一次性迁移:v1 用 `"default"` 与 `false` 两个哨兵表示"未设置",
+// 但定义里真有 `default` 选项或本身是 tri-state 时它们都不是哨兵,所以转换必须按定义而不是按字符串
+// 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
+// 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
+// 一起下线,届时这条上限应当回落。
 // 上调理由(add-source-aware-cli-environment-management):CLI 环境边界从 3 个方法变成 9 个,
 // 因为"准备计划"和"执行计划"必须是两次调用——执行只收计划 ID 与版本号,这样"复核过的版本就是
 // 实际执行的版本"是结构上成立的,而不是靠约定。9 个方法在 Tauri 与 Web/mock 两侧各实现一份,
 // 是这条边界的固定开销。同一轮里 `web-cli-tool-client.ts`(183 行)整个删掉,mock 快照数据
-// (185 行)搬进 JSON,没有保留任何旧路径,也没有复制既有分支。上限取实测值 19516,不留余量。
+// (185 行)搬进 JSON,没有保留任何旧路径,也没有复制既有分支。
+// 与 upgrade-cli-parameter-management 合并后按合并树实测重取,不是两侧上限相加:那一侧删掉的
+// `cli-parameter-catalog.ts` 抵掉了这一侧的一部分。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19516, owner: "add-source-aware-cli-environment-management" },
+  { root: "src/services", budget: 19803, owner: "add-source-aware-cli-environment-management" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -260,6 +260,7 @@ impl AgentCliProfileGateway for TerminalWorld {
         &self,
         _agent_id: &str,
         _configuration: &super::AgentChatConfiguration,
+        _operation_id: Option<&str>,
     ) -> Result<super::CliProfileSnapshot, AgentRuntimeApplicationError> {
         unused()
     }
@@ -270,8 +271,8 @@ impl AgentCliProfileGateway for TerminalWorld {
     ) -> Result<super::CliProfileSnapshot, AgentRuntimeApplicationError> {
         Ok(super::CliProfileSnapshot {
             executable: format!("C:/bin/{agent_id}.exe"),
-            selections: BTreeMap::new(),
-            managed_args: vec!["--strict-config".to_string()],
+            global_args: vec!["--strict-config".to_string()],
+            invocation_args: Vec::new(),
             env: BTreeMap::new(),
         })
     }
@@ -563,7 +564,7 @@ fn open_terminal_starts_session_and_uses_interactive_profile() {
     assert_eq!(
         world.terminal_requests.lock().expect("requests")[0]
             .cli_profile
-            .managed_args,
+            .global_args,
         vec!["--strict-config".to_string()]
     );
     assert_eq!(

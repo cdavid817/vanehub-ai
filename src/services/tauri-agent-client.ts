@@ -12,7 +12,6 @@ import type {
   AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
-  CliParameterProfile,
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
   DiscoverOnePieceProviderModelsInput,
@@ -26,7 +25,6 @@ import type {
   KnownProject,
   LaunchResult,
   LocalModelDiscoveryResult,
-  ManagedCliAgentId,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   OnePieceProviderModelDiscoveryResult,
@@ -47,7 +45,6 @@ import type {
   Session,
   SessionCategory,
   SessionDetails,
-  SaveCliParameterProfileInput,
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
@@ -57,6 +54,13 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import { tauriCliEnvironmentClient } from "./tauri-cli-environment-client";
+import type {
+  CliParameterPreview,
+  CliParameterProfile,
+  PreviewCliParameterProfileInput,
+  ResetCliParameterProfileInput,
+  SaveCliParameterProfileInput,
+} from "../types/cli-parameter-profile";
 import { tauriSessionRecoveryClient } from "./tauri-session-recovery-client";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
 import type {
@@ -520,12 +524,16 @@ export const tauriAgentClient: AgentService = {
     return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
   },
 
+  previewCliParameterProfile(input: PreviewCliParameterProfileInput) {
+    return invoke<CliParameterPreview>("preview_cli_parameter_profile", { input });
+  },
+
   saveCliParameterProfile(input: SaveCliParameterProfileInput) {
     return invoke<CliParameterProfile>("save_cli_parameter_profile", { input });
   },
 
-  resetCliParameterProfile(agentId: ManagedCliAgentId) {
-    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { agentId });
+  resetCliParameterProfile(input: ResetCliParameterProfileInput) {
+    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { input });
   },
 
   listCliConfigPresets(agentId: string) {

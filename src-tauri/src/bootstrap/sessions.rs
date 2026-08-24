@@ -16,8 +16,8 @@ use crate::contexts::sessions::infrastructure::{
     SqliteSessionChatProfileAdapter, SqliteSessionsRepository, SystemReviewClock,
     SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
 };
+use crate::contexts::tooling::api::CliParameterRuntimeApi;
 use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
-use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
@@ -38,7 +38,7 @@ pub(crate) struct SessionRuntimeDependencies {
 pub(crate) fn assemble_sessions_api(
     database: NativeDatabase,
     runtime: SessionRuntimeDependencies,
-    cli_parameters: CliParametersApi,
+    cli_parameter_runtime: CliParameterRuntimeApi,
     native_config: Arc<dyn NativeConfigPort>,
     agent_registry: Arc<dyn AgentRegistryRepository>,
     fallback_log_directory: PathBuf,
@@ -85,7 +85,7 @@ pub(crate) fn assemble_sessions_api(
         logging: session_logging,
         chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
             database.clone(),
-            cli_parameters,
+            cli_parameter_runtime,
             native_config,
         )),
         creation: Arc::new(SessionCreationContextAdapter::new(

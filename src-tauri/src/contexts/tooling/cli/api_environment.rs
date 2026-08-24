@@ -9,7 +9,9 @@
 use crate::contexts::tooling::cli::application::environment_bulk::{
     PreparedCliBulkExecution, PreparedCliBulkPlanning, PreparedCliDoctor,
 };
-use crate::contexts::tooling::cli::application::environment_launch::CliLaunchTarget;
+use crate::contexts::tooling::cli::application::environment_launch::{
+    CliInstallationFacts, CliLaunchTarget,
+};
 use crate::contexts::tooling::cli::application::environment_planning::{
     ExecuteCliActionInput, PrepareCliActionInput, PreparedCliActionExecution,
     PreparedCliActionPlanning,
@@ -41,6 +43,14 @@ impl CliEnvironmentApi {
         agent_id: &str,
     ) -> Result<CliLaunchTarget, CliEnvironmentError> {
         self.service.resolve_launch_target(agent_id)
+    }
+
+    /// The installation facts another bounded context may read. Bounded, and never a probe.
+    pub(crate) fn installation_facts(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliInstallationFacts, CliEnvironmentError> {
+        self.service.installation_facts(agent_id)
     }
 
     /// Bounded: reads storage and computes the environment fingerprint. Starts nothing.

@@ -281,21 +281,67 @@ describe("webAgentClient", () => {
   it("persists and resets structured CLI parameter profiles", async () => {
     const initial = await webAgentClient.listCliParameterProfiles();
     expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"]);
+    const codex = initial.find((profile) => profile.agentId === "codex-cli")!;
 
     const saved = await webAgentClient.saveCliParameterProfile({
       agentId: "codex-cli",
-      selections: { ...initial[1].selections, ephemeral: true },
+      expectedRevision: codex.revision,
+      catalogVersion: codex.catalogVersion,
+      selections: { ...codex.selections, ephemeral: { state: "value", value: true } },
     });
-    expect(saved.previewArgs).toContain("--ephemeral");
-    expect((await webAgentClient.listCliParameterProfiles())[1].selections.ephemeral).toBe(true);
+    expect(saved.savedPreviews.chat.invocation.map((token) => token.value)).toContain("--ephemeral");
+    expect(saved.revision).toBe(codex.revision + 1);
 
+    const reloaded = (await webAgentClient.listCliParameterProfiles()).find(
+      (profile) => profile.agentId === "codex-cli",
+    )!;
+    expect(reloaded.selections.ephemeral).toEqual({ state: "value", value: true });
+
+    // Policy-governed ids are not editable, so they are rejected by id rather than by value.
     await expect(webAgentClient.saveCliParameterProfile({
       agentId: "codex-cli",
-      selections: { ...initial[1].selections, sandbox: "read-only" },
-    })).rejects.toThrow("Unknown CLI parameter");
+      expectedRevision: reloaded.revision,
+      catalogVersion: reloaded.catalogVersion,
+      selections: { ...codex.selections, sandbox: { state: "value", value: "read-only" } },
+    })).rejects.toMatchObject({ code: "CLI_PARAMETER_UNKNOWN_PARAMETER", parameterId: "sandbox" });
 
-    const reset = await webAgentClient.resetCliParameterProfile("codex-cli");
-    expect(reset.selections.ephemeral).toBe(false);
+    // A stale revision loses to the write that already landed.
+    await expect(webAgentClient.saveCliParameterProfile({
+      agentId: "codex-cli",
+      expectedRevision: codex.revision,
+      catalogVersion: codex.catalogVersion,
+      selections: codex.selections,
+    })).rejects.toMatchObject({ code: "CLI_PARAMETER_REVISION_CONFLICT" });
+
+    const reset = await webAgentClient.resetCliParameterProfile({
+      agentId: "codex-cli",
+      expectedRevision: reloaded.revision,
+      catalogVersion: reloaded.catalogVersion,
+    });
+    expect(reset.selections.ephemeral).toEqual({ state: "inherit" });
+  });
+
+  it("previews a draft without touching the stored profile or its revision", async () => {
+    const before = (await webAgentClient.listCliParameterProfiles()).find(
+      (profile) => profile.agentId === "claude-code",
+    )!;
+
+    const preview = await webAgentClient.previewCliParameterProfile({
+      agentId: "claude-code",
+      catalogVersion: before.catalogVersion,
+      scope: "chat",
+      selections: { ...before.selections, model: { state: "value", value: "opus" } },
+      requestId: "req-1",
+    });
+
+    expect(preview.requestId).toBe("req-1");
+    expect(preview.segments.global.map((token) => token.value)).toEqual(["--model", "opus"]);
+
+    const after = (await webAgentClient.listCliParameterProfiles()).find(
+      (profile) => profile.agentId === "claude-code",
+    )!;
+    expect(after.revision).toBe(before.revision);
+    expect(after.selections).toEqual(before.selections);
   });
 
   it("selects compatible agents and rejects unsupported interaction modes", async () => {

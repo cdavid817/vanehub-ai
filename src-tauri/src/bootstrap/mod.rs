@@ -35,7 +35,7 @@ pub(crate) use agent_runtime::{
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_config::assemble_cli_config_api;
 pub(crate) use cli_environment::assemble_cli_environment_api;
-pub(crate) use cli_parameters::assemble_cli_parameters_api;
+pub(crate) use cli_parameters::assemble_cli_parameter_apis;
 pub(crate) use code_intelligence::{
     assemble_code_intelligence_api, NativeCodeIntelligenceResponder, WorkspaceMutationFanout,
 };

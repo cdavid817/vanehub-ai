@@ -1,8 +1,10 @@
 import type {
+  CliParameterPreview,
   CliParameterProfile,
-  ManagedCliAgentId,
+  PreviewCliParameterProfileInput,
+  ResetCliParameterProfileInput,
   SaveCliParameterProfileInput,
-} from "../types/agent";
+} from "../types/cli-parameter-profile";
 import type {
   CliActionPlan,
   CliBulkActionPlan,
@@ -49,10 +51,15 @@ export interface CliToolService {
   runCliDoctor(agentId: string): Promise<OperationTask>;
 }
 
+// Save and reset both carry `expectedRevision` and `catalogVersion`. A caller that has not read a
+// profile cannot construct either input, which is the point: a blind write would silently overwrite
+// whatever another window saved.
 export interface CliParameterService {
   listCliParameterProfiles(): Promise<CliParameterProfile[]>;
+  /** Read-only. Renders a draft without touching stored selections or the revision. */
+  previewCliParameterProfile(input: PreviewCliParameterProfileInput): Promise<CliParameterPreview>;
   saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
-  resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;
+  resetCliParameterProfile(input: ResetCliParameterProfileInput): Promise<CliParameterProfile>;
 }
 
 // `applyCliConfigProfile` is deliberately absent: it asserts that switching a profile leaves

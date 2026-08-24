@@ -6,6 +6,7 @@ import { getCliConfigPresets } from "../../config/cli-agent-provider-presets";
 import { getOnePieceProviderPresets } from "../../config/onepiece-provider-presets";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../test/render";
 import type { CliConfigAgentId } from "../../types/cli-agent-config";
+import { SettingsProvider } from "../settings-provider";
 import { AgentConfigurationsPage } from "./agent-configurations-page";
 
 describe("AgentConfigurationsPage", () => {
@@ -49,14 +50,19 @@ describe("AgentConfigurationsPage", () => {
       listOnePieceProviderPresets: async () => getOnePieceProviderPresets(),
     });
 
+    // OnePiece's retrieval, compaction and context-health parameters now sit on this page, and two
+    // of those sections read application settings. In the product the page is always mounted inside
+    // the settings shell, so the provider belongs in the harness too.
     const { user } = renderWithAppProviders(
-      <AgentConfigurationsPage
-        isActive
-        navigationTarget={{ agentConfigAgentId: "onepiece" }}
-        onNavigate={vi.fn()}
-        searchTerm=""
-        service={service}
-      />,
+      <SettingsProvider activateLanguage={async () => undefined}>
+        <AgentConfigurationsPage
+          isActive
+          navigationTarget={{ agentConfigAgentId: "onepiece" }}
+          onNavigate={vi.fn()}
+          searchTerm=""
+          service={service}
+        />
+      </SettingsProvider>,
     );
 
     await waitFor(() => expect(listOnePieceProviderProfiles).toHaveBeenCalledOnce());

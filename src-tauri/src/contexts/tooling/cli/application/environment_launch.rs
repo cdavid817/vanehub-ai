@@ -17,6 +17,23 @@ use crate::contexts::tooling::cli::domain::installation::{
 use crate::contexts::tooling::cli::domain::snapshot::CliEnvironmentSnapshot;
 use crate::contexts::tooling::cli::domain::status::CliDiscoveryStatus;
 
+/// What another bounded context may know about one tool's installation.
+///
+/// Five facts, not a snapshot. The parameter context needs them to decide whether a flag is
+/// supported by the installed version; handing it the snapshot would also hand it the plans, the
+/// catalogs, and the actions, none of which are its business.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct CliInstallationFacts {
+    pub(crate) installed: bool,
+    /// Whether the installation the runtime would launch can actually run.
+    pub(crate) runnable: bool,
+    /// The absolute path a launch would use, on the same rules as `resolve_launch_target`.
+    pub(crate) active_path: Option<String>,
+    pub(crate) version: Option<String>,
+    /// Whether anything is reported about this tool's installation layout.
+    pub(crate) conflict: bool,
+}
+
 /// What the environment can say about launching one tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CliLaunchTarget {
@@ -64,6 +81,48 @@ impl CliEnvironmentService {
                     .unwrap_or(CliLaunchTarget::NotScanned))
             }
         }
+    }
+}
+
+impl CliEnvironmentService {
+    /// The installation facts another context may read. Bounded: one stored snapshot, no probe.
+    ///
+    /// A tool with no snapshot yet reports nothing rather than reaching for a live lookup: this is
+    /// a compatibility question, and answering it from a scan the page has not run would let a
+    /// parameter be judged against a version the user cannot see.
+    pub(crate) fn installation_facts(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliInstallationFacts, CliEnvironmentError> {
+        let (tool_id, _) = self.resolve_tool(agent_id)?;
+        let Some(snapshot) = self.ports.repository.load_snapshot(&tool_id)? else {
+            return Ok(CliInstallationFacts::default());
+        };
+        let chosen = snapshot
+            .recommended_installation_id
+            .as_ref()
+            .or(snapshot.path_selected_installation_id.as_ref())
+            .and_then(|id| {
+                snapshot
+                    .installations
+                    .iter()
+                    .find(|installation| &installation.id == id)
+            });
+        Ok(CliInstallationFacts {
+            installed: snapshot.discovery.is_installed(),
+            runnable: chosen
+                .is_some_and(|installation| !installation.executable_status.is_faulty()),
+            // The same answer the runtime would launch, so a parameter is judged against the binary
+            // that will actually receive it.
+            active_path: match launch_target_of(&snapshot) {
+                CliLaunchTarget::Resolved(path) => Some(path),
+                CliLaunchTarget::Refused | CliLaunchTarget::NotScanned => None,
+            },
+            version: chosen
+                .and_then(|installation| installation.reported_version.as_ref())
+                .map(|version| version.as_str().to_string()),
+            conflict: !snapshot.conflicts.is_empty(),
+        })
     }
 }
 

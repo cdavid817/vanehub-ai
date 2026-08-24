@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 80. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 81. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -20,8 +20,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
-/// nullable Agent Runner projections, and migration 80 retires standalone Plan execution.
-/// Derived from the migration list rather than hardcoded.
+/// nullable Agent Runner projections, migration 80 retires standalone Plan execution, migration 81
+/// adds CLI parameter profile metadata beside the existing per-parameter rows, and migrations 82-84
+/// add the source-aware CLI environment tables. Derived from the migration list rather than
+/// hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has
 /// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --

@@ -193,7 +193,7 @@ If an Agent asks you to sign in during a session, complete authentication in tha
 
 ## CLI launch parameters
 
-Each CLI's own command-line parameters, how to configure launch parameters inside VaneHub AI, and OnePiece's equivalent configuration are all collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters).
+Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](tooling.md#agent-configurations).
 
 ## Web preview
 

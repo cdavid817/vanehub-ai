@@ -4,6 +4,7 @@ mod environment;
 pub(crate) use crate::contexts::tooling::cli::domain::compare_versions;
 pub(crate) use environment::{CliEnvironmentApi, CliEnvironmentError};
 
+pub(crate) use crate::contexts::tooling::cli::application::environment_launch::CliInstallationFacts;
 use crate::contexts::tooling::cli::application::environment_launch::CliLaunchTarget;
 
 /// Launch resolution for everything outside this context.
@@ -39,5 +40,16 @@ impl CliApi {
             CliLaunchTarget::Resolved(path) => Some(path),
             CliLaunchTarget::Refused | CliLaunchTarget::NotScanned => None,
         })
+    }
+
+    /// What is installed, for a context that has to judge compatibility against it.
+    ///
+    /// Five facts rather than the snapshot, for the same reason as above: the parameter context
+    /// needs to know which version a flag would reach, not how to change it.
+    pub(crate) fn installation_facts(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliInstallationFacts, CliEnvironmentError> {
+        self.environment.installation_facts(agent_id)
     }
 }
