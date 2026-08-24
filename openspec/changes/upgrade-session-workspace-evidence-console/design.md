@@ -743,6 +743,46 @@ CREATE INDEX idx_log_operation_time
 
 Use an FTS5 companion table only if the existing bundled SQLite build and migration tests support it. Otherwise use bounded indexed candidate filtering plus case-insensitive matching. Do not add an unbounded LIKE scan over all logs.
 
+### Two Stores, One Authority
+
+The redacted JSONL files are the durable record. The SQLite table above is a projection built from them, and it can be deleted and rebuilt at any time without losing anything. That asymmetry is what the whole design rests on, so it is stated rather than implied:
+
+- **Export always reads the files.** An export served from the index would hand the user whatever the index happened to contain — a subset during repair, a stale set after a directory change — under a name that promises the log. The index is never the export authority.
+- **Repair always reads the files.** The index cannot repair itself from itself.
+- **Interactive queries always read the index, and only the index.** Once the migration lands there is no production fallback to scanning log files for a query. A fallback would be a second query implementation with different filters, different bounds and different coverage semantics, reached only when the first one failed — which is exactly when a reader is least able to tell which one answered.
+- **Index failure never changes the result of appending a log.** The file append has already succeeded; letting a projection's back-pressure fail it would make observation a precondition of the thing observed.
+
+### Record Identity
+
+A record's id has to survive a retry, a restart, and a backfill, because all three can present the same durable line to the index again. Two sources of identity, one shape:
+
+- **Records written from now on carry their own id**, assigned before the durable append and written into the JSONL line. The live notice, an index retry, and a later backfill of the same line all use that one id, so idempotency is a primary-key conflict rather than a guess.
+- **Records written before the id existed get a deterministic legacy id**, derived from the source-file identity, the byte offset of the line, and a fingerprint of the already-redacted line. Deriving it the same way twice gives the same id, which is what lets repair run more than once over the same file without duplicating rows.
+
+A timestamp plus a message is not an identity. Two records can share both — a retry loop logging the same failure inside one millisecond is the ordinary case, not a contrived one — and collapsing them would silently drop one.
+
+### Source File Identity
+
+A path is not an identity. Three different things happen to a log file, and a path cannot tell them apart:
+
+- **Rotation** renames the file. The records in it are the same records, so the source keeps its identity and the new active file gets a new one. Treating the renamed file as new would re-index everything it holds.
+- **Truncation or recreation** reuses the path for different content. The old checkpoint's byte offsets now point into unrelated bytes, so the recreated file is a new *generation* and its offsets start again. Reusing the old generation would resume mid-file into content that was never there.
+- **A configured directory change** replaces the corpus. Checkpoints from the old directory do not attach to the new one, and rows indexed from the old directory do not let the new one claim complete coverage.
+
+So the identity is a generation: the file's own witness (inode/file-id where available, plus a size and content witness of its head) rather than its name, scoped to the directory generation it was found in.
+
+### Live Reconciliation
+
+The notice carries identifiers, a sequence, correlation and coverage metadata. It does not carry the log line. A view that wants the row fetches it by record id, which keeps one authoritative shape for a row instead of two that can disagree, and keeps the event bus from carrying the corpus.
+
+Subscribe first, then read the watermark. Reading first and subscribing after loses every notice published in between, and the sequences the subscriber then sees are contiguous — so nothing downstream can tell that anything was missed.
+
+A view inserts a live row locally only when it can evaluate its current filters against that row itself. When it cannot — a text search, a filter the notice does not carry — it invalidates the first page instead. Guessing would either show a row the filter excludes or hide one it admits, and both look like the filter is broken.
+
+### Search Bounds
+
+Candidate matching is capped. When the cap is reached the answer is `partial` and `truncated`, never "complete, no match": a search that scanned the first N candidates and found nothing has not established that nothing matches, and reporting it as a definitive empty result is the same class of false claim as a coverage zero.
+
 ### Index Coverage
 
 Persist checkpoints per source file identity, size/hash witness, and byte offset. Rotation, truncation, deletion, or configured log-directory change invalidates only affected checkpoints. Query responses report:

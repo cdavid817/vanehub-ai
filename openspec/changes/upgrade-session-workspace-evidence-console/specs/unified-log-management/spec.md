@@ -36,6 +36,35 @@ Every indexed log record SHALL have a stable record id and source-file/offset wi
 - **WHEN** an existing record id is encountered with conflicting normalized content or source witness
 - **THEN** the index SHALL preserve the original row, mark coverage partial, and emit a bounded redacted conflict classification
 
+#### Scenario: Index a record written before record ids existed
+
+- **WHEN** repair reads a retained redacted record that carries no stored record id
+- **THEN** it SHALL derive a deterministic legacy id from the source-file identity, the record's byte offset, and a fingerprint of the already-redacted line
+- **AND** deriving the id again for the same line SHALL produce the same id, so a repeated repair pass adds no duplicate row
+- **AND** it SHALL NOT derive identity from timestamp and message alone
+
+### Requirement: Source identity distinguishes rotation, recreation, and directory generation
+
+A source file's identity SHALL be a generation witness rather than its path, so that a checkpoint is never resumed against bytes it was not written for.
+
+#### Scenario: A rotated file keeps its identity
+
+- **WHEN** the active log file is renamed by rotation
+- **THEN** the records it holds SHALL keep the source identity they were indexed under
+- **AND** the new active file SHALL receive a new source identity
+
+#### Scenario: A path is recreated after truncation
+
+- **WHEN** a log file at a previously indexed path is truncated or recreated with unrelated content
+- **THEN** it SHALL be treated as a new source generation with its own offsets
+- **AND** the previous generation's checkpoint SHALL NOT be resumed against it
+
+#### Scenario: The configured directory changes
+
+- **WHEN** the configured log directory changes
+- **THEN** checkpoints from the previous directory SHALL NOT be attached to sources in the new one
+- **AND** rows indexed from the previous directory SHALL NOT let the current corpus be reported as complete
+
 ### Requirement: Bounded asynchronous log-index repair
 
 The system SHALL repair or backfill the query index from retained redacted unified log files through backend-managed bounded operations with stable operation ids, checkpoints, cancellation, and progress.

@@ -110,6 +110,18 @@ The Logs tab SHALL support a bounded live-tail mode using post-redaction, post-i
 - **THEN** the Logs tab SHALL refresh from the indexed query source
 - **AND** it SHALL not assume the locally accumulated live rows are complete
 
+#### Scenario: A live row is rendered
+
+- **WHEN** the Logs tab inserts a row announced by a live notice
+- **THEN** it SHALL read the authoritative row from the indexed query by record id
+- **AND** the notice payload SHALL NOT be rendered as the row's content
+
+#### Scenario: Subscription races the first page
+
+- **WHEN** the Logs tab begins live tailing
+- **THEN** it SHALL register its listener before reading the resume watermark
+- **AND** notices that arrive in that window SHALL be reconciled against the watermark rather than dropped
+
 ### Requirement: Non-destructive log refresh and pagination failure
 
 Logs SHALL keep previously loaded entries visible when a later refresh, live update, or load-more operation fails.
@@ -150,3 +162,9 @@ The log service and Logs tab SHALL expose and present complete, indexing, partia
 - **WHEN** the index cannot answer safely
 - **THEN** Logs SHALL preserve any cached rows, mark current data unavailable or stale, and expose Retry or remediation
 - **AND** it SHALL not silently fall back to an unbounded filesystem scan
+
+#### Scenario: A search reaches its candidate bound
+
+- **WHEN** a text search examines its maximum bounded candidate set without exhausting the matching scope
+- **THEN** the result SHALL be reported as `partial` and `truncated`
+- **AND** it SHALL NOT be presented as a complete result that found no match
