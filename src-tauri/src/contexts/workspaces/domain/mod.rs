@@ -6,6 +6,8 @@ mod path;
 mod project;
 mod remote_terminal_limits;
 mod remote_workspace;
+mod session_shell;
+mod session_shell_replay;
 mod shell;
 mod worktree;
 
@@ -27,7 +29,20 @@ pub(crate) use remote_terminal_limits::{
     TERMINAL_SEARCH_MAX_QUERY_BYTES,
 };
 pub(crate) use remote_workspace::RemoteWorkspace;
+pub(crate) use session_shell::{
+    SessionShellError, SessionShellState, ShellAttachmentId, ShellCapacityScope,
+    ShellCreateRequestId, ShellForegroundProcessState, ShellId, ShellOutputFrame, ShellReplayGap,
+    ShellStream, ShellTitle,
+};
+pub(crate) use session_shell_replay::{ShellReplayBuffer, ShellReplaySnapshot};
+// The reason-code helper has no production caller until the runtime adapters land; re-exporting it
+// unconditionally would be a re-export nothing reads.
+#[cfg(test)]
+pub(crate) use session_shell_replay::shell_reason;
 pub(crate) use shell::{
     reset_directory_command, ShellHost, ShellRuntimeDescriptor, TerminalDimensions,
 };
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};
+
+#[cfg(test)]
+mod session_shell_replay_tests;

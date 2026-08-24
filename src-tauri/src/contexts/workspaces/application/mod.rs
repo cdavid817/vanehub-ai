@@ -5,6 +5,9 @@ mod ports;
 mod query_service;
 mod review;
 mod service;
+mod session_shell;
+mod session_shell_registry;
+mod session_shell_store;
 mod shell_service;
 
 pub(crate) use error::WorkspaceApplicationError;
@@ -36,8 +39,12 @@ pub(crate) use review::{
     WorkspaceReviewPort, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 pub(crate) use service::WorkspaceApplicationService;
+// The retained Shell modules publish through this context's api once a consumer exists; the
+// registry lands with its own tests first so the contract can be reviewed before it is wired.
 pub(crate) use shell_service::WorkspaceShellApplicationService;
 
+#[cfg(test)]
+mod session_shell_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

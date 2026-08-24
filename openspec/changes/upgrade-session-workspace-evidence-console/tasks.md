@@ -140,11 +140,11 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 7. Retained Multi-Shell Lifecycle
 
-- [ ] 7.1 Add `SessionShellDescriptor`, state, runtime descriptor, output frame, attach snapshot with its `ShellAttachmentId`, replay gap, and typed Shell errors to the workspaces domain/application contracts.
-- [ ] 7.2 Replace the one-view lifecycle with a native `SessionShellRegistry` keyed by Shell id and indexed by session/seat.
-- [ ] 7.3 Implement `list`, `create`, `attach`, `detach`, `write`, `resize`, `rename`, and `close` use cases through application ports, with detach/write/resize carrying an attachment id so a stale view cannot detach or write into the attachment that replaced it.
-- [ ] 7.4 Retain UTF-8-safe sequence-numbered Shell frames up to 1 MiB per Shell and insert one gap marker when old content is evicted.
-- [ ] 7.5 Serialize concurrent create/attach requests so duplicate default Shells are not spawned for the same requested identity.
+- [x] 7.1 Add `SessionShellDescriptor`, state, runtime descriptor, output frame, attach snapshot with its `ShellAttachmentId`, replay gap, and typed Shell errors to the workspaces domain/application contracts.
+- [x] 7.2 Replace the one-view lifecycle with a native `SessionShellRegistry` keyed by Shell id and indexed by session/seat.
+- [x] 7.3 Implement `list`, `create`, `attach`, `detach`, `write`, `resize`, `rename`, and `close` use cases through application ports, with detach/write/resize carrying an attachment id so a stale view cannot detach or write into the attachment that replaced it.
+- [x] 7.4 Retain UTF-8-safe sequence-numbered Shell frames up to 1 MiB per Shell and insert one gap marker when old content is evicted.
+- [x] 7.5 Serialize concurrent create/attach requests so duplicate default Shells are not spawned for the same requested identity.
 - [ ] 7.6 Keep local PTY and remote SSH channel infrastructure behind workspaces ports; preserve independent remote channel lifecycle on pooled transports.
 - [ ] 7.7 Close inactive Shells after the configured idle window and close/join all Shell-owned workers during application shutdown.
 - [ ] 7.8 Publish state/output notices with sequence and timestamp; never publish unbounded replay in a Tauri event.
