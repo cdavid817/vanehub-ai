@@ -15,6 +15,8 @@ mod log_source_identity_tests;
 #[cfg(test)]
 mod log_source_line_tests;
 mod log_source_reader;
+#[cfg(test)]
+mod log_source_reconciliation_tests;
 mod mission_control_repository;
 mod operation_registry;
 mod run_repository;

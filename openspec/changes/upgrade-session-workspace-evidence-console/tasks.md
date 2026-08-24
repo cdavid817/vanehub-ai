@@ -166,7 +166,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 8.5 Implement stable keyset pagination and structured filters for level, text, session, run, trace, span, operation, agent, seat, and time.
 - [x] 8.6 Add complete/indexing/partial/unavailable coverage with oldest/newest/indexed-through timestamps and dropped counts.
 - [x] 8.7 Add a bounded asynchronous repair/backfill operation with stable operation id, cancellation, checkpoints, and unified diagnostics.
-- [ ] 8.8 Handle rotation, truncation, retention deletion, and configured log-directory changes without stale index rows claiming complete coverage.
+- [x] 8.8 Handle rotation, truncation, retention deletion, and configured log-directory changes without stale index rows claiming complete coverage.
 - [ ] 8.9 Keep unified redacted log files as the durable export/repair source and keep export behavior compatible.
 - [x] 8.10 Move the implementation of session-log query commands from workspaces-owned file scanning to operations-owned APIs while preserving public command names/DTO compatibility during migration.
 - [x] 8.11 Publish identifier-bounded post-commit live log notices through the Tauri adapter and deterministic Web/mock event stream.

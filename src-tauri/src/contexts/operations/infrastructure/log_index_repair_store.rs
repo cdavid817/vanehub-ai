@@ -274,6 +274,59 @@ pub(crate) fn conflict_count(
     Ok(u32::try_from(count).unwrap_or(u32::MAX))
 }
 
+/// Deletes rows whose source is no longer retained, at most `limit` at a time.
+///
+/// The checkpoints go only on the final call — the one that finds no rows left. Removing them up
+/// front would let a concurrent pass re-index a generation mid-expiry from offset zero, racing the
+/// delete it is supposed to be finishing.
+pub(crate) fn expire_sources(
+    connection: &mut Connection,
+    retained: &[LogSourceIdentity],
+    limit: u32,
+) -> Result<u32, OperationsLogError> {
+    let keys: Vec<String> = retained.iter().map(LogSourceIdentity::as_key).collect();
+    // An empty retained set is a real state — every log file was deleted — and it means every row
+    // is expired. `NOT IN ('')` is what expresses that, because `NOT IN ()` is a syntax error.
+    let placeholders = if keys.is_empty() {
+        "''".to_string()
+    } else {
+        keys.iter().map(|_| "?").collect::<Vec<_>>().join(", ")
+    };
+    let transaction = connection.transaction().map_err(storage_error)?;
+    let mut bindings: Vec<&dyn rusqlite::ToSql> =
+        keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
+    let bounded = i64::from(limit);
+    bindings.push(&bounded);
+    let removed = transaction
+        .execute(
+            &format!(
+                "DELETE FROM unified_log_query_index
+                 WHERE rowid IN (
+                     SELECT rowid FROM unified_log_query_index
+                     WHERE source_file_id NOT IN ({placeholders}) LIMIT ?{}
+                 )",
+                keys.len() + 1
+            ),
+            bindings.as_slice(),
+        )
+        .map_err(storage_error)?;
+    if removed == 0 {
+        let checkpoint_bindings: Vec<&dyn rusqlite::ToSql> =
+            keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
+        transaction
+            .execute(
+                &format!(
+                    "DELETE FROM unified_log_source_checkpoints \
+                     WHERE source_file_id NOT IN ({placeholders})"
+                ),
+                checkpoint_bindings.as_slice(),
+            )
+            .map_err(storage_error)?;
+    }
+    transaction.commit().map_err(storage_error)?;
+    Ok(u32::try_from(removed).unwrap_or(u32::MAX))
+}
+
 /// Deletes one superseded generation's rows, at most `limit` at a time.
 ///
 /// Bounded because a corpus can be larger than one transaction should hold. Holding the write lock

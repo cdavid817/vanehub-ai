@@ -568,7 +568,7 @@ fn a_search_that_hits_its_candidate_bound_reports_partial_and_truncated() {
 /// Retention removing a source removes its rows and moves the oldest queryable boundary with them.
 /// Leaving the rows would let the index answer for a corpus that no longer exists.
 #[test]
-fn forgetting_a_source_removes_its_rows_and_its_checkpoint() {
+fn expiring_a_source_removes_its_rows_and_its_checkpoint() {
     let harness = harness("log-index-retention");
     harness
         .repository
@@ -579,12 +579,19 @@ fn forgetting_a_source_removes_its_rows_and_its_checkpoint() {
         .commit_batch(&source("file-1"), &[], &Default::default(), 100)
         .expect("checkpoint");
 
+    // Bounded, so a caller loops. The checkpoint goes on the pass that finds no rows left, which
+    // is why the second call is not optional.
     let removed = harness
         .repository
-        .forget_sources(&[source("file-2")])
-        .expect("forget");
+        .expire_sources(&[source("file-2")], 500)
+        .expect("expire");
+    let drained = harness
+        .repository
+        .expire_sources(&[source("file-2")], 500)
+        .expect("drain");
 
     assert_eq!(removed, 1);
+    assert_eq!(drained, 0);
     assert_eq!(
         harness
             .repository

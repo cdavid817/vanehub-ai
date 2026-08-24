@@ -36,7 +36,9 @@ enum Event {
         source: String,
         reason: String,
     },
-    Forgot,
+    Expired {
+        removed: u32,
+    },
     ClearedGaps {
         through_id: i64,
     },
@@ -56,6 +58,8 @@ struct RecordingIndex {
     gap_watermark: Mutex<i64>,
     /// Rows left per source, so a bounded prune has something to drain.
     prunable: Mutex<BTreeMap<String, u32>>,
+    /// Rows belonging to sources that are no longer retained.
+    expirable: Mutex<u32>,
 }
 
 impl RecordingIndex {
@@ -134,9 +138,18 @@ impl SessionLogIndexRepository for RecordingIndex {
         Ok(())
     }
 
-    fn forget_sources(&self, _retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
-        self.push(Event::Forgot);
-        Ok(0)
+    /// Bounded, so the caller has to loop. The pool is drained at most one limit at a time, which
+    /// is how a test can tell one big delete from many small ones.
+    fn expire_sources(
+        &self,
+        _retained: &[LogSourceIdentity],
+        limit: u32,
+    ) -> Result<u32, OperationsLogError> {
+        let mut remaining = self.expirable.lock().expect("expirable");
+        let removed = (*remaining).min(limit);
+        *remaining -= removed;
+        self.push(Event::Expired { removed });
+        Ok(removed)
     }
 
     /// The whole batch or none of it, including the checkpoint. A failing commit leaves the
@@ -1033,5 +1046,227 @@ fn a_resumed_pass_starts_from_the_committed_checkpoint() {
     assert!(
         first_commit > 2_000,
         "the resumed pass re-read from {first_commit}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 8.8 — source reconciliation
+// ---------------------------------------------------------------------------------------------
+
+/// Retention deletes in bounded batches, never in one statement.
+///
+/// A configured directory change expires the entire previous corpus at once. One transaction
+/// spanning all of it holds the write lock for as long as the delete takes, and every write in the
+/// application queues behind a background tidy-up.
+#[test]
+fn expiring_retired_sources_happens_in_bounded_batches() {
+    let harness = harness(vec![source("file-1", vec![1])]);
+    *harness.index.expirable.lock().expect("expirable") = 1_200;
+
+    harness.service.repair();
+
+    let removals: Vec<u32> = harness
+        .index
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Expired { removed } => Some(removed),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        removals.len() >= 3,
+        "1200 rows went in {} calls",
+        removals.len()
+    );
+    for removed in &removals {
+        assert!(
+            *removed <= super::log_query_service::REPAIR_PRUNE_ROWS,
+            "one call removed {removed} rows"
+        );
+    }
+    assert_eq!(removals.iter().sum::<u32>(), 1_200);
+}
+
+/// Expiring rows is recorded as retention, not as loss.
+///
+/// Both make a page shorter and only the code says which happened: "the log does not go back that
+/// far" is the product working, and "the index lost something" is not.
+#[test]
+fn expired_rows_are_reported_as_retention_rather_than_as_a_gap_in_coverage() {
+    let harness = harness(vec![source("file-1", vec![1])]);
+    *harness.index.expirable.lock().expect("expirable") = 40;
+
+    harness.service.repair();
+
+    let reasons: Vec<String> = harness
+        .index
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Gap { reason, .. } => Some(reason),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        reasons.contains(&"log_retention_expired".to_string()),
+        "expiry was recorded as {reasons:?}"
+    );
+}
+
+/// Nothing expires when there is nothing to expire.
+#[test]
+fn a_pass_over_an_unchanged_corpus_records_no_retention() {
+    let harness = harness(vec![source("file-1", vec![1])]);
+
+    harness.service.repair();
+
+    let reasons: Vec<String> = harness
+        .index
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Gap { reason, .. } => Some(reason),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !reasons.contains(&"log_retention_expired".to_string()),
+        "an unchanged corpus reported retention: {reasons:?}"
+    );
+}
+
+/// A listing that failed never reaches the code that deletes.
+///
+/// This is the single most consequential branch in the whole pass. The expiry call is driven by
+/// what is *retained*, so an empty inventory means "delete everything" — and a temporary IO failure
+/// read as an empty inventory would erase the index on a disk hiccup.
+#[test]
+fn a_temporary_listing_failure_expires_nothing() {
+    let harness = harness(vec![source("file-1", vec![2])]);
+    *harness.index.expirable.lock().expect("expirable") = 500;
+    *harness.reader.list_error.lock().expect("list error") = Some("log_directory_unreadable");
+
+    let terminal = harness.service.repair();
+
+    assert_eq!(terminal.state, SessionLogBackfillState::Failed);
+    assert!(
+        harness
+            .index
+            .events()
+            .into_iter()
+            .all(|event| !matches!(event, Event::Expired { .. })),
+        "a failed listing expired rows"
+    );
+    assert_eq!(*harness.index.expirable.lock().expect("expirable"), 500);
+}
+
+/// A file shorter than its checkpoint is pruned and re-read from the start.
+///
+/// Its offsets point into bytes that are no longer there, so resuming would read from the middle of
+/// a record that was never written at that position.
+#[test]
+fn a_truncated_source_is_pruned_and_resumed_from_the_start() {
+    let harness = harness(vec![source("file-1", vec![2, 2])]);
+    // Checkpointed past the end of what the file now holds.
+    harness
+        .index
+        .checkpoints
+        .lock()
+        .expect("checkpoints")
+        .insert("generation-1::file-1".to_string(), 500_000);
+
+    harness.service.repair();
+
+    let events = harness.index.events();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Pruned { .. })),
+        "the superseded generation was not pruned"
+    );
+    assert!(
+        events.iter().any(
+            |event| matches!(event, Event::Gap { reason, .. } if reason == "log_source_truncated")
+        ),
+        "the truncation was not recorded"
+    );
+    // Re-read from zero: the first commit covers the first page rather than resuming past it.
+    let first_commit = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Committed { next_offset, .. } => Some(*next_offset),
+            _ => None,
+        })
+        .expect("a batch was committed");
+    assert!(
+        first_commit < 500_000,
+        "the pass resumed at {first_commit} into content that is gone"
+    );
+}
+
+/// A directory change is a new generation, and the previous generation's rows are expired.
+///
+/// Left alone they would keep counting toward a corpus they are not part of, and a query over the
+/// new directory would report coverage it has not earned.
+#[test]
+fn a_directory_change_expires_the_previous_generations_rows() {
+    let harness = harness(vec![source("file-1", vec![1])]);
+    harness.service.repair();
+
+    // The configured directory moved. Same file name, new generation.
+    *harness.reader.generation.lock().expect("generation") = "generation-2".to_string();
+    *harness.index.expirable.lock().expect("expirable") = 60;
+    harness.service.repair();
+
+    let expired: u32 = harness
+        .index
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Expired { removed } => Some(removed),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(expired, 60, "the old generation's rows were not expired");
+}
+
+/// A checkpoint from the old directory never attaches to a source in the new one.
+#[test]
+fn a_checkpoint_from_the_old_directory_does_not_attach_to_the_new_one() {
+    let harness = harness(vec![source("file-1", vec![2, 2])]);
+    harness
+        .index
+        .checkpoints
+        .lock()
+        .expect("checkpoints")
+        .insert("generation-1::file-1".to_string(), 1_000);
+
+    *harness.reader.generation.lock().expect("generation") = "generation-2".to_string();
+    harness.service.repair();
+
+    // The new generation's key is different, so its checkpoint starts absent and the pass reads the
+    // file from the beginning.
+    let first_commit = harness
+        .index
+        .events()
+        .into_iter()
+        .find_map(|event| match event {
+            Event::Committed {
+                source,
+                next_offset,
+                ..
+            } if source.starts_with("generation-2") => Some(next_offset),
+            _ => None,
+        })
+        .expect("the new generation was indexed");
+    assert_eq!(
+        first_commit, 1_000,
+        "the new generation inherited an offset from the old one"
+    );
+    assert_eq!(
+        harness.index.checkpoint_of("generation-1::file-1"),
+        Some(1_000),
+        "the old checkpoint was mutated rather than left behind"
     );
 }

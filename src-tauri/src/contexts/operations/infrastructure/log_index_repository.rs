@@ -488,39 +488,13 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
         Ok(())
     }
 
-    /// Forgets rows and checkpoints whose source is gone.
-    ///
-    /// Called with what is still retained rather than with what disappeared: a source that vanished
-    /// leaves nothing to name it by, and a caller listing absences would have to remember what used
-    /// to exist.
-    fn forget_sources(&self, retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
-        let connection = self.connection()?;
-        let keys: Vec<String> = retained.iter().map(LogSourceIdentity::as_key).collect();
-        let placeholders = if keys.is_empty() {
-            "''".to_string()
-        } else {
-            keys.iter().map(|_| "?").collect::<Vec<_>>().join(", ")
-        };
-        let bindings: Vec<&dyn rusqlite::ToSql> =
-            keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
-        let removed = connection
-            .execute(
-                &format!(
-                    "DELETE FROM unified_log_query_index WHERE source_file_id NOT IN ({placeholders})"
-                ),
-                bindings.as_slice(),
-            )
-            .map_err(storage_error)?;
-        connection
-            .execute(
-                &format!(
-                    "DELETE FROM unified_log_source_checkpoints \
-                     WHERE source_file_id NOT IN ({placeholders})"
-                ),
-                bindings.as_slice(),
-            )
-            .map_err(storage_error)?;
-        Ok(u32::try_from(removed).unwrap_or(u32::MAX))
+    fn expire_sources(
+        &self,
+        retained: &[LogSourceIdentity],
+        limit: u32,
+    ) -> Result<u32, OperationsLogError> {
+        let mut connection = self.connection()?;
+        repair_store::expire_sources(&mut connection, retained, limit)
     }
 
     fn commit_batch(

@@ -151,8 +151,21 @@ pub(crate) trait SessionLogIndexRepository: Send + Sync {
         dropped: u32,
     ) -> Result<(), OperationsLogError>;
 
-    /// Drops rows whose source is gone, and moves the oldest queryable boundary with them.
-    fn forget_sources(&self, retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError>;
+    /// Drops rows whose source is gone, at most `limit` at a time.
+    ///
+    /// Called with what is still *retained* rather than with what disappeared, because a source
+    /// that vanished leaves nothing to name it by. That shape carries a hazard worth stating: an
+    /// empty retained set means "delete everything", so the caller must never reach this on a
+    /// listing that failed — only on one that succeeded and genuinely found nothing.
+    ///
+    /// Bounded because retention can expire a lot at once — a directory change expires the whole
+    /// previous corpus — and one transaction spanning all of it holds the write lock for as long
+    /// as the delete takes. The caller loops until this returns zero.
+    fn expire_sources(
+        &self,
+        retained: &[LogSourceIdentity],
+        limit: u32,
+    ) -> Result<u32, OperationsLogError>;
 
     /// Writes one batch's rows, its gaps and its checkpoint in a single transaction.
     ///

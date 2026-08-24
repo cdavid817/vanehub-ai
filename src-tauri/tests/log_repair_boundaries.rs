@@ -142,6 +142,79 @@ fn every_repair_bound_is_a_named_constant() {
     );
 }
 
+/// Only a successful listing can lead to a deletion.
+///
+/// The expiry call is driven by what is *retained*, so an empty inventory means "delete
+/// everything". That shape is fine as long as one thing holds: the code that deletes is
+/// unreachable from a listing that failed. It is not a property any single call can express, which
+/// is why it is asserted structurally — the failure branch returns before reconcile exists.
+#[test]
+fn deletion_is_unreachable_from_a_listing_that_failed() {
+    let repair = code_of("contexts/operations/application/log_repair.rs");
+
+    let discover = repair
+        .split("fn discover(")
+        .nth(1)
+        .expect("the pass discovers before it reconciles");
+    let discover_body = discover.split("\n    }").next().unwrap_or_default();
+    assert!(
+        discover_body.contains("return Err("),
+        "a failed listing does not return early: {discover_body}"
+    );
+    // And the phase that deletes names its own guard rather than relying on the caller's ordering.
+    let reconcile = repair
+        .split("fn reconcile(")
+        .nth(1)
+        .expect("the pass reconciles")
+        .split("\n    }")
+        .next()
+        .unwrap_or_default();
+    assert!(
+        reconcile.contains("snapshot.identities()"),
+        "reconcile does not take its retained set from the snapshot"
+    );
+    // The deleting calls appear only inside reconcile and the truncation path, never at top level.
+    assert!(
+        !repair.contains("fn repair(&self)")
+            || !repair
+                .split("fn repair(&self)")
+                .nth(1)
+                .unwrap_or_default()
+                .split("\n    }")
+                .next()
+                .unwrap_or_default()
+                .contains("expire_sources"),
+        "the top-level pass expires sources outside the reconcile phase"
+    );
+}
+
+/// Every deletion the repair performs is bounded and looped.
+///
+/// A single unbounded `DELETE` over the corpus holds the write lock for as long as it takes, and
+/// retention can expire an entire previous generation at once.
+#[test]
+fn every_deletion_the_repair_performs_is_bounded() {
+    let store = code_of("contexts/operations/infrastructure/log_index_repair_store.rs");
+
+    for statement in ["expire_sources", "prune_source_generation"] {
+        let body = store
+            .split(&format!("pub(crate) fn {statement}"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{statement} is missing"))
+            .split("\n}")
+            .next()
+            .unwrap_or_default();
+        assert!(
+            body.contains("LIMIT ?"),
+            "{statement} deletes without a bound: {body}"
+        );
+        assert!(
+            body.contains("transaction.commit()"),
+            "{statement} does not end its transaction"
+        );
+    }
+}
+
 /// The repair reads the durable files and writes the projection, never the other way round.
 ///
 /// An index that repaired itself from itself would confirm whatever it already held, including the

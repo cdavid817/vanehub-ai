@@ -88,7 +88,11 @@ impl SessionLogIndexRepository for CountingIndex {
 
     super::log_index_test_doubles::inert_repair_methods!();
 
-    fn forget_sources(&self, _retained: &[LogSourceIdentity]) -> Result<u32, OperationsLogError> {
+    fn expire_sources(
+        &self,
+        _retained: &[LogSourceIdentity],
+        _limit: u32,
+    ) -> Result<u32, OperationsLogError> {
         Ok(0)
     }
 }

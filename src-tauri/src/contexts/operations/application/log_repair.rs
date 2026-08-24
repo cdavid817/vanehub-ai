@@ -313,14 +313,19 @@ impl SessionLogQueryService {
         self.reclaim(&reconciling);
         self.publish(&reconciling);
 
-        // Rows whose source is gone stop counting toward the corpus. Reached only through a
-        // listing that succeeded, so a temporary IO failure can never get here.
+        // Rows whose source is gone stop counting toward the corpus, and the oldest queryable
+        // boundary moves with them. Reached only through a listing that succeeded, which is the
+        // one thing standing between a disk hiccup and an erased index.
         let retained = snapshot.identities();
-        if let Err(error) = self.index.forget_sources(&retained) {
-            self.diagnostics.report(
-                error.code(),
-                BTreeMap::from([("stage".into(), "retention".into())]),
-            );
+        let expired = self.expire_retired_sources(&retained);
+        if expired > 0 {
+            // Named so a reader can tell "the log does not go back that far" from "the index lost
+            // something". Both make a page shorter, and only the code says which happened.
+            if let Some(first) = snapshot.sources.first() {
+                let _ = self
+                    .index
+                    .record_gap(&first.identity, "log_retention_expired", expired);
+            }
         }
 
         // Every condition below has to hold. Each one is a different way the pass could have
@@ -355,6 +360,31 @@ impl SessionLogQueryService {
                     error.code(),
                     BTreeMap::from([("stage".into(), "gap_clear".into())]),
                 );
+            }
+        }
+    }
+
+    /// Removes rows for sources that are no longer retained, in bounded batches.
+    ///
+    /// Loops rather than deleting in one statement, because retention can expire a great deal at
+    /// once — a configured directory change expires the entire previous corpus — and one
+    /// transaction spanning all of it holds the write lock for as long as the delete takes.
+    fn expire_retired_sources(&self, retained: &[LogSourceIdentity]) -> u32 {
+        let mut expired = 0u32;
+        loop {
+            if self.cancelled.load(Ordering::SeqCst) {
+                return expired;
+            }
+            match self.index.expire_sources(retained, REPAIR_PRUNE_ROWS) {
+                Ok(0) => return expired,
+                Ok(removed) => expired = expired.saturating_add(removed),
+                Err(error) => {
+                    self.diagnostics.report(
+                        error.code(),
+                        BTreeMap::from([("stage".into(), "retention".into())]),
+                    );
+                    return expired;
+                }
             }
         }
     }
