@@ -242,7 +242,9 @@ describe("session workspace components", () => {
   });
 
   it("keeps the ordinary shell readable for ANSI inverse output", () => {
-    const source = readFileSync(new URL("./shell-tab.tsx", import.meta.url), "utf8");
+    // The terminal is constructed by the surface, which is the component that owns one Shell's
+    // xterm instance; `shell-tab.tsx` above it owns the list and the dialogs.
+    const source = readFileSync(new URL("./shell-surface.tsx", import.meta.url), "utf8");
     const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
     expect(source).toContain("allowTransparency: false");

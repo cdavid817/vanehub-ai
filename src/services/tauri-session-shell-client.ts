@@ -15,6 +15,7 @@ import type {
   AttachSessionShellInput,
   CreateSessionShellInput,
   ResizeSessionShellInput,
+  SessionShellEvent,
   SessionShellService,
   ShellAttachment,
   ShellAttachmentScope,
@@ -70,7 +71,7 @@ export function createTauriSessionShellClient(
 
     async attachSessionShell(
       input: AttachSessionShellInput,
-      listener: (notice: SessionShellNotice) => void,
+      listener: (event: SessionShellEvent) => void,
     ): Promise<ShellAttachment> {
       // Listener first, attach second, buffer in between. Attaching first would lose every frame
       // published in that window, and the sequences the view then sees would be contiguous, so

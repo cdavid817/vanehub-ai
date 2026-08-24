@@ -150,10 +150,10 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 7.8 Publish state/output notices with sequence and timestamp; never publish unbounded replay in a Tauri event.
 - [x] 7.9 Implement Tauri commands and adapters for all Shell registry operations, keeping existing create/kill commands as temporary delegating compatibility paths until frontend migration passes.
 - [x] 7.10 Implement deterministic Web/mock multiple Shells, detach/attach replay, gap behavior, and explicit close.
-- [ ] 7.11 Refactor the Shell tab to render Shell tabs, Add, Rename, runtime/status metadata, and explicit Close confirmation.
-- [ ] 7.12 Change component cleanup and hidden-tab handling from close/kill to detach.
-- [ ] 7.13 Register the listener before attaching, buffer frames that arrive in the window, reattach using `nextSequence`, de-duplicate replay/live frames by shell id and sequence, and display a gap marker when content was evicted or dropped.
-- [ ] 7.14 Keep a foreground-process warning visible before explicit close when the runtime can report it; do not claim process state when opaque.
+- [x] 7.11 Refactor the Shell tab to render Shell tabs, Add, Rename, runtime/status metadata, and explicit Close confirmation.
+- [x] 7.12 Change component cleanup and hidden-tab handling from close/kill to detach.
+- [x] 7.13 Register the listener before attaching, buffer frames that arrive in the window, reattach using `nextSequence`, de-duplicate replay/live frames by shell id and sequence, and display a gap marker when content was evicted or dropped.
+- [x] 7.14 Keep a foreground-process warning visible before explicit close when the runtime can report it; do not claim process state when opaque.
 - [ ] 7.15 Add local registry, remote channel, Web/mock, React lifecycle, and desktop E2E tests proving session/tab switches do not terminate Shells.
 - [ ] 7.16 Remove obsolete kill-on-unmount code only after the desktop Shell lifecycle tests pass.
 

@@ -141,18 +141,18 @@ describe("hidden workspace panels", () => {
   it("detaches the Shell view without ending the shell", () => {
     // A project-relative path rather than `import.meta.url`: under the jsdom environment that URL
     // is not a file URL, and `readFileSync` rejects it.
-    const source = readFileSync("src/session-workspace/shell-tab.tsx", "utf8");
-    const visibilityGuards = source.split("if (!visibleRef.current) return;").length - 1;
+    const surface = readFileSync("src/session-workspace/shell-surface.tsx", "utf8");
+    const tab = readFileSync("src/session-workspace/shell-tab.tsx", "utf8");
 
-    // Both the input path and the resize observer stop while hidden.
-    expect(visibilityGuards).toBe(2);
-    expect(source).toContain("useEffect(() => { visibleRef.current = isVisible; }, [isVisible]);");
-    // Nothing in the visibility path may kill: the process, its scrollback, and its working
-    // directory outlive a glance at another tab. `killShell` stays in teardown and in the
-    // explicit Disconnect button, both of which are user- or lifecycle-driven.
-    const effectStart = source.indexOf("if (!isVisible) return;");
-    const visibilityEffect = source.slice(effectStart, source.indexOf("}, [isVisible]);", effectStart));
-    expect(effectStart).toBeGreaterThan(0);
-    expect(visibilityEffect).not.toContain("killShell");
+    // Hiding now releases the attachment outright rather than guarding each path that would have
+    // used it, which is why the guards this test used to count are gone: there is nothing left to
+    // guard once the claim is released.
+    expect(surface).toContain("if (!isVisible || !terminal) return;");
+    expect(surface).toContain("void detach?.();");
+    // Nothing in the visibility path may end a Shell: the process, its scrollback, and its working
+    // directory outlive a glance at another tab. Closing is reachable only through the tab's
+    // confirmation dialog, which is user-driven.
+    expect(surface).not.toContain("closeSessionShell");
+    expect(tab).toContain("ShellCloseDialog");
   });
 });

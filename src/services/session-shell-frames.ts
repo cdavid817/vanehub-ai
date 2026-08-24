@@ -1,8 +1,8 @@
 import type {
   SessionShellNotice,
   ShellOutputFrame,
-  ShellReplayGap,
 } from "../types/session-workspace-shell-frames";
+import type { SessionShellEvent } from "./session-shell-service";
 
 export interface ShellFrameDispatcher {
   /** Feeds one notice through de-duplication and gap detection. */
@@ -13,9 +13,7 @@ export interface ShellFrameDispatcherOptions {
   shellId: string;
   /** The first sequence this view has not seen, from the attach snapshot. */
   fromSequence: number;
-  listener(notice: SessionShellNotice): void;
-  /** Called once per detected discontinuity, before the frame that revealed it. */
-  onGap?(gap: ShellReplayGap): void;
+  listener(event: SessionShellEvent): void;
 }
 
 /**
@@ -41,10 +39,16 @@ export function createShellFrameDispatcher(
       }
       if (notice.sequence <= lastSequence) return;
       if (notice.sequence > lastSequence + 1) {
-        options.onGap?.({
-          fromSequence: lastSequence + 1,
-          toSequence: notice.sequence - 1,
-          reason: "shell_frame_gap",
+        // Announced before the frame that revealed it, so the scrollback reads in order: the
+        // missing range, then what came after it.
+        options.listener({
+          type: "gap",
+          shellId: options.shellId,
+          gap: {
+            fromSequence: lastSequence + 1,
+            toSequence: notice.sequence - 1,
+            reason: "shell_frame_gap",
+          },
         });
       }
       lastSequence = notice.sequence;

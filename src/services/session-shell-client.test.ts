@@ -91,22 +91,22 @@ describe("shell frame dispatcher", () => {
   });
 
   it("reports a discontinuity before the frame that revealed it", () => {
-    const gaps: { fromSequence: number; toSequence: number }[] = [];
-    const seen: number[] = [];
+    const events: string[] = [];
     const dispatcher = createShellFrameDispatcher({
       shellId: "shell-1",
       fromSequence: 1,
-      listener: (notice) => {
-        if (notice.type === "output") seen.push(notice.sequence);
+      listener: (event) => {
+        if (event.type === "output") events.push(`frame:${event.sequence}`);
+        if (event.type === "gap") events.push(`gap:${event.gap.fromSequence}-${event.gap.toSequence}`);
       },
-      onGap: (gap) => gaps.push({ fromSequence: gap.fromSequence, toSequence: gap.toSequence }),
     });
 
     dispatcher.accept(outputNotice(1, "a"));
     dispatcher.accept(outputNotice(5, "b"));
 
-    expect(gaps).toEqual([{ fromSequence: 2, toSequence: 4 }]);
-    expect(seen).toEqual([1, 5]);
+    // Order matters: the marker names the range that is missing, so it has to arrive before the
+    // frame that follows the hole rather than after it.
+    expect(events).toEqual(["frame:1", "gap:2-4", "frame:5"]);
   });
 
   it("ignores frames belonging to another shell", () => {

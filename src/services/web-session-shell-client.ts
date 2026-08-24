@@ -10,6 +10,7 @@ import type {
   AttachSessionShellInput,
   CreateSessionShellInput,
   ResizeSessionShellInput,
+  SessionShellEvent,
   SessionShellService,
   ShellAttachment,
   ShellAttachmentScope,
@@ -47,7 +48,7 @@ interface MockShell {
  */
 export function createWebSessionShellClient(): SessionShellService {
   const shells = new Map<string, MockShell>();
-  const listeners = new Map<string, (notice: SessionShellNotice) => void>();
+  const listeners = new Map<string, (event: SessionShellEvent) => void>();
   let counter = 0;
   const nextId = (prefix: string): string => `${prefix}-${++counter}`;
   // A fixed epoch advanced by a fixed step, so a transcript is comparable across runs.
@@ -178,7 +179,7 @@ export function createWebSessionShellClient(): SessionShellService {
 
     async attachSessionShell(
       input: AttachSessionShellInput,
-      listener: (notice: SessionShellNotice) => void,
+      listener: (event: SessionShellEvent) => void,
     ): Promise<ShellAttachment> {
       const shell = require_(input.shellId);
       const attachmentId = nextId("attach");

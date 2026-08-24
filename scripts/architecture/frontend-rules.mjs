@@ -60,8 +60,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 净改而非净增:它此前描述的 state 取值(connecting/connected/…)与原生注册表实际发布的六个状态
 // 对不上,attachmentId、revision、foregroundProcess 三个字段则根本不存在。上限按实测值 20693
 // 记录,不留余量。
+// 再次上调(同一 change,Task Group 7.11-7.14):+13 是 `runtime-session-shell-client.ts`——两个适配器
+// 的运行时选择器,与 `runtime-agent-client.ts`、`runtime-execution-observability-client.ts` 同一模式。
+// 它必须单独存在:React 侧只能拿到这个绑定,组件里出现 `isTauri` 分支正是 ARCH-FE-002 要拦的东西。
+// 另 +19 是 `SessionShellEvent`:gap 是客户端在序号跳变时算出来的,不是原生发过来的,所以监听器的
+// 事件类型必须比线上通知宽一档。少了这一档,视图看到的帧会紧挨着接上,缺口那段就被当成"本来就
+// 没有输出"。上限按实测值 20725 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20693, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 20725, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

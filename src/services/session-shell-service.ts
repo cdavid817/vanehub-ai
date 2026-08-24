@@ -2,7 +2,20 @@ import type {
   SessionShellDescriptor,
   SessionShellNotice,
   ShellAttachSnapshot,
+  ShellReplayGap,
 } from "../types/session-workspace-shell-frames";
+
+/**
+ * What an attached view receives.
+ *
+ * Wider than the wire notice by one case: a gap is detected here, not sent. The registry publishes
+ * a contiguous stream and cannot know what a subscriber failed to receive, so the client that spots
+ * the jump is the only thing that can report it — and a view that saw the frames close up without
+ * the marker would read a shortened transcript as complete.
+ */
+export type SessionShellEvent =
+  | SessionShellNotice
+  | { type: "gap"; shellId: string; gap: ShellReplayGap };
 
 export interface CreateSessionShellInput {
   sessionId: string;
@@ -69,7 +82,7 @@ export interface SessionShellService {
    */
   attachSessionShell(
     input: AttachSessionShellInput,
-    listener: (notice: SessionShellNotice) => void,
+    listener: (event: SessionShellEvent) => void,
   ): Promise<ShellAttachment>;
 
   detachSessionShell(scope: ShellAttachmentScope): Promise<void>;
