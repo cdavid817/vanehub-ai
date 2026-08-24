@@ -19,8 +19,27 @@ if (floatingSurface) {
   document.body.classList.add("floating-assistant-surface");
 }
 
+function renderStartupLoading(root: HTMLElement) {
+  const loading = document.createElement("div");
+  loading.className = "grid min-h-screen place-items-center bg-background px-6 text-foreground";
+  loading.setAttribute("aria-live", "polite");
+  loading.setAttribute("role", "status");
+  const content = document.createElement("div");
+  content.className = "flex items-center gap-3 rounded-lg border border-border bg-card px-5 py-4 shadow-sm";
+  const spinner = document.createElement("span");
+  spinner.className = "h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent";
+  spinner.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.className = "text-sm font-medium";
+  label.textContent = i18n.t("featureLoad.loading");
+  content.append(spinner, label);
+  loading.append(content);
+  root.replaceChildren(loading);
+}
+
 async function renderSurface() {
   const root = document.getElementById("root") as HTMLElement;
+  renderStartupLoading(root);
   if (import.meta.env.VITE_DESKTOP_E2E === "1") {
     const markFatalFrontendError = (kind: string, detail: unknown) => {
       root.dataset.vanehubFatalError = kind;
