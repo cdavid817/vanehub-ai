@@ -185,6 +185,22 @@ pub(crate) struct SessionLogQuery {
     pub(crate) seat_id: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
+    /// Which end of the corpus to read from. Absent means newest first, which is what the Logs tab
+    /// has always asked for, so a client that predates the field is unchanged.
+    #[serde(default)]
+    pub(crate) sort: Option<SessionLogSortDto>,
+}
+
+/// The page order a client may ask for.
+///
+/// Part of the request rather than a constant because it decides which rows are "after" a cursor:
+/// a cursor issued in one direction names the opposite boundary in the other, and every row on the
+/// wrong side of it would silently vanish. That is why it is in the filter fingerprint too.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum SessionLogSortDto {
+    NewestFirst,
+    OldestFirst,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

@@ -97,7 +97,7 @@ pub(crate) struct SessionLogQueryScope {
     pub(crate) agent_id: Option<String>,
 }
 
-/// How a query narrows within its scope.
+/// How a query narrows within its scope, and in what order it reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SessionLogFilters {
     /// Empty means every level. A caller that meant "none" would be asking for nothing, and
@@ -107,6 +107,9 @@ pub(crate) struct SessionLogFilters {
     pub(crate) search: Option<String>,
     pub(crate) from: Option<String>,
     pub(crate) to: Option<String>,
+    /// Which end of the corpus a page starts from. Part of what a cursor is issued against, because
+    /// it decides which rows are "after" the cursor's position.
+    pub(crate) sort: super::log_cursor::LogSortDirection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

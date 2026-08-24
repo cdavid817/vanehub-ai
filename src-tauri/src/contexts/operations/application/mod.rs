@@ -4,6 +4,8 @@ mod log_cursor;
 mod log_index;
 mod log_index_ports;
 mod log_query_service;
+#[cfg(test)]
+mod log_query_service_tests;
 mod logging;
 mod mission_control;
 mod operation_service;
@@ -13,7 +15,7 @@ pub(crate) use error::ApplicationError;
 #[cfg(test)]
 pub(crate) use evidence::NoOperationsEvidence;
 pub(crate) use evidence::{OperationsEvidencePort, OperationsEvidenceSignal};
-pub(crate) use log_cursor::{filter_fingerprint, LogPageCursor};
+pub(crate) use log_cursor::{filter_fingerprint, LogPageCursor, LogSortDirection};
 pub(crate) use log_index::{
     IndexedLogLevel, IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery,
     IndexedSessionLogRecord, LogCorrelation, OperationsLogError, SafeLogExportPreparation,

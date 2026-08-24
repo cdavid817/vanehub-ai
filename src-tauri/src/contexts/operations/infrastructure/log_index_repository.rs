@@ -7,7 +7,7 @@
 use crate::contexts::operations::application::{
     filter_fingerprint, IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery,
     IndexedSessionLogRecord, LogCorrelation, LogIndexInsertOutcome, LogPageCursor,
-    LogSourceIdentity, OperationsLogError, RedactedLogRecord, SessionLogCoverage,
+    LogSortDirection, LogSourceIdentity, OperationsLogError, RedactedLogRecord, SessionLogCoverage,
     SessionLogCoverageState, SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE,
     MAX_LOG_SEARCH_CANDIDATES,
 };
@@ -124,19 +124,42 @@ fn same_witness(
 }
 
 impl SessionLogIndexRepository for SqliteLogIndexRepository {
+    /// Writes one record, or recognises that it is already written.
+    ///
+    /// The whole thing is one transaction, and the read that decides which case this is happens
+    /// inside it. Reading first and inserting after would leave a window where two callers both see
+    /// "absent" and both insert; the unique constraint would catch the second, but as a storage
+    /// failure rather than as the retry it actually is.
+    ///
+    /// A conflicting record — same id, different witness — leaves the stored row alone and records
+    /// a gap, so coverage stops claiming to be complete. Overwriting would let a later,
+    /// differently-derived record silently replace one a reader may already have cited.
     fn insert(
         &self,
         record: &RedactedLogRecord,
     ) -> Result<LogIndexInsertOutcome, OperationsLogError> {
-        let connection = self.connection()?;
-        if let Some(matches) = same_witness(&connection, record).map_err(storage_error)? {
-            return Ok(if matches {
-                LogIndexInsertOutcome::AlreadyIndexed
-            } else {
-                LogIndexInsertOutcome::Conflicted
-            });
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(storage_error)?;
+        if let Some(matches) = same_witness(&transaction, record).map_err(storage_error)? {
+            if !matches {
+                // Recorded inside the same transaction as the decision, so coverage cannot report
+                // complete between noticing the conflict and writing it down.
+                transaction
+                    .execute(
+                        "INSERT INTO unified_log_index_gaps
+                             (source_file_id, reason_code, dropped_count, observed_at)
+                         VALUES (?1, 'log_identity_conflict', 1, datetime('now'))",
+                        params![record.source.as_key()],
+                    )
+                    .map_err(storage_error)?;
+                transaction.commit().map_err(storage_error)?;
+                return Ok(LogIndexInsertOutcome::Conflicted);
+            }
+            // Nothing to write, so nothing to commit. A retry of an already-indexed record must
+            // leave the store exactly as it was, including its coverage.
+            return Ok(LogIndexInsertOutcome::AlreadyIndexed);
         }
-        connection
+        transaction
             .execute(
                 "INSERT INTO unified_log_query_index (
                     record_id, source_file_id, source_offset, occurred_at, occurred_at_ms,
@@ -164,9 +187,11 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
                 ],
             )
             .map_err(storage_error)?;
-        Ok(LogIndexInsertOutcome::Inserted {
-            sequence: connection.last_insert_rowid(),
-        })
+        let sequence = transaction.last_insert_rowid();
+        // The sequence is read before the commit and returned after it. A notice carrying a
+        // sequence whose row is not committed would name a record a reader cannot find.
+        transaction.commit().map_err(storage_error)?;
+        Ok(LogIndexInsertOutcome::Inserted { sequence })
     }
 
     /// Newest first, bounded, within one scope.
@@ -224,15 +249,38 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
                 binds.push(Box::new(value.to_string()));
             }
         }
-        // The keyset itself. Strictly after the last row in page order, which is what keeps a row
-        // inserted above the cursor from shifting the boundary.
+        // The keyset itself: strictly after the last row in page order, on the same three columns
+        // the `ORDER BY` uses. Same columns, same direction, same tie-breaks — a boundary built
+        // from fewer columns than the ordering would leave rows on both sides of it.
+        //
+        // `sequence` is the table's `INTEGER PRIMARY KEY`, so it is already unique and the pair
+        // above it is a strict total order. `record_id` is carried anyway: it is `UNIQUE`, it makes
+        // the ordering total on its own terms rather than on an implementation detail of the
+        // primary key, and it is what the cursor names when a reader has to be told which row.
+        let boundary = match query.filters.sort {
+            LogSortDirection::NewestFirst => "<",
+            LogSortDirection::OldestFirst => ">",
+        };
         if let Some(cursor) = &cursor {
-            sql.push_str(" AND (occurred_at_ms < ? OR (occurred_at_ms = ? AND sequence < ?))");
+            sql.push_str(&format!(
+                " AND (occurred_at_ms {boundary} ? \
+                   OR (occurred_at_ms = ? AND sequence {boundary} ?) \
+                   OR (occurred_at_ms = ? AND sequence = ? AND record_id {boundary} ?))"
+            ));
             binds.push(Box::new(cursor.occurred_at_ms));
             binds.push(Box::new(cursor.occurred_at_ms));
             binds.push(Box::new(cursor.sequence));
+            binds.push(Box::new(cursor.occurred_at_ms));
+            binds.push(Box::new(cursor.sequence));
+            binds.push(Box::new(cursor.record_id.clone()));
         }
-        sql.push_str(" ORDER BY occurred_at_ms DESC, sequence DESC LIMIT ?");
+        let order = match query.filters.sort {
+            LogSortDirection::NewestFirst => "DESC",
+            LogSortDirection::OldestFirst => "ASC",
+        };
+        sql.push_str(&format!(
+            " ORDER BY occurred_at_ms {order}, sequence {order}, record_id {order} LIMIT ?"
+        ));
         // One more than the page, so "is there another page" is answered by what came back rather
         // than by a second count query that could disagree with it. A text search reads a bounded
         // candidate window instead, because the match is applied after the rows are read.
@@ -301,9 +349,10 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
 
     /// What the index can honestly claim about the scope it was asked about.
     ///
-    /// An empty index is `indexing`, not `complete`: a corpus that has never been read is not a
-    /// corpus that was read and found empty, and the two render identically unless the coverage
-    /// says which one happened.
+    /// The three states below `complete` exist because "I have no rows" has three different causes
+    /// and a reader acts differently on each: nothing has happened, nothing has been read yet, or
+    /// something was read and lost. Only the first is a definitive zero, so `complete` is the state
+    /// that has to be earned — every other path degrades to something weaker.
     fn coverage(&self, session_id: Option<&str>) -> Result<SessionLogCoverage, OperationsLogError> {
         let connection = self.connection()?;
         let (oldest, newest, rows): (Option<String>, Option<String>, i64) = connection
@@ -315,13 +364,27 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(storage_error)?;
-        let (gap_count, dropped): (i64, i64) = connection
-            .query_row(
-                "SELECT COUNT(*), COALESCE(SUM(dropped_count), 0) FROM unified_log_index_gaps",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+        // Reason codes come from the gap rows themselves rather than from a single flag, so a
+        // reader is told *which* kind of loss applies — retention, a conflict, a dropped receipt
+        // and a rejected line are four different things to do something about.
+        let mut reasons = Vec::new();
+        let mut gap_statement = connection
+            .prepare(
+                "SELECT reason_code, COALESCE(SUM(dropped_count), 0)
+                 FROM unified_log_index_gaps GROUP BY reason_code ORDER BY reason_code",
             )
             .map_err(storage_error)?;
+        let mut dropped: i64 = 0;
+        for entry in gap_statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(storage_error)?
+        {
+            let (code, count) = entry.map_err(storage_error)?;
+            dropped += count;
+            reasons.push(code);
+        }
         let repairing: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM unified_log_index_repair_state WHERE state = 'running'",
@@ -329,7 +392,7 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
                 |row| row.get(0),
             )
             .map_err(storage_error)?;
-        let indexed_anything: i64 = connection
+        let checkpoints: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM unified_log_source_checkpoints",
                 [],
@@ -337,21 +400,35 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
             )
             .map_err(storage_error)?;
 
-        let state = if repairing > 0 || (rows == 0 && indexed_anything == 0) {
+        // A corpus that has never been read is not a corpus that was read and found empty. Both
+        // render as zero unless the coverage says which one happened, which is the single most
+        // consequential distinction this type exists to carry.
+        let never_read = checkpoints == 0;
+        let state = if repairing > 0 || never_read {
             SessionLogCoverageState::Indexing
-        } else if gap_count > 0 {
+        } else if !reasons.is_empty() {
             SessionLogCoverageState::Partial
         } else {
             SessionLogCoverageState::Complete
         };
         let mut coverage = SessionLogCoverage::with_state(state);
         coverage.oldest_available_at = oldest;
-        coverage.newest_available_at = newest.clone();
-        coverage.indexed_through = newest;
+        // `indexed_through` is what the index holds; `newest_available_at` is the newest it can
+        // *claim* to hold. They are the same value only once the sources are caught up — while a
+        // repair is running the index is behind whatever the files already contain, and a reader
+        // comparing the two is how a stale page explains itself.
+        coverage.indexed_through = newest.clone();
+        coverage.newest_available_at = newest;
         coverage.dropped_count = u32::try_from(dropped).unwrap_or(u32::MAX);
-        if gap_count > 0 {
-            coverage.reason_codes.push("log_index_gap".to_string());
+        if repairing > 0 {
+            coverage.reason_codes.push("log_repair_active".to_string());
         }
+        if never_read && rows == 0 {
+            coverage
+                .reason_codes
+                .push("log_index_not_backfilled".to_string());
+        }
+        coverage.reason_codes.extend(reasons);
         Ok(coverage)
     }
 

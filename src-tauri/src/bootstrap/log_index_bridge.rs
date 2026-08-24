@@ -16,7 +16,7 @@ use crate::contexts::operations::application::{
     SessionLogIndexRepository, SessionLogNotice,
 };
 use crate::platform::log_receipts::{RedactedLogAppendReceipt, RedactedLogAppendSink};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
@@ -52,11 +52,28 @@ pub(crate) struct LogIndexBridgeCounters {
     pub(crate) conflicts: AtomicU32,
 }
 
+/// Sources whose receipts were dropped, waiting to be written down as gaps.
+///
+/// Recorded here rather than in the drop itself because the drop happens on the caller's thread —
+/// the one that just wrote a log — and reaching into SQLite there is exactly the back-pressure this
+/// whole design refuses. The worker drains them next time it is awake.
+type DroppedSources = Arc<Mutex<BTreeSet<LogSourceIdentity>>>;
+
 /// The producer-facing half. Cheap to clone, never blocks.
-#[derive(Clone)]
 pub(crate) struct LogIndexBridge {
     sender: SyncSender<RedactedLogAppendReceipt>,
     counters: Arc<LogIndexBridgeCounters>,
+    dropped: DroppedSources,
+}
+
+impl Clone for LogIndexBridge {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            counters: self.counters.clone(),
+            dropped: self.dropped.clone(),
+        }
+    }
 }
 
 impl RedactedLogAppendSink for LogIndexBridge {
@@ -64,9 +81,20 @@ impl RedactedLogAppendSink for LogIndexBridge {
         match self.sender.try_send(receipt) {
             Ok(()) => {}
             // Full or disconnected are the same decision here: the record is already durable, and
-            // the index is rebuildable from the file it is in.
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            // the index is rebuildable from the file it is in. What must not happen is the index
+            // going on to report `complete` — so the drop is queued as a gap the same way it is
+            // counted, and coverage degrades until a repair fills it back in.
+            Err(TrySendError::Full(receipt)) | Err(TrySendError::Disconnected(receipt)) => {
                 self.counters.dropped_full.fetch_add(1, Ordering::Relaxed);
+                self.dropped
+                    .lock()
+                    .map(|mut pending| {
+                        pending.insert(LogSourceIdentity {
+                            directory_generation: receipt.source.directory_generation,
+                            file_id: receipt.source.file_id,
+                        })
+                    })
+                    .ok();
             }
         }
     }
@@ -107,11 +135,19 @@ pub(crate) fn start_log_index_bridge(
 ) -> (LogIndexBridge, Arc<LogIndexBridgeWorker>) {
     let (sender, receiver) = sync_channel(LOG_INDEX_QUEUE_CAPACITY);
     let counters = Arc::new(LogIndexBridgeCounters::default());
-    let worker = spawn_worker(receiver, repository, notices, counters.clone());
+    let dropped: DroppedSources = Arc::new(Mutex::new(BTreeSet::new()));
+    let worker = spawn_worker(
+        receiver,
+        repository,
+        notices,
+        counters.clone(),
+        dropped.clone(),
+    );
     (
         LogIndexBridge {
             sender,
             counters: counters.clone(),
+            dropped,
         },
         Arc::new(LogIndexBridgeWorker {
             worker: Mutex::new(worker),
@@ -125,11 +161,15 @@ fn spawn_worker(
     repository: Arc<dyn SessionLogIndexRepository>,
     notices: Arc<dyn PostCommitLogNoticePublisher>,
     counters: Arc<LogIndexBridgeCounters>,
+    dropped: DroppedSources,
 ) -> Option<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("vanehub-log-index".to_string())
         .spawn(move || {
             for receipt in receiver {
+                // Whatever was dropped while the queue was full is written down here, on the
+                // worker's thread, where reaching into SQLite is allowed.
+                record_dropped_sources(&repository, &dropped);
                 let record = to_record(receipt);
                 match repository.insert(&record) {
                     // Announced after the write committed, and only for a row that was actually
@@ -159,8 +199,30 @@ fn spawn_worker(
                     }
                 }
             }
+            // Once more on the way out. A burst that filled the queue and then went quiet would
+            // otherwise leave its gaps unwritten until the next log line, and an application that
+            // closed in between would come back reporting coverage it had not earned.
+            record_dropped_sources(&repository, &dropped);
         })
         .ok()
+}
+
+/// Writes down the sources whose receipts were dropped.
+///
+/// Takes the whole set at once and clears it, so a source is recorded once per burst rather than
+/// once per lost record: the gap is "this file has a hole", and a thousand rows of the same fact
+/// would be a second unbounded structure inside the thing that exists to be bounded.
+fn record_dropped_sources(
+    repository: &Arc<dyn SessionLogIndexRepository>,
+    dropped: &DroppedSources,
+) {
+    let pending = match dropped.lock() {
+        Ok(mut pending) if !pending.is_empty() => std::mem::take(&mut *pending),
+        _ => return,
+    };
+    for source in pending {
+        let _ = repository.record_gap(&source, "log_receipt_dropped", 1);
+    }
 }
 
 fn correlation(context: &BTreeMap<String, String>) -> LogCorrelation {

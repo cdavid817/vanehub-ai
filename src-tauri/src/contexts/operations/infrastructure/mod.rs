@@ -1,8 +1,14 @@
 //! Concrete adapters for operation lifecycle and unified diagnostics.
 
+#[cfg(test)]
+mod log_index_lock_tests;
 mod log_index_repository;
+#[cfg(test)]
+mod log_index_repository_tests;
 mod log_index_schema;
 mod log_index_support;
+#[cfg(test)]
+mod log_source_identity_tests;
 mod log_source_reader;
 mod mission_control_repository;
 mod operation_registry;

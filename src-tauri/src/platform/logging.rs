@@ -3,7 +3,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{BufRead, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
@@ -27,6 +27,7 @@ const MAINTENANCE_INTERVAL_HOURS: i64 = 1;
 static ACTIVE_LOG_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 static LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static LAST_MAINTENANCE: OnceLock<Mutex<BTreeMap<PathBuf, DateTime<Utc>>>> = OnceLock::new();
+static ACTIVE_FILE_ID: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -144,6 +145,10 @@ pub fn write_entry(log_dir: &Path, entry: LogEntry) -> Result<(), LogStoreError>
     // a computed total point somewhere else.
     let offset = file.seek(SeekFrom::End(0)).unwrap_or_default();
     writeln!(file, "{line}").map_err(|error| LogStoreError::Storage(error.to_string()))?;
+    // Reading the head to identify the file is cheap but not free, and it only changes when the
+    // file is replaced. Writing at offset 0 is exactly that moment — a fresh file, or the one
+    // rotation just created — so the witness is recomputed there and reused for every append after.
+    let file_id = active_file_id_cached(&path, offset == 0);
 
     // Published after the append succeeded, and only then. A receipt for a line that is not on disk
     // would let a consumer index a record no later repair could find a source for.
@@ -151,7 +156,7 @@ pub fn write_entry(log_dir: &Path, entry: LogEntry) -> Result<(), LogStoreError>
         record_id,
         source: LogSourceWitness {
             directory_generation: directory_generation(&log_dir),
-            file_id: active_file_id(&path),
+            file_id,
             offset,
         },
         timestamp: redacted.timestamp,
@@ -172,20 +177,107 @@ pub(crate) fn directory_generation(log_dir: &Path) -> String {
     format!("{:016x}", stable_hash(&log_dir.to_string_lossy()))
 }
 
+/// How much of a file's head identifies its generation.
+///
+/// One line is enough and one line is all: the first record of a file written since record ids
+/// existed carries a UUID, so two generations cannot share a head. Reading more would make the
+/// witness depend on content that is still being appended.
+const FILE_WITNESS_BYTES: usize = 4096;
+
 /// A stable name for one file generation.
 ///
-/// Derived from the path plus the file's creation witness where the platform offers one, so a
-/// truncate-and-recreate at the same path is a different generation with its own offsets. Falling
-/// back to the path alone is the honest degradation: it keeps rotation working, and a recreated
-/// file at the same path is then caught by the offset conflict rather than by the name.
+/// Two witnesses, because neither alone tells all three cases apart:
+///
+/// - **Rotation** renames the file. Both witnesses are unchanged, so it keeps its identity and the
+///   checkpoint reached in it still means the same bytes. A path-derived name would fail here.
+/// - **Truncation or recreation** reuses the path for different content. The filesystem's id
+///   usually changes; when it is reused, the head does not match, so the generation is new either
+///   way. Resuming the old checkpoint here would read from a position that means nothing now.
+/// - **Two files that coexist** are two sources even if they open with the same bytes. The
+///   filesystem's id separates them; a content-only witness would collapse them, and one file's
+///   history would silently absorb the other's.
+/// - **Appending** changes neither, which is correct: a growing file is the same file.
+///
+/// The path is the last resort, used only when the platform reports no id and the file has no
+/// complete line yet — a file in that state has nothing to index, and it picks up a real identity
+/// as soon as it has a record.
 pub(crate) fn active_file_id(path: &Path) -> String {
-    let witness = fs::metadata(path)
-        .ok()
-        .and_then(|metadata| metadata.created().ok())
-        .and_then(|created| created.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|since| since.as_nanos())
-        .unwrap_or_default();
-    format!("{:016x}-{witness:x}", stable_hash(&path.to_string_lossy()))
+    let file = fs::File::open(path).ok();
+    let filesystem_id = file.as_ref().and_then(file_identity);
+    let head = file.and_then(|file| {
+        let mut reader = std::io::BufReader::with_capacity(FILE_WITNESS_BYTES, file);
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(read) if read > 0 && line.ends_with('\n') => Some(stable_hash(line.trim_end())),
+            _ => None,
+        }
+    });
+    match (filesystem_id, head) {
+        (Some(id), Some(head)) => format!("fs:{id:016x}-{head:016x}"),
+        (Some(id), None) => format!("fs:{id:016x}"),
+        (None, Some(head)) => format!("head:{head:016x}"),
+        (None, None) => format!("path:{:016x}", stable_hash(&path.to_string_lossy())),
+    }
+}
+
+/// The filesystem's own answer to "which file is this", where it has one.
+///
+/// An inode on Unix and a file index on Windows. Both survive a rename, which is what rotation is,
+/// and both differ between files that exist at the same time — the two properties a log source
+/// identity needs and a path cannot provide.
+#[cfg(unix)]
+fn file_identity(file: &fs::File) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata().ok().map(|metadata| metadata.ino())
+}
+
+/// Windows' equivalent, read from the open handle.
+///
+/// `std`'s accessor for this is still unstable, so the platform call is made directly. The volume
+/// serial number joins the file index because an index is only unique within a volume, and a log
+/// directory that moved to another drive would otherwise reuse an identity.
+#[cfg(windows)]
+fn file_identity(file: &fs::File) -> Option<u64> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // Safety: the handle is owned by the `File` this borrows and stays open for the call, and the
+    // out-parameter is a fully owned, correctly sized struct.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut information) };
+    if ok == 0 {
+        return None;
+    }
+    let index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Some(index ^ (u64::from(information.dwVolumeSerialNumber) << 16))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_identity(_file: &fs::File) -> Option<u64> {
+    None
+}
+
+/// The active file's identity, recomputed only when the file was replaced.
+fn active_file_id_cached(path: &Path, replaced: bool) -> String {
+    let cache = ACTIVE_FILE_ID.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if !replaced {
+        if let Some(cached) = cache
+            .lock()
+            .ok()
+            .and_then(|ids| ids.get(path).cloned())
+            .filter(|id| !id.is_empty())
+        {
+            return cached;
+        }
+    }
+    let identity = active_file_id(path);
+    if let Ok(mut ids) = cache.lock() {
+        ids.insert(path.to_path_buf(), identity.clone());
+    }
+    identity
 }
 
 fn stable_hash(value: &str) -> u64 {

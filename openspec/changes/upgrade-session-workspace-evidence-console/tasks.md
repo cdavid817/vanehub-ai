@@ -12,7 +12,7 @@ group that owns its subject exists, so landing it here would leave the suite red
 intervening group rather than proving anything. Each is instead due immediately before the task
 named below, and blocks only that task.
 
-- [ ] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted. Deferred test gate, split by subject: the evidence pagination fixture is due before 3.9, and the log pagination fixture is due before Group 8. It does not block Groups 2-7. Tick 0.7 only once both fixtures exist and pass.
+- [x] 0.7 Add failing Rust tests demonstrating stable newest-first keyset pagination while newer evidence/log rows are inserted. Deferred test gate, split by subject: the evidence pagination fixture is due before 3.9, and the log pagination fixture is due before Group 8. It does not block Groups 2-7. Tick 0.7 only once both fixtures exist and pass.
 - [ ] 0.8 Add a controlled repository fixture in which a generated review patch can be checked with `git apply --check`. Deferred test gate, due before 13.7, which is the task that first renders a patch to check. It does not block Groups 2-12.
 - [x] 0.9 Establish test builders for run/trace/span/operation/seat/command/file correlations and complete/indexing/partial/unavailable coverage states. Deferred test gate, due before 3.1, which is the task that first defines the correlation and coverage types these builders construct.
 
@@ -162,9 +162,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 8.1 Define an `operations` application contract for indexed session-log queries, coverage, backfill status, live notices, and safe export preparation.
 - [x] 8.2 Add additive SQLite migrations for the redacted log query index, correlation indexes, source-file checkpoints, gaps, and repair status.
 - [x] 8.3 Publish an already-redacted log record notice from `platform::logging` after durable file append; do not expose unredacted input to the indexer.
-- [ ] 8.4 Implement idempotent index insertion keyed by stable record id and source file/offset witness.
-- [ ] 8.5 Implement stable keyset pagination and structured filters for level, text, session, run, trace, span, operation, agent, seat, and time.
-- [ ] 8.6 Add complete/indexing/partial/unavailable coverage with oldest/newest/indexed-through timestamps and dropped counts.
+- [x] 8.4 Implement idempotent index insertion keyed by stable record id and source file/offset witness.
+- [x] 8.5 Implement stable keyset pagination and structured filters for level, text, session, run, trace, span, operation, agent, seat, and time.
+- [x] 8.6 Add complete/indexing/partial/unavailable coverage with oldest/newest/indexed-through timestamps and dropped counts.
 - [ ] 8.7 Add a bounded asynchronous repair/backfill operation with stable operation id, cancellation, checkpoints, and unified diagnostics.
 - [ ] 8.8 Handle rotation, truncation, retention deletion, and configured log-directory changes without stale index rows claiming complete coverage.
 - [ ] 8.9 Keep unified redacted log files as the durable export/repair source and keep export behavior compatible.

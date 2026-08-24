@@ -1769,6 +1769,13 @@ fn runtime_processes_and_append_logs_use_shared_adapters() {
             .expect("relative source path")
             .to_string_lossy()
             .replace('\\', "/");
+        // The visitor exempts `#[cfg(test)]` modules, but it parses one file at a time and so
+        // cannot see the `#[cfg(test)] mod` declaration that gates a whole test file from its
+        // parent. Without the shared predicate a fixture that appends to a log file reads as
+        // production I/O — the exact drift `is_test_source` exists to stop.
+        if is_test_source(&relative) {
+            continue;
+        }
         let source = fs::read_to_string(&path).expect("read native Rust source");
         for usage in runtime_io_uses(&source).expect("parse native Rust source") {
             let allowed = match usage.kind {
@@ -1811,6 +1818,14 @@ mod tests {
 
     assert_eq!(uses.len(), 3);
     assert!(uses.iter().all(|usage| usage.line <= 4));
+
+    // The detector cannot see the `#[cfg(test)] mod` that gates a whole test file, because it
+    // parses one file at a time. A fixture that appends to a log file — which is how a log
+    // reader is tested at all — must therefore be excluded by path, not by attribute.
+    assert!(
+        is_test_source("contexts/operations/infrastructure/log_source_identity_tests.rs"),
+        "ARCH-NATIVE-004 would report a test fixture as production I/O"
+    );
 }
 
 #[test]

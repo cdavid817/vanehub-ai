@@ -7,7 +7,8 @@
 use super::dto;
 use crate::contexts::operations::log_api::{
     IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord,
-    OperationsLogError, SessionLogCoverage, SessionLogFilters, SessionLogQueryScope,
+    LogSortDirection, OperationsLogError, SessionLogCoverage, SessionLogFilters,
+    SessionLogQueryScope,
 };
 use serde::Serialize;
 
@@ -74,6 +75,12 @@ pub(crate) fn indexed_query_from_dto(query: dto::SessionLogQuery) -> IndexedSess
         filters: SessionLogFilters {
             levels: query.levels.into_iter().map(level_from_dto).collect(),
             search: blank_to_none(Some(query.search)),
+            sort: match query.sort {
+                Some(dto::SessionLogSortDto::OldestFirst) => LogSortDirection::OldestFirst,
+                // Absent and `newestFirst` are the same request, which is what keeps a client that
+                // predates the field fingerprinting identically to one that sends the default.
+                Some(dto::SessionLogSortDto::NewestFirst) | None => LogSortDirection::NewestFirst,
+            },
             ..SessionLogFilters::default()
         },
         cursor: blank_to_none(query.cursor),

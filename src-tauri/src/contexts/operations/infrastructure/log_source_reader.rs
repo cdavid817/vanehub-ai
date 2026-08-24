@@ -73,17 +73,28 @@ impl UnifiedLogSourceReader {
 
 /// A deterministic id for a line written before ids existed.
 ///
-/// Derived from where the line sits and what it says, so deriving it twice gives the same id and a
-/// repeated repair pass adds no duplicate row. Timestamp plus message is deliberately not enough on
-/// its own — a retry loop logging one failure inside a millisecond produces identical pairs — so
-/// the source and offset are what separate them.
-fn legacy_record_id(source: &LogSourceIdentity, offset: u64, line: &str) -> String {
+/// Four things go in, and each rules out a way two different records could collapse into one:
+///
+/// - the **source generation**, so the same text in two files is two records;
+/// - the **start offset**, so the same text twice in one file is two records — a retry loop logging
+///   one failure inside a millisecond produces exactly that;
+/// - the **end offset**, so a line that was extended rather than replaced is a different record
+///   than the prefix that used to sit there;
+/// - a **fingerprint of the already-redacted line**, so a record that moved is not mistaken for the
+///   unrelated record that now occupies its offset.
+///
+/// Timestamp plus message is deliberately absent as an identity: it is exactly the pair that
+/// repeats.
+fn legacy_record_id(source: &LogSourceIdentity, start: u64, end: u64, line: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(source.as_key().as_bytes());
-    hasher.update([0u8]);
-    hasher.update(offset.to_be_bytes());
-    hasher.update(line.as_bytes());
+    // Length-prefixed so two different splits of the same bytes cannot hash alike.
+    for part in [source.as_key().as_bytes(), line.as_bytes()] {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hasher.update(start.to_be_bytes());
+    hasher.update(end.to_be_bytes());
     let digest = hasher
         .finalize()
         .iter()
@@ -105,7 +116,12 @@ fn correlation(context: &BTreeMap<String, String>) -> LogCorrelation {
     }
 }
 
-fn to_record(source: &LogSourceIdentity, offset: u64, line: &str) -> Option<RedactedLogRecord> {
+fn to_record(
+    source: &LogSourceIdentity,
+    start: u64,
+    end: u64,
+    line: &str,
+) -> Option<RedactedLogRecord> {
     let entry: LogEntry = serde_json::from_str(line).ok()?;
     let occurred_at_ms = chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
         .map(|value| value.timestamp_millis())
@@ -114,9 +130,9 @@ fn to_record(source: &LogSourceIdentity, offset: u64, line: &str) -> Option<Reda
         record_id: entry
             .record_id
             .clone()
-            .unwrap_or_else(|| legacy_record_id(source, offset, line)),
+            .unwrap_or_else(|| legacy_record_id(source, start, end, line)),
         source: source.clone(),
-        source_offset: offset,
+        source_offset: start,
         occurred_at: entry.timestamp,
         occurred_at_ms,
         level: IndexedLogLevel::parse(entry.level.token()).unwrap_or(IndexedLogLevel::Info),
@@ -187,7 +203,7 @@ impl RedactedLogSourceReader for UnifiedLogSourceReader {
                 break;
             }
             let trimmed = line.trim_end_matches(['\n', '\r']);
-            match to_record(source, offset, trimmed) {
+            match to_record(source, offset, offset + read as u64, trimmed) {
                 Some(record) => records.push(record),
                 // Complete but unusable. Counted so coverage can say a record is missing, and the
                 // offset still advances so one bad line cannot stall the whole file forever.
@@ -205,11 +221,19 @@ impl RedactedLogSourceReader for UnifiedLogSourceReader {
         })
     }
 
+    /// The file names an export would read, never their paths.
+    ///
+    /// A name says which log; a path says where the user keeps their data. The caller only needs to
+    /// tell the user what an export covers, and the export itself resolves the names against the
+    /// configured directory rather than against something a client sent back.
     fn export_sources(&self) -> Result<Vec<String>, OperationsLogError> {
         Ok(self
             .files()
             .iter()
-            .map(|path| path.to_string_lossy().to_string())
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
             .collect())
     }
 }

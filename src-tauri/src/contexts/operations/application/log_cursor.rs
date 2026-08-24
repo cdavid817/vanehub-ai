@@ -15,6 +15,32 @@ use super::log_index::{OperationsLogError, SessionLogFilters, SessionLogQuerySco
 /// position in a set nobody asked for.
 const CURSOR_VERSION: u32 = 1;
 
+/// The ordering a page is read in.
+///
+/// Part of the fingerprint because it decides which rows come *after* a cursor. Reversing it
+/// mid-pagination would make the same cursor mean the opposite boundary, and every row on the
+/// wrong side of it would silently disappear from the result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LogSortDirection {
+    /// Newest first. What the Logs tab reads, and the only direction it offers today.
+    #[default]
+    NewestFirst,
+    OldestFirst,
+}
+
+impl LogSortDirection {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::NewestFirst => "newest_first",
+            Self::OldestFirst => "oldest_first",
+        }
+    }
+}
+
+/// The position of the last row on a page.
+///
+/// All three ordering columns, because all three appear in the `ORDER BY` and in the boundary
+/// predicate. A cursor that carried fewer would name a position the query cannot reproduce.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LogPageCursor {
     pub(crate) occurred_at_ms: i64,
@@ -80,10 +106,15 @@ impl LogPageCursor {
     }
 }
 
-/// A stable fingerprint of everything that decides which rows a query admits.
+/// A stable fingerprint of everything that decides which rows a query admits, and in what order.
 ///
-/// Every field that narrows the result participates. One that did not would let a caller change it
-/// mid-pagination and keep using the cursor, which is exactly the silent splice this prevents.
+/// Every narrowing field participates, plus the sort direction. One that did not would let a caller
+/// change it mid-pagination and keep using the cursor, which is exactly the silent splice this
+/// prevents.
+///
+/// Canonicalised before hashing: an absent value and an empty one are the same request and must
+/// fingerprint alike, and a level list is a set — its order and its repeats are not part of what
+/// the caller asked for.
 pub(crate) fn filter_fingerprint(
     scope: &SessionLogQueryScope,
     filters: &SessionLogFilters,
@@ -91,17 +122,21 @@ pub(crate) fn filter_fingerprint(
     let mut levels: Vec<&'static str> = filters.levels.iter().map(|level| level.token()).collect();
     levels.sort_unstable();
     levels.dedup();
+    fn canonical(value: Option<&str>) -> &str {
+        value.map(str::trim).unwrap_or("")
+    }
     let parts = [
-        scope.session_id.as_deref().unwrap_or(""),
-        scope.seat_id.as_deref().unwrap_or(""),
-        scope.run_id.as_deref().unwrap_or(""),
-        scope.trace_id.as_deref().unwrap_or(""),
-        scope.span_id.as_deref().unwrap_or(""),
-        scope.operation_id.as_deref().unwrap_or(""),
-        scope.agent_id.as_deref().unwrap_or(""),
-        filters.search.as_deref().unwrap_or(""),
-        filters.from.as_deref().unwrap_or(""),
-        filters.to.as_deref().unwrap_or(""),
+        canonical(scope.session_id.as_deref()),
+        canonical(scope.seat_id.as_deref()),
+        canonical(scope.run_id.as_deref()),
+        canonical(scope.trace_id.as_deref()),
+        canonical(scope.span_id.as_deref()),
+        canonical(scope.operation_id.as_deref()),
+        canonical(scope.agent_id.as_deref()),
+        canonical(filters.search.as_deref()),
+        canonical(filters.from.as_deref()),
+        canonical(filters.to.as_deref()),
+        filters.sort.token(),
     ];
     // Length-prefixed, so two different field splits cannot produce the same string: a session id
     // of "a" with a run id of "bc" must not fingerprint the same as "ab" with "c".

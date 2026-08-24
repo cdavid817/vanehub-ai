@@ -5,8 +5,8 @@
 //! layer that answers the Logs tab. Merging them would make every producer depend on the query
 //! index it has no business knowing about.
 
-pub(crate) use super::application::IndexedLogLevel;
 use super::application::SessionLogQueryService;
+pub(crate) use super::application::{IndexedLogLevel, LogSortDirection};
 pub(crate) use super::application::{
     IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery,
     IndexedSessionLogRecord, OperationsLogError, SafeLogExportPreparation, SessionLogBackfillState,
