@@ -13,8 +13,8 @@ pub(crate) struct UuidMemoryIdGenerator;
 
 impl MemoryIdGeneratorPort for UuidMemoryIdGenerator {
     fn generate(&self) -> MemoryId {
-        // A v4 UUID is 36 characters of hex and hyphens, which `MemoryId` accepts by construction;
-        // there is no input here that could fail its validation.
-        MemoryId::parse(&Uuid::new_v4().to_string()).expect("a v4 UUID is always a valid memory id")
+        // Infallible by construction rather than by `expect`: the domain owns the guarantee that a
+        // rendered UUID satisfies the id rules, so this call site has no failure to justify.
+        MemoryId::from_uuid(Uuid::new_v4())
     }
 }

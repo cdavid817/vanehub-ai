@@ -14,6 +14,12 @@ mod managed_mcp_relay;
 mod mcp;
 mod operations;
 mod permissions;
+// Transitional: satisfies the pre-governance memory port from the governed store. Removed when the
+// snapshot runtime adapters take over.
+#[allow(dead_code)]
+mod personalization_bridge;
+#[cfg(test)]
+mod personalization_bridge_tests;
 mod plugin_integrations;
 mod prompt_hooks;
 mod retrieval;

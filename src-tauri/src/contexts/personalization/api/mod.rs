@@ -1,19 +1,12 @@
-//! The published boundary. Composition lives here, so this module is the one place allowed to know
-//! both this context's internals and another context's contracts.
+//! The published boundary other contexts reach personalization through.
+//!
+//! Deliberately knows nothing about any consumer. An adapter that satisfies some other context's
+//! port belongs at the composition boundary in `bootstrap`, not here: implementing a consumer's
+//! trait from inside the provider inverts the dependency, and the architecture rules' own stated
+//! repair is to "depend on a domain/application port and assemble its adapter in bootstrap".
 
-/// Transitional: satisfies `agent_runtime`'s pre-governance memory port from the governed store.
-///
-/// Published by the context taking ownership rather than implemented inside the context being
-/// taken over from. Placing it there would have meant permanently raising that subtree's line
-/// ceilings for code with a scheduled deletion date — the snapshot runtime adapters remove this
-/// module wholesale.
 #[cfg(test)]
-mod legacy_alias_tests;
-mod legacy_memory_bridge;
-#[cfg(test)]
-mod legacy_memory_bridge_tests;
-
-pub(crate) use legacy_memory_bridge::LegacyMemoryPortBridge;
+mod compatibility_tests;
 
 use std::sync::Arc;
 
@@ -333,4 +326,40 @@ fn is_compatibility_visible_ref(record: &MemoryRecord) -> bool {
 
 fn memory_id_from_file_name(file_name: &str) -> Option<MemoryId> {
     MemoryId::parse(file_name.strip_suffix(".md").unwrap_or(file_name)).ok()
+}
+
+/// Assembles the whole governed stack over one directory and database.
+///
+/// Lives at this context's api edge so a test in another module never has to reach for this
+/// context's concrete persistence. Test-only: production assembly belongs in `bootstrap`.
+#[cfg(test)]
+pub(crate) fn build_for_tests(
+    memory_root: std::path::PathBuf,
+    database: crate::platform::database::NativeDatabase,
+    retrieval_index: Arc<dyn super::application::RetrievalIndexPort>,
+    clock: Arc<dyn super::application::ClockPort>,
+) -> (PersonalizationApi, Arc<MemoryApplicationService>) {
+    use super::infrastructure::{
+        MarkdownDerivedIndex, MarkdownMemoryRepository, SqliteMemoryProjection,
+        SqliteMigrationJournal, SqliteMigrationState, UuidMemoryIdGenerator,
+    };
+
+    let repository = Arc::new(
+        MarkdownMemoryRepository::new(memory_root.clone(), Arc::new(UuidMemoryIdGenerator))
+            .expect("memory repository"),
+    );
+    let service = Arc::new(MemoryApplicationService::new(
+        repository.clone(),
+        repository,
+        Arc::new(SqliteMemoryProjection::new(database.clone())),
+        Arc::new(MarkdownDerivedIndex::new(memory_root)),
+        retrieval_index,
+        clock,
+    ));
+    let api = PersonalizationApi::new(
+        service.clone(),
+        Arc::new(SqliteMigrationState::new(database.clone())),
+        Arc::new(SqliteMigrationJournal::new(database)),
+    );
+    (api, service)
 }

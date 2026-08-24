@@ -1,4 +1,7 @@
-use super::{CompatibilityMemory, CompatibilitySaveInput, PersonalizationApi};
+use crate::contexts::personalization::api::{
+    CompatibilityMemory, CompatibilitySaveInput, PersonalizationApi,
+};
+
 use crate::contexts::agent_runtime::application::{
     AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
 };
@@ -6,6 +9,11 @@ use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::personalization::domain::MemoryType as GovernedMemoryType;
 
 /// Satisfies `agent_runtime`'s pre-governance memory port from the governed v2 store.
+///
+/// Lives at the composition boundary rather than inside either context. Implementing a consumer's
+/// trait from inside the provider would invert the dependency; implementing it inside the consumer
+/// would make that context know the provider's internals. `bootstrap` is where the repository's own
+/// architecture rules say to assemble an adapter over a published port.
 ///
 /// # Why this exists
 ///

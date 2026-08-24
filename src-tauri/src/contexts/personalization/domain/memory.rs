@@ -56,6 +56,20 @@ impl MemoryId {
         Ok(value)
     }
 
+    /// Builds an id from a generated UUID.
+    ///
+    /// Infallible by construction rather than by assertion: a UUID renders as lowercase hex and
+    /// hyphens, which is inside this type's charset and length bounds, so there is no input here
+    /// that could fail validation — and therefore no `expect` for a caller to justify.
+    pub(crate) fn from_uuid(value: uuid::Uuid) -> Self {
+        let rendered = value.to_string();
+        debug_assert!(
+            Self::validate(&rendered).is_ok(),
+            "a rendered UUID must satisfy the memory-id rules"
+        );
+        Self(rendered)
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }

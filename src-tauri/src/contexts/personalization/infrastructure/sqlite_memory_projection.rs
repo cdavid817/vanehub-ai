@@ -366,12 +366,12 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
         if has_more {
             items.truncate(query.page_size());
         }
-        let next_cursor = has_more.then(|| {
-            let last = items.last().expect("a full page has a last row");
-            MemoryCursor {
-                sort_key: sort_key_for(last, query.order),
-                id: last.id.clone(),
-            }
+        // No cursor without a last row, expressed as a `filter` rather than an assertion: a page
+        // that reported more results while holding none would be a bug, and answering it with
+        // "no next page" is recoverable where a panic in a list query is not.
+        let next_cursor = items.last().filter(|_| has_more).map(|last| MemoryCursor {
+            sort_key: sort_key_for(last, query.order),
+            id: last.id.clone(),
         });
 
         Ok(MemoryPage {
