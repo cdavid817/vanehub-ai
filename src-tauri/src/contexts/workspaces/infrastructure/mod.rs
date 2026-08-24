@@ -9,6 +9,10 @@ mod output_search;
 mod portable_pty;
 mod remote_terminal_logging;
 mod remote_terminal_schema;
+mod retained_remote_shell;
+mod retained_shell_runtime;
+#[cfg(test)]
+mod retained_shell_runtime_tests;
 mod runtime_support;
 mod selection;
 mod session_queries;

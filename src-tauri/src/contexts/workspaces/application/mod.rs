@@ -39,8 +39,13 @@ pub(crate) use review::{
     WorkspaceReviewPort, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 pub(crate) use service::WorkspaceApplicationService;
-// The retained Shell modules publish through this context's api once a consumer exists; the
-// registry lands with its own tests first so the contract can be reviewed before it is wired.
+pub(crate) use session_shell::{
+    SessionShellRuntimePort, ShellOutputSink, ShellRuntimeOpen, ShellRuntimeOpened,
+};
+// Production code only ever reads `ShellRuntimeOpen::remote`; naming the type is something only a
+// test that builds one from scratch has to do.
+#[cfg(test)]
+pub(crate) use session_shell::ShellRemoteTarget;
 pub(crate) use shell_service::WorkspaceShellApplicationService;
 
 #[cfg(test)]

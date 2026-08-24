@@ -34,11 +34,7 @@ pub(crate) use session_shell::{
     ShellCreateRequestId, ShellForegroundProcessState, ShellId, ShellOutputFrame, ShellReplayGap,
     ShellStream, ShellTitle,
 };
-pub(crate) use session_shell_replay::{ShellReplayBuffer, ShellReplaySnapshot};
-// The reason-code helper has no production caller until the runtime adapters land; re-exporting it
-// unconditionally would be a re-export nothing reads.
-#[cfg(test)]
-pub(crate) use session_shell_replay::shell_reason;
+pub(crate) use session_shell_replay::{shell_reason, ShellReplayBuffer, ShellReplaySnapshot};
 pub(crate) use shell::{
     reset_directory_command, ShellHost, ShellRuntimeDescriptor, TerminalDimensions,
 };

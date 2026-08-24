@@ -145,9 +145,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 7.3 Implement `list`, `create`, `attach`, `detach`, `write`, `resize`, `rename`, and `close` use cases through application ports, with detach/write/resize carrying an attachment id so a stale view cannot detach or write into the attachment that replaced it.
 - [x] 7.4 Retain UTF-8-safe sequence-numbered Shell frames up to 1 MiB per Shell and insert one gap marker when old content is evicted.
 - [x] 7.5 Serialize concurrent create/attach requests so duplicate default Shells are not spawned for the same requested identity.
-- [ ] 7.6 Keep local PTY and remote SSH channel infrastructure behind workspaces ports; preserve independent remote channel lifecycle on pooled transports.
+- [x] 7.6 Keep local PTY and remote SSH channel infrastructure behind workspaces ports; preserve independent remote channel lifecycle on pooled transports.
 - [ ] 7.7 Close inactive Shells after the configured idle window and close/join all Shell-owned workers during application shutdown.
-- [ ] 7.8 Publish state/output notices with sequence and timestamp; never publish unbounded replay in a Tauri event.
+- [x] 7.8 Publish state/output notices with sequence and timestamp; never publish unbounded replay in a Tauri event.
 - [ ] 7.9 Implement Tauri commands and adapters for all Shell registry operations, keeping existing create/kill commands as temporary delegating compatibility paths until frontend migration passes.
 - [ ] 7.10 Implement deterministic Web/mock multiple Shells, detach/attach replay, gap behavior, and explicit close.
 - [ ] 7.11 Refactor the Shell tab to render Shell tabs, Add, Rename, runtime/status metadata, and explicit Close confirmation.
