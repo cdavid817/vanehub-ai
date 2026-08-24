@@ -36,8 +36,14 @@ const LOCAL_DESKTOP: &str = "local-desktop";
 
 /// The fingerprint carried by a snapshot reconstructed from a legacy row.
 ///
-/// Deliberately not a real fingerprint: it can never equal a computed one, so a legacy snapshot is
-/// always rejected as the basis for a mutation until a genuine refresh replaces it.
+/// Deliberately not a real fingerprint: it can never equal a computed one, so anything that
+/// compares the two treats a legacy snapshot as describing a machine that has moved.
+///
+/// It is not what withholds mutation, though -- planning stamps its plan with the live fingerprint,
+/// so this value is never on either side of that comparison. A legacy snapshot offers no action
+/// because it carries none: `legacy_row_to_stale_snapshot` never derives `allowed_actions`, and the
+/// row's `Unknown` source confidence would fail the ownership check even if it did. A refresh has
+/// to run first, which is the point.
 const LEGACY_FINGERPRINT: &str = "legacy-import";
 
 pub(crate) struct SqliteCliEnvironmentRepository {

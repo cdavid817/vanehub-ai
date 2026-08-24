@@ -623,8 +623,12 @@ fn a_legacy_row_is_read_as_a_stale_snapshot_when_no_authoritative_one_exists() {
         snapshot.installations[0].source_confidence,
         CliSourceConfidence::Unknown
     );
-    // A fingerprint that can never match a computed one, so no mutation can be planned off it.
+    // A fingerprint that can never match a computed one, so anything comparing the two sees a
+    // machine that has moved.
     assert_eq!(snapshot.environment_fingerprint, LEGACY_FINGERPRINT);
+    // What actually withholds mutation: nothing is offered, and the row cannot establish that a
+    // source owns the installation, so a refresh has to run before any action exists to take.
+    assert!(snapshot.allowed_actions.is_empty());
 }
 
 #[test]
