@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{self, BufRead, IsTerminal, Write};
+use std::io::{self, BufRead, Write};
 use std::thread;
 use std::time::Duration;
 
@@ -9,15 +9,22 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    // Anything that is not a terminal is a probe, not a session: readiness checks such as
-    // `auth list` run this with pipes and a bounded budget. Falling through to the interactive loop
-    // blocked on stdin until that budget expired, and a timed-out probe marks the executable
-    // faulty -- which made launch resolution refuse an Agent the management page had just listed as
-    // runnable, so every spec that needed one failed with "not found on PATH".
-    if !io::stdin().is_terminal() {
-        println!("VANEHUB-FIXTURE-CLI READY");
-        io::stdout().flush()?;
-        return Ok(());
+    // The readiness probes the registry declares, answered and exited rather than fallen through
+    // to the interactive loop. `registry.rs` runs exactly these: `doctor` for claude-code,
+    // `login status` for codex-cli, `auth list` for opencode, each with a bounded budget. Blocking
+    // on stdin until that budget expires marks the executable faulty, and launch resolution then
+    // refuses an Agent the management page has just listed as runnable.
+    //
+    // Matched by argument rather than by asking whether stdin is a terminal. That check looked
+    // equivalent and is not: an Agent terminal session is also driven over pipes, so treating every
+    // pipe as a probe made real sessions exit instantly, and the Loop centre tripped its error
+    // boundary with "Agent terminal is not connected".
+    if let Some(first) = env::args().nth(1) {
+        if matches!(first.as_str(), "doctor" | "login" | "auth") {
+            println!("VANEHUB-FIXTURE-CLI READY");
+            io::stdout().flush()?;
+            return Ok(());
+        }
     }
 
     thread::sleep(Duration::from_millis(500));
