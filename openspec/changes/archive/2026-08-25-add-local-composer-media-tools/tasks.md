@@ -1,4 +1,24 @@
 
+> **Archived at 194/198, with four tasks deliberately unfinished.** Recorded here rather than left
+> for a reader to reconstruct from unticked boxes:
+>
+> - **18.4** Windows platform verification -- the path, quoting and shell-free-launch halves have
+>   direct evidence (design.md sections 32 and 34). The microphone privacy denial/recovery path and
+>   the input/output device selection do not: both need a person at the machine, and the session
+>   that would have produced them was stopped before it ran.
+> - **18.5** Linux audio runtime classification -- no Linux host was available at any point.
+> - **19.7** Manual hardware verification -- not attempted. Every scenario needs a person speaking,
+>   listening, holding a button, or changing an operating-system setting. Nothing was substituted
+>   for one, and no fixture result was recorded in its place.
+> - **21.23** Phonemizer crash classification -- the classifier and its five tests exist, but a real
+>   sherpa-onnx worker run as a piped child on Windows was not observed delivering the signature the
+>   classifier matches on, so the mapping may be inert in production. See design.md section 35.5.
+>
+> Everything else in this change has direct evidence. The three engines each performed real
+> inference against real models with the network denied (19.6, design.md section 34), and readiness
+> is established by a real canary rather than a successful load (21.5, section 35).
+
+
 > Execute in order unless a task explicitly says it may run in parallel. Keep each commit/buildable slice small. Do not enable composer controls until the native service, cancellation, and fake-driven UI tests exist.
 
 ## 0. Baseline and change validation
