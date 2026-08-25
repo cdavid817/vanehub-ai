@@ -80,7 +80,10 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // +2 in the Web/mock adapter, one line each: the OCR profile's `cpuAcceleration` default and the
   // status's empty `pathClassifications`. Both have to exist there, or the mock stops satisfying
   // the native contract it mirrors.
-  { root: "src/services", budget: 19944, owner: "add-local-composer-media-tools" },
+  // +16 on merging `origin/main`, which is `main`'s own growth in this subtree arriving here rather
+  // than anything this branch added. Measured on the merged tree; neither side's figure describes
+  // it, and the two are not additive because they were taken against different bases.
+  { root: "src/services", budget: 19960, owner: "add-local-composer-media-tools" },
 ]);
 
 const STATE_PACKAGES = new Set([
