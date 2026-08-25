@@ -69,6 +69,12 @@ pub(crate) enum HelperOperation {
     /// means the root itself.
     ListDirectory {
         path: String,
+        /// The ordering key to resume after, already decoded by the client. Sent as a key rather
+        /// than the opaque cursor so the helper never has to know the encoding - and so a cursor
+        /// forged on the wire cannot make it resume somewhere nobody paged to.
+        after_kind_rank: Option<u8>,
+        after_name_key: Option<String>,
+        limit: usize,
     },
     ReadTextFile {
         path: String,

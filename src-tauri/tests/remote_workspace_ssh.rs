@@ -172,6 +172,47 @@ fn the_helper_program_lists_a_directory_in_the_documented_order() {
     assert_eq!(names, vec!["src", "blob.bin", "readme.md"]);
 }
 
+/// Paging, against a real filesystem.
+///
+/// The case a scripted answer cannot make: the helper enumerates a real directory, sorts it, and
+/// resumes after a key the client sent. A fixture would be asserting the fixture's own order.
+#[test]
+fn the_helper_program_resumes_a_listing_after_the_key_it_was_given() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+
+    let first = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"listDirectory","path":"","limit":1}"#,
+    );
+    let listing = &first["result"]["listing"];
+    assert_eq!(listing["truncated"], true, "{first}");
+    assert_eq!(listing["entries"][0]["name"], "src");
+
+    // Resume after the directory that ended the first page. The rank matters: without it a file
+    // called `blob.bin` would compare before a directory called `src` and the second page would
+    // start in the wrong half of the listing.
+    let second = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"listDirectory","path":"","afterKindRank":0,"afterNameKey":"src","limit":10}"#,
+    );
+    let names: Vec<&str> = second["result"]["listing"]["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|entry| entry["name"].as_str().expect("name"))
+        .collect();
+
+    // The rest of the directory, in order, with nothing from the first page repeated.
+    assert_eq!(names, vec!["blob.bin", "readme.md"]);
+    assert_eq!(second["result"]["listing"]["truncated"], false);
+}
+
 #[test]
 fn the_helper_program_previews_text_and_refuses_to_decode_binary() {
     let Some(interpreter) = python() else {

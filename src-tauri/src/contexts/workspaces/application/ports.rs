@@ -111,6 +111,19 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         path: &str,
     ) -> Result<DirectoryListing, WorkspaceApplicationError>;
 
+    /// One page of a directory, resuming after a cursor.
+    ///
+    /// `list_directory` is the first page of this with the default bound. Keeping them separate
+    /// in the trait and identical underneath is what lets the existing command stay unchanged
+    /// while the provider pages, without a second ordering that drifts from the first.
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, WorkspaceApplicationError>;
+
     fn list_documents(
         &self,
         session_id: &str,

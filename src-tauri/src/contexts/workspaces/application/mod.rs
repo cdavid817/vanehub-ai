@@ -1,6 +1,7 @@
 mod error;
 mod evidence;
 mod inspection;
+mod inspection_cursor;
 mod inspection_router;
 mod models;
 mod ports;
@@ -21,6 +22,9 @@ pub(crate) use inspection::{
     ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
     WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
     WorkspaceTargetResolver,
+};
+pub(crate) use inspection_cursor::{
+    bounded_page_size, kind_rank, DirectoryCursor, DEFAULT_DIRECTORY_PAGE_SIZE,
 };
 pub(crate) use inspection_router::WorkspaceInspectionRouter;
 pub(crate) use models::{

@@ -158,6 +158,9 @@ fn a_listing_asks_for_a_relative_path_and_never_an_absolute_one() {
         &helper,
         HelperOperation::ListDirectory {
             path: "src".to_string(),
+            after_kind_rank: None,
+            after_name_key: None,
+            limit: 500,
         },
     ))
     .expect("listing");
@@ -168,6 +171,9 @@ fn a_listing_asks_for_a_relative_path_and_never_an_absolute_one() {
         "/work/app".to_string(),
         HelperOperation::ListDirectory {
             path: "src".to_string(),
+            after_kind_rank: None,
+            after_name_key: None,
+            limit: 500,
         },
     ))
     .expect("request");
@@ -210,6 +216,9 @@ fn a_truncated_listing_says_so_rather_than_reading_as_a_smaller_directory() {
         &helper,
         HelperOperation::ListDirectory {
             path: String::new(),
+            after_kind_rank: None,
+            after_name_key: None,
+            limit: 500,
         },
     ))
     .expect("listing");

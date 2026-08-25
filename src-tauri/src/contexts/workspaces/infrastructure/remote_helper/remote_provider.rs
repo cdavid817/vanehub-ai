@@ -16,11 +16,11 @@ use super::protocol::{
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
-    ListDirectoryRequest, ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext,
-    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspaceSearchRequest, WorkspaceTarget,
+    bounded_page_size, DirectoryCursor, DirectoryEntry, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource,
+    GitStatusResult, ListDirectoryRequest, ReadTextFileRequest, RemoteWorkspaceTarget,
+    SessionWorkspaceContext, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -206,12 +206,22 @@ fn entry(value: HelperEntry) -> DirectoryEntry {
 }
 
 fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryListing {
+    let path = value.path;
+    let items: Vec<DirectoryEntry> = value.entries.into_iter().map(entry).collect();
+    // The cursor is minted here from the last entry rather than by the helper. One encoding,
+    // one directory-binding rule, and a remote host that cannot issue a resume point for a
+    // directory it was not asked about.
+    let next_cursor = value.truncated.then(|| {
+        items
+            .last()
+            .map(|entry| DirectoryCursor::after(&path, entry.kind, &entry.name).encode())
+    });
     DirectoryListing {
         context: context(remote),
-        path: value.path,
-        items: value.entries.into_iter().map(entry).collect(),
+        path,
+        items,
         truncated: value.truncated,
-        next_cursor: None,
+        next_cursor: next_cursor.flatten(),
     }
 }
 
@@ -278,10 +288,22 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         request: ListDirectoryRequest,
     ) -> Result<DirectoryListing, WorkspaceInspectionError> {
+        // Decoded here, not on the remote host. The cursor is this side's encoding and its
+        // directory binding is this side's rule; sending it whole would put both on a machine
+        // that has no reason to know either.
+        let cursor = match request.cursor.as_deref() {
+            Some(encoded) => Some(DirectoryCursor::decode(encoded, &request.path)?),
+            None => None,
+        };
         let (remote, result) = self
             .call(
                 target,
-                HelperOperation::ListDirectory { path: request.path },
+                HelperOperation::ListDirectory {
+                    path: request.path,
+                    after_kind_rank: cursor.as_ref().map(|value| value.kind_rank),
+                    after_name_key: cursor.map(|value| value.name_key),
+                    limit: bounded_page_size(request.limit),
+                },
             )
             .await?;
         result.listing.map(|value| listing(&remote, value)).ok_or(

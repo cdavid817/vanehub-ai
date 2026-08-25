@@ -13,11 +13,12 @@
 
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
-    CapabilityState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget,
-    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceApplicationError as AppError,
-    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
+    bounded_page_size, CapabilityState, DirectoryListing, DocumentListing, FileContent,
+    FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
+    LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode,
+    WorkspaceApplicationError as AppError, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
@@ -203,8 +204,18 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
     ) -> Result<DirectoryListing, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
         classify_relative_path(&request.path)?;
-        self.blocking(move |queries| queries.list_directory(&session_id, &request.path))
-            .await
+        // Clamped here rather than deeper, so every provider answers the same request the same
+        // way and the bound is visible beside the operation it bounds.
+        let limit = bounded_page_size(request.limit);
+        self.blocking(move |queries| {
+            queries.list_directory_page(
+                &session_id,
+                &request.path,
+                request.cursor.as_deref(),
+                limit,
+            )
+        })
+        .await
     }
 
     async fn list_documents(

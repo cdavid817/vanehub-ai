@@ -1,10 +1,11 @@
 use crate::contexts::workspaces::application::{
-    DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile,
-    GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult,
-    ReviewDiffFile, ReviewDiffHunk, ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest,
-    ReviewSnapshot, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
-    SessionLogQuery, SessionWorkspaceContext, WorkspaceApplicationError as AppError,
-    WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, MAX_REVIEW_DIFF_BYTES,
+    kind_rank, DirectoryCursor, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
+    FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
+    GitStatusEntry, GitStatusResult, ReviewDiffFile, ReviewDiffHunk, ReviewFileSummary,
+    ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot, SessionDocument, SessionLogEntry,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext,
+    WorkspaceApplicationError as AppError, WorkspaceLogLevel, WorkspaceReviewPort,
+    WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE, MAX_REVIEW_DIFF_BYTES,
     MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
@@ -20,7 +21,12 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
-const DIRECTORY_ENTRY_LIMIT: usize = 500;
+/// How many status entries one answer carries.
+///
+/// Its own constant now that directory listings page. The two were sharing a name and a value
+/// while measuring different things — files in one folder, changed paths across a repository —
+/// and a shared name is how one of them silently acquires the other's bound.
+const GIT_STATUS_ENTRY_LIMIT: usize = 500;
 const DOCUMENT_DEPTH_LIMIT: usize = 6;
 const DOCUMENT_LIMIT: usize = 300;
 const FILE_BYTE_LIMIT: u64 = 1024 * 1024;
@@ -54,6 +60,16 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, AppError> {
+        list_session_directory_page(&*self.connection()?, session_id, path, cursor, limit)
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
@@ -313,10 +329,18 @@ fn available_context(root: &Path) -> SessionWorkspaceContext {
     )
 }
 
-fn directory_entries_at(
+/// One page of a directory, ordered and cut at the caller's bound.
+///
+/// The whole directory is enumerated and sorted before the cut, which is what makes the order
+/// stable: a page is a window onto a total order rather than whatever the filesystem returned
+/// first. That cost is the same as before - the previous version enumerated everything too and
+/// then threw away all but the first 500.
+fn directory_page_at(
     root: &Path,
     relative: &str,
-) -> Result<(Vec<DirectoryEntry>, bool), AppError> {
+    cursor: Option<&DirectoryCursor>,
+    limit: usize,
+) -> Result<(Vec<DirectoryEntry>, bool, Option<String>), AppError> {
     let directory = if relative.is_empty() {
         root.to_path_buf()
     } else {
@@ -357,15 +381,28 @@ fn directory_entries_at(
         });
     }
     entries.sort_by(|left, right| {
-        let left_rank = if left.kind == "directory" { 0 } else { 1 };
-        let right_rank = if right.kind == "directory" { 0 } else { 1 };
-        left_rank
-            .cmp(&right_rank)
+        kind_rank(left.kind)
+            .cmp(&kind_rank(right.kind))
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
-    let truncated = entries.len() > DIRECTORY_ENTRY_LIMIT;
-    entries.truncate(DIRECTORY_ENTRY_LIMIT);
-    Ok((entries, truncated))
+
+    // Resuming happens after the sort, so the key a cursor carries is the key the listing is
+    // ordered by. Filtering before sorting would compare against an order that does not exist
+    // yet and drop entries that belong on the page.
+    if let Some(cursor) = cursor {
+        entries.retain(|entry| cursor.precedes(entry.kind, &entry.name));
+    }
+    let truncated = entries.len() > limit;
+    entries.truncate(limit);
+    // A cursor only when there is more. Issuing one for an exhausted directory would invite a
+    // caller to fetch a page that is always empty, and an empty page reads as a directory that
+    // just emptied itself.
+    let next_cursor = truncated.then(|| {
+        entries
+            .last()
+            .map(|entry| DirectoryCursor::after(relative, entry.kind, &entry.name).encode())
+    });
+    Ok((entries, truncated, next_cursor.flatten()))
 }
 
 pub(crate) fn list_session_directory(
@@ -373,6 +410,32 @@ pub(crate) fn list_session_directory(
     session_id: &str,
     path: &str,
 ) -> Result<DirectoryListing, AppError> {
+    list_session_directory_page(conn, session_id, path, None, DEFAULT_DIRECTORY_PAGE_SIZE)
+}
+
+/// One page, resuming after a cursor.
+///
+/// `list_session_directory` is this with the default bound and no cursor. One implementation, so
+/// the ordering a cursor resumes into is the ordering the first page produced.
+pub(crate) fn list_session_directory_page(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<DirectoryListing, AppError> {
+    let decoded = match cursor {
+        Some(encoded) => Some(
+            DirectoryCursor::decode(encoded, path)
+                // A cursor for another directory, or one nobody issued. Refused as a validation
+                // failure so the caller starts the listing again rather than receiving a page
+                // from somewhere else.
+                .map_err(|_| {
+                    AppError::Validation("Directory cursor is not valid here.".to_string())
+                })?,
+        ),
+        None => None,
+    };
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(DirectoryListing {
             context: unavailable_context(),
@@ -382,13 +445,13 @@ pub(crate) fn list_session_directory(
             next_cursor: None,
         });
     };
-    let (items, truncated) = directory_entries_at(&root, path)?;
+    let (items, truncated, next_cursor) = directory_page_at(&root, path, decoded.as_ref(), limit)?;
     Ok(DirectoryListing {
         context: available_context(&root),
         path: path.to_string(),
         items,
         truncated,
-        next_cursor: None,
+        next_cursor,
     })
 }
 
@@ -749,8 +812,8 @@ pub(crate) fn get_session_git_status(
             next_cursor: None,
         });
     };
-    let truncated = entries.len() > DIRECTORY_ENTRY_LIMIT;
-    entries.truncate(DIRECTORY_ENTRY_LIMIT);
+    let truncated = entries.len() > GIT_STATUS_ENTRY_LIMIT;
+    entries.truncate(GIT_STATUS_ENTRY_LIMIT);
     Ok(GitStatusResult {
         context: available_context(&root),
         is_git: true,
@@ -1657,8 +1720,12 @@ mod tests {
         let oversized = fs::File::create(root.join("oversized.txt")).expect("oversized file");
         oversized.set_len(FILE_BYTE_LIMIT + 1).expect("set length");
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated) = directory_entries_at(&root, "").expect("listing");
+        let (entries, truncated, next_cursor) =
+            directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
         assert!(!truncated);
+        // No cursor for a directory that ended. Issuing one would invite a caller to fetch a
+        // page that is always empty, which reads as a directory that just emptied itself.
+        assert_eq!(next_cursor, None);
         assert_eq!(entries[0].name, "AFolder");
         assert!(entries.iter().all(|entry| entry.name != ".hidden"));
         assert_eq!(
@@ -1684,13 +1751,17 @@ mod tests {
     fn directory_and_document_results_are_bounded() {
         let root = temp_dir("bounds");
         fs::create_dir_all(&root).expect("root");
-        for index in 0..=DIRECTORY_ENTRY_LIMIT {
+        for index in 0..=DEFAULT_DIRECTORY_PAGE_SIZE {
             fs::write(root.join(format!("file-{index:04}.txt")), "text").expect("fixture");
         }
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated) = directory_entries_at(&root, "").expect("listing");
-        assert_eq!(entries.len(), DIRECTORY_ENTRY_LIMIT);
+        let (entries, truncated, next_cursor) =
+            directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
+        assert_eq!(entries.len(), DEFAULT_DIRECTORY_PAGE_SIZE);
         assert!(truncated);
+        // A bound that reports itself and offers a way past it. The previous version stopped at
+        // the same place and left the caller with no way to see the rest.
+        assert!(next_cursor.is_some());
         let mut visited = HashSet::new();
         let mut documents = Vec::new();
         assert!(

@@ -163,6 +163,11 @@ pub(crate) enum WorkspaceInspectionError {
     /// what it refused would put a caller-chosen absolute path into a log.
     PathEscaped,
     NotFound,
+    /// The continuation token does not belong to this listing.
+    ///
+    /// Its own variant because a reader acts differently: a stale cursor is fixed by starting
+    /// the listing again, while an unavailable workspace is not fixed by anything they can do.
+    InvalidCursor,
     /// The provider works, but this operation needs something the host does not have.
     Unsupported(&'static str),
     /// The connection failed, or the remote host answered in a way the helper could not use.
@@ -181,6 +186,7 @@ impl WorkspaceInspectionError {
             | Self::RemoteUnavailable(code) => code,
             Self::PathEscaped => "workspace_path_escaped",
             Self::NotFound => "workspace_path_not_found",
+            Self::InvalidCursor => "workspace_cursor_invalid",
             Self::Timeout => "workspace_inspection_timeout",
             Self::Storage(_) => "workspace_inspection_unavailable",
         }
@@ -208,6 +214,12 @@ impl From<WorkspaceApplicationError> for WorkspaceInspectionError {
 pub(crate) struct ListDirectoryRequest {
     /// Relative to the target root. Empty means the root itself.
     pub(crate) path: String,
+    /// Where to resume, from a previous page's `next_cursor`. A cursor issued for another
+    /// directory is refused rather than applied.
+    pub(crate) cursor: Option<String>,
+    /// How many entries to take. Clamped, never unbounded: the limit arrives from a client and
+    /// a listing is enumerated and sorted in full before it is cut.
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

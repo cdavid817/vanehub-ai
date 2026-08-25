@@ -19,12 +19,12 @@ use super::remote_helper::{
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
-    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffRequest,
-    GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget,
-    ReadTextFileRequest, RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage,
-    SessionLogQuery, WorkspaceApplicationError as AppError, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceSessionQueryPort,
-    WorkspaceTarget,
+    DirectoryCursor, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
+    GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest,
+    LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget, SessionLogExportResult,
+    SessionLogPage, SessionLogQuery, WorkspaceApplicationError as AppError,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -57,6 +57,22 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, AppError> {
+        super::session_queries::list_session_directory_page(
+            &*self.connection()?,
+            session_id,
+            path,
+            cursor,
+            limit,
+        )
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
@@ -477,4 +493,126 @@ fn the_providers_read_an_untracked_file_outside_a_repository_differently() {
             assert_eq!(file.new_path, "readme.md");
         }
     }
+}
+
+const REMOTE_TRUNCATED_LISTING: &str = r##"{"version":1,"ok":true,"result":{"listing":{"path":"",
+  "entries":[
+    {"name":"src","path":"src","kind":"directory","size":null},
+    {"name":"blob.bin","path":"blob.bin","kind":"file","size":4}
+  ],"truncated":true}}}"##;
+
+// ---------------------------------------------------------------------------------------------
+// Continuation
+// ---------------------------------------------------------------------------------------------
+
+/// Two pages of one entry each cover the directory exactly, in order and without repeats.
+///
+/// The failure a keyset cursor prevents is invisible in a single page: an offset cursor produces
+/// exactly this shape too, right up until a file is created between the two reads.
+#[test]
+fn a_page_resumes_after_the_entry_it_ended_on() {
+    let subject = local_subject();
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    for _ in 0..8 {
+        let page = block(subject.provider.list_directory(
+            &subject.target,
+            ListDirectoryRequest {
+                path: String::new(),
+                cursor: cursor.clone(),
+                limit: Some(1),
+            },
+        ))
+        .expect("page");
+        seen.extend(page.items.iter().map(|item| item.name.clone()));
+        cursor = page.next_cursor.clone();
+        if cursor.is_none() {
+            break;
+        }
+    }
+
+    // The same order the unpaged listing gives, and each entry exactly once.
+    assert_eq!(seen, vec!["src", "blob.bin", "readme.md"]);
+}
+
+#[test]
+fn the_last_page_offers_no_cursor() {
+    let subject = local_subject();
+
+    let page = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: String::new(),
+            cursor: None,
+            limit: Some(100),
+        },
+    ))
+    .expect("page");
+
+    // A cursor for an exhausted directory would invite a caller to fetch a page that is always
+    // empty, and an empty page reads as a directory that just emptied itself.
+    assert!(!page.truncated);
+    assert_eq!(page.next_cursor, None);
+}
+
+/// A cursor issued for one directory is refused by another.
+///
+/// Without the binding the resume key is just a name: it compares fine against a different
+/// directory's entries, and the reader gets a page from a folder they are not looking at.
+#[test]
+fn a_cursor_from_another_directory_is_refused() {
+    let subject = local_subject();
+    let root_page = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: String::new(),
+            cursor: None,
+            limit: Some(1),
+        },
+    ))
+    .expect("root page");
+    let cursor = root_page.next_cursor.expect("a cursor for the root");
+
+    let error = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: "src".to_string(),
+            cursor: Some(cursor),
+            limit: Some(10),
+        },
+    ))
+    .expect_err("a cursor from the root does not continue src");
+
+    // `NotFound` rather than a page: the local reads report a rejected cursor as a validation
+    // refusal, which the provider classifies as a path that is not there rather than an escape.
+    assert!(
+        matches!(
+            error,
+            WorkspaceInspectionError::NotFound | WorkspaceInspectionError::InvalidCursor
+        ),
+        "{error:?}"
+    );
+}
+
+/// The remote provider mints the cursor, so the helper cannot issue one for another directory.
+#[test]
+fn the_remote_cursor_is_minted_from_the_page_it_ends() {
+    let subject = remote_subject(REMOTE_TRUNCATED_LISTING);
+
+    let page = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: String::new(),
+            cursor: None,
+            limit: Some(2),
+        },
+    ))
+    .expect("page");
+
+    assert!(page.truncated);
+    let cursor = page.next_cursor.expect("a cursor");
+    // It decodes for the directory that was asked for, and only that one.
+    assert!(DirectoryCursor::decode(&cursor, "").is_ok());
+    assert!(DirectoryCursor::decode(&cursor, "src").is_err());
 }

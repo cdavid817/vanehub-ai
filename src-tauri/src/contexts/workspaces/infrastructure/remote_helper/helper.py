@@ -170,7 +170,12 @@ def probe(root):
     }
 
 
-def list_directory(root, relative):
+def sort_key(entry):
+    """Directories first, then case-insensitively - the client's ordering, stated once."""
+    return (0 if entry["kind"] == "directory" else 1, entry["name"].lower())
+
+
+def list_directory(root, relative, after_kind_rank, after_name_key, limit):
     directory = resolve_within(root, relative)
     if directory is None:
         return None, "workspace_path_escaped"
@@ -217,10 +222,18 @@ def list_directory(root, relative):
 
     # Directories first, then case-insensitive by name: the same order the local provider produces,
     # so the same workspace does not reorder itself when it moves to a remote host.
-    entries.sort(key=lambda item: (0 if item["kind"] == "directory" else 1, item["name"].lower()))
-    if len(entries) > DIRECTORY_ENTRY_LIMIT:
+    entries.sort(key=sort_key)
+
+    # Resuming happens after the sort, because the key the client sent is the key this ordering
+    # produces. Filtering first would compare against an order that does not exist yet.
+    if after_name_key is not None and after_kind_rank is not None:
+        resume = (after_kind_rank, after_name_key)
+        entries = [entry for entry in entries if sort_key(entry) > resume]
+
+    bound = max(1, min(limit or DIRECTORY_ENTRY_LIMIT, DIRECTORY_ENTRY_LIMIT))
+    if len(entries) > bound:
         truncated = True
-        entries = entries[:DIRECTORY_ENTRY_LIMIT]
+        entries = entries[:bound]
     return {"path": relative, "entries": entries, "truncated": truncated}, None
 
 
@@ -389,7 +402,13 @@ def dispatch(root, operation):
     if kind == "probe":
         return {"probe": probe(root)}, None
     if kind == "listDirectory":
-        listing, error = list_directory(root, operation.get("path", ""))
+        listing, error = list_directory(
+            root,
+            operation.get("path", ""),
+            operation.get("afterKindRank"),
+            operation.get("afterNameKey"),
+            int(operation.get("limit", 0) or 0),
+        )
         return ({"listing": listing} if listing else None), error
     if kind == "readTextFile":
         answer, error = read_text_file(root, operation.get("path", ""))

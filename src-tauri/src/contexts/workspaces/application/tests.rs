@@ -242,6 +242,18 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         })
     }
 
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        _cursor: Option<&str>,
+        _limit: usize,
+    ) -> Result<DirectoryListing, WorkspaceApplicationError> {
+        // Delegating rather than answering separately: a fake with two listings could report a
+        // page that disagrees with its own first page, which is a failure the real one cannot have.
+        self.list_directory(session_id, path)
+    }
+
     fn list_documents(
         &self,
         session_id: &str,
