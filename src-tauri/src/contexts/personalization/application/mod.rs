@@ -9,6 +9,9 @@ mod migrate_legacy_policy;
 mod migrate_legacy_policy_tests;
 mod models;
 mod ports;
+mod resolve_policy;
+#[cfg(test)]
+mod resolve_policy_tests;
 mod resolve_workspace_identity;
 #[cfg(test)]
 mod resolve_workspace_identity_tests;
@@ -31,12 +34,13 @@ pub(crate) use models::{
     MigrationRunOutcome, ResetCounts, UpdateMemoryPatch, WorkspaceIdentityRequest,
 };
 pub(crate) use ports::{
-    CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,
+    AgentCapabilityPort, CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,
     LegacyMemorySourcePort, LegacyPersonalizationSettingsPort, LegacyPolicyMigrationPort,
     LegacyRowMigrationPort, MaintenanceGatePort, MaintenanceLease, MemoryHealthPort,
     MemoryIdGeneratorPort, MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository,
     MigrationJournalPort, MigrationStatePort, MutationAdmission, PolicyRepository,
     RetrievalIndexPort, WorkspaceIdentityPort,
 };
+pub(crate) use resolve_policy::{PolicyResolutionService, ResolutionRequest};
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
 pub(crate) use run_startup_maintenance::{StartupMaintenancePorts, StartupMaintenanceService};

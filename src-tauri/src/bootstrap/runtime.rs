@@ -252,10 +252,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let super::PersonalizationAssembly {
         api: personalization_api,
         maintenance: personalization_maintenance,
+        resolver: _personalization_resolver,
     } = super::assemble_personalization(
         database.clone(),
         &data_root,
         desktop_settings_api.clone(),
+        shared_agent_registry.registry.clone(),
         deferred_memory_index.clone(),
         Arc::new(crate::contexts::personalization::infrastructure::SystemPersonalizationClock),
     )

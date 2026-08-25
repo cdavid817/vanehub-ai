@@ -8,7 +8,7 @@ use super::scope::{
     WorkspaceKey, WorkspaceKind,
 };
 use super::snapshot::{
-    EffectivePersonalizationSnapshot, PersonalizationResolutionContext,
+    EffectivePersonalizationSnapshot, InstructionField, PersonalizationResolutionContext,
     PersonalizationRuntimeCapabilities, PersonalizationWarningCode, FAIL_CLOSED_REVISION_TOKEN,
 };
 
@@ -88,6 +88,18 @@ fn snapshot(
     resolve(context(mode, true), layers, full_capabilities(), healthy())
 }
 
+/// The text one field resolved to, or `None` when that field contributed nothing.
+fn segment_text(
+    snapshot: &EffectivePersonalizationSnapshot,
+    field: InstructionField,
+) -> Option<&str> {
+    snapshot
+        .instruction_segments
+        .iter()
+        .find(|segment| segment.field == field)
+        .map(|segment| segment.text.as_str())
+}
+
 #[test]
 fn a_missing_global_policy_fails_closed_rather_than_falling_open() {
     // "No validated policy" must never resolve to "memory enabled". This is the one direction the
@@ -113,10 +125,21 @@ fn the_global_layer_alone_supplies_instructions_and_memory_access() {
         layers_with_global(global_with("I use Rust", "Be terse")),
         SessionPersonalizationMode::Standard,
     );
-    assert_eq!(result.instruction_segments.len(), 1);
-    assert_eq!(result.instruction_segments[0].scope_kind, "global");
-    assert_eq!(result.instruction_segments[0].about_user, "I use Rust");
-    assert_eq!(result.instruction_segments[0].style_rules, "Be terse");
+    // One segment per field: the two are authored separately and can be replaced separately, so
+    // merging them would lose which one a later layer overrode.
+    assert_eq!(result.instruction_segments.len(), 2);
+    assert!(result
+        .instruction_segments
+        .iter()
+        .all(|segment| segment.scope_kind == "global"));
+    assert_eq!(
+        segment_text(&result, InstructionField::AboutUser),
+        Some("I use Rust")
+    );
+    assert_eq!(
+        segment_text(&result, InstructionField::StyleRules),
+        Some("Be terse")
+    );
     assert!(result.memory_access.read);
     assert!(result.memory_access.explicit_save);
     assert!(result.memory_access.automatic_extraction);
@@ -151,7 +174,7 @@ fn append_keeps_inherited_segments_and_adds_its_own_after_them() {
     let rendered: Vec<&str> = result
         .instruction_segments
         .iter()
-        .map(|segment| segment.about_user.as_str())
+        .map(|segment| segment.text.as_str())
         .collect();
     assert_eq!(rendered, vec!["global about", "agent about"]);
     assert_eq!(
@@ -173,7 +196,7 @@ fn replace_discards_lower_precedence_user_segments() {
     let result = snapshot(layers, SessionPersonalizationMode::Standard);
 
     assert_eq!(result.instruction_segments.len(), 1);
-    assert_eq!(result.instruction_segments[0].about_user, "workspace about");
+    assert_eq!(result.instruction_segments[0].text, "workspace about");
     assert_eq!(result.instruction_segments[0].scope_kind, "workspace");
     assert_eq!(
         result.effective_instruction_mode,
@@ -206,7 +229,7 @@ fn a_later_append_survives_an_earlier_replace() {
     let rendered: Vec<&str> = result
         .instruction_segments
         .iter()
-        .map(|segment| segment.about_user.as_str())
+        .map(|segment| segment.text.as_str())
         .collect();
     assert_eq!(rendered, vec!["workspace about", "seat about"]);
 }

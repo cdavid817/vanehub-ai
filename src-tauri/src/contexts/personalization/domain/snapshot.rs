@@ -41,32 +41,153 @@ impl PersonalizationRuntimeCapabilities {
     }
 }
 
-/// One included instruction segment, with enough provenance for the preview to explain why it is
-/// present. Carries the scope key rather than a display label so the explanation cannot drift from
-/// the row that produced it.
+/// Which user-authored field a segment carries.
+///
+/// One segment per field rather than one per layer, because a preview has to be able to say which
+/// *field* survived: a layer that replaced the style rules and left the description alone produces
+/// two segments with different provenance, and merging them would lose that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstructionField {
+    AboutUser,
+    StyleRules,
+}
+
+impl InstructionField {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::AboutUser => "about_user",
+            Self::StyleRules => "style_rules",
+        }
+    }
+}
+
+/// What the merge state machine did with a layer's fields.
+///
+/// Recorded per segment so a preview can explain the outcome rather than restate the stored mode:
+/// "appended by the workspace layer" and "replaced by the Agent layer" look identical in a final
+/// text and completely different to a user trying to find where a sentence came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstructionMergeAction {
+    Appended,
+    Replaced,
+}
+
+impl InstructionMergeAction {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Appended => "appended",
+            Self::Replaced => "replaced",
+        }
+    }
+}
+
+/// Why a layer's field is not in the final instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstructionExclusionReason {
+    /// The field was empty at this layer, so there was nothing to contribute.
+    EmptyField,
+    /// A later layer replaced everything below it.
+    ReplacedByHigherLayer,
+    /// A later layer disabled personalization instructions entirely.
+    DisabledByHigherLayer,
+    /// This layer inherits, so it contributes nothing of its own.
+    InheritedLayer,
+    /// The runtime does not accept custom instructions at all.
+    RuntimeCapability,
+}
+
+impl InstructionExclusionReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::EmptyField => "empty_field",
+            Self::ReplacedByHigherLayer => "replaced_by_higher_layer",
+            Self::DisabledByHigherLayer => "disabled_by_higher_layer",
+            Self::InheritedLayer => "inherited_layer",
+            Self::RuntimeCapability => "runtime_capability",
+        }
+    }
+}
+
+/// Where one surviving instruction field came from.
+///
+/// Carries provenance rather than only text: the scope that authored it, the revision that scope
+/// was at, and what the merge did. Without those, a user reading a preview can see *what* is being
+/// sent but has no way to find *which* setting to change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedInstructionSegment {
+    pub(crate) field: InstructionField,
     pub(crate) scope_kind: &'static str,
     pub(crate) scope_key: String,
-    pub(crate) about_user: String,
-    pub(crate) style_rules: String,
+    /// The revision the authoring layer was at when this snapshot was taken. A later edit produces
+    /// a different snapshot rather than mutating this one.
+    pub(crate) policy_revision: u64,
+    pub(crate) merge_action: InstructionMergeAction,
+    pub(crate) text: String,
+}
+
+/// One field that did not survive, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExcludedInstructionSegment {
+    pub(crate) field: InstructionField,
+    pub(crate) scope_kind: &'static str,
+    pub(crate) scope_key: String,
+    pub(crate) policy_revision: u64,
+    pub(crate) reason: InstructionExclusionReason,
 }
 
 impl ResolvedInstructionSegment {
+    /// The segments one layer contributes, and the ones it does not.
+    ///
+    /// An empty field is reported as excluded rather than dropped: "you set nothing here" and "this
+    /// layer never came up" are different answers, and a preview that showed neither would leave a
+    /// user hunting through scopes for text that does not exist.
     pub(crate) fn from_scope(
         scope: &PersonalizationPolicyScope,
+        policy_revision: u64,
+        merge_action: InstructionMergeAction,
         about_user: &str,
         style_rules: &str,
-    ) -> Option<Self> {
-        if about_user.is_empty() && style_rules.is_empty() {
-            return None;
+    ) -> (Vec<Self>, Vec<ExcludedInstructionSegment>) {
+        let mut included = Vec::new();
+        let mut excluded = Vec::new();
+        for (field, text) in [
+            (InstructionField::AboutUser, about_user),
+            (InstructionField::StyleRules, style_rules),
+        ] {
+            if text.is_empty() {
+                excluded.push(ExcludedInstructionSegment {
+                    field,
+                    scope_kind: scope.scope_kind(),
+                    scope_key: scope.scope_key(),
+                    policy_revision,
+                    reason: InstructionExclusionReason::EmptyField,
+                });
+                continue;
+            }
+            included.push(Self {
+                field,
+                scope_kind: scope.scope_kind(),
+                scope_key: scope.scope_key(),
+                policy_revision,
+                merge_action,
+                text: text.to_string(),
+            });
         }
-        Some(Self {
-            scope_kind: scope.scope_kind(),
-            scope_key: scope.scope_key(),
-            about_user: about_user.to_string(),
-            style_rules: style_rules.to_string(),
-        })
+        (included, excluded)
+    }
+
+    /// Restates this segment as an exclusion, for when a higher layer removes it.
+    pub(crate) fn excluded_by(
+        &self,
+        reason: InstructionExclusionReason,
+    ) -> ExcludedInstructionSegment {
+        ExcludedInstructionSegment {
+            field: self.field,
+            scope_kind: self.scope_kind,
+            scope_key: self.scope_key.clone(),
+            policy_revision: self.policy_revision,
+            reason,
+        }
     }
 }
 
@@ -142,6 +263,10 @@ pub(crate) enum PersonalizationWarningCode {
     RepairRequired,
     /// A stored override exists for a dimension this runtime cannot use.
     UnsupportedCapabilityOverride,
+    /// The Agent is not in the registry, so no capabilities can be established for it.
+    UnknownAgent,
+    /// A project-only session reached resolution with no workspace to be isolated to.
+    WorkspaceRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,6 +291,9 @@ pub(crate) struct EffectivePersonalizationSnapshot {
     pub(crate) context: PersonalizationResolutionContext,
     pub(crate) effective_instruction_mode: InstructionMergeMode,
     pub(crate) instruction_segments: Vec<ResolvedInstructionSegment>,
+    /// Every user-authored field that did not make it, with the reason. Present so a preview can
+    /// answer "why is my instruction not being used" without the user diffing scopes by hand.
+    pub(crate) excluded_instruction_segments: Vec<ExcludedInstructionSegment>,
     pub(crate) memory_access: EffectiveMemoryAccess,
     pub(crate) exclusions: Vec<PersonalizationExclusion>,
     pub(crate) warnings: Vec<PersonalizationWarning>,
@@ -184,6 +312,7 @@ impl EffectivePersonalizationSnapshot {
             context,
             effective_instruction_mode: InstructionMergeMode::Disabled,
             instruction_segments: Vec::new(),
+            excluded_instruction_segments: Vec::new(),
             memory_access: EffectiveMemoryAccess::denied(),
             exclusions: Vec::new(),
             warnings: vec![PersonalizationWarning::new(code)],

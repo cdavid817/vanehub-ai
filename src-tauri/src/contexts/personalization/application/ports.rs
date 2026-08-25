@@ -11,8 +11,9 @@ use crate::contexts::personalization::domain::{
     MemoryCandidate, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
     MemoryScopeFilter, MemoryStatus, MigrationJournalEntry, MigrationState, PatchPolicyResult,
     PersonalizationLayers, PersonalizationPolicyPatch, PersonalizationPolicyRecord,
-    PersonalizationPolicyScope, ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest,
-    StorageEntry, WorkspaceIdentity, WorkspaceKey,
+    PersonalizationPolicyScope, PersonalizationRuntimeCapabilities, PolicyResolutionBundle,
+    ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest, StorageEntry,
+    WorkspaceIdentity, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -37,6 +38,18 @@ pub(crate) trait PolicyRepository: Send + Sync {
         agent_id: &AgentId,
         workspace_key: Option<&WorkspaceKey>,
     ) -> Result<PersonalizationLayers>;
+
+    /// Every scope key one resolution needs, read together, with each key's finding.
+    ///
+    /// One consistent read rather than four: a save landing between two of them would produce a
+    /// snapshot mixing revisions, which is exactly what an immutable snapshot is supposed to rule
+    /// out. Returns `Absent` for a key with no override rather than omitting it, so a caller can
+    /// tell "proved there is none" from "never looked" — the distinction that decides whether the
+    /// result may be reused later.
+    fn load_resolution_bundle(
+        &self,
+        scopes: &[PersonalizationPolicyScope],
+    ) -> Result<PolicyResolutionBundle>;
 
     /// Every stored override. Used by the settings overview to show which scopes have opinions,
     /// never by the runtime.
@@ -186,6 +199,21 @@ pub(crate) trait RetrievalIndexPort: Send + Sync {
 /// Derived `MEMORY.md`. Rebuilt from active records; never read as authoritative.
 pub(crate) trait DerivedIndexPort: Send + Sync {
     fn rebuild(&self, active: &[MemoryRecord]) -> Result<usize>;
+}
+
+/// What an Agent's runtime adapter declares it can consume.
+///
+/// A port because the registry belongs to another context, and personalization must not reach into
+/// it. `None` means the registry has no such Agent — reported rather than defaulted, because a
+/// default capability set for an Agent nobody registered would grant a surface nothing declared.
+///
+/// Deliberately keyed by id alone. Nothing here enumerates Agents or branches on which one it is,
+/// so an Agent registered at runtime resolves through exactly the same path as a built-in.
+pub(crate) trait AgentCapabilityPort: Send + Sync {
+    fn capabilities(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<PersonalizationRuntimeCapabilities>>;
 }
 
 /// Turns whatever the caller knows about a workspace into a stable local key.

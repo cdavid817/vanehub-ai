@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::contexts::agent_runtime::application::AgentMemoryPort;
+use crate::contexts::agent_runtime::application::{AgentMemoryPort, AgentRegistryRepository};
 use crate::contexts::agent_runtime::infrastructure::{
     migrate_memory_rows, FileAgentMemoryStore, SqliteAgentMemoryRepository,
 };
@@ -20,13 +20,15 @@ use crate::contexts::desktop::api::{
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
-    ClockPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
+    AgentCapabilityPort, ClockPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
     LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
     LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
-    PersonalizationApplicationError, RetrievalIndexPort, StartupMaintenancePorts,
-    StartupMaintenanceService, WorkspaceIdentityResolver,
+    PersonalizationApplicationError, PolicyResolutionService, RetrievalIndexPort,
+    StartupMaintenancePorts, StartupMaintenanceService, WorkspaceIdentityResolver,
 };
-use crate::contexts::personalization::domain::{MemoryId, MemoryRecord};
+use crate::contexts::personalization::domain::{
+    MemoryId, MemoryRecord, PersonalizationRuntimeCapabilities,
+};
 use crate::contexts::personalization::infrastructure::{
     FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
     SqliteCandidateRepository, SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration,
@@ -46,6 +48,9 @@ const MEMORY_DIRECTORY_NAME: &str = "memory";
 pub(crate) struct PersonalizationAssembly {
     pub(crate) api: PersonalizationApi,
     pub(crate) maintenance: Arc<StartupMaintenanceService>,
+    /// Resolves one immutable snapshot per generation. Assembled here and handed to the runtime
+    /// adapters as they land; nothing else in this context owns policy resolution.
+    pub(crate) resolver: Arc<PolicyResolutionService>,
 }
 
 /// Assembles the whole stack. Does not run maintenance — that is `spawn_startup_maintenance`, so a
@@ -54,6 +59,7 @@ pub(crate) fn assemble_personalization(
     database: NativeDatabase,
     data_root: &Path,
     settings: DesktopSettingsApi,
+    agents: Arc<dyn AgentRegistryRepository>,
     retrieval_index: Arc<dyn RetrievalIndexPort>,
     clock: Arc<dyn ClockPort>,
 ) -> std::result::Result<PersonalizationAssembly, String> {
@@ -74,6 +80,7 @@ pub(crate) fn assemble_personalization(
     ));
 
     let policies = Arc::new(SqlitePolicyRepository::new(database.clone()));
+    let policies_for_resolver = policies.clone();
     let aliases = Arc::new(SqliteLegacyAddressAlias::new(database.clone()));
     let state = Arc::new(SqliteMigrationState::new(database.clone()));
     let sources = Arc::new(
@@ -132,7 +139,16 @@ pub(crate) fn assemble_personalization(
     // Bound here rather than by the caller, so there is no assembly order in which the settings
     // page is live while the legacy rows are still its truth.
     settings_for_bridge.bind_personalization(Arc::new(GovernedSettingsBridge::new(api.clone())));
-    Ok(PersonalizationAssembly { api, maintenance })
+    let resolver = Arc::new(PolicyResolutionService::new(
+        policies_for_resolver,
+        Arc::new(RegistryAgentCapabilities::new(agents)),
+        maintenance.clone(),
+    ));
+    Ok(PersonalizationAssembly {
+        api,
+        maintenance,
+        resolver,
+    })
 }
 
 /// Runs startup maintenance off the startup path.
@@ -231,6 +247,63 @@ impl PersonalizationSettingsBridge for GovernedSettingsBridge {
         // Asked of the same rule the write path uses, so a key can never be claimed here and then
         // refused there.
         LegacySettingField::from_key_and_value(key, "").is_some()
+    }
+}
+
+/// Satisfies personalization's Agent capability port from the Agent registry.
+///
+/// Capabilities come from the launch kind the registry records, never from an Agent id. Nothing
+/// here enumerates Agents or branches on which one it is, so an Agent registered while the
+/// application is running resolves through exactly the same path as one that shipped with it —
+/// and an Agent nobody registered resolves to `None` rather than to a default surface it never
+/// declared.
+pub(crate) struct RegistryAgentCapabilities {
+    registry: Arc<dyn AgentRegistryRepository>,
+}
+
+impl RegistryAgentCapabilities {
+    pub(crate) fn new(registry: Arc<dyn AgentRegistryRepository>) -> Self {
+        Self { registry }
+    }
+
+    /// What a launch shape can actually consume.
+    ///
+    /// A CLI owns its own context and its own instruction files, so VaneHub may add instructions to
+    /// what it sends but must not claim to manage a memory index inside it or to compact it. An API
+    /// Agent has no external context, so VaneHub owns the whole prompt and every surface applies.
+    fn for_launch(kind: &str) -> PersonalizationRuntimeCapabilities {
+        match kind {
+            "api" => PersonalizationRuntimeCapabilities {
+                supports_custom_instructions: true,
+                supports_memory_index: true,
+                supports_selected_memory_bodies: true,
+                supports_automatic_extraction: true,
+            },
+            "cli" => PersonalizationRuntimeCapabilities {
+                supports_custom_instructions: true,
+                supports_memory_index: true,
+                // The CLI runs its own turn loop, so VaneHub has no point at which to inspect a
+                // completed exchange and propose a memory from it.
+                supports_selected_memory_bodies: false,
+                supports_automatic_extraction: false,
+            },
+            // Browser and native-desktop Agents are launched, not driven, and a launch shape this
+            // build has never heard of is the same situation: VaneHub composes no prompt for them,
+            // so it declares nothing rather than assuming.
+            _ => PersonalizationRuntimeCapabilities::none(),
+        }
+    }
+}
+
+impl AgentCapabilityPort for RegistryAgentCapabilities {
+    fn capabilities(
+        &self,
+        agent_id: &crate::contexts::personalization::domain::AgentId,
+    ) -> Result<Option<PersonalizationRuntimeCapabilities>> {
+        let found = self.registry.find(agent_id.as_str()).map_err(|error| {
+            PersonalizationApplicationError::Storage(format!("agent_registry_unreadable: {error}"))
+        })?;
+        Ok(found.map(|agent| Self::for_launch(agent.launch().kind_str())))
     }
 }
 

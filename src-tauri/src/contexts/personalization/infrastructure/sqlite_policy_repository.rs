@@ -7,7 +7,7 @@ use crate::contexts::personalization::application::{
 use crate::contexts::personalization::domain::{
     AgentId, InstructionMergeMode, PatchPolicyResult, PersonalizationLayers,
     PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
-    PolicyToggle, WorkspaceKey,
+    PolicyLayerState, PolicyResolutionBundle, PolicyToggle, WorkspaceKey,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 
@@ -201,6 +201,56 @@ impl PolicyRepository for SqlitePolicyRepository {
     ) -> Result<Option<PersonalizationPolicyRecord>> {
         let conn = self.connection()?;
         load_by_scope_key(&conn, &scope.scope_key())
+    }
+
+    fn load_resolution_bundle(
+        &self,
+        scopes: &[PersonalizationPolicyScope],
+    ) -> Result<PolicyResolutionBundle> {
+        if scopes.is_empty() {
+            return Ok(PolicyResolutionBundle { layers: Vec::new() });
+        }
+        let conn = self.connection()?;
+        // One statement, which SQLite evaluates against one consistent view of the database. Four
+        // round trips would let a save land between two of them and produce a bundle that mixes
+        // revisions — the state an immutable snapshot exists to rule out.
+        let keys: Vec<String> = scopes.iter().map(|scope| scope.scope_key()).collect();
+        let placeholders = (1..=keys.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let statement = format!(
+            "SELECT {SELECT_COLUMNS} FROM personalization_policy_overrides              WHERE scope_key IN ({placeholders})"
+        );
+        let mut prepared = conn.prepare(&statement).map_err(storage)?;
+        let bindings: Vec<&dyn rusqlite::ToSql> =
+            keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
+        let rows = prepared
+            .query_map(bindings.as_slice(), read_record)
+            .map_err(storage)?;
+
+        let mut found: Vec<PersonalizationPolicyRecord> = Vec::new();
+        for row in rows {
+            found.push(row.map_err(storage)??);
+        }
+
+        // Every requested key gets an entry. A key the query proved has no row is `Absent`, which
+        // is a finding; a key that was never asked for is simply not in the bundle. Collapsing
+        // those two into "missing" is what would let a failed read be cached as "no override".
+        Ok(PolicyResolutionBundle {
+            layers: scopes
+                .iter()
+                .map(|scope| {
+                    let state = found
+                        .iter()
+                        .find(|record| record.scope() == scope)
+                        .cloned()
+                        .map(PolicyLayerState::Present)
+                        .unwrap_or(PolicyLayerState::Absent);
+                    (scope.clone(), state)
+                })
+                .collect(),
+        })
     }
 
     fn load_layers(

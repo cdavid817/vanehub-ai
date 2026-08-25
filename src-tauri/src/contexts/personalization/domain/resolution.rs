@@ -4,8 +4,10 @@ use super::policy::{
     InstructionMergeMode, PersonalizationPolicyPatch, PersonalizationPolicyRecord, PolicyToggle,
     SessionPersonalizationMode,
 };
+use super::scope::PersonalizationPolicyScope;
 use super::snapshot::{
-    EffectiveMemoryAccess, EffectivePersonalizationSnapshot, PersonalizationExclusion,
+    EffectiveMemoryAccess, EffectivePersonalizationSnapshot, ExcludedInstructionSegment,
+    InstructionExclusionReason, InstructionField, InstructionMergeAction, PersonalizationExclusion,
     PersonalizationExclusionReason, PersonalizationResolutionContext,
     PersonalizationRuntimeCapabilities, PersonalizationWarning, PersonalizationWarningCode,
     ResolvedInstructionSegment,
@@ -26,6 +28,66 @@ pub(crate) struct PersonalizationLayers {
     /// the session. Shares the patch shape because it is exactly the same "set some dimensions,
     /// leave the rest alone" idea.
     pub(crate) session_override: Option<PersonalizationPolicyPatch>,
+}
+
+/// What one consistent read found for one scope key.
+///
+/// `Absent` is a finding, not a gap. A query that failed and a query that proved no override exists
+/// look identical if both are represented by a missing entry, and the difference decides whether a
+/// cached bundle may be reused: proving there was no workspace override is exactly what lets a
+/// later resolution skip re-reading it, while a failed read must never be cached as "none".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PolicyLayerState {
+    Present(PersonalizationPolicyRecord),
+    Absent,
+}
+
+impl PolicyLayerState {
+    pub(crate) fn record(&self) -> Option<&PersonalizationPolicyRecord> {
+        match self {
+            Self::Present(record) => Some(record),
+            Self::Absent => None,
+        }
+    }
+}
+
+/// Every scope key one resolution needs, read together, with each key's finding.
+///
+/// Ordered by precedence so a reader cannot reconstruct the order wrongly, and complete so that
+/// "this key was not asked for" and "this key has no override" are different states.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PolicyResolutionBundle {
+    /// In precedence order: global, Agent, workspace, workspace-Agent. Workspace keys are absent
+    /// from the list entirely when there is no workspace, which is different from present-and-empty.
+    pub(crate) layers: Vec<(PersonalizationPolicyScope, PolicyLayerState)>,
+}
+
+impl PolicyResolutionBundle {
+    pub(crate) fn state(&self, scope: &PersonalizationPolicyScope) -> Option<&PolicyLayerState> {
+        self.layers
+            .iter()
+            .find(|(key, _)| key == scope)
+            .map(|(_, state)| state)
+    }
+
+    /// Turns the bundle into the layered shape the resolver consumes.
+    pub(crate) fn into_layers(self) -> PersonalizationLayers {
+        let mut layers = PersonalizationLayers::default();
+        for (scope, state) in self.layers {
+            let Some(record) = state.record().cloned() else {
+                continue;
+            };
+            match scope {
+                PersonalizationPolicyScope::Global => layers.global = Some(record),
+                PersonalizationPolicyScope::Agent { .. } => layers.agent = Some(record),
+                PersonalizationPolicyScope::Workspace { .. } => layers.workspace = Some(record),
+                PersonalizationPolicyScope::WorkspaceAgent { .. } => {
+                    layers.workspace_agent = Some(record)
+                }
+            }
+        }
+        layers
+    }
 }
 
 impl PersonalizationLayers {
@@ -75,7 +137,8 @@ pub(crate) fn resolve(
     let mut warnings = Vec::new();
     let mut exclusions = Vec::new();
 
-    let (mut effective_instruction_mode, mut instruction_segments) = resolve_instructions(&layers);
+    let (mut effective_instruction_mode, mut instruction_segments, mut excluded_segments) =
+        resolve_instructions(&layers);
     let mut access = resolve_toggles(&layers);
 
     if let Some(session_override) = layers.session_override.as_ref() {
@@ -84,6 +147,7 @@ pub(crate) fn resolve(
             &context,
             &mut effective_instruction_mode,
             &mut instruction_segments,
+            &mut excluded_segments,
             &mut access,
         );
     }
@@ -92,6 +156,7 @@ pub(crate) fn resolve(
     apply_capabilities(
         capabilities,
         &mut instruction_segments,
+        &mut excluded_segments,
         &mut access,
         &mut warnings,
         &mut exclusions,
@@ -111,51 +176,112 @@ pub(crate) fn resolve(
         context,
         effective_instruction_mode,
         instruction_segments,
+        excluded_instruction_segments: excluded_segments,
         memory_access: access,
         exclusions,
         warnings,
     }
 }
 
+/// The instruction merge state machine, layer by layer in precedence order.
+///
+/// Four transitions, and every one of them is about what happens to the segments *below*:
+///
+/// - `Inherit` keeps the current state and contributes nothing of its own, so a preview keeps
+///   naming the layer that actually decided rather than the last one that ran;
+/// - `Append` adds this layer's non-empty fields to whatever survived;
+/// - `Replace` clears everything below and then adds this layer's non-empty fields;
+/// - `Disabled` clears everything and adds nothing.
+///
+/// A higher layer may re-establish segments after a lower one disabled or replaced them — the
+/// machine has no terminal state — which is why `Disabled` is not a short circuit.
+///
+/// Core, system, safety, role and runtime instructions never enter here and are never cleared by
+/// any of these transitions. This machine only ever sees the two user-authored fields.
 fn resolve_instructions(
     layers: &PersonalizationLayers,
-) -> (InstructionMergeMode, Vec<ResolvedInstructionSegment>) {
+) -> (
+    InstructionMergeMode,
+    Vec<ResolvedInstructionSegment>,
+    Vec<ExcludedInstructionSegment>,
+) {
     let mut mode = InstructionMergeMode::Disabled;
-    let mut segments = Vec::new();
+    let mut segments: Vec<ResolvedInstructionSegment> = Vec::new();
+    let mut excluded: Vec<ExcludedInstructionSegment> = Vec::new();
     for layer in layers.durable_layers() {
         match layer.instruction_merge_mode() {
-            // Contributes nothing and does not become the effective mode, so a preview keeps
-            // naming the layer that actually decided.
-            InstructionMergeMode::Inherit => {}
+            InstructionMergeMode::Inherit => {
+                excluded.extend(inherited_exclusions(layer));
+            }
             InstructionMergeMode::Append => {
                 mode = InstructionMergeMode::Append;
-                push_segment(&mut segments, layer);
+                let (included, empty) = layer_segments(layer, InstructionMergeAction::Appended);
+                segments.extend(included);
+                excluded.extend(empty);
             }
             InstructionMergeMode::Replace => {
                 mode = InstructionMergeMode::Replace;
-                segments.clear();
-                push_segment(&mut segments, layer);
+                excluded.extend(
+                    segments
+                        .drain(..)
+                        .map(|segment| {
+                            segment.excluded_by(InstructionExclusionReason::ReplacedByHigherLayer)
+                        })
+                        .collect::<Vec<_>>(),
+                );
+                let (included, empty) = layer_segments(layer, InstructionMergeAction::Replaced);
+                segments.extend(included);
+                excluded.extend(empty);
             }
             InstructionMergeMode::Disabled => {
                 mode = InstructionMergeMode::Disabled;
-                segments.clear();
+                excluded.extend(
+                    segments
+                        .drain(..)
+                        .map(|segment| {
+                            segment.excluded_by(InstructionExclusionReason::DisabledByHigherLayer)
+                        })
+                        .collect::<Vec<_>>(),
+                );
             }
         }
     }
-    (mode, segments)
+    (mode, segments, excluded)
 }
 
-fn push_segment(
-    segments: &mut Vec<ResolvedInstructionSegment>,
+fn layer_segments(
     layer: &PersonalizationPolicyRecord,
+    action: InstructionMergeAction,
+) -> (
+    Vec<ResolvedInstructionSegment>,
+    Vec<ExcludedInstructionSegment>,
 ) {
-    if let Some(segment) = ResolvedInstructionSegment::from_scope(
+    ResolvedInstructionSegment::from_scope(
         layer.scope(),
+        layer.revision(),
+        action,
         layer.about_user(),
         layer.style_rules(),
-    ) {
-        segments.push(segment);
-    }
+    )
+}
+
+/// An inheriting layer's own fields, reported as excluded so a preview can say why text stored
+/// there is not being used.
+fn inherited_exclusions(layer: &PersonalizationPolicyRecord) -> Vec<ExcludedInstructionSegment> {
+    [
+        (InstructionField::AboutUser, layer.about_user()),
+        (InstructionField::StyleRules, layer.style_rules()),
+    ]
+    .into_iter()
+    .filter(|(_, text)| !text.is_empty())
+    .map(|(field, _)| ExcludedInstructionSegment {
+        field,
+        scope_kind: layer.scope().scope_kind(),
+        scope_key: layer.scope().scope_key(),
+        policy_revision: layer.revision(),
+        reason: InstructionExclusionReason::InheritedLayer,
+    })
+    .collect()
 }
 
 /// Built-in safe defaults are all-denied; the global row, which may not inherit, is what turns
@@ -177,11 +303,13 @@ fn resolve_toggles(layers: &PersonalizationLayers) -> EffectiveMemoryAccess {
     access
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_session_override(
     patch: &PersonalizationPolicyPatch,
     context: &PersonalizationResolutionContext,
     mode: &mut InstructionMergeMode,
     segments: &mut Vec<ResolvedInstructionSegment>,
+    excluded: &mut Vec<ExcludedInstructionSegment>,
     access: &mut EffectiveMemoryAccess,
 ) {
     if let Some(toggle) = patch.memory_read_mode {
@@ -200,29 +328,66 @@ fn apply_session_override(
     let Some(override_mode) = patch.instruction_merge_mode else {
         return;
     };
-    let about_user = patch.about_user.clone().unwrap_or_default();
-    let style_rules = patch.style_rules.clone().unwrap_or_default();
-    let session_segment =
-        (!about_user.is_empty() || !style_rules.is_empty()).then(|| ResolvedInstructionSegment {
-            scope_kind: "session",
-            scope_key: format!("session/{}", context.session_id),
-            about_user,
-            style_rules,
-        });
+    let scope_key = format!("session/{}", context.session_id);
+    let fields = [
+        (
+            InstructionField::AboutUser,
+            patch.about_user.clone().unwrap_or_default(),
+        ),
+        (
+            InstructionField::StyleRules,
+            patch.style_rules.clone().unwrap_or_default(),
+        ),
+    ];
+    // A session override has no durable revision — it lives with the session — so it reports zero
+    // rather than borrowing a policy row's number it does not belong to.
+    let session_segments = |action: InstructionMergeAction| -> Vec<ResolvedInstructionSegment> {
+        fields
+            .iter()
+            .filter(|(_, text)| !text.is_empty())
+            .map(|(field, text)| ResolvedInstructionSegment {
+                field: *field,
+                scope_kind: "session",
+                scope_key: scope_key.clone(),
+                policy_revision: 0,
+                merge_action: action,
+                text: text.clone(),
+            })
+            .collect()
+    };
+    let clear = |segments: &mut Vec<ResolvedInstructionSegment>,
+                 excluded: &mut Vec<ExcludedInstructionSegment>,
+                 reason: InstructionExclusionReason| {
+        excluded.extend(
+            segments
+                .drain(..)
+                .map(|segment| segment.excluded_by(reason))
+                .collect::<Vec<_>>(),
+        );
+    };
+
     match override_mode {
         InstructionMergeMode::Inherit => {}
         InstructionMergeMode::Append => {
             *mode = InstructionMergeMode::Append;
-            segments.extend(session_segment);
+            segments.extend(session_segments(InstructionMergeAction::Appended));
         }
         InstructionMergeMode::Replace => {
             *mode = InstructionMergeMode::Replace;
-            segments.clear();
-            segments.extend(session_segment);
+            clear(
+                segments,
+                excluded,
+                InstructionExclusionReason::ReplacedByHigherLayer,
+            );
+            segments.extend(session_segments(InstructionMergeAction::Replaced));
         }
         InstructionMergeMode::Disabled => {
             *mode = InstructionMergeMode::Disabled;
-            segments.clear();
+            clear(
+                segments,
+                excluded,
+                InstructionExclusionReason::DisabledByHigherLayer,
+            );
         }
     }
 }
@@ -269,13 +434,22 @@ fn apply_session_mode(
 fn apply_capabilities(
     capabilities: PersonalizationRuntimeCapabilities,
     segments: &mut Vec<ResolvedInstructionSegment>,
+    excluded: &mut Vec<ExcludedInstructionSegment>,
     access: &mut EffectiveMemoryAccess,
     warnings: &mut Vec<PersonalizationWarning>,
     exclusions: &mut Vec<PersonalizationExclusion>,
 ) {
     let mut unsupported_override = false;
     if !capabilities.supports_custom_instructions && !segments.is_empty() {
-        segments.clear();
+        // The resolved policy is left intact for the preview to show; only what is *applied* is
+        // emptied, and each dropped field says why. A capability the runtime lacks is not a reason
+        // to forget what the user configured.
+        excluded.extend(
+            segments
+                .drain(..)
+                .map(|segment| segment.excluded_by(InstructionExclusionReason::RuntimeCapability))
+                .collect::<Vec<_>>(),
+        );
         unsupported_override = true;
     }
     if !capabilities.supports_memory_index && access.read {

@@ -54,13 +54,16 @@ pub(crate) use query::{
     MemoryCursor, MemoryOrder, MemoryPage, MemoryQuery, MemoryScopeFilter, MemorySummary,
     MEMORY_PAGE_DEFAULT_SIZE, MEMORY_PAGE_MAX_SIZE,
 };
-pub(crate) use resolution::{resolve, MaintenanceState, PersonalizationLayers};
+pub(crate) use resolution::{
+    resolve, MaintenanceState, PersonalizationLayers, PolicyLayerState, PolicyResolutionBundle,
+};
 pub(crate) use scope::{
     AgentId, AgentRuntimeKind, PersonalizationPolicyScope, SessionId, WorkspaceIdentity,
     WorkspaceKey, WorkspaceKind,
 };
 pub(crate) use snapshot::{
-    EffectiveMemoryAccess, EffectivePersonalizationSnapshot, PersonalizationExclusion,
+    EffectiveMemoryAccess, EffectivePersonalizationSnapshot, ExcludedInstructionSegment,
+    InstructionExclusionReason, InstructionField, InstructionMergeAction, PersonalizationExclusion,
     PersonalizationExclusionReason, PersonalizationResolutionContext,
     PersonalizationRuntimeCapabilities, PersonalizationWarning, PersonalizationWarningCode,
     ResolvedInstructionSegment, FAIL_CLOSED_REVISION_TOKEN,

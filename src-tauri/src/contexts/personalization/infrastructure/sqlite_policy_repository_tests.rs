@@ -7,7 +7,8 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{
     AgentId, InstructionMergeMode, PatchPolicyResult, PersonalizationPolicyPatch,
-    PersonalizationPolicyScope, PolicyToggle, WorkspaceKey, INSTRUCTION_FIELD_MAX_CHARS,
+    PersonalizationPolicyScope, PolicyLayerState, PolicyToggle, WorkspaceKey,
+    INSTRUCTION_FIELD_MAX_CHARS,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -493,4 +494,63 @@ fn deleting_a_scope_removes_only_that_row() {
         .load(&PersonalizationPolicyScope::Global)
         .expect("load")
         .is_some());
+}
+
+#[test]
+fn a_resolution_bundle_reports_absent_rather_than_omitting_a_key() {
+    // The distinction that decides whether a result may be reused: proving a workspace has no
+    // override is what lets a later resolution skip re-reading it, while a read that simply
+    // returned nothing must never be cached as "no override".
+    let fixture = fixture("bundle-absent");
+    fixture
+        .repository
+        .patch(
+            &PersonalizationPolicyScope::Global,
+            None,
+            PersonalizationPolicyPatch {
+                about_user: Some("stored".to_string()),
+                ..PersonalizationPolicyPatch::default()
+            },
+            now(),
+        )
+        .expect("seed global");
+
+    let scopes = vec![
+        PersonalizationPolicyScope::Global,
+        PersonalizationPolicyScope::Agent {
+            agent_id: AgentId::parse("onepiece").expect("agent"),
+        },
+    ];
+    let bundle = fixture
+        .repository
+        .load_resolution_bundle(&scopes)
+        .expect("bundle");
+
+    assert_eq!(bundle.layers.len(), 2, "every requested key has an entry");
+    assert!(matches!(
+        bundle.state(&scopes[0]),
+        Some(PolicyLayerState::Present(_))
+    ));
+    assert!(matches!(
+        bundle.state(&scopes[1]),
+        Some(PolicyLayerState::Absent)
+    ));
+    // A key that was never asked for is a different state again: not in the bundle at all.
+    assert!(bundle
+        .state(&PersonalizationPolicyScope::Workspace {
+            workspace_key: WorkspaceKey::parse("ws_never_asked").expect("workspace"),
+        })
+        .is_none());
+}
+
+#[test]
+fn an_empty_scope_list_reads_nothing_rather_than_everything() {
+    let fixture = fixture("bundle-empty");
+
+    let bundle = fixture
+        .repository
+        .load_resolution_bundle(&[])
+        .expect("bundle");
+
+    assert!(bundle.layers.is_empty());
 }
