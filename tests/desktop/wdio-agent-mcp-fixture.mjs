@@ -21,7 +21,7 @@ export const agentMcpFixtureDir = path.join(
  * worker, so an unconditional `rustc` relinks binaries a previous worker's application may still
  * hold. Windows releases that handle a moment after the process dies rather than with it, so the
  * link loses the race and fails the whole layer at config load -- seconds in, before a spec runs,
- * with no assertion to explain it.
+ * with no assertion to explain it. The same defect took down three other layers in this branch.
  */
 export async function prepareAgentMcpFixtures() {
   if (process.platform !== "win32") return;
