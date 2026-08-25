@@ -4,8 +4,9 @@
 //! command DTOs, and private domain modules stay inside their subdomain.
 
 pub(crate) use super::cli::api::compare_versions;
-#[cfg(test)]
-pub(crate) use super::extensions::api::PADDLEOCR_INFERENCE_PROTOCOL_VERSION;
+// `PADDLEOCR_INFERENCE_PROTOCOL_VERSION` is deliberately absent. The extensions-side inference
+// runtime it described is deleted: `local_media` is the single PaddleOCR owner, and re-exporting a
+// protocol marker for a runtime that no longer exists would advertise a second one.
 
 #[cfg(test)]
 pub(crate) use super::cli_parameters::api::CliParameterDiagnostic;

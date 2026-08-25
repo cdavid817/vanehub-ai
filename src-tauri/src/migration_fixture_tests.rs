@@ -21,9 +21,9 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
 /// nullable Agent Runner projections, migration 80 retires standalone Plan execution, migration 81
-/// adds CLI parameter profile metadata beside the existing per-parameter rows, and migrations 82-84
-/// add the source-aware CLI environment tables. Derived from the migration list rather than
-/// hardcoded.
+/// adds CLI parameter profile metadata beside the existing per-parameter rows, migration 82 adds
+/// the local-media engine profile, and migrations 83-85 add the source-aware CLI environment
+/// tables. Derived from the migration list rather than hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has
 /// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --

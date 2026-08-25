@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Send, Sparkles, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
@@ -18,6 +18,7 @@ export function ButtonArea({
   disabled,
   isStreaming,
   lockRuntimeIdentity = false,
+  mediaActions,
   onAgentChange,
   onEnhance,
   onLongContextChange,
@@ -39,6 +40,14 @@ export function ButtonArea({
   disabled?: boolean;
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
+  /**
+   * A narrow slot for the local-media action group.
+   *
+   * A slot rather than props because the alternative is this component learning about engine
+   * readiness, recording state, and operation polling -- none of which is a toolbar concern, and
+   * all of which would land here permanently once the first one did.
+   */
+  mediaActions?: ReactNode;
   onAgentChange: (value: string) => void;
   onEnhance?: () => void;
   onLongContextChange: (value: boolean) => void;
@@ -118,6 +127,7 @@ export function ButtonArea({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {mediaActions}
         <Button className="h-8" disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title={t("chat.enhanceTitle")} type="button" variant="ghost">
           <Sparkles className="h-4 w-4" aria-hidden="true" />
           {t("chat.enhance")}

@@ -2358,6 +2358,27 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // VaneHub-owned Claude Code scope marker, and 8 lines verify chat and terminal projections add
     // it only for Claude Code across the complete managed-CLI policy matrix.
     //
+    // Raised from 59,467 by +173 for `add-local-composer-media-tools`. The change puts 552 lines
+    // in this subtree -- `local_media_ocr_adapter.rs` (387), its `_tests.rs` (163) and two `mod`
+    // declarations -- of which 379 fit the headroom the previous figure already carried, so only
+    // the remainder is a raise.
+    //
+    // It is relocation rather than growth. The OnePiece `ocr_read_text` tool used to reach a
+    // PaddleOCR runtime owned by `tooling/extensions`; that runtime is deleted (3,904 lines across
+    // 16 files), because the change requires exactly one PaddleOCR owner and it is now
+    // `local_media`. What lands here is the adapter re-pointing the unchanged tool contract at
+    // that owner, plus the tests that pin the contract as unchanged: `contractVersion: 1`, the
+    // same artifact-only input, and readiness read from the local-media status instead of from a
+    // second copy of the engine's own health.
+    //
+    // Raised from 59,640 by +207 for the same change's code-review fix. The adapter's chunked
+    // artifact read had dropped the `size_bytes == bytes.len()` assertion the deleted
+    // `ocr_admission.rs` carried, so a short read reached OCR: a truncated image still sniffs as
+    // one and its header dimensions still parse, and the result came back with full provenance.
+    // The read is now a free function -- 11 lines of length accounting plus the doc explaining
+    // which failures it catches -- and the rest is the test that could not exist before it: port
+    // doubles whose catalog and blob store disagree, covering exact, short, early-terminated,
+    // over-long, and multi-chunk reads plus the stable `IntegrityFailure` contract.
     // Raised from 59,467 to 60,547 by `upgrade-cli-parameter-management`'s native runtime cutover.
     // The subtree grows 1,476 lines against `ee3eaf3f`; 396 fit the existing headroom, so the
     // budget rises by 1,080. Production here does not grow at all — it falls by 328 — and every
@@ -2386,16 +2407,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
-    // Raised from 60,547 by `harden-provider-output-oversized-records`: the provider output
-    // framer gains skip-and-resume handling for oversized records plus a discard counter
-    // (`providers/output.rs`, production and reworked framer tests), and the generation read
-    // loop reports discarded records to unified logs after the stream ends
-    // (`process_adapter.rs`). No code was moved or duplicated; the raise is the resilience
-    // logic and its tests.
+    // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
+    // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
+    // output framer's skip-and-resume path. They are increments over different bases against
+    // different files, so the merged tree is neither figure and not their sum. The number below is
+    // a direct measurement of the merged tree.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 60_665,
-        owner: "harden-provider-output-oversized-records",
+        budget: 61_424,
+        owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2416,7 +2436,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // that collision fail a test instead of a user's launch.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_036,
+        // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
+        // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
+        // tests for the upgrade paths its renumber created, and the reconciliation one of them
+        // requires. A database carrying `main`'s 81 must gain exactly one migration; a database
+        // carrying this branch's unmerged 81 must regain the CLI parameter schema the version gate
+        // legitimately skips. Nearly every line here is those three; without them the renumber's
+        // own failure modes have no coverage, and the second one is silent.
+        // Re-measured on the merged tree. `add-local-composer-media-tools` took 3,126 on its own
+        // base and this branch took 3,036 on a different one; the merged total is neither, because
+        // both added migrations and neither figure saw the other's.
+        // +26 for reconciling both renumber tests with a third branch in the history: each has to
+        // rewind past this branch's 83-85 as well, and both now derive their totals from the
+        // migration list instead of naming a number that the next migration would falsify.
+        budget: 3_245,
         owner: "split-database-migrations",
     },
 ];
@@ -2434,12 +2467,16 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // at its first `#[cfg(test)]` and several files declare `#[cfg(test)] mod tests;` near the
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
-        // Raised from 32,964 by `harden-provider-output-oversized-records`: the framer's
-        // skip-and-resume path and discard counter in `providers/output.rs`, and the
-        // post-stream discarded-records warn log in `process_adapter.rs`, are production code
-        // measured on the same commit.
-        budget: 33_049,
-        owner: "harden-provider-output-oversized-records",
+        //
+        // Both sides then raised it for their own reason. This branch to 33,372, for
+        // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
+        // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
+        // replaces is deleted from a different subtree so this ceiling only sees the arrival.
+        // `main` to 33,049, for the provider framer's skip-and-resume path and its post-stream
+        // discarded-records log. Different files, so the merged tree is measured rather than
+        // guessed at from either.
+        budget: 33_457,
+        owner: "decompose-api-tool-use-loop",
     },
 ];
 
@@ -2711,6 +2748,343 @@ fn physical_line_counter_matches_newline_terminated_counting() {
 ///
 /// Found this way: the Goals screen rendered its error banner on a real desktop run while every
 /// goals command sat correctly in the handler macro.
+/// Production Rust sources, excluding tests, as (repo-relative path, contents).
+fn production_native_sources() -> Vec<(String, String)> {
+    rust_files(&project_root().join("src-tauri/src"))
+        .expect("enumerate native sources")
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(project_root())
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if is_test_source(&relative) {
+                return None;
+            }
+            Some((
+                relative,
+                fs::read_to_string(&path).expect("read a native source"),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn paddleocr_is_imported_and_constructed_only_by_the_local_media_worker() {
+    // The Python side is where PaddleOCR is actually loaded. Any second `import paddleocr` is a
+    // second runtime by definition, whatever the module around it is called.
+    let worker = project_root().join("src-tauri/resources/local-media-worker");
+    let mut importers = Vec::new();
+    let mut stack = vec![project_root()];
+    while let Some(directory) = stack.pop() {
+        for entry in fs::read_dir(&directory).expect("enumerate the repository") {
+            let path = entry.expect("read an entry").path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if path.is_dir() {
+                // Dependencies, build output, and the immutable OpenSpec archive are not ours.
+                // Every dot-directory is skipped because the documentation and screenshot builds
+                // copy the packaged worker into `.docs-target`, and a scan that counted a copy of
+                // our own file as a second runtime would fail for the one reason it must not.
+                if name.starts_with('.')
+                    || matches!(
+                        name.as_str(),
+                        "node_modules" | "target" | "dist" | "coverage" | "__pycache__" | "archive"
+                    )
+                {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|value| value.to_str()) != Some("py") {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read a Python source");
+            if !source.contains("import paddleocr") && !source.contains("from paddleocr") {
+                continue;
+            }
+            if path.starts_with(&worker) {
+                continue;
+            }
+            importers.push(
+                path.strip_prefix(project_root())
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+
+    importers.sort();
+    assert!(
+        importers.is_empty(),
+        "[ARCH-NATIVE-011] PaddleOCR is imported outside the local-media worker, which is a \
+         second inference runtime:\n{}",
+        importers.join("\n")
+    );
+}
+
+#[test]
+fn onepiece_reaches_paddleocr_only_through_the_local_media_api() {
+    let adapter = "src-tauri/src/contexts/agent_runtime/infrastructure/local_media_ocr_adapter.rs";
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with("src-tauri/src/contexts/agent_runtime/") {
+            continue;
+        }
+        // The adapter is the sanctioned seam; everything else in the Agent runtime must not know
+        // that PaddleOCR exists, let alone how to start it.
+        if relative == adapter {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if trimmed.to_lowercase().contains("paddleocr") {
+                violations.push(format!("{relative}:{}", index + 1));
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] OnePiece names PaddleOCR outside `local_media_ocr_adapter.rs`; OCR must \
+         be reached through `local_media::api`:\n{}",
+        violations.join("\n")
+    );
+
+    let source = fs::read_to_string(project_root().join(adapter)).expect("read the OCR adapter");
+    assert!(
+        source.contains("LocalMediaApi"),
+        "[ARCH-NATIVE-011] the OnePiece OCR adapter no longer holds the local-media API"
+    );
+    for forbidden in ["Command::new", "std_command", "spawn(", "ManagedChild"] {
+        assert!(
+            !source.contains(forbidden),
+            "[ARCH-NATIVE-011] the OnePiece OCR adapter reaches for `{forbidden}`; it must delegate \
+             process ownership to `local_media`"
+        );
+    }
+}
+
+#[test]
+fn tooling_extensions_registers_no_second_inference_runtime() {
+    let extensions = "src-tauri/src/contexts/tooling/extensions/";
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with(extensions) {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            // The catalog installs Python dependencies and probes a health-only sidecar. Naming an
+            // inference protocol, or reaching into `local_media`, is how it would quietly become a
+            // second owner of readiness and model lifecycle.
+            for needle in [
+                "inference_protocol",
+                "local_media",
+                "OcrInference",
+                "InferencePort",
+            ] {
+                if trimmed.contains(needle) {
+                    violations.push(format!("{relative}:{}: {needle}", index + 1));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] `tooling/extensions` claims inference ownership; it owns dependency \
+         installation and health only:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn no_production_extension_implements_a_framework_as_a_static_file_server() {
+    // `python -m http.server` is a health probe standing in for a real sidecar. That is tolerable
+    // for a liveness check and is not tolerable as the implementation of a named inference
+    // framework, so it must never appear on a path that claims to run one.
+    let mut violations = Vec::new();
+    for (relative, source) in production_native_sources() {
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || !trimmed.contains("http.server") {
+                continue;
+            }
+            let window_start = index.saturating_sub(40);
+            let window: String = source
+                .lines()
+                .skip(window_start)
+                .take(index - window_start + 40)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .to_lowercase();
+            for framework in ["paddleocr", "faster_whisper", "sherpa_onnx", "inference"] {
+                if window.contains(framework) {
+                    violations.push(format!("{relative}:{}: near `{framework}`", index + 1));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] a static file server stands in for a named inference framework:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn no_local_media_log_or_diagnostic_call_site_carries_media_content() {
+    // The diagnostics port has no free-text parameter, which stops a whole class of leak at the
+    // type level. What it cannot stop is a *field value* built from a result: `("text", result
+    // .plain_text.clone())` type-checks and would put a recognized document into the unified log.
+    let root = project_root().join("src-tauri/src/contexts/local_media");
+    let content_bearing = [
+        "plain_text",
+        "transcript",
+        ".text",
+        "display_name",
+        "samples",
+        "source_path",
+        "audio_path",
+        "output_path",
+        "model_path",
+        "python_executable",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files(&root).expect("enumerate the local media context") {
+        if is_test_source(&path.to_string_lossy()) {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a local media source");
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            let logs = trimmed.contains(".record(")
+                || trimmed.contains(".phase(")
+                || trimmed.contains("append_log(")
+                || trimmed.contains("write_diagnostic(");
+            if !logs {
+                continue;
+            }
+            for needle in content_bearing {
+                if trimmed.contains(needle) {
+                    violations.push(format!(
+                        "{}:{} passes `{needle}` to a log sink",
+                        path.strip_prefix(project_root())
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-010] local-media logging must carry codes and counts, never content or \
+         paths:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn the_local_media_bridge_is_bundled_and_carries_nothing_but_its_own_python() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let configuration = fs::read_to_string(manifest_dir.join("tauri.conf.json"))
+        .expect("read the Tauri configuration");
+    assert!(
+        configuration.contains("resources/local-media-worker/vane_local_media_worker/**/*"),
+        "[ARCH-NATIVE-009] the Python bridge is not in `bundle.resources`, so a packaged build \
+         reports every local-media engine unavailable while development works"
+    );
+    // Scoped to the package, not its parent: the sibling `tests/` directory is a development
+    // artefact and has no business in a shipped bundle.
+    assert!(
+        !configuration.contains("resources/local-media-worker/**/*"),
+        "[ARCH-NATIVE-009] the bundle glob covers the bridge's test suite as well as the package"
+    );
+
+    // The glob is recursive, so whatever sits in the package directory ships. A wheel, a model, or
+    // an interpreter dropped here during debugging would be packaged silently and turn a ~200 KiB
+    // resource into hundreds of megabytes -- and would ship a redistribution nobody reviewed.
+    let bridge = manifest_dir
+        .join("resources")
+        .join("local-media-worker")
+        .join("vane_local_media_worker");
+    let mut unexpected = Vec::new();
+    let mut python_sources = 0usize;
+    let mut stack = vec![bridge.clone()];
+    while let Some(directory) = stack.pop() {
+        for entry in fs::read_dir(&directory).expect("enumerate the bridge directory") {
+            let path = entry.expect("read a bridge entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "__pycache__") {
+                    // Build output, never committed; present only after a local test run.
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            match path.extension().and_then(|value| value.to_str()) {
+                Some("py") => python_sources += 1,
+                _ => unexpected.push(
+                    path.strip_prefix(&bridge)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                ),
+            }
+        }
+    }
+    unexpected.sort();
+    assert!(
+        unexpected.is_empty(),
+        "[ARCH-NATIVE-009] non-Python files under the bundled bridge would be packaged:\n{}",
+        unexpected.join("\n")
+    );
+    assert!(
+        python_sources >= 6,
+        "the bridge parser found only {python_sources} Python sources, so it has stopped \
+         matching the tree"
+    );
+
+    // `__pycache__` is skipped above because a local test run creates it. Being git-ignored keeps
+    // it out of the repository; it does not keep a build machine that ran the Python tests first
+    // from copying it into `target/.../resources`. That residue is a few tens of KiB of `.pyc`
+    // that any interpreter ignores when stale, so it is recorded here rather than guarded against.
+    let ignore = fs::read_to_string(project_root().join(".gitignore")).expect("read .gitignore");
+    assert!(
+        ignore.contains("__pycache__/"),
+        "[ARCH-NATIVE-009] `__pycache__/` is not ignored, so Python byte cache can be committed \
+         into a directory the bundle packages recursively"
+    );
+}
+
 #[test]
 fn supplemental_registry_routes_every_command_it_registers() {
     let source = fs::read_to_string(
@@ -2776,7 +3150,9 @@ fn registered_supplemental_commands(source: &str) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let entry = line.trim().trim_end_matches(',');
-            (!entry.is_empty() && !entry.starts_with("//"))
+            // An attribute is not a command. A feature-gated entry carries one on the line above,
+            // and reading it as a name reported the attribute itself as an unroutable command.
+            (!entry.is_empty() && !entry.starts_with("//") && !entry.starts_with("#["))
                 .then(|| entry.rsplit("::").next().unwrap_or(entry).to_string())
         })
         .collect()
@@ -2805,6 +3181,12 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
     };
     body.lines()
         .map(|line| line.trim().trim_start_matches('|').trim())
+        // Two shapes route a name: an arm of the `matches!` list, and a guarded early return. The
+        // second exists because a feature-gated name cannot be a conditional arm of `matches!`.
+        .map(|line| match line.split_once("command == ") {
+            Some((_, rest)) => rest.trim_end_matches(" {").trim(),
+            None => line,
+        })
         .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
         .filter(|name| {
             !name.is_empty()

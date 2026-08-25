@@ -58,6 +58,12 @@ jobs:
       - name: Vitest with coverage
         run: npm run test:coverage
 
+      # Two real Vite builds, so it is a step of its own rather than part of the Vitest gate. It
+      # proves the local-media E2E fake is absent from a production bundle and present only when
+      # the build sets its flag.
+      - name: Local media fake bundle boundary
+        run: npm run local-media:fake:check
+
       - name: Enforce frontend coverage policy
         run: npm run coverage:check:frontend
 
@@ -218,6 +224,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -267,6 +274,12 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # The local-media bridge is the only Python in the product and has no build step that would
+      # catch a syntax error. Standard library only, so it needs no install of its own; the runner
+      # reports NOT RUN rather than passing if the image ever ships without an interpreter.
+      - name: Local media Python bridge tests
+        run: npm run local-media:python:test
+
   native-coverage:
     name: Native Coverage
     runs-on: ubuntu-latest
@@ -283,6 +296,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -383,7 +397,9 @@ jobs:
       # without them fails at link time with `invalid linker name in argument '-fuse-ld=mold'`
       # before a single test runs. This is the same list the repository's other Linux cargo jobs
       # install; the workspace lib pulls in Tauri, so the webkit and appindicator development
-      # packages are needed to compile it, not only to package it.
+      # packages are needed to compile it, not only to package it. The ALSA headers are here for
+      # `alsa-sys`, which `cpal` pulls into that same lib: without `alsa.pc` its build script
+      # panics in `pkg-config` and nothing in this job compiles, whatever it meant to test.
       - name: Install Linux prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -393,6 +409,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -501,6 +518,11 @@ jobs:
       - name: Run Playwright E2E tests
         run: npx playwright test
 
+      # A separate instrumented dev server, so the suite above keeps asserting truthful
+      # native-only behaviour against an un-instrumented one.
+      - name: Run local media fake-driven E2E tests
+        run: npm run local-media:e2e
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -545,6 +567,7 @@ jobs:
             clang \
             curl \
             file \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -568,8 +591,19 @@ jobs:
         if: runner.os != 'Linux'
         run: npm run test:desktop
 
+      # Reuses the artifact the smoke step just built rather than building a second one: the layer
+      # resolves `latest-artifact.json`. Windows only, because it needs a Python interpreter and the
+      # behaviour under test is host-side rather than platform-specific.
+      #
+      # Deterministic fixtures for the microphone, the speaker, the device list, the file picker and
+      # the three inference libraries. Not evidence that any engine, microphone or speaker works.
+      - name: Run deterministic local-media desktop layer
+        id: local_media_layer
+        if: runner.os == 'Windows'
+        run: npm run test:desktop:local-media
+
       - name: Upload desktop smoke failure evidence
-        if: failure()
+        if: failure() && steps.local_media_layer.outcome != 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-smoke-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
@@ -792,6 +826,18 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-external-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: test-results/desktop/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Named for the layer rather than folded into the smoke artifact: both write sibling run
+      # directories under the same root, and whoever chases a local-media failure should not have to
+      # guess which run id belongs to which layer.
+      - name: Upload local-media fixture failure evidence
+        if: failure() && steps.local_media_layer.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-local-media-fixture-${{ runner.os }}-${{ github.run_id }}
           path: test-results/desktop/
           if-no-files-found: warn
           retention-days: 14

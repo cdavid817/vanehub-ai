@@ -8,6 +8,7 @@ import {
   KeyRound,
   MessagesSquare,
   Activity,
+  AudioLines,
   Puzzle,
   Plug,
   Settings,
@@ -18,9 +19,7 @@ import {
   Terminal,
   UserRound,
   Workflow,
-  type LucideIcon,
 } from "lucide-react";
-import type { LazyFeatureLoader } from "../components/lazy-feature";
 import {
   loadAboutPage,
   loadAgentConfigurationsPage,
@@ -32,6 +31,7 @@ import {
   loadExpertRolesPage,
   loadExtensionsPage,
   loadImPage,
+  loadLocalMediaPage,
   loadMcpPage,
   loadObservabilityPage,
   loadPersonalizationPage,
@@ -42,71 +42,18 @@ import {
   loadSshConnectionsPage,
   loadUsagePage,
 } from "./settings-page-loaders";
-import type { CliConfigAgentId } from "../types/cli-agent-config";
+import type { SettingsPageDefinition, SettingsPageId } from "./settings-page-types";
 
-export type SettingsPageId =
-  | "basic"
-  | "providers"
-  | "cli-parameters"
-  | "extensions"
-  | "plugins"
-  | "mcp"
-  | "agent-configurations"
-  | "code-intelligence"
-  | "expert-roles"
-  | "agent-policies"
-  | "personalization"
-  | "skills"
-  | "prompt-hooks"
-  | "im"
-  | "ssh-connections"
-  | "observability"
-  | "usage"
-  | "help"
-  | "about";
-
-export interface SettingsPageContext {
-  searchTerm: string;
-  navigationTarget: SettingsNavigationTarget | null;
-  onNavigate: (pageId: SettingsPageId, target?: SettingsNavigationTarget) => void;
-  onReturn?: () => void;
-  /**
-   * False while the page is mounted but hidden. Visited pages stay mounted so their state survives
-   * tab switches, which means background work has to be gated on this rather than on mount.
-   */
-  isActive: boolean;
-}
-
-export interface SettingsNavigationTarget {
-  cliConfigAgentId?: CliConfigAgentId;
-  agentConfigAgentId?: CliConfigAgentId | "onepiece";
-}
-
-/**
- * Sidebar grouping only. The page order itself is a deliberate product decision asserted by
- * `tests/e2e/settings-navigation-order.spec.ts`, so groups must stay contiguous in that order
- * rather than re-sorting pages into a tidier taxonomy.
- */
-export type SettingsPageGroup = "general" | "agent" | "capabilities" | "integrations" | "diagnostics";
-
-export const settingsPageGroupOrder: SettingsPageGroup[] = [
-  "general",
-  "agent",
-  "capabilities",
-  "integrations",
-  "diagnostics",
-];
-
-export interface SettingsPageDefinition {
-  id: SettingsPageId;
-  labelKey: string;
-  crumbKey: string;
-  group: SettingsPageGroup;
-  icon: LucideIcon;
-  badge?: number;
-  searchPlaceholderKey: string;
-  loader: LazyFeatureLoader<SettingsPageContext>;
-}
+// The navigation shape lives in `settings-page-types.ts`; re-exported here so the many modules
+// that already import these names from the page list keep working.
+export type {
+  SettingsNavigationTarget,
+  SettingsPageContext,
+  SettingsPageDefinition,
+  SettingsPageGroup,
+  SettingsPageId,
+} from "./settings-page-types";
+export { settingsPageGroupOrder } from "./settings-page-types";
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
@@ -198,6 +145,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: UserRound,
     searchPlaceholderKey: "settings.search.expertRoles",
     loader: loadExpertRolesPage,
+  },
+  {
+    id: "local-media",
+    group: "capabilities",
+    labelKey: "settings.pages.localMedia",
+    crumbKey: "settings.pages.localMedia",
+    icon: AudioLines,
+    searchPlaceholderKey: "settings.search.localMedia",
+    loader: loadLocalMediaPage,
   },
   {
     id: "providers",
