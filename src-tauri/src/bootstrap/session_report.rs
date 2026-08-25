@@ -18,6 +18,7 @@ use crate::contexts::execution_observability::api::evidence::{
 };
 use crate::contexts::execution_observability::api::ExecutionObservabilityApi;
 use crate::contexts::execution_observability::domain::{ExecutionStatus, PageRequest};
+use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::operations::log_api::{
     LogFailureQuery, SessionLogApi, SessionLogCoverageState,
 };
@@ -29,8 +30,10 @@ use crate::contexts::sessions::api::{
     SessionRunReportService, SessionsApi, TimingSummary, ToolReportRow, UsagePurpose,
     UsageSummaryQuery, VerificationReport,
 };
+use crate::contexts::sessions::infrastructure::SessionFileAdapter;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// How many runs one report page reads.
@@ -47,14 +50,22 @@ pub(crate) fn assemble_session_run_report(
     logs: SessionLogApi,
     sessions: SessionsApi,
     workspaces: WorkspaceApi,
+    fallback_log_directory: PathBuf,
 ) -> SessionRunReportService {
     let runs = Arc::new(RunOutcomeAdapter { observability });
     let evidence = Arc::new(EvidenceAdapter { evidence });
     let logs = Arc::new(LogFailureAdapter { logs });
     let changes = Arc::new(ChangeAdapter {
         sessions: sessions.clone(),
-        workspaces,
+        workspaces: workspaces.clone(),
     });
+    // The same adapter the session export writes through, over the same bounded filesystem. A
+    // second write path would be a second place the "stay inside the picked directory" rule has
+    // to be remembered.
+    let exports = Arc::new(SessionFileAdapter::new(
+        workspaces,
+        Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory)),
+    ));
     let usage = Arc::new(UsageAdapter { sessions });
     SessionRunReportService::new(
         runs,
@@ -63,6 +74,7 @@ pub(crate) fn assemble_session_run_report(
         logs,
         changes,
         usage,
+        exports,
         Arc::new(SystemReportClock),
     )
 }

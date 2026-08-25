@@ -434,6 +434,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         session_log_api.clone(),
         sessions_api.clone(),
         workspace_api.clone(),
+        fallback_log_directory.clone(),
     ));
     app.manage(execution_evidence_api);
     app.manage(evaluation_api);

@@ -10,6 +10,7 @@ import type {
   ExecutionRecordDetailQuery,
   ExecutionRecordQuery,
   SessionRunReport,
+  SessionRunReportExportResult,
   SessionRunReportQuery,
   Unsubscribe,
   WorkspaceEvidenceSummary,
@@ -147,6 +148,16 @@ export function createWebSessionWorkspaceEvidenceClient(): WebSessionWorkspaceEv
           groupBy: input.groupBy ?? report.scope.groupBy,
         },
       };
+    },
+
+    /**
+     * Nowhere to write, so nothing is claimed.
+     *
+     * `simulated` rather than `exported` with a made-up path: a browser demo that reported a file
+     * on disk would send somebody looking for one.
+     */
+    async exportSessionRunReport(): Promise<SessionRunReportExportResult> {
+      return { status: "simulated", path: null };
     },
 
     emitSimulatedNotice(notice) {

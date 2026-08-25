@@ -26,9 +26,9 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     ChangeSummary, ChangeSummaryPort, ExecutionEvidencePort, ExecutionEvidenceSummary,
-    LogFailurePort, LogFailureSummary, ObservabilityTimingPort, ReportClock, ReportSourceError,
-    ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
-    TimingSummary,
+    LogFailurePort, LogFailureSummary, ObservabilityTimingPort, ReportClock, ReportExportPort,
+    ReportSourceError, ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort,
+    RunOutcomeSummary, TimingSummary,
 };
 pub(crate) use scope::{ReportScope, ReportScopeRequest};
 pub(crate) use service::SessionRunReportService;

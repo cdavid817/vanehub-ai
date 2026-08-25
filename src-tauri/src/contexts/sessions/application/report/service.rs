@@ -15,7 +15,7 @@ use super::models::{
 };
 use super::ports::{
     ChangeSummaryPort, ExecutionEvidencePort, LogFailurePort, ObservabilityTimingPort, ReportClock,
-    ReportSourceError, ReportUsagePort, RunOutcomePort,
+    ReportExportPort, ReportSourceError, ReportUsagePort, RunOutcomePort,
 };
 use super::scope::{validate_report_scope, ReportScope, ReportScopeError, ReportScopeRequest};
 use std::sync::Arc;
@@ -34,6 +34,7 @@ pub(crate) struct SessionRunReportService {
     logs: Arc<dyn LogFailurePort>,
     changes: Arc<dyn ChangeSummaryPort>,
     usage: Arc<dyn ReportUsagePort>,
+    exports: Arc<dyn ReportExportPort>,
     clock: Arc<dyn ReportClock>,
 }
 
@@ -46,6 +47,7 @@ impl SessionRunReportService {
         logs: Arc<dyn LogFailurePort>,
         changes: Arc<dyn ChangeSummaryPort>,
         usage: Arc<dyn ReportUsagePort>,
+        exports: Arc<dyn ReportExportPort>,
         clock: Arc<dyn ReportClock>,
     ) -> Self {
         Self {
@@ -55,8 +57,36 @@ impl SessionRunReportService {
             logs,
             changes,
             usage,
+            exports,
             clock,
         }
+    }
+
+    /// Writes an already-rendered report into a directory the user picked.
+    ///
+    /// The content is the caller's because only the boundary layer knows the wire shape, and the
+    /// wire shape is the point: an export that serialized its own structure would be a second
+    /// rendering of the same report, free to drift from the one on screen. The filename is *not*
+    /// the caller's — a caller that chose it could aim the write at a file that already exists.
+    pub(crate) fn export(
+        &self,
+        destination_directory: &str,
+        session_id: &str,
+        content: &str,
+    ) -> Result<Option<String>, ReportScopeError> {
+        let destination = destination_directory.trim();
+        if destination.is_empty() {
+            // The picker was dismissed. Not an error: choosing not to export is a choice, and
+            // reporting it as a failure would put an alert in front of somebody who pressed Escape.
+            return Ok(None);
+        }
+        let filename = export_filename(session_id, &self.clock.now());
+        // A failed write is reported as a cancelled export rather than as a refusal of the request,
+        // because the request was fine. The caller distinguishes the two by the absent path.
+        Ok(self
+            .exports
+            .write_export(destination, &filename, content)
+            .ok())
     }
 
     /// One report, or the reason the request itself was refused.
@@ -264,6 +294,31 @@ impl SessionRunReportService {
             }
         }
     }
+}
+
+/// A filename nobody chose, built from what the export is of and when it was taken.
+///
+/// Every character outside the safe set is replaced rather than dropped: dropping would let two
+/// different session ids collapse onto one name, and a report overwriting another session's report
+/// is the failure worth spending a few underscores to avoid.
+fn export_filename(session_id: &str, generated_at: &str) -> String {
+    let safe = |value: &str| -> String {
+        value
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || character == '-' {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    };
+    format!(
+        "vanehub-report-{}-{}.json",
+        safe(session_id),
+        safe(generated_at)
+    )
 }
 
 /// A source that answered but said its answer is short is `partial`, not `complete`.

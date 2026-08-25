@@ -50,9 +50,9 @@ pub(crate) use report::{
     AgentReportRow, ChangeSummary, ChangeSummaryPort, CommandReport, ExecutionEvidencePort,
     ExecutionEvidenceSummary, FailureReportRow, LogFailurePort, LogFailureSummary,
     ObservabilityTimingPort, ReportClock, ReportCoverage, ReportCoverageState, ReportEvidenceLink,
-    ReportScope, ReportScopeRequest, ReportSectionCoverage, ReportSourceError, ReportSourceResult,
-    ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary, SessionRunReport,
-    SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
+    ReportExportPort, ReportScope, ReportScopeRequest, ReportSectionCoverage, ReportSourceError,
+    ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
+    SessionRunReport, SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
 };
 pub(crate) use review::{
     AddReviewCommentRequest, CreateReviewRequest, PreparedReviewFeedback, ReviewAction,

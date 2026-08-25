@@ -5,17 +5,18 @@
 //! parser accepts a payload of the declared shape; it says nothing about whether anything produces
 //! one, which is what this file is for.
 
+use super::export_session_run_report::export_report;
 use super::get_session_run_report::session_run_report;
 use super::report_dto::SessionRunReportRequestDto;
 use crate::contexts::sessions::api::{
     AgentReportRow, ChangeSummary, ChangeSummaryPort, CommandReport, ExecutionEvidencePort,
     ExecutionEvidenceSummary, FailureReportRow, LogFailurePort, LogFailureSummary,
-    ObservabilityTimingPort, ReportClock, ReportScope, ReportSourceError, ReportSourceResult,
-    ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
+    ObservabilityTimingPort, ReportClock, ReportExportPort, ReportScope, ReportSourceError,
+    ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
     SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
 };
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 const SESSION: &str = "session-1";
 
@@ -139,6 +140,35 @@ impl ReportUsagePort for Sources {
     }
 }
 
+/// Remembers what it was asked to write instead of touching a disk.
+///
+/// The property under test is the filename and the refusal, not the bytes landing anywhere: the
+/// bounded write itself belongs to the adapter the session export already proves.
+#[derive(Default)]
+struct RecordingExport {
+    writes: Mutex<Vec<(String, String, String)>>,
+    refuse: bool,
+}
+
+impl ReportExportPort for RecordingExport {
+    fn write_export(
+        &self,
+        destination_directory: &str,
+        filename: &str,
+        content: &str,
+    ) -> ReportSourceResult<String> {
+        if self.refuse {
+            return Err(ReportSourceError::Unavailable("report_export_failed"));
+        }
+        self.writes.lock().expect("writes").push((
+            destination_directory.to_string(),
+            filename.to_string(),
+            content.to_string(),
+        ));
+        Ok(format!("{destination_directory}/{filename}"))
+    }
+}
+
 struct FixedClock;
 
 impl ReportClock for FixedClock {
@@ -148,6 +178,10 @@ impl ReportClock for FixedClock {
 }
 
 fn service(healthy: bool) -> SessionRunReportService {
+    service_with_export(healthy, Arc::new(RecordingExport::default()))
+}
+
+fn service_with_export(healthy: bool, exports: Arc<RecordingExport>) -> SessionRunReportService {
     let sources = Arc::new(Sources { healthy });
     SessionRunReportService::new(
         sources.clone(),
@@ -156,6 +190,7 @@ fn service(healthy: bool) -> SessionRunReportService {
         sources.clone(),
         sources.clone(),
         sources,
+        exports,
         Arc::new(FixedClock),
     )
 }
@@ -352,4 +387,93 @@ fn the_scope_echoes_what_was_actually_used() {
         1
     );
     assert_eq!(value["scope"]["groupBy"], "agent");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------------------------
+
+/// The exported bytes are the payload, not a second rendering of it.
+///
+/// An export that serialized its own structure would be free to drift from the report on screen,
+/// and the drift would only be noticed by somebody comparing a saved file against a panel they no
+/// longer have open.
+#[test]
+fn the_exported_json_is_the_same_payload_the_read_returns() {
+    let exports = Arc::new(RecordingExport::default());
+    let service = service_with_export(true, exports.clone());
+
+    let result = export_report(&service, request(), "D:/exports".to_string()).expect("export");
+
+    assert_eq!(result.status, "exported");
+    let writes = exports.writes.lock().expect("writes");
+    let written: Value = serde_json::from_str(&writes[0].2).expect("written json");
+    assert_eq!(written, payload(true));
+}
+
+#[test]
+fn the_filename_is_derived_rather_than_supplied() {
+    let exports = Arc::new(RecordingExport::default());
+    let service = service_with_export(true, exports.clone());
+
+    export_report(&service, request(), "D:/exports".to_string()).expect("export");
+
+    let writes = exports.writes.lock().expect("writes");
+    // Derived from what the export is of and when it was taken. A caller that chose the name could
+    // aim the write at a file that already exists.
+    assert_eq!(
+        writes[0].1,
+        "vanehub-report-session-1-2026-08-25T10_00_00Z.json"
+    );
+    assert_eq!(writes[0].0, "D:/exports");
+}
+
+#[test]
+fn a_dismissed_picker_is_cancelled_rather_than_failed() {
+    let exports = Arc::new(RecordingExport::default());
+    let service = service_with_export(true, exports.clone());
+
+    let result = export_report(&service, request(), String::new()).expect("export");
+
+    // Choosing not to export is a choice. Reporting it as an error would put an alert in front of
+    // somebody who pressed Escape.
+    assert_eq!(result.status, "cancelled");
+    assert_eq!(result.path, None);
+    assert!(exports.writes.lock().expect("writes").is_empty());
+}
+
+#[test]
+fn a_failed_write_is_reported_as_cancelled_with_no_path() {
+    let exports = Arc::new(RecordingExport {
+        refuse: true,
+        ..RecordingExport::default()
+    });
+    let service = service_with_export(true, exports);
+
+    let result = export_report(&service, request(), "D:/exports".to_string()).expect("export");
+
+    // The request was fine, so it is not refused; there is no file, so there is no path. A caller
+    // distinguishes the two by the absent path rather than by a message.
+    assert_eq!(result.status, "cancelled");
+    assert_eq!(result.path, None);
+}
+
+#[test]
+fn an_over_large_scope_is_refused_before_anything_is_written() {
+    let exports = Arc::new(RecordingExport::default());
+    let service = service_with_export(true, exports.clone());
+
+    let error = export_report(
+        &service,
+        SessionRunReportRequestDto {
+            run_ids: Some((0..500).map(|index| format!("run-{index}")).collect()),
+            ..request()
+        },
+        "D:/exports".to_string(),
+    )
+    .expect_err("refusal");
+
+    assert_eq!(error.reason_code, "report_too_many_runs");
+    // Refused before the filesystem, not after a file has been written.
+    assert!(exports.writes.lock().expect("writes").is_empty());
 }

@@ -208,7 +208,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 10.10 Build Report sections for Overview, Usage, Latency, Agents, Tools, Changes, Tests, Failures, and Evidence.
 - [x] 10.11 Add scope controls for run, seat, time, and group-by, preserving previous report content while refresh is in flight.
 - [x] 10.12 Add evidence links from every report section to the corresponding workspace tab and filter.
-- [ ] 10.13 Add JSON export of the bounded report through a service-backed native destination flow and a clearly simulated/unavailable Web path, if the existing export primitive can be reused without adding arbitrary frontend file writes.
+- [x] 10.13 Add JSON export of the bounded report through a service-backed native destination flow and a clearly simulated/unavailable Web path, if the existing export primitive can be reused without adding arbitrary frontend file writes.
 - [x] 10.14 Add application tests for complete, partial, unavailable, no-usage, child-Agent, retry, test-failure, changed-file, and no-evidence reports.
 - [x] 10.15 Add UI tests proving Report results do not change when message pagination or mounted chat-message count changes.
 

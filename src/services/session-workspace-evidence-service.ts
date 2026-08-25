@@ -7,6 +7,8 @@ import type {
   ExecutionRecordDetailQuery,
   ExecutionRecordQuery,
   SessionRunReport,
+  SessionRunReportExportQuery,
+  SessionRunReportExportResult,
   SessionRunReportQuery,
   Unsubscribe,
   WorkspaceEvidenceSummary,
@@ -41,4 +43,13 @@ export interface SessionWorkspaceEvidenceService {
   ): Promise<Unsubscribe>;
 
   getSessionRunReport(input: SessionRunReportQuery): Promise<SessionRunReport>;
+
+  /**
+   * Writes the bounded report as JSON through the runtime's own destination flow.
+   *
+   * No `Blob` and no download: a frontend that wrote the file itself would be a file write with a
+   * path the backend never saw, which is the one thing the export rules exist to prevent. The Web
+   * runtime has nowhere to write and says `simulated` rather than inventing a path.
+   */
+  exportSessionRunReport(input: SessionRunReportExportQuery): Promise<SessionRunReportExportResult>;
 }

@@ -24,6 +24,7 @@ const REGISTERED_EVIDENCE_COMMANDS: ReadonlySet<EvidenceCommandName> = new Set([
   "get_execution_record",
   "get_evidence_subscription_bootstrap",
   "get_session_run_report",
+  "export_session_run_report",
 ]);
 
 /**

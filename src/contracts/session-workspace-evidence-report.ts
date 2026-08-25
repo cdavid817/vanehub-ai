@@ -50,6 +50,16 @@ const sessionUsageReportSchema = z.object({
   costAvailable: z.literal(false),
 });
 
+/**
+ * `simulated` exists only for the Web/mock runtime, which has nowhere to write. Modelling it as a
+ * third status rather than as `exported` with a fake path is what keeps a browser demo from
+ * claiming a file exists.
+ */
+export const sessionRunReportExportSchema = z.object({
+  status: z.enum(["exported", "cancelled", "simulated"]),
+  path: z.string().nullable(),
+});
+
 export const sessionRunReportSchema = z.object({
   scope: z.object({
     sessionId: evidenceSessionIdSchema,

@@ -21,6 +21,23 @@ export interface SessionRunReportQuery {
   groupBy?: ReportGroupBy;
 }
 
+/**
+ * Where an export should land, and what came back.
+ *
+ * A directory, never a path: the caller picks where and the backend picks the name, so a request
+ * cannot aim the write at a file that already exists. `cancelled` carries no path because there is
+ * no file — a dismissed picker and a failed write are the same outcome to a reader.
+ */
+export interface SessionRunReportExportQuery extends SessionRunReportQuery {
+  /** Absent means "ask": the Tauri adapter opens the native directory picker. */
+  destinationDirectory?: string;
+}
+
+export interface SessionRunReportExportResult {
+  status: "exported" | "cancelled" | "simulated";
+  path: string | null;
+}
+
 export interface SessionRunReportScope {
   sessionId: EvidenceSessionId;
   runIds: EvidenceRunId[];

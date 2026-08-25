@@ -7,6 +7,8 @@ import type {
   ExecutionRecordDetailQuery,
   ExecutionRecordQuery,
   SessionRunReport,
+  SessionRunReportExportQuery,
+  SessionRunReportExportResult,
   SessionRunReportQuery,
   Unsubscribe,
   WorkspaceEvidenceSummary,
@@ -19,6 +21,7 @@ import {
   parseExecutionRecordDetail,
   parseExecutionRecordPage,
   parseSessionRunReport,
+  parseSessionRunReportExport,
   parseWorkspaceEvidenceSummary,
 } from "../contracts/session-workspace-evidence";
 import {
@@ -26,9 +29,27 @@ import {
   onceUnsubscribe,
   type EvidenceNoticeDispatcher,
 } from "./evidence-notice-stream";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { NativeEvidenceTransport } from "./native-evidence-transport";
 import { createNativeEvidenceTransport } from "./tauri-native-evidence-transport";
 import type { SessionWorkspaceEvidenceService } from "./session-workspace-evidence-service";
+
+/**
+ * Asks the user where an export should go, or `null` if they declined.
+ *
+ * Injected so the client stays testable without the dialog plugin, which is the same reason the
+ * transport is injected: everything this file is responsible for has to be provable before any of
+ * it is wired to a runtime.
+ */
+export type ExportDirectoryPicker = () => Promise<string | null>;
+
+const nativeExportDirectoryPicker: ExportDirectoryPicker = async () => {
+  const picked = await open({ directory: true, multiple: false });
+  // The plugin answers with a string, an array, or null depending on the options it was given.
+  // Only a single string is a destination; anything else is treated as a dismissal rather than
+  // guessed at, because guessing here means writing a file somewhere nobody chose.
+  return typeof picked === "string" ? picked : null;
+};
 
 function boundedLimit(limit: number | undefined): number {
   if (limit === undefined) return EVIDENCE_PAGE_LIMITS.default;
@@ -45,6 +66,7 @@ function boundedLimit(limit: number | undefined): number {
  */
 export function createTauriSessionWorkspaceEvidenceClient(
   transport: NativeEvidenceTransport,
+  pickExportDirectory: ExportDirectoryPicker = nativeExportDirectoryPicker,
 ): SessionWorkspaceEvidenceService {
   return {
     async getWorkspaceEvidenceSummary(
@@ -114,6 +136,34 @@ export function createTauriSessionWorkspaceEvidenceClient(
         dispatcher.accept(notice);
       }
       return onceUnsubscribe(unsubscribe);
+    },
+
+    /**
+     * Picks a directory natively, then hands it to the command that owns the write.
+     *
+     * The picker lives here rather than in a component for the same reason every other native call
+     * does, and the *write* lives in the backend for a stronger one: a frontend that produced the
+     * file itself would be a file write with a path the backend never validated.
+     */
+    async exportSessionRunReport(
+      input: SessionRunReportExportQuery,
+    ): Promise<SessionRunReportExportResult> {
+      const picked = input.destinationDirectory ?? (await pickExportDirectory());
+      if (picked === null) {
+        // A dismissed picker never reaches the backend: there is nothing to ask it.
+        return { status: "cancelled", path: null };
+      }
+      return parseSessionRunReportExport(
+        await transport.invokeEvidence("export_session_run_report", {
+          sessionId: input.sessionId,
+          runIds: input.runIds ?? null,
+          seatIds: input.seatIds ?? null,
+          from: input.from ?? null,
+          to: input.to ?? null,
+          groupBy: input.groupBy ?? null,
+          destinationDirectory: picked,
+        }),
+      );
     },
 
     async getSessionRunReport(input: SessionRunReportQuery): Promise<SessionRunReport> {

@@ -9,7 +9,8 @@ export type EvidenceCommandName =
   | "list_execution_records"
   | "get_execution_record"
   | "get_evidence_subscription_bootstrap"
-  | "get_session_run_report";
+  | "get_session_run_report"
+  | "export_session_run_report";
 
 /**
  * The seam between the evidence client and the desktop runtime.

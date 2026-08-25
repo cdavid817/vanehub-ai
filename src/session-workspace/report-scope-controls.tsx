@@ -1,10 +1,18 @@
-import { LoaderCircle, X } from "lucide-react";
+import { Download, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { ReportGroupBy } from "../types/session-workspace-evidence";
 import type { ReportScopeSelection } from "./use-session-run-report";
 
 const GROUP_BY_OPTIONS: readonly ReportGroupBy[] = ["run", "agent", "seat", "model", "tool"];
+
+/**
+ * What the last export did.
+ *
+ * `simulated` is its own state rather than a variant of `exported`: the Web runtime has nowhere to
+ * write, and a demo that said "exported" would send somebody looking for a file.
+ */
+export type ReportExportState = "idle" | "pending" | "exported" | "cancelled" | "simulated" | "failed";
 
 /**
  * The ranges a reader actually asks for, as durations back from now.
@@ -35,16 +43,21 @@ export function reportRangeStart(key: ReportRangeKey, now: Date): string | undef
 }
 
 export function ReportScopeControls({
+  exportState,
   isRefreshing,
   onClearCorrelation,
+  onExport,
   onGroupByChange,
   onRangeChange,
   range,
   scope,
 }: {
+  /** What the last export did, or nothing if none has been asked for. */
+  exportState: ReportExportState;
   /** True while a newer report is in flight and the previous one is still on screen. */
   isRefreshing: boolean;
   onClearCorrelation: () => void;
+  onExport: () => void;
   onGroupByChange: (groupBy: ReportGroupBy) => void;
   onRangeChange: (range: ReportRangeKey) => void;
   range: ReportRangeKey;
@@ -83,6 +96,22 @@ export function ReportScopeControls({
             {t("sessionTabs.report.refreshing")}
           </span>
         ) : null}
+        <button
+          className="ml-auto flex h-6 items-center gap-1 rounded-full border border-border bg-background px-2 text-[11px] text-muted-foreground hover:bg-muted"
+          disabled={exportState === "pending"}
+          onClick={onExport}
+          type="button"
+        >
+          <Download aria-hidden="true" className="h-3 w-3" />
+          {t("sessionTabs.report.export")}
+        </button>
+        {/* The outcome is stated rather than assumed. A silent button leaves a reader unsure
+            whether a file was written, and "cancelled" is a real answer they need. */}
+        {exportState === "idle" || exportState === "pending" ? null : (
+          <span className="text-[11px] text-muted-foreground" role="status">
+            {t(`sessionTabs.report.export.${exportState}`)}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">

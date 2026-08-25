@@ -73,6 +73,8 @@ export type {
   ReportSectionCoverage,
   ReportOverview,
   SessionRunReport,
+  SessionRunReportExportQuery,
+  SessionRunReportExportResult,
   SessionRunReportQuery,
   SessionRunReportScope,
   SessionUsageReport,

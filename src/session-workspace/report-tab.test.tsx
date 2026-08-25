@@ -13,6 +13,7 @@ import type {
   EvidenceAgentId,
   EvidenceSessionId,
   SessionRunReport,
+  SessionRunReportExportResult,
 } from "../types/session-workspace-evidence";
 import { ReportTab } from "./report-tab";
 import { emptySessionRunReport } from "./report-test-fixtures";
@@ -23,14 +24,22 @@ import {
 
 const SESSION = "session-1" as EvidenceSessionId;
 
-function service(report: SessionRunReport | Error) {
+function service(
+  report: SessionRunReport | Error,
+  exportResult: SessionRunReportExportResult | Error = { status: "exported", path: "D:/x.json" },
+) {
   return {
     getSessionRunReport: vi.fn(async () => {
       if (report instanceof Error) throw report;
       return report;
     }),
+    exportSessionRunReport: vi.fn(async () => {
+      if (exportResult instanceof Error) throw exportResult;
+      return exportResult;
+    }),
   } as unknown as SessionWorkspaceEvidenceService & {
     getSessionRunReport: ReturnType<typeof vi.fn>;
+    exportSessionRunReport: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -226,6 +235,44 @@ describe("ReportTab", () => {
     // panel calls something, not that what it calls moves the workspace. A reason code is a thing
     // the logs can be filtered by, which is why failures land there.
     expect(screen.getByTestId("active-tab").textContent).toBe("logs");
+  });
+
+  it("exports the report through the service rather than writing a file itself", async () => {
+    const evidence = service(populated());
+    mount(<ReportTab sessionId={SESSION} service={evidence} />);
+    await screen.findByRole("heading", { name: "Overview" });
+
+    await userEvent.click(screen.getByRole("button", { name: /Export JSON/ }));
+
+    // The scope the reader is looking at, so an export cannot quietly cover more than the page.
+    await waitFor(() =>
+      expect(evidence.exportSessionRunReport).toHaveBeenCalledWith(
+        expect.objectContaining({ groupBy: "run", sessionId: SESSION }),
+      ),
+    );
+    expect(await screen.findByText("Exported")).toBeTruthy();
+  });
+
+  it("says a simulated export wrote nothing rather than claiming success", async () => {
+    const evidence = service(populated(), { status: "simulated", path: null });
+    mount(<ReportTab sessionId={SESSION} service={evidence} />);
+    await screen.findByRole("heading", { name: "Overview" });
+
+    await userEvent.click(screen.getByRole("button", { name: /Export JSON/ }));
+
+    // A browser demo that said "exported" would send somebody looking for a file.
+    expect(await screen.findByText(/no file was written/)).toBeTruthy();
+  });
+
+  it("reports a failed export without showing the runtime's words", async () => {
+    const evidence = service(populated(), new Error("EACCES /root/report.json"));
+    mount(<ReportTab sessionId={SESSION} service={evidence} />);
+    await screen.findByRole("heading", { name: "Overview" });
+
+    await userEvent.click(screen.getByRole("button", { name: /Export JSON/ }));
+
+    expect(await screen.findByText(/Export failed/)).toBeTruthy();
+    expect(screen.queryByText(/EACCES/)).toBeNull();
   });
 });
 

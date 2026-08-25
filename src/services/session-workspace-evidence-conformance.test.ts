@@ -116,6 +116,17 @@ describe.each(runtimes)("evidence service conformance: $name", ({ create }) => {
     }
   });
 
+  it("answers an export with a status a reader can act on", async () => {
+    const result = await create().service.exportSessionRunReport({
+      sessionId,
+      destinationDirectory: "D:/exports",
+    });
+    // Three states, and only one of them means a file exists. A runtime with nowhere to write
+    // says `simulated` rather than reporting a path nobody could open.
+    expect(["exported", "cancelled", "simulated"]).toContain(result.status);
+    if (result.status !== "exported") expect(result.path).toBeNull();
+  });
+
   it("returns failure rows keyed by codes rather than by messages", async () => {
     const report = await create().service.getSessionRunReport({ sessionId });
     for (const row of report.failures.rows) {

@@ -107,8 +107,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 字符会产生永不触发也永不报错的订阅,这是活视图从内部唯一无法察觉的失败模式,所以它只能有一处写法。
 // 浏览器构建不发任何转换,而且是**故意**不发:一个按定时器发假转换的 mock 会让合并逻辑看起来能用,
 // 而实际上什么都没有转换过。上限按实测值 21448 记录,不留余量。
+// 再次上调(同一 change,Task Group 10.13):+65 是报告 JSON 导出在服务边界两侧的实现——接口方法、
+// Tauri 侧的目录选择与 invoke、Web 侧的 simulated 应答,以及导出结果的 Zod 解析。
+// 值得说明的是为什么这 65 行必须在这里而不能更省:前端**不写文件**。一个用 Blob + download 的实现
+// 只需要三行,但那是一次后端从未校验过路径的文件写入,正是导出规则要挡住的东西。所以目录来自原生
+// 选择器、写入发生在 Rust 侧、文件名由应用层派生,而这条链路在服务边界上就要占三个实现。
+// simulated 是独立状态而非 exported 的变体:浏览器构建无处可写,一个说"已导出"的 demo 会让人去找
+// 一个不存在的文件。上限按实测值 21513 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21448, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21513, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

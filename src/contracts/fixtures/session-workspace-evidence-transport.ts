@@ -173,6 +173,7 @@ export const nativeEvidenceFixtures = {
     evidenceLinks: [{ tab: "terminal", scope: { sessionId: "session-1", runId: "run-124" } }],
     sourceCoverage: { state: "partial", reasonCodes: ["coverage_partial"], truncated: false },
   },
+  reportExport: { status: "exported", path: "D:/exports/vanehub-report-session-1.json" },
 } as const;
 
 export interface FixtureEvidenceTransport extends NativeEvidenceTransport {
@@ -197,6 +198,7 @@ export function createFixtureEvidenceTransport(
     get_execution_record: nativeEvidenceFixtures.recordDetail,
     get_evidence_subscription_bootstrap: nativeEvidenceFixtures.subscriptionBootstrap,
     get_session_run_report: nativeEvidenceFixtures.report,
+    export_session_run_report: nativeEvidenceFixtures.reportExport,
     ...overrides,
   };
 

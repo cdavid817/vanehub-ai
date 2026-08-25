@@ -13,6 +13,7 @@ use super::ports::*;
 use super::scope::{ReportScope, ReportScopeError, ReportScopeRequest};
 use super::service::{SessionRunReportService, MAX_FAILURE_ROWS};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 const SESSION: &str = "session-1";
 
@@ -87,6 +88,35 @@ impl ReportUsagePort for Stub {
     }
 }
 
+/// Remembers what it was asked to write instead of touching a disk.
+///
+/// The property under test is the filename and the refusal, not the bytes landing anywhere: the
+/// bounded write itself belongs to the adapter the session export already proves.
+#[derive(Default)]
+struct RecordingExport {
+    writes: Mutex<Vec<(String, String, String)>>,
+    refuse: bool,
+}
+
+impl ReportExportPort for RecordingExport {
+    fn write_export(
+        &self,
+        destination_directory: &str,
+        filename: &str,
+        content: &str,
+    ) -> ReportSourceResult<String> {
+        if self.refuse {
+            return Err(ReportSourceError::Unavailable("report_export_failed"));
+        }
+        self.writes.lock().expect("writes").push((
+            destination_directory.to_string(),
+            filename.to_string(),
+            content.to_string(),
+        ));
+        Ok(format!("{destination_directory}/{filename}"))
+    }
+}
+
 struct FixedClock;
 
 impl ReportClock for FixedClock {
@@ -96,6 +126,10 @@ impl ReportClock for FixedClock {
 }
 
 fn service(sources: Sources) -> SessionRunReportService {
+    service_with_export(sources, Arc::new(RecordingExport::default()))
+}
+
+fn service_with_export(sources: Sources, exports: Arc<RecordingExport>) -> SessionRunReportService {
     let stub = Arc::new(Stub(sources));
     SessionRunReportService::new(
         stub.clone(),
@@ -104,6 +138,7 @@ fn service(sources: Sources) -> SessionRunReportService {
         stub.clone(),
         stub.clone(),
         stub,
+        exports,
         Arc::new(FixedClock),
     )
 }

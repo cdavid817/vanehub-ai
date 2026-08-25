@@ -38,6 +38,17 @@ pub(crate) struct WorkspaceEvidenceTargetDto {
     pub(crate) scope: EvidenceTargetScopeDto,
 }
 
+/// What an export did, in the same two-state shape the session and log exports already use.
+///
+/// `cancelled` carries no path because there is no file. A result that reported a path for a
+/// dismissed picker would name a file nobody could open.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionRunReportExportDto {
+    pub(crate) status: &'static str,
+    pub(crate) path: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SessionRunReportRequestDto {

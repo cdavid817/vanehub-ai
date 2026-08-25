@@ -1,3 +1,9 @@
+/// Named only where a test double has to write the type down.
+///
+/// The production implementation lives beside the session export it delegates to and reaches the
+/// trait through the application module, so nothing outside this context needs the name.
+#[cfg(test)]
+pub(crate) use super::application::ReportExportPort;
 /// The session-run report: its service, the questions it asks, and the shapes it answers with.
 ///
 /// The ports are published alongside the service because bootstrap implements them. That is the

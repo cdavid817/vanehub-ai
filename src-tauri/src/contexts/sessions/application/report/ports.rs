@@ -122,6 +122,23 @@ pub(crate) trait ReportUsagePort: Send + Sync {
     fn usage(&self, scope: &ReportScope) -> ReportSourceResult<ReportUsageSummary>;
 }
 
+/// Where an exported report is written.
+///
+/// The directory comes from the native picker and nothing else: a caller that could name its own
+/// destination would be a file write with an arbitrary path behind a report button. The filename is
+/// this layer's to choose, so a caller cannot aim the write at an existing file either.
+///
+/// The same shape the session export already uses, deliberately. A second way to put a file on disk
+/// would be a second set of rules about where that is allowed to be.
+pub(crate) trait ReportExportPort: Send + Sync {
+    fn write_export(
+        &self,
+        destination_directory: &str,
+        filename: &str,
+        content: &str,
+    ) -> ReportSourceResult<String>;
+}
+
 pub(crate) trait ReportClock: Send + Sync {
     fn now(&self) -> String;
 }

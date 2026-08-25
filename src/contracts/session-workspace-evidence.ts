@@ -5,6 +5,7 @@ import type {
   ExecutionRecord,
   ExecutionRecordDetail,
   SessionRunReport,
+  SessionRunReportExportResult,
   WorkspaceEvidenceSummary,
 } from "../types/session-workspace-evidence";
 import type {
@@ -23,7 +24,10 @@ import {
   executionRecordDetailSchema,
   executionRecordSchema,
 } from "./session-workspace-evidence-records";
-import { sessionRunReportSchema } from "./session-workspace-evidence-report";
+import {
+  sessionRunReportExportSchema,
+  sessionRunReportSchema,
+} from "./session-workspace-evidence-report";
 import {
   sessionShellDescriptorSchema,
   sessionShellNoticeSchema,
@@ -73,6 +77,10 @@ export function parseEvidenceSubscriptionBootstrap(value: unknown): EvidenceSubs
 
 export function parseSessionRunReport(value: unknown): SessionRunReport {
   return sessionRunReportSchema.parse(value);
+}
+
+export function parseSessionRunReportExport(value: unknown): SessionRunReportExportResult {
+  return sessionRunReportExportSchema.parse(value);
 }
 
 export function parseShellOutputFrame(value: unknown): ShellOutputFrame {

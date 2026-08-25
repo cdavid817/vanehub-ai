@@ -1,6 +1,7 @@
 pub(crate) mod dto;
 pub(crate) mod evidence_dto;
 mod evidence_mapper;
+pub(crate) mod export_session_run_report;
 pub(crate) mod get_evidence_subscription_bootstrap;
 pub(crate) mod get_execution_observation_capabilities;
 pub(crate) mod get_execution_record;

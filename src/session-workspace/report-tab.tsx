@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { agentService as defaultAgentService } from "../services/runtime-agent-client";
 import type { SessionWorkspaceEvidenceService } from "../services/session-workspace-evidence-service";
 import type {
   EvidenceRunId,
@@ -18,6 +19,7 @@ import {
 import {
   ReportScopeControls,
   reportRangeStart,
+  type ReportExportState,
   type ReportRangeKey,
 } from "./report-scope-controls";
 import {
@@ -53,6 +55,7 @@ export function ReportTab({
   const navigation = useWorkspaceEvidenceScope();
   const [groupBy, setGroupBy] = useState<ReportGroupBy>("run");
   const [range, setRange] = useState<ReportRangeKey>("all");
+  const [exportState, setExportState] = useState<ReportExportState>("idle");
 
   // The run and seat come from the workspace scope rather than from a picker of this panel's own.
   // A reader arrives here from a trace or a record, and a second control that disagreed with the
@@ -67,20 +70,45 @@ export function ReportTab({
     };
   }, [groupBy, navigation.correlation, range]);
 
+  const evidence = service ?? defaultAgentService;
   const { isRefreshing, reasonCode, report, state } = useSessionRunReport({
     isVisible,
     scope,
-    service,
+    service: evidence,
     sessionId: sessionId as EvidenceSessionId | null,
   });
+
+  // Deliberately not a mutation with cached state: an export is an action whose result is a
+  // sentence, and caching it would leave last week's "exported" beside today's report.
+  const onExport = useCallback(async () => {
+    if (sessionId === null) return;
+    setExportState("pending");
+    try {
+      const result = await evidence.exportSessionRunReport({
+        sessionId: sessionId as EvidenceSessionId,
+        runIds: [...scope.runIds],
+        seatIds: [...scope.seatIds],
+        from: scope.from,
+        to: scope.to,
+        groupBy: scope.groupBy,
+      });
+      setExportState(result.status);
+    } catch {
+      // The reason is not shown: an export failure reaches here as an untyped rejection, and its
+      // text is untranslated. What a reader needs is that no file was written.
+      setExportState("failed");
+    }
+  }, [evidence, scope, sessionId]);
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
       <ReportScopeControls
+        exportState={exportState}
         isRefreshing={isRefreshing}
         onClearCorrelation={() => navigation.clearScope(["runId", "seatId"])}
+        onExport={() => void onExport()}
         onGroupByChange={setGroupBy}
         onRangeChange={setRange}
         range={range}
