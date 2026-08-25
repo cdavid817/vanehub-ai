@@ -24,7 +24,13 @@ const generatedSchemas = path.join(repoRoot, "src-tauri", "gen", "schemas");
 const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
 
 /** Without all of these there is no real integration for the external suite to verify. */
-const EXTERNAL_PREREQUISITES = ["VANEHUB_DESKTOP_MUTATE_HOST", "VANEHUB_SSH_HOST", "VANEHUB_SSH_USER", "VANEHUB_SSH_PASSWORD"];
+const EXTERNAL_PREREQUISITES = [
+  "VANEHUB_DESKTOP_LIVE_AGENTS",
+  "VANEHUB_DESKTOP_MUTATE_HOST",
+  "VANEHUB_SSH_HOST",
+  "VANEHUB_SSH_USER",
+  "VANEHUB_SSH_PASSWORD",
+];
 
 /**
  * Records a BLOCKED external run as evidence in its own right.

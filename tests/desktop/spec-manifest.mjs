@@ -42,11 +42,7 @@ export const DESKTOP_SPECS = [
   { spec: "domain-local-media.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-loop.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-lsp.e2e.mjs", gate: REQUIRED_FIXTURE },
-  { spec: "domain-multi-agent-business.e2e.mjs", gate: REQUIRED_FIXTURE },
-  { spec: "domain-multi-agent-human-decision.e2e.mjs", gate: REQUIRED_FIXTURE },
-  { spec: "domain-multi-agent-project.e2e.mjs", gate: REQUIRED_FIXTURE },
-  { spec: "domain-multi-agent-routing.e2e.mjs", gate: REQUIRED_FIXTURE },
-  { spec: "domain-multi-agent.e2e.mjs", gate: REQUIRED_FIXTURE },
+
   { spec: "domain-observability.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-prompt-hooks.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-read-surface.e2e.mjs", gate: REQUIRED_FIXTURE },
@@ -64,6 +60,47 @@ export const DESKTOP_SPECS = [
   { spec: "ui-notifications.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "ui-settings.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "ui-workspace.e2e.mjs", gate: REQUIRED_FIXTURE },
+
+  // The multi-Agent relay flows. Each waits for one seat to hand off to the next by writing
+  // `@handle` into its own reply, which is a decision a model makes -- no fixture can stand in for
+  // it. The echo stub can only repeat the prompt back, and a prompt that mentions a handle then
+  // reads as a handoff the relay will not act on, so the spec fails for the fixture rather than
+  // for the code.
+  {
+    spec: "domain-multi-agent-business.e2e.mjs",
+    gate: EXTERNAL_PROVIDER,
+    prerequisites: ["VANEHUB_DESKTOP_LIVE_AGENTS"],
+    blockedReason:
+      "Needs two authenticated CLI Agents whose model output decides when to hand off to the next seat.",
+  },
+  {
+    spec: "domain-multi-agent-human-decision.e2e.mjs",
+    gate: EXTERNAL_PROVIDER,
+    prerequisites: ["VANEHUB_DESKTOP_LIVE_AGENTS"],
+    blockedReason:
+      "Needs two authenticated CLI Agents whose model output decides when to hand off to the next seat.",
+  },
+  {
+    spec: "domain-multi-agent-project.e2e.mjs",
+    gate: EXTERNAL_PROVIDER,
+    prerequisites: ["VANEHUB_DESKTOP_LIVE_AGENTS"],
+    blockedReason:
+      "Needs two authenticated CLI Agents whose model output decides when to hand off to the next seat.",
+  },
+  {
+    spec: "domain-multi-agent-routing.e2e.mjs",
+    gate: EXTERNAL_PROVIDER,
+    prerequisites: ["VANEHUB_DESKTOP_LIVE_AGENTS"],
+    blockedReason:
+      "Needs two authenticated CLI Agents whose model output decides when to hand off to the next seat.",
+  },
+  {
+    spec: "domain-multi-agent.e2e.mjs",
+    gate: EXTERNAL_PROVIDER,
+    prerequisites: ["VANEHUB_DESKTOP_LIVE_AGENTS"],
+    blockedReason:
+      "Needs two authenticated CLI Agents whose model output decides when to hand off to the next seat.",
+  },
 
   // The one spec that drives real package managers, a real host Python environment, and a real SSH
   // server. Every case in it already refuses to run without an explicit opt-in variable, which is
