@@ -1,4 +1,5 @@
 use super::*;
+use tempfile::TempDir;
 
 #[test]
 fn send_message_skips_prompt_hook_assembly_for_non_cli_agents() {
@@ -676,4 +677,333 @@ fn generation_completed_does_not_trigger_memory_extraction_for_non_cli_agents() 
         .expect("extraction calls")
         .is_empty());
     assert!(world.memories.lock().expect("memories").is_empty());
+}
+
+/// Every VaneHub-managed CLI Agent, and one this code has never heard of.
+///
+/// The five built-in ids are here because they are what ships, and the sixth is here because a
+/// suite made only of them would pass just as happily against a hard-coded match on the built-in
+/// set. Registration is dynamic; the governed path keys off the launch kind and the Agent id the
+/// session carries, and nothing in it names an Agent.
+const MANAGED_CLI_AGENTS: [&str; 6] = [
+    "claude-code",
+    "codex-cli",
+    "opencode",
+    "gemini-cli",
+    "antigravity-cli",
+    "dynamic-cli-7f31",
+];
+
+fn cli_world() -> Arc<FakeWorld> {
+    Arc::new(FakeWorld::new(
+        MANAGED_CLI_AGENTS
+            .iter()
+            .map(|id| agent(id, id, vec![InteractionMode::Cli], vec!["coding"]))
+            .collect(),
+    ))
+}
+
+fn open_cli_session(world: &Arc<FakeWorld>, agent_id: &str, folder: Option<&str>) -> String {
+    let session_id = format!("session-{agent_id}");
+    world.sessions.lock().expect("sessions").insert(
+        session_id.clone(),
+        AgentSession {
+            id: session_id.clone(),
+            agent_id: agent_id.to_string(),
+            seats: Vec::new(),
+            interaction_mode: InteractionMode::Cli,
+            lifecycle: AgentLifecycle::Idle,
+            folder: folder.map(str::to_string),
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership: None,
+        },
+    );
+    session_id
+}
+
+/// 7.8 — one governed path, six Agents, no per-Agent branch.
+#[test]
+fn every_managed_cli_agent_receives_the_same_governed_injection() {
+    for agent_id in MANAGED_CLI_AGENTS {
+        let world = cli_world();
+        {
+            let mut settings = world
+                .personalization_settings
+                .lock()
+                .expect("personalization settings");
+            settings.custom_instructions_style_rules = "Always answer in Chinese.".to_string();
+        }
+        world.memories.lock().expect("memories").push(AgentMemory {
+            id: "npm-only.md".to_string(),
+            agent_id: "onepiece".to_string(),
+            folder: None,
+            name: "npm-only".to_string(),
+            description: "Package manager".to_string(),
+            memory_type: None,
+            content: "Uses pnpm.".to_string(),
+            source: MemorySource::Explicit,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            modified_at: None,
+        });
+        let session_id = open_cli_session(&world, agent_id, None);
+
+        service(world.clone())
+            .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.clone(),
+                content: "hello".to_string(),
+                configuration: AgentChatConfiguration {
+                    agent_id: agent_id.to_string(),
+                    ..chat_configuration()
+                },
+                file_references: Vec::new(),
+            })
+            .expect("send");
+
+        let requests = world
+            .generation_requests
+            .lock()
+            .expect("generation requests");
+        let prompt = &requests[0].effective_prompt;
+        assert!(
+            prompt.starts_with(
+                "## Custom Instructions\n### Response style\nAlways answer in Chinese."
+            ),
+            "{agent_id} lost its instructions: {prompt}"
+        );
+        assert!(
+            prompt.contains("- [npm-only](npm-only.md) - Package manager"),
+            "{agent_id} lost its memory index: {prompt}"
+        );
+        // The index follows the instructions and precedes what Prompt Hooks assembled.
+        let instructions = prompt.find("## Custom Instructions").expect("instructions");
+        let index = prompt.find("## Memory").expect("index");
+        let assembled = prompt.find("effective::hello").expect("hook output");
+        assert!(
+            instructions < index && index < assembled,
+            "{agent_id}: {prompt}"
+        );
+    }
+}
+
+/// 7.3 — the index, and never a body, whatever the Agent.
+#[test]
+fn no_managed_cli_agent_is_ever_sent_a_memory_body() {
+    for agent_id in MANAGED_CLI_AGENTS {
+        let world = cli_world();
+        world.memories.lock().expect("memories").push(AgentMemory {
+            id: "npm-only.md".to_string(),
+            agent_id: "onepiece".to_string(),
+            folder: None,
+            name: "npm-only".to_string(),
+            description: "Package manager".to_string(),
+            memory_type: None,
+            content: "A body that must never reach a CLI.".to_string(),
+            source: MemorySource::Explicit,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            modified_at: None,
+        });
+        let session_id = open_cli_session(&world, agent_id, None);
+
+        service(world.clone())
+            .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.clone(),
+                content: "hello".to_string(),
+                configuration: AgentChatConfiguration {
+                    agent_id: agent_id.to_string(),
+                    ..chat_configuration()
+                },
+                file_references: Vec::new(),
+            })
+            .expect("send");
+
+        let requests = world
+            .generation_requests
+            .lock()
+            .expect("generation requests");
+        assert!(
+            !requests[0]
+                .effective_prompt
+                .contains("A body that must never reach a CLI."),
+            "{agent_id} was sent a memory body"
+        );
+    }
+}
+
+/// 7.5/7.8 — extraction attributes proposals to the Agent that actually ran.
+#[test]
+fn extraction_attributes_its_proposals_to_whichever_cli_agent_ran() {
+    for agent_id in MANAGED_CLI_AGENTS {
+        let world = cli_world();
+        let session_id = open_cli_session(&world, agent_id, Some("D:/code/vanehub"));
+        service(world.clone())
+            .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.clone(),
+                content: "hello".to_string(),
+                configuration: AgentChatConfiguration {
+                    agent_id: agent_id.to_string(),
+                    ..chat_configuration()
+                },
+                file_references: Vec::new(),
+            })
+            .expect("send");
+        let sink = world
+            .generation_sinks
+            .lock()
+            .expect("generation sinks")
+            .values()
+            .next()
+            .cloned()
+            .expect("sink");
+
+        sink.handle(GenerationProcessEvent::Completed(None))
+            .expect("complete");
+
+        let submissions = world.submissions.lock().expect("submissions");
+        assert_eq!(submissions.len(), 1, "{agent_id} proposed nothing");
+        assert_eq!(submissions[0].0, agent_id);
+        assert_eq!(submissions[0].1, session_id);
+        assert_eq!(submissions[0].2.as_deref(), Some("D:/code/vanehub"));
+        assert!(
+            submissions[0].3.is_some(),
+            "{agent_id} proposed without naming the turn it came from"
+        );
+        assert!(world.memories.lock().expect("memories").is_empty());
+    }
+}
+
+/// 7.9 — a CLI VaneHub did not launch is out of scope.
+///
+/// The injection point keys off the launch kind the registry recorded. A CLI the user starts in
+/// their own terminal never reaches this code at all; what is assertable here is the boundary it
+/// would have to cross, and an Agent on the other side of it gets nothing prepended.
+#[test]
+fn an_agent_outside_the_cli_adapter_receives_no_governed_injection() {
+    let world = Arc::new(FakeWorld::new(vec![api_agent(
+        "unmanaged-agent",
+        "Unmanaged",
+        vec!["coding"],
+    )]));
+    {
+        let mut settings = world
+            .personalization_settings
+            .lock()
+            .expect("personalization settings");
+        settings.custom_instructions_style_rules = "Always answer in Chinese.".to_string();
+    }
+    world.memories.lock().expect("memories").push(AgentMemory {
+        id: "npm-only.md".to_string(),
+        agent_id: "onepiece".to_string(),
+        folder: None,
+        name: "npm-only".to_string(),
+        description: "Package manager".to_string(),
+        memory_type: None,
+        content: "Uses pnpm.".to_string(),
+        source: MemorySource::Explicit,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        modified_at: None,
+    });
+    world.sessions.lock().expect("sessions").insert(
+        "unmanaged-session".to_string(),
+        AgentSession {
+            id: "unmanaged-session".to_string(),
+            agent_id: "unmanaged-agent".to_string(),
+            seats: Vec::new(),
+            interaction_mode: InteractionMode::Api,
+            lifecycle: AgentLifecycle::Idle,
+            folder: None,
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership: None,
+        },
+    );
+
+    service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "unmanaged-session".to_string(),
+            content: "hello".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "unmanaged-agent".to_string(),
+                interaction_mode: InteractionMode::Api,
+                ..chat_configuration()
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(requests[0].effective_prompt, "hello\nfiles=0");
+}
+
+/// 7.4/7.9 — VaneHub does not touch a CLI's own files.
+///
+/// Each CLI owns its instruction file, its memory directory and its configuration, and this change
+/// does not take any of them over. Nothing on the send path opens a file, so this is a regression
+/// guard rather than a discovery: it fails the day someone adds a write, which is exactly when the
+/// boundary would otherwise be crossed quietly.
+#[test]
+fn a_governed_cli_send_leaves_every_native_configuration_file_untouched() {
+    let directory = TempDir::with_prefix("cli-native-files-").expect("temporary directory");
+    let workspace = directory.path();
+    let native = [
+        ("CLAUDE.md", "# Claude's own instructions\n"),
+        ("AGENTS.md", "# Codex's own instructions\n"),
+        ("GEMINI.md", "# Gemini's own instructions\n"),
+        ("config.toml", "[profile]\nname = \"mine\"\n"),
+    ];
+    for (name, contents) in native {
+        std::fs::write(workspace.join(name), contents).expect("seed native file");
+    }
+    let before: Vec<String> = native
+        .iter()
+        .map(|(name, _)| std::fs::read_to_string(workspace.join(name)).expect("read"))
+        .collect();
+
+    let world = cli_world();
+    let session_id = open_cli_session(
+        &world,
+        "claude-code",
+        Some(workspace.to_string_lossy().as_ref()),
+    );
+    service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: session_id.clone(),
+            content: "hello".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "claude-code".to_string(),
+                ..chat_configuration()
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .values()
+        .next()
+        .cloned()
+        .expect("sink");
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("complete");
+
+    for (index, (name, _)) in native.iter().enumerate() {
+        assert_eq!(
+            std::fs::read_to_string(workspace.join(name)).expect("read"),
+            before[index],
+            "{name} was modified"
+        );
+    }
+    let entries = std::fs::read_dir(workspace).expect("read dir").count();
+    assert_eq!(entries, native.len(), "a file was created in the workspace");
 }

@@ -2244,10 +2244,11 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // production adapter performs (+75) and a `PreGovernanceSettings` fixture (+45) that keeps
     // each CLI test stating what it is about — the settings a user had — rather than hand-building
     // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
-    // nothing in the runtime writes an active memory any more.
+    // nothing in the runtime writes an active memory any more. A further +14 records the
+    // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 2_011,
+        budget: 2_025,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {

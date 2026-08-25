@@ -86,8 +86,8 @@
 - [x] 7.5 Change successful-turn extraction to submit candidates attributed to the actual CLI Agent, session, workspace, and source message ids.
 - [x] 7.6 Keep a completed CLI response successful when extraction is unavailable or fails; surface only safe diagnostics.
 - [x] 7.7 Apply per-Agent automatic-extraction policy and skip extraction in temporary mode or when no validated OnePiece extraction provider is available.
-- [ ] 7.8 Add contract tests covering Claude Code, Codex, OpenCode, Gemini CLI, Antigravity, and a synthetic dynamically registered CLI Agent without adding Agent-specific policy branches.
-- [ ] 7.9 Add tests that a CLI launched outside the VaneHub adapter remains out of scope and that VaneHub does not mutate its native configuration files.
+- [x] 7.8 Add contract tests covering Claude Code, Codex, OpenCode, Gemini CLI, Antigravity, and a synthetic dynamically registered CLI Agent without adding Agent-specific policy branches.
+- [x] 7.9 Add tests that a CLI launched outside the VaneHub adapter remains out of scope and that VaneHub does not mutate its native configuration files.
 
 ## 8. Session Mode and Multi-Agent Propagation
 

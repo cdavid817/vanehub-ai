@@ -204,6 +204,9 @@ pub(super) struct FakeWorld {
     /// Every batch of proposals the runtime submitted. Extraction produces these now; it cannot
     /// reach an active memory, so this is where its output is asserted.
     proposals: Mutex<Vec<AgentMemoryProposal>>,
+    /// The attribution each batch carried: Agent, session, workspace, and the message it came
+    /// from. Recorded separately because who proposed is a different question from what.
+    submissions: Mutex<Vec<RecordedAttribution>>,
     /// `add-cli-memory-support` — configurable `AgentMemoryExtractionPort::extract` outcome.
     /// Defaults to `Some("Extracted fact.")`, matching every pre-existing test's implicit
     /// assumption of "extraction succeeds and finds something" where it isn't the point under
@@ -317,6 +320,7 @@ impl FakeWorld {
             personalization_settings: Mutex::new(PreGovernanceSettings::safe_fallback()),
             personalization_failure: AtomicBool::new(false),
             proposals: Mutex::new(Vec::new()),
+            submissions: Mutex::new(Vec::new()),
             extraction_response: Mutex::new(Some(
                 r#"[{"action":"create","name":"extracted-fact","description":"An extracted fact","body":"Extracted fact."}]"#.to_string(),
             )),
@@ -1011,6 +1015,10 @@ impl ToolApprovalPort for FakeWorld {
     }
 }
 
+/// Agent, session, workspace, source message — the four things a reviewer needs to place a
+/// proposal, in the order the submission carries them.
+type RecordedAttribution = (String, String, Option<String>, Option<String>);
+
 /// The flat settings shape the runtime used before governance.
 ///
 /// A test fixture now, not a production type: nothing reads settings this way any more. It stays
@@ -1211,6 +1219,12 @@ impl AgentPersonalizationSnapshotPort for FakeWorld {
         submission: AgentCandidateSubmission,
     ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
         let accepted = submission.proposals.len();
+        self.submissions.lock().expect("submissions").push((
+            submission.agent_id.clone(),
+            submission.session_id.clone(),
+            submission.folder.clone(),
+            submission.source_message_id.clone(),
+        ));
         self.proposals
             .lock()
             .expect("proposals")
