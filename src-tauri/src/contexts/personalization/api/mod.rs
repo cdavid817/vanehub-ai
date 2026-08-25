@@ -6,6 +6,8 @@
 //! repair is to "depend on a domain/application port and assemble its adapter in bootstrap".
 
 #[cfg(test)]
+mod candidate_review_tests;
+#[cfg(test)]
 mod compatibility_tests;
 #[cfg(test)]
 mod onepiece_resolution_tests;
@@ -15,16 +17,16 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CandidateSubmission, CandidateSubmissionOutcome, CandidateSubmissionService, CreateMemoryInput,
-    LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility, LegacySettingsView,
-    MaintenanceGatePort, MemoryApplicationService, MemoryHealthPort, MutationAdmission,
-    PersonalizationApplicationError, PolicyResolutionService, ResolutionRequest, UpdateMemoryPatch,
-    WorkspaceIdentityPort,
+    CandidateReviewService, CandidateSubmission, CandidateSubmissionOutcome,
+    CandidateSubmissionService, CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField,
+    LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort, MemoryApplicationService,
+    MemoryHealthPort, MutationAdmission, PersonalizationApplicationError, PolicyResolutionService,
+    ResolutionRequest, ReviewRequest, UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
-    EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance,
-    MemoryRecord, MemoryRuntimeHealth, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType, PersonalizationDomainError,
+    EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryCandidate, MemoryId,
+    MemoryProvenance, MemoryRecord, MemoryRuntimeHealth, MemoryScope, MemorySensitivity,
+    MemorySource, MemoryStatus, MemoryType, PersonalizationDomainError, ReviewOutcome,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -110,6 +112,9 @@ pub(crate) struct PersonalizationApi {
     /// service cannot write an active record, so no argument a runtime passes can cross from
     /// "the model suggested this" to "the user keeps this".
     candidates: Arc<CandidateSubmissionService>,
+    /// The other side of that split: the only path from a proposal to an active record, and the
+    /// only one that takes a human decision as its input.
+    reviews: Arc<CandidateReviewService>,
     /// Held across every read and every write, so a `Ready` answer cannot go stale between the
     /// check and the work it authorizes.
     gate: Arc<dyn MaintenanceGatePort>,
@@ -130,6 +135,7 @@ pub(crate) struct PersonalizationApiParts {
     pub(crate) memories: Arc<MemoryApplicationService>,
     pub(crate) resolver: Arc<PolicyResolutionService>,
     pub(crate) candidates: Arc<CandidateSubmissionService>,
+    pub(crate) reviews: Arc<CandidateReviewService>,
     pub(crate) gate: Arc<dyn MaintenanceGatePort>,
     pub(crate) health: Arc<dyn MemoryHealthPort>,
     pub(crate) settings: Arc<LegacySettingsCompatibility>,
@@ -143,6 +149,7 @@ impl PersonalizationApi {
             memories,
             resolver,
             candidates,
+            reviews,
             gate,
             health,
             settings,
@@ -153,6 +160,7 @@ impl PersonalizationApi {
             memories,
             resolver,
             candidates,
+            reviews,
             gate,
             health,
             settings,
@@ -224,6 +232,29 @@ impl PersonalizationApi {
     ) -> Result<CandidateSubmissionOutcome> {
         let _admission = self.admit_write()?;
         self.candidates.submit(submission)
+    }
+
+    /// Proposals waiting for a decision.
+    ///
+    /// Available regardless of memory health: a queue a user can read is not a memory a runtime can
+    /// act on, and hiding it during maintenance would leave them unable to see what is waiting.
+    pub(crate) fn pending_memory_candidates(&self, limit: usize) -> Result<Vec<MemoryCandidate>> {
+        self.reviews.pending(limit)
+    }
+
+    pub(crate) fn pending_memory_candidate_count(&self) -> Result<usize> {
+        self.reviews.pending_count()
+    }
+
+    /// Decides one proposal.
+    ///
+    /// The one path from a proposal to an active record, and the only one that takes a human
+    /// decision as its input. Held behind the same admission as any other write: an approval that
+    /// landed while migration owned the directory would be written into a store whose derived views
+    /// are mid-rebuild, and the rebuild would either miss it or resurrect what it was removing.
+    pub(crate) fn review_memory_candidate(&self, request: ReviewRequest) -> Result<ReviewOutcome> {
+        let _admission = self.admit_write()?;
+        self.reviews.review(request)
     }
 
     /// The dedicated policy in the shape the pre-governance settings page understands.
@@ -571,6 +602,11 @@ pub(crate) fn build_for_tests(
         candidates: Arc::new(CandidateSubmissionService::new(
             Arc::new(SqliteCandidateRepository::new(database.clone())),
             Arc::new(UuidMemoryIdGenerator),
+            clock.clone(),
+        )),
+        reviews: Arc::new(CandidateReviewService::new(
+            Arc::new(SqliteCandidateRepository::new(database.clone())),
+            service.clone(),
             clock.clone(),
         )),
         gate: Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),

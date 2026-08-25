@@ -17,6 +17,7 @@ mod resolve_policy_tests;
 mod resolve_workspace_identity;
 #[cfg(test)]
 mod resolve_workspace_identity_tests;
+mod review_candidates;
 mod run_startup_maintenance;
 mod submit_candidates;
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub(crate) use preview_personalization::{
 };
 pub(crate) use resolve_policy::{PolicyResolutionService, ResolutionRequest};
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
+pub(crate) use review_candidates::{CandidateReviewService, ReviewRequest};
 pub(crate) use run_startup_maintenance::{StartupMaintenancePorts, StartupMaintenanceService};
 pub(crate) use submit_candidates::{
     CandidateRejection, CandidateSubmission, CandidateSubmissionOutcome,

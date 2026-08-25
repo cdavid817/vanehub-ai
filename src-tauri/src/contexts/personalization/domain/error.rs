@@ -5,6 +5,9 @@
 /// instruction body or a memory body must not travel in an error string that ends up in a log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PersonalizationDomainError {
+    /// A candidate can be decided once. A second approval would create a second record from
+    /// one proposal, and a second rejection would report something that did not happen.
+    CandidateAlreadyReviewed,
     InvalidAgentId(IdentityRejection),
     InvalidSessionId(IdentityRejection),
     InvalidWorkspaceKey(IdentityRejection),
@@ -100,6 +103,9 @@ impl std::fmt::Display for IdentityRejection {
 impl std::fmt::Display for PersonalizationDomainError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::CandidateAlreadyReviewed => {
+                write!(formatter, "This candidate has already been reviewed.")
+            }
             Self::InvalidAgentId(reason) => write!(formatter, "Agent id {reason}."),
             Self::InvalidSessionId(reason) => write!(formatter, "Session id {reason}."),
             Self::InvalidWorkspaceKey(reason) => write!(formatter, "Workspace key {reason}."),

@@ -19,14 +19,14 @@ use super::{
 };
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, CandidateSubmissionService, ClockPort, DerivedIndexPort,
-    LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
-    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
-    LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
-    MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
-    MigrationStatePort, PersonalizationApplicationError, PolicyRepository, PolicyResolutionService,
-    ResetCounts, RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
-    WorkspaceIdentityResolver,
+    AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService, ClockPort,
+    DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
+    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
+    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort,
+    MemoryApplicationService, MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort,
+    MemoryRepository, MigrationStatePort, PersonalizationApplicationError, PolicyRepository,
+    PolicyResolutionService, ResetCounts, RetrievalIndexPort, StartupMaintenancePorts,
+    StartupMaintenanceService, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryEligibilitySummary, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
@@ -312,12 +312,18 @@ fn reopen(
         maintenance.clone(),
         Arc::new(LastKnownGoodPolicyCache::default()),
     ));
+    let memories_for_review = memories.clone();
     let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
         resolver,
         candidates: Arc::new(CandidateSubmissionService::new(
             Arc::new(SqliteCandidateRepository::new(database.clone())),
             Arc::new(UuidMemoryIdGenerator),
+            Arc::new(FixedClock),
+        )),
+        reviews: Arc::new(CandidateReviewService::new(
+            Arc::new(SqliteCandidateRepository::new(database.clone())),
+            memories_for_review,
             Arc::new(FixedClock),
         )),
         gate,

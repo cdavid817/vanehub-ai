@@ -20,10 +20,10 @@ use crate::contexts::desktop::api::{
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, CandidateSubmissionService, ClockPort, LastKnownGoodPolicyCache,
-    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService, LegacyPersonalizationSettings,
-    LegacyPersonalizationSettingsPort, LegacyRowMigrationPort, LegacySettingField,
-    LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
+    AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService, ClockPort,
+    LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
+    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
+    LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
     PersonalizationApplicationError, PersonalizationPreviewService, PolicyResolutionService,
     RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
     WorkspaceIdentityResolver,
@@ -133,9 +133,15 @@ pub(crate) fn assemble_personalization(
         clock: clock.clone(),
     }));
 
+    let candidate_repository = Arc::new(SqliteCandidateRepository::new(database));
     let candidates = Arc::new(CandidateSubmissionService::new(
-        Arc::new(SqliteCandidateRepository::new(database)),
+        candidate_repository.clone(),
         Arc::new(UuidMemoryIdGenerator),
+        clock.clone(),
+    ));
+    let reviews = Arc::new(CandidateReviewService::new(
+        candidate_repository,
+        memories.clone(),
         clock.clone(),
     ));
 
@@ -150,6 +156,7 @@ pub(crate) fn assemble_personalization(
         memories,
         resolver: resolver.clone(),
         candidates,
+        reviews,
         gate,
         health: maintenance.clone(),
         settings: Arc::new(LegacySettingsCompatibility::new(
