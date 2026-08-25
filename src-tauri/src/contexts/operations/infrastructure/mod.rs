@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod log_index_lock_tests;
+#[cfg(test)]
+mod log_index_query_bounds_tests;
 mod log_index_repair_store;
 #[cfg(test)]
 mod log_index_repair_store_tests;

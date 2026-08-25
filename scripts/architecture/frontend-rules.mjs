@@ -85,8 +85,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 记录会有两种可能互相矛盾的形状。于是"把这行插进列表"就必须按 id 回取,回取的入口只能在 service
 // 边界上。没有它,8.14 的 insert 分支就只能靠通知里那点字段拼一个假的行,那正是这条设计要避免的第二
 // 种形状。上限按实测值 21122 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.16):+93 是把 live notice 真正接上运行时。两份:
+// tauri-native-session-log-transport.ts 是唯一接触 Tauri API 的实现,持有事件通道名与已注册命令
+// 白名单——通道名与 Rust 侧写错一个字符会产生一个永不触发也永不报错的订阅,这是活视图从内部无法
+// 察觉的唯一失败模式,所以它必须只有一处写法;runtime-session-log-client.ts 是运行时选择器,与
+// runtime-agent-client、runtime-session-shell-client 同一模式,组件里出现 isTauri 分支正是
+// ARCH-FE-002 要拦的东西。两个运行时共用 dispatcher,只有投递方式不同。
+// 上限按实测值 21215 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21122, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21215, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

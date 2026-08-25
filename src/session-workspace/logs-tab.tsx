@@ -5,6 +5,7 @@ import {
   type MeasuredVirtualListHandle,
 } from "../components/measured-virtual-list";
 import { agentService } from "../services/runtime-agent-client";
+import { sessionLogNoticeStream } from "../services/runtime-session-log-client";
 import type {
   SessionLogCorrelationFilters,
   SessionLogEntry,
@@ -85,6 +86,25 @@ export function LogsTab({
     const index = logs.entries.findIndex((entry) => entry.id === logs.pendingFocusId);
     if (index >= 0) listRef.current?.scrollToIndex(index, "center");
   }, [logs.entries, logs.pendingFocusId]);
+
+  // Held in a ref so the subscription below can reach the current handlers without being torn down
+  // and re-established on every render — a resubscribe per render would drop notices in the window
+  // between the two, and nothing downstream could tell that it had.
+  const liveRef = useRef({ applyLiveNotice: logs.applyLiveNotice, notePending: follow.notePending });
+  liveRef.current = { applyLiveNotice: logs.applyLiveNotice, notePending: follow.notePending };
+
+  useEffect(() => {
+    if (!isVisible || !sessionId) return;
+    const release = sessionLogNoticeStream.subscribe({}, (notice) => {
+      void liveRef.current.applyLiveNotice(notice).then((decision) => {
+        // Counted only for rows that were actually added. A notice that was ignored or that
+        // invalidated the page is not a row waiting above the viewport, and offering to jump to it
+        // would send the reader somewhere with nothing new in it.
+        if (decision === "insert") liveRef.current.notePending(1);
+      });
+    });
+    return release;
+  }, [isVisible, sessionId]);
 
   const virtualItems = useMemo<VirtualLogItem[]>(() => [
     ...logs.entries.map((entry) => ({ kind: "entry" as const, entry })),
