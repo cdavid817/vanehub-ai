@@ -3,29 +3,16 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApiError, DiscoveredServer, DiscoveryAvailability, DiscoveryReason,
-    DocumentSyncMode, IsolatedServerTestResult, LanguageConfiguration, LanguageFamily,
-    LspConfiguration, NegotiatedCapabilities, PositionEncoding, ProcessState, ServerKind,
-    ServerStatus, ServerStatusReason, ServerTestPhase, ServerTestPhaseStatus, ServerTestReason,
-    WorkspaceTrust,
+    resolve_language, CodeIntelligenceApiError, DiscoveredServer, DiscoveryAvailability,
+    DiscoveryReason, DocumentSyncMode, IsolatedServerTestResult, Language, LanguageConfiguration,
+    LspConfiguration, NegotiatedCapabilities, PositionEncoding, ProcessState, ServerStatus,
+    ServerStatusReason, ServerTestPhase, ServerTestPhaseStatus, ServerTestReason, WorkspaceTrust,
+    LANGUAGE_DEFINITIONS,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum LspLanguageIdDto {
-    Rust,
-    #[serde(rename = "typescript_javascript")]
-    TypeScriptJavaScript,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum LspServerKindDto {
-    RustAnalyzer,
-    #[serde(rename = "typescript_language_server")]
-    TypeScriptLanguageServer,
-}
-
+// Language and server ids cross the wire as plain strings. They were closed enums while the
+// supported set was compiled in; now that the registry owns that set, an enum here would put it
+// back in a second place that has to be edited in lockstep. The serialized values are unchanged.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum LspProcessStateDto {
@@ -85,6 +72,7 @@ pub(crate) enum LspSafeReasonCodeDto {
     ExecutableNotFound,
     OverrideMissing,
     OverrideNotExecutable,
+    UnsupportedOnThisPlatform,
     ExecutableUnavailable,
     MinimalProjectFailed,
     SpawnFailed,
@@ -105,10 +93,22 @@ pub(crate) enum LspSafeReasonCodeDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LspLanguageConfigurationDto {
-    pub(crate) language: LspLanguageIdDto,
+    pub(crate) language: String,
     pub(crate) enabled: bool,
     pub(crate) executable_override: Option<String>,
+    /// Absent means "use the registry default"; present but empty means the user chose none.
+    pub(crate) startup_arguments: Option<Vec<String>>,
     pub(crate) initialization_options: Value,
+}
+
+/// What the frontend needs to render one language's controls without compiling in a language list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LspLanguageDescriptorDto {
+    pub(crate) language: String,
+    pub(crate) server: String,
+    pub(crate) supported_on_host: bool,
+    pub(crate) default_startup_arguments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -116,6 +116,8 @@ pub(crate) struct LspLanguageConfigurationDto {
 pub(crate) struct LspConfigurationDto {
     pub(crate) enabled: bool,
     pub(crate) languages: Vec<LspLanguageConfigurationDto>,
+    /// Every language this build registers, whether or not it has saved configuration yet.
+    pub(crate) descriptors: Vec<LspLanguageDescriptorDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -136,8 +138,8 @@ pub(crate) struct LspWorkspaceTrustUpdateDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LspServerDiscoveryDto {
-    pub(crate) language: LspLanguageIdDto,
-    pub(crate) server: LspServerKindDto,
+    pub(crate) language: String,
+    pub(crate) server: String,
     pub(crate) availability: LspDiscoveryAvailabilityDto,
     pub(crate) executable_path: Option<String>,
     pub(crate) arguments: Vec<String>,
@@ -147,7 +149,7 @@ pub(crate) struct LspServerDiscoveryDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LspServerTestInputDto {
-    pub(crate) language: LspLanguageIdDto,
+    pub(crate) language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,7 +174,7 @@ pub(crate) struct LspNegotiatedCapabilitiesDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LspServerTestResultDto {
-    pub(crate) server: LspServerKindDto,
+    pub(crate) server: String,
     pub(crate) phases: Vec<LspServerTestPhaseResultDto>,
     pub(crate) negotiated_capabilities: Option<LspNegotiatedCapabilitiesDto>,
 }
@@ -180,8 +182,8 @@ pub(crate) struct LspServerTestResultDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LspServerStatusDto {
-    pub(crate) language: LspLanguageIdDto,
-    pub(crate) server: LspServerKindDto,
+    pub(crate) language: String,
+    pub(crate) server: String,
     pub(crate) relative_project_root: String,
     pub(crate) state: LspProcessStateDto,
     pub(crate) restart_count: u32,
@@ -191,46 +193,26 @@ pub(crate) struct LspServerStatusDto {
     pub(crate) negotiated_capabilities: Option<LspNegotiatedCapabilitiesDto>,
 }
 
-impl From<LanguageFamily> for LspLanguageIdDto {
-    fn from(value: LanguageFamily) -> Self {
-        match value {
-            LanguageFamily::Rust => Self::Rust,
-            LanguageFamily::TypeScriptJavaScript => Self::TypeScriptJavaScript,
-        }
-    }
-}
-
-impl From<LspLanguageIdDto> for LanguageFamily {
-    fn from(value: LspLanguageIdDto) -> Self {
-        match value {
-            LspLanguageIdDto::Rust => Self::Rust,
-            LspLanguageIdDto::TypeScriptJavaScript => Self::TypeScriptJavaScript,
-        }
-    }
-}
-
-impl From<ServerKind> for LspServerKindDto {
-    fn from(value: ServerKind) -> Self {
-        match value {
-            ServerKind::RustAnalyzer => Self::RustAnalyzer,
-            ServerKind::TypeScriptLanguageServer => Self::TypeScriptLanguageServer,
-        }
-    }
-}
-
 impl TryFrom<LspConfigurationDto> for LspConfiguration {
     type Error = CodeIntelligenceApiError;
 
     fn try_from(value: LspConfigurationDto) -> Result<Self, Self::Error> {
         let mut languages = BTreeMap::new();
         for entry in value.languages {
-            let language = LanguageFamily::from(entry.language);
+            // An id the registry does not know is refused rather than stored: persisting
+            // configuration for a language nothing can serve only defers the failure.
+            let language = resolve_language(&entry.language)
+                .ok_or(CodeIntelligenceApiError::InvalidConfiguration)?;
             let configuration = LanguageConfiguration {
                 enabled: entry.enabled,
                 executable_override: entry.executable_override,
+                startup_arguments: entry.startup_arguments,
                 initialization_options: entry.initialization_options,
             };
-            if languages.insert(language, configuration).is_some() {
+            if languages
+                .insert(language.language_id(), configuration)
+                .is_some()
+            {
                 return Err(CodeIntelligenceApiError::InvalidConfiguration);
             }
         }
@@ -253,10 +235,24 @@ impl From<LspConfiguration> for LspConfigurationDto {
                 .languages
                 .into_iter()
                 .map(|(language, configuration)| LspLanguageConfigurationDto {
-                    language: language.into(),
+                    language: language.as_str().to_owned(),
                     enabled: configuration.enabled,
                     executable_override: configuration.executable_override,
+                    startup_arguments: configuration.startup_arguments,
                     initialization_options: configuration.initialization_options,
+                })
+                .collect(),
+            descriptors: LANGUAGE_DEFINITIONS
+                .iter()
+                .map(|definition| LspLanguageDescriptorDto {
+                    language: definition.id.to_owned(),
+                    server: definition.server_id.to_owned(),
+                    supported_on_host: definition.supports_host(),
+                    default_startup_arguments: definition
+                        .default_startup_arguments
+                        .iter()
+                        .map(|argument| (*argument).to_string())
+                        .collect(),
                 })
                 .collect(),
         }
@@ -276,8 +272,8 @@ impl From<WorkspaceTrust> for LspWorkspaceTrustDto {
 impl From<DiscoveredServer> for LspServerDiscoveryDto {
     fn from(value: DiscoveredServer) -> Self {
         Self {
-            language: value.language.into(),
-            server: value.server.into(),
+            language: value.language.id.to_owned(),
+            server: value.language.server_id.to_owned(),
             availability: match value.availability {
                 DiscoveryAvailability::Available => LspDiscoveryAvailabilityDto::Available,
                 DiscoveryAvailability::Unavailable => LspDiscoveryAvailabilityDto::Unavailable,
@@ -290,9 +286,9 @@ impl From<DiscoveredServer> for LspServerDiscoveryDto {
 }
 
 impl LspServerTestResultDto {
-    pub(crate) fn from_result(server: ServerKind, result: IsolatedServerTestResult) -> Self {
+    pub(crate) fn from_result(language: Language, result: IsolatedServerTestResult) -> Self {
         Self {
-            server: server.into(),
+            server: language.server_id.to_owned(),
             phases: result
                 .phases()
                 .iter()
@@ -332,8 +328,8 @@ impl From<&NegotiatedCapabilities> for LspNegotiatedCapabilitiesDto {
 impl From<ServerStatus> for LspServerStatusDto {
     fn from(value: ServerStatus) -> Self {
         Self {
-            language: value.language.into(),
-            server: value.server.into(),
+            language: value.language.id.to_owned(),
+            server: value.language.server_id.to_owned(),
             relative_project_root: value.relative_project_root,
             state: process_state(value.state),
             restart_count: value.restart_count,
@@ -353,6 +349,9 @@ fn discovery_reason(value: DiscoveryReason) -> LspSafeReasonCodeDto {
         DiscoveryReason::ExecutableNotFound => LspSafeReasonCodeDto::ExecutableNotFound,
         DiscoveryReason::OverrideMissing => LspSafeReasonCodeDto::OverrideMissing,
         DiscoveryReason::OverrideNotExecutable => LspSafeReasonCodeDto::OverrideNotExecutable,
+        DiscoveryReason::UnsupportedOnThisPlatform => {
+            LspSafeReasonCodeDto::UnsupportedOnThisPlatform
+        }
     }
 }
 

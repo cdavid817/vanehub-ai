@@ -1,6 +1,6 @@
 use super::dto::{
     LspConfigurationDto, LspDiscoveryAvailabilityDto, LspLanguageConfigurationDto,
-    LspLanguageIdDto, LspSafeReasonCodeDto, LspServerTestInputDto, LspServerTestPhaseDto,
+    LspSafeReasonCodeDto, LspServerTestInputDto, LspServerTestPhaseDto,
     LspServerTestPhaseStatusDto, LspWorkspaceTrustUpdateDto,
 };
 use crate::contexts::code_intelligence::api::CodeIntelligenceApi;
@@ -26,26 +26,30 @@ fn unavailable_configuration(root: &Path) -> LspConfigurationDto {
         enabled: true,
         languages: vec![
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::Rust,
+                language: "rust".to_owned(),
                 enabled: true,
                 executable_override: Some(
                     root.join("missing-rust-analyzer")
                         .to_string_lossy()
                         .into_owned(),
                 ),
+                startup_arguments: None,
                 initialization_options: json!({"cargo": {"allTargets": false}}),
             },
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::TypeScriptJavaScript,
+                language: "typescript_javascript".to_owned(),
                 enabled: false,
                 executable_override: Some(
                     root.join("missing-typescript-language-server")
                         .to_string_lossy()
                         .into_owned(),
                 ),
+                startup_arguments: None,
                 initialization_options: json!({}),
             },
         ],
+        // Ignored on the way in; the backend rebuilds it from the registry on the way out.
+        descriptors: Vec::new(),
     }
 }
 
@@ -56,14 +60,47 @@ fn configuration_commands_round_trip_validated_values() {
     let initial = super::get_lsp_configuration::execute(&api).expect("initial configuration");
     assert!(!initial.enabled);
     assert_eq!(initial.languages.len(), 2);
+    // Descriptors describe the build, not the saved settings, so they are present before anything
+    // has been configured and are rebuilt on every read rather than round-tripped.
+    assert_eq!(
+        initial
+            .descriptors
+            .iter()
+            .map(|descriptor| descriptor.language.as_str())
+            .collect::<Vec<_>>(),
+        vec!["rust", "typescript_javascript"]
+    );
 
     let replacement = unavailable_configuration(directory.path());
     super::save_lsp_configuration::execute(&api, replacement.clone()).expect("save configuration");
 
-    assert_eq!(
-        super::get_lsp_configuration::execute(&api).expect("saved configuration"),
-        replacement
-    );
+    let saved = super::get_lsp_configuration::execute(&api).expect("saved configuration");
+    assert_eq!(saved.enabled, replacement.enabled);
+    assert_eq!(saved.languages, replacement.languages);
+    assert_eq!(saved.descriptors, initial.descriptors);
+}
+
+#[test]
+fn saving_a_configuration_for_an_unregistered_language_is_refused() {
+    let (_directory, api) = fixture("lsp-command-unregistered-language");
+
+    let rejected = LspConfigurationDto {
+        enabled: true,
+        languages: vec![LspLanguageConfigurationDto {
+            language: "go".to_owned(),
+            enabled: true,
+            executable_override: None,
+            startup_arguments: None,
+            initialization_options: json!({}),
+        }],
+        descriptors: Vec::new(),
+    };
+
+    assert!(super::save_lsp_configuration::execute(&api, rejected).is_err());
+    // The refusal must leave the stored configuration untouched rather than half-applied.
+    let stored = super::get_lsp_configuration::execute(&api).expect("configuration after refusal");
+    assert!(!stored.enabled);
+    assert_eq!(stored.languages.len(), 2);
 }
 
 #[test]
@@ -106,7 +143,7 @@ async fn discovery_and_server_test_return_safe_unavailable_results() {
     let result = super::test_lsp_server::execute(
         &api,
         LspServerTestInputDto {
-            language: LspLanguageIdDto::Rust,
+            language: "rust".to_owned(),
         },
     )
     .await

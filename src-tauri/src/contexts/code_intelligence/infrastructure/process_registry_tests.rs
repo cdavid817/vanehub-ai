@@ -2,9 +2,8 @@ use super::process_registry::{
     ActivationReason, LifecycleAction, LifecyclePolicy, ProcessRegistry, RejectionReason,
 };
 use super::project_root::ProcessKey;
-use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, ProcessState, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, ProcessState};
+use crate::contexts::code_intelligence::domain::registry;
 use std::time::Duration;
 
 const NOW: Duration = Duration::from_secs(100);
@@ -306,7 +305,7 @@ impl KeyFixture {
         let key = ProcessKey::new(
             directory.path(),
             &project,
-            ServerKind::RustAnalyzer,
+            registry::rust(),
             ConfigurationFingerprint::new(fingerprint).expect("fingerprint"),
         )
         .expect("process key");
@@ -320,7 +319,7 @@ impl KeyFixture {
         ProcessKey::new(
             self.key.session_root_ref(),
             self.key.project_root_ref(),
-            ServerKind::RustAnalyzer,
+            registry::rust(),
             ConfigurationFingerprint::new(fingerprint).expect("fingerprint"),
         )
         .expect("replacement key")

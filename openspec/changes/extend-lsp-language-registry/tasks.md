@@ -38,20 +38,30 @@
   - Three lookups: by language id, by extension (returning the owning language and its LSP `languageId`), and by server id.
 - [x] 3.4 Add a registry-completeness test asserting every entry supplies at least one executable name, at least one root marker, at least one extension mapping, and a fixture project
   - `domain/registry_tests.rs`, 7 tests. Also asserts language ids, server ids, and extensions are unique across the registry — extension lookup returns the first match, so a contested extension would resolve by declaration order and silently route a file to the wrong server.
-- [ ] 3.5 Replace `LspConfiguration`'s two-language `Default` and its `languages.len() != 2` validation with registry-derived defaults, keeping every switch disabled by default
-- [ ] 3.6 Model startup arguments as `Option<Vec<String>>` where `None` means the registry default and `Some` replaces it, and validate the bounded list-of-strings shape
-- [ ] 3.7 Delete `LanguageFamily` and `ServerKind`, resolving every match site to a registry lookup
+- [x] 3.5 Replace `LspConfiguration`'s two-language `Default` and its `languages.len() != 2` validation with registry-derived defaults, keeping every switch disabled by default
+  - The "configuration must name every supported language exactly once" rule is gone, not relaxed. A build that registers a new language has to be able to read a configuration written before it existed, so a partial map is now the normal case. The test that asserted the old rule was rewritten to assert the new one.
+- [x] 3.6 Model startup arguments as `Option<Vec<String>>` where `None` means the registry default and `Some` replaces it, and validate the bounded list-of-strings shape
+  - Bounds: at most `MAX_STARTUP_ARGUMENTS` (32) entries, `MAX_STARTUP_ARGUMENT_BYTES` (4 KiB) total, and no embedded NUL — a NUL would be truncated or refused by the platform when the list reaches a process, where the reason can no longer be reported.
+- [x] 3.7 Delete `LanguageFamily` and `ServerKind`, resolving every match site to a registry lookup
+  - Both enums collapse into one `Language = &'static LanguageDefinition`. They were always the same choice expressed twice, so as one `Copy` reference they cannot disagree, and `QueryOutcome`, `ProcessKey`, `LspDiagnosticIdentity`, `ServerStatus`, and `DiscoveredServer` each lost a field rather than gaining a clone.
+  - 26 files, ~190 references. `LspLanguageId` (owned) remains where a value crosses storage or the wire; the reference is used everywhere inside the runtime.
 
 ## 4. Infrastructure
 
-- [ ] 4.1 Drive `server_discovery` from the registry, resolving candidate executables in declared preference order and reporting which candidate was selected
-- [ ] 4.2 Drive `project_root` marker lookup from the registry without changing today's Rust and TypeScript detection results
-- [ ] 4.3 Drive `document_snapshot` extension-to-`languageId` admission from the registry
-- [ ] 4.4 Drive `server_test`'s isolated minimal project from the registry's per-language fixture declaration
-- [ ] 4.5 Include startup arguments in the server-instance configuration fingerprint so changing them drains and restarts matching servers, and add a test proving it
-- [ ] 4.6 Make `configuration_repository` preserve rows for unregistered language ids untouched while excluding them from the effective configuration, and add a test that inserts an unknown row and asserts startup succeeds with it intact
-- [ ] 4.7 Reject requests naming an unregistered language with a safe reason code, with no process start and no fallback to another language
-- [ ] 4.8 Report a language with no applicability for the host platform as unavailable with a platform reason, distinguishable from undiscovered
+- [x] 4.1 Drive `server_discovery` from the registry, resolving candidate executables in declared preference order and reporting which candidate was selected
+  - `ServerCommandPreset` is gone; `ServerDiscoveryResult` now carries the language, the resolved arguments, and `selected_executable_name`.
+- [x] 4.2 Drive `project_root` marker lookup from the registry without changing today's Rust and TypeScript detection results
+- [x] 4.3 Drive `document_snapshot` extension-to-`languageId` admission from the registry
+  - Found a pre-existing drift while consolidating: `api.rs::language_for_path` accepted `.mts` and `.cts`, which `document_snapshot` then refused, so such a file passed the gate only to fail one step later. Both now read the same registry mapping. No user-visible change — those files were never actually served — and adding them is deliberately left to a change that can spec it.
+- [x] 4.4 Drive `server_test`'s isolated minimal project from the registry's per-language fixture declaration
+- [x] 4.5 Include startup arguments in the server-instance configuration fingerprint so changing them drains and restarts matching servers, and add a test proving it
+  - `api_tests.rs`, 3 tests. One of them pins that argument *boundaries* matter, so `["ab"]` and `["a", "b"]` cannot hash alike and leave a server running under a command line the user changed.
+- [x] 4.6 Make `configuration_repository` preserve rows for unregistered language ids untouched while excluding them from the effective configuration, and add a test that inserts an unknown row and asserts startup succeeds with it intact
+  - This was a real crash vector, not a hypothetical: `load_configuration` did `LanguageFamily::parse(&language)?`, so once the CHECK constraint was dropped a single unknown row would fail the entire load. Covered at both layers — storage (`schema_tests`) and repository (`configuration_repository_tests`).
+- [x] 4.7 Reject requests naming an unregistered language with a safe reason code, with no process start and no fallback to another language
+  - Enforced at both entry points: `test_lsp_server` resolves through the registry before doing anything, and `TryFrom<LspConfigurationDto>` refuses to persist settings for a language nothing can serve.
+- [x] 4.8 Report a language with no applicability for the host platform as unavailable with a platform reason, distinguishable from undiscovered
+  - New `DiscoveryReason::UnsupportedOnThisPlatform`, checked before discovery runs, plus `supportedOnHost` on the wire descriptor.
 
 ## 5. Commands and native API
 

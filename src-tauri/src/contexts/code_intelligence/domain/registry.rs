@@ -11,6 +11,9 @@
 //! actually serve.
 
 use super::language_id::LspLanguageId;
+use std::cmp::Ordering;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostPlatform {
@@ -60,6 +63,43 @@ pub(crate) struct LanguageDefinition {
     pub(crate) extensions: &'static [ExtensionMapping],
     pub(crate) fixture_files: &'static [FixtureFile],
     pub(crate) platforms: &'static [HostPlatform],
+}
+
+/// Identity is the language id alone. Two references to the same entry must compare equal without
+/// walking every declared marker and extension, and the registry-completeness test already proves
+/// no two entries share an id.
+impl PartialEq for LanguageDefinition {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for LanguageDefinition {}
+
+impl Ord for LanguageDefinition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(other.id)
+    }
+}
+
+impl PartialOrd for LanguageDefinition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Hash for LanguageDefinition {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+/// The derived form would print every declared marker, extension, and fixture file, which buries
+/// the one field that identifies the entry in log lines and assertion output.
+impl fmt::Debug for LanguageDefinition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "LanguageDefinition({})", self.id)
+    }
 }
 
 impl LanguageDefinition {
@@ -140,4 +180,17 @@ pub(crate) fn definition_for_server(server_id: &str) -> Option<&'static Language
     LANGUAGE_DEFINITIONS
         .iter()
         .find(|definition| definition.server_id == server_id)
+}
+
+/// Named lookups for the two languages the tests exercise directly. Without them every test that
+/// used to write `LanguageFamily::Rust` would carry its own `expect`, which is noise that also
+/// hides which assertion actually failed.
+#[cfg(test)]
+pub(crate) fn rust() -> &'static LanguageDefinition {
+    definition("rust").expect("rust is registered")
+}
+
+#[cfg(test)]
+pub(crate) fn typescript() -> &'static LanguageDefinition {
+    definition("typescript_javascript").expect("typescript/javascript is registered")
 }

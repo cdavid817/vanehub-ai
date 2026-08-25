@@ -5,7 +5,7 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter;
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApi, LanguageFamily, LspConfiguration, ProcessState,
+    resolve_language, CodeIntelligenceApi, LspConfiguration, ProcessState,
 };
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use crate::platform::database::NativeDatabase;
@@ -353,7 +353,11 @@ impl NativeLspFixture {
         };
         let rust = configuration
             .languages
-            .get_mut(&LanguageFamily::Rust)
+            .get_mut(
+                &resolve_language("rust")
+                    .expect("rust is registered")
+                    .language_id(),
+            )
             .expect("Rust configuration");
         rust.enabled = true;
         rust.executable_override = Some(self.executable.to_string_lossy().into_owned());

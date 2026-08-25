@@ -12,12 +12,16 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 pub(crate) use super::domain::configuration::{LanguageConfiguration, LspConfiguration};
+// Published for callers that hold a language id without a registry lookup; only tests need it in
+// this build, and gating the lint keeps that from reading as a dead export.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use super::domain::language_id::LspLanguageId;
 pub(crate) use super::domain::models::{
-    ConfigurationFingerprint, DiagnosticSeverity, DocumentSyncMode, LanguageFamily,
+    resolve_language, ConfigurationFingerprint, DiagnosticSeverity, DocumentSyncMode, Language,
     NegotiatedCapabilities, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
-    NormalizedRange, PositionEncoding, ProcessState, QueryOutcome, QueryStatus, ServerKind,
-    WorkspaceTrust,
+    NormalizedRange, PositionEncoding, ProcessState, QueryOutcome, QueryStatus, WorkspaceTrust,
 };
+pub(crate) use super::domain::registry::{definition_for_extension, LANGUAGE_DEFINITIONS};
 pub(crate) use super::infrastructure::{
     DiscoveryAvailability, DiscoveryReason, IsolatedServerTestResult, ServerTestPhase,
     ServerTestPhaseStatus, ServerTestReason,
@@ -41,8 +45,7 @@ pub(crate) enum CodeIntelligenceApiError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiscoveredServer {
-    pub(crate) language: LanguageFamily,
-    pub(crate) server: ServerKind,
+    pub(crate) language: Language,
     pub(crate) availability: DiscoveryAvailability,
     pub(crate) executable_path: Option<String>,
     pub(crate) arguments: Vec<String>,
@@ -58,8 +61,7 @@ pub(crate) enum ServerStatusReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ServerStatus {
-    pub(crate) language: LanguageFamily,
-    pub(crate) server: ServerKind,
+    pub(crate) language: Language,
     pub(crate) relative_project_root: String,
     pub(crate) state: ProcessState,
     pub(crate) restart_count: u32,
@@ -164,19 +166,22 @@ impl CodeIntelligenceApi {
         &self,
     ) -> Result<Vec<DiscoveredServer>, CodeIntelligenceApiError> {
         let configuration = self.configuration()?;
-        [LanguageFamily::Rust, LanguageFamily::TypeScriptJavaScript]
-            .into_iter()
+        LANGUAGE_DEFINITIONS
+            .iter()
             .map(|language| {
+                // A language the stored configuration has never seen -- one this build added --
+                // is discovered against its defaults rather than refused.
+                let defaults = LanguageConfiguration::default();
                 let language_configuration = configuration
-                    .languages
-                    .get(&language)
-                    .ok_or(CodeIntelligenceApiError::InvalidConfiguration)?;
+                    .language(&language.language_id())
+                    .unwrap_or(&defaults);
                 let discovery = self.discovery.discover(
-                    language.server_kind(),
+                    language,
                     language_configuration
                         .executable_override
                         .as_deref()
                         .map(Path::new),
+                    language_configuration.startup_arguments.as_ref(),
                 );
                 Ok(discovery_view(language, discovery))
             })
@@ -200,17 +205,22 @@ impl CodeIntelligenceApi {
             })
         });
         trusted
-            && configuration.languages.iter().any(|(language, settings)| {
-                settings.enabled
-                    && self
-                        .discovery
-                        .discover(
-                            language.server_kind(),
-                            settings.executable_override.as_deref().map(Path::new),
-                        )
-                        .availability()
-                        == DiscoveryAvailability::Available
-            })
+            && configuration
+                .languages
+                .iter()
+                .any(|(language_id, settings)| {
+                    settings.enabled
+                        && resolve_language(language_id.as_str()).is_some_and(|language| {
+                            self.discovery
+                                .discover(
+                                    language,
+                                    settings.executable_override.as_deref().map(Path::new),
+                                    settings.startup_arguments.as_ref(),
+                                )
+                                .availability()
+                                == DiscoveryAvailability::Available
+                        })
+                })
     }
 
     pub(crate) fn prewarm_workspace(&self, workspace_root: &Path) {
@@ -305,7 +315,6 @@ impl CodeIntelligenceApi {
             return QueryOutcome::degraded_with_identity(
                 QueryStatus::Failed,
                 "generation_cancelled",
-                Some(language.server_kind()),
                 Some(language),
                 None,
             );
@@ -334,19 +343,20 @@ impl CodeIntelligenceApi {
 
     pub(crate) async fn test_server(
         &self,
-        language: LanguageFamily,
+        language: Language,
     ) -> Result<IsolatedServerTestResult, CodeIntelligenceApiError> {
         let configuration = self.configuration()?;
+        let defaults = LanguageConfiguration::default();
         let language_configuration = configuration
-            .languages
-            .get(&language)
-            .ok_or(CodeIntelligenceApiError::InvalidConfiguration)?;
+            .language(&language.language_id())
+            .unwrap_or(&defaults);
         let discovery = self.discovery.discover(
-            language.server_kind(),
+            language,
             language_configuration
                 .executable_override
                 .as_deref()
                 .map(Path::new),
+            language_configuration.startup_arguments.as_ref(),
         );
         let command = super::infrastructure::ServerTestCommand::from_discovery(
             &discovery,
@@ -373,13 +383,8 @@ impl CodeIntelligenceApi {
                     .filter(|path| !path.as_os_str().is_empty())
                     .map(|path| path.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_else(|| ".".to_owned());
-                let language = match snapshot.key.server_kind() {
-                    ServerKind::RustAnalyzer => LanguageFamily::Rust,
-                    ServerKind::TypeScriptLanguageServer => LanguageFamily::TypeScriptJavaScript,
-                };
                 ServerStatus {
-                    language,
-                    server: snapshot.key.server_kind(),
+                    language: snapshot.key.language(),
                     relative_project_root,
                     state: snapshot.process.state,
                     restart_count: snapshot.process.restart_count,
@@ -437,13 +442,13 @@ impl CodeIntelligenceApi {
             return Err(CodeIntelligenceApiError::ConfigurationUnavailable);
         }
         let settings = configuration
-            .languages
-            .get(&language)
+            .language(&language.language_id())
             .filter(|settings| settings.enabled)
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
         let discovery = self.discovery.discover(
-            language.server_kind(),
+            language,
             settings.executable_override.as_deref().map(Path::new),
+            settings.startup_arguments.as_ref(),
         );
         let executable = discovery
             .executable()
@@ -465,52 +470,40 @@ impl CodeIntelligenceApi {
         let key = super::infrastructure::ProcessKey::new(
             &canonical_root,
             &project_root,
-            language.server_kind(),
+            language,
             fingerprint,
         )
         .map_err(|_| CodeIntelligenceApiError::InvalidWorkspace)?;
         Ok(super::infrastructure::LspProcessLaunch {
             key,
             executable: executable.to_string_lossy().into_owned(),
-            arguments: discovery
-                .arguments()
-                .iter()
-                .map(|argument| (*argument).to_string())
-                .collect(),
+            arguments: discovery.arguments().to_vec(),
             initialization_options: settings.initialization_options.clone(),
         })
     }
 }
 
-fn unavailable_query<T>(reason: &'static str, language: Option<LanguageFamily>) -> QueryOutcome<T> {
-    QueryOutcome::degraded_with_identity(
-        QueryStatus::Unavailable,
-        reason,
-        language.map(LanguageFamily::server_kind),
-        language,
-        None,
-    )
+fn unavailable_query<T>(reason: &'static str, language: Option<Language>) -> QueryOutcome<T> {
+    QueryOutcome::degraded_with_identity(QueryStatus::Unavailable, reason, language, None)
 }
 
-fn language_for_path(path: &Path) -> Option<LanguageFamily> {
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "rs" => Some(LanguageFamily::Rust),
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" => {
-            Some(LanguageFamily::TypeScriptJavaScript)
-        }
-        _ => None,
-    }
+/// Resolves through the same registry mapping document admission uses. The two lists used to be
+/// written separately and had drifted: this one accepted `.mts` and `.cts`, which admission then
+/// refused, so such a file passed the gate only to fail one step later.
+fn language_for_path(path: &Path) -> Option<Language> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    definition_for_extension(&extension).map(|(language, _)| language)
 }
 
-fn configuration_fingerprint(
-    language: LanguageFamily,
+pub(super) fn configuration_fingerprint(
+    language: Language,
     executable: &Path,
-    arguments: &[&str],
+    arguments: &[String],
     initialization_options: &serde_json::Value,
     trust_revision: u64,
 ) -> Result<ConfigurationFingerprint, CodeIntelligenceApiError> {
     let mut digest = Sha256::new();
-    digest.update(language.as_id().as_bytes());
+    digest.update(language.id.as_bytes());
     digest.update(executable.to_string_lossy().as_bytes());
     for argument in arguments {
         digest.update(argument.as_bytes());
@@ -566,21 +559,16 @@ fn prewarm_candidates(workspace_root: &Path) -> Vec<String> {
 }
 
 fn discovery_view(
-    language: LanguageFamily,
+    language: Language,
     discovery: super::infrastructure::ServerDiscoveryResult,
 ) -> DiscoveredServer {
     DiscoveredServer {
         language,
-        server: discovery.server_kind(),
         availability: discovery.availability(),
         executable_path: discovery
             .executable()
             .map(|path| path.to_string_lossy().into_owned()),
-        arguments: discovery
-            .arguments()
-            .iter()
-            .map(|argument| (*argument).to_string())
-            .collect(),
+        arguments: discovery.arguments().to_vec(),
         reason: discovery.reason(),
     }
 }

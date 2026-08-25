@@ -1,17 +1,23 @@
 use super::models::*;
+use crate::contexts::code_intelligence::domain::registry;
 
 #[test]
-fn supported_languages_select_one_server_kind() {
-    assert_eq!(LanguageFamily::Rust.server_kind(), ServerKind::RustAnalyzer);
-    assert_eq!(
-        LanguageFamily::TypeScriptJavaScript.server_kind(),
-        ServerKind::TypeScriptLanguageServer
-    );
-    assert_eq!(LanguageFamily::Rust.as_id(), "rust");
-    assert_eq!(
-        LanguageFamily::TypeScriptJavaScript.as_id(),
-        "typescript_javascript"
-    );
+fn resolving_a_language_id_yields_the_registry_entry_and_its_server() {
+    // Replaces an assertion that a two-variant enum mapped to a two-variant server enum. The
+    // mapping cannot be wrong any more -- there is one value -- so what is worth asserting now is
+    // that resolution finds the entry and that an unregistered id resolves to nothing.
+    let rust = resolve_language("rust").expect("rust resolves");
+    assert_eq!(rust, registry::rust());
+    assert_eq!(rust.id, "rust");
+    assert_eq!(rust.server_id, "rust_analyzer");
+
+    let typescript = resolve_language("typescript_javascript").expect("typescript resolves");
+    assert_eq!(typescript, registry::typescript());
+    assert_eq!(typescript.server_id, "typescript_language_server");
+
+    assert!(resolve_language("go").is_none());
+    assert!(resolve_language("").is_none());
+    assert!(resolve_language("Rust").is_none());
 }
 
 #[test]

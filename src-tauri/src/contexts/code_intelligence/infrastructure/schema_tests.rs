@@ -149,6 +149,44 @@ fn language_registry_migration_distinguishes_unset_from_empty_startup_arguments(
 }
 
 #[test]
+fn a_row_for_an_unregistered_language_survives_and_is_excluded_from_the_effective_configuration() {
+    // Reachable by downgrading: a build that registers fewer languages than the one that wrote the
+    // database. Loading must neither fail nor delete the row, because re-upgrading has to restore
+    // the user's settings for that language exactly as they left them.
+    let connection = legacy_connection();
+    apply_language_registry_schema(&connection).expect("language registry migration");
+    connection
+        .execute(
+            "INSERT INTO lsp_language_configurations (
+                language_id, enabled, executable_override, initialization_options_json, revision
+             ) VALUES ('go', 1, 'C:/tools/gopls.exe', '{\"build\":{}}', 9)",
+            [],
+        )
+        .expect("insert configuration for an unregistered language");
+
+    let (enabled, executable_override, options, revision) = connection
+        .query_row(
+            "SELECT enabled, executable_override, initialization_options_json, revision
+             FROM lsp_language_configurations WHERE language_id = 'go'",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .expect("unregistered row is still present");
+
+    assert_eq!(enabled, 1);
+    assert_eq!(executable_override.as_deref(), Some("C:/tools/gopls.exe"));
+    assert_eq!(options, "{\"build\":{}}");
+    assert_eq!(revision, 9);
+}
+
+#[test]
 fn language_registry_migration_is_idempotent() {
     let connection = legacy_connection();
     connection

@@ -1,4 +1,5 @@
 use super::dto::*;
+use crate::contexts::code_intelligence::api::{LspConfiguration, LspLanguageId};
 use serde_json::json;
 
 #[test]
@@ -7,18 +8,21 @@ fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
         enabled: true,
         languages: vec![
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::Rust,
+                language: "rust".to_owned(),
                 enabled: true,
                 executable_override: Some("C:/tools/rust-analyzer.exe".to_string()),
+                startup_arguments: None,
                 initialization_options: json!({"check": {"command": "clippy"}}),
             },
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::TypeScriptJavaScript,
+                language: "typescript_javascript".to_owned(),
                 enabled: false,
                 executable_override: None,
+                startup_arguments: Some(vec!["--stdio".to_owned()]),
                 initialization_options: json!({}),
             },
         ],
+        descriptors: Vec::new(),
     };
 
     let value = serde_json::to_value(&configuration).expect("serialize configuration");
@@ -32,6 +36,38 @@ fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
         serde_json::from_value::<LspConfigurationDto>(value.clone())
             .expect("deserialize configuration"),
         configuration
+    );
+}
+
+#[test]
+fn unset_and_empty_startup_arguments_are_distinguishable_on_the_wire() {
+    // The whole point of the nullable column is that these two survive a round trip as different
+    // values. If serde collapsed them, clearing the field in the UI would silently mean "use the
+    // registry default" and `--stdio` would come back.
+    let unset = LspLanguageConfigurationDto {
+        language: "rust".to_owned(),
+        enabled: true,
+        executable_override: None,
+        startup_arguments: None,
+        initialization_options: json!({}),
+    };
+    let empty = LspLanguageConfigurationDto {
+        startup_arguments: Some(Vec::new()),
+        ..unset.clone()
+    };
+
+    let unset_value = serde_json::to_value(&unset).expect("serialize unset");
+    let empty_value = serde_json::to_value(&empty).expect("serialize empty");
+    assert!(unset_value["startupArguments"].is_null());
+    assert_eq!(empty_value["startupArguments"], json!([]));
+    assert_ne!(unset_value, empty_value);
+    assert_eq!(
+        serde_json::from_value::<LspLanguageConfigurationDto>(unset_value).expect("round trip"),
+        unset
+    );
+    assert_eq!(
+        serde_json::from_value::<LspLanguageConfigurationDto>(empty_value).expect("round trip"),
+        empty
     );
 }
 
@@ -63,8 +99,8 @@ fn trust_and_discovery_contracts_use_camel_case_and_safe_reason_codes() {
     );
 
     let discovery = LspServerDiscoveryDto {
-        language: LspLanguageIdDto::Rust,
-        server: LspServerKindDto::RustAnalyzer,
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
         availability: LspDiscoveryAvailabilityDto::Unavailable,
         executable_path: None,
         arguments: Vec::new(),
@@ -84,11 +120,11 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
         }))
         .expect("deserialize server test input"),
         LspServerTestInputDto {
-            language: LspLanguageIdDto::TypeScriptJavaScript,
+            language: "typescript_javascript".to_owned(),
         }
     );
     let result = LspServerTestResultDto {
-        server: LspServerKindDto::TypeScriptLanguageServer,
+        server: "typescript_language_server".to_owned(),
         phases: vec![LspServerTestPhaseResultDto {
             phase: LspServerTestPhaseDto::Initialize,
             status: LspServerTestPhaseStatusDto::Failed,
@@ -109,26 +145,24 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
 // contract change show up as a reviewable diff rather than as nothing at all.
 #[test]
 fn get_lsp_configuration_result_serializes_to_an_exact_object() {
-    let configuration = LspConfigurationDto {
+    // Built through the real domain-to-DTO conversion rather than by hand, so the descriptor list
+    // is whatever the registry actually declares. A hand-written expectation here would keep
+    // passing after the registry and the conversion had drifted apart.
+    let mut configuration = LspConfiguration {
         enabled: true,
-        languages: vec![
-            LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::Rust,
-                enabled: true,
-                executable_override: Some("C:/tools/rust-analyzer.exe".to_string()),
-                initialization_options: json!({"check": {"command": "clippy"}}),
-            },
-            LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::TypeScriptJavaScript,
-                enabled: false,
-                executable_override: None,
-                initialization_options: json!({}),
-            },
-        ],
+        ..LspConfiguration::default()
     };
+    let rust = configuration
+        .languages
+        .get_mut(&LspLanguageId::new("rust").expect("rust language id"))
+        .expect("rust configuration");
+    rust.enabled = true;
+    rust.executable_override = Some("C:/tools/rust-analyzer.exe".to_owned());
+    rust.initialization_options = json!({"check": {"command": "clippy"}});
 
     assert_eq!(
-        serde_json::to_value(&configuration).expect("serialize configuration"),
+        serde_json::to_value(LspConfigurationDto::from(configuration))
+            .expect("serialize configuration"),
         json!({
             "enabled": true,
             "languages": [
@@ -136,13 +170,29 @@ fn get_lsp_configuration_result_serializes_to_an_exact_object() {
                     "language": "rust",
                     "enabled": true,
                     "executableOverride": "C:/tools/rust-analyzer.exe",
+                    "startupArguments": null,
                     "initializationOptions": {"check": {"command": "clippy"}}
                 },
                 {
                     "language": "typescript_javascript",
                     "enabled": false,
                     "executableOverride": null,
+                    "startupArguments": null,
                     "initializationOptions": {}
+                }
+            ],
+            "descriptors": [
+                {
+                    "language": "rust",
+                    "server": "rust_analyzer",
+                    "supportedOnHost": true,
+                    "defaultStartupArguments": []
+                },
+                {
+                    "language": "typescript_javascript",
+                    "server": "typescript_language_server",
+                    "supportedOnHost": true,
+                    "defaultStartupArguments": ["--stdio"]
                 }
             ]
         })
@@ -153,16 +203,16 @@ fn get_lsp_configuration_result_serializes_to_an_exact_object() {
 fn discover_lsp_servers_result_serializes_to_an_exact_object() {
     let discovered = vec![
         LspServerDiscoveryDto {
-            language: LspLanguageIdDto::Rust,
-            server: LspServerKindDto::RustAnalyzer,
+            language: "rust".to_owned(),
+            server: "rust_analyzer".to_owned(),
             availability: LspDiscoveryAvailabilityDto::Available,
             executable_path: Some("C:/tools/rust-analyzer.exe".to_string()),
             arguments: Vec::new(),
             reason_code: None,
         },
         LspServerDiscoveryDto {
-            language: LspLanguageIdDto::TypeScriptJavaScript,
-            server: LspServerKindDto::TypeScriptLanguageServer,
+            language: "typescript_javascript".to_owned(),
+            server: "typescript_language_server".to_owned(),
             availability: LspDiscoveryAvailabilityDto::Unavailable,
             executable_path: None,
             arguments: vec!["--stdio".to_string()],
@@ -196,8 +246,8 @@ fn discover_lsp_servers_result_serializes_to_an_exact_object() {
 #[test]
 fn list_lsp_server_status_result_serializes_to_an_exact_object() {
     let statuses = vec![LspServerStatusDto {
-        language: LspLanguageIdDto::Rust,
-        server: LspServerKindDto::RustAnalyzer,
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
         relative_project_root: "crates/core".to_string(),
         state: LspProcessStateDto::Ready,
         restart_count: 1,
@@ -262,8 +312,8 @@ fn status_contract_covers_every_process_state_and_optional_capabilities() {
     );
 
     let status = LspServerStatusDto {
-        language: LspLanguageIdDto::Rust,
-        server: LspServerKindDto::RustAnalyzer,
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
         relative_project_root: "crates/core".to_string(),
         state: LspProcessStateDto::Ready,
         restart_count: 1,

@@ -1,8 +1,8 @@
 use super::server_discovery::{
-    locate_in_directories, DiscoveryAvailability, DiscoveryReason, NativeExecutableLocationPort,
-    ServerCommandPreset, ServerDiscovery, SystemNativeExecutableLocator,
+    locate_in_directories, resolved_startup_arguments, DiscoveryAvailability, DiscoveryReason,
+    NativeExecutableLocationPort, ServerDiscovery, SystemNativeExecutableLocator,
 };
-use crate::contexts::code_intelligence::domain::models::ServerKind;
+use crate::contexts::code_intelligence::domain::registry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -23,14 +23,58 @@ impl NativeExecutableLocationPort for FakeExecutableLocator {
 }
 
 #[test]
-fn command_presets_pin_supported_executables_and_stdio_arguments() {
-    let rust = ServerCommandPreset::for_kind(ServerKind::RustAnalyzer);
-    assert_eq!(rust.executable_name(), "rust-analyzer");
-    assert!(rust.arguments().is_empty());
+fn the_registry_pins_supported_executables_and_stdio_arguments() {
+    assert_eq!(registry::rust().executables, &["rust-analyzer"]);
+    assert!(registry::rust().default_startup_arguments.is_empty());
 
-    let typescript = ServerCommandPreset::for_kind(ServerKind::TypeScriptLanguageServer);
-    assert_eq!(typescript.executable_name(), "typescript-language-server");
-    assert_eq!(typescript.arguments(), &["--stdio"]);
+    assert_eq!(
+        registry::typescript().executables,
+        &["typescript-language-server"]
+    );
+    assert_eq!(
+        registry::typescript().default_startup_arguments,
+        &["--stdio"]
+    );
+}
+
+#[test]
+fn configured_startup_arguments_replace_the_registry_default_including_when_empty() {
+    // Replacement rather than append, and an empty list is a choice. Appending would make a
+    // declared default such as `--stdio` impossible to remove, and treating empty as unset would
+    // silently put it back.
+    assert_eq!(
+        resolved_startup_arguments(registry::typescript(), None),
+        vec!["--stdio".to_owned()]
+    );
+    assert_eq!(
+        resolved_startup_arguments(registry::typescript(), Some(&Vec::new())),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        resolved_startup_arguments(registry::typescript(), Some(&vec!["--lsp".to_owned()])),
+        vec!["--lsp".to_owned()]
+    );
+}
+
+#[test]
+fn discovery_selects_the_first_candidate_executable_in_registry_order() {
+    let executable = fixture_executable("rust-analyzer");
+    let locator = Arc::new(FakeExecutableLocator {
+        result: Some(executable.clone()),
+        ..FakeExecutableLocator::default()
+    });
+    let discovery = ServerDiscovery::new(locator.clone());
+
+    let result = discovery.discover(registry::rust(), None, None);
+
+    assert_eq!(
+        result.selected_executable_name(),
+        Some(registry::rust().executables[0])
+    );
+    assert_eq!(
+        locator.requests.lock().expect("request lock").as_slice(),
+        &["rust-analyzer"]
+    );
 }
 
 #[test]
@@ -42,10 +86,10 @@ fn discovery_uses_native_location_without_starting_the_server() {
     });
     let discovery = ServerDiscovery::new(locator.clone());
 
-    let result = discovery.discover(ServerKind::RustAnalyzer, None);
+    let result = discovery.discover(registry::rust(), None, None);
 
     assert_eq!(result.availability(), DiscoveryAvailability::Available);
-    assert_eq!(result.server_kind(), ServerKind::RustAnalyzer);
+    assert_eq!(result.language(), registry::rust());
     assert_eq!(result.executable(), Some(executable.as_path()));
     assert_eq!(
         locator.requests.lock().expect("request lock").as_slice(),
@@ -73,7 +117,7 @@ fn missing_native_executable_reports_a_safe_unavailable_reason() {
     let locator = Arc::new(FakeExecutableLocator::default());
     let discovery = ServerDiscovery::new(locator);
 
-    let result = discovery.discover(ServerKind::TypeScriptLanguageServer, None);
+    let result = discovery.discover(registry::typescript(), None, None);
 
     assert_eq!(result.availability(), DiscoveryAvailability::Unavailable);
     assert_eq!(result.reason(), Some(DiscoveryReason::ExecutableNotFound));
@@ -91,7 +135,7 @@ fn missing_manual_override_never_falls_back_to_native_discovery() {
     let discovery = ServerDiscovery::new(locator.clone());
     let missing = absolute_missing_path("missing-rust-analyzer");
 
-    let result = discovery.discover(ServerKind::RustAnalyzer, Some(&missing));
+    let result = discovery.discover(registry::rust(), Some(&missing), None);
 
     assert_eq!(result.availability(), DiscoveryAvailability::Unavailable);
     assert_eq!(result.reason(), Some(DiscoveryReason::OverrideMissing));
@@ -107,7 +151,7 @@ fn invalid_manual_override_is_rejected_without_native_discovery() {
     });
     let discovery = ServerDiscovery::new(locator.clone());
 
-    let result = discovery.discover(ServerKind::TypeScriptLanguageServer, Some(directory.path()));
+    let result = discovery.discover(registry::typescript(), Some(directory.path()), None);
 
     assert_eq!(result.availability(), DiscoveryAvailability::Unavailable);
     assert_eq!(

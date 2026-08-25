@@ -11,8 +11,8 @@ use super::runtime_process_coordinator::{
 };
 use super::semantic_results::SemanticResultNormalizer;
 use crate::contexts::code_intelligence::domain::models::{
-    LanguageFamily, NormalizedDiagnostic, NormalizedHover, NormalizedLocation, QueryOutcome,
-    QueryStatus, SemanticMethod,
+    Language, NormalizedDiagnostic, NormalizedHover, NormalizedLocation, QueryOutcome, QueryStatus,
+    SemanticMethod,
 };
 use lsp_types::{GotoDefinitionResponse, Hover, Location};
 use serde_json::json;
@@ -44,8 +44,7 @@ struct PreparedQuery {
 struct QueryFailure {
     status: QueryStatus,
     reason: &'static str,
-    server: Option<crate::contexts::code_intelligence::domain::models::ServerKind>,
-    language: Option<LanguageFamily>,
+    language: Option<Language>,
     document_version: Option<crate::contexts::code_intelligence::domain::models::DocumentVersion>,
 }
 
@@ -54,7 +53,6 @@ impl QueryFailure {
         QueryOutcome::degraded_with_identity(
             self.status,
             self.reason,
-            self.server,
             self.language,
             self.document_version,
         )
@@ -85,7 +83,7 @@ impl SemanticQueryCoordinator {
     pub(crate) async fn find_definition(
         &self,
         launch: LspProcessLaunch,
-        language: LanguageFamily,
+        language: Language,
         relative_path: &str,
         line: u32,
         column: u32,
@@ -136,7 +134,6 @@ impl SemanticQueryCoordinator {
         let normalized = normalizer.definitions(response);
         QueryOutcome::ready_with_metadata(
             normalized.locations,
-            prepared.handle.key().server_kind(),
             language,
             prepared.document.version(),
             normalized
@@ -151,7 +148,7 @@ impl SemanticQueryCoordinator {
     pub(crate) async fn find_references(
         &self,
         launch: LspProcessLaunch,
-        language: LanguageFamily,
+        language: Language,
         relative_path: &str,
         line: u32,
         column: u32,
@@ -206,7 +203,6 @@ impl SemanticQueryCoordinator {
         let normalized = normalizer.references(response);
         QueryOutcome::ready_with_metadata(
             normalized.locations,
-            prepared.handle.key().server_kind(),
             language,
             prepared.document.version(),
             normalized
@@ -221,7 +217,7 @@ impl SemanticQueryCoordinator {
     pub(crate) async fn get_hover(
         &self,
         launch: LspProcessLaunch,
-        language: LanguageFamily,
+        language: Language,
         relative_path: &str,
         line: u32,
         column: u32,
@@ -274,7 +270,6 @@ impl SemanticQueryCoordinator {
         let count = usize::from(hover.is_some());
         QueryOutcome::ready_with_metadata(
             hover,
-            prepared.handle.key().server_kind(),
             language,
             prepared.document.version(),
             count,
@@ -287,7 +282,7 @@ impl SemanticQueryCoordinator {
     pub(crate) async fn get_diagnostics(
         &self,
         launch: LspProcessLaunch,
-        language: LanguageFamily,
+        language: Language,
         relative_path: &str,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedDiagnostic>> {
@@ -318,7 +313,6 @@ impl SemanticQueryCoordinator {
             return QueryOutcome::degraded_with_identity(
                 QueryStatus::Failed,
                 "generation_cancelled",
-                Some(prepared.handle.key().server_kind()),
                 Some(language),
                 Some(prepared.document.version()),
             );
@@ -342,7 +336,6 @@ impl SemanticQueryCoordinator {
             result.status(),
             diagnostics,
             reason,
-            prepared.handle.key().server_kind(),
             language,
             prepared.document.version(),
             result.stale(),
@@ -356,12 +349,11 @@ impl SemanticQueryCoordinator {
     async fn prepare(
         &self,
         launch: LspProcessLaunch,
-        language: LanguageFamily,
+        language: Language,
         relative_path: &str,
         method: SemanticMethod,
     ) -> Result<PreparedQuery, QueryFailure> {
         let key = launch.key.clone();
-        let server = Some(key.server_kind());
         let acquisition = self
             .processes
             .acquire(launch, ActivationReason::ToolRequest, true)
@@ -370,30 +362,19 @@ impl SemanticQueryCoordinator {
             LspProcessAcquisition::Ready(handle) => handle,
             LspProcessAcquisition::Warming => {
                 self.processes.release_request(&key).await;
-                return Err(failure(
-                    QueryStatus::Warming,
-                    "server_starting",
-                    server,
-                    language,
-                ));
+                return Err(failure(QueryStatus::Warming, "server_starting", language));
             }
             LspProcessAcquisition::Unavailable => {
                 self.processes.release_request(&key).await;
                 return Err(failure(
                     QueryStatus::Unavailable,
                     "server_unavailable",
-                    server,
                     language,
                 ));
             }
             LspProcessAcquisition::Failed => {
                 self.processes.release_request(&key).await;
-                return Err(failure(
-                    QueryStatus::Failed,
-                    "server_failed",
-                    server,
-                    language,
-                ));
+                return Err(failure(QueryStatus::Failed, "server_failed", language));
             }
         };
         if !handle.capabilities().supports(method) {
@@ -401,7 +382,6 @@ impl SemanticQueryCoordinator {
             return Err(failure(
                 QueryStatus::Unavailable,
                 "method_unsupported",
-                server,
                 language,
             ));
         }
@@ -411,7 +391,7 @@ impl SemanticQueryCoordinator {
             Ok(resources) => resources,
             Err(reason) => {
                 self.processes.release_request(handle.key()).await;
-                return Err(failure(QueryStatus::Failed, reason, server, language));
+                return Err(failure(QueryStatus::Failed, reason, language));
             }
         };
         let mut manager = resources.manager.lock().await;
@@ -432,7 +412,6 @@ impl SemanticQueryCoordinator {
                 Err(failure(
                     QueryStatus::Failed,
                     "document_unavailable",
-                    server,
                     language,
                 ))
             }
@@ -536,15 +515,8 @@ async fn wait_for_cancellation(cancelled: Arc<AtomicBool>) {
     }
 }
 
-fn language_for(prepared: &PreparedQuery) -> LanguageFamily {
-    match prepared.handle.key().server_kind() {
-        crate::contexts::code_intelligence::domain::models::ServerKind::RustAnalyzer => {
-            LanguageFamily::Rust
-        }
-        crate::contexts::code_intelligence::domain::models::ServerKind::TypeScriptLanguageServer => {
-            LanguageFamily::TypeScriptJavaScript
-        }
-    }
+fn language_for(prepared: &PreparedQuery) -> Language {
+    prepared.handle.key().language()
 }
 
 fn request_control(cancelled: Arc<AtomicBool>) -> JsonRpcRequestControl {
@@ -553,7 +525,7 @@ fn request_control(cancelled: Arc<AtomicBool>) -> JsonRpcRequestControl {
 
 fn request_failure(
     prepared: &PreparedQuery,
-    language: LanguageFamily,
+    language: Language,
     error: JsonRpcError,
 ) -> QueryFailure {
     let (status, reason) = match error {
@@ -569,28 +541,21 @@ fn request_failure(
 
 fn prepared_failure(
     prepared: &PreparedQuery,
-    language: LanguageFamily,
+    language: Language,
     reason: &'static str,
 ) -> QueryFailure {
     QueryFailure {
         status: QueryStatus::Failed,
         reason,
-        server: Some(prepared.handle.key().server_kind()),
         language: Some(language),
         document_version: Some(prepared.document.version()),
     }
 }
 
-fn failure(
-    status: QueryStatus,
-    reason: &'static str,
-    server: Option<crate::contexts::code_intelligence::domain::models::ServerKind>,
-    language: LanguageFamily,
-) -> QueryFailure {
+const fn failure(status: QueryStatus, reason: &'static str, language: Language) -> QueryFailure {
     QueryFailure {
         status,
         reason,
-        server,
         language: Some(language),
         document_version: None,
     }

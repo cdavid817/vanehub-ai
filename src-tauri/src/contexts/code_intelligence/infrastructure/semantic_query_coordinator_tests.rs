@@ -5,9 +5,8 @@ use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};
 use super::semantic_query_coordinator::SemanticQueryCoordinator;
 use super::shutdown_coordinator::LspShutdownCoordinator;
-use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, LanguageFamily, QueryStatus, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, QueryStatus};
+use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
 use std::path::Path;
@@ -31,7 +30,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let definition = queries
         .find_definition(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             1,
             1,
@@ -48,7 +47,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let references = queries
         .find_references(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             1,
             1,
@@ -64,7 +63,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let hover = queries
         .get_hover(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             1,
             1,
@@ -83,7 +82,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let diagnostics = queries
         .get_diagnostics(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             active(),
         )
@@ -105,7 +104,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let synchronized = queries
         .find_definition(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             1,
             1,
@@ -129,7 +128,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let invalid_position = queries
         .find_definition(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             99,
             1,
@@ -146,7 +145,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
         let cancelled = cancelled.clone();
         async move {
             queries
-                .find_definition(launch, LanguageFamily::Rust, "src/lib.rs", 1, 2, cancelled)
+                .find_definition(launch, registry::rust(), "src/lib.rs", 1, 2, cancelled)
                 .await
         }
     });
@@ -159,7 +158,7 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     let diagnostics = queries
         .get_diagnostics(
             fixture.launch.clone(),
-            LanguageFamily::Rust,
+            registry::rust(),
             "src/lib.rs",
             active(),
         )
@@ -221,7 +220,7 @@ impl SemanticFixture {
         let key = ProcessKey::new(
             workspace.path(),
             workspace.path(),
-            ServerKind::RustAnalyzer,
+            registry::rust(),
             ConfigurationFingerprint::new("semantic-fixture").expect("fingerprint"),
         )
         .expect("process key");
