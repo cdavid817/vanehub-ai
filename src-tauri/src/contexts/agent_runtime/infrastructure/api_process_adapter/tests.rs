@@ -52,6 +52,10 @@ fn execute(
         super::super::UnavailableAgentCodeIntelligenceResponder,
     ));
     let mut ignored_observations = Vec::new();
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
     execute_with_code_intelligence(
         request,
         cancelled,
@@ -70,7 +74,7 @@ fn execute(
         retrieval,
         &code_intelligence,
         &NOOP_WORKSPACE_MUTATIONS,
-        personalization,
+        &governed,
         None,
         None,
         None,
@@ -159,20 +163,131 @@ fn resolve_system_prompt_with_observations(
     request: &GenerationProcessRequest,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
 ) -> Option<String> {
-    let personalization_settings =
-        resolve_personalization_settings(personalization, logging, clock, request);
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
     resolve_system_prompt_with_settings(
         agent_id,
         core_instructions,
-        &personalization_settings,
+        &snapshot,
         skills,
-        memories,
+        &governed,
         selection,
         logging,
         clock,
         request,
         observed_skill_revisions,
     )
+}
+
+/// Presents the pre-governance fakes through the governed snapshot port.
+///
+/// What the prompt-assembly tests in this file assert — section order, budgets, degradation on a
+/// failing dependency — is unchanged by personalization governance, so they keep their existing
+/// fixtures and reach the new call shape through this translation instead of being restated
+/// against hand-built snapshots. The translation is deliberately mechanical and decides nothing:
+/// where it does map one thing to another (an unavailable settings read to the fail-closed
+/// snapshot, the memory switch to a delivery mode), that mapping is the composition root's rule
+/// and is asserted where it lives, in `bootstrap::personalization_bridge_tests`.
+struct SnapshotFromLegacyPorts<'a> {
+    personalization: &'a dyn AgentPersonalizationPort,
+    memories: &'a dyn AgentMemoryPort,
+}
+
+impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        let Ok(settings) = self.personalization.settings() else {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
+        };
+        // Not fetched when the switch is off. The pre-governance path skipped the lookup entirely,
+        // and a test asserting that would otherwise be defeated by the harness rather than by the
+        // code it is about.
+        let stored = if settings.memory_enabled {
+            self.memories.list_all().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        snapshot_from_legacy_settings(Ok(settings), &stored)
+    }
+
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        let stored = self.memories.list_all()?;
+        Ok(pinned_bodies_from(refs, &stored))
+    }
+}
+
+fn snapshot_from_legacy_settings(
+    settings: Result<PersonalizationSettings, AgentRuntimeApplicationError>,
+    stored: &[AgentMemory],
+) -> AgentPersonalizationSnapshot {
+    {
+        let Ok(settings) = settings else {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
+        };
+        let eligible: Vec<AgentMemoryRef> = if settings.memory_enabled {
+            stored
+                .iter()
+                .map(|memory| AgentMemoryRef {
+                    id: memory.id.clone(),
+                    revision: 1,
+                    name: memory.name.clone(),
+                    description: memory.description.clone(),
+                    memory_type: memory.memory_type,
+                    updated_at: memory.modified_at,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        AgentPersonalizationSnapshot {
+            revision_token: "test-snapshot".to_string(),
+            instruction_block: settings.custom_instructions_block(),
+            memory: AgentMemoryAccess {
+                read: settings.memory_enabled,
+                explicit_save: settings.memory_enabled,
+                automatic_extraction: settings.memory_enabled,
+                automatic_extraction_in_tool_assisted_turns: settings.memory_enabled
+                    && settings.memory_tool_assisted_chats_enabled,
+                candidate_creation: settings.memory_enabled,
+                retrieval_write: settings.memory_enabled,
+                delivery: if settings.memory_enabled {
+                    AgentMemoryDelivery::IndexWithSelectedBodies
+                } else {
+                    AgentMemoryDelivery::None
+                },
+                eligible_total: eligible.len(),
+                eligible,
+                blocked_reason: (!settings.memory_enabled).then(|| "policy_denied".to_string()),
+            },
+            automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled,
+            context_quality_retention_days: settings.context_quality_retention_days,
+        }
+    }
+}
+
+fn pinned_bodies_from(refs: &[AgentMemoryRef], stored: &[AgentMemory]) -> Vec<AgentMemoryBody> {
+    refs.iter()
+        .filter_map(|entry| {
+            let memory = stored.iter().find(|memory| memory.id == entry.id)?;
+            Some(AgentMemoryBody {
+                id: entry.id.clone(),
+                revision: entry.revision,
+                name: memory.name.clone(),
+                memory_type: memory.memory_type,
+                content: memory.content.clone(),
+                updated_at: entry.updated_at,
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -205,6 +320,15 @@ fn maybe_compact(
     let mut request_sequence = 0;
     let before_characters = turns_character_count(turns) as u64;
     let turns_before = turns.len();
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
     match compatibility_compact_accounted(
         turns,
         wire_format,
@@ -218,7 +342,7 @@ fn maybe_compact(
         clock,
         request,
         memories,
-        personalization,
+        &snapshot,
         tool_assisted,
         None,
         &mut request_sequence,
@@ -830,6 +954,19 @@ struct NoopPersonalization;
 impl AgentPersonalizationPort for NoopPersonalization {
     fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
         Ok(PersonalizationSettings::safe_fallback())
+    }
+}
+
+impl AgentPersonalizationSnapshotPort for NoopPersonalization {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        snapshot_from_legacy_settings(self.settings(), &[])
+    }
+
+    fn pinned_bodies(
+        &self,
+        _refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
     }
 }
 
@@ -5869,8 +6006,14 @@ fn resolve_system_prompt_includes_custom_instructions_between_core_and_skills() 
     assert!(core < custom && custom < skill && skill < memory);
 }
 
+/// Personalization that cannot be established costs personalization, never the answer.
+///
+/// The generation still assembles: core instructions and Skills are present, and only the two
+/// surfaces personalization governs are absent. Memory is among them — a snapshot that could not
+/// be resolved is not evidence that reading is permitted, so this now denies memory where the
+/// pre-governance safe fallback left it on.
 #[test]
-fn resolve_system_prompt_falls_back_to_safe_defaults_when_personalization_lookup_fails() {
+fn resolve_system_prompt_omits_instructions_and_memory_when_personalization_is_unavailable() {
     let request = sample_request("api");
     let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
     let logging = RecordingLogging::default();
@@ -5891,13 +6034,275 @@ fn resolve_system_prompt_falls_back_to_safe_defaults_when_personalization_lookup
         &request,
     )
     .expect("system prompt");
-    assert!(!system.contains("## Custom Instructions"));
     assert!(system.contains("## Reviewer"));
+    assert!(!system.contains("## Custom Instructions"));
+    assert!(!system.contains("## Memory"));
+    assert!(!system.contains("memory-1"));
+}
+
+/// A snapshot port that answers with one prepared snapshot and records what it was asked.
+struct ScriptedSnapshots {
+    snapshot: AgentPersonalizationSnapshot,
+    bodies: Vec<AgentMemory>,
+    calls: AtomicUsize,
+    body_requests: Mutex<Vec<Vec<AgentMemoryRef>>>,
+}
+
+impl ScriptedSnapshots {
+    fn new(snapshot: AgentPersonalizationSnapshot) -> Self {
+        Self {
+            snapshot,
+            bodies: Vec::new(),
+            calls: AtomicUsize::new(0),
+            body_requests: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl AgentPersonalizationSnapshotPort for ScriptedSnapshots {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.snapshot.clone()
+    }
+
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        self.body_requests
+            .lock()
+            .expect("body requests")
+            .push(refs.to_vec());
+        Ok(pinned_bodies_from(refs, &self.bodies))
+    }
+}
+
+/// The snapshot the pre-governance defaults resolve to: memory on, no instructions.
+fn noop_snapshot() -> AgentPersonalizationSnapshot {
+    NoopPersonalization.snapshot(GenerationPersonalizationContext {
+        agent_id: "onepiece".to_string(),
+        session_id: "session-1".to_string(),
+        folder: None,
+    })
+}
+
+fn memory_ref(id: &str, description: &str) -> AgentMemoryRef {
+    AgentMemoryRef {
+        id: format!("{id}.md"),
+        revision: 1,
+        name: id.to_string(),
+        description: description.to_string(),
+        memory_type: None,
+        updated_at: None,
+    }
+}
+
+fn snapshot_with(
+    instruction_block: Option<&str>,
+    eligible: Vec<AgentMemoryRef>,
+    delivery: AgentMemoryDelivery,
+) -> AgentPersonalizationSnapshot {
+    AgentPersonalizationSnapshot {
+        revision_token: "personalization-snapshot-v2:test".to_string(),
+        instruction_block: instruction_block.map(str::to_string),
+        memory: AgentMemoryAccess {
+            read: true,
+            explicit_save: true,
+            automatic_extraction: true,
+            automatic_extraction_in_tool_assisted_turns: true,
+            candidate_creation: true,
+            retrieval_write: true,
+            delivery,
+            eligible_total: eligible.len(),
+            eligible,
+            blocked_reason: None,
+        },
+        automatic_context_compaction_enabled: true,
+        context_quality_retention_days: 30,
+    }
+}
+
+fn resolve_prompt_from_snapshot(
+    snapshots: &ScriptedSnapshots,
+    request: &GenerationProcessRequest,
+) -> Option<String> {
+    let mut ignored_observations = Vec::new();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+    resolve_system_prompt_with_settings(
+        &request.agent.id,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &snapshot,
+        &NoopSkills,
+        snapshots,
+        &NoSelection,
+        &NoopLogging,
+        &FixedClock,
+        request,
+        &mut ignored_observations,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_with_snapshot_port(
+    request: &GenerationProcessRequest,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
+    logging: &dyn AgentLoggingPort,
+) -> GenerationProcessEvent {
+    let mut ignored_observations = Vec::new();
+    let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
+        super::super::UnavailableAgentCodeIntelligenceResponder,
+    ));
+    execute_with_code_intelligence(
+        request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-ant-test".to_string()),
+        },
+        &anthropic_config("claude-opus-4-8"),
+        // Fails right after the snapshot is taken, which is all these two tests need: no endpoint
+        // is contacted, and the generation still reaches the point where personalization applies.
+        &FakeHistory(FakeHistoryOutcome::Error),
+        &CapturingSink::default(),
+        &no_pending_approvals(),
+        logging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &FakeMemories::default(),
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &code_intelligence,
+        &NOOP_WORKSPACE_MUTATIONS,
+        personalization,
+        None,
+        None,
+        None,
+        None,
+        &mut ignored_observations,
+        None,
+        &NativeToolRegistry::empty(),
+        None,
+        None,
+        None,
+    )
+}
+
+/// 6.2 — the resolved block is placed, not re-derived.
+///
+/// Whatever policy merged arrives verbatim, in one deterministic position. Assembly no longer
+/// reads a global toggle, so a block that is present is present because policy resolved it.
+#[test]
+fn resolved_instruction_block_is_placed_verbatim_after_core_instructions() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        Some("## Custom Instructions\n### Response style\nBe terse."),
+        Vec::new(),
+        AgentMemoryDelivery::None,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
+    assert!(system.contains("## Custom Instructions\n### Response style\nBe terse."));
+    let core = system.find("# OnePiece Core Instructions").expect("core");
+    let custom = system.find("## Custom Instructions").expect("custom");
+    assert!(core < custom);
+}
+
+/// 6.2 — no block resolved means no section, not an empty one.
+#[test]
+fn absent_instruction_block_leaves_no_custom_instructions_section() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
+    assert!(!system.contains("## Custom Instructions"));
+}
+
+/// 6.3 — the index is the eligible set and nothing else.
+///
+/// The unscoped listing is gone: assembly has no store to reach past the snapshot into, so a
+/// record the snapshot did not rule eligible cannot appear however it got into the store.
+#[test]
+fn memory_index_carries_exactly_the_eligible_records_from_the_snapshot() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![
+            memory_ref("in-scope", "Eligible under this policy."),
+            memory_ref("also-in-scope", "Also eligible."),
+        ],
+        AgentMemoryDelivery::IndexOnly,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
     assert!(system.contains("## Memory"));
+    assert!(system.contains("- [in-scope](in-scope.md) - Eligible under this policy."));
+    assert!(system.contains("- [also-in-scope](also-in-scope.md) - Also eligible."));
+}
+
+/// 6.3 — denied delivery fetches nothing rather than fetching and discarding.
+#[test]
+fn memory_index_is_absent_when_the_snapshot_delivers_no_memory() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![memory_ref("in-scope", "Eligible under this policy.")],
+        AgentMemoryDelivery::None,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).unwrap_or_default();
+
+    assert!(!system.contains("## Memory"));
+    assert!(!system.contains("in-scope"));
+    assert!(snapshots
+        .body_requests
+        .lock()
+        .expect("body requests")
+        .is_empty());
+}
+
+/// 6.1 — one snapshot for the whole generation.
+///
+/// Taken before anything that could observe it, and never retaken: a policy edit made mid-turn
+/// reaches the next turn rather than rewriting a prompt already assembled under the previous one.
+#[test]
+fn execute_requests_exactly_one_personalization_snapshot_per_generation() {
+    let request = sample_request("api");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+
+    let event = execute_with_snapshot_port(&request, &snapshots, &NoopLogging);
+
+    assert!(matches!(event, GenerationProcessEvent::Failed(_)));
+    assert_eq!(snapshots.calls.load(Ordering::SeqCst), 1);
+}
+
+/// 6.1 — a lost snapshot is reported once, by code and nothing else.
+#[test]
+fn execute_logs_the_reason_when_personalization_is_unavailable() {
+    let request = sample_request("api");
+    let logging = RecordingLogging::default();
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "policy_unavailable",
+    ));
+
+    let _ = execute_with_snapshot_port(&request, &snapshots, &logging);
+
     let logs = logging.logs.lock().expect("logs");
-    assert!(logs
+    let personalization: Vec<_> = logs
         .iter()
-        .any(|log| log.category == "session.runtime.api.personalization"));
+        .filter(|log| log.category == "session.runtime.api.personalization")
+        .collect();
+    assert_eq!(personalization.len(), 1);
+    assert!(personalization[0].message.contains("policy_unavailable"));
 }
 
 #[test]
@@ -6171,7 +6576,7 @@ fn personalization_settings(about_user: &str, style_rules: &str) -> Personalizat
 #[test]
 fn format_custom_instructions_section_orders_style_rules_before_about_user() {
     let settings = personalization_settings("Works on VaneHub AI.", "Always answer in Chinese.");
-    let section = format_custom_instructions_section(&settings).expect("section");
+    let section = settings.custom_instructions_block().expect("section");
     assert_eq!(
         section,
         "## Custom Instructions\n### Response style\nAlways answer in Chinese.\n\n### About the user\nWorks on VaneHub AI."
@@ -6184,19 +6589,19 @@ fn format_custom_instructions_section_omits_the_section_when_disabled() {
         custom_instructions_enabled: false,
         ..personalization_settings("About.", "Style.")
     };
-    assert_eq!(format_custom_instructions_section(&settings), None);
+    assert_eq!(settings.custom_instructions_block(), None);
 }
 
 #[test]
 fn format_custom_instructions_section_omits_the_section_when_both_fields_are_empty() {
     let settings = personalization_settings("", "");
-    assert_eq!(format_custom_instructions_section(&settings), None);
+    assert_eq!(settings.custom_instructions_block(), None);
 }
 
 #[test]
 fn format_custom_instructions_section_includes_only_the_non_empty_field() {
     let settings = personalization_settings("Works on VaneHub AI.", "");
-    let section = format_custom_instructions_section(&settings).expect("section");
+    let section = settings.custom_instructions_block().expect("section");
     assert_eq!(
         section,
         "## Custom Instructions\n### About the user\nWorks on VaneHub AI."
@@ -6619,6 +7024,16 @@ fn run_optimizer_compaction_with_logging(
 ) -> Option<GenerationProcessEvent> {
     let mut request_sequence = 0;
     let mut compaction_state = AutomaticCompactionState::default();
+    let empty_memories = FakeMemories::default();
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories: &empty_memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: "onepiece".to_string(),
+        session_id: "session-1".to_string(),
+        folder: None,
+    });
     maybe_compact_accounted(
         turns,
         wire_format,
@@ -6635,7 +7050,7 @@ fn run_optimizer_compaction_with_logging(
         &FixedClock,
         &sample_request("api"),
         &FakeMemories::default(),
-        personalization,
+        &snapshot,
         false,
         None,
         &mut request_sequence,
@@ -6697,7 +7112,7 @@ fn run_controlled_compaction_with_quality(
         &FixedClock,
         request,
         &FakeMemories::default(),
-        &NoopPersonalization,
+        &noop_snapshot(),
         false,
         None,
         &mut request_sequence,

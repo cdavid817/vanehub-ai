@@ -136,14 +136,22 @@ pub(crate) fn assemble_personalization(
     // rather than later keeps every personalization construction in one place.
     let _candidates = Arc::new(SqliteCandidateRepository::new(database));
 
+    let resolver = Arc::new(PolicyResolutionService::new(
+        policies_for_resolver,
+        Arc::new(RegistryAgentCapabilities::new(agents)),
+        projection_for_resolver,
+        maintenance.clone(),
+        policy_cache.clone(),
+    ));
     let api = PersonalizationApi::new(
         memories,
+        resolver.clone(),
         gate,
         maintenance.clone(),
         Arc::new(LegacySettingsCompatibility::new(
             policies,
             clock,
-            policy_cache.clone(),
+            policy_cache,
         )),
         aliases,
         Arc::new(WorkspaceIdentityResolver::for_this_platform()),
@@ -151,13 +159,6 @@ pub(crate) fn assemble_personalization(
     // Bound here rather than by the caller, so there is no assembly order in which the settings
     // page is live while the legacy rows are still its truth.
     settings_for_bridge.bind_personalization(Arc::new(GovernedSettingsBridge::new(api.clone())));
-    let resolver = Arc::new(PolicyResolutionService::new(
-        policies_for_resolver,
-        Arc::new(RegistryAgentCapabilities::new(agents)),
-        projection_for_resolver,
-        maintenance.clone(),
-        policy_cache,
-    ));
     let preview = Arc::new(PersonalizationPreviewService::new(
         resolver.clone(),
         Arc::new(PlatformSecretRedaction),

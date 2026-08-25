@@ -2385,9 +2385,35 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // -328 production: `invocation.rs` loses its per-parameter-id renderer branches and
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
+    //
+    // Raised again from 60,547 to 60,980 by `add-unified-personalization-governance`, which moves
+    // the OnePiece runtime off flat personalization settings and onto one governed snapshot per
+    // generation. The change adds 478 lines here; the previous figure carried 45 lines of
+    // headroom, so the ceiling moves by 433. Of the 478:
+    //
+    // +415 in `tests.rs`, and none of it duplicated coverage. ~200 is the two fixtures the new
+    // call shape needs — `SnapshotFromLegacyPorts`, which presents the pre-governance fakes
+    // through the snapshot port so ~13 assembly tests keep their existing setup, and
+    // `ScriptedSnapshots`, which answers with a prepared snapshot and records what it was asked.
+    // The rest is the seven tests for this group: verbatim instruction placement, absent block,
+    // eligible-only index, no fetch when delivery is denied, one snapshot per generation, the
+    // single fail-closed log line, and the shared `execute_with_snapshot_port` harness.
+    //
+    // +55 in `prompt.rs`, net of two deletions. `resolve_generation_personalization` and its doc
+    // (+37) take this generation's one snapshot and record its loss, replacing
+    // `resolve_personalization_settings` (-35); `memory_from_ref` and the delivery match (+35)
+    // replace the unscoped `list_all` branch; `select_memory_bodies` gains the pinned-revision
+    // fetch and its degradation log (+31); `format_custom_instructions_section` (-13) is gone
+    // because policy now renders the block, and its four tests moved onto
+    // `PersonalizationSettings::custom_instructions_block` where the rule still lives.
+    //
+    // +5 in `compaction.rs` (the two-part extraction gate), +2 in `mod.rs`
+    // and +1 in `generation.rs` (import lists), and 0 net in `execution.rs` — the observability
+    // that would have pushed it past its own path budget lives in `prompt.rs` instead, beside the
+    // other prompt-assembly degradations it belongs with.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 60_547,
+        budget: 60_980,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2416,7 +2442,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // at its first `#[cfg(test)]` and several files declare `#[cfg(test)] mod tests;` near the
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
-        budget: 32_964,
+        //
+        // Raised to 32,984 by `add-unified-personalization-governance`. Production grows by 63 —
+        // +55 `prompt.rs`, +5 `compaction.rs`, +2 `mod.rs`, +1 `generation.rs`, 0 `execution.rs`
+        // — against 43 lines of headroom in the previous figure, so the ceiling moves by 20. The
+        // itemised breakdown is on the aggregate entry above; what makes it production rather
+        // than test is that the runtime now reads one governed snapshot where it read three
+        // independent global toggles, and a snapshot has to be taken, carried and reported.
+        budget: 32_984,
         owner: "upgrade-cli-parameter-management",
     },
 ];

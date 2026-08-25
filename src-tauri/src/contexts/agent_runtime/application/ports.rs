@@ -4,12 +4,16 @@
 //! terminals, operations, clocks, logging, and event publication. Infrastructure implements these
 //! contracts; application services do not depend on Tauri, SQLite, or concrete CLI libraries.
 
+use std::time::SystemTime;
+
+use crate::contexts::agent_runtime::domain::MemoryType;
+
 use super::{
-    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMessage,
-    AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
-    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentToolCallOutcome, ApiProviderConfig, AuthoritativeContextValue, BoundSkillPrompt,
-    CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
+    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMemoryRef,
+    AgentMessage, AgentOperation, AgentPersonalizationSnapshot, AgentRuntimeApplicationError,
+    AgentSession, AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentToolCallOutcome, ApiProviderConfig, AuthoritativeContextValue,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
     DurableAgentGenerationMessages, DurableAgentGenerationStart, EffectivePrompt,
     GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
     LocalEndpointVerificationRequest, LocalModelEndpointCandidate, LoopChildRecoveryProjection,
@@ -1260,6 +1264,53 @@ pub(crate) trait AgentMemorySelectionPort: Send + Sync {
 /// workspace identity, and session personalization mode. Generic settings stay too coarse for this
 /// job in two ways that matter: a whole-object save lets one field's write clobber an unrelated
 /// field, and a host-level boolean cannot express "this workspace, this Agent, this session".
+/// What one generation knows about itself before personalization is resolved.
+///
+/// Identities and the session's own mode, nothing more. This context does not know what a policy
+/// scope is, and building the request from anything richer would move that decision here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GenerationPersonalizationContext {
+    pub(crate) agent_id: String,
+    pub(crate) session_id: String,
+    /// The workspace folder this session is working in, as the session records it.
+    pub(crate) folder: Option<String>,
+}
+
+/// One immutable personalization answer per generation.
+///
+/// Replaces reading flat settings and then listing every memory: both of those were separate
+/// decisions taken at separate moments, and a policy change between them produced a prompt whose
+/// index and whose bodies disagreed. This is asked once and answers everything.
+///
+/// Deliberately returns this context's own types. Personalization owns the policy model, and a port
+/// that handed its types across would make one context's taxonomy a dependency of the other's.
+pub(crate) trait AgentPersonalizationSnapshotPort: Send + Sync {
+    /// Never fails the generation. An unresolvable policy yields a fail-closed snapshot, because an
+    /// answer without personalization is still an answer and refusing to generate is not.
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot;
+
+    /// The bodies of memories the snapshot pinned, at the revisions it pinned.
+    ///
+    /// Separate from the snapshot because only the few that survive relevance selection need one,
+    /// and loading every body to build an index would defeat the budgeting the index feeds. A ref
+    /// whose record moved since is simply absent rather than silently newer.
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError>;
+}
+
+/// One pinned memory with its text, for the few that reach a prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMemoryBody {
+    pub(crate) id: String,
+    pub(crate) revision: u64,
+    pub(crate) name: String,
+    pub(crate) memory_type: Option<MemoryType>,
+    pub(crate) content: String,
+    pub(crate) updated_at: Option<SystemTime>,
+}
+
 pub(crate) trait AgentPersonalizationPort: Send + Sync {
     fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
 }

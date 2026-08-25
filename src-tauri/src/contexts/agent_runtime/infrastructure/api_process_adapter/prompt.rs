@@ -6,15 +6,17 @@ use super::super::skill_tool_catalog_adapter::{
 };
 use super::super::tools::task_list_prompt_section;
 use super::{SKILL_AGGREGATE_CHARACTER_BUDGET, SKILL_PER_ITEM_CHARACTER_BUDGET};
+use crate::contexts::agent_runtime::application::MemorySource;
 use crate::contexts::agent_runtime::application::{
     ask_user_question_tool_definition, code_intelligence_tool_definitions,
     delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
     search_code_tool_definition, tool_catalog, AgentClockPort, AgentCodeIntelligenceContext,
     AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMemorySelectionPort,
-    AgentPersonalizationPort, AgentRetrievalPort, AgentSkillPort, ApiProviderConfig,
-    BoundSkillPrompt, GenerationProcessRequest, NativeToolExecutionMode, NativeToolRegistry,
-    PersonalizationSettings, ToolDefinition, ToolEligibilityContext,
+    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryDelivery, AgentMemoryRef,
+    AgentMemorySelectionPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
+    AgentRetrievalPort, AgentSkillPort, ApiProviderConfig, BoundSkillPrompt,
+    GenerationPersonalizationContext, GenerationProcessRequest, NativeToolExecutionMode,
+    NativeToolRegistry, ToolDefinition, ToolEligibilityContext,
     UtilityDelegationApplicationService,
 };
 use crate::contexts::skill_evolution_evidence::domain::{
@@ -224,58 +226,62 @@ pub(super) fn resolve_generation_skill_tools(
     }
 }
 
-/// Resolves the agent's bound, enabled Skills (`add-agent-skill-support`) and stored memories
-/// scoped to `(agent_id, request.session.folder)` (`add-agent-cross-session-memory`) into one
-/// system-prompt string, or `None` if both are empty. Neither source can fail the generation on
-/// lookup error — each logs its own warning and falls back to contributing nothing, matching
-/// context compaction's own established best-effort-enhancement philosophy (design.md Decision 3
-/// in `add-agent-skill-support`).
-/// Fetches host-level personalization settings once, degrading to
-/// `PersonalizationSettings::safe_fallback()` and a logged warning on lookup failure — shared by
-/// every call site that needs a personalization flag (`add-personalization-settings`), matching
-/// this function's neighbors' own established lookup-failure philosophy.
-pub(super) fn resolve_personalization_settings(
-    personalization: &dyn AgentPersonalizationPort,
+/// Takes this generation's one personalization snapshot, and reports it if it was lost.
+///
+/// One call, at the start of a generation, and the answer is reused for the whole of it. A policy
+/// edit made while the turn runs reaches the next turn rather than rewriting a prompt already
+/// assembled under the previous answer — which is what stops a turn whose memory index and whose
+/// selected bodies were resolved under two different policies.
+///
+/// A generation that silently lost its personalization is indistinguishable, from the outside,
+/// from a user who configured none, so the loss is recorded. The reason is a stable code — never a
+/// path, never a store error, never instruction text — because this is a log line.
+pub(super) fn resolve_generation_personalization(
+    personalization: &dyn AgentPersonalizationSnapshotPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
-) -> PersonalizationSettings {
-    match personalization.settings() {
-        Ok(settings) => settings,
-        Err(error) => {
-            let _ = logging.record(AgentLog {
-                level: AgentLogLevel::Warn,
-                category: "session.runtime.api.personalization".to_string(),
-                message: format!(
-                    "Failed to resolve personalization settings; continuing with safe defaults: {error}"
-                ),
-                agent_id: Some(request.agent.id.clone()),
-                session_id: Some(request.session.id.clone()),
-                operation_id: Some(request.operation_id.clone()),
-                run_id: None,
-                trace_id: None,
-                span_id: None,
-                occurred_at: clock.now(),
-            });
-            PersonalizationSettings::safe_fallback()
-        }
+) -> AgentPersonalizationSnapshot {
+    let snapshot = personalization.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+    if let Some(reason) = snapshot.memory.blocked_reason.as_deref() {
+        let _ = logging.record(AgentLog {
+            level: AgentLogLevel::Warn,
+            category: "session.runtime.api.personalization".to_string(),
+            message: format!(
+                "Personalization unavailable ({reason}); continuing without custom instructions or memory."
+            ),
+            agent_id: Some(request.agent.id.clone()),
+            session_id: Some(request.session.id.clone()),
+            operation_id: Some(request.operation_id.clone()),
+            run_id: None,
+            trace_id: None,
+            span_id: None,
+            occurred_at: clock.now(),
+        });
     }
+    snapshot
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_system_prompt_with_settings(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization_settings: &PersonalizationSettings,
+    snapshot: &AgentPersonalizationSnapshot,
     skills: &dyn AgentSkillPort,
-    memories: &dyn AgentMemoryPort,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
     selection: &dyn AgentMemorySelectionPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
 ) -> Option<String> {
-    let custom_instructions_section = format_custom_instructions_section(personalization_settings);
+    // Already merged and ordered by policy. This function places it; it no longer decides whether
+    // instructions apply, which layer authored them, or in what order they combine.
+    let custom_instructions_section = snapshot.instruction_block.clone();
     let core_section = match core_instructions.instructions_for(agent_id) {
         Ok(Some(core)) => {
             let _ = logging.record(AgentLog {
@@ -343,35 +349,33 @@ pub(super) fn resolve_system_prompt_with_settings(
             None
         }
     };
-    let (memory_section, memory_bodies_section) = if !personalization_settings.memory_enabled {
-        // Memory master switch off (`add-personalization-settings` D4) — skip the lookup
-        // entirely rather than fetching and discarding, matching design.md D8's "no wasted work
-        // when a feature is off" intent. No selection call is made either.
-        (None, None)
-    } else {
-        match memories.list_all() {
-            Ok(memories) => (
-                format_memory_section(&memories),
-                select_memory_bodies(&memories, selection, logging, clock, request),
+    // The eligible set is what the snapshot found; nothing here can reach outside it. Policy, the
+    // session mode, the runtime capability and migration health were all applied before this
+    // function saw a single record, which is why there is no toggle left to check here beyond what
+    // the snapshot already decided.
+    let eligible: Vec<AgentMemory> = snapshot
+        .memory
+        .eligible
+        .iter()
+        .map(memory_from_ref)
+        .collect();
+    let (memory_section, memory_bodies_section) = match snapshot.memory.delivery {
+        // Nothing is fetched rather than fetched and discarded: a runtime that cannot take an index
+        // has no use for one, and neither does a session that may not read.
+        AgentMemoryDelivery::None => (None, None),
+        AgentMemoryDelivery::IndexOnly => (format_memory_section(&eligible), None),
+        AgentMemoryDelivery::IndexWithSelectedBodies => (
+            format_memory_section(&eligible),
+            select_memory_bodies(
+                &snapshot.memory.eligible,
+                &eligible,
+                personalization,
+                selection,
+                logging,
+                clock,
+                request,
             ),
-            Err(error) => {
-                let _ = logging.record(AgentLog {
-                    level: AgentLogLevel::Warn,
-                    category: "session.runtime.api.memory".to_string(),
-                    message: format!(
-                        "Failed to resolve stored memories; continuing without them in the system prompt: {error}"
-                    ),
-                    agent_id: Some(request.agent.id.clone()),
-                    session_id: Some(request.session.id.clone()),
-                    operation_id: Some(request.operation_id.clone()),
-                    run_id: None,
-                    trace_id: None,
-                    span_id: None,
-                    occurred_at: clock.now(),
-                });
-                (None, None)
-            }
-        }
+        ),
     };
     // Changes on every `todo_write` (`add-agent-task-list` D2), so it is the most volatile section
     // of all and sits last.
@@ -407,8 +411,11 @@ pub(super) fn resolve_system_prompt_with_settings(
 ///
 /// Any failure degrades to index-only injection. Selection is an enhancement — its loss costs
 /// relevance, never the generation, and the index alone still tells the model what exists.
+#[allow(clippy::too_many_arguments)]
 fn select_memory_bodies(
+    refs: &[AgentMemoryRef],
     memories: &[AgentMemory],
+    personalization: &dyn AgentPersonalizationSnapshotPort,
     selection: &dyn AgentMemorySelectionPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
@@ -443,7 +450,9 @@ fn select_memory_bodies(
             return None;
         }
     };
-    // Follows the selector's own order so its ranking survives into the prompt.
+    // Follows the selector's own order so its ranking survives into the prompt. A name the selector
+    // returned that is not among the candidates is dropped rather than looked up elsewhere — that
+    // is the only place selection could otherwise reach past what policy allowed.
     let selected = selected_names
         .iter()
         .filter_map(|name| {
@@ -453,11 +462,73 @@ fn select_memory_bodies(
                 .cloned()
         })
         .collect::<Vec<_>>();
-    mark_surfaced(&request.session.id, &selected);
+    if selected.is_empty() {
+        return None;
+    }
+    // Fetched at the revisions the snapshot pinned. A memory edited since this generation began is
+    // absent rather than silently newer, so the body in the prompt is the body the index described.
+    let pinned: Vec<AgentMemoryRef> = selected
+        .iter()
+        .filter_map(|memory| refs.iter().find(|entry| entry.id == memory.id).cloned())
+        .collect();
+    let bodies = match personalization.pinned_bodies(&pinned) {
+        Ok(bodies) => bodies,
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.memory".to_string(),
+                message: format!(
+                    "Selected memory bodies could not be read; continuing with the index alone: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            return None;
+        }
+    };
+    // Marked only for what actually reached the prompt. Marking the selection instead would hide a
+    // memory from later turns that this one never showed.
+    let surfaced: Vec<AgentMemory> = pinned
+        .iter()
+        .filter_map(|entry| {
+            let body = bodies.iter().find(|body| body.id == entry.id)?;
+            Some(AgentMemory {
+                content: body.content.clone(),
+                ..memory_from_ref(entry)
+            })
+        })
+        .collect();
+    mark_surfaced(&request.session.id, &surfaced);
     crate::contexts::agent_runtime::application::format_memory_bodies(
-        &selected,
+        &surfaced,
         std::time::SystemTime::now(),
     )
+}
+
+/// One eligible ref in the shape the index, the selector and the surfaced tracker already speak.
+///
+/// The body is deliberately empty: none of those three reads it, and filling it would mean loading
+/// every eligible memory to build an index that names them.
+fn memory_from_ref(entry: &AgentMemoryRef) -> AgentMemory {
+    AgentMemory {
+        id: entry.id.clone(),
+        agent_id: String::new(),
+        folder: None,
+        name: entry.name.clone(),
+        description: entry.description.clone(),
+        memory_type: entry.memory_type,
+        content: String::new(),
+        source: MemorySource::Automatic,
+        created_at: String::new(),
+        // Carried through, and the reason the staleness caveat and the already-surfaced exclusion
+        // work at all: both key on it, and a `None` here silently disables both.
+        modified_at: entry.updated_at,
+    }
 }
 
 pub(super) fn format_system_prompt(
@@ -513,20 +584,4 @@ pub(super) fn format_memory_section(memories: &[AgentMemory]) -> Option<String> 
         memories,
         crate::contexts::agent_runtime::application::ONEPIECE_MEMORY_INDEX_BOUNDS,
     )
-}
-
-/// Formats enabled, non-empty custom instructions into one `## Custom Instructions` section,
-/// response style before about-you within it (`add-personalization-settings` design.md D3 — style
-/// is a cross-cutting constraint on every response, about-you is background fact, so style gets
-/// the higher-priority earlier position). Returns `None` when disabled or both fields are empty,
-/// omitting either sub-heading individually when only one field is populated.
-/// Thin delegate to `PersonalizationSettings::custom_instructions_block` (moved to `application`
-/// in `add-cli-custom-instructions-injection` so the CLI-wrapped agents' send path can share the
-/// identical formatting rule without `application` depending on `infrastructure`). Kept as a free
-/// function here, rather than updating every call site to the method form, so this file's existing
-/// `format_custom_instructions_section_*` tests need no changes.
-pub(super) fn format_custom_instructions_section(
-    settings: &PersonalizationSettings,
-) -> Option<String> {
-    settings.custom_instructions_block()
 }

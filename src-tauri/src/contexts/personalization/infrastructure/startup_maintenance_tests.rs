@@ -19,11 +19,12 @@ use super::{
 };
 use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
-    ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
-    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
-    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort,
-    MemoryApplicationService, MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort,
-    MemoryRepository, MigrationStatePort, PersonalizationApplicationError, PolicyRepository,
+    AgentCapabilityPort, ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache,
+    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService, LegacyPersonalizationSettings,
+    LegacyPersonalizationSettingsPort, LegacyRowMigrationPort, LegacySettingField,
+    LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
+    MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
+    MigrationStatePort, PersonalizationApplicationError, PolicyRepository, PolicyResolutionService,
     ResetCounts, RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
     WorkspaceIdentityResolver,
 };
@@ -194,6 +195,27 @@ impl RetrievalIndexPort for SwitchableRetrieval {
     }
 }
 
+/// Every Agent, fully capable. These fixtures are about migration and health, not about which
+/// runtime can consume what, and an empty registry would fail them closed for the wrong reason.
+struct EveryAgentCapable;
+
+impl AgentCapabilityPort for EveryAgentCapable {
+    fn capabilities(
+        &self,
+        _agent_id: &crate::contexts::personalization::domain::AgentId,
+    ) -> Result<Option<crate::contexts::personalization::domain::PersonalizationRuntimeCapabilities>>
+    {
+        Ok(Some(
+            crate::contexts::personalization::domain::PersonalizationRuntimeCapabilities {
+                supports_custom_instructions: true,
+                supports_memory_index: true,
+                supports_selected_memory_bodies: true,
+                supports_automatic_extraction: true,
+            },
+        ))
+    }
+}
+
 struct Fixture {
     _directory: Option<TempDir>,
     directory_path: std::path::PathBuf,
@@ -283,8 +305,16 @@ fn reopen(
         derived: memories.clone(),
         clock: Arc::new(FixedClock),
     }));
+    let resolver = Arc::new(PolicyResolutionService::new(
+        policies.clone(),
+        Arc::new(EveryAgentCapable),
+        projection.clone(),
+        maintenance.clone(),
+        Arc::new(LastKnownGoodPolicyCache::default()),
+    ));
     let api = PersonalizationApi::new(
         memories,
+        resolver,
         gate,
         maintenance.clone(),
         Arc::new(LegacySettingsCompatibility::new(

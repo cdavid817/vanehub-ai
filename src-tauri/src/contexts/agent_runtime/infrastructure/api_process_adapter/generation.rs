@@ -11,12 +11,13 @@ use super::{ExecutedToolCall, PendingApprovals};
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort,
     AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
-    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentRetrievalPort,
-    AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, ContextEngineOutcome, ContextEngineService, ContextQualityRecorder,
-    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessRequest, MemorySource,
-    NativeToolRegistry, ReportedUsageTotals, ToolDefinition, ToolUseBlock,
-    UtilityDelegationApplicationService, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
+    AgentRetrievalPort, AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway,
+    ApiCredentialPort, ApiProviderConfig, ContextEngineOutcome, ContextEngineService,
+    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
+    GenerationProcessRequest, MemorySource, NativeToolRegistry, ReportedUsageTotals,
+    ToolDefinition, ToolUseBlock, UtilityDelegationApplicationService,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     parse_memory_actions, ContextBudget, ContextRequest, MEMORY_ACTIONS_INSTRUCTION,
@@ -55,7 +56,7 @@ pub(super) fn run_generation(
     retrieval: Arc<dyn AgentRetrievalPort>,
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
-    personalization: Arc<dyn AgentPersonalizationPort>,
+    personalization: Arc<dyn AgentPersonalizationSnapshotPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
     context_engine: Option<Arc<ContextEngineService>>,
     accounting: Option<SessionsApi>,

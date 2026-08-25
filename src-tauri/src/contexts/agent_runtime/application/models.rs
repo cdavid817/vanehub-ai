@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentLaunchView {
@@ -1446,6 +1447,122 @@ pub(crate) struct BoundSkillPrompt {
 pub(crate) struct AgentCoreInstructions {
     pub(crate) version: String,
     pub(crate) markdown: String,
+}
+
+/// How memory may reach this runtime, if at all.
+///
+/// Decided by policy and capability together, before the runtime sees it. Widening this is not
+/// something prompt assembly can do — it places what it is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentMemoryDelivery {
+    None,
+    IndexOnly,
+    IndexWithSelectedBodies,
+}
+
+/// One memory the snapshot found eligible, pinned.
+///
+/// Carries no body. The index is built from these, and relevance selection chooses among these;
+/// only the few that survive selection have their bodies fetched, at the revision pinned here. A
+/// body that changed since would then be a conflict rather than different text substituted into a
+/// turn that was planned around the old one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMemoryRef {
+    /// The handle every other surface addresses this memory by.
+    pub(crate) id: String,
+    pub(crate) revision: u64,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) memory_type: Option<MemoryType>,
+    /// When the record last changed. Drives the age line and the staleness caveat, and is what the
+    /// already-surfaced tracker keys on — a memory corrected since it was last shown becomes
+    /// eligible to surface again.
+    pub(crate) updated_at: Option<SystemTime>,
+}
+
+/// What this generation may do with long-term memory.
+///
+/// Every field is already resolved: policy, session mode, runtime capability and migration health
+/// have all been applied. Nothing downstream re-decides any of it, and nothing downstream may
+/// widen it — which is why `eligible` is the complete candidate set rather than a starting point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMemoryAccess {
+    pub(crate) read: bool,
+    pub(crate) explicit_save: bool,
+    pub(crate) automatic_extraction: bool,
+    /// Whether extraction may run for a compaction whose turns included tool calls. A separate
+    /// answer from `automatic_extraction`, because the sub-policy narrows tool-assisted turns
+    /// only: a user who turned it off did not thereby ask for extraction to stop on the turns
+    /// where they used no tool.
+    pub(crate) automatic_extraction_in_tool_assisted_turns: bool,
+    /// Whether a completed exchange may propose a memory at all. Distinct from extraction: a
+    /// temporary session forbids proposing one even when the extractor would have run.
+    pub(crate) candidate_creation: bool,
+    pub(crate) retrieval_write: bool,
+    pub(crate) delivery: AgentMemoryDelivery,
+    /// Policy-eligible memories, in the order the snapshot found them. Relevance selection may
+    /// narrow this; it has no way to reach anything outside it.
+    pub(crate) eligible: Vec<AgentMemoryRef>,
+    /// How many were eligible in total, when `eligible` is a bounded page of them.
+    pub(crate) eligible_total: usize,
+    /// A stable code for why nothing may be read, when nothing may be. Reported, never inferred.
+    pub(crate) blocked_reason: Option<String>,
+}
+
+impl AgentMemoryAccess {
+    /// Everything off. What a runtime gets when personalization could not be established, and what
+    /// a temporary session gets by design.
+    pub(crate) fn denied(reason: impl Into<String>) -> Self {
+        Self {
+            read: false,
+            explicit_save: false,
+            automatic_extraction: false,
+            automatic_extraction_in_tool_assisted_turns: false,
+            candidate_creation: false,
+            retrieval_write: false,
+            delivery: AgentMemoryDelivery::None,
+            eligible: Vec::new(),
+            eligible_total: 0,
+            blocked_reason: Some(reason.into()),
+        }
+    }
+}
+
+/// One immutable answer for one generation.
+///
+/// Taken once, at the start of a turn, and reused for the whole of it. A settings change made while
+/// a turn is running reaches the *next* turn rather than rewriting the one already planned around
+/// the old values — which is what stops a prompt whose memory index and whose selected bodies were
+/// resolved under two different policies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentPersonalizationSnapshot {
+    /// A safe fingerprint of everything that decided this snapshot. Diagnostics only.
+    pub(crate) revision_token: String,
+    /// The user-authored instruction block, already merged and ordered by policy. `None` when no
+    /// instructions apply — which is different from an empty block, and is why this is an `Option`
+    /// rather than a string that might be blank.
+    pub(crate) instruction_block: Option<String>,
+    pub(crate) memory: AgentMemoryAccess,
+    /// Not personalization, and not moved by it. Carried here so one read answers everything a
+    /// generation needs rather than three reads that could disagree.
+    pub(crate) automatic_context_compaction_enabled: bool,
+    pub(crate) context_quality_retention_days: i64,
+}
+
+impl AgentPersonalizationSnapshot {
+    /// What a generation gets when personalization cannot be established.
+    ///
+    /// Instructions omitted and memory denied, with compaction left on: an unavailable policy makes
+    /// an answer less personal, and must never make it absent or unbounded.
+    pub(crate) fn fail_closed(reason: impl Into<String>) -> Self {
+        Self {
+            revision_token: "unresolved".to_string(),
+            instruction_block: None,
+            memory: AgentMemoryAccess::denied(reason),
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
+        }
+    }
 }
 
 /// Host-level personalization settings, owned by `desktop` and read through

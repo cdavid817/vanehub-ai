@@ -15,11 +15,13 @@ use chrono::{DateTime, Utc};
 use super::application::{
     CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility,
     LegacySettingsView, MaintenanceGatePort, MemoryApplicationService, MemoryHealthPort,
-    MutationAdmission, PersonalizationApplicationError, UpdateMemoryPatch, WorkspaceIdentityPort,
+    MutationAdmission, PersonalizationApplicationError, PolicyResolutionService, ResolutionRequest,
+    UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
-    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord,
-    MemoryRuntimeHealth, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
+    EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance,
+    MemoryRecord, MemoryRuntimeHealth, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
+    MemoryType,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -33,6 +35,9 @@ type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 pub(crate) struct CompatibilityMemory {
     pub(crate) file_name: String,
     pub(crate) id: MemoryId,
+    /// The revision this body was read at. A caller holding a pinned reference compares it rather
+    /// than trusting that the record has not moved since.
+    pub(crate) revision: u64,
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) memory_type: MemoryType,
@@ -49,6 +54,7 @@ impl CompatibilityMemory {
         Self {
             file_name: record.file_name(),
             id: record.id.clone(),
+            revision: record.revision,
             name: record.name.clone(),
             description: record.description.clone(),
             memory_type: record.memory_type,
@@ -93,6 +99,10 @@ pub(crate) struct CompatibilitySaveInput {
 #[derive(Clone)]
 pub(crate) struct PersonalizationApi {
     memories: Arc<MemoryApplicationService>,
+    /// Resolves one immutable snapshot per generation. Published here rather than handed to runtime
+    /// adapters directly, so every consumer reaches policy through the one boundary this context
+    /// exposes and none of them can assemble a resolver of its own.
+    resolver: Arc<PolicyResolutionService>,
     /// Held across every read and every write, so a `Ready` answer cannot go stale between the
     /// check and the work it authorizes.
     gate: Arc<dyn MaintenanceGatePort>,
@@ -107,6 +117,7 @@ pub(crate) struct PersonalizationApi {
 impl PersonalizationApi {
     pub(crate) fn new(
         memories: Arc<MemoryApplicationService>,
+        resolver: Arc<PolicyResolutionService>,
         gate: Arc<dyn MaintenanceGatePort>,
         health: Arc<dyn MemoryHealthPort>,
         settings: Arc<LegacySettingsCompatibility>,
@@ -115,6 +126,7 @@ impl PersonalizationApi {
     ) -> Self {
         Self {
             memories,
+            resolver,
             gate,
             health,
             settings,
@@ -157,6 +169,18 @@ impl PersonalizationApi {
     fn admit_read(&self) -> Option<Box<dyn MutationAdmission>> {
         let admission = self.gate.enter_mutation().ok()?;
         self.memory_is_ready().then_some(admission)
+    }
+
+    /// One immutable snapshot for one generation or seat turn.
+    ///
+    /// The only way a runtime obtains policy. Taking it once at the start of a turn is what makes a
+    /// settings change mid-turn reach the *next* turn rather than rewriting the one already planned
+    /// around the old values.
+    pub(crate) fn resolve_snapshot(
+        &self,
+        request: ResolutionRequest,
+    ) -> Result<EffectivePersonalizationSnapshot> {
+        self.resolver.resolve(request)
     }
 
     /// The dedicated policy in the shape the pre-governance settings page understands.
@@ -439,11 +463,32 @@ pub(crate) fn build_for_tests(
     retrieval_index: Arc<dyn super::application::RetrievalIndexPort>,
     clock: Arc<dyn super::application::ClockPort>,
 ) -> (PersonalizationApi, Arc<MemoryApplicationService>) {
+    use super::application::{AgentCapabilityPort, LastKnownGoodPolicyCache};
+    use super::domain::{AgentId, PersonalizationRuntimeCapabilities};
     use super::infrastructure::{
         DurableMemoryHealth, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
         SqliteLegacyAddressAlias, SqliteMemoryProjection, SqliteMigrationState,
         SqlitePolicyRepository, UuidMemoryIdGenerator,
     };
+
+    /// Every Agent, fully capable. These fixtures are about memory and the compatibility view, not
+    /// about which runtime can consume what, and an empty registry would fail every one of them
+    /// closed for the wrong reason.
+    struct EveryAgentCapable;
+
+    impl AgentCapabilityPort for EveryAgentCapable {
+        fn capabilities(
+            &self,
+            _agent_id: &AgentId,
+        ) -> Result<Option<PersonalizationRuntimeCapabilities>> {
+            Ok(Some(PersonalizationRuntimeCapabilities {
+                supports_custom_instructions: true,
+                supports_memory_index: true,
+                supports_selected_memory_bodies: true,
+                supports_automatic_extraction: true,
+            }))
+        }
+    }
 
     let repository = Arc::new(
         MarkdownMemoryRepository::new(memory_root.clone(), Arc::new(UuidMemoryIdGenerator))
@@ -457,17 +502,24 @@ pub(crate) fn build_for_tests(
         retrieval_index,
         clock.clone(),
     ));
+    let policies = Arc::new(SqlitePolicyRepository::new(database.clone()));
+    let health = Arc::new(DurableMemoryHealth::new(Arc::new(
+        SqliteMigrationState::new(database.clone()),
+    )));
+    let cache = Arc::new(LastKnownGoodPolicyCache::default());
+    let resolver = Arc::new(PolicyResolutionService::new(
+        policies.clone(),
+        Arc::new(EveryAgentCapable),
+        Arc::new(SqliteMemoryProjection::new(database.clone())),
+        health.clone(),
+        cache.clone(),
+    ));
     let api = PersonalizationApi::new(
         service.clone(),
+        resolver,
         Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
-        Arc::new(DurableMemoryHealth::new(Arc::new(
-            SqliteMigrationState::new(database.clone()),
-        ))),
-        Arc::new(LegacySettingsCompatibility::new(
-            Arc::new(SqlitePolicyRepository::new(database.clone())),
-            clock,
-            Arc::new(super::application::LastKnownGoodPolicyCache::default()),
-        )),
+        health,
+        Arc::new(LegacySettingsCompatibility::new(policies, clock, cache)),
         Arc::new(SqliteLegacyAddressAlias::new(database)),
         Arc::new(super::application::WorkspaceIdentityResolver::for_this_platform()),
     );

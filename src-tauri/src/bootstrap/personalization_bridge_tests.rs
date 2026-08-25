@@ -5,8 +5,10 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 
-use super::personalization_bridge::LegacyMemoryPortBridge;
-use crate::contexts::agent_runtime::application::{AgentMemoryPort, MemorySource, SaveMemoryInput};
+use super::personalization_bridge::{instruction_block, memory_access, LegacyMemoryPortBridge};
+use crate::contexts::agent_runtime::application::{
+    AgentMemoryPort, MemorySource, PersonalizationSettings, SaveMemoryInput,
+};
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
 use crate::contexts::personalization::api::build_for_tests;
@@ -15,9 +17,11 @@ use crate::contexts::personalization::application::{
     PersonalizationApplicationError, RetrievalIndexPort,
 };
 use crate::contexts::personalization::domain::{
-    MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity,
-    MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType, MigrationPhase,
-    MigrationState,
+    AgentId, AgentRuntimeKind, EffectivePersonalizationSnapshot, InstructionField,
+    InstructionMergeAction, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
+    MemorySensitivity, MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType,
+    MigrationPhase, MigrationState, PersonalizationResolutionContext, PersonalizationWarningCode,
+    ResolvedInstructionSegment, SessionId, SessionPersonalizationMode,
 };
 use crate::contexts::personalization::infrastructure::SqliteMigrationState;
 use crate::platform::database::NativeDatabase;
@@ -278,4 +282,108 @@ fn delete_all_clears_the_view() {
     }
     fixture.bridge.delete_all().expect("delete all");
     assert!(fixture.bridge.list_all().expect("listing").is_empty());
+}
+
+fn resolved_snapshot(
+    segments: Vec<ResolvedInstructionSegment>,
+) -> EffectivePersonalizationSnapshot {
+    let context = PersonalizationResolutionContext {
+        agent_id: AgentId::parse("onepiece").expect("agent id"),
+        session_id: SessionId::parse("session-1").expect("session id"),
+        workspace: None,
+        runtime_kind: AgentRuntimeKind::OnePiece,
+        session_mode: SessionPersonalizationMode::Standard,
+    };
+    EffectivePersonalizationSnapshot {
+        instruction_segments: segments,
+        ..EffectivePersonalizationSnapshot::fail_closed(
+            context,
+            PersonalizationWarningCode::NoValidatedPolicy,
+        )
+    }
+}
+
+fn segment(field: InstructionField, text: &str) -> ResolvedInstructionSegment {
+    ResolvedInstructionSegment {
+        field,
+        scope_kind: "global",
+        scope_key: "global".to_string(),
+        policy_revision: 1,
+        merge_action: InstructionMergeAction::Replaced,
+        text: text.to_string(),
+    }
+}
+
+/// The migration must be invisible to a user who changed nothing.
+///
+/// Byte-for-byte what the flat settings rendered, heading spacing included. A prompt that gained a
+/// blank line would invalidate every provider prefix cache in the fleet and would show up in any
+/// stored-prompt comparison as a change nobody made.
+#[test]
+fn the_rendered_instruction_block_is_byte_identical_to_the_flat_settings_rendering() {
+    let governed = instruction_block(&resolved_snapshot(vec![
+        segment(InstructionField::AboutUser, "Writes Rust."),
+        segment(InstructionField::StyleRules, "Be terse."),
+    ]))
+    .expect("instruction block");
+
+    let flat = PersonalizationSettings {
+        custom_instructions_about_user: "Writes Rust.".to_string(),
+        custom_instructions_style_rules: "Be terse.".to_string(),
+        custom_instructions_enabled: true,
+        ..PersonalizationSettings::safe_fallback()
+    }
+    .custom_instructions_block()
+    .expect("flat block");
+
+    assert_eq!(governed, flat);
+}
+
+/// Style before the description of the user, whichever order policy resolved them in.
+#[test]
+fn the_rendered_instruction_block_puts_style_before_the_description_of_the_user() {
+    let block = instruction_block(&resolved_snapshot(vec![
+        segment(InstructionField::AboutUser, "Writes Rust."),
+        segment(InstructionField::StyleRules, "Be terse."),
+    ]))
+    .expect("instruction block");
+
+    let style = block.find("### Response style").expect("style");
+    let about = block.find("### About the user").expect("about");
+    assert!(style < about);
+}
+
+/// One field resolved renders one sub-heading, not an empty second one.
+#[test]
+fn the_rendered_instruction_block_omits_a_field_that_resolved_to_nothing() {
+    let block = instruction_block(&resolved_snapshot(vec![segment(
+        InstructionField::StyleRules,
+        "Be terse.",
+    )]))
+    .expect("instruction block");
+
+    assert!(block.contains("### Response style"));
+    assert!(!block.contains("### About the user"));
+}
+
+/// No segments is no section. An empty block and an absent one are different states, and only the
+/// second is honest about a user who configured nothing.
+#[test]
+fn no_resolved_segments_render_no_instruction_block_at_all() {
+    assert_eq!(instruction_block(&resolved_snapshot(Vec::new())), None);
+}
+
+/// The tool-assisted sub-policy narrows extraction; it never widens it.
+///
+/// A snapshot that denies extraction outright stays denied however the sub-policy reads. The two
+/// are combined rather than consulted in turn, so there is no order in which the narrower answer
+/// can be overtaken by the broader one.
+#[test]
+fn the_tool_assisted_sub_policy_cannot_re_enable_extraction_the_snapshot_denied() {
+    let denied = resolved_snapshot(Vec::new());
+
+    let access = memory_access(&denied, true);
+
+    assert!(!access.automatic_extraction);
+    assert!(!access.automatic_extraction_in_tool_assisted_turns);
 }

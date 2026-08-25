@@ -2,13 +2,23 @@ use crate::contexts::personalization::api::{
     CompatibilityMemory, CompatibilitySaveInput, PersonalizationApi,
 };
 
+use std::time::SystemTime;
+
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryPort, AgentPersonalizationPort, AgentRuntimeApplicationError,
-    MemorySource, PersonalizationSettings, SaveMemoryInput,
+    AgentMemory, AgentMemoryAccess, AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort,
+    AgentMemoryRef, AgentPersonalizationPort, AgentPersonalizationSnapshot,
+    AgentPersonalizationSnapshotPort, AgentRuntimeApplicationError,
+    GenerationPersonalizationContext, MemorySource, PersonalizationSettings, SaveMemoryInput,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::desktop::api::DesktopSettingsApi;
+use crate::contexts::personalization::application::{
+    legacy_workspace_request, ResolutionRequest, WorkspaceIdentityPort, WorkspaceIdentityResolver,
+};
 use crate::contexts::personalization::domain::MemoryType as GovernedMemoryType;
+use crate::contexts::personalization::domain::{
+    AgentId, InstructionField, MemoryDeliveryMode, SessionId, SessionPersonalizationMode,
+};
 
 /// Satisfies `agent_runtime`'s pre-governance memory port from the governed v2 store.
 ///
@@ -167,6 +177,10 @@ impl AgentMemoryPort for LegacyMemoryPortBridge {
 pub(crate) struct GovernedPersonalizationAdapter {
     personalization: PersonalizationApi,
     settings: DesktopSettingsApi,
+    /// Turns the folder a session records into a stable workspace key, by the same rule migration
+    /// uses. Two rules for one input is how the two surfaces would come to disagree about which
+    /// workspace a session is in.
+    workspace_identity: WorkspaceIdentityResolver,
 }
 
 impl GovernedPersonalizationAdapter {
@@ -174,6 +188,7 @@ impl GovernedPersonalizationAdapter {
         Self {
             personalization,
             settings,
+            workspace_identity: WorkspaceIdentityResolver::for_this_platform(),
         }
     }
 }
@@ -219,5 +234,173 @@ impl AgentPersonalizationPort for GovernedPersonalizationAdapter {
             automatic_context_compaction_enabled: view.automatic_context_compaction_enabled(),
             context_quality_retention_days: view.context_quality_retention_days(),
         })
+    }
+}
+
+impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
+    /// One governed snapshot, translated into the shape the runtime speaks.
+    ///
+    /// Never fails the generation: an unresolvable policy yields a fail-closed snapshot, because an
+    /// answer without personalization is still an answer and refusing to generate is not.
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        let (Ok(agent_id), Ok(session_id)) = (
+            AgentId::parse(&context.agent_id),
+            SessionId::parse(&context.session_id),
+        ) else {
+            return AgentPersonalizationSnapshot::fail_closed("unresolvable_identity");
+        };
+
+        // The session's folder, resolved to a stable key the same way migration resolves a legacy
+        // one. A display path is not a workspace identity, so a folder that does not name one root
+        // yields no workspace rather than an invented key.
+        let workspace = context
+            .folder
+            .as_deref()
+            .and_then(legacy_workspace_request)
+            .and_then(|request| self.workspace_identity.resolve(&request).ok())
+            .flatten();
+
+        let resolved = self.personalization.resolve_snapshot(ResolutionRequest {
+            agent_id,
+            session_id,
+            workspace,
+            // Sessions do not record a personalization mode yet, so every session is standard. The
+            // resolver already applies the other two modes correctly; what is missing is the place
+            // a user chooses one, which arrives with the session UI.
+            session_mode: SessionPersonalizationMode::Standard,
+            session_override: None,
+        });
+        let Ok(resolved) = resolved else {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
+        };
+
+        let settings = self.settings.get_settings().ok();
+        // The tool-assisted sub-policy, read from the same projection the flat settings surface
+        // reads. It is not a second opinion about extraction: it narrows the tool-assisted turns
+        // alone, and the runtime combines the two.
+        let tool_assisted = self
+            .personalization
+            .legacy_settings()
+            .ok()
+            .and_then(|policy| policy.settings.tool_assisted_extraction_enabled)
+            .unwrap_or(false);
+        AgentPersonalizationSnapshot {
+            revision_token: resolved.revision_token.clone(),
+            instruction_block: instruction_block(&resolved),
+            memory: memory_access(&resolved, tool_assisted),
+            // Not personalization, and not moved by it. Absent settings fall back to the safe
+            // values rather than to whatever the last read happened to be.
+            automatic_context_compaction_enabled: settings
+                .as_ref()
+                .map(|view| view.settings.automatic_context_compaction_enabled())
+                .unwrap_or(true),
+            context_quality_retention_days: settings
+                .as_ref()
+                .map(|view| view.settings.context_quality_retention_days())
+                .unwrap_or(30),
+        }
+    }
+
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        let handles: Vec<String> = refs.iter().map(|entry| entry.id.clone()).collect();
+        let memories = self
+            .personalization
+            .compatibility_memories_by_handle(&handles)
+            .map_err(bridge_error)?;
+        Ok(refs
+            .iter()
+            .filter_map(|entry| {
+                let memory = memories
+                    .iter()
+                    .find(|memory| memory.file_name == entry.id)?;
+                // A record whose revision moved since the snapshot is absent rather than silently
+                // newer: the body in the prompt has to be the body the index described.
+                (memory.revision == entry.revision).then(|| AgentMemoryBody {
+                    id: entry.id.clone(),
+                    revision: entry.revision,
+                    name: memory.name.clone(),
+                    memory_type: to_runtime_type(memory.memory_type),
+                    content: memory.content.clone(),
+                    updated_at: entry.updated_at,
+                })
+            })
+            .collect())
+    }
+}
+
+/// The user-authored instruction block, rendered in the order policy resolved.
+///
+/// Style rules before the description of the user, matching what the previous flat settings
+/// produced: style is a constraint on every response, the description is background, and a reader
+/// who saw them swap would experience it as the setting having changed.
+pub(super) fn instruction_block(
+    snapshot: &crate::contexts::personalization::domain::EffectivePersonalizationSnapshot,
+) -> Option<String> {
+    let text_for = |field: InstructionField| -> Option<String> {
+        let joined: Vec<&str> = snapshot
+            .instruction_segments
+            .iter()
+            .filter(|segment| segment.field == field)
+            .map(|segment| segment.text.as_str())
+            .collect();
+        (!joined.is_empty()).then(|| joined.join("\n\n"))
+    };
+
+    let mut sections = Vec::new();
+    if let Some(style) = text_for(InstructionField::StyleRules) {
+        sections.push(format!("### Response style\n{style}"));
+    }
+    if let Some(about) = text_for(InstructionField::AboutUser) {
+        sections.push(format!("### About the user\n{about}"));
+    }
+    // Byte-identical to what the flat settings rendered, heading spacing included: a user whose
+    // instructions have not changed must not see their prompt change across the migration, and a
+    // provider prefix cache must not be invalidated by one.
+    (!sections.is_empty()).then(|| format!("## Custom Instructions\n{}", sections.join("\n\n")))
+}
+
+/// What the runtime may do with memory, from what the snapshot resolved.
+pub(super) fn memory_access(
+    snapshot: &crate::contexts::personalization::domain::EffectivePersonalizationSnapshot,
+    tool_assisted_extraction: bool,
+) -> AgentMemoryAccess {
+    let access = &snapshot.memory_access;
+    AgentMemoryAccess {
+        read: access.read,
+        explicit_save: access.explicit_save,
+        automatic_extraction: access.automatic_extraction,
+        automatic_extraction_in_tool_assisted_turns: access.automatic_extraction
+            && tool_assisted_extraction,
+        candidate_creation: access.candidate_creation,
+        retrieval_write: access.retrieval_write,
+        delivery: match access.delivery {
+            MemoryDeliveryMode::None => AgentMemoryDelivery::None,
+            MemoryDeliveryMode::IndexOnly => AgentMemoryDelivery::IndexOnly,
+            MemoryDeliveryMode::IndexWithSelectedBodies => {
+                AgentMemoryDelivery::IndexWithSelectedBodies
+            }
+        },
+        eligible: snapshot
+            .memory
+            .refs
+            .iter()
+            .map(|entry| AgentMemoryRef {
+                // The v2 file name, which is the handle every other surface addresses this memory
+                // by, including the body fetch above.
+                id: format!("{}.md", entry.id),
+                revision: entry.revision,
+                name: entry.name.clone(),
+                description: entry.description.clone(),
+                memory_type: to_runtime_type(entry.memory_type),
+                updated_at: Some(SystemTime::from(entry.updated_at)),
+            })
+            .collect(),
+        eligible_total: snapshot.memory.eligible_total,
+        blocked_reason: access
+            .block_reason
+            .map(|reason| reason.as_str().to_string()),
     }
 }

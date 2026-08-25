@@ -22,8 +22,8 @@ use super::native_tools::{
     log_image_attachment, resolve_tool_image,
 };
 use super::prompt::{
-    resolve_generation_skill_tools, resolve_generation_tool_catalog,
-    resolve_personalization_settings, resolve_system_prompt_with_settings,
+    resolve_generation_personalization, resolve_generation_skill_tools,
+    resolve_generation_tool_catalog, resolve_system_prompt_with_settings,
 };
 use super::{
     failed_non_retryable, failed_retryable, ExecutedToolCall, PendingApprovals, HISTORY_LIMIT,
@@ -31,7 +31,7 @@ use super::{
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationPort,
+    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationSnapshotPort,
     AgentProcessEventSink, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
     AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ContextAnalysisService,
     ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
@@ -76,7 +76,7 @@ pub(super) fn execute_with_code_intelligence(
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
     context_quality: Option<&ContextQualityRecorder>,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     skill_tool_catalog: Option<&dyn SkillToolCatalogPort>,
@@ -100,7 +100,7 @@ pub(super) fn execute_with_code_intelligence(
         Err(failure) => return failure,
     };
     let generation_personalization =
-        resolve_personalization_settings(personalization, logging, clock, request);
+        resolve_generation_personalization(personalization, logging, clock, request);
     // Built here, and the prompt resolved once, before the round-trip loop below. That is what
     // makes the system prompt byte-identical across every round trip of this generation.
     let selection = RuntimeAgentMemorySelectionAdapter::new(credentials, config);
@@ -109,7 +109,7 @@ pub(super) fn execute_with_code_intelligence(
         core_instructions,
         &generation_personalization,
         skills,
-        memories,
+        personalization,
         &selection,
         logging,
         clock,
@@ -216,7 +216,7 @@ pub(super) fn execute_with_code_intelligence(
         clock,
         request,
         memories,
-        personalization,
+        &generation_personalization,
         tool_assisted_session,
         accounting,
         &mut request_sequence,
@@ -604,11 +604,11 @@ pub(super) fn execute_with_code_intelligence(
                 return failed_retryable("Agent generation event handling failed.");
             }
             let outcome = if tool_use.name == REMEMBER_TOOL_NAME
-                && !resolve_personalization_settings(personalization, logging, clock, request)
-                    .memory_enabled
+                && !generation_personalization.memory.explicit_save
             {
-                // Memory master switch off (`add-personalization-settings`) — reject before
-                // dispatching, matching `execute_remember`'s own empty-content rejection shape, so
+                // From this generation's snapshot rather than re-resolved per tool call: a second
+                // read could disagree with the one the prompt was built from, allowing a tool
+                // against a policy the model was never told about. Rejected before dispatching, so
                 // this never reaches `AgentMemoryPort::save`.
                 ToolExecutionOutcome {
                     output: "Memory is disabled; nothing was remembered.".to_string(),
@@ -664,7 +664,7 @@ pub(super) fn execute_with_code_intelligence(
             clock,
             request,
             memories,
-            personalization,
+            &generation_personalization,
             tool_assisted_session,
             accounting,
             &mut request_sequence,
