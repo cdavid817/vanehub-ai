@@ -184,10 +184,10 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 9.3 Derive bounded depth, start offset, completed duration, attempt, delegation, and critical-path metadata without inventing unavailable values.
 - [x] 9.4 Add identifier-only run/span transition notices after committed timeline updates.
 - [x] 9.5 Add deterministic Web/mock running-to-terminal trace transitions.
-- [ ] 9.6 Refactor the Traces tab into Run list, waterfall viewport, span row, legend/filter toolbar, and detail drawer components.
-- [ ] 9.7 Implement horizontal time scaling/scrolling and vertical virtualization for bounded span sets.
-- [ ] 9.8 Add keyboard selection, accessible status/fidelity labels, focus visibility, and narrow-width drawer behavior.
-- [ ] 9.9 Add detail sections for Overview, safe Attributes, Events, Logs, Commands, Files, Findings, Usage, and Error.
+- [x] 9.6 Refactor the Traces tab into Run list, waterfall viewport, span row, legend/filter toolbar, and detail drawer components.
+- [x] 9.7 Implement horizontal time scaling/scrolling and vertical virtualization for bounded span sets.
+- [x] 9.8 Add keyboard selection, accessible status/fidelity labels, focus visibility, and narrow-width drawer behavior.
+- [x] 9.9 Add detail sections for Overview, safe Attributes, Events, Logs, Commands, Files, Findings, Usage, and Error.
 - [ ] 9.10 Query linked evidence from its owning service using the shared scope rather than embedding raw log/file data in the trace DTO.
 - [ ] 9.11 Add live refresh only while Traces is visible and coalesce rapid notices.
 - [ ] 9.12 Add critical-path, retry, delegation, failed-span, fidelity, and coverage filters.
