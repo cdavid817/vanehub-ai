@@ -218,6 +218,18 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
 });
 
+test("the live Skill layer is explicitly runnable without joining the deterministic full suite", async () => {
+  const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
+  const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
+  const config = await readFile("tests/desktop/wdio.skills.conf.mjs", "utf8");
+
+  assert.match(orchestrator, /mode === "skills"/);
+  assert.match(orchestrator, /function skillsDesktop\(artifact\)/);
+  assert.doesNotMatch(orchestrator, /fullSuiteLayers = \[[^\]]*skillsDesktop/);
+  assert.equal(scripts["test:desktop:skills"], "node scripts/test-desktop.mjs skills");
+  assert.match(config, /specDirectory: "specs-skills"/);
+});
+
 test("the CLI terminal layer resolves its fixture Agent instead of an installed one", async () => {
   const config = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
   const fixture = "tests/desktop/fixtures/cli/opencode";

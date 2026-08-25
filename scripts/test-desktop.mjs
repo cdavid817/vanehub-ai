@@ -281,6 +281,15 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+function skillsDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-skills",
+    config: "tests/desktop/wdio.skills.conf.mjs",
+    label: "Desktop Skills effectiveness",
+    artifact,
+  });
+}
+
 /** The layers the required hermetic gate runs. Every one of them must pass. */
 const REQUIRED_LAYERS = [
   smokeDesktop,
@@ -311,6 +320,7 @@ async function main() {
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
+  else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "external-provider") {
