@@ -1,14 +1,46 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
-const EMBEDDED_DRIVER_SHUTDOWN_GRACE_MS = 2_000;
+const EMBEDDED_DRIVER_SHUTDOWN_POLL_MS = 100;
+const EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS = 10_000;
+const EMBEDDED_DRIVER_PROCESS_REAP_MS = 2_000;
 
-function waitForEmbeddedDriverShutdown() {
-  return delay(EMBEDDED_DRIVER_SHUTDOWN_GRACE_MS);
+function isTcpPortOpen(port) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let settled = false;
+    const finish = (open) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(open);
+    };
+    socket.setTimeout(500, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+
+function createEmbeddedDriverShutdownWaiter(port) {
+  let hasStartedWorker = false;
+  return async () => {
+    if (!hasStartedWorker) {
+      hasStartedWorker = true;
+      return;
+    }
+    const deadline = Date.now() + EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS;
+    while (Date.now() < deadline && await isTcpPortOpen(port)) {
+      await delay(EMBEDDED_DRIVER_SHUTDOWN_POLL_MS);
+    }
+    // The native port closes before Tauri has fully reaped the old application process. Starting
+    // its replacement immediately can hit the single-instance process while it is shutting down.
+    await delay(EMBEDDED_DRIVER_PROCESS_REAP_MS);
+  };
 }
 
 function isFailedTest(result) {
@@ -39,6 +71,8 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
   if (!artifactPath || !resultDir) throw new Error("Desktop artifact and result directory are required.");
 
   const logDir = path.join(resultDir, "logs");
+  const embeddedDriverPort = Number(process.env.VANEHUB_WEBDRIVER_PORT ?? 4445);
+  const waitForEmbeddedDriverShutdown = createEmbeddedDriverShutdownWaiter(embeddedDriverPort);
   await mkdir(logDir, { recursive: true });
 
   return {
@@ -52,7 +86,7 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     services: [["tauri", {
       appBinaryPath: artifactPath,
       driverProvider: "embedded",
-      embeddedPort: Number(process.env.VANEHUB_WEBDRIVER_PORT ?? 4445),
+      embeddedPort: embeddedDriverPort,
       startTimeout: 120_000,
       statusPollTimeout: 5_000,
       commandTimeout: 30_000,
@@ -83,9 +117,9 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     framework: "mocha",
     reporters: ["spec"],
     mochaOpts: { ui: "bdd", timeout: 300_000 },
-    // WDIO runs this launcher hook before the Tauri service hook. A preceding worker's clean
-    // app exit can leave the embedded driver's port alive briefly; this window lets the service
-    // detect the completed shutdown and restart the test-owned driver before session creation.
+    // WDIO runs this launcher hook before the Tauri service hook. Wait until the prior worker's
+    // clean app exit has really closed the port, so the service observes the stopped driver and
+    // restarts it before creating the next session.
     onWorkerStart: waitForEmbeddedDriverShutdown,
     afterTest: async (test, _context, result) => {
       if (isFailedTest(result)) {

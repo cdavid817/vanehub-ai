@@ -19,6 +19,17 @@ if (floatingSurface) {
   document.body.classList.add("floating-assistant-surface");
 }
 
+function SurfaceReady({ children, root }: { children: React.ReactNode; root: HTMLElement }) {
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("bootstrap-shell")?.remove();
+      root.dataset.vanehubBootstrap = "ready";
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [root]);
+  return children;
+}
+
 async function renderSurface() {
   const root = document.getElementById("root") as HTMLElement;
   if (import.meta.env.VITE_DESKTOP_E2E === "1") {
@@ -35,15 +46,17 @@ async function renderSurface() {
     : (await import("./App")).App;
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <Surface />
+      <SurfaceReady root={root}>
+        <Surface />
+      </SurfaceReady>
     </React.StrictMode>,
   );
-  root.dataset.vanehubBootstrap = "ready";
 }
 
 void renderSurface().catch((error: unknown) => {
+  const root = document.getElementById("root") as HTMLElement;
   recoverFromBootstrapFailure({
-    root: document.getElementById("root") as HTMLElement,
+    root,
     copy: {
       title: i18n.t("app.bootstrapFailure.title"),
       description: i18n.t("app.bootstrapFailure.description"),
@@ -56,5 +69,9 @@ void renderSurface().catch((error: unknown) => {
       const { settingsService } = await import("./services/runtime-settings-client");
       await settingsService.reportClientLogEvent(event);
     },
+  });
+  window.requestAnimationFrame(() => {
+    document.getElementById("bootstrap-shell")?.remove();
+    root.dataset.vanehubBootstrap = "failed";
   });
 });
