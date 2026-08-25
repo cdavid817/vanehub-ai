@@ -106,11 +106,19 @@ pub(super) fn resolve_generation_tool_catalog(
     native_tools: &NativeToolRegistry,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     plan_mode: bool,
+    memory_read_allowed: bool,
 ) -> Vec<ToolDefinition> {
     // Never blocks, never errors (`AgentRetrievalPort::is_configured`'s own contract) — safe to
     // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
     // itself is derived at the call site.
-    let retrieval_available = retrieval.is_configured();
+    //
+    // Both conditions, because `recall` searches the same long-term memory pool the index draws
+    // from. A configured retrieval index says the search *can* run; the snapshot says whether this
+    // session may read memory at all. Offering the tool to a session that may not read would leave
+    // a second door into the pool that suppressing the index alone does not close — and a
+    // temporary session would have kept a working search over everything it was promised to
+    // forget.
+    let retrieval_available = retrieval.is_configured() && memory_read_allowed;
     let code_search_available = request
         .session
         .folder

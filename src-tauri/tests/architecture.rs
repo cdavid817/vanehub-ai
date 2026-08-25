@@ -2411,9 +2411,29 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // and +1 in `generation.rs` (import lists), and 0 net in `execution.rs` — the observability
     // that would have pushed it past its own path budget lives in `prompt.rs` instead, beside the
     // other prompt-assembly degradations it belongs with.
+    //
+    // Raised again to 61,475 by the same change's selection, freshness and session-mode work.
+    // +495, of which 487 are tests and 8 are production.
+    //
+    // The 487 are eight tests and the three fixtures they share: a
+    // `RecordingSelection` that captures what relevance selection was offered, a
+    // `ScriptedSnapshots::with_bodies` constructor, and a per-test session id — the already-
+    // surfaced tracker is a process-global keyed on session id, so tests sharing one would have
+    // inherited each other's exclusions and passed for the wrong reason. What they pin: selection
+    // is offered exactly the eligible set; a name the selector was never offered reaches no body;
+    // the age line and staleness caveat now reach the prompt (they were inert on the production
+    // path, because every `AgentMemory` the bridge built carried no modification time); an
+    // already-surfaced body is not re-offered and a corrected one is; a temporary session keeps
+    // its instructions, loses every memory surface, and still compacts; and a rejected `remember`
+    // never wakes the retrieval index, which is the one memory surface that outlives the process.
+    //
+    // The 8 production lines are one parameter on `resolve_generation_tool_catalog` and the
+    // comment explaining why `recall` needs two conditions rather than one. `execution.rs` is
+    // again 0 net: the argument is passed inline, and the `tool_assisted_session` comment above it
+    // lost a line it no longer needed once the gate moved into the snapshot.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 60_980,
+        budget: 61_475,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2449,7 +2469,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // itemised breakdown is on the aggregate entry above; what makes it production rather
         // than test is that the runtime now reads one governed snapshot where it read three
         // independent global toggles, and a snapshot has to be taken, carried and reported.
-        budget: 32_984,
+        //
+        // Raised again to 32,992 by the same change's session-mode work: `recall` searches the
+        // same long-term pool the memory index draws from, so the tool catalog now takes whether
+        // this session may read memory at all. Suppressing the index while leaving the search tool
+        // in the catalog would have left a second door open into everything a temporary session
+        // was told would not be retained.
+        budget: 32_992,
         owner: "upgrade-cli-parameter-management",
     },
 ];

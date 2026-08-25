@@ -124,13 +124,12 @@ pub(super) fn execute_with_code_intelligence(
             ))
         }
     };
-    // Signal for the tool-assisted memory-extraction gate (`add-personalization-settings` design.md
-    // D5) — seeded from the persisted message history, not from wire-format `turns`, so it needs no
-    // per-provider parsing and no index-alignment with whatever `maybe_compact` later slices off
-    // `turns`. Mutable: this generation's own tool round trips (below) can still flip it from
-    // `false` to `true` before the in-loop `maybe_compact` call — seeding it from `recent` alone
-    // would miss a session's very first tool call if compaction also triggers within that same
-    // generation.
+    // Signal for the tool-assisted extraction sub-policy, seeded from the persisted message
+    // history rather than from wire-format `turns`, so it needs no per-provider parsing and no
+    // index alignment with whatever `maybe_compact` later slices off. Mutable because this
+    // generation's own tool round trips can still flip it before the in-loop `maybe_compact` call:
+    // seeding it from `recent` alone would miss a session's very first tool call when compaction
+    // triggers within that same generation.
     let mut tool_assisted_session = recent.iter().any(|message| !message.tool_use.is_empty());
     let request_timeout = if let Some(profile) = request.endpoint_profile.as_ref() {
         Duration::from_millis(profile.timeout_ms)
@@ -159,6 +158,7 @@ pub(super) fn execute_with_code_intelligence(
         native_tools,
         utility_delegation,
         plan_mode,
+        generation_personalization.memory.read,
     );
     // Declared here, not returned as one value: `_skill_tool_catalog_lease` is an `Arc` held for
     // the rest of the generation, and these three drop in this order at the end of it.
