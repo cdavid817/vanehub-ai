@@ -8,6 +8,7 @@ import type { ExecutionObservabilityService } from "../services/execution-observ
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
 import type { ExecutionTimeline } from "../types/execution-observability";
 import { traceTransitionStream } from "../services/runtime-trace-transition-client";
+import { TraceComparisonPanel } from "./trace-comparison-panel";
 import { TraceDetailDrawer } from "./trace-detail-drawer";
 import { filterTraceSpans, NO_TRACE_FILTERS, type TraceFilters } from "./trace-filters";
 import { TraceRunList } from "./trace-run-list";
@@ -33,6 +34,9 @@ export function ExecutionTimelineTab({
   const { t } = useTranslation();
   const speakers = useSessionSpeakers(session);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  // Optional and off by default. A comparison answers a question a reader arrives with; opening
+  // one they did not ask for costs a second timeline read on every run they click through.
+  const [compareRunId, setCompareRunId] = useState<string | null>(null);
   const live = useTraceLiveRefresh({
     isVisible,
     runId: selectedRunId,
@@ -58,6 +62,11 @@ export function ExecutionTimelineTab({
       setSelectedRunId(runItems[0]?.runId ?? null);
     }
   }, [runItems, selectedRunId]);
+  const compared = useQuery({
+    queryKey: ["execution-timeline", compareRunId, live.refreshToken],
+    queryFn: () => service.getTimeline(compareRunId ?? ""),
+    enabled: Boolean(compareRunId) && isVisible,
+  });
   const timeline = useQuery({
     // The token is part of the key, so a settled burst refetches and a quiet panel does not.
     queryKey: ["execution-timeline", selectedRunId, live.refreshToken],
@@ -73,9 +82,11 @@ export function ExecutionTimelineTab({
   return (
     <div className="grid h-full min-h-0 gap-3 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
       <TraceRunList
+        compareRunId={compareRunId}
         hasNextPage={Boolean(runs.hasNextPage)}
         isFetchingNextPage={runs.isFetchingNextPage}
         onFetchNextPage={() => runs.fetchNextPage()}
+        onCompare={(runId) => setCompareRunId((current) => (current === runId ? null : runId))}
         onSelect={setSelectedRunId}
         runs={runItems}
         selectedRunId={selectedRunId}
@@ -84,7 +95,13 @@ export function ExecutionTimelineTab({
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
         {timeline.data ? (
-          <TraceViewport sessionId={sessionId} speakers={speakers} timeline={timeline.data} />
+          <TraceViewport
+            comparison={compareRunId && compared.data ? compared.data : null}
+            onCloseComparison={() => setCompareRunId(null)}
+            sessionId={sessionId}
+            speakers={speakers}
+            timeline={timeline.data}
+          />
         ) : null}
       </section>
     </div>
@@ -92,10 +109,15 @@ export function ExecutionTimelineTab({
 }
 
 function TraceViewport({
+  comparison,
+  onCloseComparison,
   sessionId,
   speakers,
   timeline,
 }: {
+  /** The other run, when the reader asked for a comparison. */
+  comparison: ExecutionTimeline | null;
+  onCloseComparison: () => void;
   sessionId: string | null;
   speakers: ReturnType<typeof useSessionSpeakers>;
   timeline: ExecutionTimeline;
@@ -146,7 +168,10 @@ function TraceViewport({
           />
         )}
       </div>
-      {selection.detailOpen && selectedSpan ? (
+      {comparison ? (
+        <TraceComparisonPanel left={timeline} onClose={onCloseComparison} right={comparison} />
+      ) : null}
+      {!comparison && selection.detailOpen && selectedSpan ? (
         <TraceDetailDrawer
           events={timeline.events}
           onClose={selection.closeDetail}

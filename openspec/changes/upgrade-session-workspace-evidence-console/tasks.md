@@ -191,8 +191,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 9.10 Query linked evidence from its owning service using the shared scope rather than embedding raw log/file data in the trace DTO.
 - [x] 9.11 Add live refresh only while Traces is visible and coalesce rapid notices.
 - [x] 9.12 Add critical-path, retry, delegation, failed-span, fidelity, and coverage filters.
-- [ ] 9.13 Add optional two-run comparison for status, duration, usage quality, tool counts, failures, and changes without comparing raw content.
-- [ ] 9.14 Add unit, accessibility, maximum-span performance, and desktop rendering tests for both visual styles.
+- [x] 9.13 Add optional two-run comparison for status, duration, usage quality, tool counts, failures, and changes without comparing raw content.
+- [x] 9.14 Add unit, accessibility, maximum-span performance, and desktop rendering tests for both visual styles.
 
 ## 10. Backend Session-Run Report
 

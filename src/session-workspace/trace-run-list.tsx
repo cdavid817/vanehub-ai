@@ -5,15 +5,20 @@ import type { ExecutionRunSummary } from "../types/execution-observability";
 import { TraceStatusBadge } from "./trace-span-row";
 
 export function TraceRunList({
+  compareRunId,
   hasNextPage,
   isFetchingNextPage,
+  onCompare,
   onFetchNextPage,
   onSelect,
   runs,
   selectedRunId,
 }: {
+  /** The run being compared against, when the reader asked for one. */
+  compareRunId: string | null;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  onCompare: (runId: string) => void;
   onFetchNextPage: () => void;
   onSelect: (runId: string) => void;
   runs: readonly ExecutionRunSummary[];
@@ -50,12 +55,35 @@ export function TraceRunList({
               </time>
             </div>
             <div className="mt-2 truncate font-mono text-xs">{run.agentId ?? run.source}</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">
+            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>
               {/* A running run has no duration, and "unknown" is the honest word for it — not a
                   zero, which would read as a run that took no time at all. */}
               {run.durationMs === null || run.durationMs === undefined
                 ? t("traces.durationUnknown")
                 : t("traces.duration", { duration: run.durationMs })}
+              </span>
+              {selectedRunId === run.runId ? null : (
+                <span
+                  aria-label={t("traces.compare.with")}
+                  aria-pressed={compareRunId === run.runId}
+                  className={cn(
+                    "rounded border border-border px-1.5 py-0.5",
+                    compareRunId === run.runId ? "bg-primary text-primary-foreground" : "hover:bg-muted",
+                  )}
+                  onClick={(event) => {
+                    // Stops the row selection: asking to compare against a run is not the same as
+                    // asking to look at it, and doing both would replace the run the reader is
+                    // comparing *from*.
+                    event.stopPropagation();
+                    onCompare(run.runId);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  {t("traces.compare.short")}
+                </span>
+              )}
             </div>
           </button>
         ))}

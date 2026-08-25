@@ -133,4 +133,51 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
 
     await assertNoFatalError(root);
   });
+
+  globalThis.it("renders the trace waterfall in both visual styles", async function () {
+    this.timeout(300000);
+    const root = await bootDesktopUi();
+
+    const traces = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="链路"]',
+    );
+    await traces.waitForClickable({ timeout: 20000 });
+    await traces.click();
+
+    // The waterfall is the panel most likely to become a picture with no text in it, so the
+    // assertion is on its landmarks rather than on it having rendered *something*: a named scroll
+    // container, and the legend and filter groups that name what the colours mean.
+    const landmarks = async () => await globalThis.browser.execute(() => {
+      const panel = globalThis.document.querySelector('[id^="session-tab-panel-"]:not(.hidden)');
+      if (!panel) return null;
+      return {
+        waterfall: panel.querySelectorAll('[role="application"]').length,
+        groups: panel.querySelectorAll('[role="group"]').length,
+        text: panel.innerText.trim().length,
+      };
+    });
+
+    for (const theme of ["futuristic", "minimal"]) {
+      // Driven through the document attribute the settings provider sets, which is what actually
+      // selects the stylesheet. A theme decides how a row looks, never whether it exists.
+      await globalThis.browser.execute((next) => {
+        globalThis.document.documentElement.dataset.theme = next;
+      }, theme);
+      const seen = await globalThis.browser.waitUntil(async () => {
+        const snapshot = await landmarks();
+        return snapshot && snapshot.text > 0 ? snapshot : false;
+      }, {
+        timeout: 30000,
+        timeoutMsg: `The trace panel rendered nothing under the ${theme} style.`,
+      });
+      assert.ok(seen.waterfall >= 1, `no named waterfall container under the ${theme} style`);
+      assert.ok(seen.groups >= 2, `the legend and filter groups are missing under the ${theme} style`);
+      globalThis.console.warn("TRACE_PANEL " + JSON.stringify({ theme, ...seen }));
+    }
+
+    await globalThis.browser.execute(() => {
+      globalThis.document.documentElement.dataset.theme = "futuristic";
+    });
+    await assertNoFatalError(root);
+  });
 });
