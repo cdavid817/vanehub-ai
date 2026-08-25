@@ -111,7 +111,10 @@ impl CompatibilityCliProvider {
             capabilities,
             readiness,
             output_format: definition.output_format,
-            parser_policy: ProviderParserPolicy::new(262_144, true)
+            // 256 KiB starved real seat turns: a claude-code tool_result carrying one large file
+            // read exceeds it and kills the whole generation. Use the domain-validated maximum
+            // (ProviderParserPolicy caps the buffer at 1 MiB).
+            parser_policy: ProviderParserPolicy::new(1_048_576, true)
                 .map_err(|error| preparation_error(&provider_id, error))?,
             version_probe: ProviderVersionProbe::new(vec!["--version".to_string()], 5_000)
                 .map_err(|error| preparation_error(&provider_id, error))?,

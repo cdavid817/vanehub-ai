@@ -2385,10 +2385,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // -328 production: `invocation.rs` loses its per-parameter-id renderer branches and
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
+    //
+    // Raised from 60,547 by `harden-provider-output-oversized-records`: the provider output
+    // framer gains skip-and-resume handling for oversized records plus a discard counter
+    // (`providers/output.rs`, production and reworked framer tests), and the generation read
+    // loop reports discarded records to unified logs after the stream ends
+    // (`process_adapter.rs`). No code was moved or duplicated; the raise is the resilience
+    // logic and its tests.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 60_547,
-        owner: "decompose-api-tool-use-loop",
+        budget: 60_665,
+        owner: "harden-provider-output-oversized-records",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2416,8 +2423,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // at its first `#[cfg(test)]` and several files declare `#[cfg(test)] mod tests;` near the
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
-        budget: 32_964,
-        owner: "upgrade-cli-parameter-management",
+        // Raised from 32,964 by `harden-provider-output-oversized-records`: the framer's
+        // skip-and-resume path and discard counter in `providers/output.rs`, and the
+        // post-stream discarded-records warn log in `process_adapter.rs`, are production code
+        // measured on the same commit.
+        budget: 33_049,
+        owner: "harden-provider-output-oversized-records",
     },
 ];
 

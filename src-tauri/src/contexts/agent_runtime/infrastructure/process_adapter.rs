@@ -910,7 +910,11 @@ impl ProcessMonitor {
         // terminal `GenerationProcessEvent::Completed` below rather than acted on
         // immediately, since the exit code (not this line) decides success/failure.
         let mut reported_usage: Option<ReportedUsageTotals> = None;
-        for line in BoundedProviderLines::new(&mut reader, 256 * 1024) {
+        // The bound matches ProviderParserPolicy's domain maximum. One oversized record — a CLI
+        // tool result carrying a large file read — is dropped by the framer and reported after
+        // the stream ends, instead of failing a turn that was doing real work.
+        let mut bounded_lines = BoundedProviderLines::new(&mut reader, 1_048_576);
+        for line in &mut bounded_lines {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
@@ -991,6 +995,26 @@ impl ProcessMonitor {
                     break;
                 }
             }
+        }
+        let discarded_records = bounded_lines.discarded_records();
+        drop(bounded_lines);
+        if discarded_records > 0 {
+            // A dropped record must not be silent: without this line, whatever the record carried
+            // reads as "the Agent never said that".
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.cli".to_string(),
+                message: format!(
+                    "Provider output dropped {discarded_records} oversized record(s) exceeding the bounded parser limit."
+                ),
+                agent_id: Some(agent_id.clone()),
+                session_id: Some(session_id.clone()),
+                operation_id: Some(operation_id.clone()),
+                run_id: Some(execution_context.run_id.as_str().to_string()),
+                trace_id: Some(execution_context.trace_id.as_str().to_string()),
+                span_id: Some(execution_context.span_id.as_str().to_string()),
+                occurred_at: clock.now(),
+            });
         }
         if reader.disconnected {
             record_runner_lifecycle(
