@@ -49,6 +49,22 @@ export function applyChatEvents(messages: ChatMessage[], events: readonly ChatSt
   return changed ? next : messages;
 }
 
+/**
+ * Whether any event targets a message the current list has never seen. Stream events can only
+ * mutate existing rows — they carry no role, speaker, or sequence — so events for an unknown id
+ * mean the thread advanced outside this client's composer (a programmatic send through the
+ * service boundary, an IM-originated message, or a seat turn dispatched by the multi-agent
+ * coordinator) and the list has to be refetched for the new rows to appear at all.
+ */
+export function hasEventsForUnknownMessages(
+  messages: readonly ChatMessage[],
+  events: readonly ChatStreamEvent[],
+): boolean {
+  if (events.length === 0) return false;
+  const known = new Set(messages.map((message) => message.id));
+  return events.some((event) => event.type !== "turn_status" && !known.has(event.messageId));
+}
+
 function applyEventToMessage(message: ChatMessage, event: ChatStreamEvent): ChatMessage {
   if (event.type === "turn_status") return message;
   if (message.id !== event.messageId) return message;
