@@ -161,7 +161,7 @@ fn healthy() -> Sources {
         logs: Some(LogFailureSummary::default()),
         changes: Some(ChangeSummary {
             changed_files: 7,
-            unviewed_files: 2,
+            unviewed_files: Some(2),
             unresolved_findings: 1,
             incomplete: false,
         }),
@@ -507,7 +507,7 @@ fn changed_files_are_counted_beside_what_is_still_unviewed() {
     let report = service(healthy()).report(request()).expect("report");
 
     assert_eq!(report.changes.changed_files, 7);
-    assert_eq!(report.changes.unviewed_files, 2);
+    assert_eq!(report.changes.unviewed_files, Some(2));
     assert_eq!(report.changes.unresolved_findings, 1);
 }
 

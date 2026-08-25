@@ -7,10 +7,11 @@
 use super::log_index_repair_store as repair_store;
 use crate::contexts::operations::application::{
     filter_fingerprint, IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery,
-    IndexedSessionLogRecord, LineRejections, LogBatchCommit, LogCorrelation, LogIndexInsertOutcome,
-    LogPageCursor, LogSortDirection, LogSourceIdentity, OperationsLogError, RedactedLogRecord,
-    SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState,
-    SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE, MAX_LOG_SEARCH_CANDIDATES,
+    IndexedSessionLogRecord, LineRejections, LogBatchCommit, LogCorrelation, LogFailureCount,
+    LogFailureQuery, LogIndexInsertOutcome, LogPageCursor, LogSortDirection, LogSourceIdentity,
+    OperationsLogError, RedactedLogRecord, SessionLogBackfillStatus, SessionLogCoverage,
+    SessionLogCoverageState, SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE,
+    MAX_LOG_SEARCH_CANDIDATES,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -74,6 +75,15 @@ impl IndexedSessionLogRecord {
             .map(|value| value.timestamp_millis())
             .unwrap_or_default()
     }
+}
+
+/// `None` for a value that is not a timestamp, so a caller can drop the bound rather than compare
+/// text against a millisecond column — a comparison that matches nothing and reports a clean
+/// session.
+fn parse_timestamp_ms(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.timestamp_millis())
 }
 
 fn read_record(row: &Row<'_>) -> rusqlite::Result<IndexedSessionLogRecord> {
@@ -455,6 +465,66 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
             )
             .map_err(storage_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// Error rows grouped by category, heaviest first, over one report's scope.
+    ///
+    /// One extra row is requested so the caller can tell a cut tail from an exhausted one without a
+    /// second `COUNT(DISTINCT category)`. Time is compared on `occurred_at_ms` rather than on the
+    /// text timestamp because that is the column every scope index is built on.
+    fn failure_counts(
+        &self,
+        query: &LogFailureQuery,
+        limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError> {
+        let mut sql = String::from(
+            "SELECT category, COUNT(*) FROM unified_log_query_index \
+             WHERE session_id = ? AND level = 'error'",
+        );
+        let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(query.session_id.clone())];
+        for (column, values) in [("run_id", &query.run_ids), ("seat_id", &query.seat_ids)] {
+            if values.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", values.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            sql.push_str(&format!(" AND {column} IN ({placeholders})"));
+            for value in values {
+                binds.push(Box::new(value.clone()));
+            }
+        }
+        for (comparison, value) in [(">=", query.from.as_deref()), ("<=", query.to.as_deref())] {
+            let Some(value) = value else { continue };
+            let Some(milliseconds) = parse_timestamp_ms(value) else {
+                // An unparseable bound is dropped rather than applied as a text comparison against
+                // a millisecond column, which would match nothing and report a clean session.
+                continue;
+            };
+            sql.push_str(&format!(" AND occurred_at_ms {comparison} ?"));
+            binds.push(Box::new(milliseconds));
+        }
+        sql.push_str(&format!(
+            " GROUP BY category ORDER BY COUNT(*) DESC, category ASC LIMIT {}",
+            limit.saturating_add(1)
+        ));
+
+        let connection = self.connection()?;
+        let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+        let rows = statement
+            .query_map(
+                rusqlite::params_from_iter(binds.iter().map(|value| value.as_ref())),
+                |row| {
+                    Ok(LogFailureCount {
+                        category: row.get(0)?,
+                        count: u32::try_from(row.get::<_, i64>(1)?).unwrap_or(u32::MAX),
+                    })
+                },
+            )
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        Ok(rows)
     }
 
     fn checkpoint(&self, source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError> {

@@ -7,10 +7,10 @@
 
 use super::log_cursor::{filter_fingerprint, LogPageCursor};
 use super::log_index::{
-    IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery, OperationsLogError,
-    SafeLogExportPreparation, SessionLogBackfillStatus, SessionLogCoverage,
-    SessionLogCoverageState, SessionLogCoverageStateHolder, SessionLogSubscriptionBootstrap,
-    SessionLogSummary, MAX_LOG_PAGE_SIZE,
+    IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery, LogFailureQuery,
+    LogFailureSummary, OperationsLogError, SafeLogExportPreparation, SessionLogBackfillStatus,
+    SessionLogCoverage, SessionLogCoverageState, SessionLogCoverageStateHolder,
+    SessionLogSubscriptionBootstrap, SessionLogSummary, MAX_LOG_FAILURE_ROWS, MAX_LOG_PAGE_SIZE,
 };
 use super::log_index_ports::{
     BackfillOperationPublisher, LogIndexClock, LogIndexDiagnostics, LogIndexIdGenerator,
@@ -144,6 +144,24 @@ impl SessionLogQueryService {
             new_errors: self.index.error_count(session_id)?,
             coverage: self.with_repair_state(self.index.coverage(Some(session_id))?),
             session_id: session_id.to_string(),
+        })
+    }
+
+    /// Error rows grouped by category, for a session-run report.
+    ///
+    /// Carries the same coverage the badge count does, and for the same reason: a report section
+    /// showing no failures over an index that is still building would read as a clean session.
+    pub(crate) fn failure_summary(
+        &self,
+        query: &LogFailureQuery,
+    ) -> Result<LogFailureSummary, OperationsLogError> {
+        let mut rows = self.index.failure_counts(query, MAX_LOG_FAILURE_ROWS)?;
+        let truncated = rows.len() > MAX_LOG_FAILURE_ROWS;
+        rows.truncate(MAX_LOG_FAILURE_ROWS);
+        Ok(LogFailureSummary {
+            rows,
+            coverage: self.with_repair_state(self.index.coverage(Some(&query.session_id))?),
+            truncated,
         })
     }
 

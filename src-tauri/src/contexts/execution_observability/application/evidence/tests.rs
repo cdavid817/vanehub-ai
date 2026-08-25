@@ -32,6 +32,7 @@ struct FakeRepository {
     projection_stale: Mutex<bool>,
     fail_replay: Mutex<bool>,
     replay_calls: Mutex<usize>,
+    report_queries: Mutex<Vec<EvidenceReportQuery>>,
 }
 
 impl FakeRepository {
@@ -123,6 +124,28 @@ impl EvidenceRepositoryPort for FakeRepository {
             watermark_sequence: 7,
             coverage: QueryCoverage::complete(),
         })
+    }
+
+    fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+        self.report_queries
+            .lock()
+            .expect("report queries")
+            .push(query.clone());
+        Ok(EvidenceReportAggregate::default())
+    }
+
+    fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+        self.report_queries
+            .lock()
+            .expect("report queries")
+            .push(query.clone());
+        Ok(EvidenceLatencyAggregate::default())
     }
 
     fn report_unattributed_gap(&self, _count: u32) {}

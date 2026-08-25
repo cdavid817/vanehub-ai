@@ -287,7 +287,10 @@ fn unavailable(error: ReportSourceError) -> ReportSectionCoverage {
 fn evidence_links(scope: &ReportScope) -> Vec<ReportEvidenceLink> {
     let run_id = scope.run_ids.first().cloned();
     let seat_id = scope.seat_ids.first().cloned();
-    ["terminal", "traces", "logs", "review"]
+    // Tab tokens the workspace actually has. "review" is not one of them — review lives inside the
+    // changes tab, and a link naming a tab that does not exist is a dead link the type system would
+    // not have caught on either side of the wire.
+    ["terminal", "traces", "logs", "changes"]
         .into_iter()
         .map(|tab| ReportEvidenceLink {
             tab: tab.to_string(),

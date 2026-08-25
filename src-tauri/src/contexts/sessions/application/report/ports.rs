@@ -78,7 +78,7 @@ pub(crate) struct LogFailureSummary {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ChangeSummary {
     pub(crate) changed_files: u32,
-    pub(crate) unviewed_files: u32,
+    pub(crate) unviewed_files: Option<u32>,
     pub(crate) unresolved_findings: u32,
     pub(crate) incomplete: bool,
 }

@@ -106,6 +106,25 @@ describe.each(runtimes)("evidence service conformance: $name", ({ create }) => {
     expect(report.coverage.sections.usage.state).toBeDefined();
   });
 
+  it("returns a report whose every section declares its own coverage", async () => {
+    const report = await create().service.getSessionRunReport({ sessionId });
+    // Per-section rather than per-report: a report is useful while one source is still indexing,
+    // and one overall state would either hide that or discard the sections that are fine.
+    for (const section of Object.values(report.coverage.sections)) {
+      expect(["complete", "indexing", "partial", "unavailable"]).toContain(section.state);
+      expect(section.reasonCodes).toBeInstanceOf(Array);
+    }
+  });
+
+  it("returns failure rows keyed by codes rather than by messages", async () => {
+    const report = await create().service.getSessionRunReport({ sessionId });
+    for (const row of report.failures.rows) {
+      // A report is quoted, and a message quoted out of one is producer text nobody redacted.
+      expect(row.reasonCode).not.toContain(" ");
+      expect(row.count).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it("de-duplicates replayed notices and reports a gap once", async () => {
     const { service, publish } = create();
     const seen: ExecutionEvidenceNotice[] = [];

@@ -6,8 +6,8 @@
 
 use super::log_index::{
     IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord,
-    LogCorrelation, OperationsLogError, SessionLogBackfillStatus, SessionLogCoverage,
-    SessionLogNotice,
+    LogCorrelation, LogFailureCount, LogFailureQuery, OperationsLogError, SessionLogBackfillStatus,
+    SessionLogCoverage, SessionLogNotice,
 };
 use std::collections::BTreeMap;
 
@@ -139,6 +139,18 @@ pub(crate) trait SessionLogIndexRepository: Send + Sync {
     fn watermark(&self) -> Result<i64, OperationsLogError>;
 
     fn error_count(&self, session_id: &str) -> Result<u32, OperationsLogError>;
+
+    /// Error rows grouped by category, for a report rather than for a page.
+    ///
+    /// Here rather than in a consumer for the same reason the count above is: a caller that paged
+    /// error rows to tally them would read the whole corpus or tally one page, and the answer would
+    /// not say which. The grouping key is the category because it is a stable token; a message is
+    /// redacted producer text and grouping by it produces one group per record.
+    fn failure_counts(
+        &self,
+        query: &LogFailureQuery,
+        limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError>;
 
     fn checkpoint(&self, source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError>;
 

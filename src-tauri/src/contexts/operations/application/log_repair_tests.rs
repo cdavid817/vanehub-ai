@@ -6,8 +6,9 @@
 //! decisions rely on is proved against a real database in `log_index_repair_store_tests`.
 
 use super::log_index::{
-    IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord, OperationsLogError,
-    SessionLogBackfillState, SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState,
+    IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord, LogFailureCount,
+    LogFailureQuery, OperationsLogError, SessionLogBackfillState, SessionLogBackfillStatus,
+    SessionLogCoverage, SessionLogCoverageState,
 };
 use super::log_index_ports::{
     BackfillOperationPublisher, LineRejections, LogBatchCommit, LogIndexClock, LogIndexDiagnostics,
@@ -119,6 +120,14 @@ impl SessionLogIndexRepository for RecordingIndex {
 
     fn error_count(&self, _session_id: &str) -> Result<u32, OperationsLogError> {
         Ok(0)
+    }
+
+    fn failure_counts(
+        &self,
+        _query: &LogFailureQuery,
+        _limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError> {
+        Ok(Vec::new())
     }
 
     fn checkpoint(&self, source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError> {

@@ -666,6 +666,7 @@ fn the_registry_exposes_exactly_the_four_read_commands() {
         "list_execution_records",
         "get_execution_record",
         "get_evidence_subscription_bootstrap",
+        "get_session_run_report",
     ] {
         assert!(
             registered.contains(&expected),
@@ -719,14 +720,20 @@ fn no_registered_command_writes_evidence() {
     );
 }
 
-/// 10.8 registers the report. Until it does, no command by that name may exist — a half-registered
-/// report would answer with an empty shape rather than the typed "not available yet" the panel
-/// needs, and an empty report is indistinguishable from a session where nothing happened.
+/// The report is registered exactly once, in the core registry.
+///
+/// This replaces the absence guard 10.8 was written to flip. Registering the same command in both
+/// registries is a startup panic rather than a compile error, so the count is worth asserting.
 #[test]
-fn the_session_run_report_command_is_still_absent() {
+fn the_session_run_report_command_is_registered_once() {
     let registry = include_str!("../core_registry.rs");
     let supplemental = include_str!("../supplemental_registry.rs");
-    assert!(!registry.contains("get_session_run_report"));
+    assert_eq!(
+        registry
+            .matches("::get_session_run_report::get_session_run_report,")
+            .count(),
+        1
+    );
     assert!(!supplemental.contains("get_session_run_report"));
 }
 

@@ -1849,6 +1849,26 @@ impl crate::contexts::execution_observability::application::evidence::ports::Evi
         self.inner.subscription_bootstrap(session_id)
     }
 
+    fn report_aggregate(
+        &self,
+        query: &crate::contexts::execution_observability::api::evidence::EvidenceReportQuery,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::EvidenceReportAggregate,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.report_aggregate(query)
+    }
+
+    fn report_latency(
+        &self,
+        query: &crate::contexts::execution_observability::api::evidence::EvidenceReportQuery,
+    ) -> Result<
+        crate::contexts::execution_observability::api::evidence::EvidenceLatencyAggregate,
+        crate::contexts::execution_observability::api::evidence::EvidenceApplicationError,
+    > {
+        self.inner.report_latency(query)
+    }
+
     fn report_unattributed_gap(&self, count: u32) {
         self.inner.report_unattributed_gap(count);
     }

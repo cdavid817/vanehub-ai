@@ -3,6 +3,9 @@ use super::models::{
     ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordQuery,
     WorkspaceEvidenceSummary, WorkspaceEvidenceSummaryQuery,
 };
+use super::report_models::{
+    EvidenceLatencyAggregate, EvidenceReportAggregate, EvidenceReportQuery,
+};
 use crate::contexts::execution_observability::domain::{
     EvidenceSessionId, EvidenceSourceContext, ExecutionEvidenceEvent, SourceEventId,
 };
@@ -73,6 +76,27 @@ pub(crate) trait EvidenceRepositoryPort: Send + Sync {
         session_id: &EvidenceSessionId,
         run_id: Option<&str>,
     ) -> Result<EvidenceCorrelationCounts, EvidenceApplicationError>;
+
+    /// Counts a session's work instead of listing it.
+    ///
+    /// Here rather than in a consumer because the alternative is paging: a caller that wanted a
+    /// session total would either read every record — unbounded, and the reason cursors exist — or
+    /// read one page and report a page total under a session total's name. Neither is something the
+    /// answer could disclose, which is what makes this the store's job.
+    fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError>;
+
+    /// Percentiles over the same scope.
+    ///
+    /// Separate from the aggregate above because it reads a different shape — an ordered offset
+    /// into the durations rather than a grouped count — and because a consumer that wants latency
+    /// often does not want the tool tail with it.
+    fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError>;
 
     fn subscription_bootstrap(
         &self,

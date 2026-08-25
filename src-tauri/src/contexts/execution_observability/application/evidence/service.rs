@@ -9,6 +9,10 @@ use super::ports::{
     EvidenceIdGeneratorPort, EvidenceRedactionValidatorPort, EvidenceRepositoryPort,
     EvidenceRetentionSummary, PostCommitEvidenceNoticePublisherPort,
 };
+use super::report_models::{
+    EvidenceLatencyAggregate, EvidenceReportAggregate, EvidenceReportQuery,
+    MAX_EVIDENCE_REPORT_FILTERS,
+};
 #[cfg(test)]
 use crate::contexts::execution_observability::domain::{reason_codes, EvidenceCoverageState};
 use crate::contexts::execution_observability::domain::{
@@ -208,6 +212,47 @@ impl ExecutionEvidenceService {
     pub(crate) fn report_unattributed_gap(&self, count: u32) {
         self.repository.report_unattributed_gap(count);
     }
+}
+
+/// The aggregate reads, and the one rule that guards both.
+impl ExecutionEvidenceService {
+    pub(crate) fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+        bounded_report_query(query)?;
+        self.repository.report_aggregate(query)
+    }
+
+    pub(crate) fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+        bounded_report_query(query)?;
+        self.repository.report_latency(query)
+    }
+}
+
+/// Refuses an over-long filter list rather than trimming it.
+///
+/// Trimming would answer a narrower question than the one asked and return it under the asked
+/// question's name — a caller that named three hundred runs would get a report over two hundred of
+/// them with nothing in the answer saying which two hundred.
+fn bounded_report_query(query: &EvidenceReportQuery) -> Result<(), EvidenceApplicationError> {
+    for (field, length) in [
+        ("run_ids", query.run_ids.len()),
+        ("seat_ids", query.seat_ids.len()),
+    ] {
+        if length > MAX_EVIDENCE_REPORT_FILTERS {
+            return Err(EvidenceApplicationError::Domain(
+                crate::contexts::execution_observability::domain::EvidenceDomainError::TooManyEntries {
+                    field,
+                    max: MAX_EVIDENCE_REPORT_FILTERS,
+                },
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn bounded_page_size(limit: usize) -> usize {

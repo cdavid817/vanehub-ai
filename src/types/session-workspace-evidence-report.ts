@@ -108,9 +108,14 @@ export interface CommandReport {
   durationMs?: number;
 }
 
+/**
+ * `unviewedFiles` is optional because nothing in this build records per-file review progress. Zero
+ * would claim every changed file had been looked at, which is the opposite of what an unrecorded
+ * state means and the more dangerous direction to be wrong in.
+ */
 export interface ChangeReport {
   changedFiles: number;
-  unviewedFiles: number;
+  unviewedFiles?: number;
   unresolvedFindings: number;
 }
 

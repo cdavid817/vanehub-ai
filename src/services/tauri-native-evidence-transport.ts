@@ -23,14 +23,8 @@ const REGISTERED_EVIDENCE_COMMANDS: ReadonlySet<EvidenceCommandName> = new Set([
   "list_execution_records",
   "get_execution_record",
   "get_evidence_subscription_bootstrap",
+  "get_session_run_report",
 ]);
-
-/**
- * Why the report is named rather than simply missing from the set above: the panel needs to say
- * "this build has no report yet", not "something failed". Task 10.8 registers the command and
- * removes this branch.
- */
-const NATIVE_REPORT_NOT_INITIALIZED = "native_report_not_initialized";
 
 /**
  * A native failure that already carries a reason code arrives as `{ reasonCode }`, which is the
@@ -52,9 +46,6 @@ function toEvidenceError(error: unknown): EvidenceUnavailableError {
 export function createNativeEvidenceTransport(): NativeEvidenceTransport {
   return {
     async invokeEvidence(command: EvidenceCommandName, payload: unknown): Promise<unknown> {
-      if (command === "get_session_run_report") {
-        throw new EvidenceUnavailableError(NATIVE_REPORT_NOT_INITIALIZED);
-      }
       if (!REGISTERED_EVIDENCE_COMMANDS.has(command)) {
         throw new EvidenceUnavailableError("evidence_unavailable");
       }

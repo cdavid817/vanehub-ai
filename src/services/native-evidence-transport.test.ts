@@ -171,21 +171,20 @@ describe("production native evidence transport", () => {
   });
 
   /**
-   * The report command is not registered until 10.8. Invoking it would return Tauri's opaque
-   * "unknown command" string, which a panel cannot tell apart from a runtime fault — so the
-   * refusal is typed here and `invoke` is never reached.
+   * The report reaches `invoke` now that 10.8 registers the command. This replaces the refusal this
+   * test used to assert: the interesting property is unchanged in shape — a command either reaches
+   * the runtime or is refused with a typed code — and which of the two it is has flipped.
    */
-  it("refuses the session-run report with a stable reason code and never invokes it", async () => {
+  it("invokes the registered session-run report", async () => {
     const calls: string[] = [];
     const transport = await loadTransport(async (command) => {
       calls.push(command);
       return {};
     });
 
-    await expect(
-      transport.invokeEvidence("get_session_run_report", { sessionId }),
-    ).rejects.toMatchObject({ reasonCode: "native_report_not_initialized" });
-    expect(calls).toEqual([]);
+    await transport.invokeEvidence("get_session_run_report", { sessionId });
+
+    expect(calls).toEqual(["get_session_run_report"]);
   });
 
   it("surfaces a native reason code and discards any message that came with it", async () => {

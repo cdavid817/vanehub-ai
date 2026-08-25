@@ -11,6 +11,9 @@ use crate::contexts::execution_observability::application::evidence::models::{
 use crate::contexts::execution_observability::application::evidence::ports::{
     EvidenceAppendOutcome, EvidenceRepositoryPort, EvidenceRetentionSummary,
 };
+use crate::contexts::execution_observability::application::evidence::report_models::{
+    EvidenceLatencyAggregate, EvidenceReportAggregate, EvidenceReportQuery,
+};
 use crate::contexts::execution_observability::application::EvidenceApplicationError;
 use crate::contexts::execution_observability::domain::{
     fidelity_token, reason_codes, status_token, EvidenceCoverageState, EvidenceSeatId,
@@ -389,6 +392,22 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         counts.file_mutations = files.max(0) as u32;
         counts.usage_observations = usage.max(0) as u32;
         Ok(counts)
+    }
+
+    fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+        let connection = self.connection()?;
+        super::report_aggregate::report_aggregate(&connection, query, self.unattributed_gaps())
+    }
+
+    fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+        let connection = self.connection()?;
+        super::report_aggregate::report_latency(&connection, query, self.unattributed_gaps())
     }
 
     /// The sequence the store has committed through. A subscriber that starts from it applies only

@@ -411,21 +411,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     super::start_session_shell_idle_job(workspace_api.clone());
-    app.manage(workspace_api);
+    app.manage(workspace_api.clone());
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
     app.manage(retrieval_api);
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
-    app.manage(execution_observability_api);
+    app.manage(execution_observability_api.clone());
     app.manage(super::EvidenceBridgeShutdown::new(evidence_bridge_worker));
     app.manage(log_index_worker);
-    app.manage(session_log_api);
+    app.manage(session_log_api.clone());
     super::start_evidence_maintenance_job(
         execution_evidence_api.clone(),
         fallback_log_directory.clone(),
     );
+    // Assembled here rather than inside any one context: the report reads from five of them,
+    // and the layer allowed to know all five is this one.
+    app.manage(super::assemble_session_run_report(
+        execution_evidence_api.clone(),
+        execution_observability_api.clone(),
+        session_log_api.clone(),
+        sessions_api.clone(),
+        workspace_api.clone(),
+    ));
     app.manage(execution_evidence_api);
     app.manage(evaluation_api);
     app.manage(communications_api.clone());

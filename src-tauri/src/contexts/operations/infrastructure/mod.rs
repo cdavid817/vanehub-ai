@@ -1,6 +1,8 @@
 //! Concrete adapters for operation lifecycle and unified diagnostics.
 
 #[cfg(test)]
+mod log_failure_count_tests;
+#[cfg(test)]
 mod log_index_lock_tests;
 #[cfg(test)]
 mod log_index_query_bounds_tests;

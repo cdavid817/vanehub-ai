@@ -45,7 +45,6 @@ pub(crate) enum EvidenceDomainError {
     #[error("evidence redaction receipt accepts at most {max} rule ids")]
     TooManyRedactionRules { max: usize },
     #[error("evidence array field '{field}' accepts at most {max} entries")]
-    #[cfg(test)]
     TooManyEntries { field: &'static str, max: usize },
     #[error("evidence schema version {version} is not supported by this build")]
     UnsupportedSchemaVersion { version: u16 },

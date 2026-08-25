@@ -30,6 +30,19 @@ pub(crate) mod evidence {
         WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
     };
     pub(crate) use crate::contexts::execution_observability::application::evidence::ports::EvidenceApplicationError;
+    /// What a session-run report may ask this context for, and the shapes it answers with.
+    ///
+    /// Aggregates rather than records: a consumer that paged records to build a session total would
+    /// either read everything or report a page total under a session total's name.
+    pub(crate) use crate::contexts::execution_observability::application::evidence::report_models::EvidenceReportQuery;
+    /// The answers, named only where a caller has to write the type down.
+    ///
+    /// The report adapter maps their fields the moment it receives them and never names either, so
+    /// the only consumers that need the names are the doubles that stand in for the repository.
+    #[cfg(test)]
+    pub(crate) use crate::contexts::execution_observability::application::evidence::report_models::{
+        EvidenceLatencyAggregate, EvidenceReportAggregate,
+    };
     pub(crate) use crate::contexts::execution_observability::application::evidence::service::{
         ProjectionRepair, RecordEvidenceInput,
     };

@@ -8,8 +8,9 @@
 use super::log_cursor::{filter_fingerprint, LogPageCursor, LogSortDirection};
 use super::log_index::{
     IndexedLogLevel, IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord,
-    OperationsLogError, SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState,
-    SessionLogCoverageStateHolder, SessionLogFilters, SessionLogQueryScope, MAX_LOG_PAGE_SIZE,
+    LogFailureCount, LogFailureQuery, OperationsLogError, SessionLogBackfillStatus,
+    SessionLogCoverage, SessionLogCoverageState, SessionLogCoverageStateHolder, SessionLogFilters,
+    SessionLogQueryScope, MAX_LOG_PAGE_SIZE,
 };
 use super::log_index_ports::{
     BackfillOperationPublisher, LogIndexClock, LogIndexDiagnostics, LogIndexIdGenerator,
@@ -71,6 +72,15 @@ impl SessionLogIndexRepository for CountingIndex {
 
     fn error_count(&self, _session_id: &str) -> Result<u32, OperationsLogError> {
         Ok(0)
+    }
+
+    fn failure_counts(
+        &self,
+        _query: &LogFailureQuery,
+        _limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError> {
+        self.queries.fetch_add(1, Ordering::SeqCst);
+        Ok(Vec::new())
     }
 
     fn checkpoint(&self, _source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError> {

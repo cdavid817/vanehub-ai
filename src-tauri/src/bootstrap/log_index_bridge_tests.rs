@@ -3,9 +3,9 @@
 use super::log_index_bridge::{start_log_index_bridge, LOG_INDEX_QUEUE_CAPACITY};
 use crate::contexts::operations::application::{
     IndexedSessionLogPage, IndexedSessionLogQuery, IndexedSessionLogRecord, LogCorrelation,
-    LogIndexInsertOutcome, LogSourceIdentity, OperationsLogError, PostCommitLogNoticePublisher,
-    RedactedLogRecord, SessionLogCoverage, SessionLogCoverageState, SessionLogIndexRepository,
-    SessionLogNotice, SessionLogNoticeKind,
+    LogFailureCount, LogFailureQuery, LogIndexInsertOutcome, LogSourceIdentity, OperationsLogError,
+    PostCommitLogNoticePublisher, RedactedLogRecord, SessionLogCoverage, SessionLogCoverageState,
+    SessionLogIndexRepository, SessionLogNotice, SessionLogNoticeKind,
 };
 use crate::platform::log_receipts::{
     LogSourceWitness, RedactedLogAppendReceipt, RedactedLogAppendSink,
@@ -58,6 +58,14 @@ impl SessionLogIndexRepository for StalledIndex {
 
     fn error_count(&self, _session_id: &str) -> Result<u32, OperationsLogError> {
         Ok(0)
+    }
+
+    fn failure_counts(
+        &self,
+        _query: &LogFailureQuery,
+        _limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError> {
+        Ok(Vec::new())
     }
 
     fn checkpoint(&self, _source: &LogSourceIdentity) -> Result<Option<u64>, OperationsLogError> {
@@ -118,6 +126,14 @@ impl SessionLogIndexRepository for FailingIndex {
     }
 
     fn error_count(&self, _session_id: &str) -> Result<u32, OperationsLogError> {
+        Err(OperationsLogError::IndexUnavailable("closed"))
+    }
+
+    fn failure_counts(
+        &self,
+        _query: &LogFailureQuery,
+        _limit: usize,
+    ) -> Result<Vec<LogFailureCount>, OperationsLogError> {
         Err(OperationsLogError::IndexUnavailable("closed"))
     }
 

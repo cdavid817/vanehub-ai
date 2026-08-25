@@ -23,11 +23,11 @@ pub(crate) use evidence::{OperationsEvidencePort, OperationsEvidenceSignal};
 pub(crate) use log_cursor::{filter_fingerprint, LogPageCursor, LogSortDirection};
 pub(crate) use log_index::{
     IndexedLogLevel, IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery,
-    IndexedSessionLogRecord, LogCorrelation, OperationsLogError, SafeLogExportPreparation,
-    SessionLogBackfillState, SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState,
-    SessionLogFilters, SessionLogNotice, SessionLogNoticeKind, SessionLogQueryScope,
-    SessionLogSubscriptionBootstrap, SessionLogSummary, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE,
-    MAX_LOG_SEARCH_CANDIDATES,
+    IndexedSessionLogRecord, LogCorrelation, LogFailureCount, LogFailureQuery, LogFailureSummary,
+    OperationsLogError, SafeLogExportPreparation, SessionLogBackfillState,
+    SessionLogBackfillStatus, SessionLogCoverage, SessionLogCoverageState, SessionLogFilters,
+    SessionLogNotice, SessionLogNoticeKind, SessionLogQueryScope, SessionLogSubscriptionBootstrap,
+    SessionLogSummary, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE, MAX_LOG_SEARCH_CANDIDATES,
 };
 pub(crate) use log_index_ports::{
     BackfillOperationPublisher, LineRejections, LogBatchCommit, LogIndexClock, LogIndexDiagnostics,

@@ -26,6 +26,7 @@ mod retrieval;
 mod runtime;
 mod scheduled_tasks;
 mod sdk;
+mod session_report;
 mod sessions;
 mod skills;
 mod ssh_connections;
@@ -71,6 +72,7 @@ pub(crate) use retrieval::{
 pub(crate) use runtime::run;
 pub(crate) use scheduled_tasks::start_scheduled_task_jobs;
 pub(crate) use sdk::assemble_sdk_api;
+pub(crate) use session_report::assemble_session_run_report;
 pub(crate) use sessions::{
     assemble_sessions_api, start_session_maintenance_jobs, SessionRuntimeDependencies,
 };

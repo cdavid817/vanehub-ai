@@ -1,3 +1,16 @@
+/// The session-run report: its service, the questions it asks, and the shapes it answers with.
+///
+/// The ports are published alongside the service because bootstrap implements them. That is the
+/// whole arrangement: the sessions context states what a report needs in its own vocabulary, and
+/// the layer that is allowed to know every context supplies the answers.
+pub(crate) use super::application::{
+    AgentReportRow, ChangeSummary, ChangeSummaryPort, CommandReport, ExecutionEvidencePort,
+    ExecutionEvidenceSummary, FailureReportRow, LogFailurePort, LogFailureSummary,
+    ObservabilityTimingPort, ReportClock, ReportCoverage, ReportCoverageState, ReportEvidenceLink,
+    ReportScope, ReportScopeRequest, ReportSectionCoverage, ReportSourceError, ReportSourceResult,
+    ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary, SessionRunReport,
+    SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
+};
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
     CompletedInvocationAccounting, CreateMessageRequest, DurableGenerationStartRequest,
@@ -142,6 +155,19 @@ impl SessionsApi {
         review_id: &str,
     ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
         self.review()?.find(review_id)
+    }
+
+    /// The session's active review without creating one.
+    ///
+    /// `open_review` snapshots the workspace and writes; this reads. A report needs the read, since
+    /// a session with no review must be reported as having none rather than acquiring one by being
+    /// reported on.
+    pub(crate) fn find_active_review(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<super::domain::ReviewSession>, super::application::ReviewApplicationError>
+    {
+        self.review()?.find_active(session_id)
     }
 
     pub(crate) fn add_review_comment(

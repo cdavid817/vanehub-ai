@@ -8,6 +8,7 @@ mod cursor;
 mod maintenance;
 mod payload_row;
 mod projection;
+mod report_aggregate;
 mod repository;
 mod rows;
 mod schema;
@@ -20,5 +21,7 @@ pub(crate) use adapters::{
 pub(crate) use repository::SqliteEvidenceRepository;
 pub(crate) use schema::{apply_evidence_schema, repair_missing_evidence_schema};
 
+#[cfg(test)]
+mod report_aggregate_tests;
 #[cfg(test)]
 mod tests;

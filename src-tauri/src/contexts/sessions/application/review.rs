@@ -225,6 +225,19 @@ impl ReviewApplicationService {
         Ok(review)
     }
 
+    /// The session's active review, if one already exists.
+    ///
+    /// Distinct from `open` in the one way that matters to a reader: `open` takes a workspace
+    /// snapshot and creates or reconciles a review, which is a write. A report must not create the
+    /// thing it reports on — a session with no review would acquire one by being looked at, and its
+    /// change section would then describe a review that the act of reporting brought into being.
+    pub(crate) fn find_active(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ReviewSession>, ReviewApplicationError> {
+        self.repository.find_active_by_session(session_id)
+    }
+
     pub(crate) fn find(&self, review_id: &str) -> Result<ReviewSession, ReviewApplicationError> {
         self.repository
             .find(review_id)?

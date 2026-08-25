@@ -215,4 +215,32 @@ describe("evidence transport schemas", () => {
       usage: { ...report.usage, costAvailable: true },
     })).toThrow();
   });
+
+  // The native command omits the key entirely when nothing recorded per-file review progress, so a
+  // schema that required it would reject every real report the backend produces.
+  it("parses a report whose change section omits the unviewed count", () => {
+    const report = {
+      scope: { sessionId: "session-1", runIds: [], seatIds: [], groupBy: "run" },
+      generatedAt: "2026-08-22T10:00:00.000Z",
+      coverage: {
+        overall: "unavailable",
+        sections: Object.fromEntries([
+          "overview", "usage", "latency", "agents", "tools", "commands", "changes", "verification", "failures",
+        ].map((section) => [section, { state: "unavailable", reasonCodes: ["changes_unavailable"] }])),
+      },
+      overview: { runCount: 0, succeeded: 0, failed: 0, cancelled: 0, retries: 0 },
+      usage: { responseCount: 0, internalPurposeResponseCount: 0, coverage: { state: "unavailable", reasonCodes: [] }, costAvailable: false },
+      latency: {},
+      agents: [],
+      tools: [],
+      commands: { total: 0, failed: 0, running: 0 },
+      changes: { changedFiles: 0, unresolvedFindings: 0 },
+      verification: { passed: 0, failed: 0, skipped: 0 },
+      failures: { rows: [] },
+      evidenceLinks: [],
+      sourceCoverage: coverage,
+    };
+
+    expect(parseSessionRunReport(report).changes.unviewedFiles).toBeUndefined();
+  });
 });

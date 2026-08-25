@@ -9,6 +9,9 @@ use super::application::evidence::{
     RecordEvidenceInput, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
     WorkspaceEvidenceSummaryQuery,
 };
+pub(crate) use super::application::evidence::{
+    EvidenceLatencyAggregate, EvidenceReportAggregate, EvidenceReportQuery,
+};
 use super::domain::EvidenceSessionId;
 use std::sync::Arc;
 
@@ -96,6 +99,25 @@ impl ExecutionEvidenceApi {
         session_id: &EvidenceSessionId,
     ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError> {
         self.service.subscription_bootstrap(session_id)
+    }
+
+    /// Counts a session's tools, commands, verifications, and failures.
+    ///
+    /// Published rather than left to a consumer's paging loop: the counting is this context's job
+    /// because only it can bound the read. A consumer that summed a page would report a page total
+    /// under a session total's name, and the answer would carry nothing that said so.
+    pub(crate) fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+        self.service.report_aggregate(query)
+    }
+
+    pub(crate) fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+        self.service.report_latency(query)
     }
 
     /// Repairs the projection at startup if, and only if, it disagrees with the journal.
@@ -208,6 +230,22 @@ mod tests {
             })
         }
 
+        fn report_aggregate(
+            &self,
+            _query: &EvidenceReportQuery,
+        ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("aggregate");
+            Ok(EvidenceReportAggregate::default())
+        }
+
+        fn report_latency(
+            &self,
+            _query: &EvidenceReportQuery,
+        ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("latency");
+            Ok(EvidenceLatencyAggregate::default())
+        }
+
         fn report_unattributed_gap(&self, _count: u32) {}
 
         fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
@@ -282,7 +320,7 @@ mod tests {
         )
     }
 
-    /// The published surface is exactly the four reads plus the in-process recorder. If a query
+    /// The published surface is exactly the six reads plus the in-process recorder. If a query
     /// stopped reaching the service this would keep passing only if the delegation were removed
     /// entirely, which is the mistake worth catching.
     #[test]
@@ -312,10 +350,43 @@ mod tests {
         })
         .expect_err("record is absent in the stub");
         api.subscription_bootstrap(&session).expect("bootstrap");
+        let report_query = EvidenceReportQuery::new(session.clone());
+        api.report_aggregate(&report_query).expect("aggregate");
+        api.report_latency(&report_query).expect("latency");
 
         assert_eq!(
             *repository.calls.lock().expect("calls"),
-            vec!["summary", "list", "detail", "bootstrap"]
+            vec![
+                "summary",
+                "list",
+                "detail",
+                "bootstrap",
+                "aggregate",
+                "latency"
+            ]
+        );
+    }
+
+    /// An over-long filter list never reaches storage.
+    ///
+    /// The refusal is the service's, not the repository's: a repository that clamped would answer a
+    /// narrower question under the asked question's name, and the answer carries no field that
+    /// could say which runs it actually covered.
+    #[test]
+    fn an_over_long_filter_list_is_refused_before_storage() {
+        let repository = Arc::new(StubRepository::default());
+        let api = api(repository.clone());
+        let session = EvidenceSessionId::parse("session-1").expect("session");
+
+        let refused = api.report_aggregate(&EvidenceReportQuery {
+            run_ids: (0..500).map(|index| format!("run-{index}")).collect(),
+            ..EvidenceReportQuery::new(session)
+        });
+
+        assert!(refused.is_err());
+        assert!(
+            repository.calls.lock().expect("calls").is_empty(),
+            "the refused query still reached storage"
         );
     }
 }

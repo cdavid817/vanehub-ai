@@ -96,7 +96,9 @@ export const sessionRunReportSchema = z.object({
   }),
   changes: z.object({
     changedFiles: z.number().int().nonnegative(),
-    unviewedFiles: z.number().int().nonnegative(),
+    // Optional: nothing records per-file review progress, and a required zero here would assert
+    // that every changed file had been reviewed.
+    unviewedFiles: z.number().int().nonnegative().optional(),
     unresolvedFindings: z.number().int().nonnegative(),
   }),
   verification: z.object({

@@ -229,7 +229,13 @@ pub(crate) struct CommandReport {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ChangeReport {
     pub(crate) changed_files: u32,
-    pub(crate) unviewed_files: u32,
+    /// Absent in this build.
+    ///
+    /// Nothing records per-file review progress: a review carries its files, its comments and its
+    /// findings, and none of the three says whether a human looked at a file. Zero would claim
+    /// every changed file had been reviewed, which is the opposite of what an unrecorded state
+    /// means and the more dangerous direction to be wrong in.
+    pub(crate) unviewed_files: Option<u32>,
     pub(crate) unresolved_findings: u32,
 }
 

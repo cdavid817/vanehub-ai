@@ -231,6 +231,47 @@ pub(crate) struct SessionLogSummary {
     pub(crate) coverage: SessionLogCoverage,
 }
 
+/// How many error rows one report may attribute to distinct categories.
+///
+/// A long tail of one-off categories is not what a report is for, and carrying it would make the
+/// answer grow with the corpus rather than stay a summary.
+pub(crate) const MAX_LOG_FAILURE_ROWS: usize = 20;
+
+/// What a report asks the log index about.
+///
+/// Narrower than `SessionLogQueryScope` on purpose: a report is always about one session, and the
+/// correlations it narrows by are the ones a report scope carries. Reusing the page query's scope
+/// would let a caller ask for a report over a single span, which is a page, not a report.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LogFailureQuery {
+    pub(crate) session_id: String,
+    pub(crate) run_ids: Vec<String>,
+    pub(crate) seat_ids: Vec<String>,
+    pub(crate) from: Option<String>,
+    pub(crate) to: Option<String>,
+}
+
+/// Error rows counted under one category.
+///
+/// The category is the grouping key rather than the message, because a message is redacted producer
+/// text and a category is a stable token. Grouping by message would also produce one group per
+/// record, which is a list of errors rather than a count of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LogFailureCount {
+    pub(crate) category: String,
+    pub(crate) count: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LogFailureSummary {
+    pub(crate) rows: Vec<LogFailureCount>,
+    pub(crate) coverage: SessionLogCoverage,
+    /// True when the category tail was cut. Separate from coverage because it is this query's own
+    /// bound rather than a gap in the corpus, and a reader who sees only "partial" would go looking
+    /// for missing log files that are all present.
+    pub(crate) truncated: bool,
+}
+
 /// Where a repair is in its life.
 ///
 /// The three working states are separated because they fail differently and a reader acts

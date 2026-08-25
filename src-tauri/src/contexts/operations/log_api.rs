@@ -9,8 +9,9 @@ use super::application::SessionLogQueryService;
 pub(crate) use super::application::{IndexedLogLevel, LogSortDirection};
 pub(crate) use super::application::{
     IndexedSessionLogDetail, IndexedSessionLogPage, IndexedSessionLogQuery,
-    IndexedSessionLogRecord, OperationsLogError, SafeLogExportPreparation, SessionLogBackfillState,
-    SessionLogBackfillStatus, SessionLogCoverage, SessionLogFilters, SessionLogQueryScope,
+    IndexedSessionLogRecord, LogFailureQuery, LogFailureSummary, OperationsLogError,
+    SafeLogExportPreparation, SessionLogBackfillState, SessionLogBackfillStatus,
+    SessionLogCoverage, SessionLogCoverageState, SessionLogFilters, SessionLogQueryScope,
     SessionLogSubscriptionBootstrap, SessionLogSummary,
 };
 use std::sync::Arc;
@@ -53,6 +54,18 @@ impl SessionLogApi {
         session_id: &str,
     ) -> Result<SessionLogSummary, OperationsLogError> {
         self.service.summary(session_id)
+    }
+
+    /// Error rows grouped by category, for a session-run report.
+    ///
+    /// Published rather than left to a caller's paging loop for the same reason the page query is
+    /// bounded: a consumer that read error rows to count them would read the whole corpus, and one
+    /// that read a page would report a page count under a session count's name.
+    pub(crate) fn failure_summary(
+        &self,
+        query: &LogFailureQuery,
+    ) -> Result<LogFailureSummary, OperationsLogError> {
+        self.service.failure_summary(query)
     }
 
     pub(crate) fn subscription_bootstrap(
