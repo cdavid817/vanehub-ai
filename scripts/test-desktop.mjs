@@ -8,11 +8,16 @@ import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, readProcessMarker } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
 import { createRunContext, disposeRunContext } from "./desktop/run-context.mjs";
+import { withDirectoryRestored } from "./desktop/schema-snapshot.mjs";
 import { DesktopVerificationError } from "./desktop/verification-error.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const npmCli = process.env.npm_execpath;
 const latestArtifactPath = path.join(repoRoot, "test-results", "desktop", "latest-artifact.json");
+// The `desktop-e2e` feature pulls in the WDIO plugin, whose ACL entries Tauri regenerates into
+// these tracked files. A normal build does not produce them, so leaving them behind breaks the
+// documentation job's read-only check for whoever commits next.
+const generatedSchemas = path.join(repoRoot, "src-tauri", "gen", "schemas");
 // The expanded native layers are valuable release coverage, but they do not yet hold on every
 // hosted runner. Keep the PR gate on the cross-platform smoke contract; developers and release
 // workflows can opt into the complete suite explicitly.
@@ -41,14 +46,18 @@ async function buildDesktop() {
   // invocation; the timestamp is what fails loudly if a build silently reuses an older binary.
   const buildStartedAt = Date.now();
   await rm(expectedPath, { force: true });
-  runNpm(["run", "sidecar:prepare", "--", `--target=${host.targetTriple}`]);
-  runNpm([
-    "exec", "--", "tauri", "build", "--debug", "--no-bundle", "--ci",
-    "--target", host.targetTriple,
-    "--features", "desktop-e2e",
-    "--config", "src-tauri/tauri.desktop-e2e.conf.json",
-  ]);
-  const artifact = resolveDesktopArtifact({ metadata, host, profile: "debug", buildStartedAt });
+  // Snapshot by bytes rather than by Git: the directory may already carry edits the developer made
+  // before running this, and a `git restore` would delete work nobody asked to discard.
+  const artifact = await withDirectoryRestored(generatedSchemas, async () => {
+    runNpm(["run", "sidecar:prepare", "--", `--target=${host.targetTriple}`]);
+    runNpm([
+      "exec", "--", "tauri", "build", "--debug", "--no-bundle", "--ci",
+      "--target", host.targetTriple,
+      "--features", "desktop-e2e",
+      "--config", "src-tauri/tauri.desktop-e2e.conf.json",
+    ]);
+    return resolveDesktopArtifact({ metadata, host, profile: "debug", buildStartedAt });
+  });
   await mkdir(path.dirname(latestArtifactPath), { recursive: true });
   await writeFile(latestArtifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
   process.stdout.write(`Desktop artifact: ${artifact.executablePath}\n`);
@@ -221,6 +230,22 @@ function agentMcpDesktop(artifact) {
   });
 }
 
+/**
+ * Deterministic local-media coverage, kept out of `all` on purpose.
+ *
+ * It needs a Python interpreter and a prepared fixture tree that none of the other layers want, and
+ * it runs the same artifact under a different assembly. Folding it into the default suite would
+ * make every other layer's result depend on whether this machine has Python.
+ */
+function localMediaDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-local-media-fixture",
+    config: "tests/desktop/wdio.local-media.conf.mjs",
+    label: "Desktop local media fixture",
+    artifact,
+  });
+}
+
 function skillsDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-skills",
@@ -239,6 +264,7 @@ async function main() {
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "agent-mcp") await agentMcpDesktop();
+  else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();

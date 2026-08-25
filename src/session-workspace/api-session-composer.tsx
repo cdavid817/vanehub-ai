@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatInputBox } from "../components/chat/ChatInputBox";
+import { ComposerMediaActions } from "../components/chat/ComposerMediaActions";
+import { LocalMediaResultDialog } from "../components/chat/LocalMediaResultDialog";
+import { OcrReviewDialog } from "../components/chat/OcrReviewDialog";
 import type { MainLayoutModel } from "../main-layout/use-main-layout-model";
 import { createChatOperationFailureEvent } from "../main-layout/chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
@@ -12,6 +15,7 @@ import { seatMentionOptions } from "../services/seat-mention-options";
 import { canSendToSession } from "../services/session-admission";
 import { useSlashCommands } from "../services/slash-commands/use-slash-commands";
 import type { SlashCommandNavigation } from "../services/slash-commands/types";
+import { useLocalMediaComposer } from "./local-media/use-local-media-composer";
 import { RunnerSelector } from "./runner-selector";
 import { useRunnerSelection } from "./use-runner-selection";
 
@@ -65,6 +69,28 @@ export function ApiSessionComposer({
     },
   });
 
+  // The draft is read through a ref rather than captured, because a media result can arrive
+  // seconds after the action started and must join whatever the user has typed since.
+  const draftRef = useRef(model.draft);
+  draftRef.current = model.draft;
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const setDraftFromMedia = useCallback(
+    (value: string) => {
+      // The same setter the textarea uses, so slash and file-reference suggestions stay in step.
+      slash.updateSuggestions(value);
+      model.setDraft(value);
+    },
+    [model, slash],
+  );
+  const media = useLocalMediaComposer({
+    composerScopeId: model.activeSession?.id ?? null,
+    getDraft: () => draftRef.current,
+    setDraft: setDraftFromMedia,
+    getSelection: () => selectionRef.current,
+    getTextArea: () => textAreaRef.current,
+  });
+
   // `model.submit()` reads `model.draft`, so an unescaped literal has to land in state before the
   // send happens — one render apart, not one statement apart.
   useEffect(() => {
@@ -102,6 +128,7 @@ export function ApiSessionComposer({
       fileReferences={model.fileReferences}
       isStreaming={model.isStreaming}
       lockRuntimeIdentity
+      mediaActions={<ComposerMediaActions hasText={model.draft.trim().length > 0} media={media} />}
       participantMentions={participantMentions}
       slashCommandOutput={slash.output}
       slashCommandSuggestions={slash.suggestions}
@@ -118,12 +145,29 @@ export function ApiSessionComposer({
       onConfigThinkingChange={model.chatConfig.setThinking}
       onDismissSlashCommandOutput={slash.dismissOutput}
       onRemoveFileReference={model.removeFileReference}
+      onSelectionChange={(range) => { selectionRef.current = range; }}
       onSelectSlashCommand={(name) => model.setDraft(slash.completeDraft(name))}
       onStop={model.stop}
       onSubmit={submit}
       sessionId={model.activeSession?.id ?? null}
+      textAreaRef={textAreaRef}
       value={model.draft}
       />
+      {media.review ? (
+        <OcrReviewDialog
+          onAppend={media.appendReviewText}
+          onCancel={media.cancelReview}
+          onChange={media.updateReviewText}
+          review={media.review}
+        />
+      ) : null}
+      {media.overflow ? (
+        <LocalMediaResultDialog
+          engine={media.overflow.engine}
+          onClose={media.dismissOverflow}
+          text={media.overflow.text}
+        />
+      ) : null}
     </div>
   );
 }

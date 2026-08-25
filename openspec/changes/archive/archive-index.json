@@ -3310,6 +3310,27 @@
       "capabilities": [
         "cli-parameter-management"
       ]
+    },
+    {
+      "archivedOn": "2026-08-25",
+      "changeName": "add-local-composer-media-tools",
+      "path": "openspec/changes/archive/2026-08-25-add-local-composer-media-tools/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "app-settings",
+        "application-localization",
+        "chat-experience",
+        "desktop-runtime-verification",
+        "local-extension-management",
+        "local-media-runtime",
+        "native-app-packaging",
+        "native-runtime-architecture",
+        "onepiece-ocr-tool"
+      ]
     }
   ]
 }

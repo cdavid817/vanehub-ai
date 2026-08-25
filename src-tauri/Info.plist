@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Merged into the packaged macOS Info.plist by Tauri, which picks up a file with this name from the
+  Tauri configuration directory without needing a `bundle.macOS.infoPlist` entry.
+
+  `NSMicrophoneUsageDescription` is mandatory: without it macOS terminates the process the first
+  time anything opens an input device, rather than showing a permission prompt. The wording names
+  the feature and states that audio stays on the device, because this string is the only
+  explanation a user sees before deciding.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VaneHub AI uses the microphone only while you hold the composer's talk button, and transcribes the recording with the speech engine you configured on this Mac. Audio is not uploaded.</string>
+  </dict>
+</plist>

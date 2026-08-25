@@ -20,11 +20,12 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
-/// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
+/// nullable Agent Runner projections, migration 80 retires standalone Plan execution,
 /// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
-/// beside the existing per-parameter rows without deleting any of them.
+/// beside the existing per-parameter rows without deleting any of them, and migration 82 adds the
+/// local-media engine profile.
 fn expected_versions() -> Vec<i64> {
-    (1..=81).collect()
+    (1..=82).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

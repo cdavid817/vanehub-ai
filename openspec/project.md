@@ -70,6 +70,7 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `web_research` | Guarded URL admission, public-URL resolution, fetching, extraction, binary artifact handling, and search |
 | `browser_automation` | Browser sidecar protocol, session and action policy, operation lifecycle, and artifact handoff |
 | `artifacts` | Content-addressed artifact blobs: media type and size validation, deduplication, and store capacity policy |
+| `local_media` | Local OCR, microphone capture and whole-utterance transcription, speech synthesis/playback, engine profiles and readiness, Python worker supervision, and ephemeral media lifecycle |
 | `goals` | Goal aggregates, links to loops, work items, and sessions, legacy Plan-link display, derived acceptance readiness, and human acceptance transitions |
 
 - Every new or materially changed native business rule, use case, persistence model, external integration, and Tauri command MUST have one owning context.
