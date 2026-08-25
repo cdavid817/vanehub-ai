@@ -19,8 +19,12 @@ export async function navigateTo(path) {
     // Long enough for a restore already in flight to land and be observed, rather than to land
     // just after the check and be missed.
     await globalThis.browser.pause(400);
-    const current = await globalThis.browser.execute(() => globalThis.location.pathname);
-    return decodeURIComponent(current) === decodeURIComponent(path);
+    const current = decodeURIComponent(await globalThis.browser.execute(() => globalThis.location.pathname));
+    const requested = decodeURIComponent(path);
+    // A deeper path counts as arrived: the workspace canonicalises `/workspace/sessions` to
+    // `/workspace/sessions/<active id>` by design. What this rejects is landing somewhere else
+    // entirely, which is what a late restore does.
+    return current === requested || current.startsWith(`${requested}/`);
   };
 
   await globalThis.browser.waitUntil(settle, {
