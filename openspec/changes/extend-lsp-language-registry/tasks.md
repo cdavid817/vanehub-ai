@@ -1,22 +1,43 @@
 ## 1. Baseline evidence before any change
 
-- [ ] 1.1 Record the pre-change pass state of the LSP suites that are this change's acceptance evidence: `cargo test --workspace` filtered to `code_intelligence`, `native_lsp_end_to_end_tests`, and `migration_fixture_tests`; the frontend LSP vitest files; `npx playwright test tests/e2e/lsp-settings.spec.ts`. A generalization is only proven by these staying green, so a pre-existing failure must be known now rather than blamed on the refactor later
-- [ ] 1.2 Capture the current serialized shapes of `get_lsp_configuration`, `discover_lsp_servers`, and `list_lsp_server_status` as fixtures, so contract drift is diffable rather than argued about
+- [x] 1.1 Record the pre-change pass state of the LSP suites that are this change's acceptance evidence: `cargo test --workspace` filtered to `code_intelligence`, `native_lsp_end_to_end_tests`, and `migration_fixture_tests`; the frontend LSP vitest files; `npx playwright test tests/e2e/lsp-settings.spec.ts`. A generalization is only proven by these staying green, so a pre-existing failure must be known now rather than blamed on the refactor later
+  - Baseline captured at `712bbafa` + planning commit, all green:
+    - `cargo test --workspace code_intelligence` — **152 passed, 0 failed**; plus `tests/architecture.rs` 2 passed (`code_intelligence_context_exposes_a_layered_public_api_boundary`, `code_intelligence_never_imports_private_retrieval_layers`)
+    - `cargo test --workspace native_lsp` — **1 passed** (`native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutdown`)
+    - `cargo test --workspace migration_fixture` — **13 passed**
+    - Frontend LSP vitest (6 files: `lsp-contract`, `web-lsp-client`, `tauri-lsp-adapter`, `lsp-adapter-conformance`, `code-intelligence-page`, `lsp-settings-localization`) — **36 passed**
+    - `npx playwright test tests/e2e/lsp-settings.spec.ts` — **1 passed**. Requires unsetting `all_proxy`/`ALL_PROXY` first: the host SOCKS5 proxy makes Playwright fail with `Protocol "socks5:" not supported`. Pin `PLAYWRIGHT_PORT` (used 5199) so the run cannot silently reuse another worktree's dev server
+- [x] 1.2 Capture the current serialized shapes of `get_lsp_configuration`, `discover_lsp_servers`, and `list_lsp_server_status` as fixtures, so contract drift is diffable rather than argued about
+  - The four pre-existing tests in `dto_tests.rs` assert field by field, so an added field passes them silently. Added three whole-object assertions — one per command result — which now fail with a reviewable diff when the contract widens. `cargo test --workspace code_intelligence::dto` — **7 passed, 0 failed**
 
 ## 2. Migration and storage
 
-- [ ] 2.1 Re-scan every local and remote branch for the highest in-flight migration number and claim the next free one. At the time this change was written the highest anywhere was 85 (`cli-action-plans`), so 86 was next — but all worktrees share one `%APPDATA%\ai.vanehub.app\vanehub.sqlite`, and two sibling branches already carry colliding numbers, so re-verify instead of trusting this line
-- [ ] 2.2 Write a failing migration fixture test asserting that after migration a pre-existing `lsp_language_configurations` row keeps its `revision` and `updated_at` verbatim, and that a row whose `language_id` is neither `rust` nor `typescript_javascript` can be inserted
-- [ ] 2.3 Add the migration that rebuilds `lsp_language_configurations` without `CHECK (language_id IN (...))` and with `startup_arguments_json` nullable: create replacement, copy all columns, drop original, rename
-- [ ] 2.4 Update the four hard-coded migration-count/version assertions. Neither the compiler nor clippy reports them; find them by running the suite, not by reading
-- [ ] 2.5 Update `platform/database/mod.rs` schema assertions that name the LSP migration, and confirm `migration_fixture_tests` still asserts a disabled-by-default seeded configuration
+- [x] 2.1 Re-scan every local and remote branch for the highest in-flight migration number and claim the next free one. At the time this change was written the highest anywhere was 85 (`cli-action-plans`), so 86 was next — but all worktrees share one `%APPDATA%\ai.vanehub.app\vanehub.sqlite`, and two sibling branches already carry colliding numbers, so re-verify instead of trusting this line
+  - Scanned all local and remote refs: highest anywhere is 85 (`cli-action-plans`, on `main`/`origin/main`). **Claimed 86.**
+  - Pre-existing collisions found, not caused by this change and not fixed here: `worktree-personalization` uses 83 for `session-personalization-mode` while `main` uses 83 for `cli-environment-snapshots`; `worktree-workspace` uses 82 for `unified-log-query-index` while `main` uses 82 for `local-media-profiles`.
+- [x] 2.2 Write a failing migration fixture test asserting that after migration a pre-existing `lsp_language_configurations` row keeps its `revision` and `updated_at` verbatim, and that a row whose `language_id` is neither `rust` nor `typescript_javascript` can be inserted
+  - Added `infrastructure/schema_tests.rs` with five tests. Confirmed red first: `unresolved import super::schema::apply_language_registry_schema`
+- [x] 2.3 Add the migration that rebuilds `lsp_language_configurations` without `CHECK (language_id IN (...))` and with `startup_arguments_json` nullable: create replacement, copy all columns, drop original, rename
+  - `apply_language_registry_schema` in `infrastructure/schema.rs`, exported through `api.rs`, registered as migration **86 `lsp-language-registry`**. Self-guards on column nullability so repeated application is a no-op.
+  - Existing `startup_arguments_json` values are copied as NULL, not carried over. Nothing but the compile-time constant could ever write them, so preserving them would record every existing installation as having explicitly overridden its arguments and freeze today's defaults permanently.
+  - All five tests green.
+- [x] 2.4 Update the four hard-coded migration-count/version assertions. Neither the compiler nor clippy reports them; find them by running the suite, not by reading
+  - **This task's premise was stale.** The migration-count assertions in `platform/database/mod.rs` are derived (`expected_migration_versions().len()`), and `migration_fixture_tests::expected_versions()` delegates to the same function. Adding migration 86 broke no version or count assertion.
+  - Exactly one test failed, and for a different reason: `current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust` read `startup_arguments_json` as a non-null `String`. Updated it to `Option<String>` expecting `None`, and added an assertion that version 86 is recorded as `lsp-language-registry`.
+- [x] 2.5 Update `platform/database/mod.rs` schema assertions that name the LSP migration, and confirm `migration_fixture_tests` still asserts a disabled-by-default seeded configuration
+  - No change needed in `platform/database/mod.rs`; its LSP assertion names migration 58 by version and still holds. Extended the `migration_fixture_tests` header comment to describe migration 86.
+  - Verified green: `cargo test --workspace migration` **76 passed**, `cargo test --workspace platform::database` **28 passed**, `npm run version:unit:test` **9 passed**
 
 ## 3. Domain registry
 
-- [ ] 3.1 Add the validated `LspLanguageId` string newtype following the `CliToolId` pattern: bounded length, no control characters, no leading or trailing whitespace, constructed at every wire and row boundary
-- [ ] 3.2 Define the language definition struct carrying id, candidate executable names in preference order, project-root markers, extension-to-`languageId` mapping, default startup arguments, default initialization options, platform applicability, and server-test fixture project
-- [ ] 3.3 Add the static definition table with Rust and TypeScript/JavaScript entries whose declared data is byte-identical to today's constants, plus an `Option`-returning lookup by id
-- [ ] 3.4 Add a registry-completeness test asserting every entry supplies at least one executable name, at least one root marker, at least one extension mapping, and a fixture project
+- [x] 3.1 Add the validated `LspLanguageId` string newtype following the `CliToolId` pattern: bounded length, no control characters, no leading or trailing whitespace, constructed at every wire and row boundary
+  - `domain/language_id.rs`. Deliberately stricter than the CLI rule: `[a-z0-9_]` only, max 64. A language id is concatenated into the `lspSettings.language.<id>` localization key and stored as a primary key, so casing ambiguity and separator characters are worth refusing outright. Kept the CLI's `new` / `trusted` split so registry literals do not pay a release-build panic for a typo the tests already catch.
+- [x] 3.2 Define the language definition struct carrying id, candidate executable names in preference order, project-root markers, extension-to-`languageId` mapping, default startup arguments, default initialization options, platform applicability, and server-test fixture project
+  - `domain/registry.rs`. Table stays `const` by holding `&'static str` and minting the validated id on demand, the same way `CliToolDefinition::tool_id()` does.
+- [x] 3.3 Add the static definition table with Rust and TypeScript/JavaScript entries whose declared data is byte-identical to today's constants, plus an `Option`-returning lookup by id
+  - Three lookups: by language id, by extension (returning the owning language and its LSP `languageId`), and by server id.
+- [x] 3.4 Add a registry-completeness test asserting every entry supplies at least one executable name, at least one root marker, at least one extension mapping, and a fixture project
+  - `domain/registry_tests.rs`, 7 tests. Also asserts language ids, server ids, and extensions are unique across the registry — extension lookup returns the first match, so a contested extension would resolve by declaration order and silently route a file to the wrong server.
 - [ ] 3.5 Replace `LspConfiguration`'s two-language `Default` and its `languages.len() != 2` validation with registry-derived defaults, keeping every switch disabled by default
 - [ ] 3.6 Model startup arguments as `Option<Vec<String>>` where `None` means the registry default and `Some` replaces it, and validate the bounded list-of-strings shape
 - [ ] 3.7 Delete `LanguageFamily` and `ServerKind`, resolving every match site to a registry lookup

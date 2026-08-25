@@ -597,3 +597,7 @@ fn map_domain_error(error: super::domain::models::DomainModelError) -> CodeIntel
 pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError> {
     super::infrastructure::apply_schema(connection)
 }
+
+pub(crate) fn apply_language_registry_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    super::infrastructure::apply_language_registry_schema(connection)
+}

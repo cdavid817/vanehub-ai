@@ -22,8 +22,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
 /// nullable Agent Runner projections, migration 80 retires standalone Plan execution, migration 81
 /// adds CLI parameter profile metadata beside the existing per-parameter rows, migration 82 adds
-/// the local-media engine profile, and migrations 83-85 add the source-aware CLI environment
-/// tables. Derived from the migration list rather than hardcoded.
+/// the local-media engine profile, migrations 83-85 add the source-aware CLI environment
+/// tables, and migration 86 rebuilds the LSP language configuration table so the supported
+/// language set no longer lives in a storage CHECK constraint. Derived from the migration list
+/// rather than hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has
 /// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --
@@ -351,7 +353,7 @@ fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(2)?,
                 row.get::<_, String>(3)?,
             ))
         })
@@ -370,22 +372,28 @@ fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
             |row| row.get(0),
         )
         .expect("LSP foundation migration");
+    let registry_migration_name: String = conn
+        .query_row(
+            "SELECT name FROM schema_migrations WHERE version = 86",
+            [],
+            |row| row.get(0),
+        )
+        .expect("LSP language registry migration");
 
     assert_eq!(master_enabled, 0);
+    // Startup arguments read back as NULL rather than as the seeded constants: migration 86
+    // rebuilds the table and clears them, because "unset" has to stay distinguishable from a
+    // user who deliberately chose no arguments.
     assert_eq!(
         languages,
         vec![
-            ("rust".into(), 0, "[]".into(), "{}".into()),
-            (
-                "typescript_javascript".into(),
-                0,
-                "[\"--stdio\"]".into(),
-                "{}".into()
-            ),
+            ("rust".into(), 0, None, "{}".into()),
+            ("typescript_javascript".into(), 0, None, "{}".into()),
         ]
     );
     assert_eq!(trusted_workspaces, 0);
     assert_eq!(migration_name, "lsp-code-intelligence-foundation");
+    assert_eq!(registry_migration_name, "lsp-language-registry");
 }
 
 #[test]

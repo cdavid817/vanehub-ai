@@ -104,6 +104,139 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
     assert!(value["negotiatedCapabilities"].is_null());
 }
 
+// The assertions above check individual fields, so an added field passes them silently. These
+// three pin the whole serialized object for each command result instead, which is what makes a
+// contract change show up as a reviewable diff rather than as nothing at all.
+#[test]
+fn get_lsp_configuration_result_serializes_to_an_exact_object() {
+    let configuration = LspConfigurationDto {
+        enabled: true,
+        languages: vec![
+            LspLanguageConfigurationDto {
+                language: LspLanguageIdDto::Rust,
+                enabled: true,
+                executable_override: Some("C:/tools/rust-analyzer.exe".to_string()),
+                initialization_options: json!({"check": {"command": "clippy"}}),
+            },
+            LspLanguageConfigurationDto {
+                language: LspLanguageIdDto::TypeScriptJavaScript,
+                enabled: false,
+                executable_override: None,
+                initialization_options: json!({}),
+            },
+        ],
+    };
+
+    assert_eq!(
+        serde_json::to_value(&configuration).expect("serialize configuration"),
+        json!({
+            "enabled": true,
+            "languages": [
+                {
+                    "language": "rust",
+                    "enabled": true,
+                    "executableOverride": "C:/tools/rust-analyzer.exe",
+                    "initializationOptions": {"check": {"command": "clippy"}}
+                },
+                {
+                    "language": "typescript_javascript",
+                    "enabled": false,
+                    "executableOverride": null,
+                    "initializationOptions": {}
+                }
+            ]
+        })
+    );
+}
+
+#[test]
+fn discover_lsp_servers_result_serializes_to_an_exact_object() {
+    let discovered = vec![
+        LspServerDiscoveryDto {
+            language: LspLanguageIdDto::Rust,
+            server: LspServerKindDto::RustAnalyzer,
+            availability: LspDiscoveryAvailabilityDto::Available,
+            executable_path: Some("C:/tools/rust-analyzer.exe".to_string()),
+            arguments: Vec::new(),
+            reason_code: None,
+        },
+        LspServerDiscoveryDto {
+            language: LspLanguageIdDto::TypeScriptJavaScript,
+            server: LspServerKindDto::TypeScriptLanguageServer,
+            availability: LspDiscoveryAvailabilityDto::Unavailable,
+            executable_path: None,
+            arguments: vec!["--stdio".to_string()],
+            reason_code: Some(LspSafeReasonCodeDto::ExecutableNotFound),
+        },
+    ];
+
+    assert_eq!(
+        serde_json::to_value(&discovered).expect("serialize discovery"),
+        json!([
+            {
+                "language": "rust",
+                "server": "rust_analyzer",
+                "availability": "available",
+                "executablePath": "C:/tools/rust-analyzer.exe",
+                "arguments": [],
+                "reasonCode": null
+            },
+            {
+                "language": "typescript_javascript",
+                "server": "typescript_language_server",
+                "availability": "unavailable",
+                "executablePath": null,
+                "arguments": ["--stdio"],
+                "reasonCode": "executable_not_found"
+            }
+        ])
+    );
+}
+
+#[test]
+fn list_lsp_server_status_result_serializes_to_an_exact_object() {
+    let statuses = vec![LspServerStatusDto {
+        language: LspLanguageIdDto::Rust,
+        server: LspServerKindDto::RustAnalyzer,
+        relative_project_root: "crates/core".to_string(),
+        state: LspProcessStateDto::Ready,
+        restart_count: 1,
+        last_response_at: Some("2026-08-10T08:01:02Z".to_string()),
+        diagnostic_count: 4,
+        reason_code: None,
+        negotiated_capabilities: Some(LspNegotiatedCapabilitiesDto {
+            position_encoding: LspPositionEncodingDto::Utf16,
+            document_sync: LspDocumentSyncDto::Incremental,
+            definition: true,
+            references: true,
+            hover: true,
+            diagnostics: true,
+        }),
+    }];
+
+    assert_eq!(
+        serde_json::to_value(&statuses).expect("serialize status"),
+        json!([{
+            "language": "rust",
+            "server": "rust_analyzer",
+            "relativeProjectRoot": "crates/core",
+            "state": "ready",
+            "restartCount": 1,
+            "lastResponseAt": "2026-08-10T08:01:02Z",
+            "diagnosticCount": 4,
+            "reasonCode": null,
+            "negotiatedCapabilities": {
+                "positionEncoding": "utf16",
+                "documentSync": "incremental",
+                "definition": true,
+                "references": true,
+                "hover": true,
+                "diagnostics": true
+            }
+        }])
+    );
+}
+
 #[test]
 fn status_contract_covers_every_process_state_and_optional_capabilities() {
     let states = [

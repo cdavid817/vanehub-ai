@@ -534,6 +534,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "cli-action-plans",
         crate::contexts::tooling::cli::infrastructure::environment_schema::apply_action_plan_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        86,
+        "lsp-language-registry",
+        crate::contexts::code_intelligence::api::apply_language_registry_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
 
@@ -650,6 +656,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (83, "cli-environment-snapshots"),
     (84, "cli-version-catalogs"),
     (85, "cli-action-plans"),
+    (86, "lsp-language-registry"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
