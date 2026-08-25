@@ -5,16 +5,18 @@ use chrono::{DateTime, TimeZone, Utc};
 
 use super::error::PersonalizationApplicationError;
 use super::manage_memory::MemoryApplicationService;
+use super::models::MemoryEligibilityCriteria;
 use super::models::{CreateMemoryInput, DeleteMemoryOutcome, ResetCounts, UpdateMemoryPatch};
 use super::ports::{
     ClockPort, DerivedIndexPort, MemoryMaintenanceRepository, MemoryProjectionPort,
     MemoryRepository, RetrievalIndexPort,
 };
 use crate::contexts::personalization::domain::{
-    MaintenancePhase, MemoryAudience, MemoryId, MemoryPage, MemoryProvenance, MemoryQuery,
-    MemoryRecord, MemoryScope, MemoryScopeFilter, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType, OwnedEntryClassification, ReconcileMemoryOutcome, ResetConfirmationToken,
-    ResetMemoryOutcome, ResetMemoryRequest, StorageEntry, RESET_CONFIRMATION_PHRASE,
+    MaintenancePhase, MemoryAudience, MemoryEligibilitySummary, MemoryId, MemoryPage,
+    MemoryProvenance, MemoryQuery, MemoryRecord, MemoryScope, MemoryScopeFilter, MemorySensitivity,
+    MemorySource, MemoryStatus, MemoryType, OwnedEntryClassification, ReconcileMemoryOutcome,
+    ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryRequest, StorageEntry,
+    RESET_CONFIRMATION_PHRASE,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -187,6 +189,13 @@ struct FakeProjection {
 }
 
 impl MemoryProjectionPort for FakeProjection {
+    fn eligible_page(
+        &self,
+        _criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary> {
+        Ok(MemoryEligibilitySummary::default())
+    }
+
     fn upsert(&self, record: &MemoryRecord, _hash: &str) -> Result<()> {
         if self.fail_upsert.load(Ordering::SeqCst) {
             return Err(PersonalizationApplicationError::Storage("disk full".into()));

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
 
 use crate::contexts::personalization::domain::{
-    LegacySourceFingerprint, LegacySourceId, LegacySourceLocator, MaintenanceFailure,
+    AgentId, LegacySourceFingerprint, LegacySourceId, LegacySourceLocator, MaintenanceFailure,
     MemoryAudience, MemoryProvenance, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType,
+    MemoryType, WorkspaceKey,
 };
 
 /// Everything needed to create one memory. Deliberately has no id field: allocating the immutable
@@ -158,4 +158,24 @@ pub(crate) struct WorkspaceIdentityRequest {
     /// Present for a remote workspace. Carries connection identity, not just a path, because two
     /// hosts can expose the same path and must not share a scope.
     pub(crate) remote_uri: Option<String>,
+}
+
+/// What eligibility is being asked about, after every policy and session restriction is decided.
+///
+/// Deliberately not a policy snapshot: by the time this is built, every "may I" question has been
+/// answered, and what remains is a query over records. A criteria object that still carried policy
+/// could be built inconsistently with the snapshot it belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemoryEligibilityCriteria {
+    /// Whose audience must include this memory.
+    pub(crate) agent_id: AgentId,
+    /// Whether global-scoped memories may be read at all.
+    pub(crate) allow_global: bool,
+    /// The single workspace whose memories may be read. `None` excludes every workspace scope.
+    pub(crate) workspace: Option<WorkspaceKey>,
+    /// Set for a project-only session, so a global memory is reported as excluded by the session
+    /// rather than by the global toggle — the same outcome with a very different fix.
+    pub(crate) project_only: bool,
+    /// How many refs to return. The count is always exact regardless.
+    pub(crate) limit: usize,
 }

@@ -22,6 +22,9 @@ mod memory_directory_lock_tests;
 mod memory_document;
 #[cfg(test)]
 mod memory_document_tests;
+/// Which memories are eligible, and whether the counts add up.
+#[cfg(test)]
+mod memory_eligibility_tests;
 mod memory_id_generator;
 mod schema;
 #[cfg(test)]

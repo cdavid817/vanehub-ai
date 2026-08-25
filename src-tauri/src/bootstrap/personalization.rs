@@ -70,6 +70,7 @@ pub(crate) fn assemble_personalization(
             .map_err(|error| format!("Memory directory is unavailable: {error}"))?,
     );
     let projection = Arc::new(SqliteMemoryProjection::new(database.clone()));
+    let projection_for_resolver = projection.clone();
     let memories = Arc::new(MemoryApplicationService::new(
         repository.clone(),
         repository.clone(),
@@ -142,6 +143,7 @@ pub(crate) fn assemble_personalization(
     let resolver = Arc::new(PolicyResolutionService::new(
         policies_for_resolver,
         Arc::new(RegistryAgentCapabilities::new(agents)),
+        projection_for_resolver,
         maintenance.clone(),
     ));
     Ok(PersonalizationAssembly {

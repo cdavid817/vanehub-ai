@@ -1,13 +1,16 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{types::Value, Connection, Row, ToSql};
 
+use sha2::{Digest, Sha256};
+
 use crate::contexts::personalization::application::{
-    MemoryProjectionPort, PersonalizationApplicationError, ResetCounts,
+    MemoryEligibilityCriteria, MemoryProjectionPort, PersonalizationApplicationError, ResetCounts,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryCursor, MemoryId, MemoryOrder,
-    MemoryPage, MemoryQuery, MemoryRecord, MemoryScopeFilter, MemorySource, MemoryStatus,
-    MemorySummary, MemoryType, WorkspaceKey,
+    AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryCursor, MemoryEligibilitySummary,
+    MemoryExclusionCount, MemoryId, MemoryOrder, MemoryPage, MemoryQuery, MemoryRecord,
+    MemoryScopeFilter, MemorySource, MemoryStatus, MemorySummary, MemoryType,
+    PersonalizationExclusionReason, SnapshotMemoryRef, WorkspaceKey,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 
@@ -46,6 +49,66 @@ fn audience_json(audience: &MemoryAudience) -> String {
 
 fn audience_is_restricted(json: &str) -> bool {
     json != "\"all_agents\""
+}
+
+fn exclusion_reason(outcome: &str) -> Option<PersonalizationExclusionReason> {
+    Some(match outcome {
+        "pending_candidate" => PersonalizationExclusionReason::PendingCandidate,
+        "archived" => PersonalizationExclusionReason::Archived,
+        "project_only_session" => PersonalizationExclusionReason::ProjectOnlySession,
+        "global_memory_disabled" => PersonalizationExclusionReason::GlobalMemoryDisabled,
+        "other_workspace" => PersonalizationExclusionReason::OtherWorkspace,
+        "agent_audience" => PersonalizationExclusionReason::AgentAudience,
+        _ => return None,
+    })
+}
+
+fn read_snapshot_ref(row: &Row<'_>) -> rusqlite::Result<Result<SnapshotMemoryRef>> {
+    let memory_id: String = row.get(0)?;
+    let revision: i64 = row.get(1)?;
+    let content_hash: String = row.get(2)?;
+    let name: String = row.get(3)?;
+    let description: String = row.get(4)?;
+    let memory_type: String = row.get(5)?;
+    let scope_kind: String = row.get(6)?;
+    let workspace_key: Option<String> = row.get(7)?;
+    let updated_at: String = row.get(8)?;
+
+    Ok((|| {
+        Ok(SnapshotMemoryRef {
+            id: MemoryId::parse(&memory_id)?,
+            revision: u64::try_from(revision).unwrap_or_default(),
+            content_hash,
+            name,
+            description,
+            memory_type: MemoryType::parse(&memory_type)?,
+            // A hint for grouping and display, never an authorization input: eligibility was
+            // decided by the query that produced this row.
+            scope_hint: workspace_key.unwrap_or(scope_kind),
+            updated_at: parse_timestamp(&updated_at)?,
+        })
+    })())
+}
+
+/// A digest over what was eligible, in a fixed order.
+///
+/// Ids and revisions only. A memory edited between two generations changes its revision and
+/// therefore this digest, which is what makes the next snapshot token differ; its text never
+/// enters, because this value reaches diagnostics.
+fn eligibility_digest(refs: &[SnapshotMemoryRef]) -> String {
+    let mut ordered: Vec<String> = refs
+        .iter()
+        .map(|entry| format!("{}@{}", entry.id.as_str(), entry.revision))
+        .collect();
+    ordered.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(b"personalization-eligibility-v1");
+    for entry in ordered {
+        hasher.update(b"\x1f");
+        hasher.update(entry.as_bytes());
+    }
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Clone)]
@@ -441,6 +504,111 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
             // filesystem enumeration can count them, and it fills this in.
             malformed: 0,
         })
+    }
+
+    fn eligible_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary> {
+        let conn = self.connection()?;
+        let workspace = criteria
+            .workspace
+            .as_ref()
+            .map(|key| key.as_str().to_string());
+        let audience_all = "\"all_agents\"".to_string();
+        // Matches the encoding `audience_json` writes for a selected list, so an Agent id that is a
+        // prefix of another cannot match by accident.
+        let audience_named = format!("%\"{}\"%", criteria.agent_id.as_str());
+
+        // One expression, evaluated once per row, that assigns exactly one outcome. Computing
+        // eligibility and the exclusion counts separately is how the two drift until they stop
+        // adding up, and the whole point of this summary is that they do.
+        //
+        // The branch order is the primary-reason precedence, most fundamental first: a record that
+        // is not a live memory at all, then the session restriction, then the global toggle, then
+        // the workspace, then the audience. A user is told the outermost thing to change.
+        let classification = "\
+            CASE \
+              WHEN status = 'candidate' THEN 'pending_candidate' \
+              WHEN status <> 'active' THEN 'archived' \
+              WHEN scope_kind = 'global' AND ?4 = 1 THEN 'project_only_session' \
+              WHEN scope_kind = 'global' AND ?3 = 0 THEN 'global_memory_disabled' \
+              WHEN scope_kind = 'workspace' AND (?5 IS NULL OR workspace_key IS NOT ?5) \
+                THEN 'other_workspace' \
+              WHEN audience_json <> ?1 AND audience_json NOT LIKE ?2 THEN 'agent_audience' \
+              ELSE 'eligible' \
+            END";
+
+        let counts_statement = format!(
+            "SELECT {classification} AS outcome, COUNT(*) \
+             FROM personalization_memory_projection GROUP BY outcome"
+        );
+        let mut prepared = conn.prepare(&counts_statement).map_err(storage)?;
+        let rows = prepared
+            .query_map(
+                rusqlite::params![
+                    audience_all,
+                    audience_named,
+                    i64::from(criteria.allow_global),
+                    i64::from(criteria.project_only),
+                    workspace,
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .map_err(storage)?;
+
+        let mut summary = MemoryEligibilitySummary::default();
+        for row in rows {
+            let (outcome, count) = row.map_err(storage)?;
+            let count = usize::try_from(count).unwrap_or_default();
+            summary.considered += count;
+            match outcome.as_str() {
+                "eligible" => summary.eligible_total = count,
+                other => {
+                    // An outcome this build cannot name still has to be counted, or the totals
+                    // would quietly stop adding up. Attributing it to the runtime is the honest
+                    // catch-all: something here could not classify the row.
+                    let reason = exclusion_reason(other)
+                        .unwrap_or(PersonalizationExclusionReason::RuntimeCapability);
+                    summary
+                        .exclusions
+                        .push(MemoryExclusionCount { reason, count });
+                }
+            }
+        }
+        // Deterministic regardless of how SQLite grouped them, so two identical stores produce
+        // identical summaries and therefore identical revision tokens.
+        summary
+            .exclusions
+            .sort_by_key(|entry| entry.reason.as_str());
+
+        let refs_statement = format!(
+            "SELECT memory_id, revision, content_hash, name, description, memory_type, scope_kind, \
+                    workspace_key, updated_at \
+             FROM personalization_memory_projection \
+             WHERE ({classification}) = 'eligible' \
+             ORDER BY updated_at DESC, memory_id ASC LIMIT ?6"
+        );
+        let mut prepared = conn.prepare(&refs_statement).map_err(storage)?;
+        let rows = prepared
+            .query_map(
+                rusqlite::params![
+                    audience_all,
+                    audience_named,
+                    i64::from(criteria.allow_global),
+                    i64::from(criteria.project_only),
+                    workspace,
+                    i64::try_from(criteria.limit).unwrap_or(i64::MAX),
+                ],
+                read_snapshot_ref,
+            )
+            .map_err(storage)?;
+        for row in rows {
+            summary.refs.push(row.map_err(storage)??);
+        }
+        summary.truncated = summary.refs.len() < summary.eligible_total;
+        summary.digest = eligibility_digest(&summary.refs);
+        Ok(summary)
     }
 
     fn projected_ids(&self) -> Result<Vec<MemoryId>> {

@@ -31,7 +31,8 @@ pub(crate) use migrate_legacy_policy::{
 };
 pub(crate) use models::{
     CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, LegacyMemoryFields,
-    MigrationRunOutcome, ResetCounts, UpdateMemoryPatch, WorkspaceIdentityRequest,
+    MemoryEligibilityCriteria, MigrationRunOutcome, ResetCounts, UpdateMemoryPatch,
+    WorkspaceIdentityRequest,
 };
 pub(crate) use ports::{
     AgentCapabilityPort, CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,

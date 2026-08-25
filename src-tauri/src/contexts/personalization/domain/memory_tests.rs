@@ -6,7 +6,7 @@ use super::memory::{
     MEMORY_CONTENT_MAX_CHARS, MEMORY_DESCRIPTION_MAX_CHARS, MEMORY_NAME_MAX_CHARS,
 };
 use super::scope::{AgentId, WorkspaceKey};
-use super::snapshot::{EffectiveMemoryAccess, PersonalizationExclusionReason};
+use super::snapshot::{EffectiveMemoryAccess, MemoryDeliveryMode, PersonalizationExclusionReason};
 use super::PersonalizationDomainError;
 
 fn agent(id: &str) -> AgentId {
@@ -50,6 +50,10 @@ fn full_access() -> EffectiveMemoryAccess {
         automatic_extraction: true,
         global_memory: true,
         workspace: Some(workspace()),
+        candidate_creation: true,
+        retrieval_write: true,
+        delivery: MemoryDeliveryMode::IndexWithSelectedBodies,
+        block_reason: None,
     }
 }
 

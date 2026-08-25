@@ -63,10 +63,12 @@ pub(crate) use scope::{
 };
 pub(crate) use snapshot::{
     EffectiveMemoryAccess, EffectivePersonalizationSnapshot, ExcludedInstructionSegment,
-    InstructionExclusionReason, InstructionField, InstructionMergeAction, PersonalizationExclusion,
-    PersonalizationExclusionReason, PersonalizationResolutionContext,
-    PersonalizationRuntimeCapabilities, PersonalizationWarning, PersonalizationWarningCode,
-    ResolvedInstructionSegment, FAIL_CLOSED_REVISION_TOKEN,
+    InstructionExclusionReason, InstructionField, InstructionMergeAction, MemoryBlockReason,
+    MemoryDeliveryMode, MemoryEligibilitySummary, MemoryExclusionCount, MemorySaveConstraint,
+    MemoryScopeAllowance, PersonalizationExclusion, PersonalizationExclusionReason,
+    PersonalizationResolutionContext, PersonalizationRuntimeCapabilities, PersonalizationWarning,
+    PersonalizationWarningCode, ResolvedInstructionSegment, SnapshotMemoryRef,
+    FAIL_CLOSED_REVISION_TOKEN,
 };
 pub(crate) use workspace_identity::{
     local_paths_fold_case, normalize_local_root, WorkspaceIdentitySource,

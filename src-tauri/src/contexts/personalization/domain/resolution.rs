@@ -7,10 +7,11 @@ use super::policy::{
 use super::scope::PersonalizationPolicyScope;
 use super::snapshot::{
     EffectiveMemoryAccess, EffectivePersonalizationSnapshot, ExcludedInstructionSegment,
-    InstructionExclusionReason, InstructionField, InstructionMergeAction, PersonalizationExclusion,
+    InstructionExclusionReason, InstructionField, InstructionMergeAction, MemoryBlockReason,
+    MemoryDeliveryMode, MemoryEligibilitySummary, PersonalizationExclusion,
     PersonalizationExclusionReason, PersonalizationResolutionContext,
     PersonalizationRuntimeCapabilities, PersonalizationWarning, PersonalizationWarningCode,
-    ResolvedInstructionSegment,
+    ResolvedInstructionSegment, SNAPSHOT_TOKEN_VERSION,
 };
 
 /// The durable rows that apply to one resolution context, plus the session's own override.
@@ -131,7 +132,7 @@ pub(crate) fn resolve(
             PersonalizationWarningCode::NoValidatedPolicy,
         );
     };
-    let revision_token = revision_token(&context, &layers, maintenance);
+    let revision_token = revision_token(&context, &layers, capabilities, maintenance);
     let _ = global;
 
     let mut warnings = Vec::new();
@@ -163,6 +164,8 @@ pub(crate) fn resolve(
     );
     apply_maintenance(maintenance, &mut access, &mut warnings, &mut exclusions);
 
+    finalize_memory_access(&mut access, capabilities);
+
     if instruction_segments.is_empty()
         && !matches!(effective_instruction_mode, InstructionMergeMode::Disabled)
     {
@@ -178,6 +181,9 @@ pub(crate) fn resolve(
         instruction_segments,
         excluded_instruction_segments: excluded_segments,
         memory_access: access,
+        // Filled by the application resolver, which owns the projection query. The domain decides
+        // *whether* memory may be read; it does not read it.
+        memory: MemoryEligibilitySummary::default(),
         exclusions,
         warnings,
     }
@@ -407,7 +413,7 @@ fn apply_session_mode(
                 // Creation is supposed to reject this. Reaching resolution without a workspace
                 // means something upstream failed, and "read everything global" is the one
                 // interpretation a project-isolated session must never degrade to.
-                *access = EffectiveMemoryAccess::denied();
+                access.block(MemoryBlockReason::SessionMode);
                 exclusions.push(PersonalizationExclusion {
                     reason: PersonalizationExclusionReason::ProjectOnlySession,
                     count: 0,
@@ -422,7 +428,10 @@ fn apply_session_mode(
             });
         }
         SessionPersonalizationMode::Temporary => {
-            *access = EffectiveMemoryAccess::denied();
+            // Custom instructions still apply; long-term memory does not, in any direction. That
+            // includes proposing a candidate and writing to the retrieval index, which a read-only
+            // check would have left open.
+            access.block(MemoryBlockReason::SessionMode);
             exclusions.push(PersonalizationExclusion {
                 reason: PersonalizationExclusionReason::TemporarySession,
                 count: 0,
@@ -453,7 +462,7 @@ fn apply_capabilities(
         unsupported_override = true;
     }
     if !capabilities.supports_memory_index && access.read {
-        access.read = false;
+        access.block(MemoryBlockReason::RuntimeCapability);
         unsupported_override = true;
     }
     if !capabilities.supports_automatic_extraction && access.automatic_extraction {
@@ -478,7 +487,7 @@ fn apply_maintenance(
     exclusions: &mut Vec<PersonalizationExclusion>,
 ) {
     if !maintenance.migration_complete {
-        *access = EffectiveMemoryAccess::denied();
+        access.block(MemoryBlockReason::MaintenanceState);
         warnings.push(PersonalizationWarning::new(
             PersonalizationWarningCode::MigrationIncomplete,
         ));
@@ -496,6 +505,40 @@ fn apply_maintenance(
     }
 }
 
+/// Derives the dimensions that follow from the others, once, after every restriction has run.
+///
+/// Computed here rather than by each caller so the combinations cannot drift: a snapshot that said
+/// memory was unreadable but still offered a delivery mode, or one that denied saving but permitted
+/// a candidate, would be two answers to one question.
+fn finalize_memory_access(
+    access: &mut EffectiveMemoryAccess,
+    capabilities: PersonalizationRuntimeCapabilities,
+) {
+    access.delivery = if !access.read {
+        MemoryDeliveryMode::None
+    } else if capabilities.supports_selected_memory_bodies {
+        MemoryDeliveryMode::IndexWithSelectedBodies
+    } else {
+        MemoryDeliveryMode::IndexOnly
+    };
+    // A candidate is a proposal, so either route that could produce one enables it. Extraction
+    // alone would miss the user asking for a memory to be remembered; explicit save alone would
+    // miss the extractor.
+    access.candidate_creation = access.explicit_save || access.automatic_extraction;
+    // Anything that would put a record in front of retrieval, in either direction.
+    access.retrieval_write = access.read || access.explicit_save;
+    if access.read && access.block_reason.is_some() {
+        // Defensive: a readable access with a recorded block is a contradiction, and the block is
+        // the conservative half.
+        access.block(
+            access
+                .block_reason
+                .unwrap_or(MemoryBlockReason::MaintenanceState),
+        );
+        access.delivery = MemoryDeliveryMode::None;
+    }
+}
+
 /// A stable, safe fingerprint of everything that decided this snapshot.
 ///
 /// Hashes identities, revisions, and modes — never instruction or memory text. The token is
@@ -504,12 +547,19 @@ fn apply_maintenance(
 fn revision_token(
     context: &PersonalizationResolutionContext,
     layers: &PersonalizationLayers,
+    capabilities: PersonalizationRuntimeCapabilities,
     maintenance: MaintenanceState,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"personalization-snapshot-v1");
+    // Versioned, so a change to what is hashed cannot make two encodings collide and be mistaken
+    // for the same snapshot.
+    hasher.update(SNAPSHOT_TOKEN_VERSION.as_bytes());
     hasher.update(b"\x1fagent=");
     hasher.update(context.agent_id.as_str().as_bytes());
+    hasher.update(b"\x1fruntime=");
+    hasher.update(context.runtime_kind.as_str().as_bytes());
+    hasher.update(b"\x1fcapabilities=");
+    hasher.update(capability_fingerprint(capabilities).as_bytes());
     hasher.update(b"\x1fmode=");
     hasher.update(context.session_mode.as_str().as_bytes());
     hasher.update(b"\x1fworkspace=");
@@ -535,6 +585,18 @@ fn revision_token(
     }
     let digest = hasher.finalize();
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The four capability flags, in a fixed order. Positional rather than named so the encoding cannot
+/// change meaning when a flag is added without the version moving with it.
+fn capability_fingerprint(capabilities: PersonalizationRuntimeCapabilities) -> String {
+    format!(
+        "{}{}{}{}",
+        u8::from(capabilities.supports_custom_instructions),
+        u8::from(capabilities.supports_memory_index),
+        u8::from(capabilities.supports_selected_memory_bodies),
+        u8::from(capabilities.supports_automatic_extraction),
+    )
 }
 
 /// Modes and toggles are safe to fingerprint directly; the override's instruction *text* is not,

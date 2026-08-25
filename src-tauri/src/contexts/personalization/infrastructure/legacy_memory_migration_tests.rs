@@ -21,14 +21,15 @@ use super::{
 };
 use crate::contexts::personalization::application::{
     ClockPort, CreateMemoryInput, LegacyAddressAliasPort, LegacyMemoryMigrationPorts,
-    LegacyMemoryMigrationService, LegacyMemorySourcePort, MemoryMaintenanceRepository,
-    MemoryProjectionPort, MemoryRepository, MigrationJournalPort, MigrationRunOutcome,
-    PersonalizationApplicationError, ResetCounts, WorkspaceIdentityResolver,
+    LegacyMemoryMigrationService, LegacyMemorySourcePort, MemoryEligibilityCriteria,
+    MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository, MigrationJournalPort,
+    MigrationRunOutcome, PersonalizationApplicationError, ResetCounts, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
-    LegacyAddressKey, LegacySourceLocator, MemoryAudience, MemoryId, MemoryPage, MemoryProvenance,
-    MemoryQuery, MemoryRecord, MemoryScope, MemoryScopeFilter, MemorySensitivity, MemorySource,
-    MemoryStatus, MemoryType, MigrationJournalEntry, MigrationStage, OwnedEntryClassification,
+    LegacyAddressKey, LegacySourceLocator, MemoryAudience, MemoryEligibilitySummary, MemoryId,
+    MemoryPage, MemoryProvenance, MemoryQuery, MemoryRecord, MemoryScope, MemoryScopeFilter,
+    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationJournalEntry,
+    MigrationStage, OwnedEntryClassification,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -85,6 +86,13 @@ impl SwitchableProjection {
 }
 
 impl MemoryProjectionPort for SwitchableProjection {
+    fn eligible_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary> {
+        self.inner.eligible_page(criteria)
+    }
+
     fn upsert(&self, record: &MemoryRecord, content_hash: &str) -> Result<()> {
         if self.fails.load(Ordering::SeqCst) {
             return Err(PersonalizationApplicationError::Storage(

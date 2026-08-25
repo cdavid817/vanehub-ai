@@ -1,12 +1,20 @@
 use std::sync::Arc;
 
 use super::error::PersonalizationApplicationError;
-use super::ports::{AgentCapabilityPort, MemoryHealthPort, PolicyRepository};
+use super::models::MemoryEligibilityCriteria;
+use super::ports::{AgentCapabilityPort, MemoryHealthPort, MemoryProjectionPort, PolicyRepository};
 use crate::contexts::personalization::domain::{
-    resolve, AgentId, EffectivePersonalizationSnapshot, MaintenanceState, MemoryRuntimeHealth,
-    PersonalizationPolicyPatch, PersonalizationPolicyScope, PersonalizationResolutionContext,
-    PersonalizationWarningCode, SessionId, SessionPersonalizationMode, WorkspaceIdentity,
+    resolve, AgentId, EffectivePersonalizationSnapshot, MaintenanceState, MemoryBlockReason,
+    MemoryRuntimeHealth, PersonalizationPolicyPatch, PersonalizationPolicyScope,
+    PersonalizationResolutionContext, PersonalizationWarning, PersonalizationWarningCode,
+    SessionId, SessionPersonalizationMode, WorkspaceIdentity,
 };
+
+/// How many memory refs one snapshot carries.
+///
+/// Bounded because the snapshot is taken per generation and its refs travel with it; the exact
+/// eligible count is reported regardless, so a truncated page never reads as the whole set.
+const ELIGIBLE_REFS_LIMIT: usize = 200;
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 
@@ -42,6 +50,7 @@ pub(crate) struct ResolutionRequest {
 pub(crate) struct PolicyResolutionService {
     policies: Arc<dyn PolicyRepository>,
     agents: Arc<dyn AgentCapabilityPort>,
+    projection: Arc<dyn MemoryProjectionPort>,
     health: Arc<dyn MemoryHealthPort>,
 }
 
@@ -49,11 +58,13 @@ impl PolicyResolutionService {
     pub(crate) fn new(
         policies: Arc<dyn PolicyRepository>,
         agents: Arc<dyn AgentCapabilityPort>,
+        projection: Arc<dyn MemoryProjectionPort>,
         health: Arc<dyn MemoryHealthPort>,
     ) -> Self {
         Self {
             policies,
             agents,
+            projection,
             health,
         }
     }
@@ -127,12 +138,54 @@ impl PolicyResolutionService {
         }
         layers.session_override = request.session_override;
 
-        Ok(resolve(
+        let snapshot = resolve(
             context,
             layers,
             capabilities,
             maintenance_state(self.health.health()),
-        ))
+        );
+        Ok(self.attach_eligibility(snapshot))
+    }
+
+    /// Queries what is eligible under the access this snapshot resolved, and freezes it in.
+    ///
+    /// Runs before token budgeting and relevance selection, which is why it returns refs and counts
+    /// rather than bodies: loading every body to decide what fits would defeat the budgeting it
+    /// feeds. A snapshot whose memory is blocked skips the query entirely — reporting per-record
+    /// exclusion counts would imply an enumeration that never happened.
+    fn attach_eligibility(
+        &self,
+        snapshot: EffectivePersonalizationSnapshot,
+    ) -> EffectivePersonalizationSnapshot {
+        if !snapshot.memory_access.read {
+            return snapshot;
+        }
+        let allowance = snapshot.memory_access.readable_scopes();
+        let criteria = MemoryEligibilityCriteria {
+            agent_id: snapshot.context.agent_id.clone(),
+            allow_global: allowance.global,
+            workspace: allowance.workspace,
+            project_only: matches!(
+                snapshot.context.session_mode,
+                SessionPersonalizationMode::ProjectOnly
+            ),
+            limit: ELIGIBLE_REFS_LIMIT,
+        };
+        match self.projection.eligible_page(&criteria) {
+            Ok(summary) => snapshot.with_memory(summary),
+            // A projection that cannot answer is not a reason to inject a guess. The snapshot keeps
+            // its resolved instructions and reports no eligible memory.
+            Err(_) => {
+                let mut blocked = snapshot;
+                blocked
+                    .memory_access
+                    .block(MemoryBlockReason::MaintenanceState);
+                blocked.warnings.push(PersonalizationWarning::new(
+                    PersonalizationWarningCode::RepairRequired,
+                ));
+                blocked
+            }
+        }
     }
 
     /// The runtime shape this Agent is driven by.

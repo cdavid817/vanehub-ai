@@ -129,6 +129,18 @@ pub(crate) enum AgentRuntimeKind {
     Api,
 }
 
+impl AgentRuntimeKind {
+    /// A stable code. Part of the snapshot revision token, so it must not change meaning without
+    /// the token version moving with it.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::OnePiece => "onepiece",
+            Self::Cli => "cli",
+            Self::Api => "api",
+        }
+    }
+}
+
 /// The durable scopes a policy row can occupy.
 ///
 /// Session overrides are intentionally absent: they live with the session record rather than as a

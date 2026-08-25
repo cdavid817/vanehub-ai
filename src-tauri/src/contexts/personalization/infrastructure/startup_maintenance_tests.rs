@@ -22,13 +22,14 @@ use crate::contexts::personalization::application::{
     ClockPort, DerivedIndexPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
     LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
     LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
-    MemoryHealthPort, MemoryProjectionPort, MemoryRepository, MigrationStatePort,
-    PersonalizationApplicationError, PolicyRepository, ResetCounts, RetrievalIndexPort,
-    StartupMaintenancePorts, StartupMaintenanceService, WorkspaceIdentityResolver,
+    MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
+    MigrationStatePort, PersonalizationApplicationError, PolicyRepository, ResetCounts,
+    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
+    WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
-    MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemoryScopeFilter,
-    MemoryStatus, MigrationPhase, PersonalizationPolicyScope, PolicyToggle,
+    MemoryEligibilitySummary, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
+    MemoryScopeFilter, MemoryStatus, MigrationPhase, PersonalizationPolicyScope, PolicyToggle,
 };
 use crate::platform::database::NativeDatabase;
 
@@ -102,6 +103,13 @@ struct SwitchableProjection {
 }
 
 impl MemoryProjectionPort for SwitchableProjection {
+    fn eligible_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary> {
+        self.inner.eligible_page(criteria)
+    }
+
     fn upsert(&self, record: &MemoryRecord, content_hash: &str) -> Result<()> {
         if self.fails.load(Ordering::SeqCst) {
             return Err(PersonalizationApplicationError::Storage(

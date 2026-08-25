@@ -8,11 +8,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::error::PersonalizationApplicationError;
-use super::ports::{AgentCapabilityPort, MemoryHealthPort, PolicyRepository};
+use super::models::{MemoryEligibilityCriteria, ResetCounts};
+use super::ports::{AgentCapabilityPort, MemoryHealthPort, MemoryProjectionPort, PolicyRepository};
 use super::resolve_policy::{PolicyResolutionService, ResolutionRequest};
 use crate::contexts::personalization::domain::{
     AgentId, InstructionExclusionReason, InstructionField, InstructionMergeAction,
-    InstructionMergeMode, MemoryRuntimeHealth, PatchPolicyResult, PersonalizationLayers,
+    InstructionMergeMode, MemoryBlockReason, MemoryDeliveryMode, MemoryEligibilitySummary,
+    MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemorySaveConstraint,
+    MemoryScopeFilter, MemoryStatus, PatchPolicyResult, PersonalizationLayers,
     PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
     PersonalizationRuntimeCapabilities, PersonalizationWarningCode, PolicyLayerState,
     PolicyResolutionBundle, PolicyToggle, SessionId, SessionPersonalizationMode, WorkspaceIdentity,
@@ -137,6 +140,45 @@ impl AgentCapabilityPort for FakeAgents {
     }
 }
 
+/// Records what eligibility was asked, and answers with whatever a test set.
+#[derive(Default)]
+struct FakeProjection {
+    summary: Mutex<MemoryEligibilitySummary>,
+    last_criteria: Mutex<Option<MemoryEligibilityCriteria>>,
+}
+
+impl MemoryProjectionPort for FakeProjection {
+    fn upsert(&self, _record: &MemoryRecord, _content_hash: &str) -> Result<()> {
+        unreachable!("resolution never writes the projection")
+    }
+    fn remove(&self, _id: &MemoryId) -> Result<bool> {
+        unreachable!("resolution never writes the projection")
+    }
+    fn list_page(&self, _query: &MemoryQuery) -> Result<MemoryPage> {
+        unreachable!("resolution asks for eligibility, not a list page")
+    }
+    fn count_for_reset(
+        &self,
+        _scope: &MemoryScopeFilter,
+        _statuses: &[MemoryStatus],
+    ) -> Result<ResetCounts> {
+        unreachable!("resolution never counts for reset")
+    }
+    fn eligible_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary> {
+        *self.last_criteria.lock().expect("criteria") = Some(criteria.clone());
+        Ok(self.summary.lock().expect("summary").clone())
+    }
+    fn projected_ids(&self) -> Result<Vec<MemoryId>> {
+        Ok(Vec::new())
+    }
+    fn clear(&self) -> Result<usize> {
+        Ok(0)
+    }
+}
+
 struct FixedHealth(Mutex<MemoryRuntimeHealth>);
 
 impl MemoryHealthPort for FixedHealth {
@@ -157,6 +199,7 @@ fn full_capabilities() -> PersonalizationRuntimeCapabilities {
 struct Fixture {
     policies: Arc<FakePolicies>,
     agents: Arc<FakeAgents>,
+    projection: Arc<FakeProjection>,
     health: Arc<FixedHealth>,
     service: PolicyResolutionService,
 }
@@ -168,10 +211,17 @@ fn fixture() -> Fixture {
         generation: 1,
     })));
     agents.register("onepiece", full_capabilities());
-    let service = PolicyResolutionService::new(policies.clone(), agents.clone(), health.clone());
+    let projection = Arc::new(FakeProjection::default());
+    let service = PolicyResolutionService::new(
+        policies.clone(),
+        agents.clone(),
+        projection.clone(),
+        health.clone(),
+    );
     Fixture {
         policies,
         agents,
+        projection,
         health,
         service,
     }
@@ -816,4 +866,353 @@ fn a_toggle_set_on_a_higher_layer_wins_over_a_lower_one() {
     let snapshot = fixture.service.resolve(request(None)).expect("resolve");
 
     assert!(!snapshot.memory_access.read, "the Agent layer wins");
+}
+
+// =================================================================================================
+// Memory access, delivery, and the immutable snapshot
+// =================================================================================================
+
+/// A global policy with every memory dimension on, so a test can turn exactly one off.
+fn enabled_global() -> PersonalizationPolicyRecord {
+    let mut record = PersonalizationPolicyRecord::default_global();
+    record.set_memory_read_mode(PolicyToggle::Enabled);
+    record.set_explicit_save_mode(PolicyToggle::Enabled);
+    record.set_automatic_extraction_mode(PolicyToggle::Enabled);
+    record.set_global_memory_access_mode(PolicyToggle::Enabled);
+    record.set_revision(1);
+    record
+}
+
+#[test]
+fn the_four_memory_dimensions_are_independent() {
+    for (label, patch) in [
+        ("read", PolicyToggle::Disabled),
+        ("save", PolicyToggle::Disabled),
+        ("extraction", PolicyToggle::Disabled),
+        ("global", PolicyToggle::Disabled),
+    ] {
+        let fixture = fixture();
+        let mut global = enabled_global();
+        match label {
+            "read" => global.set_memory_read_mode(patch),
+            "save" => global.set_explicit_save_mode(patch),
+            "extraction" => global.set_automatic_extraction_mode(patch),
+            _ => global.set_global_memory_access_mode(patch),
+        }
+        fixture.policies.put(global);
+
+        let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+        let access = &snapshot.memory_access;
+        let disabled = [
+            access.read,
+            access.explicit_save,
+            access.automatic_extraction,
+            access.global_memory,
+        ]
+        .iter()
+        .filter(|value| !**value)
+        .count();
+        assert_eq!(
+            disabled, 1,
+            "{label}: turning one off must not turn others off"
+        );
+    }
+}
+
+#[test]
+fn a_readable_snapshot_reports_a_delivery_mode_and_a_blocked_one_reports_a_reason() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+
+    let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+    assert_eq!(
+        snapshot.memory_access.delivery,
+        MemoryDeliveryMode::IndexWithSelectedBodies
+    );
+    assert_eq!(snapshot.memory_access.block_reason, None);
+
+    // Selected-body support only widens delivery; it never makes a memory eligible.
+    fixture.agents.register(
+        "index-only",
+        PersonalizationRuntimeCapabilities {
+            supports_custom_instructions: true,
+            supports_memory_index: true,
+            supports_selected_memory_bodies: false,
+            supports_automatic_extraction: true,
+        },
+    );
+    let mut limited = request(None);
+    limited.agent_id = agent("index-only");
+    let snapshot = fixture.service.resolve(limited).expect("resolve");
+    assert_eq!(
+        snapshot.memory_access.delivery,
+        MemoryDeliveryMode::IndexOnly
+    );
+    assert!(snapshot.memory_access.read);
+}
+
+#[test]
+fn a_runtime_with_no_memory_index_delivers_nothing_and_says_why() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.agents.register(
+        "no-index",
+        PersonalizationRuntimeCapabilities {
+            supports_custom_instructions: true,
+            supports_memory_index: false,
+            supports_selected_memory_bodies: false,
+            supports_automatic_extraction: false,
+        },
+    );
+    let mut limited = request(None);
+    limited.agent_id = agent("no-index");
+
+    let snapshot = fixture.service.resolve(limited).expect("resolve");
+
+    assert!(!snapshot.memory_access.read);
+    assert_eq!(snapshot.memory_access.delivery, MemoryDeliveryMode::None);
+    assert_eq!(
+        snapshot.memory_access.block_reason,
+        Some(MemoryBlockReason::RuntimeCapability)
+    );
+}
+
+#[test]
+fn a_temporary_session_forbids_every_memory_direction_but_keeps_instructions() {
+    let fixture = fixture();
+    let mut global = enabled_global();
+    global.set_instruction_merge_mode(InstructionMergeMode::Append);
+    global.set_about_user("still applied".to_string());
+    fixture.policies.put(global);
+    let mut temporary = request(None);
+    temporary.session_mode = SessionPersonalizationMode::Temporary;
+
+    let snapshot = fixture.service.resolve(temporary).expect("resolve");
+
+    assert_eq!(texts(&snapshot), vec!["still applied".to_string()]);
+    let access = &snapshot.memory_access;
+    assert!(!access.read);
+    assert!(!access.explicit_save);
+    assert!(!access.automatic_extraction);
+    // The two a read-only check would have missed.
+    assert!(!access.candidate_creation);
+    assert!(!access.retrieval_write);
+    assert_eq!(access.block_reason, Some(MemoryBlockReason::SessionMode));
+}
+
+#[test]
+fn a_project_only_session_offers_the_workspace_and_never_global() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    let space = workspace("ws_alpha");
+    let mut project_only = request(Some(space.clone()));
+    project_only.session_mode = SessionPersonalizationMode::ProjectOnly;
+
+    let snapshot = fixture.service.resolve(project_only).expect("resolve");
+
+    let allowance = snapshot.memory_access.readable_scopes();
+    assert!(!allowance.global);
+    assert_eq!(allowance.workspace.as_ref(), Some(space.key()));
+    assert_eq!(
+        snapshot.memory_access.save_constraint(),
+        MemorySaveConstraint::WorkspaceOnly {
+            workspace: space.key().clone()
+        },
+        "global is not offered at all, which is different from offering one that would fail"
+    );
+}
+
+#[test]
+fn every_unready_health_state_denies_memory() {
+    for health in [
+        MemoryRuntimeHealth::NotStarted,
+        MemoryRuntimeHealth::Busy,
+        MemoryRuntimeHealth::Migrating,
+        MemoryRuntimeHealth::RebuildingDerived,
+        MemoryRuntimeHealth::RepairRequired,
+        MemoryRuntimeHealth::Failed,
+    ] {
+        let fixture = fixture();
+        fixture.policies.put(enabled_global());
+        *fixture.health.0.lock().expect("health") = health;
+
+        let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+
+        assert!(!snapshot.memory_access.read, "{health:?}");
+        assert!(!snapshot.memory_access.explicit_save, "{health:?}");
+        assert!(!snapshot.memory_access.automatic_extraction, "{health:?}");
+        assert_eq!(
+            snapshot.memory_access.block_reason,
+            Some(MemoryBlockReason::MaintenanceState),
+            "{health:?}"
+        );
+    }
+}
+
+#[test]
+fn eligibility_is_not_queried_when_memory_is_blocked() {
+    // Reporting per-record exclusion counts would imply an enumeration that never happened.
+    let fixture = fixture();
+    let mut global = enabled_global();
+    global.set_memory_read_mode(PolicyToggle::Disabled);
+    fixture.policies.put(global);
+
+    let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+
+    assert!(fixture
+        .projection
+        .last_criteria
+        .lock()
+        .expect("criteria")
+        .is_none());
+    assert_eq!(snapshot.memory.considered, 0);
+    assert!(snapshot.memory.is_balanced());
+}
+
+#[test]
+fn eligibility_is_queried_with_the_scopes_the_snapshot_resolved() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    let space = workspace("ws_alpha");
+
+    fixture
+        .service
+        .resolve(request(Some(space.clone())))
+        .expect("resolve");
+
+    let criteria = fixture
+        .projection
+        .last_criteria
+        .lock()
+        .expect("criteria")
+        .clone()
+        .expect("eligibility was queried");
+    assert!(criteria.allow_global);
+    assert_eq!(criteria.workspace.as_ref(), Some(space.key()));
+    assert!(!criteria.project_only);
+    assert_eq!(criteria.agent_id, agent("onepiece"));
+}
+
+#[test]
+fn a_snapshot_does_not_change_when_the_policy_or_the_memories_do() {
+    // The whole point of taking one snapshot per generation. A settings change mid-turn must reach
+    // the *next* turn, not rewrite the one already planned around the old values.
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    *fixture.projection.summary.lock().expect("summary") = MemoryEligibilitySummary {
+        considered: 1,
+        eligible_total: 1,
+        refs: Vec::new(),
+        truncated: true,
+        exclusions: Vec::new(),
+        digest: "digest-before".to_string(),
+    };
+    let captured = fixture.service.resolve(request(None)).expect("resolve");
+    let token_before = captured.revision_token.clone();
+
+    // Everything changes underneath it.
+    let mut disabled = enabled_global();
+    disabled.set_memory_read_mode(PolicyToggle::Disabled);
+    disabled.set_revision(9);
+    fixture.policies.put(disabled);
+    *fixture.projection.summary.lock().expect("summary") = MemoryEligibilitySummary {
+        digest: "digest-after".to_string(),
+        ..MemoryEligibilitySummary::default()
+    };
+    *fixture.health.0.lock().expect("health") = MemoryRuntimeHealth::RepairRequired;
+
+    // The captured value is untouched.
+    assert!(captured.memory_access.read);
+    assert_eq!(captured.memory.eligible_total, 1);
+    assert_eq!(captured.revision_token, token_before);
+
+    // And the next snapshot reflects the new state.
+    let next = fixture.service.resolve(request(None)).expect("resolve");
+    assert!(!next.memory_access.read);
+    assert_ne!(next.revision_token, token_before);
+}
+
+#[test]
+fn the_revision_token_is_deterministic_and_moves_with_every_input() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    let baseline = fixture
+        .service
+        .resolve(request(None))
+        .expect("resolve")
+        .revision_token;
+    assert_eq!(
+        fixture
+            .service
+            .resolve(request(None))
+            .expect("resolve")
+            .revision_token,
+        baseline,
+        "identical inputs produce an identical token"
+    );
+
+    // A policy revision moves it.
+    let mut bumped = enabled_global();
+    bumped.set_revision(2);
+    fixture.policies.put(bumped);
+    let after_policy = fixture
+        .service
+        .resolve(request(None))
+        .expect("resolve")
+        .revision_token;
+    assert_ne!(after_policy, baseline);
+
+    // So does the eligible set, through its digest.
+    *fixture.projection.summary.lock().expect("summary") = MemoryEligibilitySummary {
+        digest: "a-different-digest".to_string(),
+        ..MemoryEligibilitySummary::default()
+    };
+    let after_memory = fixture
+        .service
+        .resolve(request(None))
+        .expect("resolve")
+        .revision_token;
+    assert_ne!(after_memory, after_policy);
+
+    // So does a capability change, with everything else identical.
+    fixture.agents.register(
+        "narrower",
+        PersonalizationRuntimeCapabilities {
+            supports_custom_instructions: true,
+            supports_memory_index: true,
+            supports_selected_memory_bodies: false,
+            supports_automatic_extraction: true,
+        },
+    );
+    let mut narrower = request(None);
+    narrower.agent_id = agent("narrower");
+    let after_capability = fixture
+        .service
+        .resolve(narrower)
+        .expect("resolve")
+        .revision_token;
+    assert_ne!(after_capability, after_memory);
+}
+
+#[test]
+fn the_revision_token_carries_no_text_no_path_and_no_credential() {
+    // It reaches logs and the frontend, so everything hashed into it has to be something we would
+    // be willing to correlate across records.
+    let fixture = fixture();
+    let mut global = enabled_global();
+    global.set_instruction_merge_mode(InstructionMergeMode::Append);
+    global.set_about_user("a secret sentence about the user".to_string());
+    fixture.policies.put(global);
+    let remote = remote_workspace("ws_remote");
+
+    let token = fixture
+        .service
+        .resolve(request(Some(remote)))
+        .expect("resolve")
+        .revision_token;
+
+    assert!(token.chars().all(|character| character.is_ascii_hexdigit()));
+    for forbidden in ["secret", "ssh://", "example.test", "D:/"] {
+        assert!(!token.contains(forbidden), "{forbidden} must not appear");
+    }
 }

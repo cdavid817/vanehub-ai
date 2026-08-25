@@ -3,17 +3,17 @@ use chrono::{DateTime, Utc};
 use super::error::PersonalizationApplicationError;
 use super::migrate_legacy_policy::{LegacyPersonalizationSettings, MigratedPolicy};
 use super::models::{
-    CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, ResetCounts, UpdateMemoryPatch,
-    WorkspaceIdentityRequest,
+    CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, MemoryEligibilityCriteria,
+    ResetCounts, UpdateMemoryPatch, WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
     AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, LegacySourceLocator,
-    MemoryCandidate, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
-    MemoryScopeFilter, MemoryStatus, MigrationJournalEntry, MigrationState, PatchPolicyResult,
-    PersonalizationLayers, PersonalizationPolicyPatch, PersonalizationPolicyRecord,
-    PersonalizationPolicyScope, PersonalizationRuntimeCapabilities, PolicyResolutionBundle,
-    ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest, StorageEntry,
-    WorkspaceIdentity, WorkspaceKey,
+    MemoryCandidate, MemoryEligibilitySummary, MemoryId, MemoryPage, MemoryQuery, MemoryRecord,
+    MemoryRuntimeHealth, MemoryScopeFilter, MemoryStatus, MigrationJournalEntry, MigrationState,
+    PatchPolicyResult, PersonalizationLayers, PersonalizationPolicyPatch,
+    PersonalizationPolicyRecord, PersonalizationPolicyScope, PersonalizationRuntimeCapabilities,
+    PolicyResolutionBundle, ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryRequest,
+    StorageEntry, WorkspaceIdentity, WorkspaceKey,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -159,6 +159,18 @@ pub(crate) trait MemoryProjectionPort: Send + Sync {
         scope: &MemoryScopeFilter,
         statuses: &[MemoryStatus],
     ) -> Result<ResetCounts>;
+    /// Which memories are eligible right now, bounded, with exact counts.
+    ///
+    /// Answered here rather than by reading files because it runs before token budgeting and
+    /// relevance selection: loading every body to decide what fits would defeat the budgeting it
+    /// feeds. Returns refs without bodies, the exact eligible total, and one primary exclusion
+    /// reason per excluded record — so `eligible_total + sum(exclusions) == considered` holds by
+    /// construction, and a user reading "3 of 40" can see where the other 37 went.
+    fn eligible_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+    ) -> Result<MemoryEligibilitySummary>;
+
     fn projected_ids(&self) -> Result<Vec<MemoryId>>;
     fn clear(&self) -> Result<usize>;
 }
