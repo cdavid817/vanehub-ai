@@ -250,13 +250,17 @@ impl RunnerLaunchSpec {
         if self
             .environment
             .keys()
-            .any(|key| !matches!(key.as_str(), "TRACEPARENT"))
+            .any(|key| !allowed_environment_override(kind, key))
             || (kind == RunnerKind::Ssh && self.arguments.iter().any(|value| secret_flag(value)))
         {
             return Err(RunnerError::new(RunnerErrorKind::PermissionDenied));
         }
         Ok(())
     }
+}
+
+fn allowed_environment_override(kind: RunnerKind, key: &str) -> bool {
+    key == "TRACEPARENT" || (kind == RunnerKind::Local && key == "OPENCODE_CONFIG_CONTENT")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
