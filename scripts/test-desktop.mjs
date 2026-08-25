@@ -281,6 +281,18 @@ function multiAgentLongrunDesktop(artifact) {
   });
 }
 
+// Opt-in Loop Engineering layer: the IPC domain spec plus the UI walkthrough of the Loop centre
+// (empty state, four-step wizard, overview, preflight). It creates one claude-code session to
+// register its fixture project but never starts a Loop run, so it spends no model tokens.
+function loopDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-loop",
+    config: "tests/desktop/wdio.loop.conf.mjs",
+    label: "Desktop Loop Engineering",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -360,6 +372,7 @@ async function main() {
   else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
+  else if (mode === "loop") await loopDesktop();
   else if (mode === "external-provider") {
     // Prerequisites before the build. A runner with no real Agent has nothing for this suite to
     // verify, and spending ten minutes compiling the application to say so buys nothing.
