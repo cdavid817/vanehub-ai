@@ -44,12 +44,12 @@ pub(crate) use policy_cache::{
     is_transient_read_failure, LastKnownGoodPolicyCache, PolicyCacheKey,
 };
 pub(crate) use ports::{
-    AgentCapabilityPort, CandidateRepository, ClockPort, DerivedIndexPort, LegacyAddressAliasPort,
-    LegacyMemorySourcePort, LegacyPersonalizationSettingsPort, LegacyPolicyMigrationPort,
-    LegacyRowMigrationPort, MaintenanceGatePort, MaintenanceLease, MemoryHealthPort,
-    MemoryIdGeneratorPort, MemoryMaintenanceRepository, MemoryProjectionPort, MemoryRepository,
-    MigrationJournalPort, MigrationStatePort, MutationAdmission, PolicyRepository,
-    RetrievalIndexPort, SecretRedactionPort, WorkspaceIdentityPort,
+    AgentCapabilityEntry, AgentCapabilityPort, CandidateRepository, ClockPort, DerivedIndexPort,
+    LegacyAddressAliasPort, LegacyMemorySourcePort, LegacyPersonalizationSettingsPort,
+    LegacyPolicyMigrationPort, LegacyRowMigrationPort, MaintenanceGatePort, MaintenanceLease,
+    MemoryHealthPort, MemoryIdGeneratorPort, MemoryMaintenanceRepository, MemoryProjectionPort,
+    MemoryRepository, MigrationJournalPort, MigrationStatePort, MutationAdmission,
+    PolicyRepository, RetrievalIndexPort, SecretRedactionPort, WorkspaceIdentityPort,
 };
 pub(crate) use preview_personalization::{
     ContextSizeEstimate, EffectivePreview, PersonalizationPreviewService, PreviewInstructionSegment,

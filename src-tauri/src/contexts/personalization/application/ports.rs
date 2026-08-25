@@ -226,6 +226,21 @@ pub(crate) trait AgentCapabilityPort: Send + Sync {
         &self,
         agent_id: &AgentId,
     ) -> Result<Option<PersonalizationRuntimeCapabilities>>;
+
+    /// Every registered Agent and what it can consume.
+    ///
+    /// Enumerated from the registry rather than from a list here, because registration is dynamic:
+    /// a settings screen that showed only built-in Agents would be wrong the moment a user adds
+    /// one, and would be wrong silently.
+    fn list_capabilities(&self) -> Result<Vec<AgentCapabilityEntry>>;
+}
+
+/// One Agent's declared personalization surface, for a screen that renders controls from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCapabilityEntry {
+    pub(crate) agent_id: AgentId,
+    pub(crate) display_name: String,
+    pub(crate) capabilities: PersonalizationRuntimeCapabilities,
 }
 
 /// Removes anything secret-looking from text before it is shown or recorded.

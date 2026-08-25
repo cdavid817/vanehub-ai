@@ -148,6 +148,12 @@ impl AgentCapabilityPort for FakeAgents {
             .find(|(id, _)| id == agent_id.as_str())
             .map(|(_, capabilities)| *capabilities))
     }
+
+    fn list_capabilities(
+        &self,
+    ) -> Result<Vec<crate::contexts::personalization::application::AgentCapabilityEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 /// Records what eligibility was asked, and answers with whatever a test set.

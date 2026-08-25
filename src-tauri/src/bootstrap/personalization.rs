@@ -20,8 +20,8 @@ use crate::contexts::desktop::api::{
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService, ClockPort,
-    LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
+    AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService,
+    ClockPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
     LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
     LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
     PersonalizationApplicationError, PersonalizationPreviewService, PolicyResolutionService,
@@ -145,18 +145,28 @@ pub(crate) fn assemble_personalization(
         clock.clone(),
     ));
 
+    let capabilities = Arc::new(RegistryAgentCapabilities::new(agents));
     let resolver = Arc::new(PolicyResolutionService::new(
         policies_for_resolver,
-        Arc::new(RegistryAgentCapabilities::new(agents)),
+        capabilities.clone(),
         projection_for_resolver,
         maintenance.clone(),
         policy_cache.clone(),
+    ));
+    let preview = Arc::new(PersonalizationPreviewService::new(
+        resolver.clone(),
+        Arc::new(PlatformSecretRedaction),
     ));
     let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
         resolver: resolver.clone(),
         candidates,
         reviews,
+        preview: preview.clone(),
+        policies: policies.clone(),
+        policy_cache: policy_cache.clone(),
+        agents: capabilities,
+        clock: clock.clone(),
         gate,
         health: maintenance.clone(),
         settings: Arc::new(LegacySettingsCompatibility::new(
@@ -170,10 +180,6 @@ pub(crate) fn assemble_personalization(
     // Bound here rather than by the caller, so there is no assembly order in which the settings
     // page is live while the legacy rows are still its truth.
     settings_for_bridge.bind_personalization(Arc::new(GovernedSettingsBridge::new(api.clone())));
-    let preview = Arc::new(PersonalizationPreviewService::new(
-        resolver.clone(),
-        Arc::new(PlatformSecretRedaction),
-    ));
     Ok(PersonalizationAssembly {
         api,
         maintenance,
@@ -335,6 +341,27 @@ impl AgentCapabilityPort for RegistryAgentCapabilities {
             PersonalizationApplicationError::Storage(format!("agent_registry_unreadable: {error}"))
         })?;
         Ok(found.map(|agent| Self::for_launch(agent.launch().kind_str())))
+    }
+
+    fn list_capabilities(&self) -> Result<Vec<AgentCapabilityEntry>> {
+        let agents = self.registry.list().map_err(|error| {
+            PersonalizationApplicationError::Storage(format!("agent_registry_unreadable: {error}"))
+        })?;
+        Ok(agents
+            .into_iter()
+            .filter_map(|agent| {
+                // An Agent whose id this context cannot parse is skipped rather than reported with
+                // an invented identity: the screen would render a control that addresses nothing.
+                let agent_id =
+                    crate::contexts::personalization::domain::AgentId::parse(agent.id().as_str())
+                        .ok()?;
+                Some(AgentCapabilityEntry {
+                    agent_id,
+                    display_name: agent.display_name().to_string(),
+                    capabilities: Self::for_launch(agent.launch().kind_str()),
+                })
+            })
+            .collect())
     }
 }
 

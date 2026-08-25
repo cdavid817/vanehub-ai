@@ -13,20 +13,21 @@ use tempfile::TempDir;
 
 use super::{
     DurableMemoryHealth, FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex,
-    MarkdownMemoryRepository, SqliteCandidateRepository, SqliteLegacyAddressAlias,
-    SqliteLegacyPolicyMigration, SqliteMemoryProjection, SqliteMigrationJournal,
-    SqliteMigrationState, SqlitePolicyRepository, UuidMemoryIdGenerator,
+    MarkdownMemoryRepository, PlatformSecretRedaction, SqliteCandidateRepository,
+    SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration, SqliteMemoryProjection,
+    SqliteMigrationJournal, SqliteMigrationState, SqlitePolicyRepository, UuidMemoryIdGenerator,
 };
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService, ClockPort,
-    DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
+    AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService,
+    ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
     LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
     LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort,
     MemoryApplicationService, MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort,
-    MemoryRepository, MigrationStatePort, PersonalizationApplicationError, PolicyRepository,
-    PolicyResolutionService, ResetCounts, RetrievalIndexPort, StartupMaintenancePorts,
-    StartupMaintenanceService, WorkspaceIdentityResolver,
+    MemoryRepository, MigrationStatePort, PersonalizationApplicationError,
+    PersonalizationPreviewService, PolicyRepository, PolicyResolutionService, ResetCounts,
+    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
+    WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryEligibilitySummary, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
@@ -214,6 +215,12 @@ impl AgentCapabilityPort for EveryAgentCapable {
             },
         ))
     }
+
+    fn list_capabilities(
+        &self,
+    ) -> Result<Vec<crate::contexts::personalization::application::AgentCapabilityEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 struct Fixture {
@@ -313,6 +320,7 @@ fn reopen(
         Arc::new(LastKnownGoodPolicyCache::default()),
     ));
     let memories_for_review = memories.clone();
+    let resolver_for_preview = resolver.clone();
     let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
         resolver,
@@ -326,6 +334,14 @@ fn reopen(
             memories_for_review,
             Arc::new(FixedClock),
         )),
+        preview: Arc::new(PersonalizationPreviewService::new(
+            resolver_for_preview,
+            Arc::new(PlatformSecretRedaction),
+        )),
+        policies: policies.clone(),
+        policy_cache: Arc::new(LastKnownGoodPolicyCache::default()),
+        agents: Arc::new(EveryAgentCapable),
+        clock: Arc::new(FixedClock),
         gate,
         health: maintenance.clone(),
         settings: Arc::new(LegacySettingsCompatibility::new(

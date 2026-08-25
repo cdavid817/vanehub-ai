@@ -10,6 +10,8 @@ mod candidate_review_tests;
 #[cfg(test)]
 mod compatibility_tests;
 #[cfg(test)]
+mod management_tests;
+#[cfg(test)]
 mod onepiece_resolution_tests;
 
 use std::sync::Arc;
@@ -17,16 +19,21 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CandidateReviewService, CandidateSubmission, CandidateSubmissionOutcome,
-    CandidateSubmissionService, CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField,
-    LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort, MemoryApplicationService,
-    MemoryHealthPort, MutationAdmission, PersonalizationApplicationError, PolicyResolutionService,
+    AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmission,
+    CandidateSubmissionOutcome, CandidateSubmissionService, ClockPort, CreateMemoryInput,
+    DeleteMemoryOutcome, EffectivePreview, LastKnownGoodPolicyCache, LegacyAddressAliasPort,
+    LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort,
+    MemoryApplicationService, MemoryHealthPort, MutationAdmission, PersonalizationApplicationError,
+    PersonalizationPreviewService, PolicyRepository, PolicyResolutionService, ResetCounts,
     ResolutionRequest, ReviewRequest, UpdateMemoryPatch, WorkspaceIdentityPort,
 };
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryCandidate, MemoryId,
-    MemoryProvenance, MemoryRecord, MemoryRuntimeHealth, MemoryScope, MemorySensitivity,
-    MemorySource, MemoryStatus, MemoryType, PersonalizationDomainError, ReviewOutcome,
+    MemoryPage, MemoryProvenance, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemoryScope,
+    MemoryScopeFilter, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
+    PatchPolicyResult, PersonalizationDomainError, PersonalizationPolicyPatch,
+    PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
+    ResetMemoryOutcome, ResetMemoryPreview, ResetMemoryRequest, ReviewOutcome, RevisionConflict,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -115,6 +122,15 @@ pub(crate) struct PersonalizationApi {
     /// The other side of that split: the only path from a proposal to an active record, and the
     /// only one that takes a human decision as its input.
     reviews: Arc<CandidateReviewService>,
+    /// Renders one resolution for a screen. Held here rather than handed out separately so the
+    /// screen and the runtime can never be looking at two differently assembled resolvers.
+    preview: Arc<PersonalizationPreviewService>,
+    policies: Arc<dyn PolicyRepository>,
+    /// Dropped on every successful policy write. Invalidating from the writer keeps the rule where
+    /// the change is, rather than depending on a general event bus nobody owns.
+    policy_cache: Arc<LastKnownGoodPolicyCache>,
+    agents: Arc<dyn AgentCapabilityPort>,
+    clock: Arc<dyn ClockPort>,
     /// Held across every read and every write, so a `Ready` answer cannot go stale between the
     /// check and the work it authorizes.
     gate: Arc<dyn MaintenanceGatePort>,
@@ -136,6 +152,11 @@ pub(crate) struct PersonalizationApiParts {
     pub(crate) resolver: Arc<PolicyResolutionService>,
     pub(crate) candidates: Arc<CandidateSubmissionService>,
     pub(crate) reviews: Arc<CandidateReviewService>,
+    pub(crate) preview: Arc<PersonalizationPreviewService>,
+    pub(crate) policies: Arc<dyn PolicyRepository>,
+    pub(crate) policy_cache: Arc<LastKnownGoodPolicyCache>,
+    pub(crate) agents: Arc<dyn AgentCapabilityPort>,
+    pub(crate) clock: Arc<dyn ClockPort>,
     pub(crate) gate: Arc<dyn MaintenanceGatePort>,
     pub(crate) health: Arc<dyn MemoryHealthPort>,
     pub(crate) settings: Arc<LegacySettingsCompatibility>,
@@ -150,6 +171,11 @@ impl PersonalizationApi {
             resolver,
             candidates,
             reviews,
+            preview,
+            policies,
+            policy_cache,
+            agents,
+            clock,
             gate,
             health,
             settings,
@@ -161,6 +187,11 @@ impl PersonalizationApi {
             resolver,
             candidates,
             reviews,
+            preview,
+            policies,
+            policy_cache,
+            agents,
+            clock,
             gate,
             health,
             settings,
@@ -232,6 +263,149 @@ impl PersonalizationApi {
     ) -> Result<CandidateSubmissionOutcome> {
         let _admission = self.admit_write()?;
         self.candidates.submit(submission)
+    }
+
+    /// Every registered Agent and the personalization surface it can consume.
+    ///
+    /// A screen derives its controls from this rather than from a list of built-in Agents, so an
+    /// Agent a user registered themselves gets the same treatment as one that shipped.
+    pub(crate) fn agent_capabilities(&self) -> Result<Vec<AgentCapabilityEntry>> {
+        self.agents.list_capabilities()
+    }
+
+    /// One scope's stored policy, or `None` when that layer holds nothing.
+    ///
+    /// Absent is not the same as empty and is reported as itself: a layer with no row inherits, and
+    /// a screen that rendered "nothing configured" as "configured to nothing" would show the user
+    /// an override they never created.
+    pub(crate) fn policy(
+        &self,
+        scope: &PersonalizationPolicyScope,
+    ) -> Result<Option<PersonalizationPolicyRecord>> {
+        self.policies.load(scope)
+    }
+
+    pub(crate) fn all_policies(&self) -> Result<Vec<PersonalizationPolicyRecord>> {
+        self.policies.list_all()
+    }
+
+    /// Applies one patch to one scope, refusing a write from a stale copy.
+    ///
+    /// `None` for the expected revision creates the layer; `Some` requires it to still be at that
+    /// revision. Two screens editing the same layer is the ordinary case, and last-response-wins
+    /// would silently discard whichever save arrived first.
+    pub(crate) fn patch_policy(
+        &self,
+        scope: &PersonalizationPolicyScope,
+        expected_revision: Option<u64>,
+        patch: PersonalizationPolicyPatch,
+    ) -> Result<PersonalizationPolicyRecord> {
+        let now = self.clock.now();
+        match self.policies.patch(scope, expected_revision, patch, now)? {
+            PatchPolicyResult::Updated(record) => {
+                // Dropped after the write, and from here, because whoever changed the policy is who
+                // knows it changed. A bundle cached under the old revision would otherwise answer
+                // the next resolution with the value the user just replaced.
+                self.policy_cache.invalidate();
+                Ok(record)
+            }
+            PatchPolicyResult::Conflict { current } => Err(
+                PersonalizationApplicationError::RevisionConflict(RevisionConflict {
+                    expected: expected_revision.unwrap_or_default(),
+                    current: current.revision(),
+                }),
+            ),
+        }
+    }
+
+    /// What one resolution looks like to a person.
+    ///
+    /// Rendered from the same snapshot the runtime would get, so the screen cannot drift from the
+    /// behaviour, minus everything a screen must not carry.
+    pub(crate) fn preview(&self, request: ResolutionRequest) -> Result<EffectivePreview> {
+        self.preview.preview(request)
+    }
+
+    /// One page of governed memories.
+    ///
+    /// Bounded summaries from the projection, never bodies: a list that loaded every body would
+    /// read the whole store to render a page of names.
+    pub(crate) fn list_memories(&self, query: &MemoryQuery) -> Result<MemoryPage> {
+        let Some(_admission) = self.admit_read() else {
+            return Ok(MemoryPage::empty());
+        };
+        self.memories.list(query)
+    }
+
+    /// One memory in full, from the authoritative file.
+    pub(crate) fn memory_detail(&self, id: &MemoryId) -> Result<Option<MemoryRecord>> {
+        let Some(_admission) = self.admit_read() else {
+            return Ok(None);
+        };
+        self.memories.detail(id)
+    }
+
+    /// A memory the user is creating themselves.
+    ///
+    /// Distinct from a proposal on purpose: this is the path where a person is the author, and it
+    /// produces an active record directly.
+    pub(crate) fn create_memory(&self, input: CreateMemoryInput) -> Result<MemoryRecord> {
+        if input.content.trim().is_empty() {
+            return Err(PersonalizationApplicationError::Domain(
+                PersonalizationDomainError::MemoryFieldEmpty { field: "content" },
+            ));
+        }
+        let _admission = self.admit_write()?;
+        self.memories.create(input).map(|created| created.record)
+    }
+
+    pub(crate) fn update_memory(
+        &self,
+        id: &MemoryId,
+        expected_revision: u64,
+        patch: UpdateMemoryPatch,
+    ) -> Result<MemoryRecord> {
+        let _admission = self.admit_write()?;
+        self.memories
+            .update(id, expected_revision, patch)
+            .map(|updated| updated.record)
+    }
+
+    pub(crate) fn delete_memory(
+        &self,
+        id: &MemoryId,
+        expected_revision: Option<u64>,
+    ) -> Result<DeleteMemoryOutcome> {
+        let _admission = self.admit_write()?;
+        self.memories.delete(id, expected_revision)
+    }
+
+    /// What a reset would remove, before anything is removed.
+    ///
+    /// Counted from complete enumeration rather than from the projection, so a malformed file —
+    /// which has no projection row and is exactly what a scan-capped count used to miss — is
+    /// included in what the user is asked to confirm.
+    pub(crate) fn preview_memory_reset(
+        &self,
+        scope: &MemoryScopeFilter,
+        statuses: &[MemoryStatus],
+    ) -> Result<ResetCounts> {
+        let _admission = self.admit_write()?;
+        self.memories.preview_reset(scope, statuses)
+    }
+
+    pub(crate) fn reset_memories(
+        &self,
+        request: &ResetMemoryRequest,
+    ) -> Result<ResetMemoryOutcome> {
+        let _admission = self.admit_write()?;
+        self.memories.reset(request)
+    }
+
+    /// Rebuilds derived state from the authoritative files.
+    pub(crate) fn reconcile_memories(&self) -> Result<ReconcileMemoryOutcome> {
+        let _admission = self.admit_write()?;
+        self.memories.reconcile()
     }
 
     /// Proposals waiting for a decision.
@@ -570,6 +744,13 @@ pub(crate) fn build_for_tests(
                 supports_automatic_extraction: true,
             }))
         }
+
+        fn list_capabilities(
+            &self,
+        ) -> Result<Vec<crate::contexts::personalization::application::AgentCapabilityEntry>>
+        {
+            Ok(Vec::new())
+        }
     }
 
     let repository = Arc::new(
@@ -596,6 +777,7 @@ pub(crate) fn build_for_tests(
         health.clone(),
         cache.clone(),
     ));
+    let resolver_for_preview = resolver.clone();
     let api = PersonalizationApi::new(PersonalizationApiParts {
         memories: service.clone(),
         resolver,
@@ -609,6 +791,14 @@ pub(crate) fn build_for_tests(
             service.clone(),
             clock.clone(),
         )),
+        preview: Arc::new(PersonalizationPreviewService::new(
+            resolver_for_preview,
+            Arc::new(super::infrastructure::PlatformSecretRedaction),
+        )),
+        policies: policies.clone(),
+        policy_cache: cache.clone(),
+        agents: Arc::new(EveryAgentCapable),
+        clock: clock.clone(),
         gate: Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
         health,
         settings: Arc::new(LegacySettingsCompatibility::new(policies, clock, cache)),
