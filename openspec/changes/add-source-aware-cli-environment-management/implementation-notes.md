@@ -941,3 +941,66 @@ real Agents installed and CI does not, which is the difference the gate exists t
 remove. The CI result is the one that counts.
 
 **14.17 and 14.20 stay unchecked. Tasks remain 162/164.**
+
+## Round 9: the credential store, and what is left
+
+### The gate was reaching the real OS store
+
+Round 8 ended blaming the runners for having no keychain. That was half the
+story, and the less important half. On Windows the gate *passed* by writing
+connector tokens and provider configuration into the developer's own Credential
+Manager, where they outlived the run -- a side effect this change's own rules
+forbid, hiding inside a green result. Provisioning empty stores on the macOS and
+Linux runners moved their errors without fixing them, because the application
+runs with an isolated OS `HOME` and so looked for a store under the run's
+temporary home rather than the one the runner had prepared.
+
+`OsCredentialStore` now has two backends behind one `cfg` each: the real OS store
+in a production build, and a JSON file inside `VANEHUB_APP_DATA_DIR` in a desktop
+test build. That directory is created per run, validated against the real
+application data directory, and deleted afterwards, so the file survives the
+relaunches the persistence layers depend on and nothing in it outlives the run.
+One file, no new dependency, at the seam every credential already crossed. A
+boundary test holds the split: the production backend must still use the OS
+store, and the test backend must not mention `keyring` at all.
+
+### Merged with main again
+
+`origin/main` reached `2ede7d27`, and the pull request had gone `CONFLICTING` --
+which is also why no CI ran for two pushes: GitHub cannot build the merge ref for
+a conflicting pull request, so `pull_request` events cannot fire at all. Merged,
+not rebased. `#221` had independently added two opt-in real-CLI desktop layers;
+they are external-provider layers in the sense this change now defines, and both
+sides' additions were kept. Migrations re-scanned: still 82/83/84, dense, no
+duplicates.
+
+One self-inflicted mistake worth recording: the credential commit also staged
+`src-tauri/gen/schemas/*`, 168 lines of wdio automation ACL that the desktop test
+build injects. Reverted in the following commit. The rule that these are never
+committed only works if it is checked before every commit, not remembered.
+
+### Three-platform result, run 32797174954, HEAD `600508bc`
+
+| Layer | Windows x64 | macOS ARM64 | Linux x64 |
+| --- | --- | --- | --- |
+| `desktop-smoke` (29 required specs) | **PASSED 29/0** | FAILED 27/2 | FAILED 28/1 |
+| `desktop-cli-terminal` | PASSED | PASSED | PASSED |
+| `desktop-cli-management` | PASSED | PASSED | PASSED |
+| `desktop-session-workspace` | PASSED | PASSED | PASSED |
+| `desktop-dialogs` | PASSED | PASSED | PASSED |
+| `desktop-settings-persistence` | PASSED | PASSED | PASSED |
+| **Required gate** | **PASSED** | FAILED | FAILED |
+
+Every credential-store failure is gone. What remains is three specs in contexts
+this change does not touch:
+
+- Linux: `sessions` -- `validation error: Session participants changed since they
+  were loaded`, an optimistic-concurrency conflict in the multi-Agent roster.
+- macOS: `screen-sweep` rendering session workspace tabs, and `ui-chat` slash
+  completions.
+
+They are platform-specific behaviours in the session and chat contexts, surfaced
+for the first time because the sweep had never run to completion on those
+platforms before. Diagnosing them is work in those contexts, not in this one.
+
+**14.17 and 14.20 stay unchecked. Tasks remain 162/164.**
