@@ -7,12 +7,13 @@ import type { ReactElement } from "react";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
-import type { ChatMessage } from "../types/chat";
+import type { EvidenceSessionId } from "../types/session-workspace-evidence";
 
 const { mockAgentService } = vi.hoisted(() => ({
   mockAgentService: {
     listSessionDirectory: vi.fn(),
     listSessionDocuments: vi.fn(),
+    getSessionRunReport: vi.fn(),
     listSessionLogs: vi.fn(),
     readSessionFile: vi.fn(),
   },
@@ -24,6 +25,9 @@ const { DocumentsTab } = await import("./documents-tab");
 const { FilesTab } = await import("./files-tab");
 const { LogsTab } = await import("./logs-tab");
 const { ReportTab } = await import("./report-tab");
+const { WorkspaceEvidenceScopeProvider } = await import("./workspace-evidence-scope");
+const { emptySessionRunReport } = await import("./report-test-fixtures");
+const report = emptySessionRunReport("session-1");
 
 function mount(ui: ReactElement) {
   const queryClient = new QueryClient({
@@ -46,21 +50,6 @@ const directory = {
   path: "",
 };
 
-function message(content: string): ChatMessage {
-  return {
-    id: `message-${content}`,
-    sessionId: "session-1",
-    role: "assistant",
-    content,
-    status: "completed",
-    toolUse: [],
-    tokenUsage: { input: 1, output: 1 },
-    createdAt: "2026-08-23T00:00:00.000Z",
-    updatedAt: "2026-08-23T00:00:01.000Z",
-    sessionSequence: 1,
-    executionRunId: null,
-  };
-}
 
 describe("hidden workspace panels", () => {
   beforeAll(async () => {
@@ -124,18 +113,24 @@ describe("hidden workspace panels", () => {
     await waitFor(() => expect(mockAgentService.listSessionLogs).toHaveBeenCalledTimes(1));
   });
 
-  it("holds the Report aggregation while hidden and catches up when shown", () => {
-    const { rerenderPanel } = mount(<ReportTab isVisible messages={[message("one")]} partial={false} />);
-    expect(screen.getByText("Message status")).toBeTruthy();
+  it("reads no report while hidden and issues one the moment it is shown", async () => {
+    mockAgentService.getSessionRunReport.mockResolvedValue(report);
+    const { rerenderPanel } = mount(
+      <WorkspaceEvidenceScopeProvider seatIds={[]} sessionId={"session-1" as EvidenceSessionId}>
+        <ReportTab isVisible={false} sessionId="session-1" />
+      </WorkspaceEvidenceScopeProvider>,
+    );
 
-    rerenderPanel(<ReportTab isVisible={false} messages={[message("one"), message("two")]} partial={false} />);
-    const heldStatuses = screen.getAllByText("1").length;
+    // The report is a five-context read. A panel nobody is looking at must not pay for it.
+    expect(mockAgentService.getSessionRunReport).not.toHaveBeenCalled();
 
-    rerenderPanel(<ReportTab isVisible messages={[message("one"), message("two")]} partial={false} />);
+    rerenderPanel(
+      <WorkspaceEvidenceScopeProvider seatIds={[]} sessionId={"session-1" as EvidenceSessionId}>
+        <ReportTab isVisible sessionId="session-1" />
+      </WorkspaceEvidenceScopeProvider>,
+    );
 
-    // Held, not stale-forever: the same message list produces the newer aggregate once visible.
-    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
-    expect(heldStatuses).toBeGreaterThan(0);
+    await waitFor(() => expect(mockAgentService.getSessionRunReport).toHaveBeenCalledTimes(1));
   });
 
   it("detaches the Shell view without ending the shell", () => {

@@ -1,88 +1,130 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ChatMessage, MessageStatus } from "../types/chat";
-import { aggregateSessionReport } from "./report-utils";
-import { PartialNotice, WorkspaceState } from "./workspace-state";
+import type { SessionWorkspaceEvidenceService } from "../services/session-workspace-evidence-service";
+import type {
+  EvidenceRunId,
+  EvidenceSeatId,
+  EvidenceSessionId,
+  ReportGroupBy,
+} from "../types/session-workspace-evidence";
+import { reportSectionTarget, type ReportSectionId } from "./report-evidence-links";
+import {
+  ReportChangesSection,
+  ReportLatencySection,
+  ReportOverviewSection,
+  ReportUsageSection,
+  ReportVerificationSection,
+} from "./report-figures";
+import {
+  ReportScopeControls,
+  reportRangeStart,
+  type ReportRangeKey,
+} from "./report-scope-controls";
+import {
+  ReportAgentsSection,
+  ReportCommandsSection,
+  ReportFailuresSection,
+  ReportToolsSection,
+} from "./report-tables";
+import { useSessionRunReport, type ReportScopeSelection } from "./use-session-run-report";
+import { useWorkspaceEvidenceScope } from "./workspace-evidence-scope";
+import { WorkspaceState } from "./workspace-state";
 
-const messageStatuses: MessageStatus[] = ["pending", "streaming", "completed", "failed", "cancelled"];
-
+/**
+ * The session report, read from the backend rather than aggregated from mounted messages.
+ *
+ * The old panel summed whatever `ChatMessage[]` happened to be mounted, which made the report a
+ * function of scrolling: paging older messages in changed every figure on the page, and a session
+ * whose history had been trimmed reported a smaller session. Nothing about that was visible — the
+ * numbers were confident either way. The backend counts what actually happened, over a scope the
+ * reader chooses, and says per section how much of it it could see.
+ */
 export function ReportTab({
   isVisible = true,
-  messages,
-  partial,
+  service,
+  sessionId,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
-  messages: ChatMessage[];
-  partial: boolean;
+  service?: SessionWorkspaceEvidenceService;
+  sessionId: string | null;
 }) {
-  const { i18n, t } = useTranslation();
-  // The last aggregation, held while the tab is hidden. Re-running it on every streamed chunk for
-  // a panel nobody is reading walks the whole message list to produce a value that is discarded.
-  const [report, setReport] = useState(() => aggregateSessionReport(messages));
-  useEffect(() => {
-    if (isVisible) setReport(aggregateSessionReport(messages));
-  }, [isVisible, messages]);
-  if (messages.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.report.empty")} />;
-  const number = new Intl.NumberFormat(i18n.language);
-  const totalTokens = report.reportedInputTokens + report.reportedOutputTokens;
-  const inputWidth = totalTokens === 0 ? 0 : (report.reportedInputTokens / totalTokens) * 100;
+  const { t } = useTranslation();
+  const navigation = useWorkspaceEvidenceScope();
+  const [groupBy, setGroupBy] = useState<ReportGroupBy>("run");
+  const [range, setRange] = useState<ReportRangeKey>("all");
+
+  // The run and seat come from the workspace scope rather than from a picker of this panel's own.
+  // A reader arrives here from a trace or a record, and a second control that disagreed with the
+  // one they used to get here would be two answers to the question of what they are looking at.
+  const scope = useMemo<ReportScopeSelection>(() => {
+    const { runId, seatId } = navigation.correlation;
+    return {
+      from: reportRangeStart(range, new Date()),
+      groupBy,
+      runIds: runId ? ([runId] as EvidenceRunId[]) : [],
+      seatIds: seatId ? ([seatId] as EvidenceSeatId[]) : [],
+    };
+  }, [groupBy, navigation.correlation, range]);
+
+  const { isRefreshing, reasonCode, report, state } = useSessionRunReport({
+    isVisible,
+    scope,
+    service,
+    sessionId: sessionId as EvidenceSessionId | null,
+  });
+
+  if (!sessionId) return <WorkspaceState kind="unavailable" />;
 
   return (
-    <div className="grid gap-4 overflow-y-auto pr-1">
-      {partial ? <PartialNotice /> : null}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label={t("sessionTabs.report.inputTokens")} value={number.format(report.reportedInputTokens)} />
-        <Metric label={t("sessionTabs.report.outputTokens")} value={number.format(report.reportedOutputTokens)} />
-        <Metric label={t("sessionTabs.report.inputCharacters")} value={number.format(report.estimatedInputCharacters)} />
-        <Metric label={t("sessionTabs.report.outputCharacters")} value={number.format(report.estimatedOutputCharacters)} />
-      </section>
-      <section className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-        <h3 className="mb-3 text-sm font-semibold">{t("sessionTabs.report.tokenDistribution")}</h3>
-        <svg aria-label={t("sessionTabs.report.tokenDistribution")} className="h-8 w-full" role="img" viewBox="0 0 100 12">
-          <rect className="fill-muted" height="12" rx="3" width="100" x="0" y="0" />
-          <rect className="fill-primary" height="12" rx="3" width={inputWidth} x="0" y="0" />
-        </svg>
-      </section>
-      <section className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-        <h3 className="mb-3 text-sm font-semibold">{t("sessionTabs.report.statusCounts")}</h3>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {messageStatuses.map((status) => (
-            <Metric
-              key={status}
-              label={t(`sessionTabs.report.status.${status}`)}
-              value={number.format(report.statusCounts[status])}
-            />
-          ))}
-        </div>
-      </section>
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-          <h3 className="mb-3 text-sm font-semibold">{t("sessionTabs.report.toolRanking")}</h3>
-          <div className="grid gap-2">
-            {report.toolRanking.length === 0 ? <p className="text-sm text-muted-foreground">{t("sessionTabs.report.noTools")}</p> : report.toolRanking.map((tool) => (
-              <div className="flex items-center justify-between rounded border border-border px-2 py-1.5 text-sm" key={tool.name}>
-                <span className="truncate font-mono">{tool.name}</span><strong>{number.format(tool.count)}</strong>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-          <h3 className="mb-3 text-sm font-semibold">{t("sessionTabs.report.timeline")}</h3>
-          <div className="grid max-h-72 gap-2 overflow-y-auto">
-            {report.timeline.map((item) => (
-              <div className="flex items-center justify-between gap-3 border-l-2 border-primary pl-2 text-xs" key={item.id}>
-                <span className="truncate">{t(`sessionTabs.timeline.${item.kind}`)} · {item.label}</span>
-                <time className="shrink-0 text-muted-foreground">{new Intl.DateTimeFormat(i18n.language, { timeStyle: "medium" }).format(new Date(item.timestamp))}</time>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <ReportScopeControls
+        isRefreshing={isRefreshing}
+        onClearCorrelation={() => navigation.clearScope(["runId", "seatId"])}
+        onGroupByChange={setGroupBy}
+        onRangeChange={setRange}
+        range={range}
+        scope={scope}
+      />
+      {report ? (
+        <ReportSections
+          onOpenEvidence={(section) => navigation.navigate(reportSectionTarget(report, section))}
+          report={report}
+        />
+      ) : state === "loading" ? (
+        <WorkspaceState kind="loading" message={t("sessionTabs.report.loading")} />
+      ) : (
+        <WorkspaceState
+          kind="unavailable"
+          // The refusal code, not a message: the backend answers in stable codes and the locale
+          // file owns the sentence a reader sees.
+          message={t(`evidence.reason.${reasonCode ?? "evidence_unavailable"}`, {
+            defaultValue: t("evidence.reason.evidence_unavailable"),
+          })}
+        />
+      )}
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3"><p className="text-xs text-muted-foreground">{label}</p><strong className="mt-1 block text-xl text-primary">{value}</strong></div>;
+function ReportSections({
+  onOpenEvidence,
+  report,
+}: {
+  onOpenEvidence: (section: ReportSectionId) => void;
+  report: Parameters<typeof reportSectionTarget>[0];
+}) {
+  return (
+    <div className="grid gap-3 overflow-y-auto pr-1">
+      <ReportOverviewSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportUsageSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportLatencySection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportAgentsSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportToolsSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportCommandsSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportChangesSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportVerificationSection onOpenEvidence={onOpenEvidence} report={report} />
+      <ReportFailuresSection onOpenEvidence={onOpenEvidence} report={report} />
+    </div>
+  );
 }

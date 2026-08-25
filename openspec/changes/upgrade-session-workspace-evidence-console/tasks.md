@@ -204,13 +204,13 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 10.6 Return unknown/partial coverage rather than substituting zero for missing evidence.
 - [x] 10.7 Omit monetary cost or mark it unavailable unless an explicitly versioned provider-pricing observation exists; do not introduce a pricing catalog in this change.
 - [x] 10.8 Add Tauri and Web/mock report methods and contract tests. This registers the session-run report command and activates the report native methods added in 2.4: the production Tauri binding stops returning unavailable, and the 2.6 conformance suite runs against those native report cases.
-- [ ] 10.9 Replace React message aggregation in Report with the backend service query; retain a legacy comparison test until parity behavior is understood.
-- [ ] 10.10 Build Report sections for Overview, Usage, Latency, Agents, Tools, Changes, Tests, Failures, and Evidence.
-- [ ] 10.11 Add scope controls for run, seat, time, and group-by, preserving previous report content while refresh is in flight.
-- [ ] 10.12 Add evidence links from every report section to the corresponding workspace tab and filter.
+- [x] 10.9 Replace React message aggregation in Report with the backend service query; retain a legacy comparison test until parity behavior is understood.
+- [x] 10.10 Build Report sections for Overview, Usage, Latency, Agents, Tools, Changes, Tests, Failures, and Evidence.
+- [x] 10.11 Add scope controls for run, seat, time, and group-by, preserving previous report content while refresh is in flight.
+- [x] 10.12 Add evidence links from every report section to the corresponding workspace tab and filter.
 - [ ] 10.13 Add JSON export of the bounded report through a service-backed native destination flow and a clearly simulated/unavailable Web path, if the existing export primitive can be reused without adding arbitrary frontend file writes.
 - [x] 10.14 Add application tests for complete, partial, unavailable, no-usage, child-Agent, retry, test-failure, changed-file, and no-evidence reports.
-- [ ] 10.15 Add UI tests proving Report results do not change when message pagination or mounted chat-message count changes.
+- [x] 10.15 Add UI tests proving Report results do not change when message pagination or mounted chat-message count changes.
 
 ## 11. Provider-Neutral Local and SSH Workspace Inspection
 

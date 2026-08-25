@@ -7,7 +7,6 @@ import { activateAppLanguage } from "../i18n";
 import { managedCliAgentIds, type Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
-import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
 import { SessionConversationHeader } from "./session-conversation-header";
 import { SessionTabs } from "./session-tabs";
@@ -60,12 +59,9 @@ describe("session workspace components", () => {
     // Terminal History is no longer server-renderable on its own: it reads the workspace evidence
     // scope and needs a session id. The tool row it produces is asserted in terminal-tab.test.tsx,
     // which mounts it with both and switches to the legacy view.
-    const report = renderToStaticMarkup(<ReportTab messages={[message]} partial={false} />);
-    expect(report).toContain("12");
-    expect(report).toContain("read_file");
-    expect(report).toContain("Message status");
-    expect(report).toContain("Completed");
-    expect(report).toContain("Completion");
+    // The Report tab left this file with Terminal History and for the same reason: it now reads
+    // the workspace evidence scope and queries the backend, so it cannot be rendered to static
+    // markup on its own. Its sections are asserted in report-tab.test.tsx against a real report.
   });
 
   it("renders API chat instead of an Agent Terminal for OnePiece sessions", () => {

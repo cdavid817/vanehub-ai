@@ -194,7 +194,7 @@ function SessionWorkspaceTabs({
     }
     if (id === "logs") return <LazyFeature componentProps={{ isVisible, seatId, sessionId }} loader={loadLogsTab} />;
     if (id === "traces") return <LazyFeature componentProps={{ isVisible, session: activeSession, sessionId }} loader={loadExecutionTimelineTab} />;
-    return <LazyFeature componentProps={{ isVisible, messages, partial: messagesPartial }} loader={loadReportTab} />;
+    return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadReportTab} />;
   }
 
   return (
