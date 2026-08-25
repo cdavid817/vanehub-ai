@@ -8,12 +8,11 @@ use tempfile::TempDir;
 use super::personalization_bridge::{
     instruction_block, memory_access, to_candidate_operation, LegacyMemoryPortBridge,
 };
-use crate::contexts::agent_runtime::application::{
-    AgentMemoryPort, AgentMemoryProposal, MemorySource, PersonalizationSettings, SaveMemoryInput,
-};
+use crate::contexts::agent_runtime::application::{AgentMemoryPort, AgentMemoryProposal};
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
 use crate::contexts::personalization::api::build_for_tests;
+use crate::contexts::personalization::api::CompatibilitySaveInput;
 use crate::contexts::personalization::application::{
     ClockPort, CreateMemoryInput, MemoryApplicationService, MigrationStatePort,
     PersonalizationApplicationError, RetrievalIndexPort,
@@ -78,6 +77,7 @@ struct Fixture {
     memory_root: std::path::PathBuf,
     service: Arc<MemoryApplicationService>,
     migration_state: Arc<SqliteMigrationState>,
+    personalization: crate::contexts::personalization::api::PersonalizationApi,
     bridge: LegacyMemoryPortBridge,
 }
 
@@ -98,6 +98,7 @@ fn fixture(label: &str) -> Fixture {
         memory_root,
         service,
         migration_state: Arc::new(SqliteMigrationState::new(database)),
+        personalization: api.clone(),
         bridge: LegacyMemoryPortBridge::new(api),
     }
 }
@@ -136,18 +137,24 @@ fn seed(fixture: &Fixture, name: &str) -> MemoryRecord {
         .record
 }
 
+/// A user-confirmed save, through the governed create path.
+///
+/// It goes to the API directly now. The bridge lost its write when model-originated writes became
+/// proposals: nothing in a runtime writes an active memory any more, and the alias handling this
+/// exercises is what the user-facing save and candidate approval will both use.
 fn save(fixture: &Fixture, name: &str, content: &str) -> Result<(), String> {
     fixture
-        .bridge
-        .save(SaveMemoryInput {
-            agent_id: "onepiece",
-            folder: None,
-            name: Some(name),
-            description: Some("Package manager"),
-            memory_type: Some(RuntimeMemoryType::Project),
-            content,
-            source: MemorySource::Explicit,
+        .personalization
+        .save_compatibility_memory(CompatibilitySaveInput {
+            agent_id: Some("onepiece".to_string()),
+            workspace: None,
+            name: name.to_string(),
+            description: "Package manager".to_string(),
+            memory_type: Some(GovernedType::Project),
+            content: content.to_string(),
+            is_automatic: false,
         })
+        .map(|_| ())
         .map_err(|error| error.to_string())
 }
 
@@ -319,9 +326,11 @@ fn segment(field: InstructionField, text: &str) -> ResolvedInstructionSegment {
 
 /// The migration must be invisible to a user who changed nothing.
 ///
-/// Byte-for-byte what the flat settings rendered, heading spacing included. A prompt that gained a
-/// blank line would invalidate every provider prefix cache in the fleet and would show up in any
-/// stored-prompt comparison as a change nobody made.
+/// The expected string is written out rather than compared against the old renderer, which no
+/// longer exists: the flat settings type went when the last reader of it did. These are the exact
+/// bytes that renderer produced, heading spacing included. A prompt that gained a blank line would
+/// invalidate every provider prefix cache in the fleet and would show up in any stored-prompt
+/// comparison as a change nobody made.
 #[test]
 fn the_rendered_instruction_block_is_byte_identical_to_the_flat_settings_rendering() {
     let governed = instruction_block(&resolved_snapshot(vec![
@@ -330,16 +339,15 @@ fn the_rendered_instruction_block_is_byte_identical_to_the_flat_settings_renderi
     ]))
     .expect("instruction block");
 
-    let flat = PersonalizationSettings {
-        custom_instructions_about_user: "Writes Rust.".to_string(),
-        custom_instructions_style_rules: "Be terse.".to_string(),
-        custom_instructions_enabled: true,
-        ..PersonalizationSettings::safe_fallback()
-    }
-    .custom_instructions_block()
-    .expect("flat block");
+    assert_eq!(
+        governed,
+        "## Custom Instructions
+### Response style
+Be terse.
 
-    assert_eq!(governed, flat);
+### About the user
+Writes Rust."
+    );
 }
 
 /// Style before the description of the user, whichever order policy resolved them in.

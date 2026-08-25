@@ -79,13 +79,13 @@
 
 ## 7. CLI Runtime Integration
 
-- [ ] 7.1 Add one shared CLI personalization adapter used by all VaneHub-managed CLI Agent implementations rather than duplicating built-in Agent ids in each path.
-- [ ] 7.2 Resolve a snapshot for every CLI message and prepend resolved custom instructions followed by the scoped active-memory index in the documented order relative to Prompt Hooks and the user message.
-- [ ] 7.3 Preserve index-only behavior unless an Agent runtime capability explicitly opts into selected-memory bodies.
-- [ ] 7.4 Preserve each CLI's internal compaction, native memory, and native instruction behavior; do not read or write CLI-owned files in this change.
-- [ ] 7.5 Change successful-turn extraction to submit candidates attributed to the actual CLI Agent, session, workspace, and source message ids.
-- [ ] 7.6 Keep a completed CLI response successful when extraction is unavailable or fails; surface only safe diagnostics.
-- [ ] 7.7 Apply per-Agent automatic-extraction policy and skip extraction in temporary mode or when no validated OnePiece extraction provider is available.
+- [x] 7.1 Add one shared CLI personalization adapter used by all VaneHub-managed CLI Agent implementations rather than duplicating built-in Agent ids in each path.
+- [x] 7.2 Resolve a snapshot for every CLI message and prepend resolved custom instructions followed by the scoped active-memory index in the documented order relative to Prompt Hooks and the user message.
+- [x] 7.3 Preserve index-only behavior unless an Agent runtime capability explicitly opts into selected-memory bodies.
+- [x] 7.4 Preserve each CLI's internal compaction, native memory, and native instruction behavior; do not read or write CLI-owned files in this change.
+- [x] 7.5 Change successful-turn extraction to submit candidates attributed to the actual CLI Agent, session, workspace, and source message ids.
+- [x] 7.6 Keep a completed CLI response successful when extraction is unavailable or fails; surface only safe diagnostics.
+- [x] 7.7 Apply per-Agent automatic-extraction policy and skip extraction in temporary mode or when no validated OnePiece extraction provider is available.
 - [ ] 7.8 Add contract tests covering Claude Code, Codex, OpenCode, Gemini CLI, Antigravity, and a synthetic dynamically registered CLI Agent without adding Agent-specific policy branches.
 - [ ] 7.9 Add tests that a CLI launched outside the VaneHub adapter remains out of scope and that VaneHub does not mutate its native configuration files.
 

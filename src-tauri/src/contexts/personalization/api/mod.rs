@@ -24,7 +24,7 @@ use super::application::{
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance,
     MemoryRecord, MemoryRuntimeHealth, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType,
+    MemoryType, PersonalizationDomainError,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -327,6 +327,14 @@ impl PersonalizationApi {
         &self,
         input: CompatibilitySaveInput,
     ) -> Result<CompatibilityMemory> {
+        // A memory whose content is only whitespace is not a memory. The bounded-length check
+        // alone would admit it — three spaces are three characters — and the pre-governance writer
+        // that used to guard this is gone, so the guard belongs here, on the create path itself.
+        if input.content.trim().is_empty() {
+            return Err(PersonalizationApplicationError::Domain(
+                PersonalizationDomainError::MemoryFieldEmpty { field: "content" },
+            ));
+        }
         // Refused rather than queued, and held for the whole operation rather than checked once. A
         // save accepted now would be written into a store whose derived views are mid-rebuild, and
         // the rebuild would then either miss it or resurrect a record the same run was removing.

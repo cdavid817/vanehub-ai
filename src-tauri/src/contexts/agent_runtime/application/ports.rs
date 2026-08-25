@@ -20,11 +20,10 @@ use super::{
     LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext,
     LoopOwnedRecoverySession, LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, NewAgentMessage,
-    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
-    SaveMemoryInput, StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision,
-    ToolDefinition, ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest,
+    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
+    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
@@ -1193,11 +1192,12 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// internal conversation compaction and its native memory/instruction files (`CLAUDE.md`,
 /// `AGENTS.md`, OpenCode configuration, and equivalents). VaneHub governs the personalization it
 /// injects; it does not read, write, or take responsibility for a CLI's own context machinery.
+/// The pre-governance memory surface, now read-and-remove only.
+///
+/// Nothing writes through it any longer: a runtime proposes, and the only path to an active record
+/// is review. What is left is the management view — list, delete one, delete all — which the
+/// governed management API replaces when the review and browse surfaces land.
 pub(crate) trait AgentMemoryPort: Send + Sync {
-    /// Writes one memory. Saving under a name that already exists replaces that memory rather than
-    /// creating a second one for the same name — the update path the row store could not express.
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError>;
-
     /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
 
@@ -1357,6 +1357,11 @@ pub(crate) struct AgentCandidateSubmission {
     pub(crate) agent_id: String,
     pub(crate) session_id: String,
     pub(crate) folder: Option<String>,
+    /// The message this batch was extracted from, when there is one.
+    ///
+    /// Provenance a reviewer needs: "which turn produced this" is the first question a queue entry
+    /// raises, and a proposal that cannot answer it is one a user has to take on trust.
+    pub(crate) source_message_id: Option<String>,
     pub(crate) eligible: Vec<AgentMemoryRef>,
 }
 
@@ -1376,10 +1381,6 @@ pub(crate) struct AgentMemoryBody {
     pub(crate) memory_type: Option<MemoryType>,
     pub(crate) content: String,
     pub(crate) updated_at: Option<SystemTime>,
-}
-
-pub(crate) trait AgentPersonalizationPort: Send + Sync {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
 }
 
 /// Focused read boundary for context that can be rebuilt after compaction. Implementations return

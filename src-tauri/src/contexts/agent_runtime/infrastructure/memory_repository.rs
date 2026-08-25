@@ -1,11 +1,15 @@
 use super::memory_naming::{derive_description, derive_name};
+#[cfg(test)]
+use crate::contexts::agent_runtime::application::SaveMemoryInput;
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
+    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource,
 };
+#[cfg(test)]
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, Row};
 use std::collections::HashSet;
+#[cfg(test)]
 use uuid::Uuid;
 
 /// SQLite-backed `AgentMemoryPort` (`add-agent-cross-session-memory`). Unlike Skill bindings
@@ -22,12 +26,16 @@ impl SqliteAgentMemoryRepository {
     }
 }
 
-impl AgentMemoryPort for SqliteAgentMemoryRepository {
-    /// Legacy row write, retained only so this repository still satisfies the port while it serves
-    /// as the migration source (`migrate-agent-memory-to-file-store`). `name`, `description`, and
-    /// `type` have no columns here and are deliberately dropped: the directory store is the write
-    /// path that preserves them.
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
+/// The legacy row write, kept for this repository's own tests.
+///
+/// `name`, `description` and `type` have no columns here and are deliberately dropped. Nothing in
+/// production writes rows any more — this repository exists as the migration source.
+#[cfg(test)]
+impl SqliteAgentMemoryRepository {
+    pub(crate) fn save(
+        &self,
+        input: SaveMemoryInput<'_>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let now = SystemClock.rfc3339();
         connection
@@ -49,7 +57,9 @@ impl AgentMemoryPort for SqliteAgentMemoryRepository {
             .map_err(repository_error)?;
         Ok(())
     }
+}
 
+impl AgentMemoryPort for SqliteAgentMemoryRepository {
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection

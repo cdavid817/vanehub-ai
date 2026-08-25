@@ -1,15 +1,12 @@
-use crate::contexts::personalization::api::{
-    CompatibilityMemory, CompatibilitySaveInput, PersonalizationApi,
-};
+use crate::contexts::personalization::api::{CompatibilityMemory, PersonalizationApi};
 
 use std::time::SystemTime;
 
 use crate::contexts::agent_runtime::application::{
     AgentCandidateOutcome, AgentCandidateSubmission, AgentMemory, AgentMemoryAccess,
     AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort, AgentMemoryProposal, AgentMemoryRef,
-    AgentPersonalizationPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
-    AgentProposalOrigin, AgentRuntimeApplicationError, GenerationPersonalizationContext,
-    MemorySource, PersonalizationSettings, SaveMemoryInput,
+    AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort, AgentProposalOrigin,
+    AgentRuntimeApplicationError, GenerationPersonalizationContext, MemorySource,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::desktop::api::DesktopSettingsApi;
@@ -116,34 +113,6 @@ fn to_agent_memory(memory: CompatibilityMemory) -> AgentMemory {
 }
 
 impl AgentMemoryPort for LegacyMemoryPortBridge {
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        let content = input.content.trim();
-        if content.is_empty() {
-            return Err(bridge_error("Memory content is empty."));
-        }
-        // A caller that supplies neither is not a production path — every current writer supplies
-        // both — so this refuses rather than deriving a name, which would put naming policy in the
-        // compatibility layer.
-        let (Some(name), Some(description)) = (input.name, input.description) else {
-            return Err(bridge_error(
-                "A governed memory requires a name and a description.",
-            ));
-        };
-
-        self.personalization
-            .save_compatibility_memory(CompatibilitySaveInput {
-                agent_id: Some(input.agent_id.to_string()),
-                workspace: input.folder.map(str::to_string),
-                name: name.to_string(),
-                description: description.to_string(),
-                memory_type: input.memory_type.map(to_governed_type),
-                content: content.to_string(),
-                is_automatic: matches!(input.source, MemorySource::Automatic),
-            })
-            .map(|_| ())
-            .map_err(bridge_error)
-    }
-
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         Ok(self
             .personalization
@@ -169,7 +138,7 @@ impl AgentMemoryPort for LegacyMemoryPortBridge {
     }
 }
 
-/// Satisfies `agent_runtime`'s personalization port from the governed policy.
+/// Satisfies `agent_runtime`'s personalization boundary from the governed policy.
 ///
 /// Instructions and the memory switches come from the dedicated policy. Automatic context
 /// compaction and the context-quality retention window stay on the desktop settings, because those
@@ -195,50 +164,6 @@ impl GovernedPersonalizationAdapter {
             settings,
             workspace_identity: WorkspaceIdentityResolver::for_this_platform(),
         }
-    }
-}
-
-impl AgentPersonalizationPort for GovernedPersonalizationAdapter {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        let view = self
-            .settings
-            .get_settings()
-            .map_err(|error| AgentRuntimeApplicationError::Personalization(error.to_string()))?
-            .settings;
-
-        let policy = self.personalization.legacy_settings().ok();
-        let memory_ready = self.personalization.memory_is_ready();
-        Ok(PersonalizationSettings {
-            custom_instructions_about_user: policy
-                .as_ref()
-                .and_then(|policy| policy.settings.about_user.clone())
-                .unwrap_or_default(),
-            custom_instructions_style_rules: policy
-                .as_ref()
-                .and_then(|policy| policy.settings.style_rules.clone())
-                .unwrap_or_default(),
-            // An unreadable policy means no instructions are applied at all, not "apply the empty
-            // ones": an enabled flag with empty text and a disabled flag are different states, and
-            // only the second is honest about not knowing.
-            custom_instructions_enabled: policy
-                .as_ref()
-                .and_then(|policy| policy.settings.custom_instructions_enabled)
-                .unwrap_or(false),
-            // Two conditions, and both must hold. A policy that permits memory says nothing about
-            // whether the store behind it is safe to read.
-            memory_enabled: memory_ready
-                && policy
-                    .as_ref()
-                    .and_then(|policy| policy.settings.memory_enabled)
-                    .unwrap_or(false),
-            memory_tool_assisted_chats_enabled: memory_ready
-                && policy
-                    .as_ref()
-                    .and_then(|policy| policy.settings.tool_assisted_extraction_enabled)
-                    .unwrap_or(false),
-            automatic_context_compaction_enabled: view.automatic_context_compaction_enabled(),
-            context_quality_retention_days: view.context_quality_retention_days(),
-        })
     }
 }
 
@@ -355,6 +280,7 @@ impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
             source_agent_id: AgentId::parse(&submission.agent_id).ok(),
             source_session_id: SessionId::parse(&submission.session_id).ok(),
             source_workspace_key: workspace.as_ref().map(|identity| identity.key().clone()),
+            source_message_id: submission.source_message_id.clone(),
             ..MemoryProvenance::default()
         };
         let scope = match workspace.as_ref() {

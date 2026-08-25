@@ -197,10 +197,13 @@ pub(super) struct FakeWorld {
     profile_credentials: Mutex<BTreeMap<String, String>>,
     removed_credentials: Mutex<Vec<String>>,
     /// Configurable per test (`add-cli-custom-instructions-injection`) — defaults to
-    /// `PersonalizationSettings::safe_fallback()`, matching every pre-existing test's implicit
+    /// `PreGovernanceSettings::safe_fallback()`, matching every pre-existing test's implicit
     /// assumption of "no custom instructions configured".
-    personalization_settings: Mutex<PersonalizationSettings>,
+    personalization_settings: Mutex<PreGovernanceSettings>,
     personalization_failure: AtomicBool,
+    /// Every batch of proposals the runtime submitted. Extraction produces these now; it cannot
+    /// reach an active memory, so this is where its output is asserted.
+    proposals: Mutex<Vec<AgentMemoryProposal>>,
     /// `add-cli-memory-support` — configurable `AgentMemoryExtractionPort::extract` outcome.
     /// Defaults to `Some("Extracted fact.")`, matching every pre-existing test's implicit
     /// assumption of "extraction succeeds and finds something" where it isn't the point under
@@ -311,8 +314,9 @@ impl FakeWorld {
             current_onepiece_credential: Mutex::new(None),
             profile_credentials: Mutex::new(BTreeMap::new()),
             removed_credentials: Mutex::new(Vec::new()),
-            personalization_settings: Mutex::new(PersonalizationSettings::safe_fallback()),
+            personalization_settings: Mutex::new(PreGovernanceSettings::safe_fallback()),
             personalization_failure: AtomicBool::new(false),
+            proposals: Mutex::new(Vec::new()),
             extraction_response: Mutex::new(Some(
                 r#"[{"action":"create","name":"extracted-fact","description":"An extracted fact","body":"Extracted fact."}]"#.to_string(),
             )),
@@ -1007,33 +1011,71 @@ impl ToolApprovalPort for FakeWorld {
     }
 }
 
-impl AgentMemoryPort for FakeWorld {
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        let name = input.name.unwrap_or("fake-memory").to_string();
-        self.memories.lock().expect("memories").push(AgentMemory {
-            id: format!(
-                "memory-{}.md",
-                self.next_message_id.fetch_add(1, Ordering::Relaxed)
-            ),
-            agent_id: input.agent_id.to_string(),
-            folder: input.folder.map(str::to_string),
-            description: input
-                .description
-                .unwrap_or(input.content)
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .to_string(),
-            name,
-            memory_type: input.memory_type,
-            content: input.content.to_string(),
-            source: input.source,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            modified_at: None,
-        });
-        Ok(())
+/// The flat settings shape the runtime used before governance.
+///
+/// A test fixture now, not a production type: nothing reads settings this way any more. It stays
+/// because what these tests are about — whether instructions appear, whether the index appears,
+/// whether extraction runs — is stated most clearly as the settings a user had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreGovernanceSettings {
+    custom_instructions_about_user: String,
+    custom_instructions_style_rules: String,
+    custom_instructions_enabled: bool,
+    memory_enabled: bool,
+    memory_tool_assisted_chats_enabled: bool,
+    automatic_context_compaction_enabled: bool,
+    context_quality_retention_days: i64,
+}
+
+impl PreGovernanceSettings {
+    fn safe_fallback() -> Self {
+        Self {
+            custom_instructions_about_user: String::new(),
+            custom_instructions_style_rules: String::new(),
+            // Enabled with nothing in it: the pre-governance fallback degraded to the behaviour
+            // before settings existed, which was an empty block rather than a disabled one.
+            custom_instructions_enabled: true,
+            memory_enabled: true,
+            memory_tool_assisted_chats_enabled: true,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
+        }
     }
 
+    fn custom_instructions_block(&self) -> Option<String> {
+        if !self.custom_instructions_enabled {
+            return None;
+        }
+        let mut parts = Vec::new();
+        let style = self.custom_instructions_style_rules.trim();
+        let about = self.custom_instructions_about_user.trim();
+        if !style.is_empty() {
+            parts.push(format!(
+                "### Response style
+{style}"
+            ));
+        }
+        if !about.is_empty() {
+            parts.push(format!(
+                "### About the user
+{about}"
+            ));
+        }
+        (!parts.is_empty()).then(|| {
+            format!(
+                "## Custom Instructions
+{}",
+                parts.join(
+                    "
+
+"
+                )
+            )
+        })
+    }
+}
+
+impl AgentMemoryPort for FakeWorld {
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         if self.memories_list_failure.load(Ordering::SeqCst) {
             return Err(AgentRuntimeApplicationError::Memory(
@@ -1097,18 +1139,86 @@ impl AgentMemoryExtractionPort for FakeWorld {
     }
 }
 
-impl AgentPersonalizationPort for FakeWorld {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        if self.personalization_failure.load(Ordering::SeqCst) {
-            return Err(AgentRuntimeApplicationError::Personalization(
-                "lookup failed".to_string(),
-            ));
+/// The pre-governance settings a test configured, as the snapshot a runtime now resolves.
+///
+/// The translation is mechanical and decides nothing. What each test is about — whether
+/// instructions appear, whether the index appears, whether extraction runs — is stated in the
+/// settings it sets, exactly as it was before governance; only the shape the runtime reads them
+/// through has changed.
+impl AgentPersonalizationSnapshotPort for FakeWorld {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        if self.personalization_failure.load(Ordering::SeqCst)
+            || self.memories_list_failure.load(Ordering::SeqCst)
+        {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
         }
-        Ok(self
+        let settings = self
             .personalization_settings
             .lock()
             .expect("personalization settings")
-            .clone())
+            .clone();
+        let eligible: Vec<AgentMemoryRef> = if settings.memory_enabled {
+            self.memories
+                .lock()
+                .expect("memories")
+                .iter()
+                .map(|memory| AgentMemoryRef {
+                    id: memory.id.clone(),
+                    revision: 1,
+                    name: memory.name.clone(),
+                    description: memory.description.clone(),
+                    memory_type: memory.memory_type,
+                    updated_at: memory.modified_at,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        AgentPersonalizationSnapshot {
+            revision_token: "fake-world-snapshot".to_string(),
+            instruction_block: settings.custom_instructions_block(),
+            memory: AgentMemoryAccess {
+                read: settings.memory_enabled,
+                explicit_save: settings.memory_enabled,
+                automatic_extraction: settings.memory_enabled,
+                candidate_creation: settings.memory_enabled,
+                retrieval_write: settings.memory_enabled,
+                delivery: if settings.memory_enabled {
+                    AgentMemoryDelivery::IndexOnly
+                } else {
+                    AgentMemoryDelivery::None
+                },
+                eligible_total: eligible.len(),
+                eligible,
+                blocked_reason: (!settings.memory_enabled).then(|| "policy_denied".to_string()),
+                automatic_extraction_in_tool_assisted_turns: settings.memory_enabled
+                    && settings.memory_tool_assisted_chats_enabled,
+            },
+            automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled,
+            context_quality_retention_days: settings.context_quality_retention_days,
+        }
+    }
+
+    fn pinned_bodies(
+        &self,
+        _refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        let accepted = submission.proposals.len();
+        self.proposals
+            .lock()
+            .expect("proposals")
+            .extend(submission.proposals);
+        Ok(AgentCandidateOutcome {
+            accepted,
+            rejected: 0,
+        })
     }
 }
 

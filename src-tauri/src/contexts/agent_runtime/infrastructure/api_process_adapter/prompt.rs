@@ -6,18 +6,18 @@ use super::super::skill_tool_catalog_adapter::{
 };
 use super::super::tools::{task_list_prompt_section, ToolExecutionOutcome};
 use super::{SKILL_AGGREGATE_CHARACTER_BUDGET, SKILL_PER_ITEM_CHARACTER_BUDGET};
-use crate::contexts::agent_runtime::application::MemorySource;
 use crate::contexts::agent_runtime::application::{
     ask_user_question_tool_definition, code_intelligence_tool_definitions,
-    delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, AgentCandidateSubmission, AgentClockPort,
-    AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryDelivery,
-    AgentMemoryProposal, AgentMemoryRef, AgentMemorySelectionPort, AgentPersonalizationSnapshot,
-    AgentPersonalizationSnapshotPort, AgentProposalOrigin, AgentRetrievalPort, AgentSkillPort,
-    ApiProviderConfig, BoundSkillPrompt, GenerationPersonalizationContext,
-    GenerationProcessRequest, NativeToolExecutionMode, NativeToolRegistry, ToolDefinition,
-    ToolEligibilityContext, UtilityDelegationApplicationService,
+    delegate_utility_skill_tool_definition, memory_from_ref, plan_mode_tool_catalog,
+    recall_tool_definition, search_code_tool_definition, tool_catalog, AgentCandidateSubmission,
+    AgentClockPort, AgentCodeIntelligenceContext, AgentCodeIntelligencePort,
+    AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort,
+    AgentMemory, AgentMemoryDelivery, AgentMemoryProposal, AgentMemoryRef,
+    AgentMemorySelectionPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
+    AgentProposalOrigin, AgentRetrievalPort, AgentSkillPort, ApiProviderConfig, BoundSkillPrompt,
+    GenerationPersonalizationContext, GenerationProcessRequest, NativeToolExecutionMode,
+    NativeToolRegistry, ToolDefinition, ToolEligibilityContext,
+    UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::domain::MemoryType;
 use crate::contexts::skill_evolution_evidence::domain::{
@@ -317,6 +317,9 @@ pub(super) fn propose_remembered_memory(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        // The tool call is not a message of its own, and naming the turn it sits inside would
+        // point a reviewer at something that does not contain the proposal.
+        source_message_id: None,
         eligible: personalization.snapshot.memory.eligible.clone(),
     };
     match personalization.port.propose_memories(submission) {
@@ -620,27 +623,6 @@ fn select_memory_bodies(
         &surfaced,
         std::time::SystemTime::now(),
     )
-}
-
-/// One eligible ref in the shape the index, the selector and the surfaced tracker already speak.
-///
-/// The body is deliberately empty: none of those three reads it, and filling it would mean loading
-/// every eligible memory to build an index that names them.
-fn memory_from_ref(entry: &AgentMemoryRef) -> AgentMemory {
-    AgentMemory {
-        id: entry.id.clone(),
-        agent_id: String::new(),
-        folder: None,
-        name: entry.name.clone(),
-        description: entry.description.clone(),
-        memory_type: entry.memory_type,
-        content: String::new(),
-        source: MemorySource::Automatic,
-        created_at: String::new(),
-        // Carried through, and the reason the staleness caveat and the already-surfaced exclusion
-        // work at all: both key on it, and a `None` here silently disables both.
-        modified_at: entry.updated_at,
-    }
 }
 
 pub(super) fn format_system_prompt(

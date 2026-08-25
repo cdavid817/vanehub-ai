@@ -2239,9 +2239,15 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // these per seat, not just accept them: a stub that dropped the write would let both the
     // seat-scoped capture and the discard pass while storing nothing, which is exactly the defect
     // they exist to catch.
+    // Raised to 2,011 by `add-unified-personalization-governance`. `FakeWorld` reads
+    // personalization through the governed snapshot port now, so it carries the translation the
+    // production adapter performs (+75) and a `PreGovernanceSettings` fixture (+45) that keeps
+    // each CLI test stating what it is about — the settings a user had — rather than hand-building
+    // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
+    // nothing in the runtime writes an active memory any more.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_903,
+        budget: 2_011,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {

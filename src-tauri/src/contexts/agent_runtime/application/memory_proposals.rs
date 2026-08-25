@@ -1,4 +1,4 @@
-use crate::contexts::agent_runtime::application::{AgentMemoryProposal, AgentMemoryRef};
+use super::{AgentMemoryProposal, AgentMemoryRef};
 use crate::contexts::agent_runtime::domain::{MemoryActionKind, ParsedMemoryActions};
 
 /// Turns one extraction's validated actions into proposals against the eligible set.

@@ -414,9 +414,11 @@ fn send_message_degrades_gracefully_when_memory_lookup_fails_for_cli_agents() {
     let logs = world.logs.lock().expect("logs");
     let log = logs
         .iter()
-        .find(|log| log.category == "session.runtime.memory")
-        .expect("memory warning log");
+        .find(|log| log.category == "session.runtime.personalization")
+        .expect("personalization warning log");
     assert_eq!(log.level, AgentLogLevel::Warn);
+    // The reason is a stable code, never a store error: this line reaches the unified log.
+    assert!(log.message.contains("policy_unavailable"));
 }
 
 #[test]
@@ -490,11 +492,19 @@ fn generation_completed_triggers_memory_extraction_for_cli_agents_when_enabled_a
     let calls = world.extraction_calls.lock().expect("extraction calls");
     assert_eq!(calls.len(), 1);
     assert!(calls[0].contains("hello"));
-    let memories = world.memories.lock().expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "Extracted fact.");
-    assert_eq!(memories[0].agent_id, "codex-cli");
-    assert_eq!(memories[0].source, MemorySource::Automatic);
+    // A proposal, not a memory. The turn is over and the CLI has answered; what extraction found
+    // is a queue entry a person decides about.
+    let proposals = world.proposals.lock().expect("proposals");
+    assert_eq!(
+        proposals.as_slice(),
+        [AgentMemoryProposal::Create {
+            name: "extracted-fact".to_string(),
+            description: "An extracted fact".to_string(),
+            memory_type: None,
+            content: "Extracted fact.".to_string(),
+        }]
+    );
+    assert!(world.memories.lock().expect("memories").is_empty());
 }
 
 #[test]

@@ -1,6 +1,5 @@
 //! Generation entry points, per-request options, summarization, streaming, and child turns.
 
-use super::super::memory_actions::{proposals_from_actions, render_existing_manifest};
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::SqliteNativeToolRepository;
 use super::compaction::turns_character_count;
@@ -9,15 +8,16 @@ use super::invocation::{begin_api_invocation, finish_api_invocation, WireFormat}
 use super::sinks::{EvidenceCountingSink, EvidenceToolCounts};
 use super::{ExecutedToolCall, PendingApprovals};
 use crate::contexts::agent_runtime::application::{
-    AgentCandidateSubmission, AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort,
-    AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort,
-    AgentMemoryRef, AgentPermissionPort, AgentPersonalizationSnapshot,
-    AgentPersonalizationSnapshotPort, AgentProcessEventSink, AgentProposalOrigin,
-    AgentRetrievalPort, AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, ContextEngineOutcome, ContextEngineService,
-    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals, ToolDefinition,
-    ToolUseBlock, UtilityDelegationApplicationService, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    proposals_from_actions, render_existing_manifest, AgentCandidateSubmission,
+    AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort,
+    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryRef,
+    AgentPermissionPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
+    AgentProcessEventSink, AgentProposalOrigin, AgentRetrievalPort, AgentSkillPort,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
+    ContextEngineOutcome, ContextEngineService, ContextQualityRecorder, ConversationHistoryPort,
+    GenerationProcessEvent, GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals,
+    ToolDefinition, ToolUseBlock, UtilityDelegationApplicationService,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     parse_memory_actions, ContextBudget, ContextRequest, ParsedMemoryActions,
@@ -648,6 +648,9 @@ fn submit_extracted_proposals(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        // OnePiece extraction runs against a compacted slice rather than one message, so there is
+        // no single turn to name. Absent rather than guessed at.
+        source_message_id: None,
         eligible: snapshot.memory.eligible.clone(),
     };
     let message = match personalization.propose_memories(submission) {

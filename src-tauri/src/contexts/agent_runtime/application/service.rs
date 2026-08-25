@@ -1,27 +1,29 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
-    format_memory_index, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
+    format_memory_index, memory_from_ref, proposals_from_actions, render_existing_manifest,
+    AgentCandidateSubmission, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
     AgentEvent, AgentEventPort, AgentGenerationPort, AgentInvocationUsage, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
-    AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
-    AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
-    AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap,
-    AgentUsageRecord, AgentView, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
-    CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal, CliProfileSnapshot,
-    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
-    DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
-    FrozenEndpointProfile, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    AgentLoggingPort, AgentMemory, AgentMemoryDelivery, AgentMessage, AgentMessageTerminal,
+    AgentMessageTerminalCompletionPort, AgentMessageTerminalOutcome, AgentProcessEventSink,
+    AgentProcessGateway, AgentProposalOrigin, AgentRegistryRepository,
+    AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
+    AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
+    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CanonicalRunLinks, CanonicalRunOutcome,
+    CanonicalRunSignal, CliProfileSnapshot, CompleteAgentMessage, ConversationHistoryPort,
+    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationStart, EffectivePrompt,
+    EffectivePromptGateway, EmbeddingEndpointView, FrozenEndpointProfile, GenerationLease,
+    GenerationPersonalizationContext, GenerationProcessEvent, GenerationProcessRequest,
     HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult, LoopGenerationControlPort,
     LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
-    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage,
+    OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest, OnePieceProviderConfig,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
+    OnePieceProviderProfile, OnePieceProviderProfiles, PendingPromptExecution,
+    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RecoverSessionResult, RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor,
-    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnCompletionPort,
     SeatTurnTerminal, SendMessageRequest, StartedAgentMessage, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
@@ -35,8 +37,8 @@ use crate::contexts::agent_runtime::domain::{
     AuthenticationMode, AutomaticCompactionMode, CapabilityProvenance, CapabilityState,
     ContextCapacityProvenance, DataPolicy, EndpointCapabilities, EndpointProfileSnapshot,
     EndpointSource, HybridRouteDecision, HybridRouteReason, HybridRouteRequest, HybridRoutingRule,
-    InteractionMode, MemoryActionKind, ProfileCapability, ProfileContextCapacity, ProfilePrivacy,
-    ProfileRuntimeKind, RequiredCapabilities, RouteCandidate, TaskClass,
+    InteractionMode, ProfileCapability, ProfileContextCapacity, ProfilePrivacy, ProfileRuntimeKind,
+    RequiredCapabilities, RouteCandidate, TaskClass,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -336,7 +338,11 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
     pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
     pub(crate) memory_extraction: Arc<dyn super::AgentMemoryExtractionPort>,
-    pub(crate) personalization: Arc<dyn super::AgentPersonalizationPort>,
+    /// The one governed answer per CLI message and per completed CLI turn. Replaces reading flat
+    /// settings and then listing every memory: those were two decisions taken at two moments, and
+    /// a policy change between them produced a message whose instructions and whose memory index
+    /// disagreed about what was permitted.
+    pub(crate) personalization: Arc<dyn super::AgentPersonalizationSnapshotPort>,
     pub(crate) runner_discovery: Arc<dyn RunnerDiscoveryPort>,
 }
 
@@ -2576,42 +2582,42 @@ impl AgentRuntimeApplicationService {
             // degrades to safe defaults (mirroring `resolve_personalization_settings` on the
             // OnePiece side) rather than blocking the message — this codebase's established
             // philosophy of never letting an optional personalization lookup fail delivery.
-            let personalization_settings = match self.ports.personalization.settings() {
-                Ok(settings) => settings,
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        "session.runtime.personalization",
-                        format!(
-                            "Failed to resolve personalization settings; continuing with safe defaults: {error}"
-                        ),
-                        Some(agent.id().as_str()),
-                        Some(&session.id),
-                        None,
-                    );
-                    PersonalizationSettings::safe_fallback()
+            let governed = self
+                .ports
+                .personalization
+                .snapshot(GenerationPersonalizationContext {
+                    agent_id: agent.id().as_str().to_string(),
+                    session_id: session.id.clone(),
+                    folder: session.folder.clone(),
+                });
+            if let Some(reason) = governed.memory.blocked_reason.as_deref() {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    "session.runtime.personalization",
+                    format!(
+                        "Personalization unavailable ({reason}); continuing without custom instructions or memory."
+                    ),
+                    Some(agent.id().as_str()),
+                    Some(&session.id),
+                    None,
+                );
+            }
+            let custom_instructions = governed.instruction_block.clone();
+            // The index and nothing more. A CLI has nowhere to put a memory body that is not also
+            // the message it is about to answer, so the resolver downgrades delivery for a runtime
+            // that has not declared the capability — and this surface never asks for bodies even
+            // when it has. That stays true here rather than being re-decided per Agent.
+            let memory_section = match governed.memory.delivery {
+                AgentMemoryDelivery::None => None,
+                AgentMemoryDelivery::IndexOnly | AgentMemoryDelivery::IndexWithSelectedBodies => {
+                    let eligible: Vec<AgentMemory> = governed
+                        .memory
+                        .eligible
+                        .iter()
+                        .map(memory_from_ref)
+                        .collect();
+                    format_memory_index(&eligible, CLI_MEMORY_INDEX_BOUNDS)
                 }
-            };
-            let custom_instructions = personalization_settings.custom_instructions_block();
-            let memory_section = if personalization_settings.memory_enabled {
-                match self.ports.memories.list_all() {
-                    Ok(memories) => format_memory_index(&memories, CLI_MEMORY_INDEX_BOUNDS),
-                    Err(error) => {
-                        self.record_log(
-                            AgentLogLevel::Warn,
-                            "session.runtime.memory",
-                            format!(
-                                "Failed to resolve stored memories; continuing without them: {error}"
-                            ),
-                            Some(agent.id().as_str()),
-                            Some(&session.id),
-                            None,
-                        );
-                        None
-                    }
-                }
-            } else {
-                None
             };
             let leading_sections: Vec<String> = [custom_instructions, memory_section]
                 .into_iter()
@@ -3919,91 +3925,86 @@ impl GenerationEventHandler {
         // was already published by `message_completions.deliver`/`events.publish` earlier in this
         // function (design.md D3/task 6.3).
         if self.is_cli_kind {
-            self.extract_and_save_memory(&response);
+            self.propose_memories_from_turn(&response);
         }
         Ok(())
     }
 
-    /// `add-cli-memory-support` D3/D4: best-effort, independent memory extraction for a
-    /// CLI-wrapped agent's just-completed turn. Every failure mode (personalization lookup,
-    /// missing OnePiece credential, the extraction call itself) logs and returns — this must
-    /// never propagate an error, since the CLI message it's attached to has already succeeded.
-    fn extract_and_save_memory(&self, response: &str) {
-        let memory_enabled = match self.ports.personalization.settings() {
-            Ok(settings) => settings.memory_enabled,
-            Err(error) => {
-                self.record_memory_extraction_log(format!(
-                    "Failed to resolve personalization settings for CLI memory extraction; skipping: {error}"
-                ));
-                return;
-            }
-        };
-        if !memory_enabled {
+    /// Best-effort extraction for a CLI-wrapped Agent's just-completed turn, as proposals.
+    ///
+    /// It cannot change an active memory. Every failure mode — an unresolvable policy, a missing
+    /// OnePiece credential, the extraction call itself, a review queue that will not take the
+    /// batch — logs and returns. The CLI response this hangs off has already succeeded, and none
+    /// of this may retract it.
+    ///
+    /// One snapshot, and two of its answers matter. `automatic_extraction` is the resolved policy
+    /// of the Agent that actually ran — not OnePiece, whose model merely performs the extraction —
+    /// and `candidate_creation` is separately false in a temporary session, which forbids
+    /// proposing one even where the extractor would have been allowed to run.
+    fn propose_memories_from_turn(&self, response: &str) {
+        let governed = self
+            .ports
+            .personalization
+            .snapshot(GenerationPersonalizationContext {
+                agent_id: self.agent_id.clone(),
+                session_id: self.session_id.clone(),
+                folder: self.folder.clone(),
+            });
+        if !governed.memory.automatic_extraction || !governed.memory.candidate_creation {
             return;
         }
         let exchange = format!("User: {}\n\nAssistant: {response}", self.user_prompt);
-        // The manifest lets the extraction name an existing memory to correct or retract. A
-        // listing failure degrades to an empty manifest — the extraction can then only create,
-        // which is exactly the behavior before this change, rather than not running at all.
-        let existing = self.render_memory_manifest();
-        match self.ports.memory_extraction.extract(&exchange, &existing) {
-            Ok(parsed) => {
-                for action in &parsed.actions {
-                    let outcome = match action.kind {
-                        MemoryActionKind::Delete => {
-                            self.ports.memories.delete(&format!("{}.md", action.name))
-                        }
-                        MemoryActionKind::Create | MemoryActionKind::Update => {
-                            self.ports.memories.save(SaveMemoryInput {
-                                agent_id: &self.agent_id,
-                                folder: self.folder.as_deref(),
-                                name: Some(&action.name),
-                                description: action.description.as_deref(),
-                                memory_type: action.memory_type,
-                                content: action.body.as_deref().unwrap_or_default(),
-                                source: MemorySource::Automatic,
-                            })
-                        }
-                    };
-                    if let Err(error) = outcome {
-                        self.record_memory_extraction_log(format!(
-                            "One extracted memory action could not be applied; continuing: {error}"
-                        ));
-                    }
-                }
-            }
+        // The manifest lets the extraction name an existing memory to correct or retract, and is
+        // built from what this session may actually see. It is part of a prompt: a manifest listing
+        // everything would show a session the names and descriptions of memories its own policy
+        // excluded, and would invite proposals against them.
+        let existing = render_existing_manifest(&governed.memory.eligible);
+        let parsed = match self.ports.memory_extraction.extract(&exchange, &existing) {
+            Ok(parsed) => parsed,
             Err(AgentRuntimeApplicationError::Credential(message)) => {
-                // Expected, common condition (OnePiece isn't configured) — distinct wording and
-                // log category from a genuine call failure below (task 6.2).
+                // Expected, common condition (OnePiece isn't configured) — worded differently from
+                // a genuine call failure below, because an operator reading the log needs to tell
+                // "nothing to extract with" from "extraction broke".
                 self.record_memory_extraction_log(format!(
                     "Skipping CLI memory extraction; OnePiece has no usable credential: {message}"
                 ));
+                return;
             }
             Err(error) => {
                 self.record_memory_extraction_log(format!(
                     "CLI memory extraction call failed; continuing without it: {error}"
                 ));
+                return;
             }
-        }
-    }
-
-    /// The existing pool rendered as `- [type] name — description` lines. Descriptions only: the
-    /// manifest's cost must scale with how many memories exist, not with how large they are.
-    fn render_memory_manifest(&self) -> String {
-        let Ok(existing) = self.ports.memories.list_all() else {
-            return String::new();
         };
-        existing
-            .iter()
-            .map(|memory| {
-                let tag = memory
-                    .memory_type
-                    .map(|memory_type| format!("[{}] ", memory_type.as_str()))
-                    .unwrap_or_default();
-                format!("- {tag}{} — {}", memory.name, memory.description)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        let proposals = proposals_from_actions(&parsed, &governed.memory.eligible);
+        if proposals.is_empty() {
+            return;
+        }
+        let outcome = self
+            .ports
+            .personalization
+            .propose_memories(AgentCandidateSubmission {
+                proposals,
+                origin: AgentProposalOrigin::AutomaticExtraction,
+                // The Agent that actually ran, taken from the session rather than from a built-in
+                // list, so a dynamically registered CLI Agent is attributed to itself.
+                agent_id: self.agent_id.clone(),
+                session_id: self.session_id.clone(),
+                folder: self.folder.clone(),
+                source_message_id: Some(self.message_id.clone()),
+                eligible: governed.memory.eligible.clone(),
+            });
+        // Counts, never content: a proposal is the text nobody has approved yet.
+        match outcome {
+            Ok(outcome) => self.record_memory_extraction_log(format!(
+                "CLI memory extraction proposed {} candidate(s) for review; {} were refused.",
+                outcome.accepted, outcome.rejected
+            )),
+            Err(error) => self.record_memory_extraction_log(format!(
+                "CLI memory extraction could not queue its proposals: {error}"
+            )),
+        }
     }
 
     fn record_memory_extraction_log(&self, message: String) {

@@ -49,7 +49,7 @@ fn execute(
     mcp: &dyn AgentMcpToolPort,
     permissions: &dyn AgentPermissionPort,
     retrieval: &dyn AgentRetrievalPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
 ) -> GenerationProcessEvent {
     let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         super::super::UnavailableAgentCodeIntelligenceResponder,
@@ -129,7 +129,7 @@ fn resolve_tool_catalog(
 fn resolve_system_prompt(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     selection: &dyn AgentMemorySelectionPort,
@@ -156,7 +156,7 @@ fn resolve_system_prompt(
 fn resolve_system_prompt_with_observations(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     selection: &dyn AgentMemorySelectionPort,
@@ -188,6 +188,64 @@ fn resolve_system_prompt_with_observations(
     )
 }
 
+/// The pre-governance settings read, as the tests below still drive it.
+///
+/// A fixture trait, not a port: the production one is gone. These tests describe a user's stored
+/// settings and expect the harness to turn them into the snapshot a runtime now resolves.
+trait PreGovernancePersonalization: Send + Sync {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError>;
+}
+
+/// The flat settings shape the runtime used before governance.
+///
+/// A test fixture now, not a production type: nothing reads settings this way any more. It stays
+/// because what the tests below assert — section order, budgets, degradation — is unchanged by
+/// governance, and restating each of them against a hand-built snapshot would obscure that.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreGovernanceSettings {
+    custom_instructions_about_user: String,
+    custom_instructions_style_rules: String,
+    custom_instructions_enabled: bool,
+    memory_enabled: bool,
+    memory_tool_assisted_chats_enabled: bool,
+    automatic_context_compaction_enabled: bool,
+    context_quality_retention_days: i64,
+}
+
+impl PreGovernanceSettings {
+    fn safe_fallback() -> Self {
+        Self {
+            custom_instructions_about_user: String::new(),
+            custom_instructions_style_rules: String::new(),
+            // Enabled with nothing in it: the pre-governance fallback degraded to the behaviour
+            // before settings existed, which was an empty block rather than a disabled one.
+            custom_instructions_enabled: true,
+            memory_enabled: true,
+            memory_tool_assisted_chats_enabled: true,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
+        }
+    }
+
+    /// Style before the description of the user, and the heading spacing the governed renderer is
+    /// held to being byte-identical with.
+    fn custom_instructions_block(&self) -> Option<String> {
+        if !self.custom_instructions_enabled {
+            return None;
+        }
+        let mut parts = Vec::new();
+        let style = self.custom_instructions_style_rules.trim();
+        let about = self.custom_instructions_about_user.trim();
+        if !style.is_empty() {
+            parts.push(format!("### Response style\n{style}"));
+        }
+        if !about.is_empty() {
+            parts.push(format!("### About the user\n{about}"));
+        }
+        (!parts.is_empty()).then(|| format!("## Custom Instructions\n{}", parts.join("\n\n")))
+    }
+}
+
 /// Presents the pre-governance fakes through the governed snapshot port.
 ///
 /// What the prompt-assembly tests in this file assert — section order, budgets, degradation on a
@@ -198,7 +256,7 @@ fn resolve_system_prompt_with_observations(
 /// snapshot, the memory switch to a delivery mode), that mapping is the composition root's rule
 /// and is asserted where it lives, in `bootstrap::personalization_bridge_tests`.
 struct SnapshotFromLegacyPorts<'a> {
-    personalization: &'a dyn AgentPersonalizationPort,
+    personalization: &'a dyn PreGovernancePersonalization,
     memories: &'a dyn AgentMemoryPort,
 }
 
@@ -238,7 +296,7 @@ impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
 }
 
 fn snapshot_from_legacy_settings(
-    settings: Result<PersonalizationSettings, AgentRuntimeApplicationError>,
+    settings: Result<PreGovernanceSettings, AgentRuntimeApplicationError>,
     stored: &[AgentMemory],
 ) -> AgentPersonalizationSnapshot {
     {
@@ -316,7 +374,7 @@ fn maybe_compact(
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
     memories: &dyn AgentMemoryPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     tool_assisted: bool,
 ) -> Option<GenerationProcessEvent> {
     let governed = SnapshotFromLegacyPorts {
@@ -974,20 +1032,20 @@ impl AgentSkillPort for RecordingSkills {
     }
 }
 
-/// Always reports memory on, no custom instructions — exactly `PersonalizationSettings::
+/// Always reports memory on, no custom instructions — exactly `PreGovernanceSettings::
 /// safe_fallback()` — so every pre-existing test unaware of personalization keeps its prior
 /// behavior unchanged.
 struct NoopPersonalization;
 
-impl AgentPersonalizationPort for NoopPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        Ok(PersonalizationSettings::safe_fallback())
+impl PreGovernancePersonalization for NoopPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
+        Ok(PreGovernanceSettings::safe_fallback())
     }
 }
 
 impl AgentPersonalizationSnapshotPort for NoopPersonalization {
     fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
-        snapshot_from_legacy_settings(self.settings(), &[])
+        snapshot_from_legacy_settings(Ok(PreGovernanceSettings::safe_fallback()), &[])
     }
 
     fn pinned_bodies(
@@ -1008,13 +1066,13 @@ impl AgentPersonalizationSnapshotPort for NoopPersonalization {
     }
 }
 
-/// Reports a caller-chosen `PersonalizationSettings` snapshot, for tests that need specific
+/// Reports a caller-chosen `PreGovernanceSettings` snapshot, for tests that need specific
 /// custom-instructions content or a disabled toggle rather than `NoopPersonalization`'s fixed
 /// defaults.
-struct FixedPersonalization(PersonalizationSettings);
+struct FixedPersonalization(PreGovernanceSettings);
 
-impl AgentPersonalizationPort for FixedPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
+impl PreGovernancePersonalization for FixedPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
         Ok(self.0.clone())
     }
 }
@@ -1022,9 +1080,9 @@ impl AgentPersonalizationPort for FixedPersonalization {
 /// Always fails, for tests asserting graceful degradation on a personalization lookup error.
 struct FailingPersonalization;
 
-impl AgentPersonalizationPort for FailingPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        Err(AgentRuntimeApplicationError::Personalization(
+impl PreGovernancePersonalization for FailingPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Memory(
             "lookup failed".to_string(),
         ))
     }
@@ -1379,16 +1437,6 @@ impl FakeMemories {
 }
 
 impl AgentMemoryPort for FakeMemories {
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        self.saved.lock().expect("saved memories").push((
-            input.agent_id.to_string(),
-            input.folder.map(str::to_string),
-            input.content.to_string(),
-            input.source,
-        ));
-        Ok(())
-    }
-
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         Ok(self.to_list.clone())
     }
@@ -2123,9 +2171,9 @@ fn remember_tool_call_is_rejected_without_persisting_when_memory_is_disabled() {
     };
     let sink = CapturingSink::default();
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
 
     let _event = execute(
@@ -6556,9 +6604,9 @@ fn memory_disabled_runs_no_selection_at_all() {
     let system = resolve_system_prompt(
         "my-agent",
         &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
-        &FixedPersonalization(PersonalizationSettings {
+        &FixedPersonalization(PreGovernanceSettings {
             memory_enabled: false,
-            ..PersonalizationSettings::safe_fallback()
+            ..PreGovernanceSettings::safe_fallback()
         }),
         &FakeSkills(Ok(Vec::new())),
         &memories,
@@ -6662,11 +6710,11 @@ fn format_memory_section_returns_none_for_no_memories() {
     assert_eq!(format_memory_section(&[]), None);
 }
 
-fn personalization_settings(about_user: &str, style_rules: &str) -> PersonalizationSettings {
-    PersonalizationSettings {
+fn personalization_settings(about_user: &str, style_rules: &str) -> PreGovernanceSettings {
+    PreGovernanceSettings {
         custom_instructions_about_user: about_user.to_string(),
         custom_instructions_style_rules: style_rules.to_string(),
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     }
 }
 
@@ -6682,7 +6730,7 @@ fn format_custom_instructions_section_orders_style_rules_before_about_user() {
 
 #[test]
 fn format_custom_instructions_section_omits_the_section_when_disabled() {
-    let settings = PersonalizationSettings {
+    let settings = PreGovernanceSettings {
         custom_instructions_enabled: false,
         ..personalization_settings("About.", "Style.")
     };
@@ -7119,7 +7167,7 @@ fn run_optimizer_compaction(
     client: &reqwest::blocking::Client,
     config: &ApiProviderConfig,
     sink: &dyn AgentProcessEventSink,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
 ) -> Option<GenerationProcessEvent> {
     run_optimizer_compaction_with_logging(
         turns,
@@ -7140,7 +7188,7 @@ fn run_optimizer_compaction_with_logging(
     client: &reqwest::blocking::Client,
     config: &ApiProviderConfig,
     sink: &dyn AgentProcessEventSink,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     logging: &dyn AgentLoggingPort,
     context_quality: Option<&ContextQualityRecorder>,
 ) -> Option<GenerationProcessEvent> {
@@ -7925,7 +7973,7 @@ fn malformed_optimizer_summary_falls_back_using_original_turns() {
     for index in 0..COMPACTION_KEEP_RECENT_TURNS {
         turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
     }
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         custom_instructions_about_user: String::new(),
         custom_instructions_style_rules: String::new(),
         custom_instructions_enabled: true,
@@ -8316,10 +8364,10 @@ fn tool_assisted_flag_reflects_a_tool_call_made_earlier_in_the_same_generation()
         }),
     };
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
 
     let _event = execute(
@@ -8389,9 +8437,9 @@ fn maybe_compact_skips_extraction_when_memory_is_disabled() {
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -8439,10 +8487,10 @@ fn maybe_compact_skips_extraction_for_a_tool_assisted_session_when_the_sub_toggl
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -8491,10 +8539,10 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -8530,10 +8578,6 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
 struct PanicsOnListMemories;
 
 impl AgentMemoryPort for PanicsOnListMemories {
-    fn save(&self, _input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
-    }
-
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         panic!("memory-disabled resolve_system_prompt must not query the repository");
     }
@@ -8550,9 +8594,9 @@ impl AgentMemoryPort for PanicsOnListMemories {
 #[test]
 fn resolve_system_prompt_omits_memory_section_and_skips_the_lookup_when_memory_is_disabled() {
     let request = sample_request("api");
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let system = resolve_system_prompt(
         "my-agent",
@@ -9403,9 +9447,9 @@ fn a_rejected_remember_never_wakes_the_retrieval_index() {
         hits: Vec::new(),
         degraded: None,
     }));
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let sink = CapturingSink::default();
 
