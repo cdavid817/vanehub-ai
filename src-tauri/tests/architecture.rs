@@ -2423,6 +2423,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
+    // migrations 82-84 for `cli_environment_snapshots`, `cli_version_catalogs`, and
+    // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
+    // `migration_versions_are_unique_and_dense` plus the derived `expected_migration_versions`.
+    // Raised again from 3,029 to 3,036 on merging `upgrade-cli-parameter-management`, which
+    // registers migration 81 beside these three. Measured on the merged tree, not summed.
+    //
+    // The test is the point of the raise. Every worktree shares one `ai.vanehub.app` database, and
+    // a duplicate version number is silently skipped rather than rejected -- it surfaces much later
+    // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
+    // that collision fail a test instead of a user's launch.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
         // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
@@ -2432,7 +2443,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // carrying this branch's unmerged 81 must regain the CLI parameter schema the version gate
         // legitimately skips. Nearly every line here is those three; without them the renumber's
         // own failure modes have no coverage, and the second one is silent.
-        budget: 3_126,
+        // Re-measured on the merged tree. `add-local-composer-media-tools` took 3,126 on its own
+        // base and this branch took 3,036 on a different one; the merged total is neither, because
+        // both added migrations and neither figure saw the other's.
+        // +26 for reconciling both renumber tests with a third branch in the history: each has to
+        // rewind past this branch's 83-85 as well, and both now derive their totals from the
+        // migration list instead of naming a number that the next migration would falsify.
+        budget: 3_245,
         owner: "split-database-migrations",
     },
 ];
@@ -3179,4 +3196,202 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
         })
         .map(str::to_string)
         .collect()
+}
+
+/// Where `CliIdentifier::trusted` may be called, and with what.
+///
+/// The constructor skips validation, so it is only ever correct for a value this repository
+/// produced itself. Visibility already keeps it out of `commands/` -- it is scoped to the CLI
+/// context. This covers the half visibility cannot: a call *inside* that context that hands it a
+/// stored row, a DTO field, a PATH entry, or a package manager's stdout.
+///
+/// Each entry is (file suffix, exact argument text). Adding a call site means adding a line here
+/// and stating why the value cannot come from outside.
+const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
+    // Fixed source names owned by this repository, one per adapter.
+    ("infrastructure/npm_source.rs", "\"npm\""),
+    ("infrastructure/winget_source.rs", "\"winget\""),
+    ("infrastructure/vendor_source.rs", "\"vendor\""),
+    // A match over `CliSourceKind`'s own variants. Every arm is a literal in that file, so the
+    // argument cannot carry a stored row or a package manager's output no matter where the kind
+    // itself came from.
+    ("domain/source.rs", "self.as_str()"),
+    // Fallback literals. The dynamic value goes through the fallible `new` first; only the
+    // last-resort constant is trusted.
+    ("infrastructure/environment_discovery.rs", "\"i-unknown\""),
+    ("infrastructure/environment_serde.rs", "\"legacy\""),
+    // Generated in-process from an ASCII prefix, a counter, and a UUID. No caller supplies any
+    // part of it, and a fallback constant here would let two plans share an id.
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-plan\")",
+    ),
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-bulk\")",
+    ),
+];
+
+/// The text between `trusted(` and the paren that closes it.
+///
+/// Depth-aware because the argument may itself be a call -- `self.next("cli-plan")` -- and because
+/// the whole thing may sit inside another call, as it does in an `unwrap_or_else` fallback.
+fn trusted_argument(rest: &str) -> String {
+    let mut depth = 0_i32;
+    for (index, character) in rest.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' if depth == 0 => return rest[..index].trim().to_string(),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    rest.trim().to_string()
+}
+
+#[test]
+fn the_trusted_argument_scanner_stops_at_the_closing_paren() {
+    assert_eq!(trusted_argument("\"npm\")"), "\"npm\"");
+    // Nested call: the inner `)` is part of the argument.
+    assert_eq!(
+        trusted_argument("self.next(\"cli-plan\"))"),
+        "self.next(\"cli-plan\")"
+    );
+    // Wrapped in an outer call, as a fallback inside `unwrap_or_else` is.
+    assert_eq!(trusted_argument("\"legacy\"));"), "\"legacy\"");
+}
+
+/// The one file allowed to name the pre-change CLI table, and the one that creates it.
+///
+/// `cli_tool_status` survives so an upgrading install still sees its tools before the first
+/// refresh. It is read-only and it is *not* authoritative: a legacy row becomes a stale snapshot
+/// only when no real one exists. A second reader would put the old table back in the running as a
+/// source of truth, which is exactly how the Agent Runtime and the CLI Management page came to
+/// disagree about which installation a tool has.
+const LEGACY_CLI_TABLE_READERS: &[&str] = &[
+    "contexts/tooling/cli/infrastructure/environment_repository.rs",
+    "contexts/tooling/cli/infrastructure/environment_schema.rs",
+    "contexts/tooling/cli/infrastructure/environment_serde.rs",
+    // Creates the table and registers that migration. Neither is a read of a live row.
+    "platform/database/migrations/inline_schema.rs",
+    "platform/database/migrations/mod.rs",
+];
+
+#[test]
+fn the_legacy_cli_table_has_exactly_one_reader_and_no_writer() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    let mut writers = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // Tests seed a legacy row on purpose: proving the compatibility reader works means writing
+        // one first, and proving nothing else reads it means the assertion is about production.
+        if display.ends_with("_tests.rs") || display.ends_with("/tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            if !line.contains("cli_tool_status") {
+                continue;
+            }
+            // A comment naming the table is history, not a dependency on it.
+            let code = line.trim_start();
+            if code.starts_with("//") || code.starts_with("///") || code.starts_with("*") {
+                continue;
+            }
+            let allowed = LEGACY_CLI_TABLE_READERS
+                .iter()
+                .any(|suffix| display.ends_with(suffix));
+            if !allowed {
+                unexpected.push(format!("{display}:{}", index + 1));
+            }
+            let upper = line.to_ascii_uppercase();
+            if (upper.contains("INSERT INTO")
+                || upper.contains("UPDATE ")
+                || upper.contains("DELETE FROM"))
+                && !display.ends_with("inline_schema.rs")
+            {
+                writers.push(format!("{display}:{}", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "the legacy `cli_tool_status` table is read-only compatibility, not a second source of \
+         truth. These files reach for it outside the one reader that maps a leftover row to a \
+         stale snapshot: {}",
+        unexpected.join(", ")
+    );
+    assert!(
+        writers.is_empty(),
+        "nothing may write `cli_tool_status` after the cutover; a write would revive a model the \
+         CLI Management page does not read: {}",
+        writers.join(", ")
+    );
+}
+
+#[test]
+fn no_external_input_reaches_the_trusted_identifier_constructor() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // The definition itself and its own unit tests are not call sites.
+        if display.ends_with("domain/ids.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            let Some(position) = line.find("::trusted(") else {
+                continue;
+            };
+            let argument = trusted_argument(&line[position + "::trusted(".len()..]);
+            let allowed = TRUSTED_IDENTIFIER_CALL_SITES
+                .iter()
+                .any(|(suffix, expected)| display.ends_with(suffix) && argument == *expected);
+            if !allowed {
+                unexpected.push(format!("{display}:{}: `{argument}`", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "these `trusted` identifier constructions are not on the audited list. `trusted` skips \
+         validation, so a value that can be shaped by a DTO field, a SQLite column, a PATH entry, \
+         a package manager's output, or the network must use the fallible `new` instead: {}",
+        unexpected.join(", ")
+    );
+}
+
+#[test]
+fn command_adapters_cannot_construct_identifiers_without_validating_them() {
+    // Visibility is the real guard; this fails with a readable message rather than a privacy error
+    // if someone widens it.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("commands");
+    let files = rust_files(&root).expect("command sources");
+
+    let offenders: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            fs::read_to_string(file)
+                .map(|source| source.contains("::trusted("))
+                .unwrap_or(false)
+        })
+        .map(|file| file.display().to_string())
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "a command adapter builds an identifier without validating it. Everything a command \
+         receives came from outside the process: {}",
+        offenders.join(", ")
+    );
 }

@@ -1,76 +1,68 @@
 # CLI 生命周期与全局配置
 
-`tooling` 是最大的限界上下文，它的 Skill 与 MCP 子域各有专章（[Skill 管理](skill-management.md)、[MCP 工具与客户端](mcp-tools.md)）。本章讲另一半：**CLI 本身的检测、冲突判定、安装升级，以及把 provider 配置写进各 CLI 自己的配置文件**。
+`tooling` 是最大的限界上下文，其中 Skill 与 MCP 两个子域各有专章（[Skill 管理](skill-management.md)、[MCP 工具与客户端](mcp-tools.md)）。本章讲另一半：**发现 CLI 本身、解决冲突、生成并执行变更计划，以及把 provider 配置写进各 CLI 自己的配置文件**。
 
 ## 目录是编译期常量
 
-`CLI_TOOL_DEFINITIONS` 是一个 `[ToolDefinition; 5]` 常量数组，不是运行时可扩展的注册表：
+`CLI_TOOL_DEFINITIONS` 是 `&[CliToolDefinition]` 常量切片，不是运行期可扩展的注册表。每一项声明要查找的可执行文件名、这个 CLI 有哪些分发来源，以及可以对它跑哪些探测：
 
-| Agent | 可执行文件 | npm 包 | 安装脚本 |
-| --- | --- | --- | --- |
-| Claude Code | `claude` | `@anthropic-ai/claude-code` | shell |
-| Codex CLI | `codex` | `@openai/codex` | 无 |
-| Gemini CLI | `gemini` | `@google/gemini-cli` | 无 |
-| OpenCode | `opencode` | `opencode-ai` | shell |
-| Antigravity CLI | `agy` | **无** | shell + PowerShell |
-
-`package_name: Option<&str>` 的文档注释解释了为什么是 `Option`：
-
-> `None` for CLIs distributed only by installer script, which have no npm package to install, query for versions, or name in guidance.
-
-**Antigravity 的 `None` 会连锁影响三件事**：装不了、查不了版本、连提示文案里都不该提 npm。把它写成空字符串而不是 `None`，这三处都得各自判空。
-
-### 平台决定用哪个安装脚本
-
-`platform_installer()` 的注释点出了为什么 URL 不能单独存在：
-
-> Windows has no POSIX shell to run a `.sh` installer through, so a CLI that ships only a shell installer relies on its npm or winget package there.
-
-**解释器要跟着 URL 一起走**——`ScriptInstaller::Shell` 与 `PowerShell` 是带值的枚举，而不是一个裸 URL 加一个平台判断。把 `.sh` 脚本喂给 PowerShell 会当作乱码执行。
-
-## 冲突判定：三种冲突不是同一回事
-
-`derive_conflict_state` 在发现多份安装时逐级判定：
-
-```mermaid
-flowchart TB
-  N{"安装数 ≤ 1?"} -->|"是"| NONE["None"]
-  N -->|"否"| RB{"同时存在可运行与不可运行?"}
-  RB -->|"是"| RM["RunnableMismatch"]
-  RB -->|"否"| V{"版本号多于一种?"}
-  V -->|"是"| VM["VersionMismatch"]
-  V -->|"否"| M["Multiple"]
-```
-
-**顺序有讲究**：先判「可运行性不一致」再判版本，因为一份坏掉的安装比版本不同更要紧——版本不同至少都能跑，而 `RunnableMismatch` 意味着你以为在用的那份可能根本起不来。
-
-`InstallSource` 九种（`Npm`、`Winget`、`Desktop`、`Homebrew`、`Volta`、`Bun`、`Vendor`、`System`、`Unknown`）——**来源要分得这么细，是因为升级路径跟着来源走**。
-
-## 升级资格：只有 npm 装的才代升
-
-`derive_lifecycle_eligibility` 的判定：
-
-**未安装时**看目录能提供什么：有平台安装脚本 → `Wget`，否则有 npm 包 → `Npm`，都没有 → `Manual`。
-
-**已安装时**看**当前生效那份**的来源，三条匹配路径都要求 `runnable` 为真：
-
-| 当前生效那份的来源 | 且目录提供 | 资格 |
+| Agent | 可执行文件 | 分发来源 |
 | --- | --- | --- |
-| `InstallSource::Npm` | npm 包名 | `Npm` |
-| `InstallSource::Vendor` | 平台安装脚本 | `Wget` |
-| `InstallSource::Winget` | winget 包 id（目录里的，或从路径推出的） | `Winget` |
-| 其余任何情况 | —— | `Manual` |
-| 没有生效安装 | —— | `Unavailable` |
+| Claude Code | `claude` | npm `@anthropic-ai/claude-code`、WinGet `Anthropic.ClaudeCode`、官方安装器 |
+| Codex CLI | `codex` | npm `@openai/codex` |
+| Gemini CLI | `gemini` | npm `@google/gemini-cli` |
+| OpenCode | `opencode` | npm `opencode-ai`、官方安装器 |
+| Antigravity CLI | `agy` | 只有官方安装器 |
 
-**「当前生效那份」是关键限定**。装了三份、其中一份来自 npm，不代表能用 npm 升级——因为 `PATH` 命中的可能是 Homebrew 那份，而 Homebrew 不在上面三条路径里，资格就落到 `Manual`。用 npm 再装一份只会让冲突更严重，命令行里跑的还是旧的，表现为「升级没生效」。
+分发来源自带能力声明，所以「这个能不能降级」是定义上的数据，而不是散落在界面里的某个条件判断。npm 支持按精确版本执行全部动作；WinGet 支持安装、升级、卸载，降级与重装在各自单独验证之前刻意关闭；官方安装器只能装到最新，不钉版本。
 
-**升级方式必须跟着来源走**，所以 `classify_install_source` 按路径特征识别来源：`/microsoft/winget/packages/` 与 `/links/` → Winget，`/programs/openai/codex/` → Desktop，`/appdata/roaming/npm/`、`/.npm/`、`/node_modules/` 或存在 npm 同级文件 → Npm，`/homebrew/`、`/cellar/` → Homebrew，依此类推。
+## 两个身份，而不是一个「生效安装」
 
-界面上那句提示就是这条逻辑的投影：
+发现流程按真实顺序走一遍 `PATH`，再枚举一组有界的已知位置，绝不递归扫盘。它产出的是一组安装，而快照会点名其中两个：
 
-> 当前生效路径来自 {来源}，请使用该来源的更新方式；VaneHub 不会用 npm 新增另一份副本来冒充升级。
+- `path_selected_installation_id`——shell 真正会执行的那份，只由 `PATH` 顺序决定。
+- `recommended_installation_id`——后端会操作的那份，由探测结果决定。
 
-`VersionCheckStatus` 四态把「不支持」「没检测到」「查成功」「查失败」分开——**`NotDetected` 与 `Failed` 混为一谈会让「没装」和「装了但坏了」变成同一件事**，而这两者的处理方式完全相反。
+它们是两个字段，因为它们回答的是两个问题。把两者合成一个，正是 `PATH` 中靠前的坏启动器能藏起来的原因：页面报告的是健康那份，终端跑的是坏那份。
+
+启动路径遵循同一套划分。`CliApi::resolve_executable` 读这份快照、跟随推荐安装，返回的要么是**绝对路径要么是空**——裸命令名会在子进程里重新走一遍 `PATH` 解析，而 `PATH` 恰恰是争议本身。
+
+## 冲突是结构化的值
+
+`derive_conflicts` 产出零到多个 `CliConflict`，每条都带类型、严重程度、涉及的安装、`blocks_mutation`、`blocks_launch`，以及一个由前端本地化的稳定 `reason_code`。共九种类型：
+
+`duplicate-launcher-alias`、`path-shadowing`、`broken-path-precedence`、`multiple-installation-sources`、`version-divergence`、`ambiguous-source-ownership`、`environment-path-divergence`、`architecture-mismatch`、`stale-launcher-target`。
+
+比这份清单更重要的是两条性质：
+
+- **`blocks_mutation` 与 `blocks_launch` 由后端判定**。界面若从类型自行推导，只要某个类型的严重程度变一次，两边就会各说各话。
+- **先折叠启动器家族**。Windows 上一次 npm 全局安装会并排写下 `tool`、`tool.cmd`、`tool.ps1`；不折叠的话，一份安装会被报告成三份互相竞争的安装。
+
+## 来源决定能力，能力绝不从名字猜
+
+`CliSourceKind` 说明这一份是从哪来的：`Npm`、`Winget`、`VendorInstaller`、`Homebrew`、`Bun`、`Volta`、`Desktop`、`System`、`Manual`、`Unknown`。`CliSourceManagement` 说明 VaneHub 能拿它怎么办——前三个是 `managed`，其余是 `detect-only`。
+
+**「仅检测」说的是 VaneHub 的能力，绝不是这份安装的健康状况。** 一个由 Homebrew 装好、跑得正常的 CLI，同时是健康的和仅检测的。每种仅检测的来源都带一个 `guidance_code`，点名真正拥有它的工具，于是「为什么没有升级按钮」的答案是「请执行 `brew upgrade`」，而不是「不支持」。
+
+版本目录按来源区分。一份 WinGet 安装的更新状态来自 WinGet 自己的目录；借用 npm 的目录正是这套模型要消除的缺陷。
+
+`CliSourceConfidence` 把 `unknown`、`inferred`、`verified` 分开。路径启发式得出的是 *inferred*——足以提供一个操作，不足以宣称归属。
+
+## 操作计划就是契约
+
+没有计划就不会有任何改动。`prepare_cli_action` 接收用户选的东西——agent、来源、目标版本、通道——返回一个操作 ID；它产出的计划带着后端推导出的动作、精确的版本变化、**结构化的 `argv` 预览**、前置条件、注意事项、提权与网络需求，以及一个过期时间。
+
+`execute_cli_action` **只接收计划 ID 和用户看到的那个版本号**。这次调用上没有任何参数能重建出一条命令，这才让「复核的版本就是执行的版本」成为结构性质而非约定。计划一次性使用、有效期十分钟、绑定环境指纹；过期、复用、版本号不匹配、环境已变，是四种不同的拒绝，对应四个稳定的类别。
+
+方向只在一个地方推导。`action: null` 表示「把这个工具挪到所选版本」，由后端判断这是安装、升级还是降级——整个产品里只有一条版本比较路径 `NormalizedCliVersion`，而解析不了的版本保持*不透明*，绝不靠猜。
+
+**没有回退。** 官方安装器失败不会悄悄变成一次 npm 安装，而且每份计划都会把这一点写在脸上。
+
+## 外部副作用发生之后
+
+包管理器没法靠写回一条旧记录撤销，所以结果词汇区分五种终态：`verified`、`applied-unverified`、`changed-but-failed`、`no-change-failed`、`cancelled`。
+
+`changed-but-failed` 是让其余几种成立的那一个。当命令失败但事后检测观察到机器已经变了，诚实的汇报是「发生了一些事，而且不是被要求的那件事」。**绝不把操作前的快照恢复回去当成回滚**；而当检测本身失败时，上次已知的值会被保留、标记为过期，并附上警告。
 
 ## 全局配置：改写各 CLI 自己的文件
 
@@ -83,9 +75,13 @@ flowchart TB
 - **切换配置前先回填**。离开某份配置时，把当前生效文件里的纳管字段读回写进那份配置——否则你在文件里的手工微调会被静默丢弃。
 - **漂移只报告不覆盖**。应用后给纳管片段留指纹；文件被外部改动时报告漂移，应用过程中检测到并发改写则中止写入。
 
-凭据按 Agent/配置分账存在操作系统凭据服务里，不落 SQLite；只有显式「应用」时才把明文写进那个 CLI 要求明文的文件。
+凭据按 Agent/配置分账存在操作系统凭据服务里，不落 SQLite；只有显式「应用」时才把明文写进那个 CLI 要求明文的文件。**VaneHub 自己从不捕获任何服务商凭据**：登录属于厂商自己的 CLI，登录探测里读出来的只有一个规范化的结论。
 
 **应用成功后运行中的 CLI 进程不会自动重启**——不声称热重载。
+
+## 与旧模型的兼容
+
+旧模型留下的 `cli_tool_status` 表仍然会被创建、仍然可读，好让升级上来的安装在第一次刷新之前也能看到自己的工具。它**只读，且永不权威**：只有在不存在真实快照时，遗留行才会被映射成一份*过期*快照；没有任何地方写它；一旦出现第二个读取方或任何写入方，架构测试就会让构建失败。
 
 ## 与其他上下文的关系
 

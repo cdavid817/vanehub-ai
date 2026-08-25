@@ -316,7 +316,18 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (81, 82));
+    // The fixture is built one migration short of the full history, so the count trails the list
+    // by one while the maximum version matches it. Both are derived, because hardcoding either
+    // makes every future migration fail this test for an unrelated reason.
+    let full_history = super::expected_migration_versions();
+    let latest = *full_history.last().expect("at least one migration");
+    assert_eq!(
+        migration_state,
+        (
+            i64::try_from(full_history.len()).expect("count fits") - 1,
+            latest
+        )
+    );
 
     migrate(&connection).expect("upgrade migration");
 
@@ -618,6 +629,42 @@ fn session_seat_migration_adds_the_column_and_leaves_existing_rows_readable() {
 /// those (version, name) rows — this guards against both drift in the constant and a
 /// silent version-number collision (the second migration claiming a number is skipped, so
 /// the recorded name would be the first's, not the expected one).
+#[test]
+fn migration_versions_are_unique_and_dense() {
+    // A duplicate number is the failure mode this guards. `apply_migration` is version-gated, so
+    // the *second* claimant is silently skipped -- its table is simply never created, and the
+    // symptom arrives much later as an opaque "no such table" at runtime. Two branches each adding
+    // "the next migration" is all it takes, and every worktree here shares one database file.
+    let versions = expected_migration_versions();
+
+    let mut sorted = versions.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        versions.len(),
+        "two migrations claim the same version; the second would never run"
+    );
+
+    assert_eq!(
+        versions, sorted,
+        "EXPECTED_MIGRATIONS is not in ascending order"
+    );
+    for (index, version) in versions.iter().enumerate() {
+        let expected = i64::try_from(index).expect("index fits") + 1;
+        assert_eq!(
+            *version, expected,
+            "migration history has a gap at position {index}"
+        );
+    }
+
+    let mut names: Vec<&str> = EXPECTED_MIGRATIONS.iter().map(|(_, name)| *name).collect();
+    let total = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), total, "two migrations share a name");
+}
+
 #[test]
 fn migration_sequence_matches_expected() {
     let connection = Connection::open_in_memory().expect("database");
@@ -1053,12 +1100,18 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
     let connection = Connection::open_in_memory().expect("in-memory database");
     migrate(&connection).expect("current schema");
 
-    // Rewind to the state a build from `main` leaves behind: 81 applied, 82 never seen.
+    // Rewind to the state a build from `main` leaves behind: 81 applied, nothing after it seen.
+    // Everything above 81 goes, not just 82: this branch adds the source-aware CLI environment
+    // tables at 83-85, and leaving those rows behind would rewind the history into a gap rather
+    // than to a real earlier state.
     connection
         .execute_batch(
             r#"
-            DELETE FROM schema_migrations WHERE version = 82;
+            DELETE FROM schema_migrations WHERE version >= 82;
             DROP TABLE local_media_profiles;
+            DROP TABLE cli_action_plans;
+            DROP TABLE cli_version_catalogs;
+            DROP TABLE cli_environment_snapshots;
             "#,
         )
         .expect("pre-82 fixture");
@@ -1080,7 +1133,17 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("upgraded state");
-    assert_eq!(after, (82, 82));
+    // Derived: the upgrade replays everything above 81, and hardcoding the total makes every
+    // future migration fail this test for a reason that has nothing to do with the renumber.
+    let history = super::expected_migration_versions();
+    assert_eq!(
+        after,
+        (
+            i64::try_from(history.len()).expect("count fits"),
+            *history.last().expect("at least one migration")
+        )
+    );
+    // The point of the renumber: local-media took 82, and did not displace 81.
     assert_eq!(
         connection
             .query_row(
@@ -1113,7 +1176,7 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
             row.get(0)
         })
         .expect("repeat count");
-    assert_eq!(repeated, 82);
+    assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
 }
 
 /// The other side of the same collision -- the side a renumber is most likely to forget.
@@ -1133,9 +1196,12 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
     connection
         .execute_batch(
             r#"
-            DELETE FROM schema_migrations WHERE version = 82;
+            DELETE FROM schema_migrations WHERE version >= 82;
             UPDATE schema_migrations SET name = 'local-media-profiles' WHERE version = 81;
             DROP TABLE cli_parameter_profiles;
+            DROP TABLE cli_action_plans;
+            DROP TABLE cli_version_catalogs;
+            DROP TABLE cli_environment_snapshots;
             "#,
         )
         .expect("pre-merge fixture");
@@ -1165,7 +1231,14 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("upgraded state");
-    assert_eq!(state, (82, 82));
+    let history = super::expected_migration_versions();
+    assert_eq!(
+        state,
+        (
+            i64::try_from(history.len()).expect("count fits"),
+            *history.last().expect("at least one migration")
+        )
+    );
 
     // Idempotent: a second start neither repeats the repair destructively nor records anything.
     migrate(&connection).expect("second start");
@@ -1181,7 +1254,7 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
             row.get(0)
         })
         .expect("repeat count");
-    assert_eq!(repeated, 82);
+    assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
 }
 
 fn table_count(connection: &Connection, table: &str) -> i64 {

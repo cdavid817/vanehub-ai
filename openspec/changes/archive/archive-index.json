@@ -3331,6 +3331,25 @@
         "native-runtime-architecture",
         "onepiece-ocr-tool"
       ]
+    },
+    {
+      "archivedOn": "2026-08-25",
+      "changeName": "add-source-aware-cli-environment-management",
+      "path": "openspec/changes/archive/2026-08-25-add-source-aware-cli-environment-management/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-environment-management",
+        "contract-and-task-foundation",
+        "desktop-runtime-verification",
+        "frontend-runtime-architecture",
+        "native-runtime-architecture",
+        "settings-center-ui",
+        "unified-log-management"
+      ]
     }
   ]
 }

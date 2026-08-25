@@ -48,6 +48,28 @@ function isFailedTest(result) {
   return !result.passed && result.skipped !== true;
 }
 
+/**
+ * The isolated OS home the orchestrator created for this run, mapped onto the real variable names
+ * for the application under test.
+ *
+ * `run-context.mjs` passes these under `VANEHUB_DESKTOP_*` precisely so they do not apply to this
+ * process; it owns the run root and has already validated that it does not alias real application
+ * data. Absent when wdio was invoked directly rather than through `test-desktop.mjs`, which keeps
+ * a bare `wdio run` working against the developer's own profile.
+ */
+function homeEnvironment() {
+  const home = process.env.VANEHUB_DESKTOP_HOME;
+  if (!home) return {};
+  return {
+    // Both names for one directory: `HOME` is what POSIX APIs read and `USERPROFILE` is what
+    // Windows APIs read, so setting both keeps one environment shape across the three runners.
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: process.env.VANEHUB_DESKTOP_APPDATA,
+    LOCALAPPDATA: process.env.VANEHUB_DESKTOP_LOCALAPPDATA,
+  };
+}
+
 function proxyEnvironment() {
   const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy;
   if (!proxy?.startsWith("http")) return {};
@@ -123,6 +145,10 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
         VANEHUB_CLI_CONFIG_HOME: process.env.VANEHUB_CLI_CONFIG_HOME,
         VANEHUB_TEST_RUN_ID: process.env.VANEHUB_TEST_RUN_ID,
         VANEHUB_DESKTOP_RESULT_DIR: resultDir,
+        // The run context's isolated OS home, so anything the application resolves through the
+        // platform home lands inside the run root instead of the developer's profile. A layer that
+        // owns a fixture home -- CLI management -- overrides these below.
+        ...homeEnvironment(),
         ...proxyEnvironment(),
         ...environment,
       },

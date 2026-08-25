@@ -149,6 +149,10 @@ pub(super) fn started_operation_to_dto(operation: &StartedOperation) -> Operatio
         error: None,
         created_at: operation.created_at.clone(),
         updated_at: operation.updated_at.clone(),
+        phase: None,
+        completed_units: None,
+        total_units: None,
+        cancellable: None,
     }
 }
 

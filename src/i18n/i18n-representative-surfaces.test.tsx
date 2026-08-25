@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MessageItem } from "../components/chat/MessageItem";
 import { NotificationCenter } from "../notifications/notification-center";
 import { NotificationProvider } from "../notifications/notification-provider";
-import { CliConflictDialog } from "../settings/pages/cli-conflict-dialog";
-import type { CliToolStatus } from "../types/agent";
+import { CliEnvironmentCard } from "../settings/pages/cli-management/cli-environment-card";
+import type { CliEnvironmentSnapshot } from "../types/cli-environment-snapshot";
 import type { ChatMessage } from "../types/chat";
 import { activateAppLanguage } from ".";
 import { loadLocaleResource, supportedLocales } from "./supported-locales";
@@ -31,35 +31,51 @@ const message: ChatMessage = {
   executionRunId: null,
 };
 
-const cliTool: CliToolStatus = {
+const cliSnapshot: CliEnvironmentSnapshot = {
+  schemaVersion: 1,
   agentId: "codex-cli",
   displayName: "OpenAI Codex CLI",
   provider: "OpenAI",
-  executableName: "codex",
-  packageName: "@openai/codex",
-  installed: true,
-  currentVersion: "1.2.0",
-  latestVersion: "1.3.0",
-  availableVersions: ["1.3.0", "1.2.0"],
-  detectedPath: "C:\\Users\\dev\\codex.cmd",
-  installCommand: "npm install -g @openai/codex@latest",
-  lastCheckedAt: "2026-07-17T08:30:00.000Z",
-  lastError: null,
-  lastOperationId: null,
-  versionCheckStatus: "succeeded",
-  environmentType: "windows",
+  executableNames: ["codex"],
+  scope: "local-desktop",
+  overallState: "conflict",
+  freshness: "fresh",
+  environmentFingerprint: "fingerprint-a",
   installations: [{
-    path: "C:\\Users\\dev\\codex.cmd",
-    version: "1.2.0",
-    runnable: true,
-    error: null,
-    source: "npm",
-    environmentType: "windows",
-    isActive: true,
+    id: "codex",
+    executablePath: "/mock/bin/codex",
+    canonicalPath: null,
+    aliasPaths: [],
+    targetMissing: false,
+    reportedVersion: "1.2.0",
+    sourceId: "npm",
+    sourceKind: "npm",
+    sourceConfidence: "inferred",
+    pathPriority: 0,
+    environmentOrigin: "path",
+    executableStatus: "healthy",
   }],
-  activeInstallationPath: "C:\\Users\\dev\\codex.cmd",
-  conflictState: "multiple",
-  lifecycleEligibility: "npm",
+  pathSelectedInstallationId: "codex",
+  recommendedInstallationId: "codex",
+  discovery: "found-one",
+  executable: "healthy",
+  authentication: "unknown",
+  readiness: "unknown",
+  compatibility: "unknown",
+  update: "available",
+  conflicts: [{
+    kind: "path-shadowing",
+    severity: "blocking",
+    installationIds: ["codex"],
+    blocksMutation: true,
+    blocksLaunch: false,
+    reasonCode: "path-shadowing",
+  }],
+  sources: [],
+  allowedActions: [],
+  lastMutation: null,
+  lastOperationId: null,
+  checkedAt: "2026-07-17T08:30:00.000Z",
 };
 
 function RepresentativeSurfaces() {
@@ -71,7 +87,19 @@ function RepresentativeSurfaces() {
       <NotificationProvider>
         <NotificationCenter />
       </NotificationProvider>
-      <CliConflictDialog onCancel={() => undefined} onConfirm={() => undefined} tool={cliTool} />
+      <CliEnvironmentCard
+        detailsOpen={false}
+        detailsPanelId="cli-details"
+        mutating={false}
+        refreshing={false}
+        selectedVersion=""
+        snapshot={cliSnapshot}
+        onCancelOperation={() => undefined}
+        onOpenDetails={() => undefined}
+        onRefresh={() => undefined}
+        onRequestChange={() => undefined}
+        onSelectedVersionChange={() => undefined}
+      />
     </main>
   );
 }
@@ -97,9 +125,11 @@ describe("representative localized surfaces", () => {
       expect(screen.getByText(resource["notifications.empty"])).toBeTruthy();
       expect(screen.getByText(resource["notifications.emptyDescription"])).toBeTruthy();
 
-      const conflictTitle = resource["cli.confirm.title"].replace("{{name}}", cliTool.displayName);
-      expect(screen.getByRole("dialog", { name: conflictTitle })).toBeTruthy();
-      expect(screen.getByRole("button", { name: resource["cli.confirm.continue"] })).toBeTruthy();
+      // A blocking conflict is explained from its localized code, not from a parsed message.
+      expect(screen.getByText(resource["cli.conflict.path-shadowing"])).toBeTruthy();
+      expect(screen.getByRole("button", {
+        name: resource["cli.refreshOne"].replace("{{name}}", cliSnapshot.displayName),
+      })).toBeTruthy();
       expect(document.documentElement.lang).toBe(locale.id);
       expect(document.documentElement.dir).toBe(locale.direction);
     });

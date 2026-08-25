@@ -71,19 +71,19 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 另有 51 行是 v1 浏览器存储的一次性迁移:v1 用 `"default"` 与 `false` 两个哨兵表示"未设置",
 // 但定义里真有 `default` 选项或本身是 tri-state 时它们都不是哨兵,所以转换必须按定义而不是按字符串
 // 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
-// 合并 `origin/main` 后重新实测:两侧各自在自己的分支上报了上限(19656 / 19727),但它们改的是
-// 不同文件,合并树的真实总数既不是两者之一,也不是两者之和。下面这个数字是对合并后的
-// `src/services` 直接测量得到的,不含任何余量。
-// 上面那条"旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉、随 task 10.4 一起下线"的说明
-// 已随合并作废:`c37caa4a` 把该文件删了,预留的余量也已不在这个数字里。
+// 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
+// 一起下线,届时这条上限应当回落。
+// 上调理由(add-source-aware-cli-environment-management):CLI 环境边界从 3 个方法变成 9 个,
+// 因为"准备计划"和"执行计划"必须是两次调用——执行只收计划 ID 与版本号,这样"复核过的版本就是
+// 实际执行的版本"是结构上成立的,而不是靠约定。9 个方法在 Tauri 与 Web/mock 两侧各实现一份,
+// 是这条边界的固定开销。同一轮里 `web-cli-tool-client.ts`(183 行)整个删掉,mock 快照数据
+// (185 行)搬进 JSON,没有保留任何旧路径,也没有复制既有分支。
+// 与 upgrade-cli-parameter-management 合并后按合并树实测重取,不是两侧上限相加:那一侧删掉的
+// `cli-parameter-catalog.ts` 抵掉了这一侧的一部分。
+// 合并 origin/main(local-media)后按合并树重测:两侧各自在自己的基线上报了上限(19803 / 19960),
+// 改的是不同文件,合并树的真实总数既不是两者之一也不是两者之和。下面这个数字是直接测量得到的。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  // +2 in the Web/mock adapter, one line each: the OCR profile's `cpuAcceleration` default and the
-  // status's empty `pathClassifications`. Both have to exist there, or the mock stops satisfying
-  // the native contract it mirrors.
-  // +16 on merging `origin/main`, which is `main`'s own growth in this subtree arriving here rather
-  // than anything this branch added. Measured on the merged tree; neither side's figure describes
-  // it, and the two are not additive because they were taken against different bases.
-  { root: "src/services", budget: 19960, owner: "add-local-composer-media-tools" },
+  { root: "src/services", budget: 20243, owner: "add-source-aware-cli-environment-management" },
 ]);
 
 const STATE_PACKAGES = new Set([

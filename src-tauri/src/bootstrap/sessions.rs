@@ -17,7 +17,7 @@ use crate::contexts::sessions::infrastructure::{
     SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
 };
 use crate::contexts::tooling::api::CliParameterRuntimeApi;
-use crate::contexts::tooling::cli::application::NativeConfigPort;
+use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;

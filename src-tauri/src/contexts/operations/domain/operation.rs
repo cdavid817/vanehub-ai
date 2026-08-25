@@ -9,6 +9,7 @@ pub enum OperationKind {
     Agent,
     Workspace,
     Extension,
+    Cli,
     /// Local OCR, transcription, synthesis, and engine probes. The finer distinction between them
     /// is `local_media`'s own `local-media.*` kind, which travels in the operation message key
     /// rather than here: this enum is the coarse routing category every generic operation consumer
@@ -65,6 +66,37 @@ pub struct OperationLogEntry {
     pub timestamp: String,
 }
 
+/// A partial progress report. Every field is optional so a caller can move one dimension without
+/// clearing the others -- see `OperationTask::report_progress`.
+///
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OperationProgress {
+    pub phase: Option<String>,
+    pub completed_units: Option<u32>,
+    pub total_units: Option<u32>,
+    pub cancellable: Option<bool>,
+}
+
+impl OperationProgress {
+    pub(crate) fn phase(phase: impl Into<String>) -> Self {
+        Self {
+            phase: Some(phase.into()),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn with_cancellable(mut self, cancellable: bool) -> Self {
+        self.cancellable = Some(cancellable);
+        self
+    }
+
+    pub(crate) fn with_units(mut self, completed: u32, total: u32) -> Self {
+        self.completed_units = Some(completed);
+        self.total_units = Some(total);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationTask {
@@ -82,6 +114,19 @@ pub struct OperationTask {
     pub error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Descriptive stage of a long-running operation. `status` stays authoritative -- a phase is
+    /// for the user reading progress, never for a caller deciding whether work finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_units: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_units: Option<u32>,
+    /// Whether cancellation can be requested *now*. Absent means the operation never declared one
+    /// way or the other; it does not mean cancelling would undo an external effect that already
+    /// happened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancellable: Option<bool>,
 }
 
 impl OperationTask {
@@ -105,7 +150,29 @@ impl OperationTask {
             error: None,
             created_at: now.clone(),
             updated_at: now,
+            phase: None,
+            completed_units: None,
+            total_units: None,
+            cancellable: None,
         }
+    }
+
+    /// Records descriptive progress. Only the supplied fields move: a caller reporting a phase
+    /// change must not have to restate unit counts it does not own, and vice versa.
+    pub(crate) fn report_progress(&mut self, progress: OperationProgress, updated_at: String) {
+        if let Some(phase) = progress.phase {
+            self.phase = Some(phase);
+        }
+        if let Some(completed) = progress.completed_units {
+            self.completed_units = Some(completed);
+        }
+        if let Some(total) = progress.total_units {
+            self.total_units = Some(total);
+        }
+        if let Some(cancellable) = progress.cancellable {
+            self.cancellable = Some(cancellable);
+        }
+        self.updated_at = updated_at;
     }
 
     pub(crate) fn correlate_execution(&mut self, run_id: String, trace_id: String) {
@@ -207,6 +274,103 @@ mod tests {
         assert_eq!(operation.status, OperationStatus::Cancelled);
         assert_eq!(operation.updated_at, "301");
         assert!(operation.error.is_none());
+    }
+
+    #[test]
+    fn cli_is_a_serialized_operation_kind() {
+        assert_eq!(
+            serde_json::to_value(OperationKind::Cli).expect("serialize"),
+            serde_json::json!("cli")
+        );
+        // The five existing kinds keep their wire values: a rename here silently breaks every
+        // frontend consumer that switches on `kind`.
+        for (kind, wire) in [
+            (OperationKind::Sdk, "sdk"),
+            (OperationKind::Mcp, "mcp"),
+            (OperationKind::Agent, "agent"),
+            (OperationKind::Workspace, "workspace"),
+            (OperationKind::Extension, "extension"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(kind).expect("serialize"),
+                serde_json::json!(wire)
+            );
+        }
+    }
+
+    #[test]
+    fn operations_without_progress_omit_the_optional_fields_entirely() {
+        let operation = OperationTask::start(
+            "op-fixed-5".to_string(),
+            OperationKind::Sdk,
+            None,
+            None,
+            "500".to_string(),
+        );
+
+        let json = serde_json::to_value(&operation).expect("serialize");
+        let object = json.as_object().expect("object");
+        // Absent rather than null: an existing non-CLI consumer must see the exact payload it saw
+        // before these fields existed.
+        for field in ["phase", "completedUnits", "totalUnits", "cancellable"] {
+            assert!(!object.contains_key(field), "{field} must be omitted");
+        }
+    }
+
+    #[test]
+    fn a_payload_written_before_progress_existed_still_deserializes() {
+        let legacy = serde_json::json!({
+            "id": "op-legacy",
+            "kind": "sdk",
+            "status": "running",
+            "relatedEntityId": null,
+            "message": null,
+            "logs": [],
+            "result": null,
+            "error": null,
+            "createdAt": "600",
+            "updatedAt": "600"
+        });
+
+        let operation: OperationTask = serde_json::from_value(legacy).expect("deserialize");
+
+        assert_eq!(operation.phase, None);
+        assert_eq!(operation.completed_units, None);
+        assert_eq!(operation.total_units, None);
+        assert_eq!(operation.cancellable, None);
+        assert_eq!(operation.status, OperationStatus::Running);
+    }
+
+    #[test]
+    fn progress_reports_move_only_the_dimensions_they_carry() {
+        let mut operation = OperationTask::start(
+            "op-fixed-6".to_string(),
+            OperationKind::Cli,
+            Some("claude-code".to_string()),
+            None,
+            "700".to_string(),
+        );
+
+        operation.report_progress(
+            OperationProgress::phase("querying-catalog").with_cancellable(true),
+            "701".to_string(),
+        );
+        assert_eq!(operation.phase.as_deref(), Some("querying-catalog"));
+        assert_eq!(operation.cancellable, Some(true));
+
+        // A later report that only carries units must not erase the phase the previous one set.
+        operation.report_progress(
+            OperationProgress::default().with_units(1, 3),
+            "702".to_string(),
+        );
+        assert_eq!(operation.phase.as_deref(), Some("querying-catalog"));
+        assert_eq!(operation.cancellable, Some(true));
+        assert_eq!(operation.completed_units, Some(1));
+        assert_eq!(operation.total_units, Some(3));
+
+        // Status stays authoritative; a phase is descriptive only.
+        assert_eq!(operation.status, OperationStatus::Running);
+        assert_eq!(operation.updated_at, "702");
     }
 
     #[test]

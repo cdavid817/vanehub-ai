@@ -12,8 +12,6 @@ import type {
   AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
-  CliPackageOperationInput,
-  CliToolStatus,
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
   DiscoverOnePieceProviderModelsInput,
@@ -55,6 +53,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
+import { tauriCliEnvironmentClient } from "./tauri-cli-environment-client";
 import type {
   CliParameterPreview,
   CliParameterProfile,
@@ -521,26 +520,6 @@ export const tauriAgentClient: AgentService = {
     return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
   },
 
-  listCliTools() {
-    return invoke<CliToolStatus[]>("list_cli_tools");
-  },
-
-  refreshCliDetections(agentId) {
-    return invoke<OperationTask>("refresh_cli_detections", { agentId: agentId ?? null });
-  },
-
-  installCliVersion(input: CliPackageOperationInput) {
-    return invoke<OperationTask>("install_cli_version", {
-      agentId: input.agentId,
-      targetVersion: input.targetVersion,
-      confirmedActivePath: input.confirmedActivePath ?? null,
-    });
-  },
-
-  upgradeAllCliVersions() {
-    return invoke<OperationTask>("upgrade_all_cli_versions");
-  },
-
   listCliParameterProfiles() {
     return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
   },
@@ -961,6 +940,7 @@ export const tauriAgentClient: AgentService = {
     return unlisten;
   },
 
+  ...tauriCliEnvironmentClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {

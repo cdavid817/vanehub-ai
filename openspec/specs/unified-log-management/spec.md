@@ -30,19 +30,30 @@ The system SHALL allow users to open the active log directory in the desktop run
 - **THEN** the system SHALL expose a mock log path and indicate that opening the local log directory is unavailable
 
 ### Requirement: Unified operation log persistence
+
 The system SHALL persist SDK and CLI operation logs through the unified logging service.
 
 #### Scenario: Persist SDK operation output
+
 - **WHEN** an SDK install, update, rollback, or uninstall operation emits output
 - **THEN** the native runtime SHALL write the operation output to the active log directory with SDK operation context
 
 #### Scenario: Persist CLI operation output
-- **WHEN** a CLI detection, install, upgrade, or downgrade operation emits output
-- **THEN** the native runtime SHALL write the operation output to the active log directory with CLI operation context
+
+- **WHEN** a CLI discovery, source-catalog, action-planning, Doctor, install, upgrade, downgrade, reinstall, uninstall, repair, cancellation, or verification operation emits output
+- **THEN** the native runtime SHALL write bounded redacted output with operation id, Agent id, source, action, phase, and terminal outcome context
 
 #### Scenario: Preserve existing operation UI logs
+
 - **WHEN** an SDK or CLI operation emits output
-- **THEN** the existing settings page operation log display SHALL remain available through the frontend service boundary
+- **THEN** the settings page operation log display SHALL remain available through the frontend service boundary
+- **AND** the frontend view SHALL receive only the bounded redacted representation
+
+#### Scenario: CLI output exceeds its budget
+
+- **WHEN** retained CLI output reaches the configured operation budget
+- **THEN** the system SHALL write one truncation marker and retain no additional output beyond the budget
+- **AND** it SHALL continue safe process draining or termination without deadlock
 
 ### Requirement: Sensitive information redaction
 The unified logging service SHALL redact sensitive information before writing log entries to disk.
@@ -394,3 +405,33 @@ Runner preparation, spawn, disconnect, reconnect, cancel, inspect, cleanup, reso
 #### Scenario: Provider fails on a healthy Runner
 - **WHEN** a provider error occurs while Runner transport remains healthy
 - **THEN** correlated diagnostics retain separate provider and Runner fields without duplicating raw output
+
+### Requirement: CLI log redaction before UI and disk
+
+CLI process output SHALL be redacted before it is placed in observable operation state, returned to the frontend, or persisted to disk.
+
+#### Scenario: Sensitive provider or package-manager output
+
+- **WHEN** CLI output contains password-like values, tokens, API keys, bearer values, cookies, OAuth codes, secret-like environment values, or provider credential patterns
+- **THEN** every retained representation SHALL replace the sensitive value with a redacted marker
+
+#### Scenario: Raw output is received by an adapter
+
+- **WHEN** a source or probe adapter receives raw stdout or stderr
+- **THEN** raw content SHALL not be written directly to SQLite, an operation DTO, or a log file
+
+### Requirement: CLI lifecycle audit context
+
+The unified log SHALL retain safe structured context sufficient to diagnose lifecycle decisions without persisting command secrets or installer bodies.
+
+#### Scenario: Action plan is prepared
+
+- **WHEN** a CLI plan is successfully prepared or rejected
+- **THEN** the log MAY contain operation id, plan id, Agent id, source id, action, safe version, preflight reason, and elapsed time
+- **AND** it SHALL omit raw script bodies, credentials, headers, cookies, and secret-bearing environment values
+
+#### Scenario: Action execution terminates
+
+- **WHEN** a CLI mutation succeeds, partially completes, fails, times out, or is cancelled
+- **THEN** the log SHALL contain the normalized outcome, phase, safe exit/timeout/cancel metadata, and diagnostic correlation
+- **AND** it SHALL not claim rollback unless a source adapter actually performed and verified one
