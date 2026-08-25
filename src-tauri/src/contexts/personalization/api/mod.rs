@@ -7,6 +7,8 @@
 
 #[cfg(test)]
 mod compatibility_tests;
+#[cfg(test)]
+mod onepiece_resolution_tests;
 
 use std::sync::Arc;
 

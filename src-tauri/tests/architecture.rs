@@ -2440,9 +2440,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `memory_actions.rs` where the applier became a translator, -15 `tests.rs`, and -13 across
     // `compaction.rs`, `execution.rs` and the two `mod.rs` files that stopped threading a memory
     // port the OnePiece runtime no longer has any use for.
+    //
+    // Raised again to 61,601 by the same change's OnePiece integration pass. +87, all of it
+    // `tests.rs`: a `ScriptedSnapshots` that refuses a whole batch, and the test that pins what
+    // happens when the review queue cannot take what extraction produced — the compaction it hung
+    // off stays done, the turns stay replaced, the generation is unaffected, and what is logged
+    // says the batch could not be queued without saying what was in it.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_514,
+        budget: 61_601,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

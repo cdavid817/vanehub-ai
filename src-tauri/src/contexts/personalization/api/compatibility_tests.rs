@@ -67,18 +67,18 @@ impl RetrievalIndexPort for FakeRetrievalIndex {
     }
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     /// `None` for a reopened stack: the original still owns the directory, and a second owner
     /// would delete it out from under the test when the first one dropped.
     _directory: Option<TempDir>,
-    directory_path: std::path::PathBuf,
-    api: PersonalizationApi,
-    service: Arc<MemoryApplicationService>,
+    pub(super) directory_path: std::path::PathBuf,
+    pub(super) api: PersonalizationApi,
+    pub(super) service: Arc<MemoryApplicationService>,
     aliases: Arc<SqliteLegacyAddressAlias>,
     migration_state: Arc<SqliteMigrationState>,
 }
 
-fn fixture(label: &str) -> Fixture {
+pub(super) fn fixture(label: &str) -> Fixture {
     let directory =
         TempDir::with_prefix(format!("personalization-compat-{label}-")).expect("temporary dir");
     let path = directory.path().to_path_buf();
@@ -104,7 +104,7 @@ fn reopen(directory_path: std::path::PathBuf, keep: Option<TempDir>) -> Fixture 
     }
 }
 
-fn mark_ready(fixture: &Fixture) {
+pub(super) fn mark_ready(fixture: &Fixture) {
     fixture
         .migration_state
         .save(&MigrationState {
@@ -119,7 +119,7 @@ fn mark_ready(fixture: &Fixture) {
         .expect("mark migration complete");
 }
 
-fn seed(
+pub(super) fn seed(
     fixture: &Fixture,
     name: &str,
     scope: MemoryScope,

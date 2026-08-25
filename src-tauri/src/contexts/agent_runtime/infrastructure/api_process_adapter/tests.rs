@@ -6005,6 +6005,8 @@ struct ScriptedSnapshots {
     calls: AtomicUsize,
     body_requests: Mutex<Vec<Vec<AgentMemoryRef>>>,
     proposed: Mutex<Vec<Vec<AgentMemoryProposal>>>,
+    /// Makes the review queue refuse the whole batch, standing in for a locked candidate table.
+    refuse_proposals: bool,
 }
 
 impl ScriptedSnapshots {
@@ -6015,6 +6017,14 @@ impl ScriptedSnapshots {
             calls: AtomicUsize::new(0),
             body_requests: Mutex::new(Vec::new()),
             proposed: Mutex::new(Vec::new()),
+            refuse_proposals: false,
+        }
+    }
+
+    fn refusing(snapshot: AgentPersonalizationSnapshot) -> Self {
+        Self {
+            refuse_proposals: true,
+            ..Self::new(snapshot)
         }
     }
 
@@ -6107,6 +6117,11 @@ impl AgentPersonalizationSnapshotPort for ScriptedSnapshots {
         &self,
         submission: AgentCandidateSubmission,
     ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        if self.refuse_proposals {
+            return Err(AgentRuntimeApplicationError::Memory(
+                "candidate table unavailable".to_string(),
+            ));
+        }
         let accepted = submission.proposals.len();
         self.proposed
             .lock()
@@ -9430,4 +9445,76 @@ fn a_rejected_remember_never_wakes_the_retrieval_index() {
         retrieval.calls.lock().expect("calls").is_empty(),
         "a denied session must not reach the memory search either"
     );
+}
+
+/// 6.9 — a review queue that refuses the batch costs the proposals and nothing else.
+///
+/// Extraction hangs off a compaction that has already succeeded. A queue that cannot take what it
+/// produced must not undo the compaction, fail the generation, or leave the turns half-replaced.
+#[test]
+fn a_refused_proposal_batch_leaves_the_compaction_it_hung_off_intact() {
+    let (address, server) = http_fixture_sequence(
+        "200 OK",
+        vec![
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Uses pnpm.\"}]"},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+        ],
+    );
+    let wire_format = openai_compatible_wire_format(&address);
+    let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+    let request = onepiece_session("session-refused-proposals");
+    let logging = RecordingLogging::default();
+    let snapshots = ScriptedSnapshots::refusing(snapshot_with(
+        None,
+        Vec::new(),
+        AgentMemoryDelivery::IndexOnly,
+    ));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+    let mut turns = compactable_turns();
+
+    let result = maybe_compact_with_snapshot(
+        &mut turns,
+        &wire_format,
+        &client,
+        "sk-test",
+        "deepseek-chat",
+        None,
+        &not_cancelled(),
+        &CapturingSink::default(),
+        &logging,
+        &FixedClock,
+        &request,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        false,
+    );
+    let requests = server.join().expect("fixture server");
+
+    assert!(result.is_none());
+    assert_eq!(
+        requests.len(),
+        2,
+        "compaction summarized, then extraction ran"
+    );
+    assert_eq!(turns.len(), 1 + COMPACTION_KEEP_RECENT_TURNS);
+    assert_eq!(turns[0]["content"], "Condensed summary.");
+    assert!(snapshots.proposals().is_empty());
+    // Reported, and content-free: what could not be queued is still the text nobody approved.
+    let logs = logging.logs.lock().expect("logs");
+    assert!(logs
+        .iter()
+        .any(|log| log.message.contains("could not queue its proposals")));
+    assert!(!logs.iter().any(|log| log.message.contains("Uses pnpm")));
 }

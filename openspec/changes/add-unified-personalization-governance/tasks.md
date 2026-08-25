@@ -75,7 +75,7 @@
 - [x] 6.6 Change automatic extraction at compaction to submit create/update/archive candidates instead of directly mutating active memory.
 - [x] 6.7 Change model-side memory tools to use the personalization application API; default model-originated writes to candidates unless backed by an explicit user UI memory action.
 - [x] 6.8 Make temporary mode skip all long-term memory reads, tools, extraction, candidates, and retrieval writes while leaving current-session compaction intact.
-- [ ] 6.9 Add OnePiece integration tests for global/workspace/Agent resolution, project-only isolation, temporary mode, candidate extraction, selected-body filtering, extraction failure, and unchanged compaction behavior.
+- [x] 6.9 Add OnePiece integration tests for global/workspace/Agent resolution, project-only isolation, temporary mode, candidate extraction, selected-body filtering, extraction failure, and unchanged compaction behavior.
 
 ## 7. CLI Runtime Integration
 
