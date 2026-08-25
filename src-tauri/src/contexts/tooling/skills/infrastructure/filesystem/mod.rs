@@ -268,7 +268,8 @@ impl ManagedSkillFilesystem {
             let target =
                 self.paths
                     .mount_target(&record.key.location, &record.key.id, mount_path)?;
-            if paths_overlap(&source, &target) {
+            let already_mounted = is_managed_link(&target, &source);
+            if !already_mounted && paths_overlap(&source, &target) {
                 return Err(SkillApplicationError::Validation(format!(
                     "Skill mount target overlaps its managed source: {}",
                     target.display()
@@ -284,7 +285,7 @@ impl ManagedSkillFilesystem {
             let mut overwritten = Vec::new();
             let mut backed_up = Vec::new();
             if path_exists(&target) {
-                if is_managed_link(&target, &source) {
+                if already_mounted {
                     return Ok(repair_binding(
                         agent_id,
                         mount_path,
@@ -1376,6 +1377,41 @@ mod tests {
             std::fs::read_to_string(mounted.join("references/guide.md")).expect("mounted resource"),
             "Effective resource"
         );
+    }
+
+    #[test]
+    fn repairing_an_existing_managed_link_is_idempotent() {
+        let home = TempDirectory::new("Skill idempotent mount");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("idempotent-mount").expect("Skill id");
+        let source_transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &source_transaction,
+                &location(),
+                &id,
+                &document("idempotent-mount", "body"),
+            )
+            .expect("source");
+        filesystem.commit_mutation(source_transaction);
+        let stored = record("idempotent-mount", source);
+        let mount_path = SkillMountPath::parse(".codex/skills").expect("mount path");
+
+        for _ in 0..2 {
+            let transaction = filesystem.begin_mutation().expect("mount transaction");
+            let repair = filesystem
+                .repair_binding(&transaction, &stored, "codex-cli", &mount_path)
+                .expect("idempotent mount repair");
+            filesystem.commit_mutation(transaction);
+            assert!(repair.binding.mounted);
+            assert!(repair.overwritten.is_empty());
+            assert!(repair.backed_up.is_empty());
+        }
+
+        assert!(is_managed_link(
+            home.path().join(".codex/skills/idempotent-mount").as_path(),
+            Path::new(&stored.managed_source.skill_dir)
+        ));
     }
 
     #[test]

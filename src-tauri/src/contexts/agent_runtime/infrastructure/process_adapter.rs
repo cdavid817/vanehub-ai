@@ -1,7 +1,7 @@
 use super::providers::{
-    add_codex_output_capture_args, output_parser_for_format, BoundedProviderLines,
-    ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent,
-    ProviderToolPhase, ProviderUsageOverlap,
+    add_codex_output_capture_args, add_opencode_directory_args, output_parser_for_format,
+    BoundedProviderLines, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
@@ -216,6 +216,11 @@ impl RuntimeAgentProcessAdapter {
         } else {
             None
         };
+        if request.agent.id == "opencode" {
+            if let Some(folder) = request.session.folder.as_deref() {
+                add_opencode_directory_args(&mut spec.args, folder);
+            }
+        }
         let mut runner_spec = local_runner_launch_spec(
             &spec,
             Some(request.session.id.clone()),
