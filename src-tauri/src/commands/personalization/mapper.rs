@@ -564,6 +564,7 @@ pub(super) fn reset_statuses(include_archived: bool) -> Vec<MemoryStatus> {
 
 pub(super) fn reset_preview_to_dto(preview: &ResetMemoryPreview) -> dto::ResetPreviewView {
     dto::ResetPreviewView {
+        confirmation_token: preview.token.value.clone(),
         matched: preview.matched,
         global: preview.matched_global,
         workspace: preview.matched_workspace,

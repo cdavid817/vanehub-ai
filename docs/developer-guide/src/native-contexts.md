@@ -36,6 +36,7 @@ flowchart TB
     OP[operations]
     EO[execution_observability]
     SEE[skill_evolution_evidence]
+    PZ[personalization]
   end
 
   subgraph Track["Planning and tracking"]
@@ -103,6 +104,7 @@ The diagram only draws **call direction** between contexts, not specific command
 | `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts | [Persistence and unified logging](persistence-and-logging.md) |
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings | [Execution observability and Agent evaluation](execution-observability.md) |
 | `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage | [Skill evolution evidence](skill-evolution-evidence.md) |
+| `personalization` | Layered instruction policy, governed memory records and candidates, effective-personalization resolution, and memory maintenance | [Cross-session memory](cross-session-memory.md) |
 
 ### Planning and tracking
 

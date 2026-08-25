@@ -46,8 +46,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
 // 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
 // 一起下线,届时这条上限应当回落。
+// 上调理由(add-unified-personalization-governance):个性化治理在服务边界上多出 948 行,全部是新能力
+// 的固定开销,没有任何一行是从别处复制来的:`personalization-service.ts` 54 行是接口本身,
+// `tauri-personalization-client.ts` 109 行是 16 个命令的 invoke 映射,剩下 779 行是 Web/mock。
+// mock 占大头是因为它必须真的拒绝:版本冲突、reset token 与 scope 不匹配、未知枚举值、
+// 缺失的 workspace。一个一律放行的 mock 会让页面的冲突分支一次也跑不到,而那正是真实桌面上
+// 最先触发的一条。类型定义不在这笔里——它们住在 `src/types/`,不属于本预算。
+// 任务 9.6 下线 `listAllMemories` 与无 scope 的 delete/reset 后,这条上限应当回落。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 19727, owner: "upgrade-cli-parameter-management" },
+  { root: "src/services", budget: 20475, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -310,6 +310,10 @@ pub(crate) struct ResetScopeInput {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ResetPreviewView {
+    /// Quoted back on execute. It names the scope and statuses the preview counted, so a screen
+    /// cannot preview one scope and delete another; it travels with the counts rather than beside
+    /// them because holding one without the other is never useful.
+    pub(crate) confirmation_token: String,
     pub(crate) matched: usize,
     pub(crate) global: usize,
     pub(crate) workspace: usize,
@@ -336,7 +340,7 @@ pub(crate) struct MaintenanceResultView {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PersonalizationHealthView {
-    /// `not-started`, `busy`, `migrating`, `rebuilding-derived`, `ready`, `repair-required`, or
+    /// `not_started`, `busy`, `migrating`, `rebuilding_derived`, `ready`, `repair_required`, or
     /// `failed`.
     pub(crate) state: String,
     pub(crate) memory_available: bool,

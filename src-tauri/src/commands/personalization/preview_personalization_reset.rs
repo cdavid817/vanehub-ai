@@ -11,15 +11,10 @@ use tauri::State;
 pub(crate) fn preview_personalization_reset(
     api: State<'_, PersonalizationApi>,
     input: dto::ResetScopeInput,
-) -> Result<(dto::ResetPreviewView, String), CommandError> {
+) -> Result<dto::ResetPreviewView, CommandError> {
     let scope = mapper::scope_filter(input.scope_kind.as_deref(), input.workspace_key.as_deref())?;
     let statuses = mapper::reset_statuses(input.include_archived);
     api.preview_memory_reset(&scope, &statuses)
-        .map(|preview| {
-            (
-                mapper::reset_preview_to_dto(&preview),
-                preview.token.value.clone(),
-            )
-        })
+        .map(|preview| mapper::reset_preview_to_dto(&preview))
         .map_err(map_command_error)
 }

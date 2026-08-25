@@ -52,6 +52,7 @@ export {
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
 import { webAgentMemoryClient } from "./web-agent-memory-client";
+import { webPersonalizationClient } from "./web-personalization-client";
 
 export { resetWebAgentMemoriesForTest } from "./web-agent-memory-state";
 import { listWebAgentMemories } from "./web-agent-memory-state";
@@ -189,6 +190,7 @@ export const webAgentClient: AgentService = {
   },
 
   ...webAgentMemoryClient,
+  ...webPersonalizationClient,
 
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);

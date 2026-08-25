@@ -73,7 +73,9 @@ export default tseslint.config(
   ...[
     ["src/services/tauri-agent-client.ts", 1213],
     ["src/types/agent.ts", 702],
-    ["src/services/agent-service.ts", 306],
+    // 306 -> 308: 一个新能力接进 AgentService 的最小代价就是两行,一行 import 一行 extends 条目,
+    // 这个文件的用途本来就是那张清单。任务 9.6 把 AgentMemoryService 从清单里摘掉后回落到 306。
+    ["src/services/agent-service.ts", 308],
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AgentService, SessionStateEvent } from "./agent-service";
+import { tauriPersonalizationClient } from "./tauri-personalization-client";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -961,6 +962,7 @@ export const tauriAgentClient: AgentService = {
     return unlisten;
   },
 
+  ...tauriPersonalizationClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {

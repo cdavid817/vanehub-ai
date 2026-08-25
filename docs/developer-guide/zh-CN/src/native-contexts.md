@@ -36,6 +36,7 @@ flowchart TB
     OP[operations]
     EO[execution_observability]
     SEE[skill_evolution_evidence]
+    PZ[personalization]
   end
 
   subgraph Track["规划与追踪"]
@@ -103,6 +104,7 @@ flowchart TB
 | `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 | [持久化与统一日志](persistence-and-logging.md) |
 | `execution_observability` | 执行 run、span、时间线、采集策略与 OTLP 导出设置 | [执行可观测性与 Agent 评测](execution-observability.md) |
 | `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `personalization` | 分层指令策略、受治理的记忆记录与候选、有效个性化解析,以及记忆维护 | [跨会话记忆](cross-session-memory.md) |
 
 ### 规划与追踪
 

@@ -137,6 +137,7 @@ import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
 import type { AgentMemoryService } from "./agent-memory-service";
+import type { PersonalizationService } from "./personalization-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { SessionChatConfigService } from "./session-chat-config-service";
 import type { SessionLifecycleService, SessionSeatService } from "./session-lifecycle-service";
@@ -174,6 +175,7 @@ export interface AgentService extends
   UsageStatisticsService,
   MissionControlService,
   AgentMemoryService,
+  PersonalizationService,
   ChatMessagingService,
   SessionChatConfigService,
   SessionLifecycleService,
