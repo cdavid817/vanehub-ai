@@ -4,7 +4,8 @@ use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileLineRange, FileReferenceSet, LoopSessionRole, MessageId,
     MessageRole, MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger,
     SessionActivation, SessionAggregate, SessionCategory, SessionId, SessionLifecycle,
-    SessionMessage, SessionOwner, SessionRecoveryReport, SessionSeat, SessionTitle,
+    SessionMessage, SessionOwner, SessionPersonalizationMode, SessionRecoveryReport, SessionSeat,
+    SessionTitle, SessionsDomainError,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1095,6 +1096,7 @@ fn session_record(
     pinned: bool,
 ) -> SessionRecord {
     SessionRecord {
+        personalization_mode: SessionPersonalizationMode::Standard,
         aggregate: SessionAggregate::rehydrate(
             SessionId::parse(id).expect("session id"),
             SessionTitle::for_creation(Some("Fixture Session")),
@@ -1259,6 +1261,7 @@ fn creation_management_and_category_use_cases_keep_atomic_boundaries() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
@@ -1358,6 +1361,7 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "cli".to_string(),
@@ -1406,6 +1410,7 @@ fn ready_onepiece_creates_a_local_worktree_session_in_api_mode() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "onepiece".to_string(),
             seats: Vec::new(),
             interaction_mode: "api".to_string(),
@@ -1448,6 +1453,7 @@ fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "cli".to_string(),
@@ -1494,6 +1500,7 @@ fn onepiece_rejects_remote_creation_before_persistence() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "onepiece".to_string(),
             seats: Vec::new(),
             interaction_mode: "api".to_string(),
@@ -1599,6 +1606,7 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
@@ -2528,4 +2536,127 @@ fn ranged_injection_clamps_to_the_file_and_leaves_whole_file_output_untouched() 
     // An empty file is the degenerate case of the same rule.
     let from_empty = render_reference_block("a.rs", "", Some(range(1, 5)));
     assert!(from_empty.contains("file ends at line 0"));
+}
+
+fn creation_request(
+    mode: Option<SessionPersonalizationMode>,
+    workspace: NewSessionWorkspace,
+) -> NewSessionRequest {
+    NewSessionRequest {
+        personalization_mode: mode,
+        agent_id: "codex-cli".to_string(),
+        seats: Vec::new(),
+        interaction_mode: "interactive".to_string(),
+        title: Some("Session".to_string()),
+        workspace,
+        owner: SessionOwner::desktop(),
+        activation: SessionActivation::Activate,
+    }
+}
+
+fn local_workspace() -> NewSessionWorkspace {
+    NewSessionWorkspace {
+        project_path: Some("D:\\code\\project".to_string()),
+        ..Default::default()
+    }
+}
+
+/// A caller that predates the mode gets the behaviour it had.
+#[test]
+fn a_session_created_without_a_mode_is_standard() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(None, local_workspace()))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::Standard
+    );
+}
+
+#[test]
+fn a_temporary_session_records_the_mode_it_was_created_in() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::Temporary),
+            local_workspace(),
+        ))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::Temporary
+    );
+}
+
+/// Refused at creation rather than degraded at resolution.
+///
+/// A project-only session with nothing to be isolated to would have to fall back to something, and
+/// the only candidate is "read everything global" — the exact interpretation the mode exists to
+/// prevent. Creating it and letting resolution deny memory instead would leave the user with a
+/// session that says it is project-scoped and behaves as though it has no project.
+#[test]
+fn a_project_only_session_without_a_workspace_is_refused_at_creation() {
+    let fixture = fixture();
+
+    let refused = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::ProjectOnly),
+            NewSessionWorkspace::default(),
+        ));
+
+    assert!(matches!(
+        refused,
+        Err(SessionsApplicationError::Domain(
+            SessionsDomainError::ProjectOnlySessionRequiresWorkspace
+        ))
+    ));
+}
+
+/// Any one of the three ways a workspace can be named is enough to be isolated to.
+#[test]
+fn a_project_only_session_is_accepted_with_a_folder_a_project_or_a_remote_workspace() {
+    for workspace in [
+        NewSessionWorkspace {
+            folder: Some("D:\\code\\project".to_string()),
+            ..Default::default()
+        },
+        local_workspace(),
+        NewSessionWorkspace {
+            remote_workspace: Some(NewRemoteWorkspace {
+                host: "build-box".to_string(),
+                port: None,
+                user: None,
+                path: "/srv/project".to_string(),
+                display_name: None,
+                ssh_connection_id: None,
+            }),
+            ..Default::default()
+        },
+    ] {
+        let fixture = fixture();
+
+        let session = fixture
+            .service
+            .prepare_new_session_creation(creation_request(
+                Some(SessionPersonalizationMode::ProjectOnly),
+                workspace,
+            ))
+            .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+            .expect("create");
+
+        assert_eq!(
+            session.personalization_mode,
+            SessionPersonalizationMode::ProjectOnly
+        );
+    }
 }

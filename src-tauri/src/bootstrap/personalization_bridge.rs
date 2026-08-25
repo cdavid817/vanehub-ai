@@ -194,10 +194,11 @@ impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
             agent_id,
             session_id,
             workspace,
-            // Sessions do not record a personalization mode yet, so every session is standard. The
-            // resolver already applies the other two modes correctly; what is missing is the place
-            // a user chooses one, which arrives with the session UI.
-            session_mode: SessionPersonalizationMode::Standard,
+            // Translated at the boundary rather than shared as one type: sessions records what
+            // the user chose and personalization decides what it means, and a mode this build
+            // cannot parse resolves as temporary rather than standard — the narrow reading is the
+            // only safe one when the stored value is not understood.
+            session_mode: session_mode_from(&context.personalization_mode),
             session_override: None,
         });
         let Ok(resolved) = resolved else {
@@ -372,6 +373,25 @@ pub(super) fn to_candidate_operation(
             target_id: MemoryId::parse(target_id.trim_end_matches(".md")).ok()?,
             expected_target_revision: expected_revision,
         })),
+    }
+}
+
+/// The mode the session recorded, as personalization understands it.
+///
+/// Translated at the boundary rather than shared as one type: sessions records what the user chose
+/// and personalization decides what it means, and one context's taxonomy must not become the
+/// other's dependency.
+///
+/// A value this build cannot parse resolves as temporary rather than standard. The narrow reading
+/// is the only safe one: a mode written by a newer build is more likely to mean "retain less" than
+/// "retain everything", and defaulting the other way would silently widen a session the user asked
+/// to keep narrow.
+pub(super) fn session_mode_from(stored: &str) -> SessionPersonalizationMode {
+    match stored {
+        "project-only" => SessionPersonalizationMode::ProjectOnly,
+        "temporary" => SessionPersonalizationMode::Temporary,
+        "standard" | "" => SessionPersonalizationMode::Standard,
+        _ => SessionPersonalizationMode::Temporary,
     }
 }
 

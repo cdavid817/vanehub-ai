@@ -259,6 +259,7 @@ impl FakeWorld {
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: InteractionMode::Cli,
+            personalization_mode: "standard".to_string(),
             lifecycle: AgentLifecycle::Idle,
             folder: Some("C:/workspace".to_string()),
             runtime_session_id: None,

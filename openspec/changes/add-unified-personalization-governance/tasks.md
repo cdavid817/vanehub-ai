@@ -91,9 +91,9 @@
 
 ## 8. Session Mode and Multi-Agent Propagation
 
-- [ ] 8.1 Extend session domain/storage/service types with `personalizationMode`, defaulting legacy and new unspecified sessions to `standard`.
+- [x] 8.1 Extend session domain/storage/service types with `personalizationMode`, defaulting legacy and new unspecified sessions to `standard`.
 - [ ] 8.2 Validate that `project-only` creation requires a resolvable workspace and reject invalid requests in both Tauri and Web/mock runtimes.
-- [ ] 8.3 Persist session mode across restart, archive/unarchive, worktree creation, and active-session switching.
+- [x] 8.3 Persist session mode across restart, archive/unarchive, worktree creation, and active-session switching.
 - [ ] 8.4 Propagate the shared session mode and workspace to every multi-Agent seat while resolving each seat's own Agent policy.
 - [ ] 8.5 Ensure Loop workers, scheduled runs, and sub-Agent paths that use the standard session/generation service cannot bypass snapshot resolution.
 - [ ] 8.6 Add session migration, create/read/update, Web parity, multi-seat, worktree, background-run, project-only, and temporary-mode tests.

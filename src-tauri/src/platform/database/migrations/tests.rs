@@ -317,7 +317,7 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
         )
         .expect("fixture migration state");
     // One fewer row than the highest version, because the fixture above deleted version 37.
-    assert_eq!(migration_state, (81, 82));
+    assert_eq!(migration_state, (82, 83));
 
     migrate(&connection).expect("upgrade migration");
 

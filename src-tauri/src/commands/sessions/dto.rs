@@ -176,6 +176,10 @@ pub(crate) struct CreateSessionInput {
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) title: Option<String>,
+    /// `standard`, `project-only`, or `temporary`. Omitted by a caller that predates the mode,
+    /// which gets the behaviour it had.
+    #[serde(default)]
+    pub(crate) personalization_mode: Option<String>,
     pub(crate) folder: Option<String>,
     pub(crate) project_path: Option<String>,
     pub(crate) remote_workspace: Option<CreateRemoteWorkspaceInput>,

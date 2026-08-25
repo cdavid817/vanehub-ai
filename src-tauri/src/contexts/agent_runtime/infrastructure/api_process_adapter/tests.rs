@@ -173,6 +173,7 @@ fn resolve_system_prompt_with_observations(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
     resolve_system_prompt_with_settings(
         agent_id,
@@ -385,6 +386,7 @@ fn maybe_compact(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
     maybe_compact_with_snapshot(
         turns,
@@ -1553,6 +1555,7 @@ fn sample_request(launch_kind: &str) -> GenerationProcessRequest {
             agent_id: "my-claude-agent".to_string(),
             seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
+            personalization_mode: "standard".to_string(),
             lifecycle: AgentLifecycle::Running,
             folder: None,
             runtime_session_id: None,
@@ -4249,6 +4252,7 @@ fn the_memory_tool_proposes_a_candidate_rather_than_writing_a_memory() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     let outcome = propose_remembered_memory(
@@ -4284,6 +4288,7 @@ fn an_unnamed_proposal_is_labelled_from_its_own_first_line() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     let _ = propose_remembered_memory(
@@ -4310,6 +4315,7 @@ fn the_memory_tool_rejects_empty_content_before_proposing_anything() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     let outcome = propose_remembered_memory(
@@ -4339,6 +4345,7 @@ fn a_temporary_session_proposes_no_candidate_from_the_memory_tool() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     let outcome = propose_remembered_memory(
@@ -6188,6 +6195,7 @@ fn noop_snapshot() -> AgentPersonalizationSnapshot {
         agent_id: "onepiece".to_string(),
         session_id: "session-1".to_string(),
         folder: None,
+        personalization_mode: "standard".to_string(),
     })
 }
 
@@ -6267,6 +6275,7 @@ fn resolve_prompt_with_selection(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
     resolve_system_prompt_with_settings(
         &request.agent.id,
@@ -7007,6 +7016,7 @@ fn extraction_proposes_candidates_and_writes_no_memory() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     extract_memories(
@@ -7064,6 +7074,7 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     extract_memories(
@@ -7103,6 +7114,7 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
 
     extract_memories(
@@ -7203,6 +7215,7 @@ fn run_optimizer_compaction_with_logging(
         agent_id: "onepiece".to_string(),
         session_id: "session-1".to_string(),
         folder: None,
+        personalization_mode: "standard".to_string(),
     });
     maybe_compact_accounted(
         turns,
@@ -9523,6 +9536,7 @@ fn a_refused_proposal_batch_leaves_the_compaction_it_hung_off_intact() {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
     });
     let mut turns = compactable_turns();
 

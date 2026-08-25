@@ -2589,6 +2589,7 @@ impl AgentRuntimeApplicationService {
                     agent_id: agent.id().as_str().to_string(),
                     session_id: session.id.clone(),
                     folder: session.folder.clone(),
+                    personalization_mode: session.personalization_mode.clone(),
                 });
             if let Some(reason) = governed.memory.blocked_reason.as_deref() {
                 self.record_log(
@@ -2961,6 +2962,7 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
+                personalization_mode: session.personalization_mode.clone(),
                 seat_ownership,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
@@ -3409,6 +3411,9 @@ struct GenerationEventHandler {
     /// mirroring the same gate the CLI send path already uses for injection.
     is_cli_kind: bool,
     folder: Option<String>,
+    /// Carried so the completed turn resolves under the same mode the message went out under. A
+    /// second read of the session could see a different one if the user switched it mid-turn.
+    personalization_mode: String,
     user_prompt: String,
     originated_from_im: bool,
     resumed_thread_id: Option<String>,
@@ -3431,6 +3436,7 @@ struct GenerationEventHandlerInput {
     prompt_started_at: Instant,
     is_cli_kind: bool,
     folder: Option<String>,
+    personalization_mode: String,
     user_prompt: String,
     originated_from_im: bool,
     /// The provider thread this turn asked to resume, if any. Kept so a turn that fails without
@@ -3515,6 +3521,7 @@ impl GenerationEventHandler {
             prompt_started_at: input.prompt_started_at,
             is_cli_kind: input.is_cli_kind,
             folder: input.folder,
+            personalization_mode: input.personalization_mode,
             user_prompt: input.user_prompt,
             originated_from_im: input.originated_from_im,
             resumed_thread_id: input.resumed_thread_id,
@@ -3949,6 +3956,7 @@ impl GenerationEventHandler {
                 agent_id: self.agent_id.clone(),
                 session_id: self.session_id.clone(),
                 folder: self.folder.clone(),
+                personalization_mode: self.personalization_mode.clone(),
             });
         if !governed.memory.automatic_extraction || !governed.memory.candidate_creation {
             return;

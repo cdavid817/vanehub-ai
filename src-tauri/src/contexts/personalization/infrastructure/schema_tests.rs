@@ -92,12 +92,14 @@ fn a_fresh_database_reaches_the_full_personalization_schema() {
     let connection = database.connection().expect("connection");
     assert_full_schema(&connection);
 
+    // The maximum is whatever migration landed last, not this change's own: what matters here is
+    // that 82 recorded its own row under its own name.
     let version: i64 = connection
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
             row.get(0)
         })
         .expect("migration version");
-    assert_eq!(version, 82);
+    assert!(version >= 82);
 
     let recorded: String = connection
         .query_row(
@@ -138,8 +140,10 @@ fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
             .execute(&format!("DROP TABLE IF EXISTS {table}"), [])
             .expect("drop table");
     }
+    // Everything from 82 up, not 82 alone: the density check refuses a history with a hole, and a
+    // later migration's row would leave one behind.
     connection
-        .execute("DELETE FROM schema_migrations WHERE version = 82", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 82", [])
         .expect("roll the version back");
 
     let version_before: i64 = connection
@@ -158,12 +162,14 @@ fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
     crate::platform::database::migrate(&connection).expect("upgrade");
 
     assert_full_schema(&connection);
+    // At least 82: what this test is about is that the upgrade path reaches the full schema, not
+    // which migration happens to be newest.
     let version_after: i64 = connection
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
             row.get(0)
         })
         .expect("version");
-    assert_eq!(version_after, 82);
+    assert!(version_after >= 82);
 }
 
 #[test]
@@ -220,7 +226,7 @@ fn a_failing_migration_leaves_no_partial_schema_and_no_version_row() {
             .expect("drop table");
     }
     connection
-        .execute("DELETE FROM schema_migrations WHERE version = 82", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 82", [])
         .expect("roll back the version");
 
     let transaction = connection.transaction().expect("transaction");

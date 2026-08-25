@@ -361,6 +361,7 @@ pub(super) fn resolve_generation_personalization(
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
         folder: request.session.folder.clone(),
+        personalization_mode: request.session.personalization_mode.clone(),
     });
     if let Some(reason) = snapshot.memory.blocked_reason.as_deref() {
         let _ = logging.record(AgentLog {

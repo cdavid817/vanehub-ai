@@ -140,7 +140,10 @@ fn run_one_task(
     task: &scheduled_tasks::ScheduledTask,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let interaction_mode = scheduled_task_interaction_mode(&task.agent_id);
+    // A scheduled run has no user in front of it to choose a mode, and inventing one would make
+    // the setting mean something different depending on who started the turn.
     let prepared = sessions.prepare_creation(NewSessionRequest {
+        personalization_mode: None,
         agent_id: task.agent_id.clone(),
         seats: Vec::new(),
         interaction_mode: interaction_mode.as_str().to_string(),

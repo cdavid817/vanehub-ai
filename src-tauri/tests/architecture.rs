@@ -2225,10 +2225,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // record builders, and the evidence/logging port doubles — plus the tests interleaved with
     // it. The entry survives the split rather than being deleted: the file is still real, and
     // nothing else bounds its regrowth (this subtree has no registered subtree budget).
-    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds.
+    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
+    // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
+    // module declaration for the mode's own persistence tests.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 844,
+        budget: 847,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
@@ -2246,9 +2248,10 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
     // nothing in the runtime writes an active memory any more. A further +14 records the
     // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
+    // A further +1 is the session mode every `AgentSession` fixture now records.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 2_025,
+        budget: 2_026,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {

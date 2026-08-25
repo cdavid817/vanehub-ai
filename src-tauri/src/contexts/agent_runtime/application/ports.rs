@@ -1274,6 +1274,9 @@ pub(crate) struct GenerationPersonalizationContext {
     pub(crate) session_id: String,
     /// The workspace folder this session is working in, as the session records it.
     pub(crate) folder: Option<String>,
+    /// The mode the session was created in. Applied last and able only to narrow, so no policy,
+    /// override or default can widen a temporary session back into long-term memory.
+    pub(crate) personalization_mode: String,
 }
 
 /// One immutable personalization answer per generation.

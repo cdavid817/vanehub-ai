@@ -481,3 +481,28 @@ fn a_proposal_naming_an_unparseable_target_translates_to_nothing() {
 
     assert!(operation.is_none());
 }
+
+/// The mode the session recorded decides how far personalization reaches.
+///
+/// The two contexts keep separate enums on purpose, so this translation is the only place they
+/// meet. A value this build cannot parse resolves as temporary rather than standard: the narrow
+/// reading is the only safe one when a newer build may have written a mode meaning "retain less".
+#[test]
+fn a_stored_session_mode_translates_and_an_unknown_one_narrows() {
+    for (stored, expected) in [
+        ("standard", SessionPersonalizationMode::Standard),
+        ("", SessionPersonalizationMode::Standard),
+        ("project-only", SessionPersonalizationMode::ProjectOnly),
+        ("temporary", SessionPersonalizationMode::Temporary),
+        (
+            "something-a-later-build-wrote",
+            SessionPersonalizationMode::Temporary,
+        ),
+    ] {
+        assert_eq!(
+            super::personalization_bridge::session_mode_from(stored),
+            expected,
+            "{stored} translated wrongly"
+        );
+    }
+}

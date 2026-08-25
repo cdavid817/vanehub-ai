@@ -516,6 +516,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "personalization-governance",
         crate::contexts::personalization::infrastructure::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        83,
+        "session-personalization-mode",
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -616,6 +622,11 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (80, "retire-plan-execution"),
     (81, "cli-parameter-profiles"),
     (82, "personalization-governance"),
+    // Three unmerged CLI lanes also claim 83. Skipping ahead to a free number is not an option:
+    // startup asserts the history is dense, so a gap fails every migration run outright. The
+    // collision is resolved when the branches meet, by renumbering whichever lands second — and it
+    // is detectable, because a colliding migration is silently skipped and only the name diverges.
+    (83, "session-personalization-mode"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

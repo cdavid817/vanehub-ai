@@ -115,6 +115,10 @@ pub(crate) struct AgentSession {
     /// Ordered participants. Always at least one; `agent_id` mirrors the first.
     pub(crate) seats: Vec<AgentSessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
+    /// The personalization mode the session was created in, as the session stored it. A string
+    /// rather than a shared enum: sessions owns that taxonomy, personalization interprets it, and
+    /// the runtime is only carrying it between them.
+    pub(crate) personalization_mode: String,
     pub(crate) lifecycle: AgentLifecycle,
     pub(crate) folder: Option<String>,
     pub(crate) runtime_session_id: Option<String>,
