@@ -3,6 +3,7 @@ mod evidence;
 mod models;
 mod ports;
 mod recovery_coordinator;
+mod report;
 mod review;
 mod service;
 mod usage_accounting;

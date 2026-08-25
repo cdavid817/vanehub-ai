@@ -196,20 +196,20 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 10. Backend Session-Run Report
 
-- [ ] 10.1 Add report query/result DTOs, section coverage, overview, usage, latency, Agent, tool, command, change, verification, failure, and evidence-link models under the sessions application boundary.
-- [ ] 10.2 Add narrow sessions-owned ports for execution evidence, observability timing, operations log summaries, workspace/review summaries, and existing session usage summaries.
+- [x] 10.1 Add report query/result DTOs, section coverage, overview, usage, latency, Agent, tool, command, change, verification, failure, and evidence-link models under the sessions application boundary.
+- [x] 10.2 Add narrow sessions-owned ports for execution evidence, observability timing, operations log summaries, workspace/review summaries, and existing session usage summaries.
 - [ ] 10.3 Wire report ports through bootstrap adapters to published context APIs without direct repository or infrastructure imports.
-- [ ] 10.4 Implement bounded report scope validation for session, run ids, seat ids, date range, and group-by dimensions.
-- [ ] 10.5 Preserve reported, reported-derived, and estimated usage separately and preserve internal-purpose versus user-response consumption.
-- [ ] 10.6 Return unknown/partial coverage rather than substituting zero for missing evidence.
-- [ ] 10.7 Omit monetary cost or mark it unavailable unless an explicitly versioned provider-pricing observation exists; do not introduce a pricing catalog in this change.
+- [x] 10.4 Implement bounded report scope validation for session, run ids, seat ids, date range, and group-by dimensions.
+- [x] 10.5 Preserve reported, reported-derived, and estimated usage separately and preserve internal-purpose versus user-response consumption.
+- [x] 10.6 Return unknown/partial coverage rather than substituting zero for missing evidence.
+- [x] 10.7 Omit monetary cost or mark it unavailable unless an explicitly versioned provider-pricing observation exists; do not introduce a pricing catalog in this change.
 - [ ] 10.8 Add Tauri and Web/mock report methods and contract tests. This registers the session-run report command and activates the report native methods added in 2.4: the production Tauri binding stops returning unavailable, and the 2.6 conformance suite runs against those native report cases.
 - [ ] 10.9 Replace React message aggregation in Report with the backend service query; retain a legacy comparison test until parity behavior is understood.
 - [ ] 10.10 Build Report sections for Overview, Usage, Latency, Agents, Tools, Changes, Tests, Failures, and Evidence.
 - [ ] 10.11 Add scope controls for run, seat, time, and group-by, preserving previous report content while refresh is in flight.
 - [ ] 10.12 Add evidence links from every report section to the corresponding workspace tab and filter.
 - [ ] 10.13 Add JSON export of the bounded report through a service-backed native destination flow and a clearly simulated/unavailable Web path, if the existing export primitive can be reused without adding arbitrary frontend file writes.
-- [ ] 10.14 Add application tests for complete, partial, unavailable, no-usage, child-Agent, retry, test-failure, changed-file, and no-evidence reports.
+- [x] 10.14 Add application tests for complete, partial, unavailable, no-usage, child-Agent, retry, test-failure, changed-file, and no-evidence reports.
 - [ ] 10.15 Add UI tests proving Report results do not change when message pagination or mounted chat-message count changes.
 
 ## 11. Provider-Neutral Local and SSH Workspace Inspection
