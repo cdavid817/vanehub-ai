@@ -221,6 +221,15 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+function agentMcpDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-agent-mcp",
+    config: "tests/desktop/wdio.agent-mcp.conf.mjs",
+    label: "Desktop Agent MCP",
+    artifact,
+  });
+}
+
 /**
  * Deterministic local-media coverage, kept out of `all` on purpose.
  *
@@ -254,13 +263,14 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "agent-mcp") await agentMcpDesktop();
   else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "all") {
     const artifact = await buildDesktop();
-    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop];
+    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop, agentMcpDesktop];
     const layers = runFullSuite ? fullSuiteLayers : [smokeDesktop];
     if (!runFullSuite) {
       process.stdout.write("Desktop verification: CI gate runs smoke only; set VANEHUB_DESKTOP_FULL_SUITE=1 for all layers.\n");

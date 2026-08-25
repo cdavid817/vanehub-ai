@@ -21,11 +21,8 @@ if (floatingSurface) {
 
 function SurfaceReady({ children, root }: { children: React.ReactNode; root: HTMLElement }) {
   React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById("bootstrap-shell")?.remove();
-      root.dataset.vanehubBootstrap = "ready";
-    });
-    return () => window.cancelAnimationFrame(frame);
+    document.getElementById("bootstrap-shell")?.remove();
+    root.dataset.vanehubBootstrap = "ready";
   }, [root]);
   return children;
 }

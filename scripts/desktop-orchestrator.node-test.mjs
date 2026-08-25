@@ -211,6 +211,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["dialogs", "dialogsDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
+    ["agent-mcp", "agentMcpDesktop"],
   ];
 
   for (const [mode, factory] of layers) {
