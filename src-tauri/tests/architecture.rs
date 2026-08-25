@@ -2248,10 +2248,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
     // nothing in the runtime writes an active memory any more. A further +14 records the
     // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
-    // A further +1 is the session mode every `AgentSession` fixture now records.
+    // A further +1 is the session mode every `AgentSession` fixture now records, and +14 the
+    // record of what each resolution was asked about — Agent, session, mode and workspace — which
+    // is what makes "no path reaches a provider without resolving" assertable rather than assumed.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 2_026,
+        budget: 2_040,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {

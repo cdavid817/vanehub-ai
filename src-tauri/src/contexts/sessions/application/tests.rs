@@ -2660,3 +2660,35 @@ fn a_project_only_session_is_accepted_with_a_folder_a_project_or_a_remote_worksp
         );
     }
 }
+
+/// Creating a worktree does not reopen what the session retains.
+///
+/// The worktree is where the work happens; the mode is what the user asked the conversation to
+/// keep. A session created with a worktree keeps the mode it was created in, so a project-only run
+/// in a fresh branch stays project-only rather than widening because the workspace changed shape.
+#[test]
+fn creating_a_session_with_a_worktree_keeps_the_mode_it_was_created_in() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::ProjectOnly),
+            NewSessionWorkspace {
+                project_path: Some(r"D:\code\project".to_string()),
+                worktree: Some(NewWorktree {
+                    enabled: true,
+                    name: Some("feature-one".to_string()),
+                }),
+                ..Default::default()
+            },
+        ))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+    assert!(session.workspace.worktree_path.is_some());
+}

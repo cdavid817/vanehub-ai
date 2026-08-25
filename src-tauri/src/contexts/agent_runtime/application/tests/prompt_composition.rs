@@ -1013,3 +1013,158 @@ fn a_governed_cli_send_leaves_every_native_configuration_file_untouched() {
     let entries = std::fs::read_dir(workspace).expect("read dir").count();
     assert_eq!(entries, native.len(), "a file was created in the workspace");
 }
+
+fn open_session(
+    world: &Arc<FakeWorld>,
+    session_id: &str,
+    agent_id: &str,
+    seats: Vec<AgentSessionSeat>,
+    mode: &str,
+    folder: Option<&str>,
+    loop_ownership: Option<LoopRoleGenerationOwnership>,
+) {
+    world.sessions.lock().expect("sessions").insert(
+        session_id.to_string(),
+        AgentSession {
+            id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            seats,
+            interaction_mode: InteractionMode::Cli,
+            personalization_mode: mode.to_string(),
+            lifecycle: AgentLifecycle::Idle,
+            folder: folder.map(str::to_string),
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership,
+        },
+    );
+}
+
+fn seat(seat_id: &str, agent_id: &str) -> AgentSessionSeat {
+    AgentSessionSeat {
+        seat_id: seat_id.to_string(),
+        agent_id: agent_id.to_string(),
+        role_id: None,
+        left_at: None,
+        provider_thread_id: None,
+    }
+}
+
+/// 8.4 — the mode and the workspace are the session's; the policy is each seat's own.
+///
+/// A seat that answers runs its own Agent, so it must resolve that Agent's policy — but it does so
+/// inside a session the user set up once. Letting a seat carry its own mode would mean addressing
+/// a different participant could quietly re-enable what the user turned off when they opened the
+/// conversation.
+#[test]
+fn each_seat_resolves_its_own_agent_under_the_sessions_shared_mode_and_workspace() {
+    let world = cli_world();
+    open_session(
+        &world,
+        "multi-seat",
+        "codex-cli",
+        vec![seat("seat-1", "codex-cli"), seat("seat-2", "gemini-cli")],
+        "temporary",
+        Some("D:/code/vanehub"),
+        None,
+    );
+
+    service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "multi-seat".to_string(),
+            content: "@gemini-cli take a look".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "codex-cli".to_string(),
+                ..chat_configuration()
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    let requests = world.snapshot_requests.lock().expect("snapshots");
+    assert_eq!(requests.len(), 1);
+    let (agent_id, session_id, mode, folder) = &requests[0];
+    assert_eq!(session_id, "multi-seat");
+    assert_eq!(mode, "temporary");
+    assert_eq!(folder.as_deref(), Some("D:/code/vanehub"));
+    assert_eq!(agent_id, "gemini-cli");
+}
+
+/// 8.5 — a Loop worker takes the same path, so it resolves the same way.
+///
+/// Loop roles delegate to the ordinary send path rather than reaching a provider themselves, which
+/// is what makes "nothing bypasses resolution" a property of the wiring rather than a rule each
+/// entry point has to remember.
+///
+/// What is asserted here is that the resolution happens and carries the session's own Agent, mode
+/// and workspace. What the mode then *does* belongs to the resolver, and is asserted over the real
+/// stack in `personalization::api::onepiece_resolution_tests`: this world's snapshot double
+/// answers from flat settings, so asserting the effect here would be asserting the double.
+#[test]
+fn a_loop_worker_turn_resolves_a_snapshot_carrying_its_sessions_mode() {
+    let world = cli_world();
+    open_session(
+        &world,
+        "loop-worker",
+        "codex-cli",
+        Vec::new(),
+        "temporary",
+        Some("D:/code/worktree"),
+        Some(LoopRoleGenerationOwnership {
+            run_id: "run-1".to_string(),
+            iteration_id: "iteration-1".to_string(),
+            role: "worker".to_string(),
+        }),
+    );
+
+    service(world.clone())
+        .start_worker_generation("loop-worker", "implement")
+        .expect("start worker generation");
+
+    let requests = world.snapshot_requests.lock().expect("snapshots");
+    assert_eq!(requests.len(), 1, "a Loop worker must resolve a snapshot");
+    assert_eq!(requests[0].0, "codex-cli");
+    assert_eq!(requests[0].1, "loop-worker");
+    assert_eq!(requests[0].2, "temporary");
+    assert_eq!(requests[0].3.as_deref(), Some("D:/code/worktree"));
+}
+
+/// 8.5 — a run nobody is watching resolves like one somebody is.
+///
+/// A scheduled turn arrives through the same service with a non-desktop source. Nothing about that
+/// makes it exempt: it reads the session's mode and gets what that mode allows.
+#[test]
+fn a_scheduled_run_resolves_a_snapshot_like_any_other_turn() {
+    let world = cli_world();
+    open_session(
+        &world,
+        "scheduled",
+        "codex-cli",
+        Vec::new(),
+        "project-only",
+        Some("D:/code/vanehub"),
+        None,
+    );
+
+    service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Scheduled {
+                task_id: "nightly-check".to_string(),
+            },
+            session_id: "scheduled".to_string(),
+            content: "run the nightly check".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "codex-cli".to_string(),
+                ..chat_configuration()
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    let requests = world.snapshot_requests.lock().expect("snapshots");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].2, "project-only");
+    assert_eq!(requests[0].3.as_deref(), Some("D:/code/vanehub"));
+}

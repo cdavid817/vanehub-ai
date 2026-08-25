@@ -207,6 +207,10 @@ pub(super) struct FakeWorld {
     /// The attribution each batch carried: Agent, session, workspace, and the message it came
     /// from. Recorded separately because who proposed is a different question from what.
     submissions: Mutex<Vec<RecordedAttribution>>,
+    /// Who asked for a snapshot, for which session, in which mode, and where. Every path that
+    /// reaches a provider passes through here, which is what makes "nothing bypasses resolution"
+    /// assertable rather than assumed.
+    snapshot_requests: Mutex<Vec<RecordedSnapshotRequest>>,
     /// `add-cli-memory-support` — configurable `AgentMemoryExtractionPort::extract` outcome.
     /// Defaults to `Some("Extracted fact.")`, matching every pre-existing test's implicit
     /// assumption of "extraction succeeds and finds something" where it isn't the point under
@@ -322,6 +326,7 @@ impl FakeWorld {
             personalization_failure: AtomicBool::new(false),
             proposals: Mutex::new(Vec::new()),
             submissions: Mutex::new(Vec::new()),
+            snapshot_requests: Mutex::new(Vec::new()),
             extraction_response: Mutex::new(Some(
                 r#"[{"action":"create","name":"extracted-fact","description":"An extracted fact","body":"Extracted fact."}]"#.to_string(),
             )),
@@ -1020,6 +1025,9 @@ impl ToolApprovalPort for FakeWorld {
 /// proposal, in the order the submission carries them.
 type RecordedAttribution = (String, String, Option<String>, Option<String>);
 
+/// Agent, session, mode, workspace — everything one resolution was asked about.
+type RecordedSnapshotRequest = (String, String, String, Option<String>);
+
 /// The flat settings shape the runtime used before governance.
 ///
 /// A test fixture now, not a production type: nothing reads settings this way any more. It stays
@@ -1155,7 +1163,13 @@ impl AgentMemoryExtractionPort for FakeWorld {
 /// settings it sets, exactly as it was before governance; only the shape the runtime reads them
 /// through has changed.
 impl AgentPersonalizationSnapshotPort for FakeWorld {
-    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        self.snapshot_requests.lock().expect("snapshots").push((
+            context.agent_id,
+            context.session_id,
+            context.personalization_mode,
+            context.folder,
+        ));
         if self.personalization_failure.load(Ordering::SeqCst)
             || self.memories_list_failure.load(Ordering::SeqCst)
         {
