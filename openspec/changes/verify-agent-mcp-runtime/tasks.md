@@ -24,3 +24,4 @@
 - [x] 4.2 Build and run the Agent MCP WebdriverIO desktop layer and retain its evidence summary.
 - [x] 4.3 Run `npm run lint:ci`, `npm run test`, `npm run build`, `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `npm run native:panic:check`, `cargo test --workspace`, and `openspec validate --specs --strict`.
 - [x] 4.4 Run `npm run architecture:check`, `npm run desktop:unit:test`, `npm run test:desktop`, and `openspec validate verify-agent-mcp-runtime --strict` for the affected native boundary and desktop behavior.
+- [x] 4.5 Preserve WebDriver session teardown on macOS by allowing WDIO to delete the session before the test-only application exit runs.
