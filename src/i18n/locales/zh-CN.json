@@ -1782,6 +1782,8 @@
   "sessionTabs.logs.scope.spanId": "Span",
   "sessionTabs.logs.scope.operationId": "操作",
   "sessionTabs.logs.scope.agentId": "Agent",
+  "sessionTabs.logs.invalidated": "有新日志到达，但当前过滤条件无法对其判定。",
+  "sessionTabs.logs.refresh": "刷新",
   "sessionTabs.shell.simulatedBanner": "[WEB MOCK] 当前终端为模拟环境，不会执行本地命令。",
   "sessionTabs.shell.runtime.native": "本地终端",
   "sessionTabs.shell.runtime.remote": "远程 SSH",

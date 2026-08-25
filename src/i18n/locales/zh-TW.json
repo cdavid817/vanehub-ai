@@ -1782,6 +1782,8 @@
   "sessionTabs.logs.scope.spanId": "Span",
   "sessionTabs.logs.scope.operationId": "操作",
   "sessionTabs.logs.scope.agentId": "Agent",
+  "sessionTabs.logs.invalidated": "有新日誌到達，但目前的篩選條件無法對其判定。",
+  "sessionTabs.logs.refresh": "重新整理",
   "sessionTabs.shell.simulatedBanner": "[WEB MOCK] 目前終端為模擬環境，不會執行本機指令。",
   "sessionTabs.shell.runtime.native": "本機終端",
   "sessionTabs.shell.runtime.remote": "遠端 SSH",

@@ -1782,6 +1782,8 @@
   "sessionTabs.logs.scope.spanId": "스팬",
   "sessionTabs.logs.scope.operationId": "작업",
   "sessionTabs.logs.scope.agentId": "에이전트",
+  "sessionTabs.logs.invalidated": "새 로그가 도착했지만 현재 필터로는 판단할 수 없습니다.",
+  "sessionTabs.logs.refresh": "새로고침",
   "sessionTabs.shell.simulatedBanner": "[WEB MOCK] 이 터미널은 시뮬레이션되었으며 로컬 명령을 실행하지 않습니다.",
   "sessionTabs.shell.runtime.native": "로컬 셸",
   "sessionTabs.shell.runtime.remote": "원격 SSH",

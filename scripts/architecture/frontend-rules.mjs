@@ -80,8 +80,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 过滤"在浏览器里静默返回整个会话——那正好是过滤器最容易被误读成证据的方向。关联键到 context 键的
 // 映射写成显式表而非按名推导:两者是碰巧长得像的两套词汇,推导会在其中一套改名的当天开始静默匹配
 // 不到任何东西。上限按实测值 21110 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.14):+12 是 getSessionLogRecord 在接口与两个适配器上的三处声明。
+// 它必须存在:live notice 只带标识符不带日志行——这是刻意的,否则事件通道会驮着整个语料,而且一行
+// 记录会有两种可能互相矛盾的形状。于是"把这行插进列表"就必须按 id 回取,回取的入口只能在 service
+// 边界上。没有它,8.14 的 insert 分支就只能靠通知里那点字段拼一个假的行,那正是这条设计要避免的第二
+// 种形状。上限按实测值 21122 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21110, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21122, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

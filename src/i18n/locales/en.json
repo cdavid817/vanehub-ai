@@ -1782,6 +1782,8 @@
   "sessionTabs.logs.scope.spanId": "Span",
   "sessionTabs.logs.scope.operationId": "Operation",
   "sessionTabs.logs.scope.agentId": "Agent",
+  "sessionTabs.logs.invalidated": "New log entries arrived that the current filters cannot be applied to.",
+  "sessionTabs.logs.refresh": "Refresh",
   "sessionTabs.shell.simulatedBanner": "[WEB MOCK] This terminal is simulated and does not execute local commands.",
   "sessionTabs.shell.runtime.native": "Local shell",
   "sessionTabs.shell.runtime.remote": "Remote SSH",

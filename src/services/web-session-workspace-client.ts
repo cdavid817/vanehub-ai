@@ -29,6 +29,7 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitStatus"
   | "getSessionGitDiff"
   | "listSessionLogs"
+  | "getSessionLogRecord"
   | "exportSessionLogs"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
@@ -125,6 +126,9 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
       nextCursor: nextOffset < filtered.length ? String(nextOffset) : null,
       coverage: mockLogCoverage(input.sessionId),
     };
+  },
+  async getSessionLogRecord(recordId) {
+    return logFixtures.find((entry) => entry.id === recordId) ?? null;
   },
   async exportSessionLogs() {
     return { status: "unavailable", path: null };

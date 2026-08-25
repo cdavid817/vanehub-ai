@@ -172,8 +172,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 8.11 Publish identifier-bounded post-commit live log notices through the Tauri adapter and deterministic Web/mock event stream.
 - [x] 8.12 Upgrade Logs toolbar with Follow/Pause, correlation filters, coverage state, active-scope chips, and Jump to latest.
 - [x] 8.13 Stop automatic viewport movement when Follow is paused or the user scrolls away from the newest edge.
-- [ ] 8.14 Insert a live row locally only when current filters can be evaluated safely; otherwise invalidate the first page.
-- [ ] 8.15 Keep loaded entries visible on refresh, live, and page-append errors and render inline retry/error status.
+- [x] 8.14 Insert a live row locally only when current filters can be evaluated safely; otherwise invalidate the first page.
+- [x] 8.15 Keep loaded entries visible on refresh, live, and page-append errors and render inline retry/error status.
 - [ ] 8.16 Add tests for live insertion during pagination, cursor/filter mismatch, index repair, rotation, directory change, gap notice, retention, and export consistency.
 - [ ] 8.17 Add a maximum-fixture performance test proving the interactive query does not scan unbounded log files or block the shared registry on file I/O.
 

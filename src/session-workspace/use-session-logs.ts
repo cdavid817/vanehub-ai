@@ -6,6 +6,8 @@ import type {
   SessionLogEntry,
   SessionLogLevel,
 } from "../types/session-workspace";
+import type { SessionLogNotice } from "../types/session-log-notice";
+import { decideLiveNotice, type LiveNoticeDecision } from "./log-live-policy";
 import {
   appendUniqueLogs,
   isTimestampNewerThanLogs,
@@ -58,8 +60,23 @@ export interface SessionLogsState {
   seekStatus: SessionLogSeekStatus;
   seeking: boolean;
   stale: boolean;
+  /**
+   * Set when a live notice arrived that the current filters could not be judged against.
+   *
+   * Not an error, and not a stale marker: the rows on screen are correct, and something happened
+   * that this view cannot place among them. Refreshing resolves it; guessing would not.
+   */
+  firstPageInvalidated: boolean;
   clearPendingFocus: () => void;
   clearSeekStatus: () => void;
+  /**
+   * Feeds one live notice through the insertion policy.
+   *
+   * Returns what was done, so a caller can count what it is withholding without re-deriving the
+   * decision — two answers to "was this row added" is exactly the drift the shared policy exists to
+   * prevent.
+   */
+  applyLiveNotice: (notice: SessionLogNotice) => Promise<LiveNoticeDecision>;
   loadMore: () => Promise<void>;
   locateTimestamp: (draft: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -88,8 +105,26 @@ export function useSessionLogs({
   const [stale, setStale] = useState(false);
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [seekStatus, setSeekStatus] = useState<SessionLogSeekStatus>(null);
+  const [firstPageInvalidated, setFirstPageInvalidated] = useState(false);
   // Read inside async callbacks so a late response cannot resurrect a previous scope's rows.
   const generation = useRef(0);
+
+  // The scope is compared by value, never by identity.
+  //
+  // Depending on the object would make every caller responsible for memoising it, and a caller
+  // that passed an inline object would not get a warning — it would get an infinite render loop,
+  // because the reset effect below would fire on every render and set state each time. Requiring
+  // that discipline of every call site is a trap; deriving a key here is not.
+  const scopeKey = JSON.stringify([
+    scope.seatId ?? null,
+    scope.runId ?? null,
+    scope.traceId ?? null,
+    scope.spanId ?? null,
+    scope.operationId ?? null,
+    scope.agentId ?? null,
+  ]);
+  // Levels are a filter too, and an inline array has the same identity problem.
+  const levelsKey = [...levels].sort().join(",");
 
   const loadFirstPage = useCallback(async (replaceOnFailure: boolean) => {
     if (!sessionId) return;
@@ -106,6 +141,7 @@ export function useSessionLogs({
       setHasMore(page.truncated);
       setInitialError(null);
       setStale(false);
+      setFirstPageInvalidated(false);
     } catch (reason: unknown) {
       if (attempt !== generation.current) return;
       if (replaceOnFailure) setInitialError(workspaceErrorKey(reason));
@@ -130,9 +166,10 @@ export function useSessionLogs({
     setStale(false);
     setSeekStatus(null);
     setPendingFocusId(null);
+    setFirstPageInvalidated(false);
     if (!sessionId) return;
     setPendingRead(true);
-  }, [loadFirstPage, sessionId]);
+  }, [levelsKey, scopeKey, search, sessionId]);
 
   useEffect(() => {
     // Deferred rather than dropped: a hidden panel does not read logs, and the read it owed is
@@ -163,6 +200,30 @@ export function useSessionLogs({
       if (attempt === generation.current) setLoading(false);
     }
   }, [cursor, levels, loading, scope, search, seeking, sessionId]);
+
+  const applyLiveNotice = useCallback(async (notice: SessionLogNotice): Promise<LiveNoticeDecision> => {
+    const decision = decideLiveNotice(notice, { correlation: scope, levels, search, sessionId });
+    if (decision === "ignore") return decision;
+    if (decision === "invalidate") {
+      setFirstPageInvalidated(true);
+      return decision;
+    }
+    const attempt = generation.current;
+    try {
+      // The notice named a row; it did not carry one. Fetching by id keeps a single authoritative
+      // shape for a record instead of two that can disagree about what it says.
+      const record = await agentService.getSessionLogRecord(notice.recordId);
+      if (!record || attempt !== generation.current) return decision;
+      setEntries((current) => current.some((entry) => entry.id === record.id)
+        ? current
+        : [record, ...current]);
+    } catch {
+      // A row that could not be fetched is one this view cannot place. Saying so is the honest
+      // outcome; silently dropping it would leave the list short with nothing to explain it.
+      if (attempt === generation.current) setFirstPageInvalidated(true);
+    }
+    return decision;
+  }, [levels, scope, search, sessionId]);
 
   const locateTimestamp = useCallback(async (draft: string) => {
     const target = parseTimestampInput(draft);
@@ -208,6 +269,8 @@ export function useSessionLogs({
   return {
     entries,
     coverage,
+    firstPageInvalidated,
+    applyLiveNotice,
     hasMore,
     initialError,
     loading,

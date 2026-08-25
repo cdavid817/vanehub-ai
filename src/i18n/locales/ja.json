@@ -1782,6 +1782,8 @@
   "sessionTabs.logs.scope.spanId": "スパン",
   "sessionTabs.logs.scope.operationId": "操作",
   "sessionTabs.logs.scope.agentId": "エージェント",
+  "sessionTabs.logs.invalidated": "新しいログが届きましたが、現在のフィルターでは判定できません。",
+  "sessionTabs.logs.refresh": "更新",
   "sessionTabs.shell.simulatedBanner": "【WEB MOCK】 この端末はシミュレートされており、ローカルコマンドは実行されません。",
   "sessionTabs.shell.runtime.native": "ローカルシェル",
   "sessionTabs.shell.runtime.remote": "リモート SSH",

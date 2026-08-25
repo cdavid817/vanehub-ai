@@ -8,6 +8,7 @@ import type {
   FileSearchListing,
   GitDiffResult,
   GitStatusResult,
+  SessionLogEntry,
   SessionLogExportResult,
   SessionLogPage,
 } from "../types/session-workspace";
@@ -23,6 +24,7 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitStatus"
   | "getSessionGitDiff"
   | "listSessionLogs"
+  | "getSessionLogRecord"
   | "exportSessionLogs"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
@@ -71,6 +73,9 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   listSessionLogs(input) {
     return invoke<SessionLogPage>("list_session_logs", { input });
+  },
+  getSessionLogRecord(recordId) {
+    return invoke<SessionLogEntry | null>("get_session_log_record", { recordId });
   },
   exportSessionLogs(input) {
     return invoke<SessionLogExportResult>("export_session_logs", { input });

@@ -101,6 +101,7 @@ import type {
   GitDiffSource,
   GitStatusResult,
   SessionLogExportResult,
+  SessionLogEntry,
   SessionLogPage,
   SessionLogQuery,
 } from "../types/session-workspace";
@@ -202,6 +203,8 @@ export interface AgentService extends
   getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
   getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
+  /** One row by id, which is how a live notice becomes a row without the event carrying one. */
+  getSessionLogRecord(recordId: string): Promise<SessionLogEntry | null>;
   exportSessionLogs(input: SessionLogQuery): Promise<SessionLogExportResult>;
   listFolderOpeners(): Promise<FolderOpenerAvailability[]>;
   refreshFolderOpeners(): Promise<FolderOpenerAvailability[]>;

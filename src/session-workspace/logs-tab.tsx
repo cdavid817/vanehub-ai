@@ -156,6 +156,21 @@ export function LogsTab({
       {exportMessage ? <p className="rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">{exportMessage}</p> : null}
       {exportError ? <p className="ucd-status-warning rounded border px-2 py-1 text-xs" role="status">{t(exportError)}</p> : null}
       {logs.stale ? <p className="ucd-status-warning rounded border px-2 py-1 text-xs" role="status">{t("sessionTabs.logs.stale")}</p> : null}
+      {logs.firstPageInvalidated ? (
+        // Distinct from `stale`, which means a read failed. This means a read succeeded and
+        // something arrived afterwards that the current filters cannot be judged against — the rows
+        // below are correct, and there is known to be at least one more the view could not place.
+        <p className="flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="status">
+          {t("sessionTabs.logs.invalidated")}
+          <button
+            className="h-6 rounded border border-border bg-background px-2 text-xs hover:bg-muted"
+            onClick={() => void logs.refresh()}
+            type="button"
+          >
+            {t("sessionTabs.logs.refresh")}
+          </button>
+        </p>
+      ) : null}
       {logs.initialError ? (
         <div className="min-h-0 flex-1 rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
           <WorkspaceState kind="error" message={t(logs.initialError)} />
