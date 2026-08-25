@@ -31,6 +31,7 @@
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
+    "test:desktop:skills": "node scripts/test-desktop.mjs skills",
     "test:desktop": "node scripts/test-desktop.mjs all",
     "test:verify": "node scripts/test-verify.mjs",
     "test:coverage": "vitest run --coverage --maxWorkers=4 --testTimeout=15000",
