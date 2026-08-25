@@ -3,7 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { i18n } from "../../i18n";
-import { DocumentationPage, resolveReadme } from "./documentation-page";
+import { DocumentationPage, normalizeDocumentationMarkdown, resolveReadme } from "./documentation-page";
 
 describe("resolveReadme", () => {
   it("selects a bundled translation by base language tag", () => {
@@ -16,6 +16,14 @@ describe("resolveReadme", () => {
 
   it("falls back to English for a language with no bundled README", () => {
     expect(resolveReadme("ko")).toBe(resolveReadme("en-US"));
+  });
+});
+
+describe("normalizeDocumentationMarkdown", () => {
+  it("removes README presentation tags and resolves relative links to GitHub", () => {
+    const markdown = normalizeDocumentationMarkdown('<div align="center">Hello</div>\n[Guide](docs/guide.md)');
+
+    expect(markdown).toBe("Hello\n[Guide](https://github.com/cdavid817/vanehub-ai/blob/main/docs/guide.md)");
   });
 });
 
