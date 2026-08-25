@@ -225,9 +225,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 11.9 Implement remote Git status/diff using argument-array subprocess calls and the existing normalized structured DTOs; preserve index/worktree distinction and locale-independent classification.
 - [x] 11.10 Make remote inspection retries idempotent and revalidate profile revision and host trust; never replay a mutation or Shell command.
 - [x] 11.11 Add deterministic Web/mock local/remote capability fixtures and read-only inspection data.
-- [ ] 11.12 Add provider contract tests that run the same list/read/search/status/diff/path-escape cases against local, remote-helper fixture, and Web/mock implementations where applicable.
+- [x] 11.12 Add provider contract tests that run the same list/read/search/status/diff/path-escape cases against local, remote-helper fixture, and Web/mock implementations where applicable.
 - [x] 11.13 Add typed unavailable UI states that preserve Shell access and explain missing helper/Git/ripgrep prerequisites.
-- [ ] 11.14 Add an optional isolated SSH integration test gated by explicit environment configuration; keep normal CI independent of external SSH.
+- [x] 11.14 Add an optional isolated SSH integration test gated by explicit environment configuration; keep normal CI independent of external SSH.
 
 ## 12. Files and Documents Workflow Upgrade
 

@@ -15,7 +15,6 @@ use super::protocol::{
     HelperResult, HelperSearch, RemoteHelperError,
 };
 use super::transport::{exchange, RemoteHelperSession};
-use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::application::{
     DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
@@ -27,14 +26,28 @@ use async_trait::async_trait;
 use base64::Engine;
 use std::sync::Arc;
 
+/// What a binding looks like right now.
+///
+/// A two-value question rather than the connections API, for the same reason `revalidate` takes
+/// scalars: the provider needs to know whether the profile moved and whether the host is still
+/// trusted, and nothing else about connection management. Taking the whole API would make every
+/// test of this provider need a connection pool.
+pub(crate) trait RemoteProfileSource: Send + Sync {
+    /// The current revision and host trust, or the reason neither could be read.
+    fn current(&self, connection_id: &str) -> Result<(i64, bool), RemoteHelperError>;
+}
+
 pub(crate) struct RemoteWorkspaceInspectionProvider {
-    ssh: SshConnectionsApi,
+    profiles: Arc<dyn RemoteProfileSource>,
     session: Arc<dyn RemoteHelperSession>,
 }
 
 impl RemoteWorkspaceInspectionProvider {
-    pub(crate) fn new(ssh: SshConnectionsApi, session: Arc<dyn RemoteHelperSession>) -> Self {
-        Self { ssh, session }
+    pub(crate) fn new(
+        profiles: Arc<dyn RemoteProfileSource>,
+        session: Arc<dyn RemoteHelperSession>,
+    ) -> Self {
+        Self { profiles, session }
     }
 
     /// The target, after the binding has been checked against what is registered now.
@@ -56,18 +69,11 @@ impl RemoteWorkspaceInspectionProvider {
                 ))
             }
         };
-        let profile = self
-            .ssh
-            .execution_profile(&remote.connection_id)
-            .map_err(|_| {
-                WorkspaceInspectionError::RemoteUnavailable("remote_profile_unavailable")
-            })?;
-        revalidate(
-            remote.connection_revision,
-            profile.revision,
-            profile.host_trusted,
-        )
-        .map_err(inspection_error)?;
+        let (revision, host_trusted) = self
+            .profiles
+            .current(&remote.connection_id)
+            .map_err(inspection_error)?;
+        revalidate(remote.connection_revision, revision, host_trusted).map_err(inspection_error)?;
         Ok(remote)
     }
 
@@ -216,8 +222,8 @@ fn file(value: HelperFile) -> FileContent {
         // The three the model knows. An unrecognised status becomes `binary`, which withholds a
         // preview — the safe direction, because the alternative shows bytes as text.
         status: match value.status.as_str() {
-            "available" => "available",
-            "too-large" => "too-large",
+            "text" => "text",
+            "oversized" => "oversized",
             _ => "binary",
         },
         size: value.size,

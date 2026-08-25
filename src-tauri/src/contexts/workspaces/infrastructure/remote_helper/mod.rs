@@ -15,5 +15,13 @@ mod operation_tests;
 #[cfg(test)]
 mod tests;
 
+/// Named only where a test double has to write the type down. The provider's own error mapping
+/// and profile lookup are internal; the contract suite implements both to drive it.
+#[cfg(test)]
+pub(crate) use protocol::RemoteHelperError;
+#[cfg(test)]
+pub(crate) use remote_provider::RemoteProfileSource;
 pub(crate) use remote_provider::RemoteWorkspaceInspectionProvider;
-pub(crate) use ssh_session::SshRemoteHelperSession;
+pub(crate) use ssh_session::{SshRemoteHelperSession, SshRemoteProfileSource};
+#[cfg(test)]
+pub(crate) use transport::scripted_session;

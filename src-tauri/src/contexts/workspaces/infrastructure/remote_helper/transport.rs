@@ -158,3 +158,71 @@ fn parse(raw: &[u8]) -> Result<HelperResponse, RemoteHelperError> {
     }
     Ok(response)
 }
+
+/// A session that answers with prepared bodies instead of connecting.
+///
+/// Lives beside the transport rather than in a test file because two suites need it, and a second
+/// copy would be a second idea of what the wire looks like — which is exactly the thing a shared
+/// contract suite exists to prevent.
+#[cfg(test)]
+pub(crate) fn scripted_session(bodies: Vec<String>) -> ScriptedHelperSession {
+    ScriptedHelperSession {
+        bodies: std::sync::Mutex::new(bodies),
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ScriptedHelperSession {
+    bodies: std::sync::Mutex<Vec<String>>,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl RemoteHelperSession for ScriptedHelperSession {
+    async fn open(
+        &self,
+        _connection_id: &str,
+        _revision: i64,
+    ) -> Result<Box<dyn RemoteHelperChannel>, RemoteHelperError> {
+        let mut bodies = self.bodies.lock().expect("bodies");
+        // The last body repeats, so a case that retries or asks twice does not have to script the
+        // same answer twice and accidentally assert the scripting rather than the behaviour.
+        let body = if bodies.len() > 1 {
+            bodies.remove(0)
+        } else {
+            bodies.first().cloned().unwrap_or_default()
+        };
+        Ok(Box::new(ScriptedHelperChannel {
+            events: std::sync::Mutex::new(vec![
+                RemoteHelperEvent::Stdout(body.into_bytes()),
+                RemoteHelperEvent::Ended,
+            ]),
+        }))
+    }
+}
+
+#[cfg(test)]
+struct ScriptedHelperChannel {
+    events: std::sync::Mutex<Vec<RemoteHelperEvent>>,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl RemoteHelperChannel for ScriptedHelperChannel {
+    async fn write(&self, _bytes: &[u8]) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn send_eof(&self) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn next_event(&self) -> Result<Option<RemoteHelperEvent>, RemoteHelperError> {
+        let mut events = self.events.lock().expect("events");
+        if events.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(events.remove(0)))
+    }
+    async fn close(&self) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+}

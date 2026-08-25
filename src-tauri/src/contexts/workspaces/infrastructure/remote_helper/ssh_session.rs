@@ -6,6 +6,7 @@
 //! make every connection-management change a workspace change too.
 
 use super::protocol::RemoteHelperError;
+use super::remote_provider::RemoteProfileSource;
 use super::transport::{
     RemoteHelperChannel, RemoteHelperEvent, RemoteHelperSession, HELPER_BOOTSTRAP_COMMAND,
 };
@@ -13,6 +14,31 @@ use crate::contexts::ssh_connections::api::{
     SshConnectionsApi, SshExecutionChannel, SshExecutionChannelEvent,
 };
 use async_trait::async_trait;
+
+/// The registered profile, read through the published connections API.
+///
+/// Here rather than in the provider so this file stays the only one in the context that names
+/// `ssh_connections`, and so the provider's rule — refuse a binding that moved — can be tested
+/// without a connection pool.
+pub(crate) struct SshRemoteProfileSource {
+    ssh: SshConnectionsApi,
+}
+
+impl SshRemoteProfileSource {
+    pub(crate) fn new(ssh: SshConnectionsApi) -> Self {
+        Self { ssh }
+    }
+}
+
+impl RemoteProfileSource for SshRemoteProfileSource {
+    fn current(&self, connection_id: &str) -> Result<(i64, bool), RemoteHelperError> {
+        let profile = self
+            .ssh
+            .execution_profile(connection_id)
+            .map_err(|_| RemoteHelperError::ConnectionFailed)?;
+        Ok((profile.revision, profile.host_trusted))
+    }
+}
 
 pub(crate) struct SshRemoteHelperSession {
     ssh: SshConnectionsApi,

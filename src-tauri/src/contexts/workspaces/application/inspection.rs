@@ -190,9 +190,12 @@ impl WorkspaceInspectionError {
 impl From<WorkspaceApplicationError> for WorkspaceInspectionError {
     fn from(error: WorkspaceApplicationError) -> Self {
         match error {
-            // A validation failure at this boundary is a path the confinement rules refused, which
-            // is the one case a reader must not see as a transient fault to retry.
-            WorkspaceApplicationError::Validation(_) => Self::PathEscaped,
+            // A validation refusal from the confined reads is a path that is not there, an
+            // unreadable workspace, or a request the operation does not accept. It is
+            // deliberately *not* an escape: escapes are classified from the request itself,
+            // before the filesystem is reached, so this mapping cannot claim one that did not
+            // happen.
+            WorkspaceApplicationError::Validation(_) => Self::NotFound,
             WorkspaceApplicationError::SessionNotFound(_) => {
                 Self::TargetUnavailable("workspace_session_not_found")
             }

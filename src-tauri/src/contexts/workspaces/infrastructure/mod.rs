@@ -6,6 +6,8 @@ mod evaluation_fixture;
 mod filesystem;
 mod git;
 mod output_search;
+#[cfg(test)]
+mod provider_contract_tests;
 mod remote_helper;
 mod remote_terminal_logging;
 mod remote_terminal_schema;
@@ -32,7 +34,9 @@ pub(crate) use evaluation_fixture::{
 };
 pub(crate) use filesystem::WorkspaceFilesystemAdapter;
 pub(crate) use git::WorkspaceGitAdapter;
-pub(crate) use remote_helper::{RemoteWorkspaceInspectionProvider, SshRemoteHelperSession};
+pub(crate) use remote_helper::{
+    RemoteWorkspaceInspectionProvider, SshRemoteHelperSession, SshRemoteProfileSource,
+};
 pub(crate) use remote_terminal_schema::apply_remote_terminal_schema;
 pub(crate) use retained_remote_shell::{RetainedRemoteShellRuntime, RoutedShellRuntime};
 pub(crate) use retained_shell_runtime::RetainedLocalShellRuntime;

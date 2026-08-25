@@ -146,7 +146,8 @@ pub(crate) struct HelperEntry {
 pub(crate) struct HelperFile {
     pub(crate) path: String,
     pub(crate) name: String,
-    /// `available`, `binary`, or `too-large`. The last two are facts about the file rather than
+    /// `text`, `binary`, or `oversized` - the local provider's vocabulary, because a panel must
+    /// not need to know which provider answered. The last two are facts about the file rather than
     /// failures: a reader who asked for a 4 GiB core dump needs to be told why there is no preview.
     pub(crate) status: String,
     pub(crate) size: u64,

@@ -10,9 +10,9 @@ use crate::contexts::workspaces::infrastructure::{
     LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider, RetainedLocalShellRuntime,
     RetainedRemoteShellRuntime, RoutedShellRuntime, SessionWorkspaceQueryAdapter,
     SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
-    SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SystemShellClock,
-    SystemWorkspaceClock, TauriProjectDirectorySelection, TauriSessionShellNotices, UuidShellIds,
-    WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
+    SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
+    SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
+    TauriSessionShellNotices, UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -40,14 +40,14 @@ pub(crate) fn assemble_workspace_api(
         WorkspaceInspectionRouter::new(
             Arc::new(SessionWorkspaceTargetResolver::new(database.clone())),
             Arc::new(LocalWorkspaceInspectionProvider::new(
-                (*review_adapter).clone(),
+                review_adapter.clone(),
             )),
         )
         // The remote provider is registered unconditionally. Whether a *session* can use it is a
         // property of its binding, not of this build, and gating it here would make a missing
         // remote workspace and a missing feature indistinguishable.
         .with_remote(Arc::new(RemoteWorkspaceInspectionProvider::new(
-            ssh.clone(),
+            Arc::new(SshRemoteProfileSource::new(ssh.clone())),
             Arc::new(SshRemoteHelperSession::new(ssh.clone())),
         ))),
     );

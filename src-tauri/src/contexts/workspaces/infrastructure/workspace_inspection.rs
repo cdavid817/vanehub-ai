@@ -11,7 +11,7 @@
 //! the confinement code whose boundary is whatever it was handed, which is the failure the resolver
 //! exists to prevent. The root on the target is a witness that resolution happened, not an input.
 
-use super::session_queries::{resolve_session_root, SessionWorkspaceQueryAdapter};
+use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
     CapabilityState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget,
@@ -22,6 +22,7 @@ use crate::contexts::workspaces::application::{
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
 use rusqlite::{params, OptionalExtension};
+use std::sync::Arc;
 
 /// What the session row says about where its workspace is.
 struct SessionWorkspaceBinding {
@@ -127,14 +128,31 @@ pub(super) fn require_local(
     }
 }
 
+/// Whether a requested path is an escape attempt, before anything touches the filesystem.
+///
+/// Not a second boundary - the confinement stays where it is, resolving against a canonical root.
+/// This is a *classification*: the deeper code refuses an escape and a missing file the same way,
+/// and a reader needs those told apart. An absolute path or a `..` component is an escape by
+/// inspection alone, and everything the deeper code then refuses is a path that is simply gone.
+fn classify_relative_path(path: &str) -> Result<(), WorkspaceInspectionError> {
+    let normalized = path.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.split('/').any(|part| part == "..") {
+        return Err(WorkspaceInspectionError::PathEscaped);
+    }
+    Ok(())
+}
+
 /// The local half, over the confined implementations that already exist.
 #[derive(Clone)]
 pub(crate) struct LocalWorkspaceInspectionProvider {
-    queries: SessionWorkspaceQueryAdapter,
+    /// The port the application already declares, not the concrete adapter. Narrower, and it is
+    /// what lets the provider be built without an app handle — which the adapter needs only for
+    /// the log export, an operation no inspection performs.
+    queries: Arc<dyn WorkspaceSessionQueryPort>,
 }
 
 impl LocalWorkspaceInspectionProvider {
-    pub(crate) fn new(queries: SessionWorkspaceQueryAdapter) -> Self {
+    pub(crate) fn new(queries: Arc<dyn WorkspaceSessionQueryPort>) -> Self {
         Self { queries }
     }
 
@@ -146,10 +164,10 @@ impl LocalWorkspaceInspectionProvider {
     async fn blocking<T, F>(&self, work: F) -> Result<T, WorkspaceInspectionError>
     where
         T: Send + 'static,
-        F: FnOnce(&SessionWorkspaceQueryAdapter) -> Result<T, AppError> + Send + 'static,
+        F: FnOnce(&dyn WorkspaceSessionQueryPort) -> Result<T, AppError> + Send + 'static,
     {
         let queries = self.queries.clone();
-        tauri::async_runtime::spawn_blocking(move || work(&queries))
+        tauri::async_runtime::spawn_blocking(move || work(queries.as_ref()))
             .await
             .map_err(|_| WorkspaceInspectionError::Storage("inspection task failed".to_string()))?
             .map_err(WorkspaceInspectionError::from)
@@ -184,6 +202,7 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         request: ListDirectoryRequest,
     ) -> Result<DirectoryListing, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
+        classify_relative_path(&request.path)?;
         self.blocking(move |queries| queries.list_directory(&session_id, &request.path))
             .await
     }
@@ -203,7 +222,11 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         request: ReadTextFileRequest,
     ) -> Result<FileContent, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.read_text_file(&session_id, &request.path))
+        classify_relative_path(&request.path)?;
+        // `read_file`, not `read_text_file`: the latter refuses anything that is not text,
+        // which is right for prompt assembly and wrong for a preview. A binary file is
+        // something a panel shows as binary, not something it fails on.
+        self.blocking(move |queries| queries.read_file(&session_id, &request.path))
             .await
     }
 
@@ -234,6 +257,7 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         request: GitDiffRequest,
     ) -> Result<GitDiffResult, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
+        classify_relative_path(&request.path)?;
         self.blocking(move |queries| queries.git_diff(&session_id, &request.path, request.source))
             .await
     }

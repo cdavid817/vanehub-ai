@@ -241,7 +241,7 @@ def read_text_file(root, relative):
     if size > FILE_BYTE_LIMIT:
         # A fact about the file, not a failure. A reader who asked for a 4 GiB core dump needs to be
         # told why there is no preview rather than shown an error.
-        answer["status"] = "too-large"
+        answer["status"] = "oversized"
         answer["content"] = None
         return answer, None
 
@@ -252,7 +252,7 @@ def read_text_file(root, relative):
         return None, "workspace_path_not_found"
 
     try:
-        answer["status"] = "available"
+        answer["status"] = "text"
         answer["content"] = raw.decode("utf-8")
     except UnicodeDecodeError:
         # Decoded strictly and reported as binary rather than replaced: mojibake in a preview looks
