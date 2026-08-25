@@ -1,6 +1,6 @@
 //! Generation entry points, per-request options, summarization, streaming, and child turns.
 
-use super::super::memory_actions::{apply_memory_actions, render_existing_manifest};
+use super::super::memory_actions::{proposals_from_actions, render_existing_manifest};
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::SqliteNativeToolRepository;
 use super::compaction::turns_character_count;
@@ -9,18 +9,19 @@ use super::invocation::{begin_api_invocation, finish_api_invocation, WireFormat}
 use super::sinks::{EvidenceCountingSink, EvidenceToolCounts};
 use super::{ExecutedToolCall, PendingApprovals};
 use crate::contexts::agent_runtime::application::{
-    AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort,
-    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
-    AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
+    AgentCandidateSubmission, AgentChatConfiguration, AgentClockPort, AgentCodeIntelligencePort,
+    AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort,
+    AgentMemoryRef, AgentPermissionPort, AgentPersonalizationSnapshot,
+    AgentPersonalizationSnapshotPort, AgentProcessEventSink, AgentProposalOrigin,
     AgentRetrievalPort, AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, ContextEngineOutcome, ContextEngineService,
     ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessRequest, MemorySource, NativeToolRegistry, ReportedUsageTotals,
-    ToolDefinition, ToolUseBlock, UtilityDelegationApplicationService,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals, ToolDefinition,
+    ToolUseBlock, UtilityDelegationApplicationService, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
-    parse_memory_actions, ContextBudget, ContextRequest, MEMORY_ACTIONS_INSTRUCTION,
+    parse_memory_actions, ContextBudget, ContextRequest, ParsedMemoryActions,
+    MEMORY_ACTIONS_INSTRUCTION,
 };
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::contexts::sessions::api::{SessionsApi, UsagePurpose, UsageStatus};
@@ -50,7 +51,6 @@ pub(super) fn run_generation(
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-    memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
@@ -122,7 +122,6 @@ pub(super) fn run_generation(
         clock.as_ref(),
         skills.as_ref(),
         core_instructions.as_ref(),
-        memories.as_ref(),
         mcp.as_ref(),
         permissions.as_ref(),
         retrieval.as_ref(),
@@ -531,11 +530,14 @@ pub(super) fn summarize_turns_accounted(
     result.map(|(summary, _usage)| summary)
 }
 
-/// Parses `summarize_turns`'s response as zero or more memories, one per non-empty line, and
-/// saves each as `MemorySource::Automatic`. "Nothing worth remembering" (`Ok(None)`) saves
-/// nothing and logs nothing — a normal, expected outcome, not a failure. An actual call failure
-/// (`Err`) is logged and otherwise ignored, exactly like compaction's own summarization failure,
-/// so it's visible to an operator without affecting the generation or its compaction.
+/// Parses one extraction response into proposals and submits them for review.
+///
+/// It cannot change an active memory. What it produces is a queue entry a person decides about,
+/// which is the whole difference between "the model noticed something" and "the user remembers
+/// this". "Nothing worth remembering" (`Ok(None)`) proposes nothing and logs nothing — a normal,
+/// expected outcome, not a failure. An actual call failure (`Err`) is logged and otherwise
+/// ignored, exactly like compaction's own summarization failure, so it stays visible to an
+/// operator without affecting the generation or its compaction.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn extract_memories_accounted(
     wire_format: &WireFormat,
@@ -546,9 +548,8 @@ pub(super) fn extract_memories_accounted(
     system: Option<&str>,
     turns_to_extract_from: &[Value],
     cancelled: &AtomicBool,
-    agent_id: &str,
-    folder: Option<&str>,
-    memories: &dyn AgentMemoryPort,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
+    snapshot: &AgentPersonalizationSnapshot,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
@@ -564,7 +565,7 @@ pub(super) fn extract_memories_accounted(
         provider_config,
         system,
         turns_to_extract_from,
-        &memory_extraction_instruction(memories),
+        &memory_extraction_instruction(&snapshot.memory.eligible),
         cancelled,
         accounting,
         request,
@@ -597,7 +598,7 @@ pub(super) fn extract_memories_accounted(
     // hanging off a compaction, and the generation that triggered it must be unaffected.
     match parse_memory_actions(&response) {
         Ok(parsed) => {
-            apply_memory_actions(memories, agent_id, folder, MemorySource::Automatic, &parsed);
+            submit_extracted_proposals(personalization, snapshot, &parsed, logging, clock, request);
         }
         Err(error) => {
             let _ = logging.record(AgentLog {
@@ -618,10 +619,64 @@ pub(super) fn extract_memories_accounted(
     }
 }
 
-/// Extraction instruction plus the existing pool's manifest. Built per call because the pool
-/// changes between compactions, and without it the model cannot name a memory to update.
-fn memory_extraction_instruction(memories: &dyn AgentMemoryPort) -> String {
-    let existing = render_existing_manifest(memories);
+/// Submits what one extraction proposed, and records only counts.
+///
+/// A proposal is the text nobody has approved yet, so what reaches the log is how many were
+/// queued and how many were refused — never what any of them said. A submission that fails
+/// entirely is logged the same way and changes nothing else: this runs behind a compaction that
+/// has already succeeded.
+fn submit_extracted_proposals(
+    personalization: &dyn AgentPersonalizationSnapshotPort,
+    snapshot: &AgentPersonalizationSnapshot,
+    parsed: &ParsedMemoryActions,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+) {
+    // Refused before the call rather than after it. A temporary session forbids proposing one even
+    // where the extractor itself was allowed to run, and the two are separate answers.
+    if !snapshot.memory.candidate_creation {
+        return;
+    }
+    let proposals = proposals_from_actions(parsed, &snapshot.memory.eligible);
+    if proposals.is_empty() {
+        return;
+    }
+    let submission = AgentCandidateSubmission {
+        proposals,
+        origin: AgentProposalOrigin::AutomaticExtraction,
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        eligible: snapshot.memory.eligible.clone(),
+    };
+    let message = match personalization.propose_memories(submission) {
+        Ok(outcome) => format!(
+            "Automatic memory extraction proposed {} candidate(s) for review; {} were refused.",
+            outcome.accepted, outcome.rejected
+        ),
+        Err(error) => {
+            format!("Automatic memory extraction could not queue its proposals: {error}")
+        }
+    };
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Debug,
+        category: "session.runtime.api.memory".to_string(),
+        message,
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
+}
+
+/// Extraction instruction plus the eligible set's manifest. Built per call because the eligible
+/// set changes between compactions, and without it the model cannot name a memory to update.
+fn memory_extraction_instruction(eligible: &[AgentMemoryRef]) -> String {
+    let existing = render_existing_manifest(eligible);
     if existing.trim().is_empty() {
         MEMORY_ACTIONS_INSTRUCTION.to_string()
     } else {

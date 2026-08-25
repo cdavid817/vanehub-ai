@@ -1024,12 +1024,6 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
             .map_err(|error| error.to_string())
     }
 
-    fn notify_source_changed(&self) {
-        if let Some(retrieval) = self.bound.get() {
-            retrieval.wake_worker();
-        }
-    }
-
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         self.code.get().map(Arc::as_ref)
     }

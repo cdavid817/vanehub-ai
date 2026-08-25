@@ -20,6 +20,8 @@ use crate::contexts::skill_evolution_evidence::domain::EvidenceSourceEnvelope;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
+use super::prompt::{propose_remembered_memory, GenerationPersonalization};
+
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 
 struct NoopWorkspaceMutationPort;
@@ -69,7 +71,6 @@ fn execute(
         clock,
         skills,
         core_instructions,
-        memories,
         mcp,
         permissions,
         retrieval,
@@ -224,6 +225,16 @@ impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
         let stored = self.memories.list_all()?;
         Ok(pinned_bodies_from(refs, &stored))
     }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        Ok(AgentCandidateOutcome {
+            accepted: submission.proposals.len(),
+            rejected: 0,
+        })
+    }
 }
 
 fn snapshot_from_legacy_settings(
@@ -329,8 +340,10 @@ fn maybe_compact(
         logging,
         clock,
         request,
-        memories,
-        &snapshot,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &governed,
+        },
         tool_assisted,
     )
 }
@@ -348,8 +361,7 @@ fn maybe_compact_with_snapshot(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
-    memories: &dyn AgentMemoryPort,
-    snapshot: &AgentPersonalizationSnapshot,
+    personalization: GenerationPersonalization<'_>,
     tool_assisted: bool,
 ) -> Option<GenerationProcessEvent> {
     if !should_compact(turns_character_count(turns)) {
@@ -377,8 +389,7 @@ fn maybe_compact_with_snapshot(
         logging,
         clock,
         request,
-        memories,
-        snapshot,
+        personalization,
         tool_assisted,
         None,
         &mut request_sequence,
@@ -426,9 +437,7 @@ fn extract_memories(
     system: Option<&str>,
     turns_to_extract_from: &[Value],
     cancelled: &AtomicBool,
-    agent_id: &str,
-    folder: Option<&str>,
-    memories: &dyn AgentMemoryPort,
+    personalization: GenerationPersonalization<'_>,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
@@ -450,9 +459,8 @@ fn extract_memories(
         system,
         turns_to_extract_from,
         cancelled,
-        agent_id,
-        folder,
-        memories,
+        personalization.port,
+        personalization.snapshot,
         logging,
         clock,
         request,
@@ -472,8 +480,6 @@ fn execute_tool_call(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
@@ -483,8 +489,6 @@ fn execute_tool_call(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -501,8 +505,6 @@ fn execute_tool_call_with_code_intelligence(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
@@ -513,8 +515,6 @@ fn execute_tool_call_with_code_intelligence(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         Some(code_intelligence),
@@ -531,8 +531,6 @@ fn execute_tool_call_with_workspace_mutations(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
@@ -543,8 +541,6 @@ fn execute_tool_call_with_workspace_mutations(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -561,8 +557,6 @@ fn execute_tool_call_with_skills(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
@@ -573,8 +567,6 @@ fn execute_tool_call_with_skills(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -1004,6 +996,16 @@ impl AgentPersonalizationSnapshotPort for NoopPersonalization {
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
         Ok(Vec::new())
     }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        Ok(AgentCandidateOutcome {
+            accepted: submission.proposals.len(),
+            rejected: 0,
+        })
+    }
 }
 
 /// Reports a caller-chosen `PersonalizationSettings` snapshot, for tests that need specific
@@ -1245,8 +1247,6 @@ impl AgentRetrievalPort for NoopRetrieval {
     fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
         Err("NoopRetrieval cannot search.".to_string())
     }
-
-    fn notify_source_changed(&self) {}
 }
 
 /// `(agent_id, folder, query, limit)` per `search` call, as recorded by `FakeRetrieval::search`.
@@ -1255,13 +1255,10 @@ type RecordedRetrievalCall = (String, usize);
 /// Records one `RecordedRetrievalCall` per `search` call and hands back a configurable
 /// outcome — used where a test needs to observe or control the retrieval path rather than
 /// just satisfy the trait bound (`NoopRetrieval` covers the latter), mirroring `FakeMcp`.
-/// `wake_calls` counts `notify_source_changed()` invocations for the `remember`/save-hook
-/// tests (Task 14) — unrelated to `calls`, which is `search`-only.
 struct FakeRetrieval {
     configured: bool,
     outcome: Result<AgentRetrievalOutcome, String>,
     calls: Mutex<Vec<RecordedRetrievalCall>>,
-    wake_calls: AtomicUsize,
 }
 
 impl FakeRetrieval {
@@ -1270,7 +1267,6 @@ impl FakeRetrieval {
             configured: true,
             outcome,
             calls: Mutex::new(Vec::new()),
-            wake_calls: AtomicUsize::new(0),
         }
     }
 }
@@ -1286,10 +1282,6 @@ impl AgentRetrievalPort for FakeRetrieval {
             .expect("calls")
             .push((query.to_string(), limit));
         self.outcome.clone()
-    }
-
-    fn notify_source_changed(&self) {
-        self.wake_calls.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -1330,8 +1322,6 @@ impl AgentRetrievalPort for CodeOnlyRetrieval {
     fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
         Err("memory retrieval is unused".to_string())
     }
-
-    fn notify_source_changed(&self) {}
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         Some(&self.code)
@@ -1592,7 +1582,6 @@ fn adapter() -> RuntimeAgentApiAdapter {
         Arc::new(
             crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
         ),
-        Arc::new(FakeMemories::default()),
         Arc::new(NoopMcp),
         Arc::new(FakePermissions::default_classification()),
         Arc::new(NoopRetrieval),
@@ -2618,8 +2607,6 @@ fn execute_tool_call_rejects_unknown_tool_names() {
         &json!({}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -2762,8 +2749,6 @@ fn fixed_skill_tools_dispatch_closed_requests_and_remain_available_in_plan_mode(
         }),
         Some("D:/code/project"),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -2819,8 +2804,6 @@ fn fixed_skill_tool_validation_rejects_unknown_fields_and_malformed_identity_bef
             &input,
             Some("D:/code/project"),
             not_cancelled(),
-            "onepiece",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -2855,8 +2838,6 @@ fn fixed_skill_tool_preserves_structured_unavailable_and_stale_outcomes() {
             &input,
             None,
             not_cancelled(),
-            "onepiece",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             true,
@@ -3014,8 +2995,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"command": "echo backgrounded", "run_in_background": true}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -3034,8 +3013,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"shell_id": handle}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -3052,8 +3029,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"shell_id": handle}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -3069,8 +3044,6 @@ fn background_tools_reject_an_unknown_handle_instead_of_returning_an_empty_resul
             &json!({"shell_id": "bg_not_a_real_handle"}),
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -3092,8 +3065,6 @@ fn background_tools_reject_a_missing_or_empty_handle() {
             &input,
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -3112,8 +3083,6 @@ fn plan_mode_denies_background_termination_but_allows_reading_output() {
         &json!({"shell_id": "bg_1"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -3130,8 +3099,6 @@ fn plan_mode_denies_background_termination_but_allows_reading_output() {
         &json!({"shell_id": "bg_1"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -3149,8 +3116,6 @@ fn background_start_is_unavailable_without_an_owning_session() {
         &json!({"command": "echo hi", "run_in_background": true}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         None,
@@ -3216,8 +3181,6 @@ fn write_todos(session_id: &str, todos: Value, plan_mode: bool) -> ToolExecution
         &json!({ "todos": todos }),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         None,
@@ -4183,8 +4146,6 @@ fn execute_tool_call_fails_closed_without_a_workspace_folder() {
         &json!({"command": "echo hi"}),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4204,8 +4165,6 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
         &json!({"command": "echo hi"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4217,8 +4176,6 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
         &json!({"operation": "read", "path": "a.txt"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4230,90 +4187,123 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
     assert_eq!(file_outcome.output, "1\thello");
 }
 
+/// The tool keeps its name and its place, and stops writing a memory.
+///
+/// What the model asked to remember becomes a proposal a person decides about. The model is told
+/// so: reporting "Saved." for something awaiting review would have it act, later in the same
+/// session, as though the fact were settled.
 #[test]
-fn execute_tool_call_routes_remember_and_works_without_a_workspace_folder() {
-    let memories = FakeMemories::default();
+fn the_memory_tool_proposes_a_candidate_rather_than_writing_a_memory() {
+    let request = onepiece_session("session-remember-proposes");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
 
-    let outcome = execute_tool_call(
-        REMEMBER_TOOL_NAME,
+    let outcome = propose_remembered_memory(
+        &json!({"content": "Uses pnpm.", "name": "npm-only", "description": "Package manager"}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(!outcome.is_error);
+    assert!(outcome.output.contains("Proposed for review"));
+    assert_eq!(
+        snapshots.proposals(),
+        vec![AgentMemoryProposal::Create {
+            name: "npm-only".to_string(),
+            description: "Package manager".to_string(),
+            memory_type: None,
+            content: "Uses pnpm.".to_string(),
+        }]
+    );
+}
+
+/// A queue is read by a person, so an unnamed proposal takes the first line of what it holds
+/// rather than a placeholder that describes nothing.
+#[test]
+fn an_unnamed_proposal_is_labelled_from_its_own_first_line() {
+    let request = onepiece_session("session-remember-unnamed");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+
+    let _ = propose_remembered_memory(
+        &json!({"content": "Uses pnpm.\nAnd never npm."}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(matches!(
+        snapshots.proposals().as_slice(),
+        [AgentMemoryProposal::Create { name, .. }] if name == "Uses pnpm."
+    ));
+}
+
+#[test]
+fn the_memory_tool_rejects_empty_content_before_proposing_anything() {
+    let request = onepiece_session("session-remember-empty");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+
+    let outcome = propose_remembered_memory(
+        &json!({"content": "   "}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(outcome.is_error);
+    assert!(snapshots.proposals().is_empty());
+}
+
+/// 6.8 — a temporary session proposes nothing either.
+///
+/// Denying the write while allowing the proposal would leave the session's content in a queue the
+/// user reads later, which is exactly what "do not retain this" was asking not to happen.
+#[test]
+fn a_temporary_session_proposes_no_candidate_from_the_memory_tool() {
+    let request = onepiece_session("session-remember-temporary");
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "session_temporary",
+    ));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
+
+    let outcome = propose_remembered_memory(
         &json!({"content": "Uses pnpm."}),
-        None,
-        not_cancelled(),
-        "test-agent",
-        &memories,
-        &NoopMcp,
-        &NoopRetrieval,
-        false,
-    );
-
-    assert!(!outcome.is_error);
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].0, "test-agent");
-    assert_eq!(saved[0].1, None);
-    assert_eq!(saved[0].2, "Uses pnpm.");
-    assert_eq!(saved[0].3, MemorySource::Explicit);
-}
-
-#[test]
-fn execute_tool_call_remember_rejects_empty_content() {
-    let outcome = execute_tool_call(
-        REMEMBER_TOOL_NAME,
-        &json!({"content": "   "}),
-        Some("."),
-        not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
-        &NoopMcp,
-        &NoopRetrieval,
-        false,
-    );
-    assert!(outcome.is_error);
-}
-
-/// Task 14: a successful save must wake the background indexing worker so the new memory is
-/// indexed promptly instead of waiting up to one reconcile poll period.
-#[test]
-fn saving_a_memory_wakes_the_indexing_worker() {
-    let memories = FakeMemories::default();
-    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
-        hits: Vec::new(),
-        degraded: None,
-    }));
-
-    let outcome = execute_remember(
-        &json!({"content": "Uses npm."}),
-        "test-agent",
-        None,
-        &memories,
-        &retrieval,
-    );
-
-    assert!(!outcome.is_error);
-    assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 1);
-}
-
-/// Task 14: an empty/whitespace-only `content` is rejected before `memories.save` is ever
-/// called — there is no new memory to index, so waking the worker would just burn a full
-/// two-table reconcile scan for nothing.
-#[test]
-fn a_rejected_memory_does_not_wake_the_worker() {
-    let memories = FakeMemories::default();
-    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
-        hits: Vec::new(),
-        degraded: None,
-    }));
-
-    let outcome = execute_remember(
-        &json!({"content": "   "}),
-        "test-agent",
-        None,
-        &memories,
-        &retrieval,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
     );
 
     assert!(outcome.is_error);
-    assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 0);
+    assert!(snapshots.proposals().is_empty());
 }
 
 #[test]
@@ -4331,8 +4321,6 @@ fn execute_tool_call_routes_mcp_prefixed_names_to_the_mcp_port_and_maps_the_outc
         &json!({"query": "hello"}),
         Some("D:\\code\\fixture"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4366,8 +4354,6 @@ fn execute_tool_call_routes_mcp_calls_even_without_a_workspace_folder() {
         &json!({}),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4397,8 +4383,6 @@ fn execute_tool_call_passes_generation_cancellation_to_the_mcp_port() {
         &json!({}),
         None,
         cancellation.clone(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4418,8 +4402,6 @@ fn execute_tool_call_rejects_shell_in_plan_mode() {
         &json!({"command": "echo hi"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4443,8 +4425,6 @@ fn execute_tool_call_rejects_mcp_calls_in_plan_mode_without_reaching_the_port() 
         &json!({"query": "hello"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         true,
@@ -4474,8 +4454,6 @@ fn execute_tool_call_reads_but_never_edits_a_notebook_in_plan_mode() {
         &json!({"operation": "read", "path": "a.ipynb"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4489,8 +4467,6 @@ fn execute_tool_call_reads_but_never_edits_a_notebook_in_plan_mode() {
             &json!({"operation": operation, "path": "a.ipynb", "cell_index": 0, "source": "y = 2\n"}),
             Some(&folder),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             true,
@@ -4546,8 +4522,6 @@ fn execute_tool_call_still_allows_file_read_in_plan_mode() {
         &json!({"operation": "read", "path": "a.txt"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4568,8 +4542,6 @@ fn execute_tool_call_rejects_file_write_in_plan_mode() {
         &json!({"operation": "write", "path": "a.txt", "content": "x"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4592,8 +4564,6 @@ fn workspace_mutation_successful_file_write_publishes_one_normalized_path() {
         &json!({"operation": "write", "path": "src\\new.rs", "content": "fn new() {}\n"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4631,8 +4601,6 @@ fn workspace_mutation_successful_edit_publishes_one_normalized_path() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4687,8 +4655,6 @@ fn workspace_mutation_failed_and_denied_operations_publish_nothing() {
             &input,
             Some(&folder),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &mutations,
@@ -4711,8 +4677,6 @@ fn workspace_mutation_notification_failure_does_not_change_successful_tool_resul
         &json!({"operation": "write", "path": "a.rs", "content": "fn main() {}\n"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4738,8 +4702,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"pattern": "needle"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4752,8 +4714,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"pattern": "**/*.rs"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4766,8 +4726,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"path": "a.rs", "old_string": "needle = 1", "new_string": "needle = 2"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4792,8 +4750,6 @@ fn execute_tool_call_rejects_edit_in_plan_mode() {
         &json!({"path": "a.rs", "old_string": "a = 1", "new_string": "a = 2"}),
         Some(&directory.path().to_string_lossy()),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4816,8 +4772,6 @@ fn execute_tool_call_still_allows_search_tools_in_plan_mode() {
         &json!({"pattern": "needle"}),
         Some(&directory.path().to_string_lossy()),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4923,8 +4877,6 @@ fn execute_tool_call_honors_a_file_limit_argument_that_arrived_as_an_integral_fl
         &json!({"operation": "read", "path": "a.txt", "limit": 3.0}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4949,8 +4901,6 @@ fn execute_tool_call_still_rejects_an_explicit_zero_file_limit_argument() {
         &json!({"operation": "read", "path": "a.txt", "limit": 0}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4971,8 +4921,6 @@ fn execute_tool_call_rejects_a_string_grep_head_limit_argument_instead_of_silent
         &json!({"pattern": "needle", "head_limit": "5"}),
         Some(&folder),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4993,8 +4941,6 @@ fn execute_tool_call_rejects_a_negative_grep_context_argument() {
         &json!({"pattern": "needle", "context": -1}),
         Some(&folder),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -5352,8 +5298,6 @@ fn lsp_execution_derives_scope_from_session_and_returns_visible_json() {
         &json!({"path": "src/lib.rs", "line": 3, "column": 7}),
         Some("C:/workspace"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &code_intelligence,
@@ -5386,8 +5330,6 @@ fn lsp_workspace_scope_injection_cannot_override_the_session_context() {
         }),
         Some("C:/trusted-workspace"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &code_intelligence,
@@ -5433,8 +5375,6 @@ fn plan_mode_executes_all_four_read_only_lsp_tools() {
             &input,
             Some("C:/workspace"),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &code_intelligence,
@@ -5461,8 +5401,6 @@ fn plan_mode_rejects_workspace_edits_and_unadvertised_mutating_lsp_tools() {
             &json!({"path": "src/lib.rs", "line": 1, "column": 1}),
             Some("C:/workspace"),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &code_intelligence,
@@ -5523,8 +5461,6 @@ fn search_code_uses_the_session_workspace_and_returns_read_file_coordinates() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5551,8 +5487,6 @@ fn search_code_uses_the_session_workspace_and_returns_read_file_coordinates() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5571,8 +5505,6 @@ fn recall_returns_a_successful_result_when_retrieval_fails_so_generation_continu
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5600,8 +5532,6 @@ fn recall_ignores_scope_properties_the_model_invents_because_the_pool_is_shared(
         &json!({"query": "x", "agent_id": "other-agent", "folder": "/other/project"}),
         Some("D:\\real\\project"),
         not_cancelled(),
-        "real-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5635,8 +5565,6 @@ fn recall_clamps_its_limit_to_the_documented_bounds() {
             &input,
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &retrieval,
             false,
@@ -5665,8 +5593,6 @@ fn recall_projects_away_internal_fields() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5703,8 +5629,6 @@ fn recall_surfaces_degradation_only_when_degraded() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &healthy,
         false,
@@ -5714,8 +5638,6 @@ fn recall_surfaces_degradation_only_when_degraded() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &degraded,
         false,
@@ -6082,6 +6004,7 @@ struct ScriptedSnapshots {
     bodies: Vec<AgentMemory>,
     calls: AtomicUsize,
     body_requests: Mutex<Vec<Vec<AgentMemoryRef>>>,
+    proposed: Mutex<Vec<Vec<AgentMemoryProposal>>>,
 }
 
 impl ScriptedSnapshots {
@@ -6091,6 +6014,7 @@ impl ScriptedSnapshots {
             bodies: Vec::new(),
             calls: AtomicUsize::new(0),
             body_requests: Mutex::new(Vec::new()),
+            proposed: Mutex::new(Vec::new()),
         }
     }
 
@@ -6099,6 +6023,16 @@ impl ScriptedSnapshots {
             bodies,
             ..Self::new(snapshot)
         }
+    }
+
+    fn proposals(&self) -> Vec<AgentMemoryProposal> {
+        self.proposed
+            .lock()
+            .expect("proposed")
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     fn offered_bodies(&self) -> Vec<String> {
@@ -6168,6 +6102,21 @@ impl AgentPersonalizationSnapshotPort for ScriptedSnapshots {
             .push(refs.to_vec());
         Ok(pinned_bodies_from(refs, &self.bodies))
     }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        let accepted = submission.proposals.len();
+        self.proposed
+            .lock()
+            .expect("proposed")
+            .push(submission.proposals);
+        Ok(AgentCandidateOutcome {
+            accepted,
+            rejected: 0,
+        })
+    }
 }
 
 /// The snapshot the pre-governance defaults resolve to: memory on, no instructions.
@@ -6191,6 +6140,15 @@ fn memory_body(id: &str, content: &str) -> AgentMemory {
         content: content.to_string(),
         ..fake_memory(id, content)
     }
+}
+
+/// A snapshot that allows extraction and offers one eligible memory to correct.
+fn extraction_snapshots() -> ScriptedSnapshots {
+    ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![memory_ref("existing", "Already stored.")],
+        AgentMemoryDelivery::IndexOnly,
+    ))
 }
 
 fn memory_ref(id: &str, description: &str) -> AgentMemoryRef {
@@ -6297,7 +6255,6 @@ fn execute_with_snapshot_port(
         &FixedClock,
         &NoopSkills,
         &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
-        &FakeMemories::default(),
         &NoopMcp,
         &FakePermissions::default_classification(),
         &NoopRetrieval,
@@ -6969,7 +6926,7 @@ fn summarize_turns_returns_err_when_the_http_call_fails() {
 }
 
 #[test]
-fn extract_memories_applies_the_returned_action_list() {
+fn extraction_proposes_candidates_and_writes_no_memory() {
     let (address, server) = http_fixture(
         "200 OK",
         sse_body(&[
@@ -6980,9 +6937,14 @@ fn extract_memories_applies_the_returned_action_list() {
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
 
     extract_memories(
         &wire_format,
@@ -6992,30 +6954,38 @@ fn extract_memories_applies_the_returned_action_list() {
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        Some("my-folder"),
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 2);
     assert_eq!(
-        saved[0],
-        (
-            "my-agent".to_string(),
-            Some("my-folder".to_string()),
-            "Uses pnpm.".to_string(),
-            MemorySource::Automatic,
-        )
+        snapshots.proposals(),
+        vec![
+            AgentMemoryProposal::Create {
+                name: "npm-only".to_string(),
+                description: "Uses npm".to_string(),
+                memory_type: None,
+                content: "Uses pnpm.".to_string(),
+            },
+            AgentMemoryProposal::Create {
+                name: "dark-mode".to_string(),
+                description: "Prefers dark mode".to_string(),
+                memory_type: None,
+                content: "Prefers dark mode.".to_string(),
+            },
+        ]
     );
-    assert_eq!(saved[1].2, "Prefers dark mode.");
-    assert!(logging.logs.lock().expect("logs").is_empty());
-    // The response is an action list now, not one memory per line: a line can only ever
-    // create, which is what made the pool grow without ever being corrected.
+    // One Debug line recording how many were queued, and nothing about what any of them said.
+    let logs = logging.logs.lock().expect("logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].level, AgentLogLevel::Debug);
+    assert!(!logs[0].message.contains("Uses pnpm"));
 }
 
 #[test]
@@ -7024,9 +6994,14 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
 
     extract_memories(
         &wire_format,
@@ -7036,16 +7011,17 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        None,
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    assert!(memories.saved.lock().expect("saved memories").is_empty());
+    assert!(snapshots.proposals().is_empty());
     // "Nothing worth remembering" is a normal outcome, not a failure — unlike the HTTP
     // failure case below, it must not be logged.
     assert!(logging.logs.lock().expect("logs").is_empty());
@@ -7057,9 +7033,14 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+    });
 
     extract_memories(
         &wire_format,
@@ -7069,16 +7050,17 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        None,
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    assert!(memories.saved.lock().expect("saved memories").is_empty());
+    assert!(snapshots.proposals().is_empty());
     let logs = logging.logs.lock().expect("logs");
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].level, AgentLogLevel::Warn);
@@ -7174,8 +7156,10 @@ fn run_optimizer_compaction_with_logging(
         logging,
         &FixedClock,
         &sample_request("api"),
-        &FakeMemories::default(),
-        &snapshot,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &governed,
+        },
         false,
         None,
         &mut request_sequence,
@@ -7236,8 +7220,10 @@ fn run_controlled_compaction_with_quality(
         logging,
         &FixedClock,
         request,
-        &FakeMemories::default(),
-        &noop_snapshot(),
+        GenerationPersonalization {
+            snapshot: &noop_snapshot(),
+            port: &NoopPersonalization,
+        },
         false,
         None,
         &mut request_sequence,
@@ -8164,7 +8150,7 @@ fn maybe_compact_falls_back_to_leaving_turns_untouched_when_summarization_fails(
 }
 
 #[test]
-fn maybe_compact_triggers_extraction_and_saves_memories_when_it_succeeds() {
+fn maybe_compact_triggers_extraction_without_writing_a_memory() {
     let (address, server) = http_fixture_sequence(
         "200 OK",
         vec![
@@ -8221,12 +8207,10 @@ fn maybe_compact_triggers_extraction_and_saves_memories_when_it_succeeds() {
         2,
         "compaction's own summarization call, then extraction's"
     );
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].0, request.agent.id);
-    assert_eq!(saved[0].1, request.session.folder);
-    assert_eq!(saved[0].2, "Uses pnpm.");
-    assert_eq!(saved[0].3, MemorySource::Automatic);
+    // What extraction produces is a proposal, asserted in
+    // `extraction_proposes_candidates_and_writes_no_memory`. What it must never produce is a
+    // write, and this is the path where one used to happen.
+    assert!(memories.saved.lock().expect("saved memories").is_empty());
 }
 
 fn history_message(
@@ -8523,9 +8507,7 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
         2,
         "the sub-toggle only gates tool-assisted sessions"
     );
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].2, "Uses pnpm.");
+    assert!(memories.saved.lock().expect("saved memories").is_empty());
 }
 
 /// Panics if `list` is ever called — proves the memory-disabled path in `resolve_system_prompt`
@@ -9338,7 +9320,9 @@ fn a_temporary_session_still_compacts_while_nothing_is_extracted() {
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let request = onepiece_session("session-temporary-compaction");
-    let memories = FakeMemories::default();
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "session_temporary",
+    ));
     let temporary = AgentPersonalizationSnapshot::fail_closed("session_temporary");
     let mut turns = compactable_turns();
 
@@ -9354,8 +9338,10 @@ fn a_temporary_session_still_compacts_while_nothing_is_extracted() {
         &NoopLogging,
         &FixedClock,
         &request,
-        &memories,
-        &temporary,
+        GenerationPersonalization {
+            snapshot: &temporary,
+            port: &snapshots,
+        },
         false,
     );
     server.join().expect("fixture server");
@@ -9364,8 +9350,8 @@ fn a_temporary_session_still_compacts_while_nothing_is_extracted() {
     assert_eq!(turns.len(), 1 + COMPACTION_KEEP_RECENT_TURNS);
     assert_eq!(turns[0]["content"], "Condensed summary.");
     assert!(
-        memories.saved.lock().expect("saved memories").is_empty(),
-        "a temporary session must leave nothing behind"
+        snapshots.proposals().is_empty(),
+        "a temporary session must leave nothing behind, not even a proposal"
     );
 }
 
@@ -9440,7 +9426,6 @@ fn a_rejected_remember_never_wakes_the_retrieval_index() {
         "the remember call must have reached dispatch and been rejected there"
     );
     assert!(memories.saved.lock().expect("saved").is_empty());
-    assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 0);
     assert!(
         retrieval.calls.lock().expect("calls").is_empty(),
         "a denied session must not reach the memory search either"

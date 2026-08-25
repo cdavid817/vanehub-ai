@@ -139,9 +139,7 @@ pub(crate) use manual_native_tool_adapter::{
 pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 #[allow(unused_imports)]
-pub(crate) use memory_actions::{
-    apply_memory_actions, render_existing_manifest, AppliedMemoryActions,
-};
+pub(crate) use memory_actions::{proposals_from_actions, render_existing_manifest};
 #[allow(unused_imports)]
 pub(crate) use memory_directory::{
     is_within_memory_directory, memory_directory_root, FileAgentMemoryStore, MemoryHeader,

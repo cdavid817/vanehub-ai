@@ -5,9 +5,11 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 
-use super::personalization_bridge::{instruction_block, memory_access, LegacyMemoryPortBridge};
+use super::personalization_bridge::{
+    instruction_block, memory_access, to_candidate_operation, LegacyMemoryPortBridge,
+};
 use crate::contexts::agent_runtime::application::{
-    AgentMemoryPort, MemorySource, PersonalizationSettings, SaveMemoryInput,
+    AgentMemoryPort, AgentMemoryProposal, MemorySource, PersonalizationSettings, SaveMemoryInput,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
@@ -18,10 +20,11 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{
     AgentId, AgentRuntimeKind, EffectivePersonalizationSnapshot, InstructionField,
-    InstructionMergeAction, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource as GovernedSource, MemoryStatus, MemoryType as GovernedType,
-    MigrationPhase, MigrationState, PersonalizationResolutionContext, PersonalizationWarningCode,
-    ResolvedInstructionSegment, SessionId, SessionPersonalizationMode,
+    InstructionMergeAction, MemoryAudience, MemoryCandidateOperation, MemoryId, MemoryProvenance,
+    MemoryRecord, MemoryScope, MemorySensitivity, MemorySource as GovernedSource, MemoryStatus,
+    MemoryType as GovernedType, MigrationPhase, MigrationState, PersonalizationResolutionContext,
+    PersonalizationWarningCode, ResolvedInstructionSegment, SessionId, SessionPersonalizationMode,
+    WorkspaceKey,
 };
 use crate::contexts::personalization::infrastructure::SqliteMigrationState;
 use crate::platform::database::NativeDatabase;
@@ -386,4 +389,87 @@ fn the_tool_assisted_sub_policy_cannot_re_enable_extraction_the_snapshot_denied(
 
     assert!(!access.automatic_extraction);
     assert!(!access.automatic_extraction_in_tool_assisted_turns);
+}
+
+fn proposed_create() -> AgentMemoryProposal {
+    AgentMemoryProposal::Create {
+        name: "npm-only".to_string(),
+        description: "Package manager".to_string(),
+        memory_type: None,
+        content: "Never pnpm in this repo.".to_string(),
+    }
+}
+
+/// Scope comes from the session, never from the proposal.
+///
+/// A runtime proposal has no scope field at all, which is the point: letting a model name the
+/// scope of what it proposes would let it widen what it is allowed to affect by asking.
+#[test]
+fn a_proposal_takes_the_scope_of_the_session_that_produced_it() {
+    let workspace = MemoryScope::Workspace {
+        workspace_key: WorkspaceKey::parse("ws_vanehub").expect("workspace key"),
+    };
+
+    let scoped = to_candidate_operation(proposed_create(), &workspace).expect("operation");
+    let global = to_candidate_operation(proposed_create(), &MemoryScope::Global).expect("op");
+
+    match (scoped, global) {
+        (MemoryCandidateOperation::Create(scoped), MemoryCandidateOperation::Create(global)) => {
+            assert_eq!(scoped.scope, workspace);
+            assert_eq!(global.scope, MemoryScope::Global);
+        }
+        other => panic!("expected two create candidates, got {other:?}"),
+    }
+}
+
+/// `Untyped` exists for records migrated from a store that had no types. A proposal that named no
+/// type is a project note, not a claim that it predates the taxonomy.
+#[test]
+fn a_proposal_without_a_type_becomes_a_project_note_rather_than_untyped() {
+    let operation = to_candidate_operation(proposed_create(), &MemoryScope::Global);
+
+    match operation {
+        Some(MemoryCandidateOperation::Create(create)) => {
+            assert_eq!(create.memory_type, GovernedType::Project);
+            assert_eq!(create.audience, MemoryAudience::AllAgents);
+        }
+        other => panic!("expected a create candidate, got {other:?}"),
+    }
+}
+
+/// The name is how a user finds a memory again, so a silent rename would read as one having
+/// disappeared. Extraction may correct what a memory says, not what it is called.
+#[test]
+fn an_update_proposal_can_never_carry_a_rename() {
+    let operation = to_candidate_operation(
+        AgentMemoryProposal::Update {
+            target_id: "01K2MEM0000000000000000001".to_string(),
+            expected_revision: 4,
+            description: Some("Corrected".to_string()),
+            content: Some("Uses pnpm after all.".to_string()),
+        },
+        &MemoryScope::Global,
+    );
+
+    match operation {
+        Some(MemoryCandidateOperation::Update(update)) => {
+            assert_eq!(update.name, None);
+            assert_eq!(update.expected_target_revision, 4);
+        }
+        other => panic!("expected an update candidate, got {other:?}"),
+    }
+}
+
+/// A target id that is not a legal memory id is dropped rather than guessed at.
+#[test]
+fn a_proposal_naming_an_unparseable_target_translates_to_nothing() {
+    let operation = to_candidate_operation(
+        AgentMemoryProposal::Archive {
+            target_id: "not a memory id".to_string(),
+            expected_revision: 1,
+        },
+        &MemoryScope::Global,
+    );
+
+    assert!(operation.is_none());
 }

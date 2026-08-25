@@ -172,13 +172,14 @@ pub(crate) use native_tools::{
 };
 pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
-    AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCliProfileGateway,
-    AgentClockPort, AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort,
-    AgentCoreInstructionsPort, AgentEventPort, AgentGenerationPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryBody, AgentMemoryExtractionPort, AgentMemoryPort,
-    AgentMemorySelectionPort, AgentMessageTerminalCompletionPort, AgentPermissionPort,
-    AgentPersonalizationPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome,
+    AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCandidateOutcome,
+    AgentCandidateSubmission, AgentCliProfileGateway, AgentClockPort, AgentCodeRetrievalHit,
+    AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentCoreInstructionsPort, AgentEventPort,
+    AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryBody,
+    AgentMemoryExtractionPort, AgentMemoryPort, AgentMemoryProposal, AgentMemorySelectionPort,
+    AgentMessageTerminalCompletionPort, AgentPermissionPort, AgentPersonalizationPort,
+    AgentPersonalizationSnapshotPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentProposalOrigin, AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome,
     AgentRetrievalPort, AgentSessionGateway, AgentSkillPort, AgentTaskPort, AgentTerminalEventPort,
     AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort,
     AuthoritativeContextPort, CanonicalLoopSignal, CanonicalRunLinks, CanonicalRunOutcome,

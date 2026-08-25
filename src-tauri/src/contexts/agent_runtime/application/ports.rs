@@ -1298,6 +1298,73 @@ pub(crate) trait AgentPersonalizationSnapshotPort: Send + Sync {
         &self,
         refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError>;
+
+    /// Proposes changes to long-term memory. Never applies them.
+    ///
+    /// This is the only write a runtime has. Extraction and the model's own memory tool both come
+    /// through here, and what they produce is a reviewable proposal — there is no argument either
+    /// could pass that would reach an active record, because this boundary has no way to write
+    /// one. A model deciding what the user will remember, with no human in between, is the
+    /// behaviour this replaces.
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError>;
+}
+
+/// What produced a proposal. Recorded rather than inferred: a reviewer reading a queue needs to
+/// know whether the model said this outright or an extractor inferred it from a compacted turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentProposalOrigin {
+    AutomaticExtraction,
+    ModelTool,
+}
+
+/// One proposed change, in the shape a runtime can express.
+///
+/// `Archive` rather than delete, and every non-create carries the revision the snapshot pinned: a
+/// proposal written against one version of a memory must not silently apply to a different one the
+/// user edited in the meantime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentMemoryProposal {
+    Create {
+        name: String,
+        description: String,
+        memory_type: Option<MemoryType>,
+        content: String,
+    },
+    Update {
+        target_id: String,
+        expected_revision: u64,
+        description: Option<String>,
+        content: Option<String>,
+    },
+    Archive {
+        target_id: String,
+        expected_revision: u64,
+    },
+}
+
+/// One batch of proposals from one generation.
+///
+/// `eligible` is what this generation was shown, and it travels with the batch so the boundary can
+/// refuse a proposal naming anything else. Without it a model shown three memories could correct
+/// or archive a fourth it had only guessed at.
+#[derive(Debug, Clone)]
+pub(crate) struct AgentCandidateSubmission {
+    pub(crate) proposals: Vec<AgentMemoryProposal>,
+    pub(crate) origin: AgentProposalOrigin,
+    pub(crate) agent_id: String,
+    pub(crate) session_id: String,
+    pub(crate) folder: Option<String>,
+    pub(crate) eligible: Vec<AgentMemoryRef>,
+}
+
+/// Counts only. What reaches the unified log about a batch of proposals must not be the proposals.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct AgentCandidateOutcome {
+    pub(crate) accepted: usize,
+    pub(crate) rejected: usize,
 }
 
 /// One pinned memory with its text, for the few that reach a prompt.
@@ -1384,11 +1451,6 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
     /// there is no per-agent or per-folder slice for a caller to name.
     fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
-
-    /// Best-effort wake signal for the background indexing worker after a memory changes —
-    /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
-    /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
-    fn notify_source_changed(&self);
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         None

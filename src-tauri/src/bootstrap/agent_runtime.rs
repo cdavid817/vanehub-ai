@@ -661,7 +661,6 @@ pub(crate) fn assemble_agent_runtime_api(
             clock.clone(),
             agent_skills,
             Arc::new(NativeAgentCoreInstructionsAdapter),
-            agent_memories.clone(),
             agent_mcp_tools,
             agent_permissions.clone(),
             dependencies.retrieval,

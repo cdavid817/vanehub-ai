@@ -4,21 +4,22 @@ use super::super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
 use super::super::skill_tool_catalog_adapter::{
     resolve_skill_tool_catalog, ResolvedSkillToolCatalog,
 };
-use super::super::tools::task_list_prompt_section;
+use super::super::tools::{task_list_prompt_section, ToolExecutionOutcome};
 use super::{SKILL_AGGREGATE_CHARACTER_BUDGET, SKILL_PER_ITEM_CHARACTER_BUDGET};
 use crate::contexts::agent_runtime::application::MemorySource;
 use crate::contexts::agent_runtime::application::{
     ask_user_question_tool_definition, code_intelligence_tool_definitions,
     delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, AgentClockPort, AgentCodeIntelligenceContext,
-    AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryDelivery, AgentMemoryRef,
-    AgentMemorySelectionPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
-    AgentRetrievalPort, AgentSkillPort, ApiProviderConfig, BoundSkillPrompt,
-    GenerationPersonalizationContext, GenerationProcessRequest, NativeToolExecutionMode,
-    NativeToolRegistry, ToolDefinition, ToolEligibilityContext,
-    UtilityDelegationApplicationService,
+    search_code_tool_definition, tool_catalog, AgentCandidateSubmission, AgentClockPort,
+    AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLog,
+    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryDelivery,
+    AgentMemoryProposal, AgentMemoryRef, AgentMemorySelectionPort, AgentPersonalizationSnapshot,
+    AgentPersonalizationSnapshotPort, AgentProposalOrigin, AgentRetrievalPort, AgentSkillPort,
+    ApiProviderConfig, BoundSkillPrompt, GenerationPersonalizationContext,
+    GenerationProcessRequest, NativeToolExecutionMode, NativeToolRegistry, ToolDefinition,
+    ToolEligibilityContext, UtilityDelegationApplicationService,
 };
+use crate::contexts::agent_runtime::domain::MemoryType;
 use crate::contexts::skill_evolution_evidence::domain::{
     ObservedSkillRevision, SkillAssociationKind,
 };
@@ -231,6 +232,109 @@ pub(super) fn resolve_generation_skill_tools(
             });
             None
         }
+    }
+}
+
+/// This generation's personalization: the answer it was planned around, and the boundary it can
+/// propose back through.
+///
+/// Carried together because neither is usable alone. A snapshot without the boundary cannot act on
+/// what it resolved, and the boundary without the snapshot has no eligible set to judge a proposal
+/// against — which is exactly the pair a second, independently-resolved read would break.
+#[derive(Clone, Copy)]
+pub(super) struct GenerationPersonalization<'a> {
+    pub(super) snapshot: &'a AgentPersonalizationSnapshot,
+    pub(super) port: &'a dyn AgentPersonalizationSnapshotPort,
+}
+
+/// Records what the model asked to remember, as a proposal.
+///
+/// The tool keeps its name and its place in the catalog, and stops writing a memory. A model
+/// deciding on its own what the user will still be told six months from now is the behaviour this
+/// replaces: what it produces now is a queue entry, and a person decides.
+///
+/// Every gate comes from this generation's snapshot rather than a fresh read. A second read could
+/// disagree with the one the prompt was built from, which would allow a tool call against a policy
+/// the model was never told about.
+pub(super) fn propose_remembered_memory(
+    input: &serde_json::Value,
+    personalization: GenerationPersonalization<'_>,
+    request: &GenerationProcessRequest,
+) -> ToolExecutionOutcome {
+    let content = input
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if content.is_empty() {
+        return ToolExecutionOutcome {
+            output: "No content was provided to remember.".to_string(),
+            is_error: true,
+        };
+    }
+    // Two separate answers, and both must hold. A temporary session forbids proposing one even
+    // where saving would otherwise have been permitted.
+    if !personalization.snapshot.memory.explicit_save
+        || !personalization.snapshot.memory.candidate_creation
+    {
+        return ToolExecutionOutcome {
+            output: "Memory is disabled; nothing was remembered.".to_string(),
+            is_error: true,
+        };
+    }
+    let name = input
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let description = input
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let memory_type = input
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .and_then(MemoryType::parse);
+    let submission = AgentCandidateSubmission {
+        proposals: vec![AgentMemoryProposal::Create {
+            // A name is how a person finds the proposal in a queue, so an unnamed one gets the
+            // first line of what it holds rather than a placeholder that describes nothing.
+            name: if name.is_empty() {
+                content.lines().next().unwrap_or(content).to_string()
+            } else {
+                name.to_string()
+            },
+            description: if description.is_empty() {
+                content.lines().next().unwrap_or(content).to_string()
+            } else {
+                description.to_string()
+            },
+            memory_type,
+            content: content.to_string(),
+        }],
+        origin: AgentProposalOrigin::ModelTool,
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        eligible: personalization.snapshot.memory.eligible.clone(),
+    };
+    match personalization.port.propose_memories(submission) {
+        // The model is told what actually happened. Reporting "Saved." for something awaiting
+        // review would have it act, later in the same session, as though the fact were settled.
+        Ok(outcome) if outcome.accepted > 0 => ToolExecutionOutcome {
+            output: "Proposed for review. It is not in memory until the user approves it."
+                .to_string(),
+            is_error: false,
+        },
+        Ok(_) => ToolExecutionOutcome {
+            output: "The proposal was refused and nothing was remembered.".to_string(),
+            is_error: true,
+        },
+        Err(error) => ToolExecutionOutcome {
+            output: format!("Failed to propose a memory: {error}"),
+            is_error: true,
+        },
     }
 }
 

@@ -5,19 +5,24 @@ use crate::contexts::personalization::api::{
 use std::time::SystemTime;
 
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryAccess, AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort,
-    AgentMemoryRef, AgentPersonalizationPort, AgentPersonalizationSnapshot,
-    AgentPersonalizationSnapshotPort, AgentRuntimeApplicationError,
-    GenerationPersonalizationContext, MemorySource, PersonalizationSettings, SaveMemoryInput,
+    AgentCandidateOutcome, AgentCandidateSubmission, AgentMemory, AgentMemoryAccess,
+    AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort, AgentMemoryProposal, AgentMemoryRef,
+    AgentPersonalizationPort, AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort,
+    AgentProposalOrigin, AgentRuntimeApplicationError, GenerationPersonalizationContext,
+    MemorySource, PersonalizationSettings, SaveMemoryInput,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::personalization::application::{
-    legacy_workspace_request, ResolutionRequest, WorkspaceIdentityPort, WorkspaceIdentityResolver,
+    legacy_workspace_request, CandidateSubmission, ResolutionRequest, WorkspaceIdentityPort,
+    WorkspaceIdentityResolver,
 };
+use crate::contexts::personalization::domain::MemorySource as GovernedSource;
 use crate::contexts::personalization::domain::MemoryType as GovernedMemoryType;
 use crate::contexts::personalization::domain::{
-    AgentId, InstructionField, MemoryDeliveryMode, SessionId, SessionPersonalizationMode,
+    AgentId, ArchiveMemoryCandidate, CreateMemoryCandidate, InstructionField, MemoryAudience,
+    MemoryCandidateOperation, MemoryDeliveryMode, MemoryId, MemoryProvenance, MemoryScope,
+    SessionId, SessionPersonalizationMode, UpdateMemoryCandidate,
 };
 
 /// Satisfies `agent_runtime`'s pre-governance memory port from the governed v2 store.
@@ -328,6 +333,119 @@ impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
                 })
             })
             .collect())
+    }
+
+    /// Translates one generation's proposals and hands them to the review queue.
+    ///
+    /// The scope of a proposal comes from the session, never from the model: a create proposed in
+    /// a session with a resolvable workspace is proposed for that workspace, and one without is
+    /// global. Letting a proposal name its own scope would let a model widen what it is allowed to
+    /// affect by asking.
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        let workspace = submission
+            .folder
+            .as_deref()
+            .and_then(legacy_workspace_request)
+            .and_then(|request| self.workspace_identity.resolve(&request).ok())
+            .flatten();
+        let provenance = MemoryProvenance {
+            source_agent_id: AgentId::parse(&submission.agent_id).ok(),
+            source_session_id: SessionId::parse(&submission.session_id).ok(),
+            source_workspace_key: workspace.as_ref().map(|identity| identity.key().clone()),
+            ..MemoryProvenance::default()
+        };
+        let scope = match workspace.as_ref() {
+            Some(identity) => MemoryScope::Workspace {
+                workspace_key: identity.key().clone(),
+            },
+            None => MemoryScope::Global,
+        };
+        let eligible_targets: Vec<MemoryId> = submission
+            .eligible
+            .iter()
+            .filter_map(|entry| MemoryId::parse(entry.id.trim_end_matches(".md")).ok())
+            .collect();
+        let total = submission.proposals.len();
+        let proposals: Vec<MemoryCandidateOperation> = submission
+            .proposals
+            .into_iter()
+            .filter_map(|proposal| to_candidate_operation(proposal, &scope))
+            .collect();
+        // A proposal this boundary could not even translate is rejected here rather than being
+        // dropped silently: the caller reports counts, and a batch that reported fewer than it
+        // sent with nothing to account for the difference would read as a persistence bug.
+        let untranslated = total - proposals.len();
+        let outcome = self
+            .personalization
+            .submit_memory_candidates(CandidateSubmission {
+                proposals,
+                source: match submission.origin {
+                    AgentProposalOrigin::AutomaticExtraction => GovernedSource::OnePieceAutomatic,
+                    AgentProposalOrigin::ModelTool => GovernedSource::ModelMemoryTool,
+                },
+                provenance,
+                eligible_targets,
+            })
+            .map_err(bridge_error)?;
+        Ok(AgentCandidateOutcome {
+            accepted: outcome.accepted_count(),
+            rejected: outcome.rejected_count() + untranslated,
+        })
+    }
+}
+
+/// Turns one runtime proposal into the governed shape, or drops it.
+///
+/// `None` for a target id that is not a legal memory id at all — a create's own id is allocated by
+/// the service, so only the two target-bearing kinds can fail here.
+pub(super) fn to_candidate_operation(
+    proposal: AgentMemoryProposal,
+    scope: &MemoryScope,
+) -> Option<MemoryCandidateOperation> {
+    match proposal {
+        AgentMemoryProposal::Create {
+            name,
+            description,
+            memory_type,
+            content,
+        } => Some(MemoryCandidateOperation::Create(CreateMemoryCandidate {
+            name,
+            description,
+            // A proposal that named no type is a project note by default rather than `Untyped`,
+            // which exists only for records migrated from a store that had no types at all.
+            memory_type: memory_type
+                .map(to_governed_type)
+                .unwrap_or(GovernedMemoryType::Project),
+            content,
+            scope: scope.clone(),
+            // Narrowing to a subset of Agents is a user's decision made in review, not something a
+            // proposing model may assert about the user's other Agents.
+            audience: MemoryAudience::AllAgents,
+        })),
+        AgentMemoryProposal::Update {
+            target_id,
+            expected_revision,
+            description,
+            content,
+        } => Some(MemoryCandidateOperation::Update(UpdateMemoryCandidate {
+            target_id: MemoryId::parse(target_id.trim_end_matches(".md")).ok()?,
+            expected_target_revision: expected_revision,
+            // Renaming is not something an extraction may propose: the name is how a user finds a
+            // memory again, and a silent rename reads as a memory having disappeared.
+            name: None,
+            description,
+            content,
+        })),
+        AgentMemoryProposal::Archive {
+            target_id,
+            expected_revision,
+        } => Some(MemoryCandidateOperation::Archive(ArchiveMemoryCandidate {
+            target_id: MemoryId::parse(target_id.trim_end_matches(".md")).ok()?,
+            expected_target_revision: expected_revision,
+        })),
     }
 }
 

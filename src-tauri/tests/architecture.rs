@@ -2431,9 +2431,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // comment explaining why `recall` needs two conditions rather than one. `execution.rs` is
     // again 0 net: the argument is passed inline, and the `tool_assisted_session` comment above it
     // lost a line it no longer needed once the gate moved into the snapshot.
+    //
+    // Raised again to 61,514 by the same change's candidate work, which routes automatic
+    // extraction and the model's memory tool through review instead of the store. +39 net across
+    // the subtree, and the composition is what matters rather than the size: +104 `prompt.rs` and
+    // +55 `generation.rs` for the two proposal paths and the `GenerationPersonalization` pair they
+    // travel in, against -62 `native_tools.rs` where `execute_remember` wrote a file, -23
+    // `memory_actions.rs` where the applier became a translator, -15 `tests.rs`, and -13 across
+    // `compaction.rs`, `execution.rs` and the two `mod.rs` files that stopped threading a memory
+    // port the OnePiece runtime no longer has any use for.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_475,
+        budget: 61_514,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2475,7 +2484,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // this session may read memory at all. Suppressing the index while leaving the search tool
         // in the catalog would have left a second door open into everything a temporary session
         // was told would not be retained.
-        budget: 32_992,
+        //
+        // Raised to 33,060 by the same change's candidate work. Production grows by 68 while the
+        // subtree as a whole grows by 39: the tests shrank because several of them had been
+        // asserting on a memory store the runtime no longer touches. The growth is the two
+        // proposal paths and their translation — a runtime proposal is a different shape from a
+        // save, and the difference is where "the model suggested this" stops being able to become
+        // "the user keeps this".
+        budget: 33_060,
         owner: "upgrade-cli-parameter-management",
     },
 ];

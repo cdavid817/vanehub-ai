@@ -16,23 +16,20 @@ use super::{failed_non_retryable, failed_retryable, PendingApprovals, REQUEST_TI
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligenceContext, AgentCodeIntelligencePort,
     AgentCodeRetrievalOutcome, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort,
-    AgentProcessEventSink, AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort,
-    AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ExistingToolHandler,
-    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessRequest, MemorySource,
+    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
+    AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort, AgentSkillReadRequest,
+    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessRequest,
     NativeToolAuthorizationStatus, NativeToolDispatchRequest, NativeToolDispatcher,
     NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, SaveMemoryInput, StoredToolOperation, StoredToolOperationStatus,
-    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
-    DELEGATE_UTILITY_SKILL_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
-    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME,
-    IMAGE_ARTIFACT_METADATA_KEY, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
-    READ_SKILL_RESOURCE_TOOL_NAME,
+    NativeToolResultStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibilityContext,
+    ToolUseBlock, UtilityDelegationApplicationService, DELEGATE_UTILITY_SKILL_TOOL_NAME,
+    FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
+    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
+    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME,
 };
-use crate::contexts::agent_runtime::domain::{
-    MemoryType, UtilityDelegationLimits, UtilityDelegationRequest,
-};
+use crate::contexts::agent_runtime::domain::{UtilityDelegationLimits, UtilityDelegationRequest};
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::platform::filesystem::BoundedFilesystem;
 use serde::Deserialize;
@@ -592,8 +589,6 @@ pub(super) fn execute_tool_call_with_runtime_ports(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
@@ -611,8 +606,6 @@ pub(super) fn execute_tool_call_with_runtime_ports(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         Some(code_intelligence),
@@ -959,8 +952,6 @@ pub(super) fn execute_tool_call_impl(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: Option<&dyn AgentCodeIntelligencePort>,
@@ -976,12 +967,15 @@ pub(super) fn execute_tool_call_impl(
     if registered_handler == Some(ExistingToolHandler::SkillRead) {
         return execute_skill_read(name, input, workspace_folder, skills);
     }
-    // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
-    // touches this app's own storage — so it's handled before the workspace-folder gate below,
-    // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
-    // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
+    // `remember` is not dispatched here. It became a personalization operation when model-
+    // originated writes started producing candidates, and this dispatcher has no snapshot to judge
+    // one against — so the generation loop handles it before reaching this point. Reaching it here
+    // would mean the interception was removed, and a proposal would silently become a write again.
     if registered_handler == Some(ExistingToolHandler::Remember) {
-        return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
+        return ToolExecutionOutcome {
+            output: "Memory proposals are not available on this path.".to_string(),
+            is_error: true,
+        };
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
@@ -1304,62 +1298,6 @@ fn invalid_code_intelligence_input(message: &str) -> ToolExecutionOutcome {
     ToolExecutionOutcome {
         output: message.to_owned(),
         is_error: true,
-    }
-}
-
-/// After a successful save, wakes the background indexing worker (`retrieval.
-/// notify_source_changed()`) so the new memory is indexed promptly instead of waiting up to one
-/// reconcile poll period. That call writes nothing, waits for nothing, and cannot fail by
-/// construction (`AgentRetrievalPort::notify_source_changed` returns `()`) — it is skipped
-/// entirely on the empty-content rejection path above, since there is no new memory to index and
-/// waking the worker would just burn a full two-table reconcile scan for nothing.
-pub(super) fn execute_remember(
-    input: &Value,
-    agent_id: &str,
-    folder: Option<&str>,
-    memories: &dyn AgentMemoryPort,
-    retrieval: &dyn AgentRetrievalPort,
-) -> ToolExecutionOutcome {
-    let content = input
-        .get("content")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
-    if content.is_empty() {
-        return ToolExecutionOutcome {
-            output: "No content was provided to remember.".to_string(),
-            is_error: true,
-        };
-    }
-    // `name` addresses the memory: saving under one that already exists replaces that file rather
-    // than adding a second memory for the same fact. Both stay optional so an older prompt that
-    // sends content alone still saves, with the store deriving what it needs.
-    let name = input.get("name").and_then(Value::as_str);
-    let description = input.get("description").and_then(Value::as_str);
-    let memory_type = input
-        .get("type")
-        .and_then(Value::as_str)
-        .and_then(MemoryType::parse);
-    match memories.save(SaveMemoryInput {
-        agent_id,
-        folder,
-        name,
-        description,
-        memory_type,
-        content,
-        source: MemorySource::Explicit,
-    }) {
-        Ok(()) => {
-            retrieval.notify_source_changed();
-            ToolExecutionOutcome {
-                output: "Saved.".to_string(),
-                is_error: false,
-            }
-        }
-        Err(error) => ToolExecutionOutcome {
-            output: format!("Failed to save memory: {error}"),
-            is_error: true,
-        },
     }
 }
 

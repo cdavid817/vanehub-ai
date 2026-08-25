@@ -12,10 +12,10 @@ use super::agent_image::AgentImage;
 use super::SqliteNativeToolRepository;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationSnapshotPort,
-    AgentProcessEventSink, AgentProcessGateway, AgentRetrievalPort, AgentRuntimeApplicationError,
-    AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ContextEngineService, ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
+    AgentMcpToolPort, AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
+    AgentProcessGateway, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ContextEngineService,
+    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
     GenerationProcessFailure, GenerationProcessRequest, NativeToolRegistry, ProcessStopInitiator,
     StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolUseBlock,
     UtilityDelegationApplicationService, WorkflowLaunchOutcome, WorkflowLaunchRequest,
@@ -56,9 +56,10 @@ use super::tools::{
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::{
     ask_user_question_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
-    tool_catalog, AgentChatConfiguration, AgentCodeIntelligenceContext, AgentCodeRetrievalOutcome,
-    AgentDocumentInput, AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentMemory,
-    AgentMemoryAccess, AgentMemoryBody, AgentMemoryDelivery, AgentMemoryRef,
+    tool_catalog, AgentCandidateOutcome, AgentCandidateSubmission, AgentChatConfiguration,
+    AgentCodeIntelligenceContext, AgentCodeRetrievalOutcome, AgentDocumentInput,
+    AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentMemory, AgentMemoryAccess,
+    AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort, AgentMemoryProposal, AgentMemoryRef,
     AgentMemorySelectionPort, AgentPersonalizationPort, AgentPersonalizationSnapshot,
     AgentRetrievalOutcome, AgentSkillReadRequest, ApiProviderConfig, BoundSkillPrompt,
     GenerationPersonalizationContext, MemorySource, NativeToolResultEnvelope,
@@ -121,9 +122,8 @@ use invocation::{
 pub(crate) use invocation::{context_snapshot_diagnostic, WireFormat};
 #[cfg(test)]
 use native_tools::{
-    artifact_ids, execute_registered_native_tool, execute_remember, execute_tool_call_impl,
-    is_image_read_request, operation_event, parse_optional_non_negative_integer_arg,
-    resolve_tool_image,
+    artifact_ids, execute_registered_native_tool, execute_tool_call_impl, is_image_read_request,
+    operation_event, parse_optional_non_negative_integer_arg, resolve_tool_image,
 };
 #[cfg(test)]
 use prompt::{
@@ -178,7 +178,6 @@ pub(crate) struct RuntimeAgentApiAdapter {
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-    memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
@@ -222,7 +221,6 @@ impl RuntimeAgentApiAdapter {
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-        memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
         permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
@@ -240,7 +238,6 @@ impl RuntimeAgentApiAdapter {
             clock,
             skills,
             core_instructions,
-            memories,
             mcp,
             permissions,
             retrieval,
@@ -259,7 +256,6 @@ impl RuntimeAgentApiAdapter {
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-        memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
         permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
@@ -275,7 +271,6 @@ impl RuntimeAgentApiAdapter {
             clock,
             skills,
             core_instructions,
-            memories,
             mcp,
             permissions,
             retrieval,
@@ -456,7 +451,6 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let clock = self.clock.clone();
         let skills = self.skills.clone();
         let core_instructions = self.core_instructions.clone();
-        let memories = self.memories.clone();
         let mcp = self.mcp.clone();
         let permissions = self.permissions.clone();
         let retrieval = self.retrieval.clone();
@@ -485,7 +479,6 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 clock,
                 skills,
                 core_instructions,
-                memories,
                 mcp,
                 permissions,
                 retrieval,
