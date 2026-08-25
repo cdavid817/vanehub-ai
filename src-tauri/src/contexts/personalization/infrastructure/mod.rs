@@ -29,6 +29,9 @@ mod memory_id_generator;
 mod schema;
 #[cfg(test)]
 mod schema_tests;
+mod secret_redaction;
+#[cfg(test)]
+mod secret_redaction_tests;
 mod sqlite_candidate_repository;
 #[cfg(test)]
 mod sqlite_candidate_repository_tests;
@@ -67,6 +70,7 @@ pub(crate) use memory_document::{
 };
 pub(crate) use memory_id_generator::UuidMemoryIdGenerator;
 pub(crate) use schema::apply_schema;
+pub(crate) use secret_redaction::PlatformSecretRedaction;
 pub(crate) use sqlite_candidate_repository::SqliteCandidateRepository;
 pub(crate) use sqlite_legacy_alias::SqliteLegacyAddressAlias;
 pub(crate) use sqlite_legacy_policy_migration::SqliteLegacyPolicyMigration;

@@ -466,6 +466,7 @@ pub(crate) fn build_for_tests(
         Arc::new(LegacySettingsCompatibility::new(
             Arc::new(SqlitePolicyRepository::new(database.clone())),
             clock,
+            Arc::new(super::application::LastKnownGoodPolicyCache::default()),
         )),
         Arc::new(SqliteLegacyAddressAlias::new(database)),
         Arc::new(super::application::WorkspaceIdentityResolver::for_this_platform()),

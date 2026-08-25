@@ -228,6 +228,15 @@ pub(crate) trait AgentCapabilityPort: Send + Sync {
     ) -> Result<Option<PersonalizationRuntimeCapabilities>>;
 }
 
+/// Removes anything secret-looking from text before it is shown or recorded.
+///
+/// A port because the rule belongs to the platform and this layer must not reach into it, and
+/// because the preview and the logs have to apply the *same* rule: a screen that redacted less than
+/// a log file would be the place a token escaped.
+pub(crate) trait SecretRedactionPort: Send + Sync {
+    fn redact(&self, text: &str) -> String;
+}
+
 /// Turns whatever the caller knows about a workspace into a stable local key.
 pub(crate) trait WorkspaceIdentityPort: Send + Sync {
     fn resolve(&self, request: &WorkspaceIdentityRequest) -> Result<Option<WorkspaceIdentity>>;

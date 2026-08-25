@@ -19,12 +19,12 @@ use super::{
 };
 use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
-    ClockPort, DerivedIndexPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
-    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
-    LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
-    MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
-    MigrationStatePort, PersonalizationApplicationError, PolicyRepository, ResetCounts,
-    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
+    ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
+    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
+    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort,
+    MemoryApplicationService, MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort,
+    MemoryRepository, MigrationStatePort, PersonalizationApplicationError, PolicyRepository,
+    ResetCounts, RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
     WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
@@ -290,6 +290,7 @@ fn reopen(
         Arc::new(LegacySettingsCompatibility::new(
             policies.clone(),
             Arc::new(FixedClock),
+            Arc::new(LastKnownGoodPolicyCache::default()),
         )),
         aliases,
         Arc::new(WorkspaceIdentityResolver::for_this_platform()),

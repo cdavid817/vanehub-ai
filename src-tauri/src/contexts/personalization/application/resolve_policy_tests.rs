@@ -9,17 +9,22 @@ use std::sync::{Arc, Mutex};
 
 use super::error::PersonalizationApplicationError;
 use super::models::{MemoryEligibilityCriteria, ResetCounts};
-use super::ports::{AgentCapabilityPort, MemoryHealthPort, MemoryProjectionPort, PolicyRepository};
+use super::policy_cache::{is_transient_read_failure, LastKnownGoodPolicyCache};
+use super::ports::{
+    AgentCapabilityPort, MemoryHealthPort, MemoryProjectionPort, PolicyRepository,
+    SecretRedactionPort,
+};
+use super::preview_personalization::PersonalizationPreviewService;
 use super::resolve_policy::{PolicyResolutionService, ResolutionRequest};
 use crate::contexts::personalization::domain::{
     AgentId, InstructionExclusionReason, InstructionField, InstructionMergeAction,
     InstructionMergeMode, MemoryBlockReason, MemoryDeliveryMode, MemoryEligibilitySummary,
-    MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemorySaveConstraint,
-    MemoryScopeFilter, MemoryStatus, PatchPolicyResult, PersonalizationLayers,
-    PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
-    PersonalizationRuntimeCapabilities, PersonalizationWarningCode, PolicyLayerState,
-    PolicyResolutionBundle, PolicyToggle, SessionId, SessionPersonalizationMode, WorkspaceIdentity,
-    WorkspaceKey, WorkspaceKind,
+    MemoryExclusionCount, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
+    MemorySaveConstraint, MemoryScopeFilter, MemoryStatus, MemoryType, PatchPolicyResult,
+    PersonalizationExclusionReason, PersonalizationLayers, PersonalizationPolicyPatch,
+    PersonalizationPolicyRecord, PersonalizationPolicyScope, PersonalizationRuntimeCapabilities,
+    PersonalizationWarningCode, PolicyLayerState, PolicyResolutionBundle, PolicyToggle, SessionId,
+    SessionPersonalizationMode, SnapshotMemoryRef, WorkspaceIdentity, WorkspaceKey, WorkspaceKind,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -29,6 +34,8 @@ type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 struct FakePolicies {
     rows: Mutex<Vec<PersonalizationPolicyRecord>>,
     bundle_reads: AtomicUsize,
+    /// What the next bundle read should fail with, if anything.
+    fails_with: Mutex<Option<PersonalizationApplicationError>>,
 }
 
 impl FakePolicies {
@@ -58,6 +65,9 @@ impl PolicyRepository for FakePolicies {
         scopes: &[PersonalizationPolicyScope],
     ) -> Result<PolicyResolutionBundle> {
         self.bundle_reads.fetch_add(1, Ordering::SeqCst);
+        if let Some(error) = self.fails_with.lock().expect("fails").clone() {
+            return Err(error);
+        }
         let rows = self.rows.lock().expect("rows");
         Ok(PolicyResolutionBundle {
             layers: scopes
@@ -201,6 +211,7 @@ struct Fixture {
     agents: Arc<FakeAgents>,
     projection: Arc<FakeProjection>,
     health: Arc<FixedHealth>,
+    cache: Arc<LastKnownGoodPolicyCache>,
     service: PolicyResolutionService,
 }
 
@@ -212,17 +223,20 @@ fn fixture() -> Fixture {
     })));
     agents.register("onepiece", full_capabilities());
     let projection = Arc::new(FakeProjection::default());
+    let cache = Arc::new(LastKnownGoodPolicyCache::default());
     let service = PolicyResolutionService::new(
         policies.clone(),
         agents.clone(),
         projection.clone(),
         health.clone(),
+        cache.clone(),
     );
     Fixture {
         policies,
         agents,
         projection,
         health,
+        cache,
         service,
     }
 }
@@ -1215,4 +1229,413 @@ fn the_revision_token_carries_no_text_no_path_and_no_credential() {
     for forbidden in ["secret", "ssh://", "example.test", "D:/"] {
         assert!(!token.contains(forbidden), "{forbidden} must not appear");
     }
+}
+
+// =================================================================================================
+// Last-known-good policy
+// =================================================================================================
+
+fn transient() -> PersonalizationApplicationError {
+    PersonalizationApplicationError::Storage("database is locked".to_string())
+}
+
+fn corrupted() -> PersonalizationApplicationError {
+    PersonalizationApplicationError::Domain(
+        crate::contexts::personalization::domain::PersonalizationDomainError::UnknownPolicyToggle(
+            "something-this-build-cannot-read".to_string(),
+        ),
+    )
+}
+
+#[test]
+fn a_transient_read_failure_falls_back_to_the_last_validated_bundle() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    let good = fixture.service.resolve(request(None)).expect("first read");
+    assert!(good.memory_access.read);
+
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+    let fallback = fixture.service.resolve(request(None)).expect("fallback");
+
+    assert!(
+        fallback.memory_access.read,
+        "a locked database is not a reason to forget the settings"
+    );
+    assert!(fallback
+        .warnings
+        .iter()
+        .any(|warning| warning.code == PersonalizationWarningCode::UsingLastKnownGoodPolicy));
+}
+
+#[test]
+fn a_corrupted_or_unreadable_value_never_borrows_a_cached_bundle() {
+    // Answering from an older copy would assert a fact about data that just failed to validate.
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.service.resolve(request(None)).expect("first read");
+
+    *fixture.policies.fails_with.lock().expect("fails") = Some(corrupted());
+    let refused = fixture.service.resolve(request(None)).expect("resolve");
+
+    assert!(!refused.memory_access.read);
+    assert!(refused.instruction_segments.is_empty());
+    assert!(refused
+        .warnings
+        .iter()
+        .any(|warning| warning.code == PersonalizationWarningCode::NoValidatedPolicy));
+}
+
+#[test]
+fn with_no_cached_bundle_a_transient_failure_still_fails_closed() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+
+    let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+
+    assert!(!snapshot.memory_access.read);
+    assert!(snapshot.instruction_segments.is_empty());
+    assert!(snapshot
+        .warnings
+        .iter()
+        .any(|warning| warning.code == PersonalizationWarningCode::NoValidatedPolicy));
+}
+
+#[test]
+fn a_cached_bundle_is_never_lent_to_a_different_context() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.agents.register("other-agent", full_capabilities());
+    // Validated for onepiece with no workspace.
+    fixture.service.resolve(request(None)).expect("prime");
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+
+    // A different Agent.
+    let mut other_agent = request(None);
+    other_agent.agent_id = agent("other-agent");
+    assert!(
+        !fixture
+            .service
+            .resolve(other_agent)
+            .expect("resolve")
+            .memory_access
+            .read
+    );
+
+    // A different workspace: the primed bundle proved nothing about a workspace override, and
+    // lending it would silently assert that none exists.
+    assert!(
+        !fixture
+            .service
+            .resolve(request(Some(workspace("ws_alpha"))))
+            .expect("resolve")
+            .memory_access
+            .read
+    );
+}
+
+#[test]
+fn a_cached_bundle_does_not_survive_a_new_migration_generation() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.service.resolve(request(None)).expect("prime");
+
+    *fixture.health.0.lock().expect("health") = MemoryRuntimeHealth::Ready { generation: 2 };
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+
+    let snapshot = fixture.service.resolve(request(None)).expect("resolve");
+
+    assert!(
+        !snapshot.memory_access.read,
+        "a migration makes every earlier bundle unusable rather than merely stale"
+    );
+}
+
+#[test]
+fn a_cached_policy_never_outranks_the_current_health_session_or_capability() {
+    // The reason only policy is cached. Everything else is read fresh, so a cached "memory was
+    // enabled" cannot survive a store that has since gone into repair.
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.service.resolve(request(None)).expect("prime");
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+
+    *fixture.health.0.lock().expect("health") = MemoryRuntimeHealth::RepairRequired;
+    let unhealthy = fixture.service.resolve(request(None)).expect("resolve");
+    assert!(!unhealthy.memory_access.read);
+    *fixture.health.0.lock().expect("health") = MemoryRuntimeHealth::Ready { generation: 1 };
+
+    let mut temporary = request(None);
+    temporary.session_mode = SessionPersonalizationMode::Temporary;
+    let temporary = fixture.service.resolve(temporary).expect("resolve");
+    assert!(!temporary.memory_access.automatic_extraction);
+
+    fixture.agents.register(
+        "narrow",
+        PersonalizationRuntimeCapabilities {
+            supports_custom_instructions: true,
+            supports_memory_index: false,
+            supports_selected_memory_bodies: false,
+            supports_automatic_extraction: false,
+        },
+    );
+    let mut narrow = request(None);
+    narrow.agent_id = agent("narrow");
+    // A different Agent has no cached bundle of its own, so this fails closed rather than reusing
+    // one — which is itself the property under test for capability changes.
+    assert!(
+        !fixture
+            .service
+            .resolve(narrow)
+            .expect("resolve")
+            .memory_access
+            .read
+    );
+}
+
+#[test]
+fn a_successful_policy_write_drops_every_cached_bundle() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.service.resolve(request(None)).expect("prime");
+    assert_eq!(fixture.cache.len(), 1);
+
+    fixture.cache.invalidate();
+
+    assert_eq!(fixture.cache.len(), 0);
+    *fixture.policies.fails_with.lock().expect("fails") = Some(transient());
+    assert!(
+        !fixture
+            .service
+            .resolve(request(None))
+            .expect("resolve")
+            .memory_access
+            .read
+    );
+}
+
+#[test]
+fn transience_is_classified_rather_than_assumed() {
+    assert!(is_transient_read_failure(&transient()));
+    assert!(is_transient_read_failure(
+        &PersonalizationApplicationError::MaintenanceBusy
+    ));
+    for permanent in [
+        corrupted(),
+        PersonalizationApplicationError::NotFound,
+        PersonalizationApplicationError::MaintenanceRequired,
+    ] {
+        assert!(
+            !is_transient_read_failure(&permanent),
+            "{permanent:?} must never borrow a cached bundle"
+        );
+    }
+}
+
+// =================================================================================================
+// Effective preview
+// =================================================================================================
+
+/// Marks what it was given, so a test can prove the preview routed text through the port at all.
+///
+/// Deliberately not the real rule: whether the platform redaction removes a token is a property of
+/// that rule, asserted against the real adapter where it lives. Mimicking it here would only prove
+/// that a mimic mimics.
+struct MarkingRedaction;
+
+impl SecretRedactionPort for MarkingRedaction {
+    fn redact(&self, text: &str) -> String {
+        format!("[redacted:{}]", text.chars().count())
+    }
+}
+
+fn preview_service(fixture: &Fixture) -> PersonalizationPreviewService {
+    PersonalizationPreviewService::new(
+        Arc::new(PolicyResolutionService::new(
+            fixture.policies.clone(),
+            fixture.agents.clone(),
+            fixture.projection.clone(),
+            fixture.health.clone(),
+            fixture.cache.clone(),
+        )),
+        Arc::new(MarkingRedaction),
+    )
+}
+
+#[test]
+fn a_preview_reports_provenance_modes_counts_and_an_estimate() {
+    let fixture = fixture();
+    let mut global = enabled_global();
+    global.set_instruction_merge_mode(InstructionMergeMode::Append);
+    global.set_about_user("Prefers concise answers.".to_string());
+    fixture.policies.put(global);
+    *fixture.projection.summary.lock().expect("summary") = MemoryEligibilitySummary {
+        considered: 5,
+        eligible_total: 3,
+        refs: Vec::new(),
+        truncated: true,
+        exclusions: vec![MemoryExclusionCount {
+            reason: PersonalizationExclusionReason::Archived,
+            count: 2,
+        }],
+        digest: "digest".to_string(),
+    };
+
+    let preview = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+
+    assert_eq!(preview.instruction_mode, InstructionMergeMode::Append);
+    let segment = preview
+        .included_instructions
+        .first()
+        .expect("one included field");
+    assert_eq!(segment.scope_kind, "global");
+    assert_eq!(segment.merge_action, InstructionMergeAction::Appended);
+    assert_eq!(
+        segment.characters,
+        "Prefers concise answers.".chars().count()
+    );
+    assert_eq!(preview.eligible_memory_count, 3);
+    assert_eq!(preview.considered_memory_count, 5);
+    assert_eq!(preview.memory_exclusions.len(), 1);
+    assert_eq!(
+        preview.delivery,
+        MemoryDeliveryMode::IndexWithSelectedBodies
+    );
+    assert!(preview.context_estimate.known_characters > 0);
+    assert!(preview.context_estimate.approximate_tokens > 0);
+    // Stated rather than implied: VaneHub does not manage a CLI internal context.
+    assert!(!preview.cli_internal_compaction_managed);
+}
+
+#[test]
+fn every_shown_instruction_goes_through_the_redaction_port() {
+    // A settings screen is screenshotted, pasted into issues and read over shoulders, so nothing
+    // reaches it unfiltered. What the filter actually removes is asserted against the real adapter,
+    // where that rule lives.
+    let fixture = fixture();
+    let original = "my api_key=sk-live-01234567890abcdef and D:/private/notes";
+    let mut global = enabled_global();
+    global.set_instruction_merge_mode(InstructionMergeMode::Append);
+    global.set_about_user(original.to_string());
+    fixture.policies.put(global);
+
+    let preview = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+
+    let segment = &preview.included_instructions[0];
+    assert!(
+        segment.redacted_text.starts_with("[redacted:"),
+        "the shown text came from the port, not from the record: {}",
+        segment.redacted_text
+    );
+    assert!(!segment.redacted_text.contains("sk-live-01234567890abcdef"));
+    // The length reported is of what will actually be sent, not of the rendering: a user sizing
+    // their instructions needs the real number.
+    assert_eq!(segment.characters, original.chars().count());
+}
+
+#[test]
+fn a_preview_carries_no_memory_body_and_no_recorded_path() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    *fixture.projection.summary.lock().expect("summary") = MemoryEligibilitySummary {
+        considered: 1,
+        eligible_total: 1,
+        refs: vec![SnapshotMemoryRef {
+            id: MemoryId::parse("01K2MEM0000000000000000001").expect("id"),
+            revision: 1,
+            content_hash: "sha256:abc".to_string(),
+            name: "user-role".to_string(),
+            description: "A short hook".to_string(),
+            memory_type: MemoryType::Project,
+            scope_hint: "global".to_string(),
+            updated_at: chrono::Utc::now(),
+        }],
+        truncated: false,
+        exclusions: Vec::new(),
+        digest: "digest".to_string(),
+    };
+
+    let preview = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+
+    // The preview reports counts and metadata, never a body: the snapshot never carried one, which
+    // is what makes this a property rather than a filter someone has to remember to apply.
+    let rendered = format!("{preview:?}");
+    assert!(!rendered.contains("legacy_folder"));
+    assert!(rendered.contains("eligible_memory_count: 1"));
+}
+
+#[test]
+fn the_context_estimate_names_what_it_leaves_out() {
+    // An estimate whose boundaries are unclear is worse than none: a user who reads a small number
+    // and finds their turn costs far more has been misled by the omission.
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+
+    let preview = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+
+    let excluded = &preview.context_estimate.excluded_surfaces;
+    for surface in [
+        "core_system_prompt",
+        "user_message",
+        "prompt_hooks",
+        "cli_internal_context",
+    ] {
+        assert!(excluded.contains(&surface), "{surface} must be named");
+    }
+    assert_eq!(
+        preview.context_estimate.estimator_version,
+        "personalization-context-estimate-v1"
+    );
+}
+
+#[test]
+fn the_selected_body_budget_is_a_bound_rather_than_an_invented_measurement() {
+    let fixture = fixture();
+    fixture.policies.put(enabled_global());
+    fixture.agents.register(
+        "index-only",
+        PersonalizationRuntimeCapabilities {
+            supports_custom_instructions: true,
+            supports_memory_index: true,
+            supports_selected_memory_bodies: false,
+            supports_automatic_extraction: true,
+        },
+    );
+
+    let with_bodies = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+    assert!(with_bodies.context_estimate.selected_body_budget_max > 0);
+
+    let mut index_only = request(None);
+    index_only.agent_id = agent("index-only");
+    let without = preview_service(&fixture)
+        .preview(index_only)
+        .expect("preview");
+    assert_eq!(without.context_estimate.selected_body_budget_max, 0);
+}
+
+#[test]
+fn a_preview_of_a_fail_closed_resolution_still_explains_itself() {
+    let fixture = fixture();
+
+    let preview = preview_service(&fixture)
+        .preview(request(None))
+        .expect("preview");
+
+    assert!(preview.included_instructions.is_empty());
+    assert_eq!(preview.eligible_memory_count, 0);
+    assert!(preview
+        .warnings
+        .iter()
+        .any(|warning| warning.code == PersonalizationWarningCode::NoValidatedPolicy));
+    assert_eq!(preview.context_estimate.known_characters, 0);
 }

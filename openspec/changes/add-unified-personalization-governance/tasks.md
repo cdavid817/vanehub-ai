@@ -56,14 +56,14 @@
 
 ## 5. Policy Resolution and Effective Preview
 
-- [ ] 5.1 Implement deterministic resolution in this order: safe defaults, global, Agent, workspace, workspace-Agent, session override, hard session-mode restrictions.
-- [ ] 5.2 Implement instruction append/replace/disable behavior while preserving non-user core/system instructions outside personalization control.
-- [ ] 5.3 Implement effective memory access for read, explicit save, automatic extraction, global-memory access, workspace scope, Agent audience, status, and migration health.
-- [ ] 5.4 Capture one immutable snapshot at the start of each generation/seat turn; settings changes during execution must not mutate the captured snapshot.
-- [ ] 5.5 Cache only validated policy data, invalidate by revision/event, and use last-known-good state on transient read failure; use fail-closed behavior when none exists.
-- [ ] 5.6 Implement an effective-preview application service that returns safe instruction provenance, final modes, eligible/excluded memory counts, adapter behavior, warnings, and estimated context size.
-- [ ] 5.7 Ensure preview does not return hidden core system prompts, credentials, unredacted traces, or memory bodies unless the local user explicitly opens a permitted memory detail.
-- [ ] 5.8 Add resolver tests for all scope combinations, unknown/dynamic Agents, missing workspace, remote workspaces, temporary/project-only sessions, last-known-good fallback, and mid-generation policy changes.
+- [x] 5.1 Implement deterministic resolution in this order: safe defaults, global, Agent, workspace, workspace-Agent, session override, hard session-mode restrictions.
+- [x] 5.2 Implement instruction append/replace/disable behavior while preserving non-user core/system instructions outside personalization control.
+- [x] 5.3 Implement effective memory access for read, explicit save, automatic extraction, global-memory access, workspace scope, Agent audience, status, and migration health.
+- [x] 5.4 Capture one immutable snapshot at the start of each generation/seat turn; settings changes during execution must not mutate the captured snapshot.
+- [x] 5.5 Cache only validated policy data, invalidate by revision/event, and use last-known-good state on transient read failure; use fail-closed behavior when none exists.
+- [x] 5.6 Implement an effective-preview application service that returns safe instruction provenance, final modes, eligible/excluded memory counts, adapter behavior, warnings, and estimated context size.
+- [x] 5.7 Ensure preview does not return hidden core system prompts, credentials, unredacted traces, or memory bodies unless the local user explicitly opens a permitted memory detail.
+- [x] 5.8 Add resolver tests for all scope combinations, unknown/dynamic Agents, missing workspace, remote workspaces, temporary/project-only sessions, last-known-good fallback, and mid-generation policy changes.
 
 ## 6. OnePiece Runtime Integration
 

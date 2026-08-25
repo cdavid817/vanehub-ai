@@ -253,6 +253,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         api: personalization_api,
         maintenance: personalization_maintenance,
         resolver: _personalization_resolver,
+        preview: _personalization_preview,
     } = super::assemble_personalization(
         database.clone(),
         &data_root,

@@ -20,20 +20,21 @@ use crate::contexts::desktop::api::{
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, ClockPort, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
-    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
-    LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
-    PersonalizationApplicationError, PolicyResolutionService, RetrievalIndexPort,
-    StartupMaintenancePorts, StartupMaintenanceService, WorkspaceIdentityResolver,
+    AgentCapabilityPort, ClockPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
+    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
+    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, LegacySettingsView,
+    MemoryApplicationService, PersonalizationApplicationError, PersonalizationPreviewService,
+    PolicyResolutionService, RetrievalIndexPort, StartupMaintenancePorts,
+    StartupMaintenanceService, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryId, MemoryRecord, PersonalizationRuntimeCapabilities,
 };
 use crate::contexts::personalization::infrastructure::{
     FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
-    SqliteCandidateRepository, SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration,
-    SqliteMemoryProjection, SqliteMigrationJournal, SqliteMigrationState, SqlitePolicyRepository,
-    UuidMemoryIdGenerator,
+    PlatformSecretRedaction, SqliteCandidateRepository, SqliteLegacyAddressAlias,
+    SqliteLegacyPolicyMigration, SqliteMemoryProjection, SqliteMigrationJournal,
+    SqliteMigrationState, SqlitePolicyRepository, UuidMemoryIdGenerator,
 };
 use crate::contexts::retrieval::api::RetrievalApi;
 use crate::platform::database::NativeDatabase;
@@ -51,6 +52,9 @@ pub(crate) struct PersonalizationAssembly {
     /// Resolves one immutable snapshot per generation. Assembled here and handed to the runtime
     /// adapters as they land; nothing else in this context owns policy resolution.
     pub(crate) resolver: Arc<PolicyResolutionService>,
+    /// Renders one resolution for the settings screen. Assembled here so the screen and the runtime
+    /// can never be looking at two differently built resolvers.
+    pub(crate) preview: Arc<PersonalizationPreviewService>,
 }
 
 /// Assembles the whole stack. Does not run maintenance — that is `spawn_startup_maintenance`, so a
@@ -82,6 +86,9 @@ pub(crate) fn assemble_personalization(
 
     let policies = Arc::new(SqlitePolicyRepository::new(database.clone()));
     let policies_for_resolver = policies.clone();
+    // One cache, shared by the resolver that fills it and the compatibility surface that drops it
+    // after a write. Two instances would mean a saved setting invalidating nothing.
+    let policy_cache = Arc::new(LastKnownGoodPolicyCache::default());
     let aliases = Arc::new(SqliteLegacyAddressAlias::new(database.clone()));
     let state = Arc::new(SqliteMigrationState::new(database.clone()));
     let sources = Arc::new(
@@ -133,7 +140,11 @@ pub(crate) fn assemble_personalization(
         memories,
         gate,
         maintenance.clone(),
-        Arc::new(LegacySettingsCompatibility::new(policies, clock)),
+        Arc::new(LegacySettingsCompatibility::new(
+            policies,
+            clock,
+            policy_cache.clone(),
+        )),
         aliases,
         Arc::new(WorkspaceIdentityResolver::for_this_platform()),
     );
@@ -145,11 +156,17 @@ pub(crate) fn assemble_personalization(
         Arc::new(RegistryAgentCapabilities::new(agents)),
         projection_for_resolver,
         maintenance.clone(),
+        policy_cache,
+    ));
+    let preview = Arc::new(PersonalizationPreviewService::new(
+        resolver.clone(),
+        Arc::new(PlatformSecretRedaction),
     ));
     Ok(PersonalizationAssembly {
         api,
         maintenance,
         resolver,
+        preview,
     })
 }
 

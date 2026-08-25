@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use super::error::PersonalizationApplicationError;
 use super::models::MemoryEligibilityCriteria;
+use super::policy_cache::{is_transient_read_failure, LastKnownGoodPolicyCache, PolicyCacheKey};
 use super::ports::{AgentCapabilityPort, MemoryHealthPort, MemoryProjectionPort, PolicyRepository};
 use crate::contexts::personalization::domain::{
     resolve, AgentId, EffectivePersonalizationSnapshot, MaintenanceState, MemoryBlockReason,
     MemoryRuntimeHealth, PersonalizationPolicyPatch, PersonalizationPolicyScope,
     PersonalizationResolutionContext, PersonalizationWarning, PersonalizationWarningCode,
-    SessionId, SessionPersonalizationMode, WorkspaceIdentity,
+    PolicyResolutionBundle, SessionId, SessionPersonalizationMode, WorkspaceIdentity,
+    DEFAULT_POLICY_SET_ID,
 };
 
 /// How many memory refs one snapshot carries.
@@ -52,6 +54,7 @@ pub(crate) struct PolicyResolutionService {
     agents: Arc<dyn AgentCapabilityPort>,
     projection: Arc<dyn MemoryProjectionPort>,
     health: Arc<dyn MemoryHealthPort>,
+    cache: Arc<LastKnownGoodPolicyCache>,
 }
 
 impl PolicyResolutionService {
@@ -60,12 +63,14 @@ impl PolicyResolutionService {
         agents: Arc<dyn AgentCapabilityPort>,
         projection: Arc<dyn MemoryProjectionPort>,
         health: Arc<dyn MemoryHealthPort>,
+        cache: Arc<LastKnownGoodPolicyCache>,
     ) -> Self {
         Self {
             policies,
             agents,
             projection,
             health,
+            cache,
         }
     }
 
@@ -126,9 +131,21 @@ impl PolicyResolutionService {
             ));
         }
 
-        let bundle = self
-            .policies
-            .load_resolution_bundle(&Self::scopes_for(&request))?;
+        // Read fresh every time, cached or not: a bundle says what policy the user chose, never
+        // whether the store behind it is currently safe to read.
+        let maintenance = maintenance_state(self.health.health());
+        let scopes = Self::scopes_for(&request);
+        let (bundle, used_last_known_good) =
+            match self.read_bundle(&request, &scopes, maintenance.migration_generation) {
+                Some(result) => result,
+                None => {
+                    return Ok(EffectivePersonalizationSnapshot::fail_closed(
+                        context,
+                        PersonalizationWarningCode::NoValidatedPolicy,
+                    ))
+                }
+            };
+
         let mut layers = bundle.into_layers();
         if layers.global.is_none() {
             return Ok(EffectivePersonalizationSnapshot::fail_closed(
@@ -138,13 +155,52 @@ impl PolicyResolutionService {
         }
         layers.session_override = request.session_override;
 
-        let snapshot = resolve(
-            context,
-            layers,
-            capabilities,
-            maintenance_state(self.health.health()),
-        );
+        let mut snapshot = resolve(context, layers, capabilities, maintenance);
+        if used_last_known_good {
+            snapshot.warnings.push(PersonalizationWarning::new(
+                PersonalizationWarningCode::UsingLastKnownGoodPolicy,
+            ));
+        }
         Ok(self.attach_eligibility(snapshot))
+    }
+
+    /// The policy bundle for this request, and whether it came from cache.
+    ///
+    /// `None` means fail closed. Three outcomes, and the middle one is the whole reason this is not
+    /// a plain read:
+    ///
+    /// - a successful read is remembered and returned;
+    /// - a *transient* failure falls back to a bundle that was validated for this exact context, if
+    ///   there is one, because a locked database is not a reason to forget the user's settings;
+    /// - anything else — a schema mismatch, a corrupted value, an enum this build does not know —
+    ///   fails closed, because answering from an older copy would assert a fact about data that has
+    ///   just failed to validate.
+    fn read_bundle(
+        &self,
+        request: &ResolutionRequest,
+        scopes: &[PersonalizationPolicyScope],
+        generation: u64,
+    ) -> Option<(PolicyResolutionBundle, bool)> {
+        let key = PolicyCacheKey::new(
+            DEFAULT_POLICY_SET_ID,
+            request.agent_id.clone(),
+            request
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.key().clone()),
+            scopes,
+            generation,
+        );
+        match self.policies.load_resolution_bundle(scopes) {
+            Ok(bundle) => {
+                self.cache.remember(key, bundle.clone());
+                Some((bundle, false))
+            }
+            Err(error) if is_transient_read_failure(&error) => {
+                self.cache.recall(&key).map(|bundle| (bundle, true))
+            }
+            Err(_) => None,
+        }
     }
 
     /// Queries what is eligible under the access this snapshot resolved, and freezes it in.

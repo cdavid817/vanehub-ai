@@ -4,6 +4,7 @@ use super::error::PersonalizationApplicationError;
 use super::migrate_legacy_policy::{
     project_to_legacy_settings, LegacyPersonalizationSettings, ONEPIECE_AGENT_ID,
 };
+use super::policy_cache::LastKnownGoodPolicyCache;
 use super::ports::{ClockPort, PolicyRepository};
 use crate::contexts::personalization::domain::{
     AgentId, InstructionMergeMode, PatchPolicyResult, PersonalizationPolicyPatch,
@@ -103,11 +104,22 @@ fn toggle(enabled: bool) -> PolicyToggle {
 pub(crate) struct LegacySettingsCompatibility {
     policies: Arc<dyn PolicyRepository>,
     clock: Arc<dyn ClockPort>,
+    /// Dropped after every successful write. Invalidating here rather than through a general event
+    /// bus keeps the rule where the write is: whoever changes the policy is who knows it changed.
+    cache: Arc<LastKnownGoodPolicyCache>,
 }
 
 impl LegacySettingsCompatibility {
-    pub(crate) fn new(policies: Arc<dyn PolicyRepository>, clock: Arc<dyn ClockPort>) -> Self {
-        Self { policies, clock }
+    pub(crate) fn new(
+        policies: Arc<dyn PolicyRepository>,
+        clock: Arc<dyn ClockPort>,
+        cache: Arc<LastKnownGoodPolicyCache>,
+    ) -> Self {
+        Self {
+            policies,
+            clock,
+            cache,
+        }
     }
 
     /// The current policy in legacy shape.
@@ -167,6 +179,10 @@ impl LegacySettingsCompatibility {
         if clears_extraction_pin {
             self.clear_extraction_pin(now)?;
         }
+
+        // After the write, not before: a failed patch must not throw away a bundle that is still
+        // correct.
+        self.cache.invalidate();
 
         let onepiece = self.onepiece_override()?;
         Ok(LegacySettingsView {
