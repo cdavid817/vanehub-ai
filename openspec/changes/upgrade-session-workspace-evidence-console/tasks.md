@@ -214,9 +214,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 11. Provider-Neutral Local and SSH Workspace Inspection
 
-- [ ] 11.1 Add `WorkspaceTarget`, `WorkspaceInspectionCapabilities`, typed provider errors, and a `WorkspaceInspectionProvider` application port under workspaces.
-- [ ] 11.2 Adapt existing confined local file/document/search/Git implementations behind `LocalWorkspaceInspectionProvider` without weakening path, symlink, size, locale, or diff bounds.
-- [ ] 11.3 Resolve provider selection from the registered Session binding; never accept a frontend-supplied absolute root as authority.
+- [x] 11.1 Add `WorkspaceTarget`, `WorkspaceInspectionCapabilities`, typed provider errors, and a `WorkspaceInspectionProvider` application port under workspaces.
+- [x] 11.2 Adapt existing confined local file/document/search/Git implementations behind `LocalWorkspaceInspectionProvider` without weakening path, symlink, size, locale, or diff bounds.
+- [x] 11.3 Resolve provider selection from the registered Session binding; never accept a frontend-supplied absolute root as authority.
 - [ ] 11.4 Publish only the required remote exec/channel contract through `ssh_connections::api`; do not import its pool or infrastructure modules.
 - [ ] 11.5 Implement a versioned static SSH helper protocol that sends bounded JSON over stdin and receives bounded JSON output.
 - [ ] 11.6 Probe POSIX remote host, current profile revision/host trust, Python 3 helper support, Git, and ripgrep capabilities and return typed per-feature availability.

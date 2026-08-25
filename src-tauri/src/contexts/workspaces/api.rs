@@ -3,6 +3,15 @@ pub(crate) use super::application::{
     SessionShellDescriptor, SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope,
     WriteSessionShellRequest,
 };
+/// Provider-neutral workspace inspection.
+///
+/// Published so bootstrap can assemble the router and a command can ask it questions. The
+/// `WorkspaceTarget` itself is published too, because a caller has to be able to tell a reader
+/// which machine an answer came from — but nothing outside this context can construct one.
+pub(crate) use super::application::{
+    CapabilityState, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionRouter, WorkspaceTarget,
+};
 pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
@@ -31,6 +40,9 @@ pub(crate) struct WorkspaceApi {
     queries: WorkspaceQueryApplicationService,
     review: Arc<dyn WorkspaceReviewPort>,
     shells: Arc<SessionShellRegistry>,
+    /// Provider-neutral inspection. Shared rather than owned per call because selection is a
+    /// property of the session, not of the caller, and two routers could disagree about it.
+    inspection: Arc<WorkspaceInspectionRouter>,
 }
 
 impl WorkspaceApi {
@@ -62,12 +74,14 @@ impl WorkspaceApi {
         queries: WorkspaceQueryApplicationService,
         review: Arc<dyn WorkspaceReviewPort>,
         shells: Arc<SessionShellRegistry>,
+        inspection: Arc<WorkspaceInspectionRouter>,
     ) -> Self {
         Self {
             service,
             queries,
             review,
             shells,
+            inspection,
         }
     }
 
@@ -207,6 +221,25 @@ impl WorkspaceApi {
         path: &str,
     ) -> Result<FileContent, WorkspaceError> {
         self.queries.read_text_file(session_id, path)
+    }
+
+    /// Which machine this session's workspace is on, and what can be read there.
+    ///
+    /// Resolved from the registered binding on every call rather than cached: a session can be
+    /// rebound between two reads, and a cached target would keep answering about the host it was
+    /// bound to when the panel opened.
+    pub(crate) fn inspection_target(
+        &self,
+        session_id: &str,
+    ) -> Result<WorkspaceTarget, WorkspaceInspectionError> {
+        self.inspection.target(session_id)
+    }
+
+    pub(crate) async fn inspection_capabilities(
+        &self,
+        session_id: &str,
+    ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
+        self.inspection.capabilities(session_id).await
     }
 
     pub(crate) fn get_session_git_status(

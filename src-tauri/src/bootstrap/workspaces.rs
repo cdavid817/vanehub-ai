@@ -4,14 +4,14 @@ use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
     SessionShellRegistry, ShellCapacities, ShellStore, WorkspaceApplicationService,
-    WorkspaceQueryApplicationService,
+    WorkspaceInspectionRouter, WorkspaceQueryApplicationService,
 };
 use crate::contexts::workspaces::infrastructure::{
-    RetainedLocalShellRuntime, RetainedRemoteShellRuntime, RoutedShellRuntime,
-    SessionWorkspaceQueryAdapter, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
-    SqliteWorkspaceHistoryRepository, SystemShellClock, SystemWorkspaceClock,
-    TauriProjectDirectorySelection, TauriSessionShellNotices, UuidShellIds,
-    WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
+    LocalWorkspaceInspectionProvider, RetainedLocalShellRuntime, RetainedRemoteShellRuntime,
+    RoutedShellRuntime, SessionWorkspaceQueryAdapter, SessionWorkspaceTargetResolver,
+    SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter, SqliteWorkspaceHistoryRepository,
+    SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
+    TauriSessionShellNotices, UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -33,6 +33,14 @@ pub(crate) fn assemble_workspace_api(
         app.clone(),
     ));
     let queries = WorkspaceQueryApplicationService::new(review_adapter.clone());
+    // Selection lives in one router rather than at each call site: the provider follows from the
+    // session's registered binding, and a second place that decided it could disagree.
+    let inspection = Arc::new(WorkspaceInspectionRouter::new(
+        Arc::new(SessionWorkspaceTargetResolver::new(database.clone())),
+        Arc::new(LocalWorkspaceInspectionProvider::new(
+            (*review_adapter).clone(),
+        )),
+    ));
     let shell_workspaces = Arc::new(SqliteShellWorkspaceAdapter::new(database.clone()));
     let shells = assemble_session_shell_registry(
         database.clone(),
@@ -48,7 +56,7 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(TauriProjectDirectorySelection::new(app)),
         Arc::new(SystemWorkspaceClock),
     );
-    WorkspaceApi::new(service, queries, review_adapter, shells)
+    WorkspaceApi::new(service, queries, review_adapter, shells, inspection)
 }
 
 /// How often idle Shells are considered for reclamation.

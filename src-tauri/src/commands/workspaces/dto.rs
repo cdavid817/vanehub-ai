@@ -282,3 +282,44 @@ pub(crate) enum ShellRuntimeDescriptor {
         remediation: Option<String>,
     },
 }
+
+/// What a session's workspace can be asked, and which machine it is on.
+///
+/// Every capability carries its own state rather than the payload carrying one overall flag: a
+/// remote host with Git but no ripgrep is a normal situation, and a single flag would either hide
+/// the search gap or disable the four things that work.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceInspectionCapabilitiesDto {
+    pub(crate) provider: String,
+    /// Absent for a local workspace, which is what a reader assumes when nothing says otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) target_label: Option<String>,
+    pub(crate) list_files: CapabilityStateDto,
+    pub(crate) read_text_files: CapabilityStateDto,
+    pub(crate) search_files: CapabilityStateDto,
+    pub(crate) git_status: CapabilityStateDto,
+    pub(crate) git_diff: CapabilityStateDto,
+    pub(crate) watch_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CapabilityStateDto {
+    pub(crate) available: bool,
+    /// A stable token. The frontend owns the sentence; a message built in Rust would arrive in
+    /// whatever language this build's sources happen to be written in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason_code: Option<String>,
+    /// What would fix it, also as a token. "Search is unavailable" and "install ripgrep on the
+    /// remote host" are different facts, and only the second is actionable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) remediation: Option<String>,
+}
+
+/// A refusal the frontend translates, never a message.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceInspectionErrorDto {
+    pub(crate) reason_code: String,
+}

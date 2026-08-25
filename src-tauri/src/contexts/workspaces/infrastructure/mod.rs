@@ -21,6 +21,9 @@ mod session_queries;
 mod session_search;
 mod session_shell_workspace;
 mod sqlite_repository;
+mod workspace_inspection;
+#[cfg(test)]
+mod workspace_inspection_tests;
 
 pub(crate) use evaluation_fixture::{
     changed_evaluation_paths, cleanup_evaluation_fixture, prepare_evaluation_fixture,
@@ -39,3 +42,6 @@ pub(crate) use selection::TauriProjectDirectorySelection;
 pub(crate) use session_queries::SessionWorkspaceQueryAdapter;
 pub(crate) use session_shell_workspace::SqliteShellWorkspaceAdapter;
 pub(crate) use sqlite_repository::SqliteWorkspaceHistoryRepository;
+pub(crate) use workspace_inspection::{
+    LocalWorkspaceInspectionProvider, SessionWorkspaceTargetResolver,
+};

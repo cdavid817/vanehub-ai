@@ -1,5 +1,7 @@
 mod error;
 mod evidence;
+mod inspection;
+mod inspection_router;
 mod models;
 mod ports;
 mod query_service;
@@ -14,6 +16,13 @@ pub(crate) use evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
+pub(crate) use inspection::{
+    CapabilityState, GitDiffRequest, ListDirectoryRequest, LocalWorkspaceTarget,
+    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
+    WorkspaceTargetResolver,
+};
+pub(crate) use inspection_router::WorkspaceInspectionRouter;
 pub(crate) use models::{
     CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine,
