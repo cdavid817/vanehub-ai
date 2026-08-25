@@ -982,7 +982,6 @@ fn opencode_unsafe_step_identity_and_revision_are_not_retained() {
     assert_eq!(usage.source_identity, None);
     assert_eq!(usage.source_revision, None);
 }
-
 #[test]
 fn opencode_all_zero_usage_is_treated_as_absent() {
     let event = output_parser_for("opencode").parse_line(
