@@ -88,7 +88,11 @@ test("the required gate runs required specs and never an external one", async ()
 
   // Fixture Agents ahead of the inherited PATH is what makes the gate runnable anywhere.
   assert.match(config, /prepareManagedCliFixtures/);
-  assert.match(config, /PATH: `\$\{agentFixtureDir\}\$\{path\.delimiter\}/);
+  // The fixture has to be the *only* Agent reachable, not merely the first. A real installation
+  // left elsewhere on PATH is a second installation from a second source, and the launch resolver
+  // refuses that pairing as PATH shadowing -- reporting the Agent unavailable while both copies sit
+  // there working. That made the gate depend on what the developer happened to have installed.
+  assert.match(config, /pathWithoutCompetingAgents/);
 });
 
 test("the external suite is never part of the required desktop command", async () => {

@@ -1,6 +1,5 @@
-import path from "node:path";
 import process from "node:process";
-import { prepareManagedCliFixtures } from "./wdio-cli-fixture.mjs";
+import { pathWithoutCompetingAgents, prepareManagedCliFixtures } from "./wdio-cli-fixture.mjs";
 import { createDesktopConfig } from "./wdio-shared.mjs";
 import { requiredSpecFiles } from "./spec-manifest.mjs";
 
@@ -23,9 +22,13 @@ function selectedSpecs() {
 // `codex` installed, which no hosted runner has, so the sweep could only pass on a developer's
 // laptop and failed identically on Windows, macOS and Linux CI.
 const agentFixtureDir = await prepareManagedCliFixtures();
+// First is not enough: a real installation left reachable elsewhere on PATH makes two installations
+// from different sources, and the launch resolver refuses that as PATH shadowing. The gate has to
+// be independent of what the developer happens to have installed.
+const fixturePath = await pathWithoutCompetingAgents(agentFixtureDir);
 
 export const config = await createDesktopConfig({
   specDirectory: "specs",
   specFiles: selectedSpecs(),
-  environment: { PATH: `${agentFixtureDir}${path.delimiter}${process.env.PATH ?? ""}` },
+  environment: { PATH: fixturePath },
 });

@@ -50,6 +50,33 @@ export async function prepareCliFixture() {
 export const MANAGED_AGENT_EXECUTABLES = ["claude", "codex", "gemini", "opencode", "agy"];
 
 /**
+ * `PATH` with the fixture directory first and every competing Agent installation removed.
+ *
+ * Prepending is not enough. Discovery enumerates the whole of `PATH`, so a developer's real
+ * `claude.cmd` in `AppData\Roaming\npm` is found alongside the fixture, and two installations from
+ * different sources with the fixture in front is a PATH-shadowing conflict -- which the launch
+ * resolver refuses by design, reporting the Agent as unavailable while both copies sit there
+ * working. The fixture has to be the only one, not merely the first.
+ *
+ * Only directories that actually hold a managed Agent launcher are dropped, so `node` and the
+ * system directories the fixtures need stay reachable.
+ */
+export async function pathWithoutCompetingAgents(fixtureDir, inherited = process.env.PATH ?? "") {
+  const windows = process.platform === "win32";
+  const suffixes = windows ? [".cmd", ".exe", ".bat", ".ps1", ""] : [""];
+  const kept = [];
+  for (const entry of inherited.split(path.delimiter)) {
+    if (!entry) continue;
+    const holdsAgent = await Promise.all(
+      MANAGED_AGENT_EXECUTABLES.flatMap((name) => suffixes.map((suffix) =>
+        stat(path.join(entry, `${name}${suffix}`)).then(() => true, () => false))),
+    );
+    if (!holdsAgent.includes(true)) kept.push(entry);
+  }
+  return [fixtureDir, ...kept].join(path.delimiter);
+}
+
+/**
  * Materialises the fixture stub under every managed Agent name in a fresh temporary directory.
  *
  * Copies rather than recompiles: one stub answers `--version` and echoes stdin for all of them, and
