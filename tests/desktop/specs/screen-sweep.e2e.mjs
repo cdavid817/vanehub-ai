@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
+import { navigateTo } from "../helpers/navigation.mjs";
 
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
@@ -67,12 +68,7 @@ async function assertScreenRendered(name) {
   );
 }
 
-async function navigate(path) {
-  await globalThis.browser.execute((target) => {
-    globalThis.history.pushState({}, "", target);
-    globalThis.dispatchEvent(new globalThis.PopStateEvent("popstate"));
-  }, path);
-}
+const navigate = navigateTo;
 
 globalThis.describe("VaneHub AI desktop screen sweep", () => {
   globalThis.before(async () => {
