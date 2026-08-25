@@ -940,7 +940,8 @@ same fixture PATH; on Windows CI it passes both ways. The developer machine has
 real Agents installed and CI does not, which is the difference the gate exists to
 remove. The CI result is the one that counts.
 
-**14.17 and 14.20 stay unchecked. Tasks remain 162/164.**
+**14.17 and 14.20 stay unchecked. Tasks remain 162/164.** *(Superseded in round 10:
+the matrix is green on all three platforms.)*
 
 ## Round 9: the credential store, and what is left
 
@@ -1004,3 +1005,109 @@ for the first time because the sweep had never run to completion on those
 platforms before. Diagnosing them is work in those contexts, not in this one.
 
 **14.17 and 14.20 stay unchecked. Tasks remain 162/164.**
+
+## Round 10: the matrix is green on all three platforms
+
+### The three remaining specs were three separate defects, none platform-specific
+
+**`screen-sweep` and `ui-chat`** pushed a route and trusted it. The application
+resumes the destination it was last on, and that restore reads persisted state
+over IPC, so it can land *after* a push that already waited for
+`data-vanehub-bootstrap === "ready"` and silently replace it. On Windows the
+restore happened to land early and nothing was noticed; on the slower macOS
+runner it landed late, leaving the sweep on the settings page it had just
+finished capturing while it waited thirty seconds for a session tab bar that was
+never going to appear. A shared helper now repeats the push until the location
+stays put -- and accepts a deeper path, because the workspace canonicalises
+`/workspace/sessions` to `/workspace/sessions/<active id>` by design. The first
+version of that helper did not, and reported "something kept navigating away"
+about the application doing exactly what it should.
+
+**`sessions`** reused the `updatedAt` that `create_session` returned as the
+expected version for `update_session_seats`. Creating a session starts work that
+touches the row again, so that value can already be a revision behind, and the
+optimistic-concurrency guard rejected the write. The guard was right; the spec
+was reading a stale version, and now re-reads immediately before writing. It only
+surfaced now because fixture Agents made two Agents "available" on a hosted
+runner for the first time -- before that the case skipped itself for want of a
+second CLI.
+
+### Result: every layer, every platform
+
+Run **32810072826**, product commit **`368ce0e2`**, CI merge ref `b4fd6124`.
+
+| Layer | Windows x64 | macOS ARM64 | Linux x64 |
+| --- | --- | --- | --- |
+| `desktop-smoke` (30 required specs) | **PASSED 30/0** | **PASSED 30/0** | **PASSED 30/0** |
+| `desktop-cli-terminal` | PASSED | PASSED | PASSED |
+| `desktop-cli-management` | PASSED | PASSED | PASSED |
+| `desktop-session-workspace` | PASSED | PASSED | PASSED |
+| `desktop-dialogs` | PASSED | PASSED | PASSED |
+| `desktop-settings-persistence` | PASSED | PASSED | PASSED |
+| `desktop-agent-mcp` | PASSED | PASSED | PASSED |
+| **Required gate** | **PASSED** | **PASSED** | **PASSED** |
+
+All three ran the same commit. `Desktop External Provider` was skipped, as a
+non-gating job with no label should be, and its `BLOCKED` result is not counted
+anywhere as a pass.
+
+### Merging while main moved five times
+
+`origin/main` landed five pull requests during this round -- roughly one every
+forty minutes, against a merge-and-verify cycle of sixty to ninety. Twice the
+pull request went `CONFLICTING` before CI could start, and that is worth
+recording precisely: **GitHub cannot build a merge ref for a conflicting pull
+request, so `pull_request` events do not fire at all.** Two pushes produced no CI
+run of any kind, which reads exactly like a broken workflow.
+
+Each merge was a merge, never a rebase. Two of them were substantive:
+
+- **`#209` took migration 82** for `local-media-profiles`, colliding with this
+  change's three tables. They moved to **83, 84, 85** -- the next three
+  consecutive numbers, not a higher range, because
+  `assert_migration_history_is_dense` refuses a gapped history at startup. Both
+  of main's own renumber-collision tests then had to be reconciled with a third
+  branch in the history: each rewinds a database to what the other branch's build
+  leaves behind, and each had to clear everything above 81 and drop this branch's
+  tables too, or the rewind produces a gap rather than a real earlier state.
+  Their totals are now derived from the migration list instead of named.
+- **`#222` added `desktop-agent-mcp`** to the full-suite layer list. It is a
+  required hermetic layer by this change's own classification, so it joined the
+  required list rather than sitting beside it.
+
+Two subtree budgets were re-measured on the merged tree rather than picked:
+`src/services` at 20243 and `platform/database` at 3245. Neither side's figure
+described the merge, and they are not additive -- they were taken against
+different bases.
+
+### Two mistakes made and corrected in this round
+
+- A commit staged `src-tauri/gen/schemas/*` -- 168 lines of wdio automation ACL
+  that the desktop test build injects. Reverted in the next commit. Main has
+  since made this structurally impossible with `withDirectoryRestored`.
+- The regenerated documentation screenshots were discarded after judging them
+  "noise" by byte size. That was the wrong measure: `#209` added a settings entry
+  that lengthens the left navigation and shifts every capture below it, which is
+  a handful of bytes and a real visual change. CI's diff showed it in the
+  sidebar. All forty-eight are regenerated.
+
+### 14.20: the completion conditions, each checked rather than assumed
+
+| Condition | Evidence |
+| --- | --- |
+| Windows / macOS / Linux full desktop PASSED | run 32810072826 on `368ce0e2`, re-confirmed by run 32814119050 on `c11ce015` |
+| All three on one commit | `commit-under-test.txt` in each platform's artifact |
+| Side-effect guard PASSED | asserted inside the passing `cli-lifecycle` spec: no real npm, WinGet, vendor URL, credential store, or user database |
+| Every desktop spec classified | `spec-manifest.mjs`, enforced by eight tests; an unclassified spec fails the desktop unit tests |
+| No required spec skipped | `desktop-smoke` reports 30 passed / 0 failed on each platform |
+| Migrations agree with `origin/main` | main's max is 82; this change owns 83, 84, 85, consecutive and dense |
+| Runtime resolver is the only production path | `architecture.rs`, 54 tests |
+| Legacy table: one reader, zero writers | `the_legacy_cli_table_has_exactly_one_reader_and_no_writer` |
+| Old lifecycle APIs gone | no caller of `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, `CliToolStatus`, or `LifecycleEligibility` outside one historical comment |
+| Whole CI run green | run 32814119050: every job success, `Desktop External Provider` correctly skipped |
+
+The product commit the matrix ran against is `368ce0e2`; `c11ce015` re-ran it with
+regenerated documentation images and no code change; this evidence commit adds
+only `tasks.md` and these notes.
+
+**Tasks: 164/164. Not archived.**

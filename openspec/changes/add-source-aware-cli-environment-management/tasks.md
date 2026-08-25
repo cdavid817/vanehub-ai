@@ -205,7 +205,7 @@
 - [x] 14.14 Run `cargo test --workspace`.
 - [x] 14.15 Run `npx playwright test`.
 - [x] 14.16 Run `npm run desktop:unit:test`.
-- [ ] 14.17 Run the relevant `npm run test:desktop:<layer>` suites and then `npm run test:desktop` on each available native platform.
+- [x] 14.17 Run the relevant `npm run test:desktop:<layer>` suites and then `npm run test:desktop` on each available native platform.
 - [x] 14.18 Run `openspec validate --specs --strict`.
 - [x] 14.19 Record command results, platform-specific desktop status, and any genuine platform block in the implementation notes or PR description.
-- [ ] 14.20 Mark this change complete only when all internal callers use the new contract, old CLI lifecycle APIs are removed, documentation is aligned, and no unchecked task is being hidden by a compatibility layer.
+- [x] 14.20 Mark this change complete only when all internal callers use the new contract, old CLI lifecycle APIs are removed, documentation is aligned, and no unchecked task is being hidden by a compatibility layer.
