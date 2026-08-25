@@ -224,3 +224,34 @@ export type ShellRuntimeDescriptor =
       reasonCode: string;
       remediation?: string;
     };
+
+/**
+ * Which machine a session's workspace is on, and what can be read there.
+ *
+ * Per-capability rather than one flag, because a remote host with Git but no ripgrep is an
+ * ordinary host: a single flag would either hide the search gap or disable the four things that
+ * work. The Shell needs none of this and stays reachable in every case.
+ */
+export type WorkspaceInspectionProviderId = "local" | "ssh" | "simulated";
+
+export type WorkspaceWatchMode = "native" | "polling" | "event-derived" | "none";
+
+export interface WorkspaceCapabilityState {
+  available: boolean;
+  /** A stable token with a `workspace.capability.reason.*` translation. Never a message. */
+  reasonCode?: string;
+  /** What would fix it, also as a token. "Unavailable" and "install ripgrep" are different facts. */
+  remediation?: string;
+}
+
+export interface WorkspaceInspectionCapabilities {
+  provider: WorkspaceInspectionProviderId;
+  /** Absent for a local workspace, which is what a reader assumes when nothing says otherwise. */
+  targetLabel?: string;
+  listFiles: WorkspaceCapabilityState;
+  readTextFiles: WorkspaceCapabilityState;
+  searchFiles: WorkspaceCapabilityState;
+  gitStatus: WorkspaceCapabilityState;
+  gitDiff: WorkspaceCapabilityState;
+  watchMode: WorkspaceWatchMode;
+}

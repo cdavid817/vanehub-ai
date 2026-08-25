@@ -114,8 +114,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 选择器、写入发生在 Rust 侧、文件名由应用层派生,而这条链路在服务边界上就要占三个实现。
 // simulated 是独立状态而非 exported 的变体:浏览器构建无处可写,一个说"已导出"的 demo 会让人去找
 // 一个不存在的文件。上限按实测值 21513 记录,不留余量。
+// 再次上调(同一 change,Task Group 11.11):+50 是工作区检查能力在服务边界上的三处——接口方法、
+// Tauri 侧的 invoke、Web 侧的 simulated 夹具与其类型。
+// 值得说明的是为什么 Web 侧不能省:浏览器构建必须报 `simulated` 而不是 `local`。一个说自己在读
+// 本机的 demo 会让人去找根本不存在的文件,而 `watchMode: "none"` 同理——夹具永远不变,说 native
+// 就是在描述一个不存在的监视器。能力全部 available 是诚实的:夹具里确实有这些东西,真正的缺口
+// 是 provider 名字,不是假装缺少某个前置条件。上限按实测值 21563 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21513, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21563, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

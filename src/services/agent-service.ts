@@ -94,6 +94,7 @@ import type {
 } from "./api-provider-service";
 import type {
   DirectoryListing,
+  WorkspaceInspectionCapabilities,
   DocumentListing,
   FileContent,
   FileSearchListing,
@@ -196,6 +197,13 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
+  /**
+   * What this session's workspace can be asked, before anything asks it.
+   *
+   * Read first by every panel that inspects a workspace: a remote host missing a prerequisite is
+   * an ordinary situation, and finding out one failed call at a time turns it into five errors.
+   */
+  getWorkspaceInspectionCapabilities(sessionId: string): Promise<WorkspaceInspectionCapabilities>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

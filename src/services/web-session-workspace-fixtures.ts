@@ -6,6 +6,7 @@ import type {
   SessionDocument,
   SessionLogEntry,
   SessionLogLevel,
+  WorkspaceInspectionCapabilities,
 } from "../types/session-workspace";
 
 export const availableContext = { availability: "available" as const, rootName: "vanehub-demo", reason: null };
@@ -137,3 +138,24 @@ export const logFixtures: SessionLogEntry[] = [
     };
   }),
 ];
+
+/**
+ * What the browser build can be asked, and the one thing it is honest about.
+ *
+ * Every capability is available because the fixture really does contain all of it. The gap is the
+ * provider name: `simulated` rather than `local`, so a demo does not claim to be reading this
+ * machine and send somebody looking for files that are not there.
+ *
+ * `watchMode: "none"` for the same reason. A fixture never changes, and saying `native` would
+ * describe a watcher that does not exist.
+ */
+export const inspectionCapabilitiesFixture: WorkspaceInspectionCapabilities = {
+  provider: "simulated",
+  targetLabel: "Simulated workspace",
+  listFiles: { available: true },
+  readTextFiles: { available: true },
+  searchFiles: { available: true },
+  gitStatus: { available: true },
+  gitDiff: { available: true },
+  watchMode: "none",
+};

@@ -9,6 +9,10 @@ import { gitStatusPresentation } from "./git-status-presentation";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { ReviewCenter } from "./review-center";
+import {
+  useWorkspaceCapabilities,
+  WorkspaceCapabilityNotice,
+} from "./workspace-capability-notice";
 
 export function ChangesTab({
   isVisible = true,
@@ -31,6 +35,7 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const initialized = useRef(false);
+  const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
   const statusQuery = useQuery({
     // Disabled rather than unmounted while hidden: the status list stays cached and on screen, and
     // the tab stops re-reading the working tree behind another panel.
@@ -66,6 +71,16 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
   const gitStatus = statusQuery.data;
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
+  // Asked before the failure rather than after it: a remote host without Git produces a status
+  // error that reads like a fault in this application, when the fact is that the host has no Git.
+  if (capabilities && !capabilities.gitStatus.available) {
+    return (
+      <WorkspaceCapabilityNotice
+        capability={capabilities.gitStatus}
+        targetLabel={capabilities.targetLabel}
+      />
+    );
+  }
   if ((loading || statusQuery.isLoading) && !gitStatus) return <WorkspaceState kind="loading" />;
   if (error && !gitStatus) return <WorkspaceState kind="error" message={t(error)} />;
   if (gitStatus && !gitStatus.isGit) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.notGit")} />;

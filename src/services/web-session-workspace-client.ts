@@ -6,6 +6,7 @@ import {
   directoryFixtures,
   documentFixtures,
   fileFixtures,
+  inspectionCapabilitiesFixture,
   logFixtures,
   searchFixtures,
   statusFixture,
@@ -22,6 +23,7 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences 
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
+  | "getWorkspaceInspectionCapabilities"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -101,6 +103,17 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async searchSessionFiles(_sessionId, query, maxResults = 8) {
     const items = rankFileCandidates(query, searchFixtures, maxResults);
     return { context: availableContext, items, truncated: items.length < searchFixtures.length };
+  },
+  /**
+   * The browser build inspects a fixture, and says so.
+   *
+   * `simulated` is its own provider rather than `local`: a demo that claimed to be reading this
+   * machine would send somebody looking for files that are not there. Everything it can answer is
+   * available, because the fixture really does contain all of it - the honest gap is the provider
+   * name, not a pretend missing prerequisite.
+   */
+  async getWorkspaceInspectionCapabilities() {
+    return structuredClone(inspectionCapabilitiesFixture);
   },
   async getSessionGitStatus() {
     return statusFixture;

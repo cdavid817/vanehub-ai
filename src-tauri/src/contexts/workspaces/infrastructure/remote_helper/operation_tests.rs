@@ -393,10 +393,44 @@ fn every_remote_operation_is_a_read() {
 fn the_remote_provider_declares_its_own_target_kind() {
     let source = include_str!("remote_provider.rs");
     assert!(source.contains("workspace_provider_remote_only"));
-    // Every operation goes through the same guard, so the check cannot be forgotten on one of six.
-    assert_eq!(source.matches("self.remote(target)?").count(), 7);
+    // One place talks to the helper, and it is the place that revalidates. That is stronger than
+    // counting guard calls: a seventh operation added tomorrow cannot reach the host without
+    // going through the same check, because there is nowhere else to reach it from.
+    assert_eq!(source.matches("exchange(").count(), 1);
+    assert!(source.contains("let remote = self.remote(target)?.clone();"));
 }
 
+/// A retry is bounded, and only for failures a second attempt could get past.
+#[test]
+fn the_retry_policy_covers_dropped_connections_and_nothing_else() {
+    let source = include_str!("remote_provider.rs");
+
+    assert!(source.contains("const MAX_INSPECTION_ATTEMPTS: usize = 2;"));
+    // A timeout is deliberately excluded: the remote may still be executing the first request,
+    // and a retry would leave two helper processes running while the reader waits twice as long.
+    assert!(
+        source.contains("RemoteHelperError::ConnectionFailed | RemoteHelperError::ChannelFailed")
+    );
+    assert!(!source.contains("RemoteHelperError::Timeout | "));
+}
+
+/// The binding is checked again before the second attempt, not once at the top.
+#[test]
+fn a_retry_revalidates_rather_than_reusing_the_first_decision() {
+    let source = include_str!("remote_provider.rs");
+
+    // The guard sits inside the loop. A retry happens after a failure, and the interesting
+    // failure is a connection that dropped because the profile was edited - reconnecting under
+    // the old revision would answer about a machine the session is no longer bound to.
+    let loop_start = source.find("        loop {").expect("retry loop");
+    let guard = source
+        .find("let remote = self.remote(target)?.clone();")
+        .expect("guard");
+    assert!(
+        guard > loop_start,
+        "the guard runs once instead of per attempt"
+    );
+}
 #[test]
 fn the_provider_type_is_the_one_bootstrap_registers() {
     // Named rather than inferred, so a rename that left bootstrap building something else would be

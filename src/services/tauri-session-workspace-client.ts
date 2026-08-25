@@ -11,12 +11,14 @@ import type {
   SessionLogEntry,
   SessionLogExportResult,
   SessionLogPage,
+  WorkspaceInspectionCapabilities,
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
+  | "getWorkspaceInspectionCapabilities"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -64,6 +66,11 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   searchSessionFiles(sessionId, query, maxResults) {
     return invoke<FileSearchListing>("search_session_files", { sessionId, query, maxResults });
+  },
+  getWorkspaceInspectionCapabilities(sessionId) {
+    return invoke<WorkspaceInspectionCapabilities>("get_workspace_inspection_capabilities", {
+      sessionId,
+    });
   },
   getSessionGitStatus(sessionId) {
     return invoke<GitStatusResult>("get_session_git_status", { sessionId });

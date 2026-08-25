@@ -71,25 +71,71 @@ impl RemoteWorkspaceInspectionProvider {
         Ok(remote)
     }
 
+    /// One operation, retried once if the connection dropped.
+    ///
+    /// Safe to retry because every operation here is a read: re-issuing one repeats an
+    /// observation rather than an action. Nothing in this provider mutates a workspace, writes a
+    /// file, or sends a Shell command, and a test asserts the absence of every verb that would.
+    ///
+    /// The binding is revalidated *before each attempt* rather than once at the top. A retry
+    /// happens after a failure, and the interesting failure is a connection that dropped because
+    /// the profile was edited — reconnecting under the old revision would answer about a machine
+    /// the session is no longer bound to.
     async fn call(
         &self,
-        remote: &RemoteWorkspaceTarget,
+        target: &WorkspaceTarget,
         operation: HelperOperation,
-    ) -> Result<HelperResult, WorkspaceInspectionError> {
-        let response = exchange(
-            self.session.as_ref(),
-            &remote.connection_id,
-            remote.connection_revision,
-            &HelperRequest::new(remote.root.clone(), operation),
-        )
-        .await
-        .map_err(inspection_error)?;
-        response
-            .result
-            .ok_or(WorkspaceInspectionError::RemoteUnavailable(
-                "remote_helper_malformed_response",
-            ))
+    ) -> Result<(RemoteWorkspaceTarget, HelperResult), WorkspaceInspectionError> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let remote = self.remote(target)?.clone();
+            let outcome = exchange(
+                self.session.as_ref(),
+                &remote.connection_id,
+                remote.connection_revision,
+                &HelperRequest::new(remote.root.clone(), operation.clone()),
+            )
+            .await;
+
+            match outcome {
+                Ok(response) => {
+                    let result =
+                        response
+                            .result
+                            .ok_or(WorkspaceInspectionError::RemoteUnavailable(
+                                "remote_helper_malformed_response",
+                            ))?;
+                    return Ok((remote, result));
+                }
+                Err(error) if attempt < MAX_INSPECTION_ATTEMPTS && is_retryable(&error) => {
+                    continue;
+                }
+                Err(error) => return Err(inspection_error(error)),
+            }
+        }
     }
+}
+
+/// How many times one read is attempted.
+///
+/// Two, not more. A second attempt covers the ordinary case — a pooled connection that died
+/// between requests — and a third would mostly add latency to a host that is genuinely down,
+/// while a panel that opens six operations at once turns every extra attempt into six.
+const MAX_INSPECTION_ATTEMPTS: usize = 2;
+
+/// Whether a failure is one a second attempt could plausibly get past.
+///
+/// A dropped connection or channel is: the pool reconnects and the read runs again. A timeout is
+/// deliberately *not* — the remote may still be executing the first request, and a retry would
+/// leave two helper processes running while the reader waits twice as long for the same answer.
+/// Everything else is an answer rather than a failure to reach one, and repeating it would produce
+/// the same answer more slowly.
+fn is_retryable(error: &RemoteHelperError) -> bool {
+    matches!(
+        error,
+        RemoteHelperError::ConnectionFailed | RemoteHelperError::ChannelFailed
+    )
 }
 
 /// The helper's vocabulary, in the inspection's terms.
@@ -212,8 +258,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
     ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
-        let result = self.call(remote, HelperOperation::Probe).await?;
+        let (_, result) = self.call(target, HelperOperation::Probe).await?;
         let probe = result
             .probe
             .ok_or(WorkspaceInspectionError::RemoteUnavailable(
@@ -227,14 +272,13 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         request: ListDirectoryRequest,
     ) -> Result<DirectoryListing, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
-        let result = self
+        let (remote, result) = self
             .call(
-                remote,
+                target,
                 HelperOperation::ListDirectory { path: request.path },
             )
             .await?;
-        result.listing.map(|value| listing(remote, value)).ok_or(
+        result.listing.map(|value| listing(&remote, value)).ok_or(
             WorkspaceInspectionError::RemoteUnavailable("remote_helper_malformed_response"),
         )
     }
@@ -257,9 +301,8 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         request: ReadTextFileRequest,
     ) -> Result<FileContent, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
-        let result = self
-            .call(remote, HelperOperation::ReadTextFile { path: request.path })
+        let (_, result) = self
+            .call(target, HelperOperation::ReadTextFile { path: request.path })
             .await?;
         result
             .file
@@ -274,17 +317,16 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         request: WorkspaceSearchRequest,
     ) -> Result<FileSearchListing, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
-        let result = self
+        let (remote, result) = self
             .call(
-                remote,
+                target,
                 HelperOperation::Search {
                     query: request.query,
                     max_results: request.max_results,
                 },
             )
             .await?;
-        result.search.map(|value| search(remote, value)).ok_or(
+        result.search.map(|value| search(&remote, value)).ok_or(
             WorkspaceInspectionError::RemoteUnavailable("remote_helper_malformed_response"),
         )
     }
@@ -293,8 +335,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
     ) -> Result<GitStatusResult, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
-        let result = self.call(remote, HelperOperation::GitStatus).await?;
+        let (remote, result) = self.call(target, HelperOperation::GitStatus).await?;
         let git = result
             .git
             .ok_or(WorkspaceInspectionError::RemoteUnavailable(
@@ -304,7 +345,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             // A directory that is not a repository is an answer, not a failure: the panel shows
             // "no version control here" rather than an error a reader would try to fix.
             return Ok(GitStatusResult {
-                context: context(remote),
+                context: context(&remote),
                 is_git: false,
                 branch: None,
                 items: Vec::new(),
@@ -316,7 +357,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         // record has one implementation rather than two that agree until they do not.
         let (branch, items) = super::super::session_queries::parse_git_status(&git_output(&git)?);
         Ok(GitStatusResult {
-            context: context(remote),
+            context: context(&remote),
             is_git: true,
             branch,
             items,
@@ -330,11 +371,10 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         request: GitDiffRequest,
     ) -> Result<GitDiffResult, WorkspaceInspectionError> {
-        let remote = self.remote(target)?;
         let path = request.path.clone();
-        let result = self
+        let (remote, result) = self
             .call(
-                remote,
+                target,
                 HelperOperation::GitDiff {
                     path: request.path,
                     staged: request.source == GitDiffSource::Staged,
@@ -348,7 +388,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             ))?;
         let raw = git_output(&git)?;
         Ok(GitDiffResult {
-            context: context(remote),
+            context: context(&remote),
             source: request.source,
             files: super::super::session_queries::parse_git_diff(
                 &String::from_utf8_lossy(&raw),
