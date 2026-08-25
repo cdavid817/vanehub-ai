@@ -2407,12 +2407,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
-    // Re-measured after merging `origin/main`. The two branches raised this to 59,847 and
-    // 60,547 against the same base but for different files, so neither figure and no sum of
-    // them describes the merged tree. The number below is a direct measurement of it.
+    // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
+    // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
+    // output framer's skip-and-resume path. They are increments over different bases against
+    // different files, so the merged tree is neither figure and not their sum. The number below is
+    // a direct measurement of the merged tree.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_304,
+        budget: 61_424,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2449,13 +2451,15 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
         //
-        // Re-measured after merging `add-local-composer-media-tools`, which adds one production
-        // file here: `local_media_ocr_adapter.rs`, the OnePiece OCR tool re-pointed at the shared
-        // local-media runtime. That is relocation rather than growth — the PaddleOCR runtime it
-        // replaces is deleted from `tooling/extensions` — but the deletion lands in a different
-        // subtree, so this ceiling only sees the arrival.
-        budget: 33_372,
-        owner: "upgrade-cli-parameter-management",
+        // Both sides then raised it for their own reason. This branch to 33,372, for
+        // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
+        // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
+        // replaces is deleted from a different subtree so this ceiling only sees the arrival.
+        // `main` to 33,049, for the provider framer's skip-and-resume path and its post-stream
+        // discarded-records log. Different files, so the merged tree is measured rather than
+        // guessed at from either.
+        budget: 33_457,
+        owner: "decompose-api-tool-use-loop",
     },
 ];
 
