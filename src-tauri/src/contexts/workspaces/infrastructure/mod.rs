@@ -6,6 +6,7 @@ mod evaluation_fixture;
 mod filesystem;
 mod git;
 mod output_search;
+mod remote_helper;
 mod remote_terminal_logging;
 mod remote_terminal_schema;
 mod retained_remote_shell;

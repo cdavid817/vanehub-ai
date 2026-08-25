@@ -217,9 +217,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 11.1 Add `WorkspaceTarget`, `WorkspaceInspectionCapabilities`, typed provider errors, and a `WorkspaceInspectionProvider` application port under workspaces.
 - [x] 11.2 Adapt existing confined local file/document/search/Git implementations behind `LocalWorkspaceInspectionProvider` without weakening path, symlink, size, locale, or diff bounds.
 - [x] 11.3 Resolve provider selection from the registered Session binding; never accept a frontend-supplied absolute root as authority.
-- [ ] 11.4 Publish only the required remote exec/channel contract through `ssh_connections::api`; do not import its pool or infrastructure modules.
-- [ ] 11.5 Implement a versioned static SSH helper protocol that sends bounded JSON over stdin and receives bounded JSON output.
-- [ ] 11.6 Probe POSIX remote host, current profile revision/host trust, Python 3 helper support, Git, and ripgrep capabilities and return typed per-feature availability.
+- [x] 11.4 Publish only the required remote exec/channel contract through `ssh_connections::api`; do not import its pool or infrastructure modules.
+- [x] 11.5 Implement a versioned static SSH helper protocol that sends bounded JSON over stdin and receives bounded JSON output.
+- [x] 11.6 Probe POSIX remote host, current profile revision/host trust, Python 3 helper support, Git, and ripgrep capabilities and return typed per-feature availability.
 - [ ] 11.7 Implement remote realpath confinement, symlink-escape rejection, bounded directory listing, bounded text preview, and deterministic sorting inside the helper.
 - [ ] 11.8 Implement bounded remote path/content search through `rg --json` when available and return typed unavailability otherwise.
 - [ ] 11.9 Implement remote Git status/diff using argument-array subprocess calls and the existing normalized structured DTOs; preserve index/worktree distinction and locale-independent classification.
