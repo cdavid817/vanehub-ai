@@ -36,6 +36,7 @@
     "test:desktop:skills": "node scripts/test-desktop.mjs skills",
     "test:desktop:multi-agent-requirement": "node scripts/test-desktop.mjs multi-agent-requirement",
     "test:desktop:multi-agent-longrun": "node scripts/test-desktop.mjs multi-agent-longrun",
+    "test:desktop:loop": "node scripts/test-desktop.mjs loop",
     "test:desktop": "node scripts/test-desktop.mjs all",
     "test:verify": "node scripts/test-verify.mjs",
     "local-media:python:test": "node scripts/test-local-media-python.mjs",
