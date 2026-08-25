@@ -248,6 +248,30 @@ function cliManagementDesktop(artifact) {
   });
 }
 
+// Opt-in only, never part of `all`: it drives the REAL codex-cli and claude-code against a real
+// requirement, so it spends model tokens and needs both CLIs authenticated on the host.
+//
+// External-provider layers in the sense the desktop spec now defines: real Agent, real login, real
+// model output. They stay out of the required gate for the same reason `native-flows` does.
+function multiAgentRequirementDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-multi-agent-requirement",
+    config: "tests/desktop/wdio.multi-agent-requirement.conf.mjs",
+    label: "Desktop multi-agent requirement",
+    artifact,
+  });
+}
+
+// Opt-in only: a long-running three-seat feature build with real model calls.
+function multiAgentLongrunDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-multi-agent-longrun",
+    config: "tests/desktop/wdio.multi-agent-longrun.conf.mjs",
+    label: "Desktop multi-agent longrun",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -287,6 +311,8 @@ async function main() {
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
+  else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
+  else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "external-provider") {
     // Prerequisites before the build. A runner with no real Agent has nothing for this suite to
     // verify, and spending ten minutes compiling the application to say so buys nothing.
