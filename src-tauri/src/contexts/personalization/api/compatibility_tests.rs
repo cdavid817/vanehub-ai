@@ -10,13 +10,14 @@ use tempfile::TempDir;
 
 use super::{build_for_tests, CompatibilitySaveInput, PersonalizationApi};
 use crate::contexts::personalization::application::{
-    ClockPort, CreateMemoryInput, LegacyAddressAliasPort, MemoryApplicationService,
-    MigrationStatePort, PersonalizationApplicationError, RetrievalIndexPort, UpdateMemoryPatch,
+    CandidateSubmission, ClockPort, CreateMemoryInput, LegacyAddressAliasPort,
+    MemoryApplicationService, MigrationStatePort, PersonalizationApplicationError,
+    RetrievalIndexPort, UpdateMemoryPatch,
 };
 use crate::contexts::personalization::domain::{
-    LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
-    MemorySensitivity, MemorySource, MemoryStatus, MemoryType, MigrationPhase, MigrationState,
-    WorkspaceKey,
+    CreateMemoryCandidate, LegacyAddressKey, MemoryAudience, MemoryCandidateOperation, MemoryId,
+    MemoryProvenance, MemoryRecord, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
+    MemoryType, MigrationPhase, MigrationState, WorkspaceKey,
 };
 use crate::contexts::personalization::infrastructure::{
     SqliteLegacyAddressAlias, SqliteMigrationState,
@@ -593,5 +594,64 @@ fn an_alias_update_advances_exactly_one_revision_and_a_stale_write_is_refused() 
     assert!(matches!(
         conflict,
         PersonalizationApplicationError::RevisionConflict(_)
+    ));
+}
+
+fn proposal(name: &str) -> MemoryCandidateOperation {
+    MemoryCandidateOperation::Create(CreateMemoryCandidate {
+        name: name.to_string(),
+        description: format!("About {name}"),
+        memory_type: MemoryType::Project,
+        content: "Never pnpm in this repo.".to_string(),
+        scope: MemoryScope::Global,
+        audience: MemoryAudience::AllAgents,
+    })
+}
+
+fn submission(proposals: Vec<MemoryCandidateOperation>) -> CandidateSubmission {
+    CandidateSubmission {
+        proposals,
+        source: MemorySource::OnePieceAutomatic,
+        provenance: MemoryProvenance::default(),
+        eligible_targets: Vec::new(),
+    }
+}
+
+/// A candidate is queued for review; it is not a memory.
+///
+/// The compatibility view is what the runtime injects and what `MEMORY.md` is rebuilt from, so a
+/// proposal appearing there would be an unapproved suggestion arriving as an established fact.
+#[test]
+fn a_submitted_candidate_never_appears_in_the_active_memory_view() {
+    let fixture = fixture("candidate-not-active");
+    mark_ready(&fixture);
+
+    let outcome = fixture
+        .api
+        .submit_memory_candidates(submission(vec![proposal("npm-only")]))
+        .expect("submission");
+
+    assert_eq!(outcome.accepted_count(), 1);
+    assert!(fixture
+        .api
+        .compatibility_memories()
+        .expect("listing")
+        .is_empty());
+}
+
+/// A proposal is written against revisions the snapshot pinned. Queueing one while migration owns
+/// the directory would record an expected revision the migration is in the middle of rewriting,
+/// and the review that later approved it would either conflict or apply to a record that moved.
+#[test]
+fn submitting_a_candidate_is_refused_while_migration_owns_the_directory() {
+    let fixture = fixture("candidate-maintenance");
+
+    let refused = fixture
+        .api
+        .submit_memory_candidates(submission(vec![proposal("npm-only")]));
+
+    assert!(matches!(
+        refused,
+        Err(PersonalizationApplicationError::MaintenanceRequired)
     ));
 }

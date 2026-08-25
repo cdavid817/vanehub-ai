@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 
 use super::memory::{
     MemoryAudience, MemoryId, MemoryProvenance, MemoryScope, MemorySource, MemoryType,
+    MEMORY_AUDIENCE_MAX_AGENTS, MEMORY_CONTENT_MAX_CHARS, MEMORY_DESCRIPTION_MAX_CHARS,
+    MEMORY_NAME_MAX_CHARS,
 };
 use super::policy::RevisionConflict;
 
@@ -69,6 +71,83 @@ impl MemoryCandidateOperation {
             Self::Archive(_) => "archive",
         }
     }
+
+    /// Whether this proposal is worth queueing for a human to read.
+    ///
+    /// The same bounds an active record is held to, applied before persistence rather than at
+    /// approval. A proposal that could never be approved is not a proposal — queueing it would
+    /// spend a reviewer's attention to reach a rejection this already knows.
+    ///
+    /// The reason is a stable code rather than a message: it is what the caller logs, and a
+    /// rejected proposal is precisely the text nobody has approved.
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        match self {
+            Self::Create(create) => {
+                bounded("candidate-name", &create.name, 1, MEMORY_NAME_MAX_CHARS)?;
+                bounded(
+                    "candidate-description",
+                    &create.description,
+                    1,
+                    MEMORY_DESCRIPTION_MAX_CHARS,
+                )?;
+                bounded(
+                    "candidate-content",
+                    &create.content,
+                    1,
+                    MEMORY_CONTENT_MAX_CHARS,
+                )?;
+                // `Untyped` exists for records migrated from a store that had no types. Nothing
+                // proposed today may claim it, because there is no pre-governance file to blame.
+                if matches!(create.memory_type, MemoryType::Untyped) {
+                    return Err("candidate-untyped");
+                }
+                if let MemoryAudience::SelectedAgents { agent_ids } = &create.audience {
+                    if agent_ids.is_empty() || agent_ids.len() > MEMORY_AUDIENCE_MAX_AGENTS {
+                        return Err("candidate-audience");
+                    }
+                }
+                Ok(())
+            }
+            Self::Update(update) => {
+                // A correction that corrects nothing is a malformed proposal, not an empty one:
+                // approving it would bump a revision and change no text.
+                if update.name.is_none() && update.description.is_none() && update.content.is_none()
+                {
+                    return Err("candidate-empty-update");
+                }
+                if let Some(name) = update.name.as_deref() {
+                    bounded("candidate-name", name, 1, MEMORY_NAME_MAX_CHARS)?;
+                }
+                if let Some(description) = update.description.as_deref() {
+                    bounded(
+                        "candidate-description",
+                        description,
+                        1,
+                        MEMORY_DESCRIPTION_MAX_CHARS,
+                    )?;
+                }
+                if let Some(content) = update.content.as_deref() {
+                    bounded("candidate-content", content, 1, MEMORY_CONTENT_MAX_CHARS)?;
+                }
+                Ok(())
+            }
+            // Nothing to bound: an archive proposal is two identities and no text.
+            Self::Archive(_) => Ok(()),
+        }
+    }
+}
+
+fn bounded(
+    reason: &'static str,
+    value: &str,
+    minimum: usize,
+    maximum: usize,
+) -> Result<(), &'static str> {
+    let length = value.trim().chars().count();
+    if length < minimum || value.chars().count() > maximum {
+        return Err(reason);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

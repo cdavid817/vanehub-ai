@@ -18,6 +18,9 @@ mod resolve_workspace_identity;
 #[cfg(test)]
 mod resolve_workspace_identity_tests;
 mod run_startup_maintenance;
+mod submit_candidates;
+#[cfg(test)]
+mod submit_candidates_tests;
 
 pub(crate) use error::PersonalizationApplicationError;
 pub(crate) use legacy_settings_compatibility::{
@@ -53,3 +56,7 @@ pub(crate) use preview_personalization::{
 pub(crate) use resolve_policy::{PolicyResolutionService, ResolutionRequest};
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
 pub(crate) use run_startup_maintenance::{StartupMaintenancePorts, StartupMaintenanceService};
+pub(crate) use submit_candidates::{
+    CandidateRejection, CandidateSubmission, CandidateSubmissionOutcome,
+    CandidateSubmissionService, MAX_CANDIDATES_PER_SUBMISSION,
+};

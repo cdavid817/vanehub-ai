@@ -18,14 +18,15 @@ use crate::contexts::desktop::api::{
     PersonalizationSettingsSnapshot,
 };
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
-use crate::contexts::personalization::api::PersonalizationApi;
+use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, ClockPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
-    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
-    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, LegacySettingsView,
-    MemoryApplicationService, PersonalizationApplicationError, PersonalizationPreviewService,
-    PolicyResolutionService, RetrievalIndexPort, StartupMaintenancePorts,
-    StartupMaintenanceService, WorkspaceIdentityResolver,
+    AgentCapabilityPort, CandidateSubmissionService, ClockPort, LastKnownGoodPolicyCache,
+    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService, LegacyPersonalizationSettings,
+    LegacyPersonalizationSettingsPort, LegacyRowMigrationPort, LegacySettingField,
+    LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
+    PersonalizationApplicationError, PersonalizationPreviewService, PolicyResolutionService,
+    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
+    WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryId, MemoryRecord, PersonalizationRuntimeCapabilities,
@@ -132,9 +133,11 @@ pub(crate) fn assemble_personalization(
         clock: clock.clone(),
     }));
 
-    // Kept alive so the candidate table has an owner once the review UI lands; assembling it here
-    // rather than later keeps every personalization construction in one place.
-    let _candidates = Arc::new(SqliteCandidateRepository::new(database));
+    let candidates = Arc::new(CandidateSubmissionService::new(
+        Arc::new(SqliteCandidateRepository::new(database)),
+        Arc::new(UuidMemoryIdGenerator),
+        clock.clone(),
+    ));
 
     let resolver = Arc::new(PolicyResolutionService::new(
         policies_for_resolver,
@@ -143,19 +146,20 @@ pub(crate) fn assemble_personalization(
         maintenance.clone(),
         policy_cache.clone(),
     ));
-    let api = PersonalizationApi::new(
+    let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
-        resolver.clone(),
+        resolver: resolver.clone(),
+        candidates,
         gate,
-        maintenance.clone(),
-        Arc::new(LegacySettingsCompatibility::new(
+        health: maintenance.clone(),
+        settings: Arc::new(LegacySettingsCompatibility::new(
             policies,
             clock,
             policy_cache,
         )),
         aliases,
-        Arc::new(WorkspaceIdentityResolver::for_this_platform()),
-    );
+        workspace_identity: Arc::new(WorkspaceIdentityResolver::for_this_platform()),
+    });
     // Bound here rather than by the caller, so there is no assembly order in which the settings
     // page is live while the legacy rows are still its truth.
     settings_for_bridge.bind_personalization(Arc::new(GovernedSettingsBridge::new(api.clone())));

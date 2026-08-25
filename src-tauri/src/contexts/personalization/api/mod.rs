@@ -13,10 +13,11 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    CreateMemoryInput, LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility,
-    LegacySettingsView, MaintenanceGatePort, MemoryApplicationService, MemoryHealthPort,
-    MutationAdmission, PersonalizationApplicationError, PolicyResolutionService, ResolutionRequest,
-    UpdateMemoryPatch, WorkspaceIdentityPort,
+    CandidateSubmission, CandidateSubmissionOutcome, CandidateSubmissionService, CreateMemoryInput,
+    LegacyAddressAliasPort, LegacySettingField, LegacySettingsCompatibility, LegacySettingsView,
+    MaintenanceGatePort, MemoryApplicationService, MemoryHealthPort, MutationAdmission,
+    PersonalizationApplicationError, PolicyResolutionService, ResolutionRequest, UpdateMemoryPatch,
+    WorkspaceIdentityPort,
 };
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryId, MemoryProvenance,
@@ -103,6 +104,10 @@ pub(crate) struct PersonalizationApi {
     /// adapters directly, so every consumer reaches policy through the one boundary this context
     /// exposes and none of them can assemble a resolver of its own.
     resolver: Arc<PolicyResolutionService>,
+    /// Turns proposals into reviewable candidates. Separate from `memories` on purpose: this
+    /// service cannot write an active record, so no argument a runtime passes can cross from
+    /// "the model suggested this" to "the user keeps this".
+    candidates: Arc<CandidateSubmissionService>,
     /// Held across every read and every write, so a `Ready` answer cannot go stale between the
     /// check and the work it authorizes.
     gate: Arc<dyn MaintenanceGatePort>,
@@ -114,19 +119,38 @@ pub(crate) struct PersonalizationApi {
     workspace_identity: Arc<dyn WorkspaceIdentityPort>,
 }
 
+/// Everything the boundary is assembled from.
+///
+/// A named struct rather than a positional list: eight `Arc`s of which four are trait objects is
+/// exactly the signature where two get swapped at one call site and the compiler agrees, and the
+/// same shape is already used for the migration and maintenance services in this context.
+pub(crate) struct PersonalizationApiParts {
+    pub(crate) memories: Arc<MemoryApplicationService>,
+    pub(crate) resolver: Arc<PolicyResolutionService>,
+    pub(crate) candidates: Arc<CandidateSubmissionService>,
+    pub(crate) gate: Arc<dyn MaintenanceGatePort>,
+    pub(crate) health: Arc<dyn MemoryHealthPort>,
+    pub(crate) settings: Arc<LegacySettingsCompatibility>,
+    pub(crate) aliases: Arc<dyn LegacyAddressAliasPort>,
+    pub(crate) workspace_identity: Arc<dyn WorkspaceIdentityPort>,
+}
+
 impl PersonalizationApi {
-    pub(crate) fn new(
-        memories: Arc<MemoryApplicationService>,
-        resolver: Arc<PolicyResolutionService>,
-        gate: Arc<dyn MaintenanceGatePort>,
-        health: Arc<dyn MemoryHealthPort>,
-        settings: Arc<LegacySettingsCompatibility>,
-        aliases: Arc<dyn LegacyAddressAliasPort>,
-        workspace_identity: Arc<dyn WorkspaceIdentityPort>,
-    ) -> Self {
+    pub(crate) fn new(parts: PersonalizationApiParts) -> Self {
+        let PersonalizationApiParts {
+            memories,
+            resolver,
+            candidates,
+            gate,
+            health,
+            settings,
+            aliases,
+            workspace_identity,
+        } = parts;
         Self {
             memories,
             resolver,
+            candidates,
             gate,
             health,
             settings,
@@ -181,6 +205,23 @@ impl PersonalizationApi {
         request: ResolutionRequest,
     ) -> Result<EffectivePersonalizationSnapshot> {
         self.resolver.resolve(request)
+    }
+
+    /// Queues proposals for review. Never writes an active memory.
+    ///
+    /// Held behind the same admission as a real write, because a proposal is written against
+    /// revisions the snapshot pinned: submitting while migration owns the directory would queue an
+    /// update whose expected revision the migration is in the middle of rewriting, and the review
+    /// that later approved it would either conflict or apply to a record that had moved.
+    ///
+    /// Returns per-proposal outcomes rather than failing the batch. The callers are extraction and
+    /// the model's own tool, both of which run behind a generation that has already answered.
+    pub(crate) fn submit_memory_candidates(
+        &self,
+        submission: CandidateSubmission,
+    ) -> Result<CandidateSubmissionOutcome> {
+        let _admission = self.admit_write()?;
+        self.candidates.submit(submission)
     }
 
     /// The dedicated policy in the shape the pre-governance settings page understands.
@@ -467,8 +508,8 @@ pub(crate) fn build_for_tests(
     use super::domain::{AgentId, PersonalizationRuntimeCapabilities};
     use super::infrastructure::{
         DurableMemoryHealth, MaintenanceGate, MarkdownDerivedIndex, MarkdownMemoryRepository,
-        SqliteLegacyAddressAlias, SqliteMemoryProjection, SqliteMigrationState,
-        SqlitePolicyRepository, UuidMemoryIdGenerator,
+        SqliteCandidateRepository, SqliteLegacyAddressAlias, SqliteMemoryProjection,
+        SqliteMigrationState, SqlitePolicyRepository, UuidMemoryIdGenerator,
     };
 
     /// Every Agent, fully capable. These fixtures are about memory and the compatibility view, not
@@ -514,14 +555,21 @@ pub(crate) fn build_for_tests(
         health.clone(),
         cache.clone(),
     ));
-    let api = PersonalizationApi::new(
-        service.clone(),
+    let api = PersonalizationApi::new(PersonalizationApiParts {
+        memories: service.clone(),
         resolver,
-        Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
+        candidates: Arc::new(CandidateSubmissionService::new(
+            Arc::new(SqliteCandidateRepository::new(database.clone())),
+            Arc::new(UuidMemoryIdGenerator),
+            clock.clone(),
+        )),
+        gate: Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
         health,
-        Arc::new(LegacySettingsCompatibility::new(policies, clock, cache)),
-        Arc::new(SqliteLegacyAddressAlias::new(database)),
-        Arc::new(super::application::WorkspaceIdentityResolver::for_this_platform()),
-    );
+        settings: Arc::new(LegacySettingsCompatibility::new(policies, clock, cache)),
+        aliases: Arc::new(SqliteLegacyAddressAlias::new(database)),
+        workspace_identity: Arc::new(
+            super::application::WorkspaceIdentityResolver::for_this_platform(),
+        ),
+    });
     (api, service)
 }

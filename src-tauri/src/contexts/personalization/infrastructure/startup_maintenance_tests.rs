@@ -13,16 +13,16 @@ use tempfile::TempDir;
 
 use super::{
     DurableMemoryHealth, FileLegacyMemorySource, MaintenanceGate, MarkdownDerivedIndex,
-    MarkdownMemoryRepository, SqliteLegacyAddressAlias, SqliteLegacyPolicyMigration,
-    SqliteMemoryProjection, SqliteMigrationJournal, SqliteMigrationState, SqlitePolicyRepository,
-    UuidMemoryIdGenerator,
+    MarkdownMemoryRepository, SqliteCandidateRepository, SqliteLegacyAddressAlias,
+    SqliteLegacyPolicyMigration, SqliteMemoryProjection, SqliteMigrationJournal,
+    SqliteMigrationState, SqlitePolicyRepository, UuidMemoryIdGenerator,
 };
-use crate::contexts::personalization::api::PersonalizationApi;
+use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
-    AgentCapabilityPort, ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache,
-    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService, LegacyPersonalizationSettings,
-    LegacyPersonalizationSettingsPort, LegacyRowMigrationPort, LegacySettingField,
-    LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
+    AgentCapabilityPort, CandidateSubmissionService, ClockPort, DerivedIndexPort,
+    LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
+    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
+    LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
     MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
     MigrationStatePort, PersonalizationApplicationError, PolicyRepository, PolicyResolutionService,
     ResetCounts, RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
@@ -312,19 +312,24 @@ fn reopen(
         maintenance.clone(),
         Arc::new(LastKnownGoodPolicyCache::default()),
     ));
-    let api = PersonalizationApi::new(
+    let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
         resolver,
+        candidates: Arc::new(CandidateSubmissionService::new(
+            Arc::new(SqliteCandidateRepository::new(database.clone())),
+            Arc::new(UuidMemoryIdGenerator),
+            Arc::new(FixedClock),
+        )),
         gate,
-        maintenance.clone(),
-        Arc::new(LegacySettingsCompatibility::new(
+        health: maintenance.clone(),
+        settings: Arc::new(LegacySettingsCompatibility::new(
             policies.clone(),
             Arc::new(FixedClock),
             Arc::new(LastKnownGoodPolicyCache::default()),
         )),
         aliases,
-        Arc::new(WorkspaceIdentityResolver::for_this_platform()),
-    );
+        workspace_identity: Arc::new(WorkspaceIdentityResolver::for_this_platform()),
+    });
 
     Fixture {
         _directory: keep,
