@@ -182,7 +182,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 9.1 Add `ExecutionSpanKind` and safe evidence-count/link fields to observability timeline DTOs.
 - [x] 9.2 Map pinned OpenTelemetry semantic conventions and documented `vanehub.*` attributes to span kind in Rust; remove React span-name substring classification.
 - [x] 9.3 Derive bounded depth, start offset, completed duration, attempt, delegation, and critical-path metadata without inventing unavailable values.
-- [ ] 9.4 Add identifier-only run/span transition notices after committed timeline updates.
+- [x] 9.4 Add identifier-only run/span transition notices after committed timeline updates.
 - [x] 9.5 Add deterministic Web/mock running-to-terminal trace transitions.
 - [ ] 9.6 Refactor the Traces tab into Run list, waterfall viewport, span row, legend/filter toolbar, and detail drawer components.
 - [ ] 9.7 Implement horizontal time scaling/scrolling and vertical virtualization for bounded span sets.

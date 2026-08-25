@@ -1,5 +1,6 @@
 use crate::contexts::execution_observability::application::{
-    ExecutionTelemetryError, ExecutionTelemetryPort,
+    ExecutionTelemetryError, ExecutionTelemetryPort, TraceTransitionKind, TraceTransitionNotice,
+    TraceTransitionPublisherPort,
 };
 use crate::contexts::execution_observability::domain::{
     ExecutionEvent, ExecutionRun, ExecutionRunId, ExecutionSpan, ExecutionStatus, SpanId,
@@ -28,6 +29,12 @@ pub(crate) struct CompositeExecutionTelemetry {
     capture_policies: Arc<
         Mutex<HashMap<String, crate::contexts::execution_observability::domain::CapturePolicy>>,
     >,
+    /// Run id to trace id, so a finish can announce the same correlation a start did.
+    ///
+    /// The finish calls carry only a run id. Without this the trace id on a notice would be
+    /// present for a start and missing for a finish, and every consumer would have to handle both.
+    run_traces: Arc<Mutex<HashMap<String, String>>>,
+    transitions: Option<Arc<dyn TraceTransitionPublisherPort>>,
 }
 
 impl CompositeExecutionTelemetry {
@@ -42,6 +49,8 @@ impl CompositeExecutionTelemetry {
             diagnostics: None,
             last_export_diagnostic: Arc::new(Mutex::new(None)),
             capture_policies: Arc::new(Mutex::new(HashMap::new())),
+            run_traces: Arc::new(Mutex::new(HashMap::new())),
+            transitions: None,
         }
     }
 
@@ -53,6 +62,55 @@ impl CompositeExecutionTelemetry {
         let mut composite = Self::new(local, exporters);
         composite.diagnostics = Some(diagnostics);
         composite
+    }
+
+    /// Attaches somewhere to announce committed transitions.
+    ///
+    /// Optional, because telemetry is assembled in places that have no window to publish to — and
+    /// a composite that required one would make those paths carry a publisher that does nothing.
+    pub(crate) fn with_transitions(
+        mut self,
+        transitions: Arc<dyn TraceTransitionPublisherPort>,
+    ) -> Self {
+        self.transitions = Some(transitions);
+        self
+    }
+
+    /// Announces a transition the local store has already committed.
+    ///
+    /// After the commit and never before: a notice that arrived first would send a subscriber to
+    /// fetch a timeline that does not yet hold the change, and the refetch would return the old
+    /// state — which reads as a wrong notice rather than an early one.
+    fn announce(
+        &self,
+        kind: TraceTransitionKind,
+        run_id: &ExecutionRunId,
+        span_id: Option<&SpanId>,
+        status: ExecutionStatus,
+        occurred_at: Option<&str>,
+    ) {
+        let Some(transitions) = self.transitions.as_ref() else {
+            return;
+        };
+        let trace_id = self
+            .run_traces
+            .lock()
+            .ok()
+            .and_then(|traces| traces.get(run_id.as_str()).cloned());
+        // A transition for a run this process never started has no correlation to announce.
+        // Publishing it with an empty trace id would hand a subscriber a value that looks like an
+        // id and matches nothing.
+        let Some(trace_id) = trace_id else {
+            return;
+        };
+        transitions.publish(&TraceTransitionNotice {
+            kind,
+            run_id: run_id.as_str().to_string(),
+            trace_id,
+            span_id: span_id.map(|value| value.as_str().to_string()),
+            status,
+            occurred_at: occurred_at.map(str::to_string),
+        });
     }
 
     #[cfg(test)]
@@ -115,7 +173,20 @@ impl ExecutionTelemetryPort for CompositeExecutionTelemetry {
                 run.context.capture_policy,
             );
         }
+        if let Ok(mut traces) = self.run_traces.lock() {
+            traces.insert(
+                run.context.run_id.as_str().to_string(),
+                run.context.trace_id.as_str().to_string(),
+            );
+        }
         self.local.start_run(&sanitized)?;
+        self.announce(
+            TraceTransitionKind::RunStarted,
+            &run.context.run_id,
+            None,
+            run.status,
+            None,
+        );
         self.export(|exporter| exporter.start_run(&sanitized));
         self.add_metric(
             "vanehub.execution.run.started",
@@ -134,9 +205,20 @@ impl ExecutionTelemetryPort for CompositeExecutionTelemetry {
     ) -> Result<(), ExecutionTelemetryError> {
         self.local
             .finish_run(run_id, status, ended_at, error_classification)?;
+        self.announce(
+            TraceTransitionKind::RunFinished,
+            run_id,
+            None,
+            status,
+            Some(ended_at),
+        );
         self.export(|exporter| exporter.finish_run(run_id, status, ended_at, error_classification));
         if let Ok(mut policies) = self.capture_policies.lock() {
             policies.remove(run_id.as_str());
+        }
+        // Forgotten only after the announcement: the notice needs the correlation this drops.
+        if let Ok(mut traces) = self.run_traces.lock() {
+            traces.remove(run_id.as_str());
         }
         self.add_metric(
             "vanehub.execution.run.completed",
@@ -150,6 +232,13 @@ impl ExecutionTelemetryPort for CompositeExecutionTelemetry {
         let mut sanitized = span.clone();
         sanitized.attributes = sanitize_attributes(span.context.capture_policy, &span.attributes);
         self.local.start_span(&sanitized)?;
+        self.announce(
+            TraceTransitionKind::SpanStarted,
+            &span.context.run_id,
+            Some(&span.context.span_id),
+            span.status,
+            None,
+        );
         self.export(|exporter| exporter.start_span(&sanitized));
         Ok(())
     }
@@ -164,6 +253,13 @@ impl ExecutionTelemetryPort for CompositeExecutionTelemetry {
     ) -> Result<(), ExecutionTelemetryError> {
         self.local
             .finish_span(run_id, span_id, status, ended_at, error_classification)?;
+        self.announce(
+            TraceTransitionKind::SpanFinished,
+            run_id,
+            Some(span_id),
+            status,
+            Some(ended_at),
+        );
         self.export(|exporter| {
             exporter.finish_span(run_id, span_id, status, ended_at, error_classification)
         });
@@ -546,5 +642,198 @@ mod tests {
         Err(ExecutionTelemetryError::Unavailable(
             "export unavailable".to_string(),
         ))
+    }
+
+    /// Records what it was told, and what the local store held when it was told.
+    ///
+    /// The second half is the assertion. "Published after the commit" is an ordering claim, and the
+    /// only way to check an ordering from inside a publisher is to look at the world at the moment
+    /// it was called.
+    #[derive(Default)]
+    struct RecordingTransitions {
+        notices: Mutex<Vec<(TraceTransitionNotice, usize)>>,
+        local: Mutex<Option<Arc<CapturingExecutionTelemetry>>>,
+    }
+
+    impl RecordingTransitions {
+        fn watching(local: Arc<CapturingExecutionTelemetry>) -> Arc<Self> {
+            let recorder = Arc::new(Self::default());
+            *recorder.local.lock().expect("local") = Some(local);
+            recorder
+        }
+
+        fn taken(&self) -> Vec<(TraceTransitionNotice, usize)> {
+            self.notices.lock().expect("notices").clone()
+        }
+    }
+
+    impl TraceTransitionPublisherPort for RecordingTransitions {
+        fn publish(&self, notice: &TraceTransitionNotice) {
+            let committed = self
+                .local
+                .lock()
+                .expect("local")
+                .as_ref()
+                .map(|local| {
+                    local
+                        .records()
+                        .map(|records| records.len())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            self.notices
+                .lock()
+                .expect("notices")
+                .push((notice.clone(), committed));
+        }
+    }
+
+    /// Every transition is announced, and never before the local store has it.
+    ///
+    /// A notice that arrived first would send a subscriber to fetch a timeline that does not yet
+    /// contain the change it was told about — and the refetch would return the old state, which
+    /// reads as a wrong notice rather than an early one.
+    #[test]
+    fn transitions_are_announced_only_after_the_local_store_commits() {
+        let local = Arc::new(CapturingExecutionTelemetry::default());
+        let transitions = RecordingTransitions::watching(local.clone());
+        let telemetry = CompositeExecutionTelemetry::new(local.clone(), Vec::new())
+            .with_transitions(transitions.clone());
+        let run = run();
+
+        telemetry.start_run(&run).expect("start run");
+        telemetry
+            .finish_run(
+                &run.context.run_id,
+                ExecutionStatus::Succeeded,
+                "2026-07-23T00:00:05Z",
+                None,
+            )
+            .expect("finish run");
+
+        let taken = transitions.taken();
+        let kinds: Vec<TraceTransitionKind> = taken.iter().map(|(notice, _)| notice.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TraceTransitionKind::RunStarted,
+                TraceTransitionKind::RunFinished
+            ]
+        );
+        // At least one record was already committed when each notice went out.
+        for (notice, committed) in &taken {
+            assert!(
+                *committed > 0,
+                "{:?} was announced before anything was committed",
+                notice.kind
+            );
+        }
+    }
+
+    /// A finish carries the same correlation its start did.
+    ///
+    /// The finish call knows only a run id. A notice whose trace id were present for a start and
+    /// missing for a finish is one every consumer has to handle twice.
+    #[test]
+    fn a_finish_announces_the_same_trace_a_start_did() {
+        let local = Arc::new(CapturingExecutionTelemetry::default());
+        let transitions = RecordingTransitions::watching(local.clone());
+        let telemetry = CompositeExecutionTelemetry::new(local, Vec::new())
+            .with_transitions(transitions.clone());
+        let run = run();
+
+        telemetry.start_run(&run).expect("start run");
+        telemetry
+            .finish_run(
+                &run.context.run_id,
+                ExecutionStatus::Succeeded,
+                "2026-07-23T00:00:05Z",
+                None,
+            )
+            .expect("finish run");
+
+        let taken = transitions.taken();
+        assert_eq!(taken.len(), 2);
+        assert!(taken
+            .iter()
+            .all(|(notice, _)| notice.trace_id == run.context.trace_id.as_str()));
+        // A finish says when; a start happens now and says nothing about a time it does not know.
+        assert!(taken[0].0.occurred_at.is_none());
+        assert_eq!(
+            taken[1].0.occurred_at.as_deref(),
+            Some("2026-07-23T00:00:05Z")
+        );
+    }
+
+    /// A span transition names its span; a run transition does not.
+    #[test]
+    fn a_span_transition_names_its_span() {
+        let local = Arc::new(CapturingExecutionTelemetry::default());
+        let transitions = RecordingTransitions::watching(local.clone());
+        let telemetry = CompositeExecutionTelemetry::new(local, Vec::new())
+            .with_transitions(transitions.clone());
+        let run = run();
+        telemetry.start_run(&run).expect("start run");
+
+        let span = ExecutionSpan {
+            context: run.context.clone(),
+            parent_span_id: None,
+            name: "vanehub.task.execute".to_string(),
+            status: ExecutionStatus::Running,
+            fidelity: crate::contexts::execution_observability::domain::ExecutionFidelity::Native,
+            started_at: "2026-07-23T00:00:01Z".to_string(),
+            ended_at: None,
+            error_classification: None,
+            attributes: SafeAttributes::default(),
+            links: Vec::new(),
+        };
+        telemetry.start_span(&span).expect("start span");
+
+        let taken = transitions.taken();
+        let (notice, _) = taken.last().expect("a span transition");
+        assert_eq!(notice.kind, TraceTransitionKind::SpanStarted);
+        assert_eq!(
+            notice.span_id.as_deref(),
+            Some(span.context.span_id.as_str())
+        );
+        // Identifiers only: the name the span carries never reaches the notice.
+        assert_eq!(notice.run_id, run.context.run_id.as_str());
+    }
+
+    /// A transition for a run this process never started announces nothing.
+    ///
+    /// There is no correlation to announce it with, and publishing an empty trace id would hand a
+    /// subscriber a value that looks like an id and matches nothing.
+    #[test]
+    fn a_transition_for_an_unknown_run_is_not_announced() {
+        let local = Arc::new(CapturingExecutionTelemetry::default());
+        let transitions = RecordingTransitions::watching(local.clone());
+        let telemetry = CompositeExecutionTelemetry::new(local, Vec::new())
+            .with_transitions(transitions.clone());
+
+        telemetry
+            .finish_run(
+                &ExecutionRunId::parse("018f0f17-4d6a-7e20-b41d-66c5271a28ff").expect("run id"),
+                ExecutionStatus::Succeeded,
+                "2026-07-23T00:00:05Z",
+                None,
+            )
+            .expect("finish run");
+
+        assert!(transitions.taken().is_empty());
+    }
+
+    /// Telemetry assembled without a publisher still works.
+    ///
+    /// Several paths build telemetry with no window to publish to, and requiring one would make
+    /// them carry a publisher that does nothing.
+    #[test]
+    fn telemetry_without_a_publisher_still_commits() {
+        let local = Arc::new(CapturingExecutionTelemetry::default());
+        let telemetry = CompositeExecutionTelemetry::new(local.clone(), Vec::new());
+
+        telemetry.start_run(&run()).expect("start run");
+
+        assert!(!local.records().expect("records").is_empty());
     }
 }

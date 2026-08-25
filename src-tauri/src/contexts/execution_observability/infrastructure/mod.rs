@@ -33,7 +33,9 @@ pub(crate) use sqlite_repository::SqliteExecutionTimelineRepository;
 
 #[cfg(test)]
 mod tests;
+mod trace_notice_adapter;
 pub(crate) use composite_telemetry::CompositeExecutionTelemetry;
 pub(crate) use credential_adapter::OsObservabilityCredentialAdapter;
 pub(crate) use lifecycle::ExecutionTelemetryLifecycle;
 pub(crate) use otel_telemetry::OpenTelemetryExecutionExporter;
+pub(crate) use trace_notice_adapter::TauriTraceTransitionPublisher;

@@ -4,6 +4,7 @@ mod evaluation_verifier;
 pub(crate) mod evidence;
 
 mod ports;
+mod trace_notice;
 mod waterfall;
 #[cfg(test)]
 mod waterfall_tests;
@@ -20,4 +21,7 @@ pub(crate) use ports::{
 
 #[cfg(test)]
 pub(crate) mod test_adapter;
+pub(crate) use trace_notice::{
+    TraceTransitionKind, TraceTransitionNotice, TraceTransitionPublisherPort,
+};
 pub(crate) use waterfall::{derive_waterfall, SpanWaterfallMetadata};

@@ -75,6 +75,7 @@ use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
     OsObservabilityCredentialAdapter, RandomExecutionIdentity, SqliteExecutionTimelineRepository,
+    TauriTraceTransitionPublisher,
 };
 use crate::contexts::operations::api::{
     AgentRunsApi, DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity,
@@ -576,11 +577,18 @@ pub(crate) fn assemble_agent_runtime_api(
     if let Some(exporter) = log_exporter {
         unified_logging.attach_external_exporter(exporter);
     }
-    let telemetry = Arc::new(CompositeExecutionTelemetry::with_diagnostics(
-        timeline.clone(),
-        exporters,
-        diagnostics.clone(),
-    ));
+    let telemetry = Arc::new(
+        CompositeExecutionTelemetry::with_diagnostics(
+            timeline.clone(),
+            exporters,
+            diagnostics.clone(),
+        )
+        // Announced only after the local store has committed, so a subscriber that refetches on a
+        // notice finds the change it was told about rather than the state before it.
+        .with_transitions(Arc::new(TauriTraceTransitionPublisher::new(
+            dependencies.app.clone(),
+        ))),
+    );
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
     let accounting = dependencies.sessions.clone();
