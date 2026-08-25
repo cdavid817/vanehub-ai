@@ -183,6 +183,21 @@ pub(crate) struct SessionLogQuery {
     pub(crate) search: String,
     #[serde(default)]
     pub(crate) seat_id: Option<String>,
+    /// The correlations a reader can narrow by, all optional and all absent by default.
+    ///
+    /// The index has filtered on these since it existed; only the wire shape was missing them, so
+    /// the Logs tab could not ask. Each one narrows to records that carry that correlation — a
+    /// record emitted without one is not attributed to whichever value happens to be selected.
+    #[serde(default)]
+    pub(crate) run_id: Option<String>,
+    #[serde(default)]
+    pub(crate) trace_id: Option<String>,
+    #[serde(default)]
+    pub(crate) span_id: Option<String>,
+    #[serde(default)]
+    pub(crate) operation_id: Option<String>,
+    #[serde(default)]
+    pub(crate) agent_id: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
     /// Which end of the corpus to read from. Absent means newest first, which is what the Logs tab

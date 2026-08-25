@@ -170,8 +170,8 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 8.9 Keep unified redacted log files as the durable export/repair source and keep export behavior compatible.
 - [x] 8.10 Move the implementation of session-log query commands from workspaces-owned file scanning to operations-owned APIs while preserving public command names/DTO compatibility during migration.
 - [x] 8.11 Publish identifier-bounded post-commit live log notices through the Tauri adapter and deterministic Web/mock event stream.
-- [ ] 8.12 Upgrade Logs toolbar with Follow/Pause, correlation filters, coverage state, active-scope chips, and Jump to latest.
-- [ ] 8.13 Stop automatic viewport movement when Follow is paused or the user scrolls away from the newest edge.
+- [x] 8.12 Upgrade Logs toolbar with Follow/Pause, correlation filters, coverage state, active-scope chips, and Jump to latest.
+- [x] 8.13 Stop automatic viewport movement when Follow is paused or the user scrolls away from the newest edge.
 - [ ] 8.14 Insert a live row locally only when current filters can be evaluated safely; otherwise invalidate the first page.
 - [ ] 8.15 Keep loaded entries visible on refresh, live, and page-append errors and render inline retry/error status.
 - [ ] 8.16 Add tests for live insertion during pagination, cursor/filter mismatch, index repair, rotation, directory change, gap notice, retention, and export consistency.

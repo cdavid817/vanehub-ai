@@ -70,7 +70,11 @@ pub(crate) fn indexed_query_from_dto(query: dto::SessionLogQuery) -> IndexedSess
         scope: SessionLogQueryScope {
             session_id: blank_to_none(Some(query.session_id)),
             seat_id: blank_to_none(query.seat_id),
-            ..SessionLogQueryScope::default()
+            run_id: blank_to_none(query.run_id),
+            trace_id: blank_to_none(query.trace_id),
+            span_id: blank_to_none(query.span_id),
+            operation_id: blank_to_none(query.operation_id),
+            agent_id: blank_to_none(query.agent_id),
         },
         filters: SessionLogFilters {
             levels: query.levels.into_iter().map(level_from_dto).collect(),

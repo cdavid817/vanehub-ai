@@ -1,28 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Download, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MeasuredVirtualList,
   type MeasuredVirtualListHandle,
 } from "../components/measured-virtual-list";
-import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
-import type { SessionLogEntry, SessionLogLevel } from "../types/session-workspace";
+import type {
+  SessionLogCorrelationFilters,
+  SessionLogEntry,
+  SessionLogLevel,
+} from "../types/session-workspace";
 import { LogEntryArticle } from "./log-entry-article";
+import {
+  LogsCoverageNotice,
+  LogsScopeChips,
+  type SessionLogCorrelationKey,
+} from "./logs-coverage";
+import { LogsToolbar, LOG_LEVELS } from "./logs-toolbar";
+import { useLogFollow } from "./use-log-follow";
 import { useSessionLogs } from "./use-session-logs";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
-const logLevels: SessionLogLevel[] = ["error", "warn", "info", "debug"];
 type VirtualLogItem =
   | { kind: "entry"; entry: SessionLogEntry }
   | { kind: "load-more" };
 
 export function LogsTab({
+  correlation,
   isVisible = true,
   seatId = null,
   sessionId,
 }: {
+  /**
+   * The scope this panel was opened under, chosen somewhere else — a trace, a run, an operation.
+   * Rendered as chips so a narrower list cannot be mistaken for a quieter session.
+   */
+  correlation?: SessionLogCorrelationFilters;
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
   seatId?: string | null;
@@ -30,19 +44,41 @@ export function LogsTab({
 }) {
   const { i18n, t } = useTranslation();
   const listRef = useRef<MeasuredVirtualListHandle>(null);
-  const [levels, setLevels] = useState<SessionLogLevel[]>(logLevels);
+  const [levels, setLevels] = useState<SessionLogLevel[]>(LOG_LEVELS);
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [timestampDraft, setTimestampDraft] = useState("");
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<WorkspaceErrorKey | null>(null);
-  const logs = useSessionLogs({ isVisible, levels, search, seatId, sessionId });
+  const [cleared, setCleared] = useState<SessionLogCorrelationKey[]>([]);
+  const follow = useLogFollow();
+
+  // The scope as it stands after whatever the reader dropped. Derived rather than stored, so a new
+  // scope arriving from another panel is not silently overridden by an older set of dismissals.
+  const scope = useMemo<SessionLogCorrelationFilters>(() => {
+    const active: SessionLogCorrelationFilters = { seatId, ...correlation };
+    for (const key of cleared) active[key] = null;
+    return active;
+  }, [cleared, correlation, seatId]);
+
+  const logs = useSessionLogs({ isVisible, levels, scope, search, sessionId });
 
   useEffect(() => {
     setExportMessage(null);
     setExportError(null);
+    setCleared([]);
+  }, [correlation, seatId, sessionId]);
+
+  useEffect(() => {
+    // A filter change replaces the result set, so the newest edge is the only honest place to be.
+    setExportMessage(null);
+    setExportError(null);
     listRef.current?.scrollToStart();
-  }, [levels, search, seatId, sessionId]);
+    follow.resumeAtNewest();
+    // `follow` is stable per render but not referentially, and depending on it would re-run this on
+    // every viewport report — which is exactly the automatic movement 8.13 exists to stop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levels, scope, search, sessionId]);
 
   useEffect(() => {
     if (!logs.pendingFocusId) return;
@@ -55,6 +91,12 @@ export function LogsTab({
     ...(logs.hasMore || logs.pageError ? [{ kind: "load-more" as const }] : []),
   ], [logs.entries, logs.hasMore, logs.pageError]);
 
+  const jumpToLatest = useCallback(() => {
+    listRef.current?.scrollToStart();
+    follow.resumeAtNewest();
+    void logs.refresh();
+  }, [follow, logs]);
+
   function toggleLevel(level: SessionLogLevel) {
     setLevels((current) => current.includes(level)
       ? current.filter((item) => item !== level)
@@ -64,7 +106,7 @@ export function LogsTab({
   async function exportLogs() {
     if (!sessionId) return;
     try {
-      const result = await agentService.exportSessionLogs({ sessionId, levels, search, seatId });
+      const result = await agentService.exportSessionLogs({ sessionId, levels, search, ...scope });
       setExportMessage(result.status === "exported" && result.path
         ? t("sessionTabs.logs.exported", { path: result.path })
         : result.status === "unavailable"
@@ -79,72 +121,35 @@ export function LogsTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {logLevels.map((level) => (
-          <button
-            aria-pressed={levels.includes(level)}
-            className={cn(
-              "h-7 rounded border border-border px-2 text-xs uppercase",
-              levels.includes(level) ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground",
-            )}
-            key={level}
-            onClick={() => toggleLevel(level)}
-            type="button"
-          >
-            {t(`sessionTabs.logs.level.${level}`)}
-          </button>
-        ))}
-        <form
-          className="ml-auto flex min-w-48 flex-1 items-center gap-1 sm:max-w-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setSearch(searchDraft.trim());
-          }}
-        >
-          <input
-            aria-label={t("sessionTabs.logs.search")}
-            className="ucd-input h-8 min-w-0 flex-1 rounded px-2 text-sm"
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("sessionTabs.logs.search")}
-            value={searchDraft}
-          />
-          <button className="flex h-8 w-8 items-center justify-center rounded border border-border hover:bg-muted" title={t("sessionTabs.logs.search")} type="submit">
-            <Search className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </form>
-        <form
-          className="flex min-w-64 flex-1 items-center gap-1 sm:max-w-md"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void logs.locateTimestamp(timestampDraft);
-          }}
-        >
-          <input
-            aria-label={t("sessionTabs.logs.timestamp")}
-            className="ucd-input h-8 min-w-0 flex-1 rounded px-2 text-sm"
-            onChange={(event) => {
-              setTimestampDraft(event.target.value);
-              logs.clearSeekStatus();
-            }}
-            type="datetime-local"
-            value={timestampDraft}
-          />
-          <button
-            className="flex h-8 items-center gap-1 rounded border border-border px-2 text-xs hover:bg-muted"
-            disabled={logs.seeking}
-            type="submit"
-          >
-            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-            {logs.seeking ? t("sessionTabs.logs.seeking") : t("sessionTabs.logs.locate")}
-          </button>
-        </form>
-        <button className="flex h-8 items-center gap-1 rounded border border-border px-2 text-xs hover:bg-muted" onClick={() => void exportLogs()} type="button">
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("sessionTabs.logs.export")}
-        </button>
-      </div>
+      <LogsToolbar
+        following={follow.following}
+        levels={levels}
+        onExport={() => void exportLogs()}
+        onJumpToLatest={jumpToLatest}
+        onLocate={() => void logs.locateTimestamp(timestampDraft)}
+        onSearchDraftChange={setSearchDraft}
+        onSubmitSearch={() => setSearch(searchDraft.trim())}
+        onTimestampDraftChange={(value) => {
+          setTimestampDraft(value);
+          logs.clearSeekStatus();
+        }}
+        onToggleLevel={toggleLevel}
+        onTogglePause={() => follow.setPaused(!follow.paused)}
+        paused={follow.paused}
+        pendingCount={follow.pendingCount}
+        searchDraft={searchDraft}
+        seeking={logs.seeking}
+        timestampDraft={timestampDraft}
+      />
+      <LogsScopeChips
+        correlation={scope}
+        onClear={(key) => setCleared((current) => current.includes(key) ? current : [...current, key])}
+      />
+      <LogsCoverageNotice coverage={logs.coverage} />
       {logs.seekStatus ? (
-        <p className={cn("rounded border px-2 py-1 text-xs", logs.seekStatus === "invalid" ? "ucd-status-warning" : "border-border bg-muted text-muted-foreground")} role="status">
+        <p className={logs.seekStatus === "invalid"
+          ? "ucd-status-warning rounded border px-2 py-1 text-xs"
+          : "rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"} role="status">
           {t(`sessionTabs.logs.seek.${logs.seekStatus}`)}
         </p>
       ) : null}
@@ -176,6 +181,7 @@ export function LogsTab({
           getItemKey={(item) => item.kind === "entry" ? item.entry.id : "load-more"}
           itemClassName="px-2 pt-2"
           items={virtualItems}
+          onAtStartChange={follow.noteViewport}
           overscan={10}
           ref={listRef}
           renderItem={(item, index) => item.kind === "entry" ? (

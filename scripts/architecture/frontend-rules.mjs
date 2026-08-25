@@ -73,8 +73,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 只会让列表短一截,而"短一截"和"这段时间确实没有日志"在界面上长得一模一样。原生 gap 与投递 gap
 // 也必须由同一处区分——前者说桥丢了 receipt,后者说通知没送到这个订阅者,两端各写一份就会把同一次
 // 丢失按两个原因报两遍。上限按实测值 21045 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.12):+65 全部在 web-session-workspace-client.ts,是把 Web/mock
+// 从"总是回答 complete、忽略所有关联过滤"改成能被真实驱动。两件事都不是可选补全:design 的 Web/Mock
+// Runtime 一节要求 mock 能走完 complete/indexing/partial/unavailable 四态,一个永远回答 complete 的
+// mock 会让浏览器构建成为**唯一**看不到不完整覆盖渲染的运行时;而忽略关联过滤的 mock 会让"按 run
+// 过滤"在浏览器里静默返回整个会话——那正好是过滤器最容易被误读成证据的方向。关联键到 context 键的
+// 映射写成显式表而非按名推导:两者是碰巧长得像的两套词汇,推导会在其中一套改名的当天开始静默匹配
+// 不到任何东西。上限按实测值 21110 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21045, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21110, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

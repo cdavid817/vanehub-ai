@@ -129,20 +129,59 @@ export interface SessionLogEntry {
   context: Record<string, string>;
 }
 
-export interface SessionLogQuery {
+/**
+ * The correlations a reader can narrow logs by.
+ *
+ * Every one is absent by default and matches only records that carry it. A record emitted without
+ * a run is not attributed to whichever run happens to be selected — the alternative would make a
+ * filter look like it found evidence of something it merely failed to exclude.
+ */
+export interface SessionLogCorrelationFilters {
+  seatId?: string | null;
+  runId?: string | null;
+  traceId?: string | null;
+  spanId?: string | null;
+  operationId?: string | null;
+  agentId?: string | null;
+}
+
+export interface SessionLogQuery extends SessionLogCorrelationFilters {
   sessionId: string;
   levels: SessionLogLevel[];
   search: string;
-  /**
-   * Absent means every seat in the session. A concrete seat matches only records that carry that
-   * seat correlation; a record emitted without one is not silently attributed to the selection.
-   */
-  seatId?: string | null;
   cursor?: string | null;
   limit?: number;
 }
 
-export type SessionLogPage = BoundedResult<SessionLogEntry>;
+/**
+ * How much of the corpus the answer actually covers.
+ *
+ * Carried on the page rather than fetched separately, so a reader cannot end up looking at rows
+ * from one moment and a coverage claim from another. `complete` is the only value that licenses a
+ * conclusion from an absence, which is why the index is careful about giving it.
+ */
+export type SessionLogCoverageState = "complete" | "indexing" | "partial" | "unavailable";
+
+export interface SessionLogCoverage {
+  state: SessionLogCoverageState;
+  oldestAvailableAt?: string;
+  newestAvailableAt?: string;
+  /** The newest record the index has caught up to. Behind `newestAvailableAt` while indexing. */
+  indexedThrough?: string;
+  droppedCount: number;
+  truncated: boolean;
+  /** Stable codes, never prose: a reader groups by them and free text does not group. */
+  reasonCodes: string[];
+}
+
+export interface SessionLogPage extends BoundedResult<SessionLogEntry> {
+  /**
+   * Optional so a runtime that predates it still type-checks. A page without one is read as
+   * `unavailable` rather than as `complete`: a coverage nobody reported must not be the one value
+   * that lets a reader conclude something from an empty list.
+   */
+  coverage?: SessionLogCoverage;
+}
 
 export type SessionLogExportStatus = "exported" | "cancelled" | "unavailable";
 

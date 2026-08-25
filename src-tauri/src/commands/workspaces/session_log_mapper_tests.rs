@@ -15,6 +15,11 @@ fn query(session: &str) -> dto::SessionLogQuery {
     dto::SessionLogQuery {
         session_id: session.to_string(),
         seat_id: None,
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        operation_id: None,
+        agent_id: None,
         levels: Vec::new(),
         search: String::new(),
         cursor: None,
@@ -111,6 +116,46 @@ fn a_blank_filter_is_absent_rather_than_a_filter_that_matches_nothing() {
     // A blank cursor is absent rather than malformed: a cleared client sends it, and refusing it
     // would turn "show me the first page" into an error.
     assert!(mapped.cursor.is_none());
+}
+
+/// Every correlation the client can send reaches the scope the index filters on.
+///
+/// The index has filtered on all of these since it existed; what was missing was the wire shape,
+/// so the Logs tab had no way to ask. A field that crossed into the DTO but not into the scope
+/// would narrow nothing and return the unfiltered page — which reads as "this run touched every
+/// log line", the opposite of what the filter is for.
+#[test]
+fn every_correlation_filter_reaches_the_scope_the_index_narrows_by() {
+    let mut input = query("session-1");
+    input.seat_id = Some("seat-1".to_string());
+    input.run_id = Some("run-1".to_string());
+    input.trace_id = Some("trace-1".to_string());
+    input.span_id = Some("span-1".to_string());
+    input.operation_id = Some("operation-1".to_string());
+    input.agent_id = Some("agent-1".to_string());
+
+    let scope = indexed_query_from_dto(input).scope;
+
+    assert_eq!(scope.session_id.as_deref(), Some("session-1"));
+    assert_eq!(scope.seat_id.as_deref(), Some("seat-1"));
+    assert_eq!(scope.run_id.as_deref(), Some("run-1"));
+    assert_eq!(scope.trace_id.as_deref(), Some("trace-1"));
+    assert_eq!(scope.span_id.as_deref(), Some("span-1"));
+    assert_eq!(scope.operation_id.as_deref(), Some("operation-1"));
+    assert_eq!(scope.agent_id.as_deref(), Some("agent-1"));
+}
+
+/// A blank correlation is absent, not a filter matching records that carry an empty one.
+#[test]
+fn a_blank_correlation_narrows_nothing() {
+    let mut input = query("session-1");
+    input.run_id = Some(String::new());
+    input.trace_id = Some("   ".to_string());
+
+    let scope = indexed_query_from_dto(input).scope;
+
+    assert!(scope.run_id.is_none());
+    assert!(scope.trace_id.is_none());
 }
 
 /// An absent sort and an explicit `newestFirst` are the same request.

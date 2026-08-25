@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentService } from "../services/runtime-agent-client";
-import type { SessionLogEntry, SessionLogLevel } from "../types/session-workspace";
+import type {
+  SessionLogCorrelationFilters,
+  SessionLogCoverage,
+  SessionLogEntry,
+  SessionLogLevel,
+} from "../types/session-workspace";
 import {
   appendUniqueLogs,
   isTimestampNewerThanLogs,
@@ -13,7 +18,14 @@ export type SessionLogSeekStatus = "continue" | "invalid" | "not-found" | null;
 
 export interface SessionLogsScope {
   sessionId: string | null;
-  seatId: string | null;
+  /**
+   * Every correlation narrowing the read, as one value.
+   *
+   * One object rather than a parameter each, because the set grows: a new correlation added as its
+   * own parameter is one the callers can forget to pass, and forgetting it widens the query
+   * silently — the list gets bigger and nothing says why.
+   */
+  scope: SessionLogCorrelationFilters;
   levels: SessionLogLevel[];
   search: string;
   /** False while the panel stays mounted behind another tab. Defers reads, keeps rows. */
@@ -30,6 +42,14 @@ export interface SessionLogsScope {
  */
 export interface SessionLogsState {
   entries: SessionLogEntry[];
+  /**
+   * What the index was willing to claim about the rows below, as of the read that produced them.
+   *
+   * Kept beside the entries rather than fetched on its own, so a reader can never be shown rows
+   * from one moment under a coverage claim from another. `undefined` until a page has answered,
+   * which the view renders as `unavailable` — a coverage nobody reported is not a complete one.
+   */
+  coverage: SessionLogCoverage | undefined;
   hasMore: boolean;
   initialError: WorkspaceErrorKey | null;
   loading: boolean;
@@ -49,11 +69,12 @@ export interface SessionLogsState {
 export function useSessionLogs({
   isVisible = true,
   levels,
+  scope,
   search,
-  seatId,
   sessionId,
 }: SessionLogsScope): SessionLogsState {
   const [entries, setEntries] = useState<SessionLogEntry[]>([]);
+  const [coverage, setCoverage] = useState<SessionLogCoverage | undefined>(undefined);
   // A read the scope asked for that visibility has deferred. Without it, becoming visible again
   // would either re-read logs that are already on screen or leave the panel showing rows from a
   // filter the user has since changed.
@@ -77,9 +98,10 @@ export function useSessionLogs({
     setPageError(null);
     if (replaceOnFailure) setInitialError(null);
     try {
-      const page = await agentService.listSessionLogs({ sessionId, levels, search, seatId, cursor: null });
+      const page = await agentService.listSessionLogs({ sessionId, levels, search, ...scope, cursor: null });
       if (attempt !== generation.current) return;
       setEntries(page.items);
+      setCoverage(page.coverage);
       setCursor(page.nextCursor);
       setHasMore(page.truncated);
       setInitialError(null);
@@ -95,11 +117,12 @@ export function useSessionLogs({
     } finally {
       if (attempt === generation.current) setLoading(false);
     }
-  }, [levels, search, seatId, sessionId]);
+  }, [levels, scope, search, sessionId]);
 
   useEffect(() => {
     generation.current += 1;
     setEntries([]);
+    setCoverage(undefined);
     setCursor(null);
     setHasMore(false);
     setInitialError(null);
@@ -125,9 +148,12 @@ export function useSessionLogs({
     setLoading(true);
     setPageError(null);
     try {
-      const page = await agentService.listSessionLogs({ sessionId, levels, search, seatId, cursor });
+      const page = await agentService.listSessionLogs({ sessionId, levels, search, ...scope, cursor });
       if (attempt !== generation.current) return;
       setEntries((current) => appendUniqueLogs(current, page.items));
+      // The newest page is the one that describes the corpus; an older page appended below it
+      // reports the same corpus and is allowed to update the claim.
+      setCoverage(page.coverage);
       setCursor(page.nextCursor);
       setHasMore(page.truncated);
     } catch (reason: unknown) {
@@ -136,7 +162,7 @@ export function useSessionLogs({
     } finally {
       if (attempt === generation.current) setLoading(false);
     }
-  }, [cursor, levels, loading, search, seatId, seeking, sessionId]);
+  }, [cursor, levels, loading, scope, search, seeking, sessionId]);
 
   const locateTimestamp = useCallback(async (draft: string) => {
     const target = parseTimestampInput(draft);
@@ -162,7 +188,7 @@ export function useSessionLogs({
           sessionId,
           levels,
           search,
-          seatId,
+          ...scope,
           cursor: pageCursor,
         }),
       });
@@ -177,10 +203,11 @@ export function useSessionLogs({
     } finally {
       if (attempt === generation.current) setSeeking(false);
     }
-  }, [cursor, entries, hasMore, levels, search, seatId, sessionId]);
+  }, [cursor, entries, hasMore, levels, scope, search, sessionId]);
 
   return {
     entries,
+    coverage,
     hasMore,
     initialError,
     loading,

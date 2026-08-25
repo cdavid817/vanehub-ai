@@ -11,7 +11,13 @@ import {
   statusFixture,
 } from "./web-session-workspace-fixtures";
 import { sessionWorkspaceLimits } from "../session-workspace/session-workspace-limits";
-import type { FileContent } from "../types/session-workspace";
+import type {
+  FileContent,
+  SessionLogCoverage,
+  SessionLogCoverageState,
+  SessionLogEntry,
+  SessionLogQuery,
+} from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../types/folder-opener";
 
 type SessionWorkspaceMethods = Pick<
@@ -105,6 +111,7 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
     const normalizedSearch = input.search.trim().toLocaleLowerCase();
     const filtered = logFixtures.filter((entry) => {
       if (input.levels.length > 0 && !input.levels.includes(entry.level)) return false;
+      if (!matchesMockCorrelation(entry, input)) return false;
       if (!normalizedSearch) return true;
       return `${entry.category} ${entry.message} ${JSON.stringify(entry.context)}`.toLocaleLowerCase().includes(normalizedSearch);
     });
@@ -116,9 +123,67 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
       items,
       truncated: nextOffset < filtered.length,
       nextCursor: nextOffset < filtered.length ? String(nextOffset) : null,
+      coverage: mockLogCoverage(input.sessionId),
     };
   },
   async exportSessionLogs() {
     return { status: "unavailable", path: null };
   },
 };
+
+/**
+ * Which correlation each filter reads off a fixture record.
+ *
+ * Named here rather than derived from the key, because the query field and the context key are two
+ * separate vocabularies that only happen to look alike — and a mapping that guessed would silently
+ * match nothing the day one of them changed.
+ */
+const MOCK_CORRELATION_KEYS = {
+  seatId: "seatId",
+  runId: "runId",
+  traceId: "traceId",
+  spanId: "spanId",
+  operationId: "operationId",
+  agentId: "agentId",
+} as const;
+
+/**
+ * A record matches only when it carries the correlation asked for.
+ *
+ * A record emitted without one is excluded rather than admitted. The alternative reads as evidence:
+ * a reader filtering by run would see records that have nothing to do with that run and conclude it
+ * touched them.
+ */
+function matchesMockCorrelation(
+  entry: SessionLogEntry,
+  input: SessionLogQuery,
+): boolean {
+  for (const [field, contextKey] of Object.entries(MOCK_CORRELATION_KEYS)) {
+    const wanted = input[field as keyof typeof MOCK_CORRELATION_KEYS];
+    if (typeof wanted !== "string" || wanted.trim().length === 0) continue;
+    if (entry.context[contextKey] !== wanted) return false;
+  }
+  return true;
+}
+
+/**
+ * Coverage the browser build can actually be driven through.
+ *
+ * The design requires the mock to exercise all four states, and a mock that always answered
+ * `complete` would make the browser the one runtime where the incomplete-coverage rendering is
+ * never seen. Selected by a session-id suffix so it is deterministic and needs no extra API: a
+ * fixture session named `…#partial` reports `partial`, and anything else reports `complete`.
+ */
+function mockLogCoverage(sessionId: string): SessionLogCoverage {
+  const requested = sessionId.split("#")[1];
+  const state: SessionLogCoverageState =
+    requested === "indexing" || requested === "partial" || requested === "unavailable"
+      ? requested
+      : "complete";
+  return {
+    state,
+    droppedCount: state === "partial" ? 3 : 0,
+    truncated: false,
+    reasonCodes: state === "partial" ? ["log_receipt_dropped"] : [],
+  };
+}
