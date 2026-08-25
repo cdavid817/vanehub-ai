@@ -31,6 +31,7 @@
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
+    "test:desktop:skills": "node scripts/test-desktop.mjs skills",
     "test:desktop:multi-agent-requirement": "node scripts/test-desktop.mjs multi-agent-requirement",
     "test:desktop:multi-agent-longrun": "node scripts/test-desktop.mjs multi-agent-longrun",
     "test:desktop": "node scripts/test-desktop.mjs all",

@@ -212,6 +212,15 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+function skillsDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-skills",
+    config: "tests/desktop/wdio.skills.conf.mjs",
+    label: "Desktop Skills effectiveness",
+    artifact,
+  });
+}
+
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
@@ -220,6 +229,7 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "all") {

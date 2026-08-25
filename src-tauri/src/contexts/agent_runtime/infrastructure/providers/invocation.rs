@@ -5,7 +5,6 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::permissions::api::PolicyTemplateName;
 use crate::contexts::tooling::api::{CliParameterSelection, CliParameterSelectionMap};
 use std::fmt::{Display, Formatter};
-
 /// Managed CLI agents whose chat and terminal launches receive a final policy projection.
 pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 5] = [
     "claude-code",
@@ -14,7 +13,6 @@ pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 5] = [
     "opencode",
     "antigravity-cli",
 ];
-
 /// The two registry-declared placement slots, resolved by the Tooling CLI-parameter API. The
 /// provider grammar decides where each lands; the builder never inspects a token's spelling.
 #[derive(Debug, Clone, Copy, Default)]
@@ -22,12 +20,10 @@ pub(crate) struct ProviderLaunchSegments<'a> {
     pub(crate) global: &'a [String],
     pub(crate) invocation: &'a [String],
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderInvocationError {
     UnsupportedAgent(String),
 }
-
 impl Display for ProviderInvocationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -38,9 +34,7 @@ impl Display for ProviderInvocationError {
         }
     }
 }
-
 impl std::error::Error for ProviderInvocationError {}
-
 /// Builds an invocation, optionally placing a seat's role briefing in the CLI's own system-prompt
 /// channel.
 ///
@@ -84,7 +78,6 @@ pub(crate) fn build_invocation_with_role(
         },
     )
 }
-
 pub(crate) fn build_invocation(
     agent_id: &str,
     executable: String,
@@ -173,7 +166,6 @@ pub(crate) fn build_invocation(
         prompt_delivery,
     })
 }
-
 pub(crate) fn build_interactive_invocation(
     agent_id: &str,
     executable: String,
@@ -233,7 +225,6 @@ pub(crate) fn build_interactive_invocation(
         assigned_runtime_session_id,
     })
 }
-
 pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path: &str) {
     let insert_at = args
         .iter()
@@ -244,7 +235,13 @@ pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path:
         ["-o".to_string(), output_path.to_string()],
     );
 }
-
+pub(crate) fn add_opencode_directory_args(args: &mut Vec<String>, directory: &str) {
+    let insert_at = args.len().saturating_sub(1);
+    args.splice(
+        insert_at..insert_at,
+        ["--dir".to_string(), directory.to_string()],
+    );
+}
 /// Per-message overrides for ordinary parameters only. A message can govern model, reasoning
 /// depth, and opencode's thinking display; every other parameter stays absent so the saved profile
 /// decides. Policy-governed and runtime-reserved ids are never produced here.
@@ -260,7 +257,6 @@ pub(crate) fn message_override_selections(
     {
         overrides.insert("model".to_string(), CliParameterSelection::text(model));
     }
-
     if let Some(reasoning_depth) = configuration.reasoning_depth.as_deref() {
         match agent_id {
             "claude-code" => {
@@ -293,17 +289,14 @@ pub(crate) fn message_override_selections(
             _ => {}
         }
     }
-
     if agent_id == "opencode" {
         overrides.insert(
             "thinking".to_string(),
             CliParameterSelection::boolean(configuration.thinking),
         );
     }
-
     overrides
 }
-
 /// Projects an agent principal's assigned policy template onto the registry's policy-governed
 /// parameters. These values never come from a saved profile or a message: the resolver accepts
 /// them on a separate input and refuses a user-editable id on that path.
