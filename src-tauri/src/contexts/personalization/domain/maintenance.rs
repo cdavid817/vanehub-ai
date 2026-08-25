@@ -96,6 +96,21 @@ pub(crate) enum MaintenancePhase {
     UnclassifiableEntry,
 }
 
+impl MaintenancePhase {
+    /// A stable code, because this reaches a screen and a log. `Debug` would name the variant
+    /// today and something else the moment it is renamed.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::AuthoritativeFile => "authoritative-file",
+            Self::SqliteProjection => "sqlite-projection",
+            Self::DerivedIndex => "derived-index",
+            Self::RetrievalIndex => "retrieval-index",
+            Self::Quarantine => "quarantine",
+            Self::UnclassifiableEntry => "unclassifiable-entry",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ResetMemoryOutcome {
     pub(crate) matched: usize,

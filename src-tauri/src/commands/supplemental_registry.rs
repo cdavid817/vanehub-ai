@@ -1,6 +1,22 @@
 pub(super) fn invoke_handler(
 ) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        crate::commands::personalization::create_personalization_memory::create_personalization_memory,
+        crate::commands::personalization::delete_personalization_memory::delete_personalization_memory,
+        crate::commands::personalization::execute_personalization_reset::execute_personalization_reset,
+        crate::commands::personalization::get_personalization_health::get_personalization_health,
+        crate::commands::personalization::get_personalization_memory::get_personalization_memory,
+        crate::commands::personalization::get_personalization_policy::get_personalization_policy,
+        crate::commands::personalization::list_personalization_agent_capabilities::list_personalization_agent_capabilities,
+        crate::commands::personalization::list_personalization_candidates::list_personalization_candidates,
+        crate::commands::personalization::list_personalization_policies::list_personalization_policies,
+        crate::commands::personalization::patch_personalization_policy::patch_personalization_policy,
+        crate::commands::personalization::preview_effective_personalization::preview_effective_personalization,
+        crate::commands::personalization::preview_personalization_reset::preview_personalization_reset,
+        crate::commands::personalization::query_personalization_memories::query_personalization_memories,
+        crate::commands::personalization::reconcile_personalization_memories::reconcile_personalization_memories,
+        crate::commands::personalization::review_personalization_candidate::review_personalization_candidate,
+        crate::commands::personalization::update_personalization_memory::update_personalization_memory,
         crate::commands::skill_evolution_evidence::save_message_feedback::save_message_feedback,
         crate::commands::skill_evolution_evidence::query_evidence::query_skill_evolution_evidence,
         crate::commands::skill_evolution_evidence::query_evidence::get_skill_evolution_seed_lineage,
@@ -71,6 +87,22 @@ pub(super) fn is_command(command: &str) -> bool {
             | "accept_goal"
             | "reopen_goal"
             | "abandon_goal"
+            | "create_personalization_memory"
+            | "delete_personalization_memory"
+            | "execute_personalization_reset"
+            | "get_personalization_health"
+            | "get_personalization_memory"
+            | "get_personalization_policy"
+            | "list_personalization_agent_capabilities"
+            | "list_personalization_candidates"
+            | "list_personalization_policies"
+            | "patch_personalization_policy"
+            | "preview_effective_personalization"
+            | "preview_personalization_reset"
+            | "query_personalization_memories"
+            | "reconcile_personalization_memories"
+            | "review_personalization_candidate"
+            | "update_personalization_memory"
     )
 }
 

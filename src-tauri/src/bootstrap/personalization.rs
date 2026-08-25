@@ -166,6 +166,7 @@ pub(crate) fn assemble_personalization(
         policies: policies.clone(),
         policy_cache: policy_cache.clone(),
         agents: capabilities,
+        ids: Arc::new(UuidMemoryIdGenerator),
         clock: clock.clone(),
         gate,
         health: maintenance.clone(),

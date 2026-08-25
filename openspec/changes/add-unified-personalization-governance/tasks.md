@@ -100,8 +100,8 @@
 
 ## 9. Native Commands and Frontend Service Parity
 
-- [ ] 9.1 Add typed Tauri commands for configuration, policy patch, effective preview, Agent capability listing, paged memory query/detail/create/update/review/delete, reset preview/execute, and reconciliation.
-- [ ] 9.2 Register commands using existing native error mapping and return typed validation/conflict/maintenance errors without leaking secrets.
+- [x] 9.1 Add typed Tauri commands for configuration, policy patch, effective preview, Agent capability listing, paged memory query/detail/create/update/review/delete, reset preview/execute, and reconciliation.
+- [x] 9.2 Register commands using existing native error mapping and return typed validation/conflict/maintenance errors without leaking secrets.
 - [ ] 9.3 Add `src/types/personalization.ts` and extend `AgentService` with the dedicated personalization contract.
 - [ ] 9.4 Implement Tauri adapter mappings; React components must not invoke Tauri directly.
 - [ ] 9.5 Implement Web/mock behavior with deterministic policies, revisions, candidates, cursor pages, conflicts, reset tokens, session modes, and safe maintenance results.

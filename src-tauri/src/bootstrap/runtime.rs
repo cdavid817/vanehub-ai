@@ -344,6 +344,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let execution_retention_database = database.clone();
     let communications_maintenance_database = database.clone();
     app.manage(database.clone());
+    app.manage(personalization_api.clone());
     app.manage(skill_evolution_evidence_api);
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),

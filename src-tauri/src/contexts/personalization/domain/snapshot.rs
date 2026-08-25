@@ -438,6 +438,22 @@ pub(crate) enum PersonalizationWarningCode {
     WorkspaceRequired,
 }
 
+impl PersonalizationWarningCode {
+    /// A stable code, because this reaches a screen and a log. `Debug` would name the variant
+    /// today and something else the moment it is renamed.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::UsingLastKnownGoodPolicy => "using-last-known-good-policy",
+            Self::NoValidatedPolicy => "no-validated-policy",
+            Self::MigrationIncomplete => "migration-incomplete",
+            Self::RepairRequired => "repair-required",
+            Self::UnsupportedCapabilityOverride => "unsupported-capability-override",
+            Self::UnknownAgent => "unknown-agent",
+            Self::WorkspaceRequired => "workspace-required",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PersonalizationWarning {
     pub(crate) code: PersonalizationWarningCode,

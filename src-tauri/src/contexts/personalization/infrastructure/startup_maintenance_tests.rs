@@ -341,6 +341,7 @@ fn reopen(
         policies: policies.clone(),
         policy_cache: Arc::new(LastKnownGoodPolicyCache::default()),
         agents: Arc::new(EveryAgentCapable),
+        ids: Arc::new(UuidMemoryIdGenerator),
         clock: Arc::new(FixedClock),
         gate,
         health: maintenance.clone(),

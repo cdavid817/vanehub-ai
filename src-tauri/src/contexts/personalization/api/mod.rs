@@ -23,9 +23,10 @@ use super::application::{
     CandidateSubmissionOutcome, CandidateSubmissionService, ClockPort, CreateMemoryInput,
     DeleteMemoryOutcome, EffectivePreview, LastKnownGoodPolicyCache, LegacyAddressAliasPort,
     LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort,
-    MemoryApplicationService, MemoryHealthPort, MutationAdmission, PersonalizationApplicationError,
-    PersonalizationPreviewService, PolicyRepository, PolicyResolutionService, ResetCounts,
-    ResolutionRequest, ReviewRequest, UpdateMemoryPatch, WorkspaceIdentityPort,
+    MemoryApplicationService, MemoryHealthPort, MemoryIdGeneratorPort, MutationAdmission,
+    PersonalizationApplicationError, PersonalizationPreviewService, PolicyRepository,
+    PolicyResolutionService, ResolutionRequest, ReviewRequest, UpdateMemoryPatch,
+    WorkspaceIdentityPort,
 };
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryCandidate, MemoryId,
@@ -33,7 +34,8 @@ use super::domain::{
     MemoryScopeFilter, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
     PatchPolicyResult, PersonalizationDomainError, PersonalizationPolicyPatch,
     PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
-    ResetMemoryOutcome, ResetMemoryPreview, ResetMemoryRequest, ReviewOutcome, RevisionConflict,
+    ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview, ResetMemoryRequest,
+    ReviewOutcome, RevisionConflict,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -130,6 +132,9 @@ pub(crate) struct PersonalizationApi {
     /// the change is, rather than depending on a general event bus nobody owns.
     policy_cache: Arc<LastKnownGoodPolicyCache>,
     agents: Arc<dyn AgentCapabilityPort>,
+    /// Issues reset confirmation tokens. The same generator the store uses for record ids, so a
+    /// token is unguessable for the same reason a filename is.
+    ids: Arc<dyn MemoryIdGeneratorPort>,
     clock: Arc<dyn ClockPort>,
     /// Held across every read and every write, so a `Ready` answer cannot go stale between the
     /// check and the work it authorizes.
@@ -156,6 +161,7 @@ pub(crate) struct PersonalizationApiParts {
     pub(crate) policies: Arc<dyn PolicyRepository>,
     pub(crate) policy_cache: Arc<LastKnownGoodPolicyCache>,
     pub(crate) agents: Arc<dyn AgentCapabilityPort>,
+    pub(crate) ids: Arc<dyn MemoryIdGeneratorPort>,
     pub(crate) clock: Arc<dyn ClockPort>,
     pub(crate) gate: Arc<dyn MaintenanceGatePort>,
     pub(crate) health: Arc<dyn MemoryHealthPort>,
@@ -175,6 +181,7 @@ impl PersonalizationApi {
             policies,
             policy_cache,
             agents,
+            ids,
             clock,
             gate,
             health,
@@ -191,6 +198,7 @@ impl PersonalizationApi {
             policies,
             policy_cache,
             agents,
+            ids,
             clock,
             gate,
             health,
@@ -385,13 +393,31 @@ impl PersonalizationApi {
     /// Counted from complete enumeration rather than from the projection, so a malformed file —
     /// which has no projection row and is exactly what a scan-capped count used to miss — is
     /// included in what the user is asked to confirm.
+    /// It also issues the token the execute must quote.
+    ///
+    /// Issued here, against the exact scope and status set that was counted, so a token cannot
+    /// authorise a broader deletion than the one the user was shown. A confirmation that did not
+    /// name what it confirmed would let a screen preview one scope and delete another.
     pub(crate) fn preview_memory_reset(
         &self,
         scope: &MemoryScopeFilter,
         statuses: &[MemoryStatus],
-    ) -> Result<ResetCounts> {
+    ) -> Result<ResetMemoryPreview> {
         let _admission = self.admit_write()?;
-        self.memories.preview_reset(scope, statuses)
+        let counts = self.memories.preview_reset(scope, statuses)?;
+        Ok(ResetMemoryPreview {
+            matched: counts.matched,
+            matched_global: counts.global,
+            matched_workspace: counts.workspace,
+            matched_candidates: counts.candidates,
+            matched_malformed: counts.malformed,
+            token: ResetConfirmationToken {
+                value: self.ids.generate().as_str().to_string(),
+                issued_at: self.clock.now(),
+                scope: scope.clone(),
+                statuses: statuses.to_vec(),
+            },
+        })
     }
 
     pub(crate) fn reset_memories(
@@ -798,6 +824,7 @@ pub(crate) fn build_for_tests(
         policies: policies.clone(),
         policy_cache: cache.clone(),
         agents: Arc::new(EveryAgentCapable),
+        ids: Arc::new(UuidMemoryIdGenerator),
         clock: clock.clone(),
         gate: Arc::new(MaintenanceGate::new(&memory_root).expect("maintenance gate")),
         health,
