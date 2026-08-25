@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Copy, Loader2, Pencil, Play, Power, PowerOff, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import {
@@ -7,6 +8,7 @@ import {
   useDuplicateLoopDefinitionMutation,
   useSetLoopEnabledMutation,
 } from "../hooks/use-loop-mutations";
+import { agentService } from "../services/runtime-agent-client";
 import type { LoopDefinition, LoopRun } from "../types/loop";
 
 const activeStatuses: LoopRun["status"][] = ["queued", "running", "paused", "awaiting-acceptance"];
@@ -25,6 +27,10 @@ export function LoopDefinitionOverview({
   runs: LoopRun[];
 }) {
   const { i18n, t } = useTranslation();
+  // Same cache entry as the definition wizard: the overview stores agent ids and owes the reader
+  // the display names the wizard showed while picking them.
+  const agents = useQuery({ queryKey: ["agents", "loops"], queryFn: () => agentService.listAgents() });
+  const agentName = (id: string) => agents.data?.find((agent) => agent.id === id)?.displayName ?? id;
   const toggle = useSetLoopEnabledMutation();
   const duplicate = useDuplicateLoopDefinitionMutation();
   const remove = useDeleteLoopDefinitionMutation();
@@ -85,13 +91,17 @@ export function LoopDefinitionOverview({
       <OverviewSection title={t("loops.definition.scope")}>
         <Value label={t("loops.editor.field.project")} value={definition.projectPath} />
         <Value label={t("loops.editor.field.branch")} value={definition.baseBranch} />
-        <ListValue label={t("loops.editor.field.allowedPaths")} values={definition.allowedPaths} />
-        <ListValue label={t("loops.editor.field.protectedPaths")} values={definition.protectedPaths} />
+        <ListValue label={t("loops.definition.allowedPaths")} values={definition.allowedPaths} />
+        <ListValue label={t("loops.definition.protectedPaths")} values={definition.protectedPaths} />
       </OverviewSection>
-      <OverviewSection title={t("loops.definition.acceptance")}><ListValue label={t("loops.editor.field.acceptance")} values={definition.acceptanceCriteria} /></OverviewSection>
+      <OverviewSection title={t("loops.definition.acceptance")}>
+        <div className="min-w-0 sm:col-span-2">
+          {definition.acceptanceCriteria.length ? <ul className="list-inside list-disc text-sm">{definition.acceptanceCriteria.map((criterion) => <li className="wrap-break-word" key={criterion}>{criterion}</li>)}</ul> : <p className="text-sm">—</p>}
+        </div>
+      </OverviewSection>
       <OverviewSection title={t("loops.definition.roles")}>
-        <Value label={t("loops.editor.field.worker")} value={definition.workerAgentId} />
-        <Value label={t("loops.editor.field.verifier")} value={definition.verifierAgentId} />
+        <Value label={t("loops.editor.field.worker")} value={agentName(definition.workerAgentId)} />
+        <Value label={t("loops.editor.field.verifier")} value={agentName(definition.verifierAgentId)} />
       </OverviewSection>
       <OverviewSection title={t("loops.definition.policy")}>
         <ListValue label={t("loops.editor.field.commands")} values={definition.verificationCommands.map((command) => `${command.program} ${command.args.join(" ")}`.trim())} />
