@@ -65,6 +65,23 @@ pub(crate) enum HelperOperation {
     /// with no Python cannot run the helper at all, but one with no ripgrep is perfectly usable for
     /// everything except search.
     Probe,
+    /// One directory, bounded and deterministically ordered. `path` is relative to the root; empty
+    /// means the root itself.
+    ListDirectory {
+        path: String,
+    },
+    ReadTextFile {
+        path: String,
+    },
+    Search {
+        query: String,
+        max_results: usize,
+    },
+    GitStatus,
+    GitDiff {
+        path: String,
+        staged: bool,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -85,6 +102,78 @@ pub(crate) struct HelperResponse {
 pub(crate) struct HelperResult {
     #[serde(default)]
     pub(crate) probe: Option<HelperProbe>,
+    #[serde(default)]
+    pub(crate) listing: Option<HelperListing>,
+    #[serde(default)]
+    pub(crate) file: Option<HelperFile>,
+    #[serde(default)]
+    pub(crate) search: Option<HelperSearch>,
+    /// Git answers arrive as the bytes git printed.
+    ///
+    /// Parsed on this side with the same parser the local provider uses, so the
+    /// locale-independent classification of a porcelain status and the structure of a unified diff
+    /// have one implementation. A helper that parsed them would be a second one, and the two would
+    /// disagree first about exactly the cases nobody writes tests for.
+    #[serde(default)]
+    pub(crate) git: Option<HelperGitOutput>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperListing {
+    pub(crate) path: String,
+    pub(crate) entries: Vec<HelperEntry>,
+    /// Set when the bound cut the listing short, never when the directory simply ended.
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperEntry {
+    pub(crate) name: String,
+    /// Relative to the root, with forward slashes. Absolute remote paths never cross the wire:
+    /// they would put another machine's directory layout into this one's UI and its logs.
+    pub(crate) path: String,
+    /// `directory` or `file`. Anything else on the remote host is skipped rather than named,
+    /// because a socket or a device is not something this panel can open.
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperFile {
+    pub(crate) path: String,
+    pub(crate) name: String,
+    /// `available`, `binary`, or `too-large`. The last two are facts about the file rather than
+    /// failures: a reader who asked for a 4 GiB core dump needs to be told why there is no preview.
+    pub(crate) status: String,
+    pub(crate) size: u64,
+    #[serde(default)]
+    pub(crate) content: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperSearch {
+    pub(crate) matches: Vec<HelperEntry>,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperGitOutput {
+    /// False when the root is not inside a work tree. Distinct from an empty status, which means
+    /// a clean repository.
+    pub(crate) is_repository: bool,
+    /// Base64, because porcelain `-z` output is NUL-separated and a path on a POSIX host is bytes
+    /// rather than text — decoding it to send it would lose exactly the names that need care.
+    #[serde(default)]
+    pub(crate) stdout_base64: Option<String>,
+    /// Set when the bound cut the output short. The caller reports it rather than parsing a
+    /// half-diff, which would render as a smaller change.
+    pub(crate) truncated: bool,
 }
 
 /// What the remote host turned out to be.

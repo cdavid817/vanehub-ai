@@ -6,12 +6,14 @@
 
 mod probe;
 mod protocol;
+mod remote_provider;
 mod ssh_session;
 mod transport;
 
 #[cfg(test)]
+mod operation_tests;
+#[cfg(test)]
 mod tests;
 
-// Nothing is re-exported yet. The remote provider that consumes these arrives with the operations
-// it needs (11.7-11.9), and publishing a surface before a caller exists would fix its shape around
-// what happens to be written rather than around what that caller turns out to need.
+pub(crate) use remote_provider::RemoteWorkspaceInspectionProvider;
+pub(crate) use ssh_session::SshRemoteHelperSession;

@@ -32,6 +32,7 @@ pub(crate) use evaluation_fixture::{
 };
 pub(crate) use filesystem::WorkspaceFilesystemAdapter;
 pub(crate) use git::WorkspaceGitAdapter;
+pub(crate) use remote_helper::{RemoteWorkspaceInspectionProvider, SshRemoteHelperSession};
 pub(crate) use remote_terminal_schema::apply_remote_terminal_schema;
 pub(crate) use retained_remote_shell::{RetainedRemoteShellRuntime, RoutedShellRuntime};
 pub(crate) use retained_shell_runtime::RetainedLocalShellRuntime;

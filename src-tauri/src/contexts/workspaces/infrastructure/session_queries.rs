@@ -576,7 +576,7 @@ fn git_change_kind(value: char) -> String {
     .to_string()
 }
 
-fn parse_git_status(raw: &[u8]) -> (Option<String>, Vec<GitStatusEntry>) {
+pub(super) fn parse_git_status(raw: &[u8]) -> (Option<String>, Vec<GitStatusEntry>) {
     let records = raw
         .split(|value| *value == 0)
         .filter(|record| !record.is_empty())
@@ -793,7 +793,7 @@ fn clean_diff_path(value: &str) -> Option<String> {
     }
 }
 
-fn parse_git_diff(raw: &str, fallback_path: &str) -> Vec<GitDiffFile> {
+pub(super) fn parse_git_diff(raw: &str, fallback_path: &str) -> Vec<GitDiffFile> {
     let mut files = Vec::new();
     let mut current_file: Option<GitDiffFile> = None;
     let mut current_hunk: Option<GitDiffHunk> = None;

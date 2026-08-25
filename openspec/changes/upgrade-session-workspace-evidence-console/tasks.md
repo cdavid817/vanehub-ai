@@ -220,9 +220,9 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 11.4 Publish only the required remote exec/channel contract through `ssh_connections::api`; do not import its pool or infrastructure modules.
 - [x] 11.5 Implement a versioned static SSH helper protocol that sends bounded JSON over stdin and receives bounded JSON output.
 - [x] 11.6 Probe POSIX remote host, current profile revision/host trust, Python 3 helper support, Git, and ripgrep capabilities and return typed per-feature availability.
-- [ ] 11.7 Implement remote realpath confinement, symlink-escape rejection, bounded directory listing, bounded text preview, and deterministic sorting inside the helper.
-- [ ] 11.8 Implement bounded remote path/content search through `rg --json` when available and return typed unavailability otherwise.
-- [ ] 11.9 Implement remote Git status/diff using argument-array subprocess calls and the existing normalized structured DTOs; preserve index/worktree distinction and locale-independent classification.
+- [x] 11.7 Implement remote realpath confinement, symlink-escape rejection, bounded directory listing, bounded text preview, and deterministic sorting inside the helper.
+- [x] 11.8 Implement bounded remote path/content search through `rg --json` when available and return typed unavailability otherwise.
+- [x] 11.9 Implement remote Git status/diff using argument-array subprocess calls and the existing normalized structured DTOs; preserve index/worktree distinction and locale-independent classification.
 - [ ] 11.10 Make remote inspection retries idempotent and revalidate profile revision and host trust; never replay a mutation or Shell command.
 - [ ] 11.11 Add deterministic Web/mock local/remote capability fixtures and read-only inspection data.
 - [ ] 11.12 Add provider contract tests that run the same list/read/search/status/diff/path-escape cases against local, remote-helper fixture, and Web/mock implementations where applicable.
