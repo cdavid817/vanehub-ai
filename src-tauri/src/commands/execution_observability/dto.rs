@@ -90,6 +90,12 @@ pub(crate) struct ExecutionSpanSummaryDto {
     pub(crate) span_id: String,
     pub(crate) parent_span_id: Option<String>,
     pub(crate) name: String,
+    /// What the span is, decided from its attributes on the native side.
+    ///
+    /// Sent rather than inferred by the view, because a view inferring it would classify from the
+    /// name — the only thing it has — and a name is a label somebody chose, not an assertion a
+    /// producer made.
+    pub(crate) kind: String,
     pub(crate) status: ExecutionStatusDto,
     pub(crate) fidelity: ExecutionFidelityDto,
     pub(crate) started_at: String,
@@ -97,6 +103,48 @@ pub(crate) struct ExecutionSpanSummaryDto {
     pub(crate) duration_ms: Option<u64>,
     pub(crate) error_classification: Option<String>,
     pub(crate) attributes: BTreeMap<String, SafeAttributeDto>,
+    /// Where this span sits among the others. Every field that could not be derived is absent
+    /// rather than defaulted — see `SpanWaterfallMetadata` for why each absence matters.
+    #[serde(flatten)]
+    pub(crate) waterfall: SpanWaterfallDto,
+    /// What this span is related to, as identifiers and a relationship name.
+    ///
+    /// Identifiers only, and deliberately not the things they point at. Embedding linked log text
+    /// or file content here would put unredactable material inside a trace payload, which is one
+    /// of the places redaction has no second chance to run. A client follows these by asking the
+    /// service that owns the evidence.
+    pub(crate) links: Vec<ExecutionLinkDto>,
+}
+
+/// One relationship between spans or runs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExecutionLinkDto {
+    pub(crate) run_id: String,
+    pub(crate) trace_id: String,
+    pub(crate) span_id: Option<String>,
+    /// What kind of relationship this is, as the producer named it.
+    pub(crate) relationship: String,
+}
+
+/// The derived position of one span in the waterfall.
+///
+/// Flattened into the span so a client reads one object. Separated in Rust so the rule that governs
+/// every field — absent rather than defaulted — has somewhere to be stated once.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpanWaterfallDto {
+    pub(crate) depth: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start_offset_ms: Option<u64>,
+    /// Present only for a span that ended. A running span has no duration, and elapsed-so-far
+    /// would make it indistinguishable from one that finished in exactly that time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) completed_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) attempt: Option<u32>,
+    pub(crate) delegated: bool,
+    pub(crate) critical_path: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

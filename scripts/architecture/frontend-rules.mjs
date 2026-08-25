@@ -92,8 +92,18 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // runtime-agent-client、runtime-session-shell-client 同一模式,组件里出现 isTauri 分支正是
 // ARCH-FE-002 要拦的东西。两个运行时共用 dispatcher,只有投递方式不同。
 // 上限按实测值 21215 记录,不留余量。
+// 再次上调(同一 change,Task Group 9.1-9.5):+121 净增,全部在 Web/mock 的 trace 夹具。夹具从 client
+// 抽到 web-execution-observability-fixtures.ts 是净移动,真正的新增是两件事:每个 span 补上 kind 与
+// 派生字段(depth/offset/attempt/delegated/criticalPath),以及一条**仍在运行**的 run 加上把它推进到
+// 终态的函数。第二件不是可选的:本设计里有几条规则只在边界的一侧成立——运行中的 span 没有 duration,
+// 有任何 span 未结束的 run 没有关键路径——一个永远停在一侧的夹具让这些规则无法被观察到,浏览器构建
+// 会成为唯一永远看不到"尚不知道"这个状态的运行时,而那恰好是瀑布图最需要诚实呈现的状态。
+// 派生值是手写而非计算:它们是夹具,值是固定的,而一个自己重算的 mock 就是原生派生的第二份实现,
+// 两者可以在都看起来正确的情况下互相矛盾。另含把分页填充搬进夹具模块:client 在 reset 时从夹具重建,
+// 填充留在外面会在第一次 reset 后消失,分页断言随之失败,而失败原因与分页无关。
+// 上限按实测值 21367 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21215, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21367, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

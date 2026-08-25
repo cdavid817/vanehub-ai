@@ -1,3 +1,7 @@
+import {
+  completeRunningTimelineFixture,
+  resetExecutionTimelineFixtures,
+} from "./web-execution-observability-fixtures";
 import type {
   ExecutionObservationCapability,
   ExecutionTimeline,
@@ -19,103 +23,7 @@ const defaultSettings: ObservabilitySettings = {
 
 let settings = { ...defaultSettings };
 
-const timelines: ExecutionTimeline[] = [
-  {
-    run: {
-      runId: "018f0f17-4d6a-7e20-b41d-66c5271a28d0",
-      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
-      rootSpanId: "00f067aa0ba902b7",
-      source: "desktop",
-      sourceId: null,
-      status: "succeeded",
-      startedAt: "2026-07-23T08:00:00.000Z",
-      endedAt: "2026-07-23T08:00:02.400Z",
-      durationMs: 2400,
-      sessionId: "web-session-1",
-      operationId: "web-operation-observability",
-      agentId: "codex-cli",
-    },
-    spans: [
-      {
-        spanId: "00f067aa0ba902b7",
-        parentSpanId: null,
-        name: "vanehub.task.execute",
-        status: "succeeded",
-        fidelity: "native",
-        startedAt: "2026-07-23T08:00:00.000Z",
-        endedAt: "2026-07-23T08:00:02.400Z",
-        durationMs: 2400,
-        errorClassification: null,
-        attributes: { "gen_ai.provider.name": "openai" },
-      },
-      {
-        spanId: "b7ad6b7169203331",
-        parentSpanId: "00f067aa0ba902b7",
-        name: "execute_tool search",
-        status: "incomplete",
-        fidelity: "inferred",
-        startedAt: "2026-07-23T08:00:01.000Z",
-        endedAt: "2026-07-23T08:00:02.300Z",
-        durationMs: null,
-        errorClassification: "missing_terminal_boundary",
-        attributes: { "gen_ai.tool.name": "search" },
-      },
-      {
-        spanId: "b7ad6b7169203333",
-        parentSpanId: "00f067aa0ba902b7",
-        name: "mcp.client request",
-        status: "incomplete",
-        fidelity: "opaque",
-        startedAt: "2026-07-23T08:00:01.100Z",
-        endedAt: null,
-        durationMs: null,
-        errorClassification: "traffic_not_managed",
-        attributes: { "rpc.system": "mcp" },
-      },
-    ],
-    events: [
-      {
-        sequence: 1,
-        spanId: "00f067aa0ba902b7",
-        name: "process.spawned",
-        timestamp: "2026-07-23T08:00:00.500Z",
-        attributes: { "process.pid.observed": true },
-      },
-    ],
-  },
-  {
-    run: {
-      runId: "018f0f17-4d6a-7e20-b41d-66c5271a28d1",
-      traceId: "0af7651916cd43dd8448eb211c80319c",
-      rootSpanId: "b7ad6b7169203332",
-      source: "scheduled",
-      sourceId: "web-schedule-1",
-      status: "failed",
-      startedAt: "2026-07-22T08:00:00.000Z",
-      endedAt: "2026-07-22T08:00:00.100Z",
-      durationMs: 100,
-      sessionId: "web-session-1",
-      operationId: "web-operation-scheduled",
-      agentId: "gemini-cli",
-    },
-    spans: [],
-    events: [],
-  },
-];
-
-for (let index = 2; index < 21; index += 1) {
-  const suffix = index.toString(16).padStart(12, "0");
-  timelines.push({
-    run: {
-      ...timelines[1]!.run,
-      runId: `018f0f17-4d6a-7e20-b41d-${suffix}`,
-      startedAt: `2026-07-${String(22 - (index % 10)).padStart(2, "0")}T08:00:00.000Z`,
-      operationId: `web-operation-${index}`,
-    },
-    spans: [],
-    events: [],
-  });
-}
+let timelines: ExecutionTimeline[] = resetExecutionTimelineFixtures();
 
 const capabilities: ExecutionObservationCapability[] = [
   "claude-code",
@@ -206,4 +114,16 @@ export const webExecutionObservabilityClient: ExecutionObservabilityService = {
 
 export function resetWebExecutionObservabilityForTest() {
   settings = { ...defaultSettings };
+  timelines = resetExecutionTimelineFixtures();
+}
+
+/**
+ * Advances the running fixture to a terminal state.
+ *
+ * The browser build has to be able to cross this boundary, because the rules that only hold on
+ * one side of it — no duration while running, no critical path until everything has ended — are
+ * unobservable from a fixture that is permanently on one side.
+ */
+export function completeRunningExecutionForTest() {
+  completeRunningTimelineFixture(timelines);
 }

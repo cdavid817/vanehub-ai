@@ -6,6 +6,7 @@ const span = (spanId: string, parentSpanId: string | null): ExecutionSpanSummary
   spanId,
   parentSpanId,
   name: `span-${spanId}`,
+  kind: "unknown",
   status: "succeeded",
   fidelity: "native",
   startedAt: "2026-07-23T00:00:00Z",
@@ -13,6 +14,10 @@ const span = (spanId: string, parentSpanId: string | null): ExecutionSpanSummary
   durationMs: 1000,
   errorClassification: null,
   attributes: {},
+  depth: 0,
+  delegated: false,
+  criticalPath: false,
+  links: [],
 });
 
 describe("execution timeline topology", () => {

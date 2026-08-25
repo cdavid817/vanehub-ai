@@ -148,7 +148,10 @@ export function spanTree(spans: ExecutionSpanSummary[]): SpanTreeNode[] {
 function SpanNode({ node, speakers }: { node: SpanTreeNode; speakers: Map<string | number, MessageSpeaker> }) {
   const { t } = useTranslation();
   const gap = node.span.fidelity === "opaque" || node.span.status === "incomplete";
-  const stage = node.span.name.includes("mcp") ? "MCP" : node.span.name.includes("tool") ? t("traces.toolStage") : null;
+  // The kind comes from the native classifier, which reads what the producer asserted. This used
+  // to be a substring test on the name — which called every span mentioning "tool" a tool call and
+  // every MCP span not mentioning "mcp" nothing at all, both silently.
+  const stage = node.span.kind === "unknown" ? null : t(`traces.kind.${node.span.kind}`);
   const seat = traceSeat(node.span.attributes);
   const speaker = seat ? speakers.get(seat.seatId ?? seat.seatIndex) ?? null : null;
   return (

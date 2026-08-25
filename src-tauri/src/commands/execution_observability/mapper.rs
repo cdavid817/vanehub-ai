@@ -1,8 +1,10 @@
 use super::dto;
 use crate::contexts::execution_observability::api::{
-    CapturePolicy, ExecutionEvent, ExecutionFidelity, ExecutionObservationCapability, ExecutionRun,
-    ExecutionSource, ExecutionSpan, ExecutionStatus, ExecutionTelemetryError, ExecutionTimeline,
-    McpTransport, ObservabilitySettings, OtlpProtocol, Page, SafeAttributeValue, SafeAttributes,
+    classify_span_kind, derive_waterfall, CapturePolicy, ExecutionEvent, ExecutionFidelity,
+    ExecutionLink, ExecutionObservationCapability, ExecutionRun, ExecutionSource, ExecutionSpan,
+    ExecutionStatus, ExecutionTelemetryError, ExecutionTimeline, McpTransport,
+    ObservabilitySettings, OtlpProtocol, Page, SafeAttributeValue, SafeAttributes,
+    SpanWaterfallMetadata,
 };
 
 pub(super) fn settings_to_dto(settings: ObservabilitySettings) -> dto::ObservabilitySettingsDto {
@@ -67,9 +69,23 @@ pub(super) fn runs_to_dto(page: Page<ExecutionRun>) -> dto::ExecutionRunPageDto 
 }
 
 pub(super) fn timeline_to_dto(timeline: ExecutionTimeline) -> dto::ExecutionTimelineDto {
+    // Derived once for the whole timeline, because depth, offset and critical path are properties
+    // of a span's position among the others — a per-span derivation would only ever see the span
+    // it was called for.
+    let waterfall = derive_waterfall(&timeline);
     dto::ExecutionTimelineDto {
         run: run_to_dto(timeline.run),
-        spans: timeline.spans.into_iter().map(span_to_dto).collect(),
+        spans: timeline
+            .spans
+            .into_iter()
+            .map(|span| {
+                let derived = waterfall
+                    .get(span.context.span_id.as_str())
+                    .copied()
+                    .unwrap_or_default();
+                span_to_dto(span, derived)
+            })
+            .collect(),
         events: timeline.events.into_iter().map(event_to_dto).collect(),
     }
 }
@@ -92,18 +108,49 @@ pub(super) fn run_to_dto(run: ExecutionRun) -> dto::ExecutionRunSummaryDto {
     }
 }
 
-fn span_to_dto(span: ExecutionSpan) -> dto::ExecutionSpanSummaryDto {
+fn span_to_dto(
+    span: ExecutionSpan,
+    derived: SpanWaterfallMetadata,
+) -> dto::ExecutionSpanSummaryDto {
+    let kind = classify_span_kind(&span.attributes);
     dto::ExecutionSpanSummaryDto {
         span_id: span.context.span_id.as_str().to_string(),
         parent_span_id: span.parent_span_id.map(|value| value.as_str().to_string()),
         name: span.name,
+        kind: kind.token().to_string(),
         status: status_to_dto(span.status),
         fidelity: fidelity_to_dto(span.fidelity),
         duration_ms: duration_ms(&span.started_at, span.ended_at.as_deref()),
         started_at: span.started_at,
         ended_at: span.ended_at,
         error_classification: span.error_classification,
+        // Identifiers only. What a client does with them is ask the service that owns the evidence,
+        // which is the whole reason the trace DTO does not carry any.
+        links: span.links.into_iter().map(link_to_dto).collect(),
         attributes: attributes_to_dto(span.attributes),
+        waterfall: dto::SpanWaterfallDto {
+            depth: derived.depth,
+            start_offset_ms: derived.start_offset_ms,
+            completed_duration_ms: derived.completed_duration_ms,
+            attempt: derived.attempt,
+            delegated: derived.delegated,
+            critical_path: derived.critical_path,
+        },
+    }
+}
+
+/// One link, as identifiers and a relationship name.
+///
+/// These were previously dropped on the way out, so a client could see that a span existed but not
+/// what it was related to. Carrying them costs nothing a redaction pass has to worry about — a run
+/// id and a relationship word are not content — and it is what makes the linked-evidence query in
+/// 9.10 addressable rather than a guess from the current scope.
+fn link_to_dto(link: ExecutionLink) -> dto::ExecutionLinkDto {
+    dto::ExecutionLinkDto {
+        run_id: link.run_id.as_str().to_string(),
+        trace_id: link.trace_id.as_str().to_string(),
+        span_id: link.span_id.map(|value| value.as_str().to_string()),
+        relationship: link.relationship,
     }
 }
 

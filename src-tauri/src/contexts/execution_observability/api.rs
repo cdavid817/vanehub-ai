@@ -175,3 +175,6 @@ pub(crate) use super::infrastructure::RandomExecutionIdentity;
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;
+
+pub(crate) use super::application::{derive_waterfall, SpanWaterfallMetadata};
+pub(crate) use super::domain::classify_span_kind;
