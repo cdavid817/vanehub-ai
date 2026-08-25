@@ -39,6 +39,7 @@ export const DESKTOP_SPECS = [
   { spec: "domain-cli-tooling.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-evaluation.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-floating-assistant.e2e.mjs", gate: REQUIRED_FIXTURE },
+  { spec: "domain-local-media.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-loop.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-lsp.e2e.mjs", gate: REQUIRED_FIXTURE },
   { spec: "domain-multi-agent-business.e2e.mjs", gate: REQUIRED_FIXTURE },

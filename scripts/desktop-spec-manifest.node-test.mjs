@@ -93,7 +93,7 @@ test("the required gate runs required specs and never an external one", async ()
 
 test("the external suite is never part of the required desktop command", async () => {
   const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
-  const requiredLayers = orchestrator.match(/const REQUIRED_LAYERS = \[[^\]]+\]/s)?.[0] ?? "";
+  const requiredLayers = orchestrator.match(/const fullSuiteLayers = \[[^\]]+\]/s)?.[0] ?? "";
   assert.ok(requiredLayers, "the required layer list could not be found");
   assert.ok(
     !requiredLayers.includes("externalProviderDesktop"),

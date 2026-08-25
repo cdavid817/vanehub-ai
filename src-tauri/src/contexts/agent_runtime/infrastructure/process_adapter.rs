@@ -31,7 +31,7 @@ use crate::contexts::tooling::skills::api::{CliSkillEvidenceSnapshot, SkillApi};
 use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -61,6 +61,7 @@ pub(crate) struct RuntimeAgentProcessAdapter {
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedMcpRelay {
     pub(crate) invocation_args: Vec<String>,
+    pub(crate) environment: BTreeMap<String, String>,
     pub(crate) guard: Option<PreparedMcpRelayGuard>,
 }
 
@@ -186,30 +187,26 @@ impl RuntimeAgentProcessAdapter {
             role_briefing: request.role_briefing.as_deref(),
         })?;
         let mut relay_guard = None;
-        if request.execution_context.mcp_relay_enabled {
-            match self.mcp_relay.prepare(
-                &request.agent.id,
-                request.session.folder.as_deref(),
-                &request.execution_context,
-            ) {
-                Ok(prepared) => {
-                    apply_mcp_relay_args(
-                        &request.agent.id,
-                        &mut spec.args,
-                        prepared.invocation_args,
-                    );
-                    relay_guard = prepared.guard;
-                }
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        "session.runtime.mcp_relay",
-                        format!("managed MCP relay unavailable; continuing without relay: {error}"),
-                        Some(&request.agent.id),
-                        Some(&request.session.id),
-                        Some(&request.operation_id),
-                    );
-                }
+        let mut relay_environment = BTreeMap::new();
+        match self.mcp_relay.prepare(
+            &request.agent.id,
+            request.session.folder.as_deref(),
+            &request.execution_context,
+        ) {
+            Ok(prepared) => {
+                apply_mcp_relay_args(&request.agent.id, &mut spec.args, prepared.invocation_args);
+                relay_environment = prepared.environment;
+                relay_guard = prepared.guard;
+            }
+            Err(error) => {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    "session.runtime.mcp_relay",
+                    format!("managed MCP relay unavailable; continuing without relay: {error}"),
+                    Some(&request.agent.id),
+                    Some(&request.session.id),
+                    Some(&request.operation_id),
+                );
             }
         }
         let final_output_path = if request.agent.id == "codex-cli" {
@@ -224,12 +221,13 @@ impl RuntimeAgentProcessAdapter {
                 add_opencode_directory_args(&mut spec.args, folder);
             }
         }
-        let runner_spec = local_runner_launch_spec(
+        let mut runner_spec = local_runner_launch_spec(
             &spec,
             Some(request.session.id.clone()),
             request.session.folder.clone(),
             request.execution_context.traceparent(),
         );
+        runner_spec.environment.extend(relay_environment);
         self.record_log(
             AgentLogLevel::Info,
             "session.runtime.cli",

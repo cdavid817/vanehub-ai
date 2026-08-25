@@ -6,7 +6,43 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as schedule } from "node:timers";
-import { createDesktopConfig } from "./wdio-shared.mjs";
+import { closeDesktopSession, createDesktopConfig } from "./wdio-shared.mjs";
+
+test("closes WebDriver before waiting for the native application exit", async () => {
+  const events = [];
+  const browser = {
+    sessionId: "desktop-session",
+    tauri: {
+      execute: async () => events.push("request-exit"),
+    },
+    deleteSession: async () => events.push("delete-session"),
+  };
+
+  await closeDesktopSession(browser, async () => events.push("wait-for-exit"));
+
+  assert.deepEqual(events, ["request-exit", "delete-session", "wait-for-exit"]);
+  assert.equal(browser.sessionId, undefined);
+});
+
+test("leaves WebDriver teardown to the runner when the application already exited", async () => {
+  let deleted = false;
+  const browser = {
+    sessionId: "desktop-session",
+    tauri: {
+      execute: async () => {
+        throw new Error("application unavailable");
+      },
+    },
+    deleteSession: async () => {
+      deleted = true;
+    },
+  };
+
+  await closeDesktopSession(browser, async () => assert.fail("must not wait without an exit request"));
+
+  assert.equal(deleted, false);
+  assert.equal(browser.sessionId, "desktop-session");
+});
 
 test("waits for a draining embedded driver before the next worker starts", async () => {
   const resultDir = await mkdtemp(path.join(tmpdir(), "vanehub-wdio-shared-"));

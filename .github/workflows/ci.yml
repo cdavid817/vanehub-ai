@@ -681,6 +681,7 @@ jobs:
             dbus-x11 \
             file \
             gnome-keyring \
+            libasound2-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libsecret-1-0 \
@@ -807,7 +808,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential clang curl file libayatana-appindicator3-dev librsvg2-dev \
+            build-essential clang curl file libasound2-dev libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libwebkit2gtk-4.1-dev mold patchelf wget xvfb
 
       - name: Install npm dependencies

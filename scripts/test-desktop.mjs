@@ -290,6 +290,15 @@ function settingsPersistenceDesktop(artifact) {
   });
 }
 
+function agentMcpDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-agent-mcp",
+    config: "tests/desktop/wdio.agent-mcp.conf.mjs",
+    label: "Desktop Agent MCP",
+    artifact,
+  });
+}
+
 /**
  * Deterministic local-media coverage, kept out of `all` on purpose.
  *
@@ -316,13 +325,14 @@ function skillsDesktop(artifact) {
 }
 
 /** The layers the required hermetic gate runs. Every one of them must pass. */
-const REQUIRED_LAYERS = [
+const fullSuiteLayers = [
   smokeDesktop,
   cliTerminalDesktop,
   cliManagementDesktop,
   sessionWorkspaceDesktop,
   dialogsDesktop,
   settingsPersistenceDesktop,
+  agentMcpDesktop,
 ];
 
 async function runLayers(layers, artifact) {
@@ -345,6 +355,7 @@ async function main() {
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
+  else if (mode === "agent-mcp") await agentMcpDesktop();
   else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "skills") await skillsDesktop();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
@@ -358,7 +369,7 @@ async function main() {
     process.exitCode = result.status === "FAILED" ? 1 : 0;
   } else if (mode === "all" || mode === "everything") {
     const artifact = await buildDesktop();
-    const layers = runFullSuite ? REQUIRED_LAYERS : [coreSmokeDesktop];
+    const layers = runFullSuite ? fullSuiteLayers : [coreSmokeDesktop];
     if (!runFullSuite) {
       process.stdout.write("Desktop verification: CI gate runs the core smoke contract; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
     }

@@ -213,7 +213,7 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   // The CLI layer stays runnable on demand; the narrow CI gate selects only the core contract.
   assert.match(orchestrator, /mode === "cli-terminal"/);
   assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
-  assert.match(orchestrator, /const layers = runFullSuite \? REQUIRED_LAYERS : \[coreSmokeDesktop\]/);
+  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[coreSmokeDesktop\]/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
 });
@@ -264,6 +264,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["dialogs", "dialogsDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
     ["cli-management", "cliManagementDesktop"],
+    ["agent-mcp", "agentMcpDesktop"],
   ];
 
   for (const [mode, factory] of layers) {

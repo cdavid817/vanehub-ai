@@ -9,6 +9,7 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 const EMBEDDED_DRIVER_SHUTDOWN_POLL_MS = 100;
 const EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS = 10_000;
 const EMBEDDED_DRIVER_PROCESS_REAP_MS = 2_000;
+const APPLICATION_EXIT_WAIT_MS = 2_500;
 
 function isTcpPortOpen(port) {
   return new Promise((resolve) => {
@@ -78,6 +79,28 @@ function proxyEnvironment() {
     HTTP_PROXY: process.env.HTTP_PROXY ?? process.env.http_proxy ?? proxy,
     NO_PROXY: bypass ? `127.0.0.1,localhost,${bypass}` : "127.0.0.1,localhost",
   };
+}
+
+export async function closeDesktopSession(browser, waitForExit = () => delay(APPLICATION_EXIT_WAIT_MS)) {
+  try {
+    await browser.tauri.execute(({ core }) => core.invoke("exit_application"));
+  } catch {
+    // A layer may already have exited explicitly; the process marker remains authoritative.
+    return;
+  }
+
+  try {
+    // The native command delays shutdown so the WebDriver session can close first. Keeping this
+    // hook alive afterwards lets the native exit handler update the authoritative process marker
+    // before the launcher service reaps the application process.
+    await browser.deleteSession();
+  } finally {
+    // WDIO's runner checks this property before performing its automatic deleteSession call.
+    // It owns the same mutation after its normal deletion path, but this hook closes earlier so
+    // the application can still execute its native shutdown handler.
+    browser.sessionId = undefined;
+    await waitForExit();
+  }
 }
 
 /**
@@ -167,11 +190,7 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       await mkdir(path.join(resultDir, "screenshots"), { recursive: true });
     },
     after: async () => {
-      try {
-        await globalThis.browser.tauri.execute(({ core }) => core.invoke("exit_application"));
-      } catch {
-        // A layer may already have exited explicitly; the process marker remains authoritative.
-      }
+      await closeDesktopSession(globalThis.browser);
     },
     onComplete: async (exitCode, _config, _capabilities, results) => {
       await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify({
