@@ -10,7 +10,8 @@ pub(crate) fn exit_application(api: State<'_, DesktopLifecycleApi>) {
             std::thread::sleep(std::time::Duration::from_millis(100));
             api.request_exit();
         });
-        return;
+        // No `return` needed: the branch below is compiled out under this feature, and clippy
+        // rejects the redundancy once the feature is linted.
     }
 
     #[cfg(not(feature = "desktop-e2e"))]

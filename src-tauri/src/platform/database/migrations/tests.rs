@@ -316,7 +316,7 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (80, 81));
+    assert_eq!(migration_state, (81, 82));
 
     migrate(&connection).expect("upgrade migration");
 
@@ -1039,4 +1039,157 @@ fn retire_plan_execution_preserves_history_and_mixed_work_items() {
             .expect("mixed retained source"),
         1
     );
+}
+
+/// The upgrade path the `81` collision created.
+///
+/// `add-local-composer-media-tools` and `upgrade-cli-parameter-management` both reserved 81 while
+/// unmerged. The CLI change landed first, so local media moved to 82 -- which means a database that
+/// already carries 81 must gain exactly one migration, and the two schemas must not disturb each
+/// other. A renumber that quietly re-ran or skipped one of them would leave a table missing and
+/// surface much later as an opaque "no such table".
+#[test]
+fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+
+    // Rewind to the state a build from `main` leaves behind: 81 applied, 82 never seen.
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM schema_migrations WHERE version = 82;
+            DROP TABLE local_media_profiles;
+            "#,
+        )
+        .expect("pre-82 fixture");
+    let before: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("fixture state");
+    assert_eq!(before, (81, 81));
+
+    migrate(&connection).expect("upgrade migration");
+
+    let after: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("upgraded state");
+    assert_eq!(after, (82, 82));
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 82",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .expect("migration 82"),
+        "local-media-profiles"
+    );
+    // Both schemas present, neither overwritten by the other.
+    for table in ["local_media_profiles", "cli_parameter_profiles"] {
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("table lookup"),
+            1,
+            "{table} is missing after the upgrade"
+        );
+    }
+
+    // Idempotent: a second start applies nothing further.
+    migrate(&connection).expect("second start");
+    let repeated: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("repeat count");
+    assert_eq!(repeated, 82);
+}
+
+/// The other side of the same collision -- the side a renumber is most likely to forget.
+///
+/// A database written by this branch before it merged records `(81, "local-media-profiles")`. On
+/// the merged binary the version gate skips 81, so `cli_parameter_profiles` is never created; 82
+/// re-runs local media's idempotent schema and succeeds; and the history is dense `1..82`, so the
+/// startup check passes and nothing is reported. The damage surfaces at the next managed CLI
+/// launch, which reads that table, and a restart repeats the skip forever.
+#[test]
+fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_parameter_schema() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+
+    // Rewind to the state an unmerged `worktree-ocr` build leaves behind: local media recorded at
+    // 81 under its old number, nothing at 82, and the CLI parameter table never created.
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM schema_migrations WHERE version = 82;
+            UPDATE schema_migrations SET name = 'local-media-profiles' WHERE version = 81;
+            DROP TABLE cli_parameter_profiles;
+            "#,
+        )
+        .expect("pre-merge fixture");
+    assert_eq!(
+        table_count(&connection, "cli_parameter_profiles"),
+        0,
+        "the fixture must start without the CLI parameter table"
+    );
+
+    migrate(&connection).expect("upgrade migration");
+
+    // Without the reconciliation the CLI parameter table is still missing here, and every
+    // `resolve_launch_parameters` call fails with a repository error nobody can act on.
+    for table in ["cli_parameter_profiles", "local_media_profiles"] {
+        assert_eq!(
+            table_count(&connection, table),
+            1,
+            "{table} is missing after the upgrade"
+        );
+    }
+    // The recorded history is left alone: rewriting another build's rows is how this collision
+    // became dangerous in the first place.
+    let state: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("upgraded state");
+    assert_eq!(state, (82, 82));
+
+    // Idempotent: a second start neither repeats the repair destructively nor records anything.
+    migrate(&connection).expect("second start");
+    for table in ["cli_parameter_profiles", "local_media_profiles"] {
+        assert_eq!(
+            table_count(&connection, table),
+            1,
+            "{table} vanished on the second start"
+        );
+    }
+    let repeated: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("repeat count");
+    assert_eq!(repeated, 82);
+}
+
+fn table_count(connection: &Connection, table: &str) -> i64 {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("table lookup")
 }

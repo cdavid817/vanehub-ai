@@ -8,7 +8,6 @@ struct SupportedVersions {
     schema_version: u16,
     playwright: PlaywrightVersion,
     paddleocr: PaddleOcrVersion,
-    pdfium: PdfiumVersion,
     claude_code: CliVersion,
     codex_cli: CliVersion,
     runtimes: RuntimeVersions,
@@ -24,12 +23,6 @@ struct PlaywrightVersion {
 struct PaddleOcrVersion {
     engine_major: u16,
     protocol_version: String,
-}
-
-#[derive(serde::Deserialize)]
-struct PdfiumVersion {
-    protocol_version: String,
-    checksum_required: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -110,7 +103,7 @@ fn malformed_order_duplicate_terminal_and_secret_payload_fail_or_reduce() {
 fn supported_version_fixture_matches_every_managed_protocol_boundary() {
     use crate::contexts::browser_automation::api::BROWSER_SIDECAR_PROTOCOL_VERSION;
     use crate::contexts::code_execution::api::{CodeRuntime, RuntimeCatalog, RuntimeCatalogError};
-    use crate::contexts::tooling::api::PADDLEOCR_INFERENCE_PROTOCOL_VERSION;
+    use crate::contexts::local_media::api::LOCAL_MEDIA_WORKER_PROTOCOL;
 
     let fixture: SupportedVersions =
         serde_json::from_str(include_str!("fixtures/supported-versions.v1.json"))
@@ -124,10 +117,8 @@ fn supported_version_fixture_matches_every_managed_protocol_boundary() {
     assert_eq!(fixture.paddleocr.engine_major, 3);
     assert_eq!(
         fixture.paddleocr.protocol_version,
-        PADDLEOCR_INFERENCE_PROTOCOL_VERSION
+        LOCAL_MEDIA_WORKER_PROTOCOL
     );
-    assert_eq!(fixture.pdfium.protocol_version, "vanehub.pdfium.render.v1");
-    assert!(fixture.pdfium.checksum_required);
     assert_eq!(
         (
             fixture.claude_code.minimum.as_str(),

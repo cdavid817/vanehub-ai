@@ -90,6 +90,8 @@ export default defineConfig({
       "target/**",
       "tests/docs/**",
       "tests/e2e/**",
+      // Playwright specs for the local-media fake build; Vitest must not collect them.
+      "tests/e2e-local-media/**",
       // Nested git worktrees under .claude ship their own node_modules and e2e
       // specs; keep the test runner from descending into those copies.
       "**/.claude/**",

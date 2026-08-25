@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
@@ -31,6 +31,9 @@ export function ChatInputBox({
   isStreaming,
   lockRuntimeIdentity = false,
   fileReferenceCandidates,
+  mediaActions,
+  onSelectionChange,
+  textAreaRef: externalTextAreaRef,
   fileReferences,
   onAddFileReference,
   onChange,
@@ -63,6 +66,17 @@ export function ChatInputBox({
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
   fileReferenceCandidates: FileSearchMatch[];
+  /** Local-media action group, rendered in the toolbar's right cluster. */
+  mediaActions?: ReactNode;
+  /** Reports the textarea selection so read-aloud can speak exactly what is highlighted. */
+  onSelectionChange?: (range: { start: number; end: number } | null) => void;
+  /**
+   * Published so the local-media controller can return the caret after it appends text.
+   *
+   * A callback would be the smaller surface, but restoring focus needs the element itself: the
+   * caret has to land at the end of the new draft, which is a `setSelectionRange` on the node.
+   */
+  textAreaRef?: RefObject<HTMLTextAreaElement | null>;
   fileReferences: ChatFileReference[];
   onChange: (value: string) => void;
   onAddFileReference: (candidate: FileSearchMatch, range: MentionLineRange) => void;
@@ -88,7 +102,8 @@ export function ChatInputBox({
   value: string;
 }) {
   const { t } = useTranslation();
-  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const localTextAreaRef = useRef<HTMLTextAreaElement>(null);
+  const textAreaRef = externalTextAreaRef ?? localTextAreaRef;
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
   const { applyMention, fileSuggestions, mentionRange, participantSuggestions, pendingPreview, setPendingPreview } = useComposerMention({
     disabled,
@@ -140,7 +155,7 @@ export function ChatInputBox({
     element.style.height = "88px";
     element.style.height = `${Math.min(200, Math.max(88, element.scrollHeight))}px`;
     element.style.overflowY = element.scrollHeight > 200 ? "auto" : "hidden";
-  }, [value]);
+  }, [textAreaRef, value]);
 
   return (
     <div className="shrink-0 bg-transparent px-3 py-3">
@@ -226,6 +241,12 @@ export function ChatInputBox({
             event.preventDefault();
             if (canSubmit) onSubmit();
           }}
+          onSelect={(event) =>
+            onSelectionChange?.({
+              start: event.currentTarget.selectionStart,
+              end: event.currentTarget.selectionEnd,
+            })
+          }
           placeholder={disabled ? t("chat.placeholderDisabled") : t("chat.placeholder")}
           ref={textAreaRef}
           value={value}
@@ -248,6 +269,7 @@ export function ChatInputBox({
           availableModels={availableModels}
           availableReasoning={availableReasoning}
           canSubmit={canSubmit}
+          mediaActions={mediaActions}
           config={config}
           disabled={disabled}
           isStreaming={isStreaming}

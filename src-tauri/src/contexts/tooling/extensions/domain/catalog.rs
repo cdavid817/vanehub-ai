@@ -68,6 +68,14 @@ pub(crate) struct ExtensionRequirement {
     pub(crate) models: &'static [ExtensionModelRequirement],
 }
 
+/// One installable Python dependency set, described for the Extension Capabilities page.
+///
+/// This catalog owns dependency installation, version inventory, and a health-only management
+/// sidecar. It does not own an inference runtime, inference readiness, model lifecycle, or an
+/// inference worker for any framework it lists -- `local_media` owns those. The definition used to
+/// carry an `inference_protocol` marker advertising the opposite; it was removed rather than
+/// re-pointed, because a field naming another context's protocol is an ownership claim no matter
+/// which string it holds, and nothing outside this file ever read it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExtensionFrameworkDefinition {
     pub(crate) id: ExtensionFrameworkId,
@@ -75,7 +83,6 @@ pub(crate) struct ExtensionFrameworkDefinition {
     pub(crate) name_key: &'static str,
     pub(crate) description_key: &'static str,
     pub(crate) default_port: u16,
-    pub(crate) inference_protocol: Option<&'static str>,
     pub(crate) requirement: ExtensionRequirement,
 }
 
@@ -104,7 +111,6 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.paddleocr.name",
         description_key: "extensions.framework.paddleocr.description",
         default_port: 9875,
-        inference_protocol: Some("vanehub.paddleocr.inference.v1"),
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["paddleocr>=3,<4", "paddlepaddle>=3,<4"],
@@ -121,7 +127,6 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.fasterWhisper.name",
         description_key: "extensions.framework.fasterWhisper.description",
         default_port: 9876,
-        inference_protocol: None,
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["faster-whisper>=1,<2"],
@@ -138,7 +143,6 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.sherpaOnnx.name",
         description_key: "extensions.framework.sherpaOnnx.description",
         default_port: 9879,
-        inference_protocol: None,
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["sherpa-onnx>=1,<2"],
@@ -188,10 +192,6 @@ mod tests {
         assert_eq!(paddleocr.requirement.import_module, "paddleocr");
         assert_eq!(paddleocr.requirement.version_package, "paddleocr");
         assert_eq!(paddleocr.default_port, 9875);
-        assert_eq!(
-            paddleocr.inference_protocol,
-            Some("vanehub.paddleocr.inference.v1")
-        );
     }
 
     #[test]
