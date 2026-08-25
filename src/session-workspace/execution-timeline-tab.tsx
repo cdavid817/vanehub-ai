@@ -7,11 +7,14 @@ import type { Session } from "../types/agent";
 import type { ExecutionObservabilityService } from "../services/execution-observability-service";
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
 import type { ExecutionTimeline } from "../types/execution-observability";
+import { traceTransitionStream } from "../services/runtime-trace-transition-client";
 import { TraceDetailDrawer } from "./trace-detail-drawer";
+import { filterTraceSpans, NO_TRACE_FILTERS, type TraceFilters } from "./trace-filters";
 import { TraceRunList } from "./trace-run-list";
 import { TraceStatusBadge } from "./trace-span-row";
 import { TraceToolbar } from "./trace-toolbar";
 import { TraceWaterfall } from "./trace-waterfall";
+import { useTraceLiveRefresh } from "./use-trace-live-refresh";
 import { useTraceSelection } from "./use-trace-selection";
 import { WorkspaceState } from "./workspace-state";
 
@@ -30,8 +33,15 @@ export function ExecutionTimelineTab({
   const { t } = useTranslation();
   const speakers = useSessionSpeakers(session);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const live = useTraceLiveRefresh({
+    isVisible,
+    runId: selectedRunId,
+    subscribe: traceTransitionStream.subscribe,
+  });
   const runs = useInfiniteQuery({
-    queryKey: ["execution-runs", sessionId],
+    // Re-read when a *run* transition settles, which is rarer than a span one — re-reading the
+    // list once per span is how a busy run makes the whole panel unusable.
+    queryKey: ["execution-runs", sessionId, live.runListToken],
     queryFn: ({ pageParam }) => service.listRuns({ limit: 20, pageToken: pageParam, sessionId }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextPageToken ?? undefined,
@@ -49,7 +59,8 @@ export function ExecutionTimelineTab({
     }
   }, [runItems, selectedRunId]);
   const timeline = useQuery({
-    queryKey: ["execution-timeline", selectedRunId],
+    // The token is part of the key, so a settled burst refetches and a quiet panel does not.
+    queryKey: ["execution-timeline", selectedRunId, live.refreshToken],
     queryFn: () => service.getTimeline(selectedRunId ?? ""),
     enabled: Boolean(selectedRunId) && isVisible,
   });
@@ -72,24 +83,35 @@ export function ExecutionTimelineTab({
       <section className="relative flex min-h-0 flex-col rounded-lg border border-border bg-background p-3 sm:p-4">
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
-        {timeline.data ? <TraceViewport speakers={speakers} timeline={timeline.data} /> : null}
+        {timeline.data ? (
+          <TraceViewport sessionId={sessionId} speakers={speakers} timeline={timeline.data} />
+        ) : null}
       </section>
     </div>
   );
 }
 
 function TraceViewport({
+  sessionId,
   speakers,
   timeline,
 }: {
+  sessionId: string | null;
   speakers: ReturnType<typeof useSessionSpeakers>;
   timeline: ExecutionTimeline;
 }) {
   const { t } = useTranslation();
   const [zoom, setZoom] = useState(1);
-  const spanIds = useMemo(() => timeline.spans.map((span) => span.spanId), [timeline.spans]);
+  const [filters, setFilters] = useState<TraceFilters>(NO_TRACE_FILTERS);
+  const filtered = useMemo(
+    () => filterTraceSpans(timeline.spans, filters),
+    [filters, timeline.spans],
+  );
+  // Selection runs over what is visible. A selection pointing at a filtered-out span would open a
+  // drawer for a row the reader cannot see, with no way to reach it again.
+  const spanIds = useMemo(() => filtered.spans.map((span) => span.spanId), [filtered.spans]);
   const selection = useTraceSelection(spanIds);
-  const selectedSpan = timeline.spans.find((span) => span.spanId === selection.selectedId) ?? null;
+  const selectedSpan = filtered.spans.find((span) => span.spanId === selection.selectedId) ?? null;
 
   return (
     <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)]">
@@ -100,23 +122,38 @@ function TraceViewport({
           <TraceStatusBadge status={timeline.run.status} />
           <span className="font-mono text-[11px] text-muted-foreground">{timeline.run.traceId}</span>
         </header>
-        <TraceToolbar onZoomChange={setZoom} spanCount={timeline.spans.length} zoom={zoom} />
-        {timeline.spans.length ? (
+        <TraceToolbar
+          filters={filters}
+          hiddenCount={filtered.hiddenCount}
+          onFiltersChange={setFilters}
+          onZoomChange={setZoom}
+          spanCount={filtered.spans.length}
+          zoom={zoom}
+        />
+        {filtered.spans.length ? (
           <TraceWaterfall
             selection={selection}
-            spans={timeline.spans}
+            spans={filtered.spans}
             speakers={speakers}
             zoom={zoom}
           />
         ) : (
-          <WorkspaceState kind="empty" message={t("traces.noSpans")} />
+          <WorkspaceState
+            kind="empty"
+            // The two empty states are different facts, and only the message distinguishes them:
+            // a run with no spans recorded nothing, and a filtered-out one recorded plenty.
+            message={t(filtered.hiddenCount > 0 ? "traces.allFiltered" : "traces.noSpans")}
+          />
         )}
       </div>
       {selection.detailOpen && selectedSpan ? (
         <TraceDetailDrawer
           events={timeline.events}
           onClose={selection.closeDetail}
+          runId={timeline.run.runId}
+          sessionId={sessionId}
           span={selectedSpan}
+          traceId={timeline.run.traceId}
         />
       ) : null}
     </div>

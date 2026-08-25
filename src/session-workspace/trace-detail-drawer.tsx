@@ -7,6 +7,8 @@ import type {
   ExecutionSpanSummary,
 } from "../types/execution-observability";
 import { TraceStatusBadge } from "./trace-span-row";
+import { TraceLinkedEvidenceSections } from "./trace-linked-evidence";
+import { useSpanEvidence } from "./use-span-evidence";
 
 /**
  * Which relationship names belong under which section.
@@ -37,13 +39,32 @@ const USAGE_PREFIXES = ["gen_ai.usage.", "vanehub.usage.", "gen_ai.response.mode
 export function TraceDetailDrawer({
   events,
   onClose,
+  runId,
+  service,
+  sessionId,
   span,
+  traceId,
 }: {
   events: readonly ExecutionEvent[];
   onClose: () => void;
+  runId: string;
+  service?: Parameters<typeof useSpanEvidence>[0]["service"];
+  sessionId: string | null;
   span: ExecutionSpanSummary;
+  traceId: string;
 }) {
   const { i18n, t } = useTranslation();
+  // Fetched from whoever owns each record rather than embedded in the trace payload: log text and
+  // command output are exactly what redaction exists for, and a trace DTO is one of the places it
+  // has no second chance to run.
+  const evidence = useSpanEvidence({
+    enabled: true,
+    runId,
+    service,
+    sessionId,
+    spanId: span.spanId,
+    traceId,
+  });
   const spanEvents = events.filter((event) => event.spanId === span.spanId);
   const attributes = Object.entries(span.attributes);
   const usage = attributes.filter(([key]) => USAGE_PREFIXES.some((prefix) => key.startsWith(prefix)));
@@ -150,23 +171,12 @@ export function TraceDetailDrawer({
         )}
       </Section>
 
-      {(["logs", "commands", "files", "findings", "related"] as const).map((group) => (
-        <Section key={group} title={t(`traces.section.${group}`)}>
-          {grouped[group].length ? (
-            grouped[group].map((link, index) => (
-              <Field
-                key={`${link.relationship}-${link.spanId ?? link.runId}-${index}`}
-                label={link.relationship}
-                value={link.spanId ?? link.runId}
-              />
-            ))
-          ) : (
-            // "None linked" rather than "none exists". This section lists what the span points at,
-            // and a span that pointed at nothing is not evidence that nothing happened.
-            <Empty text={t("traces.section.noLinks")} />
-          )}
-        </Section>
-      ))}
+      <TraceLinkedEvidenceSections
+        evidence={evidence}
+        files={grouped.files}
+        parts={{ Empty, Field, Section }}
+        related={grouped.related}
+      />
     </aside>
   );
 }

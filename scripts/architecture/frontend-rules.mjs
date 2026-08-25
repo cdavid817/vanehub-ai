@@ -102,8 +102,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 两者可以在都看起来正确的情况下互相矛盾。另含把分页填充搬进夹具模块:client 在 reset 时从夹具重建,
 // 填充留在外面会在第一次 reset 后消失,分页断言随之失败,而失败原因与分页无关。
 // 上限按实测值 21367 记录,不留余量。
+// 再次上调(同一 change,Task Group 9.11):+81 是 runtime-trace-transition-client.ts——trace 转换的
+// 运行时绑定与线上载荷解析。与 runtime-session-log-client 同一模式,同一理由:通道名与 Rust 侧差一个
+// 字符会产生永不触发也永不报错的订阅,这是活视图从内部唯一无法察觉的失败模式,所以它只能有一处写法。
+// 浏览器构建不发任何转换,而且是**故意**不发:一个按定时器发假转换的 mock 会让合并逻辑看起来能用,
+// 而实际上什么都没有转换过。上限按实测值 21448 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21367, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21448, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([
