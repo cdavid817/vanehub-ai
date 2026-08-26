@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
-import { FileText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
-import type { FileContent, SessionDocument } from "../types/session-workspace";
+import type { SessionDocument } from "../types/session-workspace";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
-import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { workspaceErrorKey } from "./workspace-error";
 import { workspaceQueryKeys } from "./workspace-query-keys";
+import { documentOutline } from "./document-outline";
+import { DocumentSidebar } from "./document-sidebar";
+import { DocumentViewer, type DocumentMode } from "./document-viewer";
+import { useFilePreview } from "./use-file-preview";
+import {
+  useWorkspaceCapabilities,
+  WorkspaceCapabilityNotice,
+} from "./workspace-capability-notice";
+
+/** How many documents the Recent list holds. Longer than this is a second copy of the full list. */
+const MAX_RECENT_DOCUMENTS = 5;
 
 export function DocumentsTab({
   isVisible = true,
@@ -19,10 +28,13 @@ export function DocumentsTab({
 }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<SessionDocument | null>(null);
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<DocumentMode>("preview");
+  const [recentPaths, setRecentPaths] = useState<readonly string[]>([]);
+  const [scrollToAnchor, setScrollToAnchor] = useState<string | null>(null);
+  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
 
-  // Queries rather than effects, so a change notice can refresh the list and the open document.
-  // The imperative version had no key to invalidate, which meant a document an agent had just
-  // written stayed missing from the list until the whole tab was rebuilt.
+  const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
   const listQuery = useQuery({
     // Nothing is discarded when the tab is hidden: the list, the selection, and the rendered
     // document stay exactly as the reader left them, and only the discovery walk stops.
@@ -30,24 +42,34 @@ export function DocumentsTab({
     queryKey: workspaceQueryKeys.documents(sessionId ?? ""),
     queryFn: () => agentService.listSessionDocuments(sessionId ?? ""),
   });
-  const contentQuery = useQuery({
-    enabled: Boolean(sessionId) && Boolean(selected),
-    queryKey: workspaceQueryKeys.preview(sessionId ?? "", selected?.path ?? ""),
-    queryFn: () => agentService.readSessionFile(sessionId ?? "", selected?.path ?? ""),
-  });
+  // The same retention the file preview uses: switching documents, refreshing, and a failed read
+  // all leave the last readable one on screen rather than blanking the panel.
+  const preview = useFilePreview(sessionId, selected?.path ?? null);
 
-  const documents: SessionDocument[] = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
-  const partial = listQuery.data?.truncated ?? false;
-  const content: FileContent | null = contentQuery.data ?? null;
-  const loading = listQuery.isLoading || contentQuery.isLoading;
-  const error: WorkspaceErrorKey | null = listQuery.error
-    ? workspaceErrorKey(listQuery.error)
-    : contentQuery.error
-      ? workspaceErrorKey(contentQuery.error)
-      : null;
+  const documents = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
+  const outline = useMemo(
+    () => documentOutline(preview.shown?.content ?? ""),
+    [preview.shown?.content],
+  );
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return needle ? documents.filter((item) => item.path.toLowerCase().includes(needle)) : documents;
+  }, [documents, query]);
+
+  const recent = useMemo(
+    () =>
+      recentPaths
+        .map((path) => documents.find((item) => item.path === path))
+        // A remembered path whose document is gone is dropped rather than shown as a dead row: the
+        // list is a shortcut, and a shortcut to nothing is worse than no shortcut.
+        .filter((item): item is SessionDocument => Boolean(item)),
+    [documents, recentPaths],
+  );
 
   useEffect(() => {
     setSelected(null);
+    setRecentPaths([]);
   }, [sessionId]);
 
   useEffect(() => {
@@ -58,22 +80,75 @@ export function DocumentsTab({
     setSelected(documents[0] ?? null);
   }, [documents, selected]);
 
+  const openDocument = (document: SessionDocument) => {
+    setSelected(document);
+    setScrollToAnchor(null);
+    setScrollToLine(null);
+    setRecentPaths((current) =>
+      [document.path, ...current.filter((path) => path !== document.path)].slice(
+        0,
+        MAX_RECENT_DOCUMENTS,
+      ),
+    );
+  };
+
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
-  if (loading && documents.length === 0) return <WorkspaceState kind="loading" />;
-  if (error && documents.length === 0) return <WorkspaceState kind="error" message={t(error)} />;
-  if (documents.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.documents.empty")} />;
+  // Asked before the failure rather than after it: a remote host that cannot read documents
+  // produces an empty list, and an empty list is indistinguishable from a workspace that has none.
+  if (capabilities && !capabilities.readTextFiles.available) {
+    return (
+      <WorkspaceCapabilityNotice
+        capability={capabilities.readTextFiles}
+        targetLabel={capabilities.targetLabel}
+      />
+    );
+  }
+  if (listQuery.isLoading && documents.length === 0) return <WorkspaceState kind="loading" />;
+  if (listQuery.error && documents.length === 0) {
+    return <WorkspaceState kind="error" message={t(workspaceErrorKey(listQuery.error))} />;
+  }
+  if (documents.length === 0) {
+    return <WorkspaceState kind="empty" message={t("sessionTabs.documents.empty")} />;
+  }
 
   return (
-    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {partial ? <PartialNotice /> : null}
-        {documents.map((document) => <button className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted" key={document.path} onClick={() => setSelected(document)} type="button"><FileText className="h-4 w-4 text-primary" /><span className="truncate">{document.path}</span></button>)}
-      </section>
-      <article className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-4">
-        {loading ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !content ? <WorkspaceState kind="empty" /> : content.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${content.status}`)} /> : selected?.kind === "markdown" ? (
-          <div className="grid max-w-none gap-3 text-sm leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:whitespace-pre-wrap"><ReactMarkdown skipHtml>{content.content ?? ""}</ReactMarkdown></div>
-        ) : <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6">{content.content}</pre>}
-      </article>
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-col gap-2">
+        {listQuery.data?.truncated ? <PartialNotice /> : null}
+        <DocumentSidebar
+          documents={filtered}
+          onSelect={openDocument}
+          onSelectHeading={(entry) => {
+            // Both, because the reader may switch modes afterwards and the outline entry should
+            // still mean the same place.
+            setScrollToAnchor(entry.anchor);
+            setScrollToLine(entry.line);
+          }}
+          outline={outline}
+          query={query}
+          recent={recent}
+          selectedPath={selected?.path ?? null}
+          setQuery={setQuery}
+        />
+      </div>
+      {preview.shown ? (
+        <DocumentViewer
+          content={preview.shown}
+          document={selected}
+          mode={mode}
+          onModeChange={setMode}
+          outline={outline}
+          scrollToAnchor={scrollToAnchor}
+          scrollToLine={scrollToLine}
+          status={preview.status}
+        />
+      ) : preview.status.kind === "failed" ? (
+        // The list stays usable: a document that could not be read must not take away the ability
+        // to pick a different one.
+        <WorkspaceState kind="error" message={t(preview.status.reason)} />
+      ) : (
+        <WorkspaceState kind="loading" />
+      )}
     </div>
   );
 }

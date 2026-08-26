@@ -18,6 +18,16 @@ export type WorkspaceWatchMode = "native" | "polling" | "event-derived" | "none"
 
 export interface WorkspaceInspectionCapabilities {
   provider: WorkspaceInspectionProviderKind;
+  /**
+   * Which machine, for a remote workspace. Absent for a local one, which is what a reader assumes
+   * when nothing says otherwise.
+   *
+   * The native side has always sent this; the declaration here simply did not say so, which meant
+   * a caller reading it had to widen the type by hand. Two declarations of this shape exist in
+   * this codebase and consolidating them is not this change's work — but a declared type that
+   * omits a field the wire carries is a lie the compiler enforces on everybody downstream.
+   */
+  targetLabel?: string;
   listFiles: CapabilityState;
   readTextFiles: CapabilityState;
   searchFiles: CapabilityState;

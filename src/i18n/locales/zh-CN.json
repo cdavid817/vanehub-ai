@@ -4129,5 +4129,12 @@
   "sessionTabs.files.preview.newline.none": "无换行符",
   "sessionTabs.files.preview.refreshing": "正在重新读取此文件…",
   "sessionTabs.files.preview.showingPrevious": "{{path}} 加载中,仍显示上一个文件。",
-  "sessionTabs.files.preview.loadFailed": "无法读取 {{path}}({{reason}})。仍显示上一个文件。"
+  "sessionTabs.files.preview.loadFailed": "无法读取 {{path}}({{reason}})。仍显示上一个文件。",
+  "sessionTabs.documents.filter": "筛选文档",
+  "sessionTabs.documents.recent": "最近",
+  "sessionTabs.documents.all": "全部文档",
+  "sessionTabs.documents.outline": "大纲",
+  "sessionTabs.documents.noMatches": "没有匹配的文档。",
+  "sessionTabs.documents.mode.preview": "预览",
+  "sessionTabs.documents.mode.source": "源码"
 }

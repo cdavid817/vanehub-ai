@@ -4129,5 +4129,12 @@
   "sessionTabs.files.preview.newline.none": "No line ending",
   "sessionTabs.files.preview.refreshing": "Re-reading this file…",
   "sessionTabs.files.preview.showingPrevious": "Still showing the previous file while {{path}} loads.",
-  "sessionTabs.files.preview.loadFailed": "{{path}} could not be read ({{reason}}). Still showing the previous file."
+  "sessionTabs.files.preview.loadFailed": "{{path}} could not be read ({{reason}}). Still showing the previous file.",
+  "sessionTabs.documents.filter": "Filter documents",
+  "sessionTabs.documents.recent": "Recent",
+  "sessionTabs.documents.all": "All documents",
+  "sessionTabs.documents.outline": "Outline",
+  "sessionTabs.documents.noMatches": "No documents match.",
+  "sessionTabs.documents.mode.preview": "Preview",
+  "sessionTabs.documents.mode.source": "Source"
 }

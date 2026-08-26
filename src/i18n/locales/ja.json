@@ -4129,5 +4129,12 @@
   "sessionTabs.files.preview.newline.none": "改行なし",
   "sessionTabs.files.preview.refreshing": "このファイルを再読み込みしています…",
   "sessionTabs.files.preview.showingPrevious": "{{path}} の読み込み中、前のファイルを表示しています。",
-  "sessionTabs.files.preview.loadFailed": "{{path}} を読み込めませんでした({{reason}})。前のファイルを表示しています。"
+  "sessionTabs.files.preview.loadFailed": "{{path}} を読み込めませんでした({{reason}})。前のファイルを表示しています。",
+  "sessionTabs.documents.filter": "ドキュメントを絞り込む",
+  "sessionTabs.documents.recent": "最近",
+  "sessionTabs.documents.all": "すべてのドキュメント",
+  "sessionTabs.documents.outline": "アウトライン",
+  "sessionTabs.documents.noMatches": "一致するドキュメントがありません。",
+  "sessionTabs.documents.mode.preview": "プレビュー",
+  "sessionTabs.documents.mode.source": "ソース"
 }
