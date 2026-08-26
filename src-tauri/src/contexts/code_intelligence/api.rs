@@ -17,10 +17,10 @@ pub(crate) use super::domain::configuration::{LanguageConfiguration, LspConfigur
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use super::domain::language_id::LspLanguageId;
 pub(crate) use super::domain::models::{
-    resolve_language, ConfigurationFingerprint, DiagnosticSeverity, DocumentSyncMode, Language,
-    NegotiatedCapabilities, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
-    NormalizedRange, NormalizedSymbol, PositionEncoding, ProcessState, QueryOutcome, QueryStatus,
-    WorkspaceTrust,
+    resolve_language, CallDirection, ConfigurationFingerprint, DiagnosticSeverity,
+    DocumentSyncMode, Language, NegotiatedCapabilities, NormalizedCallRelation,
+    NormalizedDiagnostic, NormalizedHover, NormalizedLocation, NormalizedRange, NormalizedSymbol,
+    PositionEncoding, ProcessState, QueryOutcome, QueryStatus, WorkspaceTrust,
 };
 // Published so a command-layer test can build a negotiated record from the client's own method
 // list rather than restating it. Only tests need it in this build.
@@ -361,6 +361,32 @@ impl CodeIntelligenceApi {
         };
         self.semantic_queries
             .find_workspace_symbols(launch, language, query, cancelled)
+            .await
+    }
+
+    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
+    pub(crate) async fn find_call_hierarchy(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        direction: CallDirection,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedCallRelation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_call_hierarchy(
+                launch,
+                language,
+                relative_path,
+                super::infrastructure::AgentPosition::new(line, column),
+                direction,
+                cancelled,
+            )
             .await
     }
 

@@ -91,6 +91,7 @@ const capabilities: LspNegotiatedCapabilities = {
     { method: "implementation", supported: true },
     { method: "workspace_symbols", supported: true },
     { method: "document_symbols", supported: true },
+    { method: "call_hierarchy", supported: true },
   ],
 };
 

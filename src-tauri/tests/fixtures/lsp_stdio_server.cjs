@@ -6,10 +6,14 @@ const mode = process.argv[2];
 const semanticMode = mode === "lsp-semantic"
   || mode === "lsp-native-e2e"
   || mode === "lsp-unadvertised"
-  || mode === "lsp-flat-symbols";
+  || mode === "lsp-flat-symbols"
+  || mode === "lsp-hang-calls";
 // Answers documentSymbol in the flat SymbolInformation form instead of the nested one, so the two
 // response shapes can be compared for equal output.
 const flatSymbols = mode === "lsp-flat-symbols";
+// Prepares a call hierarchy and then never answers the direction request, so a cancellation
+// between the two steps is the only thing that can end it.
+const hangCalls = mode === "lsp-hang-calls";
 // The one semantic mode that answers position queries without advertising typeDefinition or
 // implementation. It exits on either request, so a client that asks anyway is caught doing it.
 const advertisesGotoExtras = semanticMode && mode !== "lsp-unadvertised";
@@ -28,6 +32,7 @@ if (mode === "oversized") {
   "lsp-native-e2e",
   "lsp-unadvertised",
   "lsp-flat-symbols",
+  "lsp-hang-calls",
   "lsp-crash",
   "lsp-protocol-limit",
 ].includes(mode)) {
@@ -81,6 +86,7 @@ if (mode === "oversized") {
           implementationProvider: advertisesGotoExtras,
           workspaceSymbolProvider: semanticMode,
           documentSymbolProvider: semanticMode,
+          callHierarchyProvider: semanticMode,
           textDocumentSync: semanticMode ? 1 : 2,
         } };
       send(message.id, result);
@@ -159,6 +165,46 @@ if (mode === "oversized") {
     } else if (semanticMode && message.method === "textDocument/implementation") {
       if (!advertisesGotoExtras) process.exit(4);
       // Nothing implements it. That is an answer, not a failure to answer.
+      send(message.id, []);
+    } else if (semanticMode && message.method === "textDocument/prepareCallHierarchy") {
+      // Two items on purpose: the client follows the first and reports the rest, and a fixture
+      // that returned one could not tell the difference.
+      send(message.id, message.params.position.character === 4 ? [] : [{
+        name: "alpha",
+        kind: 12,
+        uri: openedUri,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+        selectionRange: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } },
+      }, {
+        name: "beta",
+        kind: 12,
+        uri: openedUri,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+        selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+      }]);
+    } else if (semanticMode && message.method === "callHierarchy/incomingCalls") {
+      if (message.params.item.name !== "alpha") process.exit(5);
+      // Never answered when cancellation is being exercised, so the client's own cancellation is
+      // what ends the request rather than a race with the reply.
+      if (hangCalls) return;
+      send(message.id, [{
+        from: {
+          name: "caller",
+          kind: 12,
+          uri: openedUri,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+          selectionRange: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } },
+          detail: "fn caller()",
+        },
+        fromRanges: [
+          { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+        ],
+      }]);
+    } else if (semanticMode && message.method === "callHierarchy/outgoingCalls") {
+      // Same guard as the incoming direction: a request that follows an empty preparation has no
+      // item to name, so reading `.name` throws and the server dies rather than answering.
+      if (message.params.item.name !== "alpha") process.exit(5);
+      if (hangCalls) return;
       send(message.id, []);
     } else if (semanticMode && message.method === "workspace/symbol") {
       // Deliberately more than the cap of 50, plus one outside the workspace, so the truncation

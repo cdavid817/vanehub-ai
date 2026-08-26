@@ -149,6 +149,7 @@ pub(crate) enum SemanticMethod {
     Implementation,
     WorkspaceSymbols,
     DocumentSymbols,
+    CallHierarchy,
 }
 
 impl SemanticMethod {
@@ -170,6 +171,7 @@ impl SemanticMethod {
         Self::Implementation,
         Self::WorkspaceSymbols,
         Self::DocumentSymbols,
+        Self::CallHierarchy,
     ];
 
     /// Stable wire and localization identifier. Not the LSP method name: that is a protocol
@@ -184,6 +186,10 @@ impl SemanticMethod {
             Self::Implementation => "implementation",
             Self::WorkspaceSymbols => "workspace_symbols",
             Self::DocumentSymbols => "document_symbols",
+            // One identifier for all three requests: preparing a hierarchy and then walking it in
+            // one direction is one operation from the caller's side, and one capability from the
+            // server's.
+            Self::CallHierarchy => "call_hierarchy",
         }
     }
 }
@@ -344,6 +350,24 @@ impl NormalizedSymbol {
             location,
         })
     }
+}
+
+/// Which way a call hierarchy is walked. The protocol asks for one direction per request, and
+/// asking for both would double a budget the caller cannot see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallDirection {
+    Incoming,
+    Outgoing,
+}
+
+/// One end of a call relation, with the sites that produce it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedCallRelation {
+    pub(crate) symbol: NormalizedSymbol,
+    /// Where the call appears. For an incoming call these sit inside the caller's own file; for an
+    /// outgoing call they sit inside the file the query started from. The protocol calls both
+    /// `fromRanges`, which is the same word for two different files.
+    pub(crate) call_sites: Vec<NormalizedRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

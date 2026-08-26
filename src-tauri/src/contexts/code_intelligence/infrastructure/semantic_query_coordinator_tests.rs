@@ -1,12 +1,13 @@
 use super::document_invalidation::LspDocumentInvalidationQueue;
 use super::lsp_diagnostics::LspDiagnosticLogger;
+use super::position_conversion::AgentPosition;
 use super::process_registry::LifecyclePolicy;
 use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};
 use super::semantic_query_coordinator::SemanticQueryCoordinator;
 use super::shutdown_coordinator::LspShutdownCoordinator;
 use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, NormalizedSymbol, QueryStatus,
+    CallDirection, ConfigurationFingerprint, NormalizedSymbol, QueryStatus,
 };
 use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
@@ -357,6 +358,96 @@ async fn a_rejected_document_never_reaches_the_server() {
         .await;
     assert_eq!(missing.status(), QueryStatus::Failed);
     assert_eq!(missing.reason_code(), Some("document_unavailable"));
+}
+
+#[tokio::test]
+async fn call_hierarchy_follows_one_prepared_item_and_reports_the_rest() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let incoming = queries
+        .find_call_hierarchy(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            AgentPosition::new(1, 1),
+            CallDirection::Incoming,
+            active(),
+        )
+        .await;
+    assert_eq!(incoming.status(), QueryStatus::Ready);
+    let relations = incoming.value().expect("call relations");
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0].symbol.name, "caller");
+    assert_eq!(relations[0].symbol.kind, "function");
+    // `detail` is what the protocol offers about the containing signature, so it lands in the
+    // field a flattened symbol uses for the same purpose.
+    assert_eq!(
+        relations[0].symbol.container.as_deref(),
+        Some("fn caller()")
+    );
+    assert_eq!(relations[0].symbol.location.file(), "src/lib.rs");
+    assert_eq!(relations[0].call_sites.len(), 1);
+    // The fixture prepares two items and only the first is walked, so a ready answer that is not
+    // the whole answer has to say so.
+    assert!(incoming.truncated);
+    assert_eq!(
+        incoming.reason_code(),
+        Some("call_hierarchy_items_not_followed")
+    );
+
+    // Preparation resolving nothing is an answer, not a failure, and no calls request follows it.
+    // The fixture exits if one arrives naming an item it did not prepare.
+    let none = queries
+        .find_call_hierarchy(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            AgentPosition::new(1, 5),
+            CallDirection::Outgoing,
+            active(),
+        )
+        .await;
+    assert_eq!(none.status(), QueryStatus::Ready);
+    assert!(none.value().expect("empty relations").is_empty());
+    assert!(!none.truncated);
+    assert_eq!(none.reason_code(), None);
+}
+
+#[tokio::test]
+async fn cancelling_between_the_two_call_hierarchy_steps_sends_nothing_further() {
+    let fixture = SemanticFixture::with_mode("lsp-hang-calls");
+    let queries = coordinator();
+    let cancelled = Arc::new(AtomicBool::new(false));
+
+    // That mode prepares normally and then never answers the direction request, so the only thing
+    // that can end this is the client's own cancellation.
+    let pending = tokio::spawn({
+        let queries = queries.clone();
+        let launch = fixture.launch.clone();
+        let cancelled = cancelled.clone();
+        async move {
+            queries
+                .find_call_hierarchy(
+                    launch,
+                    registry::rust(),
+                    "src/lib.rs",
+                    AgentPosition::new(1, 1),
+                    CallDirection::Incoming,
+                    cancelled,
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    cancelled.store(true, Ordering::Release);
+    let outcome = tokio::time::timeout(Duration::from_secs(3), pending)
+        .await
+        .expect("cancellation completes inside the cleanup reserve, not the request deadline")
+        .expect("cancelled call hierarchy");
+
+    assert_eq!(outcome.status(), QueryStatus::Failed);
+    assert_eq!(outcome.reason_code(), Some("generation_cancelled"));
 }
 
 async fn document_symbols_from(server_mode: &str) -> Vec<NormalizedSymbol> {

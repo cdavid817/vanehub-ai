@@ -33,7 +33,8 @@
   - **The prediction was wrong and the file grew: 562 -> 594 physical lines (+32).** Reported rather than engineered away; hitting the number would have meant deleting the doc comments that state the invariants, or pushing the request construction out into `api.rs`, which moves lines instead of removing them.
   - What the checkpoint was actually protecting is marginal cost, and that did move: a new location method now costs ~27 lines (signature + request + one `located_query` call + a `wire_request` arm) against ~50 unfactored. The +32 overhead is repaid by the second added method, so group 4 alone clears it.
   - rustfmt sets the floor here: `struct_lit_width` is 18, so the six-field `PositionRequest` literal expands to 8 lines at each of the three call sites no matter how it is written. Grouping fewer values instead pushes the helpers past clippy's 7-argument limit.
-  - Re-measure after group 6, when the file holds nine methods, against the ~50-lines-per-method unfactored projection.
+  - **Re-measured after group 6.** Nine methods, 1,020 physical lines: 113 per method against the 140 per method the file carried at four. The average fell even though the last three methods added are the ones with genuinely new protocol handling — a three-step exchange, a nested walk, and a path with no document — rather than copies of an existing shape. The design's "five more would roughly double it" landed at +81%, and the part attributable to copying is the part that did not happen.
+  - One thing the numbers do not excuse: 1,020 lines in one file is past comfortable review, even though every registered budget passes. Flagged for group 10 rather than split here, because splitting mid-change would move code the rest of these tasks are still editing.
 
 ## 4. Position-based methods
 
@@ -67,11 +68,21 @@
 
 ## 6. Call hierarchy
 
-- [ ] 6.1 Add `find_call_hierarchy` over `prepareCallHierarchy` then `incomingCalls` or `outgoingCalls`, with **one** deadline covering the whole exchange rather than the single-request budget per step
-- [ ] 6.2 Preparation resolving several items uses the first and reports that the rest were not followed; preparation resolving none returns `ready` with an empty list and sends no calls request
-- [ ] 6.3 Add a test that cancelling between the two steps issues no further request and completes bounded cleanup
+- [x] 6.1 Add `find_call_hierarchy` over `prepareCallHierarchy` then `incomingCalls` or `outgoingCalls`, with **one** deadline covering the whole exchange rather than the single-request budget per step
+  - `remaining_budget` hands each step what is left of a single 10s budget. Running it out maps to `request_timeout`, which is what the caller would have seen had one request spent the whole thing.
+  - This forced the release rule to be stated properly. `request` split into `send` (records the response or failure, leaves the slot held) and `request` (sends then releases); `position` stopped releasing and became synchronous. The rule is now: `prepare` releases on its own failures, and after it succeeds the caller releases exactly once. A two-request query holds the slot across both.
+  - Takes an `AgentPosition` rather than a line and a column: with the direction added, the separate pair would put it one argument over clippy's limit.
+- [x] 6.2 Preparation resolving several items uses the first and reports that the rest were not followed; preparation resolving none returns `ready` with an empty list and sends no calls request
+  - "Reports" needed a channel. `status_with_value` takes a reason alongside any status, so the outcome is `ready` with `call_hierarchy_items_not_followed` and `truncated` set. Silence would let the Agent read a partial hierarchy as a complete one.
+  - The fixture prepares **two** items on purpose. One item could not tell the difference between following the first and following all of them.
+- [x] 6.3 Add a test that cancelling between the two steps issues no further request and completes bounded cleanup
+  - A new `lsp-hang-calls` fixture mode prepares normally and never answers the direction request, so the client's own cancellation is the only thing that can end it — no race with a reply.
+  - The test wraps the join in a 3s timeout. Without it, a cancellation that fell through to the 10s request deadline would still pass, which is the failure the bounded-cleanup requirement is about.
+  - Both direction handlers reject an item they did not prepare, so a request following an empty preparation kills the server instead of being answered.
 - [ ] 6.4 Add `ContextSourceKind::LspCallRelation` and feed relations into the candidate pipeline with the provenance definitions and references already carry
+  - **Moved into group 7, not dropped.** This is the first of the five methods to need `AgentCodeIntelligencePort`, which has six implementations across production and tests. Group 7 takes all five across that boundary at once; doing call relations alone would mean touching all six twice, and the second pass would be the one that has to keep the first consistent.
 - [ ] 6.5 Confirm the "supported call relations" clause in `lsp-code-intelligence` and `agent-context-engine` is now satisfied by an implemented source rather than vacuously
+  - Located: `lsp-code-intelligence` line 112 ("definitions, references, and supported call relations SHALL be normalizable as bounded Context Engine candidates") and `agent-context-engine` line 20 ("LSP definitions/references or call relations when supported"). Both are still vacuous — the query exists, the candidate source does not — so this stays open until 6.4 lands with group 7.
 
 ## 7. Tool catalog and Agent surface
 

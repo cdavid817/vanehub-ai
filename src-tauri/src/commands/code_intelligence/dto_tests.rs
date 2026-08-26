@@ -360,7 +360,8 @@ fn list_lsp_server_status_result_serializes_to_an_exact_object() {
                     {"method": "type_definition", "supported": true},
                     {"method": "implementation", "supported": true},
                     {"method": "workspace_symbols", "supported": true},
-                    {"method": "document_symbols", "supported": true}
+                    {"method": "document_symbols", "supported": true},
+                    {"method": "call_hierarchy", "supported": true}
                 ]
             }
         }])

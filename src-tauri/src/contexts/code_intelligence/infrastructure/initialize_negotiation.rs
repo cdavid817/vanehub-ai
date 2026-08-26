@@ -3,9 +3,9 @@ use crate::contexts::code_intelligence::domain::models::{
     DocumentSyncMode, NegotiatedCapabilities, NegotiatedMethod, PositionEncoding, SemanticMethod,
 };
 use lsp_types::{
-    HoverProviderCapability, ImplementationProviderCapability, InitializeResult, OneOf,
-    PositionEncodingKind, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TypeDefinitionProviderCapability,
+    CallHierarchyServerCapability, HoverProviderCapability, ImplementationProviderCapability,
+    InitializeResult, OneOf, PositionEncodingKind, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TypeDefinitionProviderCapability,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -62,6 +62,7 @@ pub(crate) fn build_initialize_params(
                 "typeDefinition": {"dynamicRegistration": true, "linkSupport": true},
                 "implementation": {"dynamicRegistration": true, "linkSupport": true},
                 "references": {"dynamicRegistration": true},
+                "callHierarchy": {"dynamicRegistration": true},
                 "documentSymbol": {
                     "dynamicRegistration": true,
                     "hierarchicalDocumentSymbolSupport": true
@@ -142,6 +143,13 @@ fn advertised(capabilities: &ServerCapabilities, method: SemanticMethod) -> bool
         SemanticMethod::DocumentSymbols => {
             one_of_enabled(capabilities.document_symbol_provider.clone())
         }
+        SemanticMethod::CallHierarchy => matches!(
+            &capabilities.call_hierarchy_provider,
+            Some(
+                CallHierarchyServerCapability::Options(_)
+                    | CallHierarchyServerCapability::Simple(true)
+            )
+        ),
     }
 }
 

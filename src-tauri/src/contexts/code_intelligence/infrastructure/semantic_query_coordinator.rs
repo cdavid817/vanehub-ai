@@ -11,10 +11,14 @@ use super::runtime_process_coordinator::{
 };
 use super::semantic_results::{NormalizedLocations, NormalizedSymbols, SemanticResultNormalizer};
 use crate::contexts::code_intelligence::domain::models::{
-    DocumentVersion, Language, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
-    NormalizedSymbol, QueryOutcome, QueryStatus, SemanticMethod,
+    CallDirection, DocumentVersion, Language, NormalizedCallRelation, NormalizedDiagnostic,
+    NormalizedHover, NormalizedLocation, NormalizedSymbol, QueryOutcome, QueryStatus,
+    SemanticMethod,
 };
-use lsp_types::{DocumentSymbolResponse, Hover, Location, WorkspaceSymbolResponse};
+use lsp_types::{
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall,
+    DocumentSymbolResponse, Hover, Location, WorkspaceSymbolResponse,
+};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -50,6 +54,21 @@ struct QueryRequest<'a> {
     language: Language,
     relative_path: &'a str,
     cancelled: Arc<AtomicBool>,
+}
+
+/// The whole exchange's budget. One deadline covers preparation and the direction walk together:
+/// two steps at the per-request deadline would let a slow server take twice as long as any other
+/// tool while every individual request still looked healthy.
+const CALL_HIERARCHY_BUDGET: Duration = Duration::from_secs(10);
+const CALL_HIERARCHY_CLEANUP_RESERVE: Duration = Duration::from_millis(250);
+
+#[derive(Default)]
+struct CallHierarchyExchange {
+    incoming: Option<Vec<CallHierarchyIncomingCall>>,
+    outgoing: Option<Vec<CallHierarchyOutgoingCall>>,
+    /// Prepared items past the first. Following all of them would multiply the request count by an
+    /// amount the server chooses, so the rest are reported rather than walked.
+    unfollowed: usize,
 }
 
 struct QueryFailure {
@@ -335,6 +354,128 @@ impl SemanticQueryCoordinator {
         }
     }
 
+    /// Takes an `AgentPosition` rather than a line and a column: with the direction added, the
+    /// separate pair would put this one argument over clippy's limit.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
+    )]
+    pub(crate) async fn find_call_hierarchy(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        relative_path: &str,
+        position: AgentPosition,
+        direction: CallDirection,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedCallRelation>> {
+        let request = QueryRequest {
+            launch,
+            language,
+            relative_path,
+            cancelled: cancelled.clone(),
+        };
+        let prepared = match self.prepared(request, SemanticMethod::CallHierarchy).await {
+            Ok(prepared) => prepared,
+            Err(failure) => return failure.outcome(),
+        };
+        let exchange = match self.position(&prepared, position) {
+            Ok(position) => {
+                self.call_hierarchy_exchange(&prepared, position, direction, cancelled)
+                    .await
+            }
+            Err(failure) => Err(failure),
+        };
+        // One release for the whole exchange. The slot is held across both requests, so the
+        // per-request helper is not the one that can give it back.
+        self.processes.release_request(prepared.handle.key()).await;
+        let version = Some(prepared.document.version());
+        let exchange = match exchange {
+            Ok(exchange) => exchange,
+            Err(failure) => return failure.outcome(),
+        };
+        let normalizer = match normalizer_for(&prepared.handle, language, version) {
+            Ok(normalizer) => normalizer,
+            Err(failure) => return failure.outcome(),
+        };
+        let normalized = normalizer.call_relations(direction, exchange.incoming, exchange.outgoing);
+        QueryOutcome::status_with_value(
+            QueryStatus::Ready,
+            Some(normalized.items),
+            // A ready answer that is not the whole answer. Silence here would let the Agent read a
+            // partial hierarchy as a complete one.
+            (exchange.unfollowed > 0).then_some("call_hierarchy_items_not_followed"),
+            language,
+            prepared.document.version(),
+            false,
+            normalized
+                .total
+                .min(super::semantic_results::MAX_CALL_RELATIONS),
+            normalized.total,
+            normalized.truncated || exchange.unfollowed > 0,
+            normalized.filtered_count,
+        )
+    }
+
+    async fn call_hierarchy_exchange(
+        &self,
+        prepared: &PreparedQuery,
+        position: lsp_types::Position,
+        direction: CallDirection,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<CallHierarchyExchange, QueryFailure> {
+        let language = prepared.handle.key().language();
+        let version = Some(prepared.document.version());
+        let started = Instant::now();
+        let items: Option<Vec<CallHierarchyItem>> = self
+            .send(
+                &prepared.handle,
+                "textDocument/prepareCallHierarchy",
+                json!({"textDocument": {"uri": prepared.document.uri()}, "position": position}),
+                remaining_budget(started, cancelled.clone(), language, version)?,
+            )
+            .await
+            .map_err(|error| request_failure(error, language, version))?;
+        let mut items = items.unwrap_or_default();
+        if items.is_empty() {
+            // Nothing at that position is callable. That is an answer; asking for the calls of
+            // nothing is not, so no second request is sent.
+            return Ok(CallHierarchyExchange::default());
+        }
+        let unfollowed = items.len() - 1;
+        let item = items.swap_remove(0);
+        let lsp_method = match direction {
+            CallDirection::Incoming => "callHierarchy/incomingCalls",
+            CallDirection::Outgoing => "callHierarchy/outgoingCalls",
+        };
+        let control = remaining_budget(started, cancelled, language, version)?;
+        let params = json!({"item": item});
+        match direction {
+            CallDirection::Incoming => {
+                let incoming = self
+                    .send(&prepared.handle, lsp_method, params, control)
+                    .await
+                    .map_err(|error| request_failure(error, language, version))?;
+                Ok(CallHierarchyExchange {
+                    incoming,
+                    outgoing: None,
+                    unfollowed,
+                })
+            }
+            CallDirection::Outgoing => {
+                let outgoing = self
+                    .send(&prepared.handle, lsp_method, params, control)
+                    .await
+                    .map_err(|error| request_failure(error, language, version))?;
+                Ok(CallHierarchyExchange {
+                    incoming: None,
+                    outgoing,
+                    unfollowed,
+                })
+            }
+        }
+    }
+
     pub(crate) async fn get_diagnostics(
         &self,
         launch: LspProcessLaunch,
@@ -440,7 +581,14 @@ impl SemanticQueryCoordinator {
         let language = request.language;
         let cancelled = request.cancelled.clone();
         let prepared = self.prepared(request, method).await?;
-        let position = self.position(&prepared, position).await?;
+        let position = match self.position(&prepared, position) {
+            Ok(position) => position,
+            Err(failure) => {
+                // `prepare` succeeded, so the slot is held and nothing else will give it back.
+                self.processes.release_request(prepared.handle.key()).await;
+                return Err(failure);
+            }
+        };
         let (lsp_method, mut params) = wire_request(method);
         params["textDocument"] = json!({"uri": prepared.document.uri()});
         params["position"] = json!(position);
@@ -495,8 +643,9 @@ impl SemanticQueryCoordinator {
         }
     }
 
-    /// Owns the record-then-release bookkeeping. A method added later cannot forget to release the
-    /// request slot, which leaks silently: nothing fails, the server just stops admitting work.
+    /// One request that finishes the query, releasing the slot on every path. A method added
+    /// later cannot forget to release it, which leaks silently: nothing fails, the server just
+    /// stops admitting work.
     async fn request<R: DeserializeOwned>(
         &self,
         handle: &LspProcessHandle,
@@ -504,14 +653,31 @@ impl SemanticQueryCoordinator {
         params: Value,
         cancelled: Arc<AtomicBool>,
     ) -> Result<R, JsonRpcError> {
-        let started = Instant::now();
-        let response: Result<R, JsonRpcError> = handle
-            .client()
-            .request_with_control(
+        let response = self
+            .send(
+                handle,
                 lsp_method,
                 params,
                 JsonRpcRequestControl::standard(cancelled),
             )
+            .await;
+        self.processes.release_request(handle.key()).await;
+        response
+    }
+
+    /// One request with its response or failure recorded, and the slot left held. A query that
+    /// sends more than one request holds it across all of them.
+    async fn send<R: DeserializeOwned>(
+        &self,
+        handle: &LspProcessHandle,
+        lsp_method: &str,
+        params: Value,
+        control: JsonRpcRequestControl,
+    ) -> Result<R, JsonRpcError> {
+        let started = Instant::now();
+        let response: Result<R, JsonRpcError> = handle
+            .client()
+            .request_with_control(lsp_method, params, control)
             .await;
         match response.as_ref() {
             Ok(_) => self.processes.record_response(handle.key()).await,
@@ -521,7 +687,6 @@ impl SemanticQueryCoordinator {
                     .await;
             }
         }
-        self.processes.release_request(handle.key()).await;
         response
     }
 
@@ -675,27 +840,25 @@ impl SemanticQueryCoordinator {
         }
     }
 
-    async fn position(
+    /// Does not release the request slot. Which caller releases it depends on how many requests
+    /// the query sends, so the decision stays with the caller rather than being made here twice.
+    fn position(
         &self,
         prepared: &PreparedQuery,
         position: AgentPosition,
     ) -> Result<lsp_types::Position, QueryFailure> {
-        match PositionConverter::new(
+        PositionConverter::new(
             prepared.document.text(),
             prepared.handle.capabilities().position_encoding,
         )
         .agent_to_lsp(position)
-        {
-            Ok(position) => Ok(position),
-            Err(_) => {
-                self.processes.release_request(prepared.handle.key()).await;
-                Err(prepared_failure(
-                    prepared,
-                    prepared.handle.key().language(),
-                    "invalid_position",
-                ))
-            }
-        }
+        .map_err(|_| {
+            prepared_failure(
+                prepared,
+                prepared.handle.key().language(),
+                "invalid_position",
+            )
+        })
     }
 }
 
@@ -744,7 +907,31 @@ fn wire_request(method: SemanticMethod) -> (&'static str, Value) {
         // Sent without a document, so it never goes through the helpers that read this table. The
         // arm keeps the match exhaustive and names the endpoint in the same place as the others.
         SemanticMethod::WorkspaceSymbols => ("workspace/symbol", json!({})),
+        // Three endpoints chosen by direction inside the exchange rather than one read from here.
+        // The arm names the first of them and keeps the match exhaustive.
+        SemanticMethod::CallHierarchy => ("textDocument/prepareCallHierarchy", json!({})),
     }
+}
+
+/// What is left of the exchange's single budget. Running it out is a timeout, which is what the
+/// caller would have seen had one request spent the whole thing.
+fn remaining_budget(
+    started: Instant,
+    cancelled: Arc<AtomicBool>,
+    language: Language,
+    document_version: Option<DocumentVersion>,
+) -> Result<JsonRpcRequestControl, QueryFailure> {
+    JsonRpcRequestControl::new(
+        CALL_HIERARCHY_BUDGET.saturating_sub(started.elapsed()),
+        CALL_HIERARCHY_CLEANUP_RESERVE,
+        cancelled,
+    )
+    .map_err(|_| QueryFailure {
+        status: QueryStatus::Timeout,
+        reason: "request_timeout",
+        language: Some(language),
+        document_version,
+    })
 }
 
 fn normalizer_for(
@@ -769,10 +956,10 @@ fn symbol_outcome(
     document_version: Option<DocumentVersion>,
     normalized: NormalizedSymbols,
 ) -> QueryOutcome<Vec<NormalizedSymbol>> {
-    let returned = normalized.symbols.len();
+    let returned = normalized.items.len();
     match document_version {
         Some(version) => QueryOutcome::ready_with_metadata(
-            normalized.symbols,
+            normalized.items,
             language,
             version,
             returned,
@@ -781,7 +968,7 @@ fn symbol_outcome(
             normalized.filtered_count,
         ),
         None => QueryOutcome::ready_without_document(
-            normalized.symbols,
+            normalized.items,
             language,
             returned,
             normalized.total,
@@ -798,9 +985,9 @@ fn located_outcome(
 ) -> QueryOutcome<Vec<NormalizedLocation>> {
     // The normalizer already truncated to the method's own cap, so the returned count is the
     // vector's length. Taking the cap as an argument would only be a chance to pass the wrong one.
-    let returned = normalized.locations.len();
+    let returned = normalized.items.len();
     QueryOutcome::ready_with_metadata(
-        normalized.locations,
+        normalized.items,
         language,
         prepared.document.version(),
         returned,

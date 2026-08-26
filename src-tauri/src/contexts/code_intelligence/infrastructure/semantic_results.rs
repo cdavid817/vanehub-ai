@@ -1,11 +1,13 @@
 use super::document_snapshot::DocumentAdmission;
 use super::position_conversion::PositionConverter;
 use crate::contexts::code_intelligence::domain::models::{
-    NormalizedHover, NormalizedLocation, NormalizedSymbol, PositionEncoding, QueryStatus,
+    CallDirection, NormalizedCallRelation, NormalizedHover, NormalizedLocation, NormalizedRange,
+    NormalizedSymbol, PositionEncoding, QueryStatus,
 };
 use lsp_types::{
-    DocumentSymbol, DocumentSymbolResponse, GotoDefinitionResponse, Hover, HoverContents, Location,
-    LocationLink, MarkedString, OneOf, Range, SymbolKind, Uri, WorkspaceSymbolResponse,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, DocumentSymbol,
+    DocumentSymbolResponse, GotoDefinitionResponse, Hover, HoverContents, Location, LocationLink,
+    MarkedString, OneOf, Range, SymbolKind, Uri, WorkspaceSymbolResponse,
 };
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -22,6 +24,8 @@ pub(crate) const MAX_SYMBOL_NAME_BYTES: usize = 256;
 /// How deep a nested document-symbol response is walked. The response is server-controlled, so an
 /// unbounded walk is a stack overflow waiting for a malformed one.
 pub(crate) const MAX_SYMBOL_DEPTH: usize = 8;
+pub(crate) const MAX_CALL_RELATIONS: usize = 50;
+pub(crate) const MAX_CALL_SITES: usize = 20;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SemanticResultError {
@@ -29,23 +33,36 @@ pub(crate) enum SemanticResultError {
     WorkspaceUnavailable,
 }
 
+/// The shape every bounded, workspace-filtered answer has: what survived, how much survived
+/// before the cap, whether more existed, and how much the workspace check dropped. Three copies of
+/// it were three chances for one of them to account differently.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NormalizedLocations {
-    pub(crate) locations: Vec<NormalizedLocation>,
+pub(crate) struct NormalizedBatch<T> {
+    pub(crate) items: Vec<T>,
     pub(crate) total: usize,
     pub(crate) truncated: bool,
     pub(crate) filtered_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NormalizedSymbols {
-    pub(crate) symbols: Vec<NormalizedSymbol>,
-    /// Accepted, in-bound symbols before the cap. Symbols the depth bound left unwalked are not
-    /// counted here -- they were never examined -- but they do set `truncated`.
-    pub(crate) total: usize,
-    pub(crate) truncated: bool,
-    pub(crate) filtered_count: usize,
+impl<T> NormalizedBatch<T> {
+    /// `received` is what the server sent, so anything the normalization dropped is reported as
+    /// filtered rather than going missing. `beyond` is what a bound left unexamined.
+    fn bounded(mut items: Vec<T>, received: usize, beyond: usize, limit: usize) -> Self {
+        let filtered_count = received.saturating_sub(items.len());
+        let total = items.len();
+        items.truncate(limit);
+        Self {
+            items,
+            total,
+            truncated: total > limit || beyond > 0,
+            filtered_count,
+        }
+    }
 }
+
+pub(crate) type NormalizedLocations = NormalizedBatch<NormalizedLocation>;
+pub(crate) type NormalizedSymbols = NormalizedBatch<NormalizedSymbol>;
+pub(crate) type NormalizedCallRelations = NormalizedBatch<NormalizedCallRelation>;
 
 /// What a nested walk accumulates. Separate from `NormalizedSymbols` because `unwalked` is a
 /// property of the walk rather than of the answer.
@@ -162,14 +179,7 @@ impl SemanticResultNormalizer {
                     .collect(),
             ),
         };
-        bounded_symbols(
-            SymbolWalk {
-                symbols,
-                visited,
-                unwalked: 0,
-            },
-            MAX_WORKSPACE_SYMBOLS,
-        )
+        NormalizedSymbols::bounded(symbols, visited, 0, MAX_WORKSPACE_SYMBOLS)
     }
 
     pub(crate) fn document_symbols(
@@ -195,7 +205,12 @@ impl SemanticResultNormalizer {
                 walk
             }
         };
-        bounded_symbols(walk, MAX_DOCUMENT_SYMBOLS)
+        NormalizedSymbols::bounded(
+            walk.symbols,
+            walk.visited,
+            walk.unwalked,
+            MAX_DOCUMENT_SYMBOLS,
+        )
     }
 
     /// Depth-first so a flattened list reads in source order, with each entry naming the symbol
@@ -249,6 +264,57 @@ impl SemanticResultNormalizer {
         NormalizedSymbol::new(name, symbol_kind_id(kind), container, location?).ok()
     }
 
+    pub(crate) fn call_relations(
+        &self,
+        direction: CallDirection,
+        incoming: Option<Vec<CallHierarchyIncomingCall>>,
+        outgoing: Option<Vec<CallHierarchyOutgoingCall>>,
+    ) -> NormalizedCallRelations {
+        let pairs: Vec<(CallHierarchyItem, Vec<Range>)> = match direction {
+            CallDirection::Incoming => incoming
+                .unwrap_or_default()
+                .into_iter()
+                .map(|call| (call.from, call.from_ranges))
+                .collect(),
+            CallDirection::Outgoing => outgoing
+                .unwrap_or_default()
+                .into_iter()
+                .map(|call| (call.to, call.from_ranges))
+                .collect(),
+        };
+        let received = pairs.len();
+        let relations = pairs
+            .into_iter()
+            .filter_map(|(item, ranges)| self.call_relation(item, ranges))
+            .collect();
+        NormalizedCallRelations::bounded(relations, received, 0, MAX_CALL_RELATIONS)
+    }
+
+    fn call_relation(
+        &self,
+        item: CallHierarchyItem,
+        ranges: Vec<Range>,
+    ) -> Option<NormalizedCallRelation> {
+        let location = self.normalize_location(item.uri, item.selection_range)?;
+        // The sites are ranges in whichever file the direction implies, and the converter needs
+        // that file's text. Only the ones in the item's own file can be converted, which is every
+        // one of them for an incoming call and none of them for an outgoing call -- the protocol
+        // gives outgoing sites relative to the caller, which is the document already open.
+        let snapshot = self.admission.read(location.file()).ok();
+        let call_sites = snapshot
+            .iter()
+            .flat_map(|snapshot| {
+                let converter = PositionConverter::new(snapshot.text(), self.encoding);
+                ranges
+                    .iter()
+                    .filter_map(move |range| converter.range_to_normalized(*range).ok())
+            })
+            .take(MAX_CALL_SITES)
+            .collect::<Vec<NormalizedRange>>();
+        let symbol = self.symbol(item.name, item.kind, item.detail, Some(location))?;
+        Some(NormalizedCallRelation { symbol, call_sites })
+    }
+
     fn normalize_locations(
         &self,
         targets: Vec<(Uri, Range)>,
@@ -260,18 +326,10 @@ impl SemanticResultNormalizer {
             .into_iter()
             .filter_map(|(uri, range)| self.normalize_location(uri, range))
             .collect::<Vec<_>>();
-        let filtered_count = received.saturating_sub(locations.len());
         if sort {
             locations.sort_by(|left, right| location_key(left).cmp(&location_key(right)));
         }
-        let total = locations.len();
-        locations.truncate(limit);
-        NormalizedLocations {
-            locations,
-            total,
-            truncated: total > limit,
-            filtered_count,
-        }
+        NormalizedLocations::bounded(locations, received, 0, limit)
     }
 
     fn normalize_location(&self, uri: Uri, range: Range) -> Option<NormalizedLocation> {
@@ -300,23 +358,6 @@ pub(crate) const fn query_status_label(status: QueryStatus) -> &'static str {
         QueryStatus::Timeout => "timeout",
         QueryStatus::Unavailable => "unavailable",
         QueryStatus::Failed => "failed",
-    }
-}
-
-fn bounded_symbols(walk: SymbolWalk, limit: usize) -> NormalizedSymbols {
-    let SymbolWalk {
-        mut symbols,
-        visited,
-        unwalked,
-    } = walk;
-    let filtered_count = visited.saturating_sub(symbols.len());
-    let total = symbols.len();
-    symbols.truncate(limit);
-    NormalizedSymbols {
-        symbols,
-        total,
-        truncated: total > limit || unwalked > 0,
-        filtered_count,
     }
 }
 

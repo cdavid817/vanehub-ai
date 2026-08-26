@@ -96,7 +96,8 @@ fn all_lists_every_semantic_method() {
             | SemanticMethod::TypeDefinition
             | SemanticMethod::Implementation
             | SemanticMethod::WorkspaceSymbols
-            | SemanticMethod::DocumentSymbols => (),
+            | SemanticMethod::DocumentSymbols
+            | SemanticMethod::CallHierarchy => (),
         }
     }
 
