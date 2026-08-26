@@ -3243,6 +3243,7 @@
   "personalization.memoryList.matched": "{{count}} matching",
   "personalization.memoryList.noMatches": "No memory matches these filters.",
   "personalization.memoryList.loadFailed": "The memory list could not be read just now.",
+  "personalization.memoryList.refreshing": "Refreshing; the rows below are the previous result.",
   "settings.pages.expertRoles": "Expert Roles",
   "settings.search.expertRoles": "Search expert roles",
   "expertRoles.title": "Expert Roles",

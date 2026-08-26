@@ -3243,6 +3243,7 @@
   "personalization.memoryList.matched": "共匹配 {{count}} 条",
   "personalization.memoryList.noMatches": "没有记忆符合这些条件。",
   "personalization.memoryList.loadFailed": "此刻读不到记忆列表。",
+  "personalization.memoryList.refreshing": "正在刷新，下方显示的仍是上一次的结果。",
   "settings.pages.expertRoles": "专家角色",
   "settings.search.expertRoles": "搜索专家角色",
   "expertRoles.title": "专家角色",

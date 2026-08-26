@@ -3243,6 +3243,7 @@
   "personalization.memoryList.matched": "共符合 {{count}} 條",
   "personalization.memoryList.noMatches": "沒有記憶符合這些條件。",
   "personalization.memoryList.loadFailed": "此刻讀不到記憶清單。",
+  "personalization.memoryList.refreshing": "正在重新整理，下方顯示的仍是上一次的結果。",
   "settings.pages.expertRoles": "專家角色",
   "settings.search.expertRoles": "搜尋專家角色",
   "expertRoles.title": "專家角色",

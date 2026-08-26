@@ -3243,6 +3243,7 @@
   "personalization.memoryList.matched": "총 {{count}}개 일치",
   "personalization.memoryList.noMatches": "이 조건에 맞는 기억이 없습니다.",
   "personalization.memoryList.loadFailed": "지금은 기억 목록을 읽지 못했습니다.",
+  "personalization.memoryList.refreshing": "새로 불러오는 중입니다. 아래 항목은 이전 결과입니다.",
   "settings.pages.expertRoles": "전문가 역할",
   "settings.search.expertRoles": "전문가 역할 검색",
   "expertRoles.title": "전문가 역할",

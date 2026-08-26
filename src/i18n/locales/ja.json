@@ -3243,6 +3243,7 @@
   "personalization.memoryList.matched": "該当 {{count}} 件",
   "personalization.memoryList.noMatches": "この条件に一致する記憶はありません。",
   "personalization.memoryList.loadFailed": "今は記憶一覧を読み取れませんでした。",
+  "personalization.memoryList.refreshing": "更新中です。下の行は前回の結果です。",
   "settings.pages.expertRoles": "エキスパートロール",
   "settings.search.expertRoles": "エキスパートロールを検索",
   "expertRoles.title": "エキスパートロール",

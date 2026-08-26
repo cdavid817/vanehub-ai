@@ -39,6 +39,10 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
 
   const page = pageQuery.data;
   const items = page?.items ?? [];
+  // `isPlaceholderData` is the honest signal: it is exactly the window in which the rows on screen
+  // answer a query the user is no longer asking. Showing stale rows without saying so is its own
+  // failure -- the user reads them as the result of the filter they just set.
+  const refreshing = pageQuery.isPlaceholderData || (pageQuery.isFetching && items.length > 0);
 
   function applyFilter(patch: Omit<MemoryQuery, "cursor">) {
     setQuery((current) => ({ ...current, ...patch }));
@@ -55,7 +59,15 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
     >
       <MemoryFilters agents={agents} onChange={applyFilter} query={query} workspaces={workspaces} />
 
-      <div className="mt-4">
+      <p
+        aria-live="polite"
+        className="mt-3 min-h-4 text-xs text-muted-foreground"
+        data-testid="personalization-memory-refresh-status"
+      >
+        {refreshing ? t("personalization.memoryList.refreshing") : ""}
+      </p>
+
+      <div className="mt-1">
         {pageQuery.error ? (
           <p className="rounded-md border p-3 text-sm ucd-status-danger" data-testid="personalization-memory-error" role="alert">
             {t("personalization.memoryList.loadFailed")}
