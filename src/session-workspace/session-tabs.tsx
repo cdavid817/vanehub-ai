@@ -16,6 +16,7 @@ import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./sessi
 import { ConversationOverflowMenu } from "./conversation-overflow-menu";
 import { SessionConversationHeader } from "./session-conversation-header";
 import { useWorkspaceInvalidation } from "./use-workspace-invalidation";
+import { useWorkspacePathNavigation } from "./use-workspace-path-navigation";
 import { useMountedWorkspaceTabs } from "./use-mounted-workspace-tabs";
 import {
   useWorkspaceEvidenceNotices,
@@ -138,21 +139,8 @@ function SessionWorkspaceTabs({
   const { t } = useTranslation();
   const sessionId = activeSession?.id ?? null;
   const isSharedThread = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
-  const { activateTab, activeTab, navigate, scope } = useWorkspaceEvidenceScope();
-  // Narrowed here rather than asserted at the call site: the scope has no session until one is
-  // selected, and an action that navigated with an absent session would move the reader to a tab
-  // scoped to nothing.
-  const scopedSessionId = scope?.sessionId;
-  const showFileChanges =
-    scope && scopedSessionId
-      ? (relativePath: string) =>
-          navigate({ tab: "changes", scope: { ...scope, relativePath, sessionId: scopedSessionId } })
-      : undefined;
-  const showFileEvidence =
-    scope && scopedSessionId
-      ? (relativePath: string) =>
-          navigate({ tab: "traces", scope: { ...scope, relativePath, sessionId: scopedSessionId } })
-      : undefined;
+  const { activateTab, activeTab } = useWorkspaceEvidenceScope();
+  const pathNavigation = useWorkspacePathNavigation();
   // Null is "all seats": a freshly opened tab must not silently narrow to one participant.
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
@@ -203,8 +191,8 @@ function SessionWorkspaceTabs({
       return <AgentTerminalTab isVisible={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
     }
     if (id === "changes") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadChangesTab} />;
-    if (id === "documents") return <LazyFeature componentProps={{ isVisible, onOpenChanges: showFileChanges, sessionId }} loader={loadDocumentsTab} />;
-    if (id === "files") return <LazyFeature componentProps={{ isVisible, onNavigateToShell: () => activateTab("shell"), onShowEvidence: showFileEvidence, sessionId }} loader={loadFilesTab} />;
+    if (id === "documents") return <LazyFeature componentProps={{ isVisible, onOpenChanges: pathNavigation.showChanges, sessionId }} loader={loadDocumentsTab} />;
+    if (id === "files") return <LazyFeature componentProps={{ isVisible, onNavigateToShell: pathNavigation.showShell, onShowEvidence: pathNavigation.showEvidence, sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
       return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, recordsRevision, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }

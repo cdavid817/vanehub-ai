@@ -244,7 +244,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 12.11 Add document/file links to related execution runs, commands, Changes, and review findings through the shared evidence scope.
 - [x] 12.12 Add per-provider partial/truncated/unavailable states instead of one ambiguous global partial marker.
 - [x] 12.13 Preserve read-only semantics and omit create/edit/rename/delete/save controls from this change.
-- [ ] 12.14 Split Files/Documents production components and hooks to remain within the line-size rule.
+- [x] 12.14 Split Files/Documents production components and hooks to remain within the line-size rule. Every Files/Documents module built in 12.1-12.13 was already inside it, so the splits this task anticipated had happened as the features were written. What had not: the tab host reached 282 lines from navigation callbacks added a round at a time, and the pre-existing logs hook sat at 290. A headroom guard at 280 now names the worst offender, which is what surfaced both.
 - [ ] 12.15 Add maximum-directory, maximum-search, large-preview, invalidation, stale-content, remote-unavailable, keyboard, and visual-style tests.
 
 ## 13. Review Hunk State, Viewed Progress, Patch Copy, and Evidence
