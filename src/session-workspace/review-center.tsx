@@ -51,8 +51,10 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
         decision,
       });
     } catch (reason: unknown) {
-      setHunkError(String(reason).includes("review_hunk_decision_unavailable")
-        ? t("sessionTabs.review.hunkDecisionUnavailable")
+      // The one refusal a reviewer can act on. Everything else is a fault they cannot fix from
+      // here, and telling them to reload would send them around a loop that changes nothing.
+      setHunkError(String(reason).includes("stale_witness")
+        ? t("sessionTabs.review.hunkDecisionStale")
         : t("sessionTabs.review.hunkDecisionFailed"));
     }
   };

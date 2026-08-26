@@ -23,14 +23,6 @@ pub(crate) trait ReviewRepository: Send + Sync {
 /// reviewer has to notice.
 pub(crate) trait ReviewDecisionRepository: Send + Sync {
     /// Records a decision for one hunk, replacing whatever that hunk's decision was.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     fn upsert_hunk_decision(
         &self,
         review_id: &str,
@@ -42,8 +34,8 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
         not(test),
         expect(
             dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
+            reason = "the write path is live; reading decisions back arrives with 13.6's \
+                 review summary counts"
         )
     )]
     fn list_hunk_decisions(
@@ -60,14 +52,6 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
 /// so this reaches the workspace that owns the diff.
 pub(crate) trait ReviewHunkWitnessPort: Send + Sync {
     /// The fingerprints the current bounded diff holds for one file, in the diff's own order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     fn hunk_fingerprints(
         &self,
         session_id: &str,
@@ -172,14 +156,6 @@ pub(crate) struct PreparedReviewFeedback {
 /// on their screen, which may be several writes behind the one on disk. Without it the service
 /// would record a decision about whatever the diff happens to be when the click arrives — a
 /// decision the reviewer never made, indistinguishable from one they did.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SetHunkDecisionRequest {
     pub(crate) path: String,
@@ -195,14 +171,6 @@ pub(crate) struct SetHunkDecisionRequest {
 /// reload and look again. The distinction is kept for the reviewer-facing message 13.10 renders —
 /// "this file is no longer in the review" and "this hunk moved" are different things to be told —
 /// and for a log that would otherwise say only that something was stale.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StaleReviewWitness {
     /// The review has been reconciled against a newer diff than the caller saw.
@@ -216,23 +184,7 @@ pub(crate) enum StaleReviewWitness {
 #[derive(Clone)]
 pub(crate) struct ReviewApplicationService {
     repository: Arc<dyn ReviewRepository>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     decisions: Arc<dyn ReviewDecisionRepository>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     hunk_witnesses: Arc<dyn ReviewHunkWitnessPort>,
     clock: Arc<dyn ReviewClockPort>,
     ids: Arc<dyn ReviewIdPort>,
@@ -475,14 +427,6 @@ impl ReviewApplicationService {
     /// and accepting every hunk does not accept the review. Deriving either from the other was the
     /// shortcut this whole group exists to remove — a reviewer who accepted three hunks out of
     /// twenty had that rendered as an accepted review.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     pub(crate) fn set_hunk_decision(
         &self,
         review_id: &str,
@@ -533,14 +477,6 @@ impl ReviewApplicationService {
     /// review, so the hunk cannot be either; the file is still changing but not there any more.
     /// Collapsing them into one check would answer the reviewer with the least specific of the
     /// three.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     fn assert_witnesses(
         &self,
         review: &ReviewSession,
@@ -579,8 +515,8 @@ impl ReviewApplicationService {
         not(test),
         expect(
             dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
+            reason = "the write path is live; reading decisions back arrives with 13.6's \
+                 review summary counts"
         )
     )]
     pub(crate) fn hunk_decisions(

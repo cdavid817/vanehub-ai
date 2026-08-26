@@ -32,14 +32,6 @@ pub(crate) enum SessionEvidenceSignal {
     /// Separate from the review-level decision rather than derived from it. The two are
     /// independent, so a journal that inferred one from the other would report decisions nobody
     /// made — which is precisely what a journal exists not to do.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
-                 an expect rather than an allow so wiring it removes this line"
-        )
-    )]
     ReviewHunkDecisionRecorded {
         session_id: String,
         review_id: String,

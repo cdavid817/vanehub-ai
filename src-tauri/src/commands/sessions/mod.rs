@@ -46,6 +46,7 @@ pub(crate) mod search_sessions;
 pub(crate) mod select_code_review_comment;
 pub(crate) mod send_code_review_feedback;
 pub(crate) mod set_code_review_decision;
+pub(crate) mod set_code_review_hunk_decision;
 pub(crate) mod start_code_review_action;
 pub(crate) mod switch_session;
 pub(crate) mod unarchive_session;

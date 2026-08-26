@@ -183,7 +183,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
+import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewHunkDecisionReceipt, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewHunkDecisionInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -252,11 +252,10 @@ export const tauriAgentClient: AgentService = {
   selectCodeReviewComment(reviewId, commentId, selected) {
     return invoke<CodeReview>("select_code_review_comment", { reviewId, commentId, selected });
   },
-  setCodeReviewHunkDecision() {
-    // The hunk decision tables and their command arrive with Task Group 13. Until then this
-    // rejects with a stable reason code rather than falling back to the review-level mutation,
-    // which is the defect this method exists to remove: accepting one hunk accepted the review.
-    return Promise.reject(new Error("review_hunk_decision_unavailable"));
+  setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput) {
+    // Its own command, never a fall-back to the review-level mutation. That fall-back is the
+    // defect this method exists to remove: accepting one hunk accepted the whole review.
+    return invoke<ReviewHunkDecisionReceipt>("set_code_review_hunk_decision", { input });
   },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });

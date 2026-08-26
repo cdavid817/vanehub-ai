@@ -191,6 +191,14 @@ impl SessionsApi {
         self.review()?.set_decision(review_id, decision)
     }
 
+    pub(crate) fn set_review_hunk_decision(
+        &self,
+        review_id: &str,
+        request: super::application::SetHunkDecisionRequest,
+    ) -> Result<super::domain::ReviewHunkDecision, super::application::ReviewApplicationError> {
+        self.review()?.set_hunk_decision(review_id, request)
+    }
+
     pub(crate) fn resolve_review_comment(
         &self,
         review_id: &str,

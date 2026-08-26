@@ -1,6 +1,8 @@
+use crate::commands::error::CommandError;
 use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
-    ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession, ReviewStatus,
+    ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision, ReviewSession,
+    ReviewStatus,
 };
 use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
 use serde::{Deserialize, Serialize};
@@ -182,6 +184,47 @@ fn status(value: ReviewStatus) -> &'static str {
     match value {
         ReviewStatus::Active => "active",
         ReviewStatus::Completed => "completed",
+    }
+}
+
+/// The three values the wire carries, refused rather than defaulted.
+///
+/// A decision this binary does not know is not a fourth state to store; it is a caller sending
+/// something else. Defaulting it to `pending` would record "nobody has decided" for a request
+/// somebody deliberately made.
+pub(crate) fn parse_review_decision(value: &str) -> Result<ReviewDecision, CommandError> {
+    match value {
+        "pending" => Ok(ReviewDecision::Pending),
+        "accepted" => Ok(ReviewDecision::Accepted),
+        "changes-requested" => Ok(ReviewDecision::ChangesRequested),
+        _ => Err(CommandError::validation("invalid review decision")),
+    }
+}
+
+/// What was recorded, echoed back so a caller does not have to assume it landed as sent.
+///
+/// `simulated` is false here and true in the Web adapter's fixture. The field exists so a reader
+/// can tell a decision that reached a store from one that lives in a demo's memory — same shape,
+/// different weight, and a UI that could not tell them apart would present both as recorded.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewHunkDecisionReceiptDto {
+    review_id: String,
+    relative_path: String,
+    hunk_fingerprint: String,
+    decision: &'static str,
+    simulated: bool,
+}
+
+impl ReviewHunkDecisionReceiptDto {
+    pub(crate) fn recorded(review_id: String, recorded: ReviewHunkDecision) -> Self {
+        Self {
+            review_id,
+            relative_path: recorded.path,
+            hunk_fingerprint: recorded.hunk_fingerprint,
+            decision: decision(recorded.decision),
+            simulated: false,
+        }
     }
 }
 
