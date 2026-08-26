@@ -109,13 +109,20 @@ export interface LspServerTestPhaseResult {
   reasonCode: LspSafeReasonCode | null;
 }
 
+/** One method the backend implements, and whether this server advertised it. */
+export interface LspNegotiatedMethod {
+  method: string;
+  supported: boolean;
+}
+
 export interface LspNegotiatedCapabilities {
   positionEncoding: LspPositionEncoding;
   documentSync: LspDocumentSyncMode;
-  definition: boolean;
-  references: boolean;
-  hover: boolean;
-  diagnostics: boolean;
+  /**
+   * One entry per method the backend implements, in the order it reports them. The frontend holds
+   * no copy of that set, so a method added later renders without a change here.
+   */
+  methods: LspNegotiatedMethod[];
 }
 
 export interface LspServerTestResult {

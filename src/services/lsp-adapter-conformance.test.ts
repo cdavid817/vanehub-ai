@@ -78,10 +78,12 @@ const discoveries = [
 const capabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+  ],
 };
 const serverTest = {
   server: "rust_analyzer",

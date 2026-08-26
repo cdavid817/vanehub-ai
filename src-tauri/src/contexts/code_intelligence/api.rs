@@ -21,6 +21,10 @@ pub(crate) use super::domain::models::{
     NegotiatedCapabilities, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
     NormalizedRange, PositionEncoding, ProcessState, QueryOutcome, QueryStatus, WorkspaceTrust,
 };
+// Published so a command-layer test can build a negotiated record from the client's own method
+// list rather than restating it. Only tests need it in this build.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use super::domain::models::SemanticMethod;
 pub(crate) use super::domain::registry::{definition_for_extension, LANGUAGE_DEFINITIONS};
 pub(crate) use super::infrastructure::{
     DiscoveryAvailability, DiscoveryReason, IsolatedServerTestResult, ServerTestPhase,

@@ -174,10 +174,16 @@ pub(crate) struct LspServerTestPhaseResultDto {
 pub(crate) struct LspNegotiatedCapabilitiesDto {
     pub(crate) position_encoding: LspPositionEncodingDto,
     pub(crate) document_sync: LspDocumentSyncDto,
-    pub(crate) definition: bool,
-    pub(crate) references: bool,
-    pub(crate) hover: bool,
-    pub(crate) diagnostics: bool,
+    /// One entry per method this build implements, in a stable order. A consumer renders what it
+    /// is given rather than holding its own copy of the method set.
+    pub(crate) methods: Vec<LspNegotiatedMethodDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LspNegotiatedMethodDto {
+    pub(crate) method: String,
+    pub(crate) supported: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -326,10 +332,14 @@ impl From<&NegotiatedCapabilities> for LspNegotiatedCapabilitiesDto {
                 DocumentSyncMode::Full => LspDocumentSyncDto::Full,
                 DocumentSyncMode::Incremental => LspDocumentSyncDto::Incremental,
             },
-            definition: value.definition,
-            references: value.references,
-            hover: value.hover,
-            diagnostics: value.diagnostics,
+            methods: value
+                .methods
+                .iter()
+                .map(|entry| LspNegotiatedMethodDto {
+                    method: entry.method.id().to_owned(),
+                    supported: entry.supported,
+                })
+                .collect(),
         }
     }
 }

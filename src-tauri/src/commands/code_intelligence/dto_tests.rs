@@ -1,9 +1,22 @@
 use super::dto::*;
 use crate::contexts::code_intelligence::api::{
-    LanguageConfiguration, LspConfiguration, LspLanguageId, LANGUAGE_DEFINITIONS,
+    LanguageConfiguration, LspConfiguration, LspLanguageId, SemanticMethod, LANGUAGE_DEFINITIONS,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
+
+/// The negotiated record is a list now, so a test that only cares that everything is supported
+/// says so once instead of restating the method set. A method added later reaches these fixtures
+/// through `SemanticMethod::ALL` rather than through an edit here.
+fn every_method_supported() -> Vec<LspNegotiatedMethodDto> {
+    SemanticMethod::ALL
+        .iter()
+        .map(|method| LspNegotiatedMethodDto {
+            method: method.id().to_owned(),
+            supported: true,
+        })
+        .collect()
+}
 
 #[test]
 fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
@@ -321,10 +334,7 @@ fn list_lsp_server_status_result_serializes_to_an_exact_object() {
         negotiated_capabilities: Some(LspNegotiatedCapabilitiesDto {
             position_encoding: LspPositionEncodingDto::Utf16,
             document_sync: LspDocumentSyncDto::Incremental,
-            definition: true,
-            references: true,
-            hover: true,
-            diagnostics: true,
+            methods: every_method_supported(),
         }),
     }];
 
@@ -342,10 +352,12 @@ fn list_lsp_server_status_result_serializes_to_an_exact_object() {
             "negotiatedCapabilities": {
                 "positionEncoding": "utf16",
                 "documentSync": "incremental",
-                "definition": true,
-                "references": true,
-                "hover": true,
-                "diagnostics": true
+                "methods": [
+                    {"method": "definition", "supported": true},
+                    {"method": "references", "supported": true},
+                    {"method": "hover", "supported": true},
+                    {"method": "diagnostics", "supported": true}
+                ]
             }
         }])
     );
@@ -387,10 +399,7 @@ fn status_contract_covers_every_process_state_and_optional_capabilities() {
         negotiated_capabilities: Some(LspNegotiatedCapabilitiesDto {
             position_encoding: LspPositionEncodingDto::Utf16,
             document_sync: LspDocumentSyncDto::Incremental,
-            definition: true,
-            references: true,
-            hover: true,
-            diagnostics: true,
+            methods: every_method_supported(),
         }),
     };
     let value = serde_json::to_value(status).expect("serialize status");

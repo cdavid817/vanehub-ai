@@ -13,6 +13,7 @@ import {
   type LspLanguageConfiguration,
   type LspLanguageDescriptor,
   type LspNegotiatedCapabilities,
+  type LspNegotiatedMethod,
   type LspSafeReasonCode,
   type LspServerDiscovery,
   type LspServerStatus,
@@ -222,13 +223,20 @@ export function normalizeLspServerTestInput(value: unknown): LspServerTestInput 
   return { language: identifier(value.language) };
 }
 
+function normalizeNegotiatedMethod(value: unknown): LspNegotiatedMethod {
+  if (!isRecord(value)) return invalidResponse();
+  return { method: identifier(value.method), supported: booleanValue(value.supported) };
+}
+
 function normalizeCapabilities(value: unknown): LspNegotiatedCapabilities {
   if (!isRecord(value)) return invalidResponse();
+  const methods = arrayValue(value.methods, 64).map(normalizeNegotiatedMethod);
+  // A duplicated method would render twice and let two rows disagree about the same fact.
+  if (!unique(methods.map((entry) => entry.method))) return invalidResponse();
   return {
     positionEncoding: member(lspPositionEncodings, value.positionEncoding),
     documentSync: member(lspDocumentSyncModes, value.documentSync),
-    definition: booleanValue(value.definition), references: booleanValue(value.references),
-    hover: booleanValue(value.hover), diagnostics: booleanValue(value.diagnostics),
+    methods,
   };
 }
 

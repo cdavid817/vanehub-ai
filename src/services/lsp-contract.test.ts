@@ -37,10 +37,12 @@ const configuration = {
 const capabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+  ],
 };
 
 const discoveries = [
@@ -230,7 +232,28 @@ describe("LSP runtime contracts", () => {
       .toThrow("invalid LSP response");
     expect(() => normalizeLspServerStatuses([{
       ...serverStatus,
-      negotiatedCapabilities: { ...capabilities, definition: "yes" },
+      negotiatedCapabilities: {
+        ...capabilities,
+        methods: [{ method: "definition", supported: "yes" }],
+      },
+    }])).toThrow("invalid LSP response");
+    expect(() => normalizeLspServerStatuses([{
+      ...serverStatus,
+      negotiatedCapabilities: {
+        ...capabilities,
+        methods: [{ method: "Definition", supported: true }],
+      },
+    }])).toThrow("invalid LSP response");
+    // A duplicate would render twice and let two rows disagree about the same fact.
+    expect(() => normalizeLspServerStatuses([{
+      ...serverStatus,
+      negotiatedCapabilities: {
+        ...capabilities,
+        methods: [
+          { method: "definition", supported: true },
+          { method: "definition", supported: false },
+        ],
+      },
     }])).toThrow("invalid LSP response");
   });
 });

@@ -23,10 +23,12 @@ const statuses: LspServerStatus[] = [
     negotiatedCapabilities: {
       positionEncoding: "utf16",
       documentSync: "incremental",
-      definition: true,
-      references: true,
-      hover: false,
-      diagnostics: true,
+      methods: [
+        { method: "definition", supported: true },
+        { method: "references", supported: true },
+        { method: "hover", supported: false },
+        { method: "diagnostics", supported: true },
+      ],
     },
   },
   {

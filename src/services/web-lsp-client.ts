@@ -77,13 +77,17 @@ function invalidLanguage(language: string): never {
   throw new Error(`The Web LSP mock does not register the language "${language}".`);
 }
 
+// Mirrors what the desktop registry declares it implements. Adding a method there means adding
+// an entry here, which is the same mock-registry arrangement the languages use.
 const capabilities: LspNegotiatedCapabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+  ],
 };
 
 function defaultConfiguration(): LspConfiguration {

@@ -1,21 +1,26 @@
 ## 1. Baseline
 
-- [ ] 1.1 Record the pre-change pass state of `cargo test --workspace code_intelligence`, `cargo test --workspace native_lsp`, the frontend LSP vitest files, and `npx playwright test tests/e2e/lsp-settings.spec.ts`. Unset `all_proxy`/`ALL_PROXY` and pin `PLAYWRIGHT_PORT` for the last one
-- [ ] 1.2 Record the current native tool count and where it is asserted, so the catalog growth is a deliberate diff rather than a surprise
+- [x] 1.1 Record the pre-change pass state of `cargo test --workspace code_intelligence`, `cargo test --workspace native_lsp`, the frontend LSP vitest files, and `npx playwright test tests/e2e/lsp-settings.spec.ts`. Unset `all_proxy`/`ALL_PROXY` and pin `PLAYWRIGHT_PORT` for the last one
+  - Baseline on `11458275`: `code_intelligence` **190**, `native_lsp` **1**, frontend LSP suites **746**.
+- [x] 1.2 Record the current native tool count and where it is asserted, so the catalog growth is a deliberate diff rather than a surprise
+  - **10**, asserted at `providers/tests.rs:768` (`fixtures.len()`) and `:1005` (`tools.len()`), plus the `resolve_tool_catalog_*` family.
 - [ ] 1.3 Measure the serialized size of the LSP tool definitions as declared to a provider. Nine tools where there were four lengthens every eligible session's system prompt, and the cost should be known rather than assumed
 
 ## 2. Capability representation (refactor, no behavior change)
 
-- [ ] 2.1 Write failing tests for the negotiated record: a method the client implements but the server omits reports unsupported rather than being absent, a capability the client does not implement never appears, and two servers negotiating the same set list them in the same order
-- [ ] 2.2 Add `SemanticMethod::ALL` in a fixed order and a mapping from each variant to its LSP capability path, with a test asserting every variant maps to a non-empty path
-- [ ] 2.3 Replace the four booleans in `NegotiatedCapabilities` with one entry per `ALL` variant; keep `position_encoding` and `document_sync` as fields, since neither has a supported/unsupported axis
-- [ ] 2.4 Reduce `supports()` to a lookup over that list, keeping its signature so no caller changes
-- [ ] 2.5 Rewrite `initialize_negotiation.rs` to build the list by iterating `ALL` rather than reading four capabilities by hand
-- [ ] 2.6 Update the command DTO, the TypeScript type, and the contract validator to carry the list, with the validator checking method-identifier shape and rejecting duplicates
-- [ ] 2.7 Replace the status card's hardcoded array with iteration over the reported list, falling back to the raw method identifier when a locale lacks the key
-- [ ] 2.8 Update the Web/mock adapter to report the same list deterministically
-- [ ] 2.9 Update the whole-object DTO fixtures to the new shape. They fail here because they are working; do not loosen them
-- [ ] 2.10 **Acceptance for this group before any method is added:** every suite from task 1.1 passes with the same counts. The refactor is behavior-preserving or it is wrong
+- [x] 2.1 Write failing tests for the negotiated record: a method the client implements but the server omits reports unsupported rather than being absent, a capability the client does not implement never appears, and two servers negotiating the same set list them in the same order
+- [x] 2.2 Add `SemanticMethod::ALL` in a fixed order and a mapping from each variant to its LSP capability path, with a test asserting every variant maps to a non-empty path
+- [x] 2.3 Replace the four booleans in `NegotiatedCapabilities` with one entry per `ALL` variant; keep `position_encoding` and `document_sync` as fields, since neither has a supported/unsupported axis
+- [x] 2.4 Reduce `supports()` to a lookup over that list, keeping its signature so no caller changes
+- [x] 2.5 Rewrite `initialize_negotiation.rs` to build the list by iterating `ALL` rather than reading four capabilities by hand
+- [x] 2.6 Update the command DTO, the TypeScript type, and the contract validator to carry the list, with the validator checking method-identifier shape and rejecting duplicates
+- [x] 2.7 Replace the status card's hardcoded array with iteration over the reported list, falling back to the raw method identifier when a locale lacks the key
+- [x] 2.8 Update the Web/mock adapter to report the same list deterministically
+- [x] 2.9 Update the whole-object DTO fixtures to the new shape. They fail here because they are working; do not loosen them
+- [x] 2.10 **Acceptance for this group before any method is added:** every suite from task 1.1 passes with the same counts. The refactor is behavior-preserving or it is wrong
+  - **Held.** Frontend **746 -> 746**, unchanged. `code_intelligence` **190 -> 192**, and the +2 are the two new domain tests this group added; no existing test changed outcome.
+  - `initialize_timeout_forces_bounded_process_tree_cleanup_without_cancellation` failed twice and then passed three times on the same code, including under the identical full filter. It asserts a 2s initialize timeout and is load-sensitive; it was green on the baseline. Recorded rather than investigated, because on this one an isolated pass proves nothing either — it passes under load too.
+  - The compiler guarantee turned out to survive the refactor, contrary to what the design predicted: `advertised()` matches exhaustively on `SemanticMethod`, so a variant added without deciding how it is advertised still fails to compile. What the compiler cannot check is `ALL` completeness, and `all_lists_every_semantic_method` covers that with an exhaustive match that forces a human back to the list.
 
 ## 3. Shared query shape
 

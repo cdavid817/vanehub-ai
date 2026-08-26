@@ -1,9 +1,9 @@
 use super::json_rpc_actor::{JsonRpcClient, JsonRpcError};
 use crate::contexts::code_intelligence::domain::models::{
-    DocumentSyncMode, NegotiatedCapabilities, PositionEncoding, SemanticMethod,
+    DocumentSyncMode, NegotiatedCapabilities, NegotiatedMethod, PositionEncoding, SemanticMethod,
 };
 use lsp_types::{
-    HoverProviderCapability, InitializeResult, OneOf, PositionEncodingKind,
+    HoverProviderCapability, InitializeResult, OneOf, PositionEncodingKind, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use serde_json::{json, Value};
@@ -78,21 +78,41 @@ pub(crate) fn negotiate_initialize_result(
     let result: InitializeResult =
         serde_json::from_value(value).map_err(|_| InitializeNegotiationError::MalformedResult)?;
     let capabilities = result.capabilities;
-    let position_encoding = match capabilities.position_encoding {
+    let position_encoding = match &capabilities.position_encoding {
         None => PositionEncoding::Utf16,
-        Some(encoding) if encoding == PositionEncodingKind::UTF8 => PositionEncoding::Utf8,
-        Some(encoding) if encoding == PositionEncodingKind::UTF16 => PositionEncoding::Utf16,
+        Some(encoding) if *encoding == PositionEncodingKind::UTF8 => PositionEncoding::Utf8,
+        Some(encoding) if *encoding == PositionEncodingKind::UTF16 => PositionEncoding::Utf16,
         Some(_) => return Err(InitializeNegotiationError::UnsupportedPositionEncoding),
     };
-    let document_sync = normalize_sync(capabilities.text_document_sync)?;
+    let document_sync = normalize_sync(capabilities.text_document_sync.clone())?;
     Ok(NegotiatedCapabilities {
         position_encoding,
         document_sync,
-        definition: one_of_enabled(capabilities.definition_provider),
-        references: one_of_enabled(capabilities.references_provider),
-        hover: hover_enabled(capabilities.hover_provider),
-        diagnostics: true,
+        // Built by iterating the client's own method list, so every record covers exactly the
+        // methods this build implements and lists them in one order. A capability the server
+        // advertises for something we do not implement is simply never asked about.
+        methods: SemanticMethod::ALL
+            .iter()
+            .map(|method| NegotiatedMethod {
+                method: *method,
+                supported: advertised(&capabilities, *method),
+            })
+            .collect(),
     })
+}
+
+/// The one place a method is tied to the field the server advertises it in. This match is
+/// exhaustive, so adding a `SemanticMethod` variant without deciding how it is advertised does not
+/// compile — the compiler guarantee that `supports` used to carry lives here now.
+fn advertised(capabilities: &ServerCapabilities, method: SemanticMethod) -> bool {
+    match method {
+        SemanticMethod::Definition => one_of_enabled(capabilities.definition_provider.clone()),
+        SemanticMethod::References => one_of_enabled(capabilities.references_provider.clone()),
+        SemanticMethod::Hover => hover_enabled(capabilities.hover_provider.clone()),
+        // Diagnostics arrive as a server-initiated notification rather than a capability the
+        // server advertises, so there is nothing to read and nothing that can be unsupported.
+        SemanticMethod::Diagnostics => true,
+    }
 }
 
 fn normalize_sync(

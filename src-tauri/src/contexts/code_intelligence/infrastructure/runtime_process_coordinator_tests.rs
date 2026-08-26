@@ -5,7 +5,9 @@ use super::runtime_process_coordinator::{
     LspProcessAcquisition, LspProcessLaunch, RuntimeProcessCoordinator,
 };
 use super::shutdown_coordinator::LspShutdownCoordinator;
-use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, ProcessState};
+use crate::contexts::code_intelligence::domain::models::{
+    ConfigurationFingerprint, ProcessState, SemanticMethod,
+};
 use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
@@ -31,7 +33,7 @@ async fn on_demand_process_initializes_and_registers_for_desktop_shutdown() {
         LspProcessAcquisition::Ready(handle) => handle,
         _ => panic!("process must become ready"),
     };
-    assert!(handle.capabilities().definition);
+    assert!(handle.capabilities().supports(SemanticMethod::Definition));
     assert_eq!(
         handle
             .client()
