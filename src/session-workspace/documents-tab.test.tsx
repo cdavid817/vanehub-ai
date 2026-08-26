@@ -128,6 +128,27 @@ describe("DocumentsTab", () => {
     expect(listDocuments).toHaveBeenCalled();
   });
 
+  it("shows a hostile document as text rather than running it", async () => {
+    const hostile = [
+      "# Title",
+      "",
+      "<script>window.__owned = true</script>",
+      "",
+      '<img src=x onerror="window.__owned = true">',
+    ].join("\n");
+    readFile.mockResolvedValue(content("README.md", hostile));
+
+    const { container } = render();
+
+    // Asserted through the panel rather than only through the renderer: the question is what a
+    // reader sees in the Documents tab, and a renderer that is safe in isolation proves nothing
+    // about a panel that stopped using it.
+    await waitFor(() => expect(screen.getAllByText("Title").length).toBeGreaterThan(0));
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("img[onerror]")).toBeNull();
+    expect((window as unknown as { __owned?: boolean }).__owned).toBeUndefined();
+  });
+
   it("reports a provider that cannot read rather than an empty workspace", async () => {
     vi.spyOn(agentService, "getWorkspaceInspectionCapabilities").mockResolvedValue({
       provider: "ssh",

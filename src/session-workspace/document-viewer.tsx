@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import { RichMarkdown } from "../components/chat/RichMarkdown";
 import type { FileContent, SessionDocument } from "../types/session-workspace";
 import { FilePreview } from "./file-preview";
 import type { OutlineEntry } from "./document-outline";
@@ -18,9 +18,16 @@ export type DocumentMode = "preview" | "source";
  * other file, and building a lesser version here would be a worse answer that also has to be
  * maintained.
  *
- * Preview mode keeps the existing safe Markdown path — `skipHtml`, the same renderers for links,
- * images, code, math, and Mermaid. The only addition is an id on each heading, so the outline has
- * somewhere to scroll to.
+ * Preview mode is the application's one safe Markdown renderer, not a local copy of it. That one
+ * already decides how a link opens, how an image source is checked, how code is highlighted, how
+ * math is typeset, and what a `mermaid` fence becomes — and raw HTML is inert there because
+ * `rehype-raw` is deliberately absent, so a `<script>` in a document is text.
+ *
+ * The version this replaced was a bare `ReactMarkdown` with a handful of Tailwind classes. It
+ * rendered the same documents less well and, more to the point, it was a second place where those
+ * five decisions were made. The one that gets forgotten in a second place is always the safety one.
+ *
+ * The only thing added is an id per heading, so the outline has somewhere to scroll to.
  */
 export function DocumentViewer({
   content,
@@ -84,39 +91,11 @@ export function DocumentViewer({
         ) : mode === "source" || !isMarkdown ? (
           <FilePreview file={content} status={status} targetLine={scrollToLine} />
         ) : (
-          <div className="grid max-w-none gap-3 p-4 text-sm leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:whitespace-pre-wrap">
-            <ReactMarkdown components={headingComponents(outline)} skipHtml>
-              {content.content ?? ""}
-            </ReactMarkdown>
-          </div>
+          <RichMarkdown className="p-4 text-sm" headingIds={outline.map((entry) => entry.anchor)}>
+            {content.content ?? ""}
+          </RichMarkdown>
         )}
       </div>
     </article>
   );
-}
-
-/**
- * Heading renderers that carry the outline's anchors.
- *
- * The id comes from the outline by position rather than being re-derived from the rendered text.
- * The renderer sees children after Markdown parsing — emphasis and links are already elements — so
- * reconstructing the source string here would be a second parser, and the two would disagree
- * exactly on the headings that contain markup.
- */
-function headingComponents(outline: readonly OutlineEntry[]) {
-  let consumed = 0;
-  const heading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
-    function Heading({ children }: { children?: React.ReactNode }) {
-      const anchor = outline[consumed]?.anchor;
-      consumed += 1;
-      return <Tag id={anchor}>{children}</Tag>;
-    };
-  return {
-    h1: heading("h1"),
-    h2: heading("h2"),
-    h3: heading("h3"),
-    h4: heading("h4"),
-    h5: heading("h5"),
-    h6: heading("h6"),
-  };
 }
