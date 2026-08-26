@@ -126,8 +126,9 @@
 - [x] 9.10 `npm run architecture:check` — passes (frontend 12, native 54) after the ARCH-FE-004 budget was raised with its reason
 - [x] 9.11 `npx playwright test` — the settings UI behavior changed. Pin `PLAYWRIGHT_PORT` to a dev server this lane started, or the run may silently test another worktree's code
   - `tests/e2e/lsp-settings.spec.ts` passes. Requires unsetting `all_proxy`/`ALL_PROXY` first — the host SOCKS5 proxy makes Playwright fail with `Protocol "socks5:" not supported`.
-- [ ] 9.12 `npm run desktop:unit:test` and `npm run test:desktop` — the IPC contract changed. Report per-platform results without extrapolating from this host
-  - `desktop:unit:test` **56 passed**.
+- [x] 9.12 `npm run desktop:unit:test` and `npm run test:desktop` — the IPC contract changed. Report per-platform results without extrapolating from this host
+  - `desktop:unit:test` **56 passed**. Final `npm run test:desktop` on Windows x64, every layer **PASSED**: smoke 25/25, cli-terminal 1/1, cli-management 2/2, session-workspace 1/1, dialogs 1/1, settings-persistence 2/2, agent-mcp 1/1. macOS and Linux are **NOT RUN** here and must come from their own CI runners.
+  - A trap worth naming: `test:desktop:smoke` does **not** rebuild. Two re-runs after the Rust fix reported the identical failure because they were exercising the stale binary; `npm run test:desktop:build` first, then it passed immediately.
   - `test:desktop` caught a **real defect that every other layer missed**: `desktop-smoke` failed 1 of 25 specs, `domain-lsp.e2e.mjs > saves and reads back a per-language LSP configuration`. That spec reaches `save_lsp_configuration` through `core.invoke` directly, so its payload carries no `descriptors` — and I had made the field a required input. 4551 Rust tests and 1660 frontend tests all passed because every one of them either constructed the DTO in Rust or went through the frontend adapter, which always has descriptors to send.
   - The fix is an API correction, not a test fixture edit: `descriptors` is output only (`#[serde(default, skip_deserializing)]`) because the backend authors it from the registry, and `startup_arguments` is `#[serde(default)]` so a caller written before the field existed still saves. Added a DTO regression test for the exact omitted-field payload, and extended the desktop spec to assert descriptors come back, that every configured language is described, and that unset startup arguments stay distinct from an explicit empty list across a real SQLite round trip.
   - The desktop spec also stopped pinning `["rust", "typescript_javascript"]`; it now checks discovery against the descriptors the same build reports, so registering a language cannot make the spec wrong.
@@ -139,6 +140,11 @@
 
 ## 10. Acceptance
 
-- [ ] 10.1 Confirm every suite from task 1.1 passes unchanged, and that the only new tests are for genuinely new behavior: unknown-id handling, startup-argument validation, executable preference order, platform inapplicability, and revision preservation across migration
-- [ ] 10.2 Diff the task 1.2 command fixtures and confirm the only differences are the added descriptor list and startup-argument field
-- [ ] 10.3 Confirm no language name appears in any frontend component, so `add-lsp-go-python-cpp` needs no new per-language component
+- [x] 10.1 Confirm every suite from task 1.1 passes unchanged, and that the only new tests are for genuinely new behavior: unknown-id handling, startup-argument validation, executable preference order, platform inapplicability, and revision preservation across migration
+  - Same filters as the baseline: `migration_fixture` **13 → 13**, `native_lsp` **1 → 1**, the six frontend LSP files **36 → 40**, `playwright lsp-settings.spec.ts` **1 → 1**, `code_intelligence` **152 → 179**.
+  - The +4 frontend and +27 native tests are all new behavior: unknown-id handling at three layers, startup-argument bounds and round trip, the unset-versus-empty distinction, executable preference order, platform inapplicability, migration revision preservation, fingerprint sensitivity including argument boundaries, registry completeness, and the omitted-field payload the desktop layer exposed.
+  - Two pre-existing assertions were rewritten rather than deleted, both because the rule they encoded was deliberately removed: "configuration must name every supported language" and "an empty language list is malformed".
+- [x] 10.2 Diff the task 1.2 command fixtures and confirm the only differences are the added descriptor list and startup-argument field
+  - `git diff 712bbafa..HEAD -- dto_tests.rs` shows only added lines in the serialized-shape assertions; no existing key was removed or changed. The only new keys are `startupArguments` and `descriptors`.
+- [x] 10.3 Confirm no language name appears in any frontend component, so `add-lsp-go-python-cpp` needs no new per-language component
+  - No `.tsx` component contains a language id; only `.test.tsx` files do. The three non-test occurrences are deliberate: the Web mock registry, the i18n display labels (which fall back to the raw id), and the shared test fixture module. `code-index.ts` and `code-highlighting.ts` also match but belong to Tree-sitter, not LSP.
