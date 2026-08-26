@@ -504,11 +504,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "retire-plan-execution",
         crate::platform::legacy_plan_schema::apply_retire_plan_execution_migration,
     )?;
-    // 81 is dense behind main's 80, but three other open branches also claim 81-84. Whichever
-    // runs first against a shared application database wins the version gate and this one is
-    // silently skipped, so the repair below re-asserts the schema instead of leaving a database
-    // whose history looks complete while `execution_evidence_events` is missing. Renumber on
-    // merge if one of those lands first.
+    // 81 onwards are dense behind main's 80 on this branch, and every one of them now collides:
+    // main has since landed 81 `cli-parameter-profiles`, 82 `local-media-profiles`, 83
+    // `cli-environment-snapshots`, 84 `cli-version-catalogs`, 85 `cli-action-plans`, and 86
+    // `lsp-language-registry`. Whichever ran first against a shared application database wins the
+    // version gate and this branch's statements are silently skipped, so each one carries a repair
+    // that re-asserts its schema rather than leaving a database whose history looks complete while
+    // its tables are missing. These three renumber above main's ceiling when this branch merges;
+    // until then they stay dense, because a gap is what `assert_migration_history_is_dense`
+    // rejects at startup.
     apply_migration(
         conn,
         81,
@@ -521,8 +525,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "unified-log-query-index",
         crate::contexts::operations::infrastructure::apply_log_query_index_schema,
     )?;
+    apply_migration(
+        conn,
+        83,
+        "review-decision-state",
+        crate::contexts::sessions::infrastructure::apply_review_decision_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -539,7 +550,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
 /// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
 /// calls in `migrate` — the `migration_sequence_matches_expected` test guards against drift,
 /// and `assert_migration_history_is_dense` rejects a gapped history at startup.
-const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
+pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
     (3, "session-management"),
@@ -622,6 +633,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (80, "retire-plan-execution"),
     (81, "execution-evidence-journal"),
     (82, "unified-log-query-index"),
+    (83, "review-decision-state"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

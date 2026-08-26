@@ -249,7 +249,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 13. Review Hunk State, Viewed Progress, Patch Copy, and Evidence
 
-- [ ] 13.1 Add additive SQLite migrations for review hunk decisions and review file Viewed state keyed to current snapshot witnesses.
+- [x] 13.1 Add additive SQLite migrations for review hunk decisions and review file Viewed state keyed to current snapshot witnesses. Migration 83 adds `review_hunk_decisions` and `review_file_states` in the sessions context beside the review aggregate migration 75 established, each row carrying the snapshot fingerprint it was recorded against. Two deviations from design.md's sketch, both stated in the schema: timestamps are RFC3339 text because that is what `ReviewClockPort` returns and what every other review table stores, and both tables cascade from `review_sessions` so retention does not need a second sweep for rows nothing can reach. Numbering is now colliding on every version from 81 up — main has landed 81 through 86 under other names — so 83 carries the same repair 81 does, and the note above them records which versions this branch renumbers past on merge.
 - [ ] 13.2 Extend the review aggregate/application service to persist review-level and hunk-level decisions independently, and publish a hunk decision evidence reference after the decision commits. This completes the half of 4.7 that had no authoritative store to observe.
 - [ ] 13.3 Reject stale hunk decisions when review, file, or hunk witnesses no longer match and return `stale_witness` without mutation.
 - [ ] 13.4 Add `setCodeReviewHunkDecision` Tauri command, Tauri/Web adapters, DTO schemas, and contract tests.

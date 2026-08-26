@@ -316,7 +316,16 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    assert_eq!(migration_state, (81, 82));
+    // Derived rather than written down. The fixture is "everything this binary migrates, less
+    // version 37", and spelling that as a pair of literals means every future migration fails a
+    // test about Skill reliability -- which reads as a regression in the thing being changed
+    // rather than as arithmetic that moved.
+    let expected_ceiling = EXPECTED_MIGRATIONS
+        .last()
+        .expect("the migration list is never empty")
+        .0;
+    let expected_count = EXPECTED_MIGRATIONS.len() as i64 - 1;
+    assert_eq!(migration_state, (expected_count, expected_ceiling));
 
     migrate(&connection).expect("upgrade migration");
 

@@ -256,8 +256,14 @@ mod tests {
             .expect("native tool persistence migration");
 
         // Row count rather than maximum version. They agree only while history is dense, so a
-        // branch that reserves a number ahead of an unmerged one will see these diverge.
-        assert_eq!(migration_count, 82);
+        // branch that reserves a number ahead of an unmerged one will see these diverge. Compared
+        // against the declared list rather than a literal: what is worth asserting is that every
+        // migration this binary declares recorded a row, and a number typed in here only asserts
+        // that somebody remembered to retype it.
+        assert_eq!(
+            migration_count,
+            migrations::EXPECTED_MIGRATIONS.len() as i64
+        );
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -319,7 +325,12 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 82);
+        // Derived for the same reason as the count above: what a reopen must preserve is every
+        // migration this binary declares, and a literal only preserves somebody retyping it.
+        assert_eq!(
+            migration_count,
+            migrations::EXPECTED_MIGRATIONS.len() as i64
+        );
     }
 
     #[test]

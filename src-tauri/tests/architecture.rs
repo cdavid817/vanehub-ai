@@ -2383,9 +2383,22 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    //
+    // Raised from 2,965 by +23 for `upgrade-session-workspace-evidence-console`. Migration 83's
+    // registration, repair call, and history entry are 8 of those, and the collision note above 81
+    // is net +4 now that main has landed 81 through 86 and the comment names the versions this
+    // branch renumbers past on merge instead of guessing how many claim them. No migration body
+    // lives here — the schema is in the context that owns the review aggregate.
+    //
+    // The remaining +11 replaced three hardcoded migration counts with the declared list. Those
+    // literals had to be retyped by every change that added a migration, in three tests that are
+    // about neither migrations nor counting — one of them is nominally about Skill reliability —
+    // so the failure always arrived looking like a regression in whatever was being changed. Two
+    // of the three were found only by a full `cargo test`, which is the argument for the change:
+    // grep does not find a number, and the third one is always in the file you did not open.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_965,
+        budget: 2_988,
         owner: "split-database-migrations",
     },
 ];

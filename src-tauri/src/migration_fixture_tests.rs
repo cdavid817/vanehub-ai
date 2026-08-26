@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 82. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 83. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -23,9 +23,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// nullable Agent Runner projections, migration 80 retires standalone Plan execution, and
 /// migration 81 adds the execution evidence journal, its record projection, and coverage metadata,
 /// and migration 82 adds the rebuildable redacted log query index with its correlation indexes,
-/// source checkpoints, gaps, and repair state.
+/// source checkpoints, gaps, and repair state, and migration 83 adds review hunk decisions and
+/// per-file Viewed state, each witnessed to the snapshot it was recorded against.
 fn expected_versions() -> Vec<i64> {
-    (1..=82).collect()
+    (1..=83).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
