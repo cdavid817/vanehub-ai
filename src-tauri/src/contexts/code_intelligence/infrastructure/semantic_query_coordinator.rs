@@ -9,13 +9,14 @@ use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{
     LspProcessAcquisition, LspProcessHandle, LspProcessLaunch, RuntimeProcessCoordinator,
 };
-use super::semantic_results::SemanticResultNormalizer;
+use super::semantic_results::{NormalizedLocations, SemanticResultNormalizer};
 use crate::contexts::code_intelligence::domain::models::{
     Language, NormalizedDiagnostic, NormalizedHover, NormalizedLocation, QueryOutcome, QueryStatus,
     SemanticMethod,
 };
-use lsp_types::{GotoDefinitionResponse, Hover, Location};
-use serde_json::json;
+use lsp_types::{Hover, Location};
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -39,6 +40,17 @@ struct PreparedQuery {
     handle: LspProcessHandle,
     document: PreparedDocument,
     diagnostics: Arc<DiagnosticsCache>,
+}
+
+/// What every position-based query needs from its caller. Named so the helper below stays inside
+/// clippy's argument budget, and so adding a method does not re-thread six parameters by hand.
+struct PositionRequest<'a> {
+    launch: LspProcessLaunch,
+    language: Language,
+    relative_path: &'a str,
+    line: u32,
+    column: u32,
+    cancelled: Arc<AtomicBool>,
 }
 
 struct QueryFailure {
@@ -89,60 +101,20 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let prepared = match self
-            .prepare(launch, language, relative_path, SemanticMethod::Definition)
-            .await
-        {
-            Ok(prepared) => prepared,
-            Err(failure) => return failure.outcome(),
-        };
-        let position = match self.position(&prepared, line, column).await {
-            Ok(position) => position,
-            Err(failure) => return failure.outcome(),
-        };
-        let request_started = Instant::now();
-        let response: Result<Option<GotoDefinitionResponse>, JsonRpcError> = prepared
-            .handle
-            .client()
-            .request_with_control(
-                "textDocument/definition",
-                json!({"textDocument": {"uri": prepared.document.uri()}, "position": position}),
-                request_control(cancelled),
-            )
-            .await;
-        if response.is_ok() {
-            self.processes.record_response(prepared.handle.key()).await;
-        } else if let Err(error) = response.as_ref() {
-            self.processes
-                .record_request_failure(prepared.handle.key(), *error, request_started.elapsed())
-                .await;
-        }
-        self.processes.release_request(prepared.handle.key()).await;
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => return request_failure(&prepared, language, error).outcome(),
-        };
-        let normalizer = match SemanticResultNormalizer::new(
-            prepared.handle.key().session_root_ref(),
-            prepared.handle.capabilities().position_encoding,
-        ) {
-            Ok(normalizer) => normalizer,
-            Err(_) => {
-                return prepared_failure(&prepared, language, "workspace_unavailable").outcome()
-            }
-        };
-        let normalized = normalizer.definitions(response);
-        QueryOutcome::ready_with_metadata(
-            normalized.locations,
+        let request = PositionRequest {
+            launch,
             language,
-            prepared.document.version(),
-            normalized
-                .total
-                .min(super::semantic_results::MAX_DEFINITIONS),
-            normalized.total,
-            normalized.truncated,
-            normalized.filtered_count,
+            relative_path,
+            line,
+            column,
+            cancelled,
+        };
+        self.located_query(
+            request,
+            SemanticMethod::Definition,
+            |normalizer, response| normalizer.definitions(response),
         )
+        .await
     }
 
     pub(crate) async fn find_references(
@@ -154,64 +126,22 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let prepared = match self
-            .prepare(launch, language, relative_path, SemanticMethod::References)
-            .await
-        {
-            Ok(prepared) => prepared,
-            Err(failure) => return failure.outcome(),
-        };
-        let position = match self.position(&prepared, line, column).await {
-            Ok(position) => position,
-            Err(failure) => return failure.outcome(),
-        };
-        let request_started = Instant::now();
-        let response: Result<Option<Vec<Location>>, JsonRpcError> = prepared
-            .handle
-            .client()
-            .request_with_control(
-                "textDocument/references",
-                json!({
-                    "textDocument": {"uri": prepared.document.uri()},
-                    "position": position,
-                    "context": {"includeDeclaration": true}
-                }),
-                request_control(cancelled),
-            )
-            .await;
-        if response.is_ok() {
-            self.processes.record_response(prepared.handle.key()).await;
-        } else if let Err(error) = response.as_ref() {
-            self.processes
-                .record_request_failure(prepared.handle.key(), *error, request_started.elapsed())
-                .await;
-        }
-        self.processes.release_request(prepared.handle.key()).await;
-        let response = match response {
-            Ok(response) => response.unwrap_or_default(),
-            Err(error) => return request_failure(&prepared, language, error).outcome(),
-        };
-        let normalizer = match SemanticResultNormalizer::new(
-            prepared.handle.key().session_root_ref(),
-            prepared.handle.capabilities().position_encoding,
-        ) {
-            Ok(normalizer) => normalizer,
-            Err(_) => {
-                return prepared_failure(&prepared, language, "workspace_unavailable").outcome()
-            }
-        };
-        let normalized = normalizer.references(response);
-        QueryOutcome::ready_with_metadata(
-            normalized.locations,
+        let request = PositionRequest {
+            launch,
             language,
-            prepared.document.version(),
-            normalized
-                .total
-                .min(super::semantic_results::MAX_REFERENCES),
-            normalized.total,
-            normalized.truncated,
-            normalized.filtered_count,
+            relative_path,
+            line,
+            column,
+            cancelled,
+        };
+        self.located_query(
+            request,
+            SemanticMethod::References,
+            |normalizer, response: Option<Vec<Location>>| {
+                normalizer.references(response.unwrap_or_default())
+            },
         )
+        .await
     }
 
     pub(crate) async fn get_hover(
@@ -223,47 +153,24 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Option<NormalizedHover>> {
-        let prepared = match self
-            .prepare(launch, language, relative_path, SemanticMethod::Hover)
+        let request = PositionRequest {
+            launch,
+            language,
+            relative_path,
+            line,
+            column,
+            cancelled,
+        };
+        let (prepared, response) = match self
+            .position_query::<Option<Hover>>(request, SemanticMethod::Hover)
             .await
         {
-            Ok(prepared) => prepared,
+            Ok(result) => result,
             Err(failure) => return failure.outcome(),
         };
-        let position = match self.position(&prepared, line, column).await {
-            Ok(position) => position,
-            Err(failure) => return failure.outcome(),
-        };
-        let request_started = Instant::now();
-        let response: Result<Option<Hover>, JsonRpcError> = prepared
-            .handle
-            .client()
-            .request_with_control(
-                "textDocument/hover",
-                json!({"textDocument": {"uri": prepared.document.uri()}, "position": position}),
-                request_control(cancelled),
-            )
-            .await;
-        if response.is_ok() {
-            self.processes.record_response(prepared.handle.key()).await;
-        } else if let Err(error) = response.as_ref() {
-            self.processes
-                .record_request_failure(prepared.handle.key(), *error, request_started.elapsed())
-                .await;
-        }
-        self.processes.release_request(prepared.handle.key()).await;
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => return request_failure(&prepared, language, error).outcome(),
-        };
-        let normalizer = match SemanticResultNormalizer::new(
-            prepared.handle.key().session_root_ref(),
-            prepared.handle.capabilities().position_encoding,
-        ) {
+        let normalizer = match normalizer_for(&prepared, language) {
             Ok(normalizer) => normalizer,
-            Err(_) => {
-                return prepared_failure(&prepared, language, "workspace_unavailable").outcome()
-            }
+            Err(failure) => return failure.outcome(),
         };
         let hover = normalizer.hover(prepared.document.text(), response);
         let truncated = hover.as_ref().is_some_and(|value| value.truncated);
@@ -344,6 +251,92 @@ impl SemanticQueryCoordinator {
             result.truncated(),
             result.filtered_count(),
         )
+    }
+
+    /// The whole shape of a method that answers with locations. Only the endpoint and the
+    /// normalization differ between them, and both are supplied by the caller.
+    async fn located_query<R, F>(
+        &self,
+        request: PositionRequest<'_>,
+        method: SemanticMethod,
+        normalize: F,
+    ) -> QueryOutcome<Vec<NormalizedLocation>>
+    where
+        R: DeserializeOwned,
+        F: FnOnce(&SemanticResultNormalizer, R) -> NormalizedLocations,
+    {
+        let language = request.language;
+        let (prepared, response) = match self.position_query::<R>(request, method).await {
+            Ok(result) => result,
+            Err(failure) => return failure.outcome(),
+        };
+        match normalizer_for(&prepared, language) {
+            Ok(normalizer) => {
+                located_outcome(language, &prepared, normalize(&normalizer, response))
+            }
+            Err(failure) => failure.outcome(),
+        }
+    }
+
+    /// Prepare, resolve the position, send one request, and hand back both halves. Every failure
+    /// path has already released the request slot by the time this returns `Err`.
+    async fn position_query<R: DeserializeOwned>(
+        &self,
+        request: PositionRequest<'_>,
+        method: SemanticMethod,
+    ) -> Result<(PreparedQuery, R), QueryFailure> {
+        let prepared = self
+            .prepare(
+                request.launch,
+                request.language,
+                request.relative_path,
+                method,
+            )
+            .await?;
+        let position = self
+            .position(&prepared, request.line, request.column)
+            .await?;
+        let (lsp_method, mut params) = wire_request(method);
+        params["textDocument"] = json!({"uri": prepared.document.uri()});
+        params["position"] = json!(position);
+        match self
+            .request(&prepared, lsp_method, params, request.cancelled)
+            .await
+        {
+            Ok(response) => Ok((prepared, response)),
+            Err(error) => Err(request_failure(&prepared, request.language, error)),
+        }
+    }
+
+    /// Owns the record-then-release bookkeeping. A method added later cannot forget to release the
+    /// request slot, which leaks silently: nothing fails, the server just stops admitting work.
+    async fn request<R: DeserializeOwned>(
+        &self,
+        prepared: &PreparedQuery,
+        lsp_method: &str,
+        params: Value,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<R, JsonRpcError> {
+        let started = Instant::now();
+        let response: Result<R, JsonRpcError> = prepared
+            .handle
+            .client()
+            .request_with_control(
+                lsp_method,
+                params,
+                JsonRpcRequestControl::standard(cancelled),
+            )
+            .await;
+        match response.as_ref() {
+            Ok(_) => self.processes.record_response(prepared.handle.key()).await,
+            Err(error) => {
+                self.processes
+                    .record_request_failure(prepared.handle.key(), *error, started.elapsed())
+                    .await;
+            }
+        }
+        self.processes.release_request(prepared.handle.key()).await;
+        response
     }
 
     async fn prepare(
@@ -501,7 +494,7 @@ impl SemanticQueryCoordinator {
                 self.processes.release_request(prepared.handle.key()).await;
                 Err(prepared_failure(
                     prepared,
-                    language_for(prepared),
+                    prepared.handle.key().language(),
                     "invalid_position",
                 ))
             }
@@ -513,14 +506,6 @@ async fn wait_for_cancellation(cancelled: Arc<AtomicBool>) {
     while !cancelled.load(Ordering::Acquire) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-}
-
-fn language_for(prepared: &PreparedQuery) -> Language {
-    prepared.handle.key().language()
-}
-
-fn request_control(cancelled: Arc<AtomicBool>) -> JsonRpcRequestControl {
-    JsonRpcRequestControl::standard(cancelled)
 }
 
 fn request_failure(
@@ -537,6 +522,53 @@ fn request_failure(
     let mut failure = prepared_failure(prepared, language, reason);
     failure.status = status;
     failure
+}
+
+/// The wire method and the parameters beyond the document position, derived from the semantic
+/// method so no call site can pair a method with another method's endpoint. Exhaustive on purpose:
+/// a variant added without an endpoint fails to compile here.
+fn wire_request(method: SemanticMethod) -> (&'static str, Value) {
+    match method {
+        SemanticMethod::Definition => ("textDocument/definition", json!({})),
+        SemanticMethod::References => (
+            "textDocument/references",
+            json!({"context": {"includeDeclaration": true}}),
+        ),
+        SemanticMethod::Hover => ("textDocument/hover", json!({})),
+        // Diagnostics arrive as a server notification and never route through a request, so this
+        // arm exists only to keep the match exhaustive.
+        SemanticMethod::Diagnostics => ("textDocument/publishDiagnostics", json!({})),
+    }
+}
+
+fn normalizer_for(
+    prepared: &PreparedQuery,
+    language: Language,
+) -> Result<SemanticResultNormalizer, QueryFailure> {
+    SemanticResultNormalizer::new(
+        prepared.handle.key().session_root_ref(),
+        prepared.handle.capabilities().position_encoding,
+    )
+    .map_err(|_| prepared_failure(prepared, language, "workspace_unavailable"))
+}
+
+fn located_outcome(
+    language: Language,
+    prepared: &PreparedQuery,
+    normalized: NormalizedLocations,
+) -> QueryOutcome<Vec<NormalizedLocation>> {
+    // The normalizer already truncated to the method's own cap, so the returned count is the
+    // vector's length. Taking the cap as an argument would only be a chance to pass the wrong one.
+    let returned = normalized.locations.len();
+    QueryOutcome::ready_with_metadata(
+        normalized.locations,
+        language,
+        prepared.document.version(),
+        returned,
+        normalized.total,
+        normalized.truncated,
+        normalized.filtered_count,
+    )
 }
 
 fn prepared_failure(

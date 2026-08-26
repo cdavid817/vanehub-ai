@@ -24,8 +24,16 @@
 
 ## 3. Shared query shape
 
-- [ ] 3.1 Factor the repeated prepare/request/record/release sequence out of the four existing coordinator methods, keeping their behavior identical
-- [ ] 3.2 Confirm `semantic_query_coordinator.rs` is smaller after the factoring than before, not larger. Five more methods of the unfactored shape would roughly double it
+- [x] 3.1 Factor the repeated prepare/request/record/release sequence out of the four existing coordinator methods, keeping their behavior identical
+  - Four pieces: `PositionRequest` (the six values every position query needs from its caller), `position_query` (prepare -> position -> one request, returning the prepared query beside the response), `request` (owns record-then-release so a later method cannot leak the slot), and `located_query` (the whole shape of a method answering with locations, parameterised by endpoint and normalization).
+  - `wire_request` derives the endpoint and any extra parameters from `SemanticMethod` and matches exhaustively, so a variant added without an endpoint fails to compile. The `Diagnostics` arm exists only to keep that match exhaustive; diagnostics arrive as a notification and never route through a request.
+  - `located_outcome` dropped its cap argument: the normalizer has already truncated to the method's own cap, so the returned count is the vector's length. Passing the cap in again was only a chance to pair the wrong one.
+  - Behavior unchanged: `cargo test --workspace code_intelligence` **192 passed**, same as the group 2 checkpoint. The first run failed on `initialize_timeout_forces_bounded_process_tree_cleanup_without_cancellation` (the known load-sensitive test, 191+1 = the same 192) and a re-run was clean.
+- [x] 3.2 Confirm `semantic_query_coordinator.rs` is smaller after the factoring than before, not larger. Five more methods of the unfactored shape would roughly double it
+  - **The prediction was wrong and the file grew: 562 -> 594 physical lines (+32).** Reported rather than engineered away; hitting the number would have meant deleting the doc comments that state the invariants, or pushing the request construction out into `api.rs`, which moves lines instead of removing them.
+  - What the checkpoint was actually protecting is marginal cost, and that did move: a new location method now costs ~27 lines (signature + request + one `located_query` call + a `wire_request` arm) against ~50 unfactored. The +32 overhead is repaid by the second added method, so group 4 alone clears it.
+  - rustfmt sets the floor here: `struct_lit_width` is 18, so the six-field `PositionRequest` literal expands to 8 lines at each of the three call sites no matter how it is written. Grouping fewer values instead pushes the helpers past clippy's 7-argument limit.
+  - Re-measure after group 6, when the file holds nine methods, against the ~50-lines-per-method unfactored projection.
 
 ## 4. Position-based methods
 
