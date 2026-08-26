@@ -112,20 +112,30 @@
 
 ## 9. Verification
 
-- [ ] 9.1 `npm run lint:ci`
-- [ ] 9.2 `npm run test`
-- [ ] 9.3 `npm run build`
-- [ ] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 9.5 `cargo check --workspace`
-- [ ] 9.6 `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] 9.7 `npm run native:panic:check`
-- [ ] 9.8 `cargo test --workspace`
-- [ ] 9.9 `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, `npm run contracts:check`
-- [ ] 9.10 `npm run architecture:check`
-- [ ] 9.11 `npx playwright test` — the settings UI behavior changed. Pin `PLAYWRIGHT_PORT` to a dev server this lane started, or the run may silently test another worktree's code
+- [x] 9.1 `npm run lint:ci` — passes
+- [x] 9.2 `npm run test` — **318 files / 1660 tests passed**
+- [x] 9.3 `npm run build` — passes; 16 lazy chunks verified, main static closure 142.7 KiB gzip
+- [x] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` — passes
+- [x] 9.5 `cargo check --workspace` — passes
+- [x] 9.6 `cargo clippy --workspace --all-targets -- -D warnings` — passes
+- [x] 9.7 `npm run native:panic:check` — passes
+- [x] 9.8 `cargo test --workspace` — **4551 passed** in the main suite; `tests/architecture.rs` **54 passed**
+- [x] 9.9 `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, `npm run contracts:check`
+  - coverage: 1659 passed, **1 failed** — `settings-pages.test.ts > keeps the CLI management route lazy...`, which really does `await page.loader?.()` and exceeds the 15s timeout under v8 instrumentation. **Pre-existing and unrelated**: it also fails on the base commit `712bbafa` with `src`/`scripts` restored to baseline, and it passes without `--coverage`. Isolated re-run does not distinguish it, so the baseline comparison is the evidence.
+  - `coverage:policy:test` 5 passed, `version:unit:test` 9 passed, `contracts:check` 16 passed
+- [x] 9.10 `npm run architecture:check` — passes (frontend 12, native 54) after the ARCH-FE-004 budget was raised with its reason
+- [x] 9.11 `npx playwright test` — the settings UI behavior changed. Pin `PLAYWRIGHT_PORT` to a dev server this lane started, or the run may silently test another worktree's code
+  - `tests/e2e/lsp-settings.spec.ts` passes. Requires unsetting `all_proxy`/`ALL_PROXY` first — the host SOCKS5 proxy makes Playwright fail with `Protocol "socks5:" not supported`.
 - [ ] 9.12 `npm run desktop:unit:test` and `npm run test:desktop` — the IPC contract changed. Report per-platform results without extrapolating from this host
-- [ ] 9.13 `openspec validate extend-lsp-language-registry --strict` and `openspec validate --specs --strict`
-- [ ] 9.14 Simulate the real archive merge with `buildUpdatedSpec` before archiving. `validate --strict` does not model it, and a renamed requirement or a dropped scenario fails only at archive time
+  - `desktop:unit:test` **56 passed**.
+  - `test:desktop` caught a **real defect that every other layer missed**: `desktop-smoke` failed 1 of 25 specs, `domain-lsp.e2e.mjs > saves and reads back a per-language LSP configuration`. That spec reaches `save_lsp_configuration` through `core.invoke` directly, so its payload carries no `descriptors` — and I had made the field a required input. 4551 Rust tests and 1660 frontend tests all passed because every one of them either constructed the DTO in Rust or went through the frontend adapter, which always has descriptors to send.
+  - The fix is an API correction, not a test fixture edit: `descriptors` is output only (`#[serde(default, skip_deserializing)]`) because the backend authors it from the registry, and `startup_arguments` is `#[serde(default)]` so a caller written before the field existed still saves. Added a DTO regression test for the exact omitted-field payload, and extended the desktop spec to assert descriptors come back, that every configured language is described, and that unset startup arguments stay distinct from an explicit empty list across a real SQLite round trip.
+  - The desktop spec also stopped pinning `["rust", "typescript_javascript"]`; it now checks discovery against the descriptors the same build reports, so registering a language cannot make the spec wrong.
+  - Results are Windows-only and must not be extrapolated to macOS or Linux.
+- [x] 9.13 `openspec validate extend-lsp-language-registry --strict` and `openspec validate --specs --strict`
+  - Change valid; main specs **138 passed, 0 failed**.
+- [x] 9.14 Simulate the real archive merge with `buildUpdatedSpec` before archiving. `validate --strict` does not model it, and a renamed requirement or a dropped scenario fails only at archive time
+  - `lsp-server-management +1 ~2 ren:1`, `settings-center-ui ~1`. No warnings, no unaccounted content.
 
 ## 10. Acceptance
 

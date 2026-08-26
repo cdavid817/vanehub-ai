@@ -97,6 +97,10 @@ pub(crate) struct LspLanguageConfigurationDto {
     pub(crate) enabled: bool,
     pub(crate) executable_override: Option<String>,
     /// Absent means "use the registry default"; present but empty means the user chose none.
+    ///
+    /// `default` so a caller written before this field existed still saves successfully, rather
+    /// than failing on a field whose absence already has a defined meaning.
+    #[serde(default)]
     pub(crate) startup_arguments: Option<Vec<String>>,
     pub(crate) initialization_options: Value,
 }
@@ -117,6 +121,11 @@ pub(crate) struct LspConfigurationDto {
     pub(crate) enabled: bool,
     pub(crate) languages: Vec<LspLanguageConfigurationDto>,
     /// Every language this build registers, whether or not it has saved configuration yet.
+    ///
+    /// Output only. The backend rebuilds it from the registry on every read, so requiring a caller
+    /// to send it back would make them restate a fact they did not author — and would reject any
+    /// caller that reaches the command directly instead of through the frontend adapter.
+    #[serde(default, skip_deserializing)]
     pub(crate) descriptors: Vec<LspLanguageDescriptorDto>,
 }
 

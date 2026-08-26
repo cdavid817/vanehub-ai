@@ -40,6 +40,42 @@ fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
 }
 
 #[test]
+fn a_caller_may_omit_descriptors_and_startup_arguments_when_saving() {
+    // The desktop end-to-end layer calls `save_lsp_configuration` through `core.invoke` directly,
+    // without going through the frontend adapter, so its payload carries neither field. Requiring
+    // `descriptors` would reject that caller for restating a fact the backend authored, and
+    // requiring `startupArguments` would reject one written before the field existed.
+    let configuration = serde_json::from_value::<LspConfigurationDto>(json!({
+        "enabled": true,
+        "languages": [{
+            "language": "rust",
+            "enabled": true,
+            "executableOverride": null,
+            "initializationOptions": {}
+        }]
+    }))
+    .expect("a payload without descriptors or startup arguments deserializes");
+
+    assert!(configuration.enabled);
+    assert!(configuration.descriptors.is_empty());
+    assert_eq!(configuration.languages[0].startup_arguments, None);
+
+    // Descriptors are output only: a caller that sends them is not trusted to define them.
+    let ignored = serde_json::from_value::<LspConfigurationDto>(json!({
+        "enabled": false,
+        "languages": [],
+        "descriptors": [{
+            "language": "go",
+            "server": "gopls",
+            "supportedOnHost": true,
+            "defaultStartupArguments": []
+        }]
+    }))
+    .expect("descriptors sent by a caller are accepted and discarded");
+    assert!(ignored.descriptors.is_empty());
+}
+
+#[test]
 fn unset_and_empty_startup_arguments_are_distinguishable_on_the_wire() {
     // The whole point of the nullable column is that these two survive a round trip as different
     // values. If serde collapsed them, clearing the field in the UI would silently mean "use the

@@ -24,8 +24,10 @@ globalThis.describe("VaneHub AI desktop LSP code intelligence domain", () => {
   });
 
   globalThis.it("saves and reads back a per-language LSP configuration", async () => {
-    // types/lsp.ts:5-8 -- exactly two languages are modeled today: rust and
-    // typescript_javascript.
+    // Deliberately omits `descriptors` and `startupArguments`. This spec reaches the command
+    // through `core.invoke` rather than the frontend adapter, so it is the only layer that proves
+    // a caller does not have to restate the descriptor list the backend itself authored. Making
+    // `descriptors` a required input broke exactly this and nothing else.
     const configuration = {
       enabled: true,
       languages: [
@@ -47,17 +49,84 @@ globalThis.describe("VaneHub AI desktop LSP code intelligence domain", () => {
     assert.equal(rust?.enabled, true);
     assert.equal(typescript?.enabled, false);
     assert.deepEqual(typescript?.initializationOptions, { checkJs: true });
+
+    // Descriptors come back even though they were never sent: the registry is the authority on
+    // which languages exist, and the reply is where the frontend learns it.
+    assert.ok(Array.isArray(read.descriptors) && read.descriptors.length > 0, "no descriptors returned");
+    for (const descriptor of read.descriptors) {
+      assert.match(descriptor.language, /^[a-z0-9_]{1,64}$/);
+      assert.match(descriptor.server, /^[a-z0-9_]{1,64}$/);
+      assert.equal(typeof descriptor.supportedOnHost, "boolean");
+      assert.ok(Array.isArray(descriptor.defaultStartupArguments));
+    }
+    // Every configured language must be one the same reply describes.
+    const declared = new Set(read.descriptors.map((entry) => entry.language));
+    for (const entry of read.languages) {
+      assert.ok(declared.has(entry.language), `${entry.language} has no descriptor`);
+    }
+  });
+
+  globalThis.it("keeps unset startup arguments distinct from an explicit empty list", async () => {
+    // NULL means "use the registry default"; [] means the user chose to pass none. Collapsing the
+    // two would silently restore `--stdio` for the TypeScript server after someone cleared it, and
+    // only a real round trip through SQLite proves the column keeps them apart.
+    const save = (languages) => invoke(
+      ({ core }, config) => core.invoke("save_lsp_configuration", { configuration: config }),
+      { enabled: true, languages },
+    );
+    const read = () => invoke(({ core }) => core.invoke("get_lsp_configuration"));
+    const languageOf = (configuration, id) => configuration.languages.find(
+      (entry) => entry.language === id,
+    );
+
+    await save([
+      {
+        language: "rust",
+        enabled: false,
+        executableOverride: null,
+        startupArguments: ["--log-file", "trace.log"],
+        initializationOptions: {},
+      },
+      {
+        language: "typescript_javascript",
+        enabled: false,
+        executableOverride: null,
+        startupArguments: [],
+        initializationOptions: {},
+      },
+    ]);
+
+    const stored = await read();
+    assert.deepEqual(languageOf(stored, "rust")?.startupArguments, ["--log-file", "trace.log"]);
+    assert.deepEqual(languageOf(stored, "typescript_javascript")?.startupArguments, []);
+
+    await save([
+      {
+        language: "rust",
+        enabled: false,
+        executableOverride: null,
+        startupArguments: null,
+        initializationOptions: {},
+      },
+    ]);
+    assert.equal(languageOf(await read(), "rust")?.startupArguments, null);
   });
 
   globalThis.it("discovers this host's LSP servers and reports a reason for each unavailable one", async () => {
     // lsp.ts:20-22,81-88 -- discovery does not spawn anything; it only reports whether a server
     // binary can be resolved (`executablePath`) and, when it cannot, one of the documented safe
     // reason codes rather than a raw OS error.
+    const { descriptors } = await invoke(({ core }) => core.invoke("get_lsp_configuration"));
+    const languages = new Set(descriptors.map((entry) => entry.language));
+    const servers = new Set(descriptors.map((entry) => entry.server));
+
     const discoveries = await invoke(({ core }) => core.invoke("discover_lsp_servers"));
     assert.ok(Array.isArray(discoveries) && discoveries.length > 0, "discovery reported no servers at all");
+    // Checked against the registry the same build reports rather than a list pinned here, so
+    // registering a language does not make this spec wrong.
     for (const discovery of discoveries) {
-      assert.ok(["rust", "typescript_javascript"].includes(discovery.language));
-      assert.ok(["rust_analyzer", "typescript_language_server"].includes(discovery.server));
+      assert.ok(languages.has(discovery.language), `${discovery.language} is not a registered language`);
+      assert.ok(servers.has(discovery.server), `${discovery.server} is not a registered server`);
       if (discovery.availability === "unavailable") {
         assert.equal(discovery.executablePath, null);
         assert.ok(discovery.reasonCode, `${discovery.server} reported unavailable with no reason code`);
@@ -75,9 +144,6 @@ globalThis.describe("VaneHub AI desktop LSP code intelligence domain", () => {
     const statuses = await invoke(({ core }) => core.invoke("list_lsp_server_status"));
     assert.ok(Array.isArray(statuses), "list_lsp_server_status did not return an array");
     assert.equal(statuses.length, 0, "a fresh run already had a live LSP server process tracked");
-    for (const status of statuses) {
-      assert.ok(["rust", "typescript_javascript"].includes(status.language));
-    }
   });
 
   globalThis.it("trusts and revokes a real workspace root", async () => {
