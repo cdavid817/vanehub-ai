@@ -542,6 +542,35 @@ pub(super) fn candidates_to_dto(candidates: Vec<MemoryCandidate>) -> Vec<dto::Me
         .collect()
 }
 
+/// A reviewer's scope choice, or `None` when they made none.
+///
+/// `None` keeps what the proposal carried. Defaulting to global would let an edit to the wording
+/// widen a workspace memory to every project, which is the one change a reviewer would not expect
+/// to have made.
+fn memory_scope(
+    scope_kind: Option<&str>,
+    workspace: Option<&str>,
+) -> Result<Option<MemoryScope>, CommandError> {
+    match (scope_kind, workspace) {
+        (None, _) => Ok(None),
+        (Some("global"), _) => Ok(Some(MemoryScope::Global)),
+        (Some("workspace"), Some(workspace)) => Ok(Some(MemoryScope::Workspace {
+            workspace_key: workspace_key(workspace)?,
+        })),
+        (Some(kind), _) => Err(invalid("memory scope", kind)),
+    }
+}
+
+/// An empty list is not "everyone": it is a real choice meaning no Agent may read the record.
+fn audience_of(agent_ids: Vec<String>) -> Result<MemoryAudience, CommandError> {
+    Ok(MemoryAudience::SelectedAgents {
+        agent_ids: agent_ids
+            .iter()
+            .map(|value| agent_id(value))
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
 pub(super) fn review_request(
     input: dto::ReviewCandidateInput,
 ) -> Result<ReviewRequest, CommandError> {
@@ -552,8 +581,8 @@ pub(super) fn review_request(
             description: input.description,
             content: input.content,
             memory_type: input.memory_type.as_deref().map(memory_type).transpose()?,
-            scope: None,
-            audience: None,
+            scope: memory_scope(input.scope_kind.as_deref(), input.workspace_key.as_deref())?,
+            audience: input.audience_agent_ids.map(audience_of).transpose()?,
         },
         "reject" => ReviewAction::Reject,
         "mark-sensitive-and-archive" => ReviewAction::MarkSensitiveAndArchive,

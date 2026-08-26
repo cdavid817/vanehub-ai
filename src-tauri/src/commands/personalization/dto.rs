@@ -327,6 +327,17 @@ pub(crate) struct ReviewCandidateInput {
     pub(crate) content: Option<String>,
     #[serde(default)]
     pub(crate) memory_type: Option<String>,
+    /// `global` or `workspace`. Absent keeps the scope the proposal carried, which is not the same
+    /// as choosing global: a reviewer who edits only the wording must not silently widen a
+    /// workspace memory to every project.
+    #[serde(default)]
+    pub(crate) scope_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) workspace_key: Option<String>,
+    /// Absent keeps the proposed audience. An empty list is a real choice and means no Agent, which
+    /// is why it is not the same as absent.
+    #[serde(default)]
+    pub(crate) audience_agent_ids: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) merge_target_id: Option<String>,
     #[serde(default)]

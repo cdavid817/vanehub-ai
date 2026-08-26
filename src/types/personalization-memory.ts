@@ -130,6 +130,12 @@ export interface ReviewCandidateInput {
   description?: string;
   content?: string;
   memoryType?: Exclude<MemoryType, "untyped">;
+  /** Absent keeps the proposed scope. Choosing global for an edit that only reworded the
+   * text would widen a workspace memory to every project. */
+  scopeKind?: MemoryScopeKind;
+  workspaceKey?: string;
+  /** Absent keeps the proposed audience; an empty list means no Agent may read it. */
+  audienceAgentIds?: string[];
   /** Required by `merge-into`, together with the target's revision. */
   mergeTargetId?: string;
   mergeExpectedRevision?: number;
