@@ -22,6 +22,10 @@ const requiredKeys = [
   "lspSettings.configuration.saving", "lspSettings.configuration.saved",
   "lspSettings.configuration.saveError", "lspSettings.language.rust",
   "lspSettings.language.typescript_javascript", "lspSettings.language.enabled",
+  "lspSettings.language.unsupportedOnHost",
+  "lspSettings.startupArguments.title", "lspSettings.startupArguments.description",
+  "lspSettings.startupArguments.none", "lspSettings.startupArguments.placeholder",
+  "lspSettings.startupArguments.tooMany", "lspSettings.startupArguments.tooLarge",
   "lspSettings.discovery.title", "lspSettings.discovery.description",
   "lspSettings.discovery.automatic", "lspSettings.discovery.manual",
   "lspSettings.discovery.available", "lspSettings.discovery.unavailable",
@@ -62,6 +66,7 @@ const requiredKeys = [
   "lspSettings.reason.protocol_limit", "lspSettings.reason.request_timeout",
   "lspSettings.reason.cancelled", "lspSettings.reason.untrusted",
   "lspSettings.reason.unsupported_method", "lspSettings.reason.invalid_configuration",
+  "lspSettings.reason.unsupported_on_this_platform",
 ] as const;
 
 describe("LSP settings localization", () => {

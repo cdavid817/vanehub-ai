@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { LspConfiguration } from "../types/lsp";
 import { webAgentClient } from "./web-agent-client";
 import { resetWebLspMockStateForTest, webLspToolClient } from "./web-lsp-client";
+import { lspTestDescriptors } from "../test/lsp-fixtures";
 
 const enabledRustConfiguration: LspConfiguration = {
   enabled: true,
@@ -10,15 +11,18 @@ const enabledRustConfiguration: LspConfiguration = {
       language: "rust",
       enabled: true,
       executableOverride: "C:/tools/rust-analyzer.exe",
+      startupArguments: null,
       initializationOptions: { diagnostics: { enable: true } },
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 describe("Web LSP adapter", () => {

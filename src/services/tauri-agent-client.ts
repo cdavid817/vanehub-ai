@@ -510,10 +510,7 @@ export const tauriAgentClient: AgentService = {
 
   async testLspServer(language: LspLanguageId) {
     const input = normalizeLspServerTestInput({ language });
-    return normalizeLspServerTestResult(
-      await invoke<unknown>("test_lsp_server", { input }),
-      input.language,
-    );
+    return normalizeLspServerTestResult(await invoke<unknown>("test_lsp_server", { input }));
   },
 
   async getLspServerStatus() {

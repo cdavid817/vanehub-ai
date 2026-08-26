@@ -9,9 +9,9 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import {
-  lspLanguageIds,
   lspServerTestPhases,
   type LspConfiguration,
+  type LspLanguageDescriptor,
   type LspLanguageId,
   type LspNegotiatedCapabilities,
   type LspProcessState,
@@ -36,10 +36,46 @@ type WebLspClient = Pick<AgentService,
 
 const maximumTrustRecords = 128;
 const readyTimestamp = "2026-01-01T00:00:00Z";
-const virtualExecutables: Record<LspLanguageId, string> = {
-  rust: "/mock/lsp/rust-analyzer",
-  typescript_javascript: "/mock/lsp/typescript-language-server",
-};
+
+/**
+ * Web mode has no backend registry to ask, so this mirrors it. Adding a language here is a
+ * mock-data edit; no component or contract code changes with it, which is the parity the desktop
+ * registry is supposed to buy.
+ */
+const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] = [
+  {
+    language: "rust",
+    server: "rust_analyzer",
+    supportedOnHost: true,
+    defaultStartupArguments: [],
+    executable: "/mock/lsp/rust-analyzer",
+  },
+  {
+    language: "typescript_javascript",
+    server: "typescript_language_server",
+    supportedOnHost: true,
+    defaultStartupArguments: ["--stdio"],
+    executable: "/mock/lsp/typescript-language-server",
+  },
+];
+
+function descriptors(): LspLanguageDescriptor[] {
+  return mockRegistry.map((entry) => ({
+    language: entry.language,
+    server: entry.server,
+    supportedOnHost: entry.supportedOnHost,
+    defaultStartupArguments: [...entry.defaultStartupArguments],
+  }));
+}
+
+function entryFor(language: LspLanguageId) {
+  return mockRegistry.find((entry) => entry.language === language)
+    ?? invalidLanguage(language);
+}
+
+function invalidLanguage(language: string): never {
+  throw new Error(`The Web LSP mock does not register the language "${language}".`);
+}
 
 const capabilities: LspNegotiatedCapabilities = {
   positionEncoding: "utf16",
@@ -53,12 +89,14 @@ const capabilities: LspNegotiatedCapabilities = {
 function defaultConfiguration(): LspConfiguration {
   return {
     enabled: false,
-    languages: lspLanguageIds.map((language) => ({
-      language,
+    languages: mockRegistry.map((entry) => ({
+      language: entry.language,
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     })),
+    descriptors: descriptors(),
   };
 }
 
@@ -77,22 +115,26 @@ function normalizeRoot(root: string): string {
 }
 
 function serverFor(language: LspLanguageId): LspServerKind {
-  return language === "rust" ? "rust_analyzer" : "typescript_language_server";
+  return entryFor(language).server;
 }
 
+/** Configured arguments replace the declared default, and an empty list is a choice. */
 function argumentsFor(language: LspLanguageId): string[] {
-  return language === "typescript_javascript" ? ["--stdio"] : [];
+  const configured = configuration.languages
+    .find((entry) => entry.language === language)?.startupArguments;
+  return configured ?? [...entryFor(language).defaultStartupArguments];
 }
 
 function discoveryFor(language: LspLanguageId): LspServerDiscovery {
+  const entry = entryFor(language);
   const languageConfiguration = configuration.languages.find(
-    (entry) => entry.language === language,
+    (candidate) => candidate.language === language,
   );
   return {
     language,
-    server: serverFor(language),
+    server: entry.server,
     availability: "available",
-    executablePath: languageConfiguration?.executableOverride ?? virtualExecutables[language],
+    executablePath: languageConfiguration?.executableOverride ?? entry.executable,
     arguments: argumentsFor(language),
     reasonCode: null,
   };
@@ -148,7 +190,11 @@ export const webLspClient: WebLspClient = {
   },
 
   async saveLspConfiguration(nextConfiguration) {
-    configuration = clone(normalizeLspConfiguration(nextConfiguration));
+    const normalized = normalizeLspConfiguration(nextConfiguration);
+    for (const entry of normalized.languages) entryFor(entry.language);
+    // Descriptors describe the runtime, so they are regenerated rather than stored: accepting the
+    // caller's copy would let a stale one outlive the mock registry it claims to describe.
+    configuration = clone({ ...normalized, descriptors: descriptors() });
     lifecyclePolls.clear();
   },
 
@@ -176,22 +222,21 @@ export const webLspClient: WebLspClient = {
   },
 
   async discoverLspServers() {
-    return clone(normalizeLspServerDiscoveries(lspLanguageIds.map(discoveryFor)));
+    return clone(normalizeLspServerDiscoveries(
+      mockRegistry.map((entry) => discoveryFor(entry.language)),
+    ));
   },
 
   async testLspServer(language) {
-    return clone(normalizeLspServerTestResult(
-      {
-        server: serverFor(language),
-        phases: lspServerTestPhases.map((phase) => ({
-          phase,
-          status: "succeeded",
-          reasonCode: null,
-        })),
-        negotiatedCapabilities: capabilities,
-      },
-      language,
-    ));
+    return clone(normalizeLspServerTestResult({
+      server: serverFor(language),
+      phases: lspServerTestPhases.map((phase) => ({
+        phase,
+        status: "succeeded",
+        reasonCode: null,
+      })),
+      negotiatedCapabilities: capabilities,
+    }));
   },
 
   async getLspServerStatus() {

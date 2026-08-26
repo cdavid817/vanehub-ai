@@ -6,6 +6,7 @@ import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { LspConfiguration, LspServerDiscovery } from "../../../types/lsp";
 import { LspConfigurationSection } from "./lsp-configuration-section";
+import { lspTestDescriptors } from "../../../test/lsp-fixtures";
 
 const configuration: LspConfiguration = {
   enabled: false,
@@ -14,15 +15,18 @@ const configuration: LspConfiguration = {
       language: "rust",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: "C:/tools/typescript-language-server.exe",
+      startupArguments: null,
       initializationOptions: { preferences: { includeCompletionsForModuleExports: true } },
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 const discoveries: LspServerDiscovery[] = [
@@ -124,10 +128,12 @@ describe("LspConfigurationSection", () => {
           language: "rust",
           enabled: true,
           executableOverride: "C:/custom/rust-analyzer.exe",
+          startupArguments: null,
           initializationOptions: { cargo: { allTargets: true } },
         },
         configuration.languages[1],
       ],
+      descriptors: lspTestDescriptors(),
     }));
     expect((await screen.findByRole("status")).textContent).toContain("LSP 配置已保存。");
   });

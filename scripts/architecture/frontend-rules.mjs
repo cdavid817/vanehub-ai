@@ -82,8 +82,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `cli-parameter-catalog.ts` 抵掉了这一侧的一部分。
 // 合并 origin/main(local-media)后按合并树重测:两侧各自在自己的基线上报了上限(19803 / 19960),
 // 改的是不同文件,合并树的真实总数既不是两者之一也不是两者之和。下面这个数字是直接测量得到的。
+// 上调理由(extend-lsp-language-registry):+49,全部落在生产文件上,测试不计入。
+// +45 是 `web-lsp-client.ts` 的 mock 语言注册表:Web 模式没有后端注册表可查,契约对等就要求这一侧
+// 自带一份镜像。它换来的正是这个变更的目的——之后加一种语言是改这张表里的一条数据,而不是改组件。
+// +7 是 `lsp-contract.ts` 的描述符归一化与 startupArguments 字段;同时删掉的 `expectedServer`
+// 语言→服务器硬映射抵回去一部分,所以净额远小于新增逻辑本身。
+// -3 是 `tauri-agent-client.ts`:`normalizeLspServerTestResult` 的第二个参数原本只用于那条硬映射
+// 校验,映射没了参数也就没了。没有复制任何既有分支,前端也不再有任何写死的语言名。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20243, owner: "add-source-aware-cli-environment-management" },
+  { root: "src/services", budget: 20292, owner: "extend-lsp-language-registry" },
 ]);
 
 const STATE_PACKAGES = new Set([

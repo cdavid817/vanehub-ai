@@ -65,29 +65,42 @@
 
 ## 5. Commands and native API
 
-- [ ] 5.1 Widen `commands/code_intelligence/dto.rs` to carry language ids as validated strings and to include the registered-language descriptor list
-- [ ] 5.2 Extend `get_lsp_configuration` to return descriptors (id, platform applicability, whether an executable override is permitted) alongside configuration
-- [ ] 5.3 Extend `save_lsp_configuration` to accept per-language startup arguments and to reject unregistered ids and malformed arguments with safe reason codes
-- [ ] 5.4 Update `discover_lsp_servers`, `test_lsp_server`, and `list_lsp_server_status` to be registry-driven, keeping their existing result shapes for the two current languages
-- [ ] 5.5 Update `command_tests.rs` and `dto_tests.rs`, and confirm cross-context access still goes through `code_intelligence::api` so the architecture fitness rules stay satisfied
+- [x] 5.1 Widen `commands/code_intelligence/dto.rs` to carry language ids as validated strings and to include the registered-language descriptor list
+  - `LspLanguageIdDto` and `LspServerKindDto` are gone. An enum here would have put the supported set back in a second place that has to be edited in lockstep with the registry. The serialized values are unchanged.
+- [x] 5.2 Extend `get_lsp_configuration` to return descriptors (id, platform applicability, whether an executable override is permitted) alongside configuration
+  - `LspLanguageDescriptorDto { language, server, supportedOnHost, defaultStartupArguments }`, rebuilt from the registry on every read rather than round-tripped, so it describes the build and not the saved settings.
+- [x] 5.3 Extend `save_lsp_configuration` to accept per-language startup arguments and to reject unregistered ids and malformed arguments with safe reason codes
+- [x] 5.4 Update `discover_lsp_servers`, `test_lsp_server`, and `list_lsp_server_status` to be registry-driven, keeping their existing result shapes for the two current languages
+- [x] 5.5 Update `command_tests.rs` and `dto_tests.rs`, and confirm cross-context access still goes through `code_intelligence::api` so the architecture fitness rules stay satisfied
+  - The boundary rule caught a real violation: a scripted import put `domain::registry` directly into `native_lsp_end_to_end_tests.rs`, which lives outside the context. Routed through `api::resolve_language` instead.
 
 ## 6. Frontend contract and adapters
 
-- [ ] 6.1 Widen `src/types/lsp.ts`: replace the `lspLanguageIds` tuple literal with an opaque `LspLanguageId` string type and add the descriptor type. Do this in one commit so `tsc --noEmit` enumerates every affected site at once
-- [ ] 6.2 Update `src/services/agent-service.ts` and `src/services/lsp-contract.ts` for descriptors and startup arguments
-- [ ] 6.3 Update the Tauri adapter (`tauri-agent-client.ts`) — desktop path only, `invoke()` stays confined here
-- [ ] 6.4 Update the Web/mock adapter (`web-agent-client.ts`, `web-lsp-client.ts`) to return the same descriptor and startup-argument shape deterministically, with no filesystem, process, or network access
-- [ ] 6.5 Update `lsp-adapter-conformance.test.ts` so the two adapters are proven to still agree on the widened contract
-- [ ] 6.6 Verify the services subtree aggregate line budget with `npm run architecture:check`. It reports after lint, tsc, and build have already passed, so check it here rather than at the end
+- [x] 6.1 Widen `src/types/lsp.ts`: replace the `lspLanguageIds` tuple literal with an opaque `LspLanguageId` string type and add the descriptor type. Do this in one commit so `tsc --noEmit` enumerates every affected site at once
+  - Worked exactly as the design predicted: one edit, then `tsc` listed all 21 affected sites at once instead of surfacing them one rebuild at a time.
+- [x] 6.2 Update `src/services/agent-service.ts` and `src/services/lsp-contract.ts` for descriptors and startup arguments
+  - The contract can no longer know the language set, so the checks changed rather than moved: ids are validated against the shape the backend enforces (`[a-z0-9_]{1,64}`), and configuration is cross-checked against the descriptors carried in the same response. The `expectedServer` language-to-server mapping is deleted — the descriptor is now the authority on that pairing.
+- [x] 6.3 Update the Tauri adapter (`tauri-agent-client.ts`) — desktop path only, `invoke()` stays confined here
+- [x] 6.4 Update the Web/mock adapter (`web-agent-client.ts`, `web-lsp-client.ts`) to return the same descriptor and startup-argument shape deterministically, with no filesystem, process, or network access
+  - Web mode has no backend registry to ask, so the mock carries a mirror of it. Adding a language there is a mock-data edit; no component or contract code moves with it, which is the parity the desktop registry is meant to buy.
+- [x] 6.5 Update `lsp-adapter-conformance.test.ts` so the two adapters are proven to still agree on the widened contract
+  - Two of its "invalid payload" cases became legal and had to be replaced rather than deleted: an empty language list, and a server that disagrees with its language. What stays rejectable is a malformed id and configuration for a language the response does not describe.
+- [x] 6.6 Verify the services subtree aggregate line budget with `npm run architecture:check`. It reports after lint, tsc, and build have already passed, so check it here rather than at the end
+  - It fired, at +49 over. Removed the real duplication first — the descriptor fixture had been written three times — then raised the budget by the remaining production-only 49 with a stated reason. The rule counts production files only, so the test dedupe does not move the number; it was worth doing anyway.
 
 ## 7. Settings UI and localization
 
-- [ ] 7.1 Replace the two hard-coded language sections with one card component rendered per descriptor, keeping discovery state, executable override, initialization options, and server testing per language
-- [ ] 7.2 Add the bounded startup-arguments control, distinguishing "not overridden" from "overridden to empty" in the UI, since clearing it must not silently strip `--stdio` from the TypeScript server
-- [ ] 7.3 Present a language unsupported on this host distinctly from one whose executable was merely not discovered
-- [ ] 7.4 Add the `lspSettings.language.<id>` fallback to the raw id when a locale lacks the key, so a later change adding a language cannot render blank labels across five bundles
-- [ ] 7.5 Update `src/i18n/locales/{en,zh-CN,zh-TW,ja,ko}.json` for the startup-arguments control and the unsupported-on-host state, and update `lsp-settings-localization.test.ts`
-- [ ] 7.6 Update the LSP settings component tests, keeping in mind that the default test language is not English and that jest-dom matchers are unavailable in this harness
+- [x] 7.1 Replace the two hard-coded language sections with one card component rendered per descriptor, keeping discovery state, executable override, initialization options, and server testing per language
+  - The server-test panel had the same hard-coded list and now reads the descriptors too, sharing the configuration query key so both surfaces resolve from one fetch and cannot disagree about which languages exist.
+- [x] 7.2 Add the bounded startup-arguments control, distinguishing "not overridden" from "overridden to empty" in the UI, since clearing it must not silently strip `--stdio` from the TypeScript server
+  - One argument per line; a blank field maps to `null` (registry default), not to `[]`.
+- [x] 7.3 Present a language unsupported on this host distinctly from one whose executable was merely not discovered
+  - Its controls are disabled with an explicit note, and the server-test panel omits it entirely — offering the button would only produce a failure the user can do nothing about.
+- [x] 7.4 Add the `lspSettings.language.<id>` fallback to the raw id when a locale lacks the key, so a later change adding a language cannot render blank labels across five bundles
+- [x] 7.5 Update `src/i18n/locales/{en,zh-CN,zh-TW,ja,ko}.json` for the startup-arguments control and the unsupported-on-host state, and update `lsp-settings-localization.test.ts`
+  - 8 keys × 5 locales, inserted line-wise so each file diff is exactly +8 with no reformatting noise.
+- [x] 7.6 Update the LSP settings component tests, keeping in mind that the default test language is not English and that jest-dom matchers are unavailable in this harness
+  - The test panel's buttons now appear only after its query resolves, so two `getByRole` calls had to become `findByRole`. That is a real timing change, not a flake.
 
 ## 8. Documentation
 

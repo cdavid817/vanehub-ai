@@ -1,16 +1,13 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { LoaderCircle, TestTube2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
-import {
-  lspLanguageIds,
-  type LspLanguageId,
-  type LspServerTestResult,
-} from "../../../types/lsp";
+import type { LspLanguageId, LspServerTestResult } from "../../../types/lsp";
 import { SectionPanel } from "../page-parts";
+import { lspConfigurationQueryKey } from "./lsp-configuration-section";
 
 function ServerTestResult({ result }: { result: LspServerTestResult }) {
   const { t } = useTranslation();
@@ -44,7 +41,7 @@ function ServerTestResult({ result }: { result: LspServerTestResult }) {
 
 function ServerTestCard({ language, service }: { language: LspLanguageId; service: AgentService }) {
   const { t } = useTranslation();
-  const languageName = t(`lspSettings.language.${language}`);
+  const languageName = t(`lspSettings.language.${language}`, { defaultValue: language });
   const mutation = useMutation({ mutationFn: () => service.testLspServer(language) });
   const failedResult = mutation.data?.phases.some((phase) => phase.status === "failed") ?? false;
   const canRetry = mutation.isError || failedResult;
@@ -82,6 +79,16 @@ export function LspServerTestPanel({
   service?: AgentService;
 }) {
   const { t } = useTranslation();
+  // Shares the configuration query key with the section above, so React Query serves both from one
+  // fetch and the two surfaces cannot disagree about which languages exist.
+  const configurationQuery = useQuery({
+    queryKey: lspConfigurationQueryKey,
+    queryFn: () => service.getLspConfiguration(),
+  });
+  // A language this host cannot run has nothing to test, and offering the button would only
+  // produce a failure the user can do nothing about.
+  const testable = (configurationQuery.data?.descriptors ?? [])
+    .filter((descriptor) => descriptor.supportedOnHost);
 
   return (
     <SectionPanel
@@ -91,8 +98,12 @@ export function LspServerTestPanel({
       variant="settings"
     >
       <div className="grid gap-4 p-5 sm:p-6 xl:grid-cols-2">
-        {lspLanguageIds.map((language) => (
-          <ServerTestCard key={language} language={language} service={service} />
+        {testable.map((descriptor) => (
+          <ServerTestCard
+            key={descriptor.language}
+            language={descriptor.language}
+            service={service}
+          />
         ))}
       </div>
     </SectionPanel>
