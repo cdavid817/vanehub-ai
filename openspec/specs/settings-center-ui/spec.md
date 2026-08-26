@@ -345,7 +345,7 @@ The settings center SHALL include Personalization as a first-class settings page
 - **THEN** the settings center SHALL render the Personalization settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Settings expose LSP configuration and runtime status
-The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, Rust and TypeScript/JavaScript switches, automatic discovery state, executable override controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
+The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, executable override controls, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set rather than from a fixed list compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
 
 #### Scenario: User configures Rust LSP
 - **WHEN** a user enables LSP and Rust, selects a discovered `rust-analyzer` or valid executable override, supplies valid bounded initialization options, and saves
@@ -371,6 +371,21 @@ The Agent configuration area SHALL provide a localized service-backed LSP sectio
 - **WHEN** the LSP settings section is used in browser Web mode
 - **THEN** it SHALL support deterministic mock configuration, trust, discovery, testing, and status behavior
 - **AND** it SHALL not require a native filesystem or process
+
+#### Scenario: Registered language set determines the rendered controls
+- **WHEN** the settings section loads the registered-language set through the service boundary
+- **THEN** it SHALL render exactly one language control group per registered language, each with that language's own discovery state, executable override, startup arguments, and initialization options
+- **AND** adding a language to the backend registry SHALL require no new per-language frontend component
+
+#### Scenario: Language is unsupported on this host
+- **WHEN** a registered language declares no applicability for the current operating system
+- **THEN** its control group SHALL present it as unsupported on this host and SHALL NOT offer enablement or server testing
+- **AND** it SHALL be distinguishable from a supported language whose executable was simply not discovered
+
+#### Scenario: Startup arguments are invalid
+- **WHEN** a user attempts to save startup arguments that are not a bounded list of strings or that exceed the declared size limit
+- **THEN** shared form validation SHALL reject the submission
+- **AND** the last valid persisted configuration SHALL remain active
 
 ### Requirement: Workflow-oriented settings navigation order
 The Settings sidebar SHALL order destinations by expected workflow frequency: general setup and recurring Agent behavior first, reusable capabilities and customization next, one-time CLI installation and external integrations after that, and diagnostics and product information last.
@@ -548,3 +563,4 @@ Every CLI Management control, state, dialog, drawer, tooltip, empty state, and e
 
 - **WHEN** `futuristic` or `minimal` style is active at desktop or narrow width
 - **THEN** the page SHALL use shared semantic tokens, compact density, stable control dimensions, and no nested card-in-card layout
+
