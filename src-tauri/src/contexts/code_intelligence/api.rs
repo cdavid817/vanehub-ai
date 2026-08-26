@@ -37,6 +37,11 @@ pub(crate) enum CodeIntelligenceApiError {
     InvalidConfiguration,
     #[error("invalid workspace root")]
     InvalidWorkspace,
+    /// Distinct from `InvalidWorkspace` so the boundary can say the language's required project
+    /// marker is missing. Collapsing them sends a user to the settings page when the thing to fix
+    /// is their build system.
+    #[error("the language's required project marker is missing from the workspace")]
+    MissingProjectMarker,
     #[error("code-intelligence storage operation failed")]
     Storage,
     #[error("language-server shutdown did not complete")]
@@ -256,8 +261,9 @@ impl CodeIntelligenceApi {
         let Some(language) = language_for_path(Path::new(relative_path)) else {
             return unavailable_query("unsupported_language", None);
         };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let launch = match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => launch,
+            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
         };
         self.semantic_queries
             .find_definition(launch, language, relative_path, line, column, cancelled)
@@ -275,8 +281,9 @@ impl CodeIntelligenceApi {
         let Some(language) = language_for_path(Path::new(relative_path)) else {
             return unavailable_query("unsupported_language", None);
         };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let launch = match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => launch,
+            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
         };
         self.semantic_queries
             .find_references(launch, language, relative_path, line, column, cancelled)
@@ -294,8 +301,9 @@ impl CodeIntelligenceApi {
         let Some(language) = language_for_path(Path::new(relative_path)) else {
             return unavailable_query("unsupported_language", None);
         };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let launch = match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => launch,
+            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
         };
         self.semantic_queries
             .get_hover(launch, language, relative_path, line, column, cancelled)
@@ -319,8 +327,9 @@ impl CodeIntelligenceApi {
                 None,
             );
         }
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let launch = match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => launch,
+            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
         };
         self.semantic_queries
             .get_diagnostics(launch, language, relative_path, cancelled)
@@ -459,7 +468,12 @@ impl CodeIntelligenceApi {
             &document,
             language,
         )
-        .map_err(|_| CodeIntelligenceApiError::InvalidWorkspace)?;
+        .map_err(|error| match error {
+            super::infrastructure::ProjectRootError::RequiredMarkerMissing => {
+                CodeIntelligenceApiError::MissingProjectMarker
+            }
+            _ => CodeIntelligenceApiError::InvalidWorkspace,
+        })?;
         let fingerprint = configuration_fingerprint(
             language,
             executable,
@@ -480,6 +494,16 @@ impl CodeIntelligenceApi {
             arguments: discovery.arguments().to_vec(),
             initialization_options: settings.initialization_options.clone(),
         })
+    }
+}
+
+/// A launch that never happened still has to say why. Every failure used to read as
+/// `not_configured`, which is actively misleading for a workspace whose configuration is fine and
+/// whose build system has simply not produced the marker the language needs.
+const fn launch_reason(error: CodeIntelligenceApiError) -> &'static str {
+    match error {
+        CodeIntelligenceApiError::MissingProjectMarker => "missing_project_marker",
+        _ => "not_configured",
     }
 }
 

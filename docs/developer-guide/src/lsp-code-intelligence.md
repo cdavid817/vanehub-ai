@@ -43,6 +43,10 @@ The main native ownership is under `src-tauri/src/contexts/code_intelligence/`:
 
 `domain/registry.rs` holds `LANGUAGE_DEFINITIONS`, one entry per supported language, following the `CLI_TOOL_DEFINITIONS` pattern in `contexts/tooling/cli`. Each entry declares the language id, the server id, candidate executable names in preference order, default startup arguments, project-root markers, extension-to-`languageId` mappings, platform applicability, and the minimal project the isolated server test builds.
 
+A marker may name a path inside the candidate directory rather than a file directly in it, which is how C/C++ finds `build/compile_commands.json` without a second detection mechanism. Marker order is not meaningful: any one of a language's markers identifies a root, and the nearest ancestor holding any of them wins, so which one matched changes nothing observable.
+
+An entry may set `requires_root_marker`. Detection then refuses instead of falling back to the session workspace root, and the failure carries its own reason code. Only C/C++ sets it, because `clangd` without a compilation database assumes default flags and answers confidently wrong, which is worse than answering unavailable. The distinction is deliberate at the boundary too: discovery still reports `clangd` as available, because it is — the workspace is what cannot be served.
+
 Adding a language means adding one entry plus its locale strings. Nothing else enumerates the set: discovery, project-root detection, document admission, server testing, configuration defaults, the command DTOs, and the settings page all derive it. `registry_tests.rs` fails a build whose entry is missing any of that data, and asserts that ids and extensions are unique — extension lookup returns the first match, so a contested extension would resolve by declaration order and route a file to the wrong server.
 
 There is no `LanguageFamily` or `ServerKind` enum. A language is `Language = &'static LanguageDefinition`: one `Copy` reference carrying both its own id and its server's, so the two cannot disagree. `LspLanguageId` is the owned validated form, used only where a value crosses storage or the wire and no `'static` reference exists yet. `resolve_language` turns such a value back into a reference, and returns `None` for an id this build does not register — which is an ordinary case, not an error, because storage no longer constrains the id set.
@@ -134,7 +138,9 @@ Lifecycle and protocol diagnostics use unified logging. Safe metadata includes s
 
 ## Extension limits
 
-No language beyond Rust and TypeScript/JavaScript is registered yet. The registry removes the per-language cost of adding one, but each still needs its own root-detection rules, extension mappings, and fixture project, and `jdtls` additionally needs a launch shape this model does not yet express — it runs through a JVM with a per-workspace data directory rather than as an executable with fixed arguments.
+Rust, TypeScript/JavaScript, Go, Python, and C/C++ are registered. Adding Go, Python, and C/C++ cost five registry entries' worth of data, three fixture projects, five locale strings, and one new resolver flag — and no frontend change at all, which is the property the registry was built for.
+
+Java is the remaining language on the roadmap and does not fit. `jdtls` runs through a JVM with a per-workspace data directory and a version-globbed launcher jar rather than as an executable with fixed arguments, so it needs a launch shape this model does not yet express.
 
 The foundation also intentionally excludes remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, call/type hierarchy, filesystem watching, unsaved buffers, and persistent LSP enrichment. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 

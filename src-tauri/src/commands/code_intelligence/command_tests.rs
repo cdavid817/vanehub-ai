@@ -3,7 +3,7 @@ use super::dto::{
     LspSafeReasonCodeDto, LspServerTestInputDto, LspServerTestPhaseDto,
     LspServerTestPhaseStatusDto, LspWorkspaceTrustUpdateDto,
 };
-use crate::contexts::code_intelligence::api::CodeIntelligenceApi;
+use crate::contexts::code_intelligence::api::{CodeIntelligenceApi, LANGUAGE_DEFINITIONS};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -59,7 +59,9 @@ fn configuration_commands_round_trip_validated_values() {
 
     let initial = super::get_lsp_configuration::execute(&api).expect("initial configuration");
     assert!(!initial.enabled);
-    assert_eq!(initial.languages.len(), 2);
+    // Counted against the registry rather than a literal, so registering a language does not make
+    // this assertion wrong -- which is the property the registry was introduced for.
+    assert_eq!(initial.languages.len(), LANGUAGE_DEFINITIONS.len());
     // Descriptors describe the build, not the saved settings, so they are present before anything
     // has been configured and are rebuilt on every read rather than round-tripped.
     assert_eq!(
@@ -68,7 +70,10 @@ fn configuration_commands_round_trip_validated_values() {
             .iter()
             .map(|descriptor| descriptor.language.as_str())
             .collect::<Vec<_>>(),
-        vec!["rust", "typescript_javascript"]
+        LANGUAGE_DEFINITIONS
+            .iter()
+            .map(|definition| definition.id)
+            .collect::<Vec<_>>()
     );
 
     let replacement = unavailable_configuration(directory.path());
@@ -76,7 +81,37 @@ fn configuration_commands_round_trip_validated_values() {
 
     let saved = super::get_lsp_configuration::execute(&api).expect("saved configuration");
     assert_eq!(saved.enabled, replacement.enabled);
-    assert_eq!(saved.languages, replacement.languages);
+    // Every language the replacement named comes back exactly. The ones it did not name come back
+    // as registry defaults rather than as absent entries, so no reader has to decide what a
+    // missing language means.
+    for expected in &replacement.languages {
+        let stored = saved
+            .languages
+            .iter()
+            .find(|entry| entry.language == expected.language)
+            .expect("configured language survives the round trip");
+        assert_eq!(stored, expected);
+    }
+    let unconfigured = saved
+        .languages
+        .iter()
+        .filter(|entry| {
+            !replacement
+                .languages
+                .iter()
+                .any(|expected| expected.language == entry.language)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !unconfigured.is_empty(),
+        "no unconfigured language to check"
+    );
+    for entry in unconfigured {
+        assert!(!entry.enabled);
+        assert_eq!(entry.executable_override, None);
+        assert_eq!(entry.startup_arguments, None);
+        assert_eq!(entry.initialization_options, json!({}));
+    }
     assert_eq!(saved.descriptors, initial.descriptors);
 }
 
@@ -87,7 +122,7 @@ fn saving_a_configuration_for_an_unregistered_language_is_refused() {
     let rejected = LspConfigurationDto {
         enabled: true,
         languages: vec![LspLanguageConfigurationDto {
-            language: "go".to_owned(),
+            language: "ruby".to_owned(),
             enabled: true,
             executable_override: None,
             startup_arguments: None,
@@ -100,7 +135,7 @@ fn saving_a_configuration_for_an_unregistered_language_is_refused() {
     // The refusal must leave the stored configuration untouched rather than half-applied.
     let stored = super::get_lsp_configuration::execute(&api).expect("configuration after refusal");
     assert!(!stored.enabled);
-    assert_eq!(stored.languages.len(), 2);
+    assert_eq!(stored.languages.len(), LANGUAGE_DEFINITIONS.len());
 }
 
 #[test]
@@ -134,10 +169,18 @@ async fn discovery_and_server_test_return_safe_unavailable_results() {
 
     let discoveries =
         super::discover_lsp_servers::execute(&api).expect("discover configured servers");
-    assert_eq!(discoveries.len(), 2);
+    assert_eq!(discoveries.len(), LANGUAGE_DEFINITIONS.len());
+    // Only the two languages the fixture configures carry a broken override; the rest are simply
+    // not installed on this host. Both are unavailable, and each must say which it is.
+    let configured = ["rust", "typescript_javascript"];
     assert!(discoveries.iter().all(|result| {
+        let expected = if configured.contains(&result.language.as_str()) {
+            LspSafeReasonCodeDto::OverrideMissing
+        } else {
+            LspSafeReasonCodeDto::ExecutableNotFound
+        };
         result.availability == LspDiscoveryAvailabilityDto::Unavailable
-            && result.reason_code == Some(LspSafeReasonCodeDto::OverrideMissing)
+            && result.reason_code == Some(expected)
     }));
 
     let result = super::test_lsp_server::execute(

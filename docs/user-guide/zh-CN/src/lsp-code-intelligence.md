@@ -47,6 +47,13 @@ LSP 出现之前,每个编辑器要支持"智能感知"(补全、跳转定义、
 | --- | --- | --- | --- |
 | Rust | `rust-analyzer` | 无 | 最近的 `Cargo.toml` |
 | TypeScript 与 JavaScript | `typescript-language-server` | `--stdio` | 最近的 `tsconfig.json`、`jsconfig.json` 或 `package.json` |
+| Go | `gopls` | 无 | 最近的 `go.mod` |
+| Python | `basedpyright-langserver`，否则 `pyright-langserver` | `--stdio` | 最近的 `pyproject.toml`、`setup.py`、`setup.cfg` 或 `requirements.txt` |
+| C 与 C++ | `clangd` | 无 | 最近的 `compile_commands.json`，或 `build/compile_commands.json` |
+
+**C/C++ 是唯一不会回退的语言**。其它语言在找不到标记时会把工作区根目录当作项目根；而 `clangd` 没有编译数据库就会假定默认编译参数，然后给出**看起来很确定但其实是错的**定义和诊断，所以 VaneHub AI 宁可把请求报为不可用。
+
+两个 Python 服务器都装了时优先用 `basedpyright-langserver`：装这个分支是一个刻意的选择，装上游的那个不是。发现面板会写明实际选中了哪一个。
 
 支持哪些语言由桌面构建决定，不由设置页决定。设置页按当前构建注册的语言逐个渲染卡片：构建不认识的语言无法配置；构建认识但在当前操作系统上跑不起来的语言，会显示为**不支持**，而不是显示成"没找到可执行文件"。
 
@@ -85,6 +92,36 @@ typescript-language-server --version
 ```
 
 `--stdio` 是这个服务器的默认启动参数，由 VaneHub AI 提供；如果你的安装需要别的参数，可以在**启动参数**中替换。当前前置要求见上游 [TypeScript Language Server 项目](https://github.com/typescript-language-server/typescript-language-server#installing)。
+
+### Go
+
+```bash
+go install golang.org/x/tools/gopls@latest
+gopls version
+```
+
+`gopls` 装在 `$(go env GOPATH)/bin`，这个目录不一定在桌面应用继承到的 `PATH` 里。前置要求见上游 [gopls 安装指南](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme)。
+
+### Python
+
+```bash
+npm install -g basedpyright   # 或：npm install -g pyright
+basedpyright-langserver --help
+```
+
+两个服务器都可用，`--stdio` 由 VaneHub AI 提供。前置要求见 [basedpyright](https://docs.basedpyright.com/) 或 [pyright](https://microsoft.github.io/pyright/#/installation)。
+
+### C 与 C++
+
+`clangd` 随 LLVM 分发，用系统包管理器安装即可；然后需要为每个项目生成编译数据库：
+
+```bash
+clangd --version
+# 在要被服务的项目里，用 CMake：
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+生成的 `build/compile_commands.json` 才是让项目可被识别的东西。其它构建系统(含 Make 项目用的 `bear`)见上游 [clangd 安装指南](https://clangd.llvm.org/installation)。
 
 ## 为工作区启用 LSP
 
@@ -159,6 +196,10 @@ typescript-language-server --version
 - **启动进程**：依赖、权限或可执行文件自身阻止了启动。
 - **初始化**：服务器拒绝最小项目、返回了错误能力，或初始化超时。
 - **清理**：优雅关闭失败，强制清理也未完成。
+
+### C/C++ 请求报告缺少项目标记
+
+`clangd` 装好了、发现面板也显示可用，但工作区里没有编译数据库，于是没有任何东西可以用来服务这次请求。生成一个即可——`cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`、`bear -- make`，或你的构建系统的等价命令——放在项目根目录或其 `build` 子目录下。这与"没装上"是刻意区分开的两件事：服务器本身没问题，读不了的是项目。
 
 ### 某种语言显示为"当前操作系统不支持"
 

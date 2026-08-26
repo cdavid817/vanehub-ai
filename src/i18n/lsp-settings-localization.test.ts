@@ -22,6 +22,7 @@ const requiredKeys = [
   "lspSettings.configuration.saving", "lspSettings.configuration.saved",
   "lspSettings.configuration.saveError", "lspSettings.language.rust",
   "lspSettings.language.typescript_javascript", "lspSettings.language.enabled",
+  "lspSettings.language.go", "lspSettings.language.python", "lspSettings.language.cpp",
   "lspSettings.language.unsupportedOnHost",
   "lspSettings.startupArguments.title", "lspSettings.startupArguments.description",
   "lspSettings.startupArguments.none", "lspSettings.startupArguments.placeholder",

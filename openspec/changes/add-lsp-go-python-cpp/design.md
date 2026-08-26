@@ -16,7 +16,7 @@ That last fallback is the one existing behavior this change has to make conditio
 
 - Three languages added as registry entries plus locale strings, with no new mechanism where the existing one suffices.
 - A root-detection rule for C/C++ that refuses rather than guesses, because `clangd` without a compilation database answers confidently and wrongly.
-- A declared, tested precedence among a language's root markers.
+- Multi-marker languages tested for the behavior that is actually observable: each marker identifies a root on its own, and proximity decides between directories.
 
 **Non-Goals:**
 
@@ -26,19 +26,23 @@ That last fallback is the one existing behavior this change has to make conditio
 
 ## Decisions
 
-### 1. Marker precedence is declaration order, and proximity still wins
+### 1. Proximity decides the root; marker order is not a rule
 
-`root_markers` is already an ordered array, so precedence needs no new field — only a stated meaning and a test. The rule is two-level: the **nearest** ancestor holding any marker wins, and only *within* that directory does declared order decide which marker is reported.
+The nearest ancestor holding any of the language's markers wins. That is the existing behavior and it stays.
 
-Rejected: strength-first search, where a further `pyproject.toml` beats a nearer `setup.py`. A nested package with its own `setup.py` is a real project root; skipping past it to the monorepo root would hand the server the wrong scope, which is the failure the workspace-boundary rule already exists to prevent.
+An earlier draft of this design specified a second level — declared order breaking a tie when one directory holds several markers — and the spec claimed the winning marker would be "reported as the reason". Both were wrong. Once the directory is fixed, which marker matched changes nothing about the resolved path, so the only way that rule could be observable is through a surface that reports it, and no such surface exists. Specifying it would have meant either an untestable requirement or inventing a status field nobody asked for. The spec now states only what is observable: any declared marker identifies a root on its own, and proximity decides between directories.
 
-Python's declared order is `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`. Only the last is genuinely weak — a `requirements.txt` frequently sits beside application code with no packaging intent — but it is the sole marker in enough real projects to be worth keeping last rather than dropping.
+`root_markers` stays an ordered array because arrays are ordered, but the order carries no meaning and no test asserts one.
+
+Rejected separately: strength-first search, where a further `pyproject.toml` beats a nearer `setup.py`. A nested package with its own `setup.py` is a real project root; skipping past it to the monorepo root would hand the server the wrong scope, which is the failure the workspace-boundary rule already exists to prevent.
 
 ### 2. `build/compile_commands.json` is a second marker, not a second mechanism
 
 Root detection already tests `current.join(marker)`, and `Path::join` accepts a relative path with a separator. So C/C++ declares two markers, `compile_commands.json` then `build/compile_commands.json`, and the existing walk finds either.
 
 Rejected: a per-language root-detection strategy enum. It would introduce a branch in the resolver for a case the resolver already handles, and every later language would have to decide which strategy it is.
+
+This is the one place marker order does have a practical effect — `compile_commands.json` is checked before `build/compile_commands.json` within a directory — but the resolved directory is the same either way, so it is a lookup detail rather than a rule.
 
 ### 3. A language may require a marker instead of falling back to the workspace root
 

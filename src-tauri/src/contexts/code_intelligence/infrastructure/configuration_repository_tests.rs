@@ -7,6 +7,7 @@ use crate::contexts::code_intelligence::domain::configuration::{
     MAX_STARTUP_ARGUMENTS, MAX_STARTUP_ARGUMENT_BYTES,
 };
 use crate::contexts::code_intelligence::domain::registry;
+use crate::contexts::code_intelligence::domain::registry::LANGUAGE_DEFINITIONS;
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use serde_json::json;
@@ -24,7 +25,7 @@ fn fresh_configuration_is_disabled_for_every_supported_language() {
     let configuration = repository.load_configuration().expect("load defaults");
 
     assert!(!configuration.enabled);
-    assert_eq!(configuration.languages.len(), 2);
+    assert_eq!(configuration.languages.len(), LANGUAGE_DEFINITIONS.len());
     assert!(configuration
         .languages
         .values()
@@ -95,7 +96,7 @@ fn a_stored_row_for_an_unregistered_language_neither_fails_the_load_nor_appears_
         .connection()
         .expect("connection")
         .execute(
-            "INSERT INTO lsp_language_configurations (language_id, enabled) VALUES ('go', 1)",
+            "INSERT INTO lsp_language_configurations (language_id, enabled) VALUES ('ruby', 1)",
             [],
         )
         .expect("insert unregistered language row");
@@ -104,11 +105,11 @@ fn a_stored_row_for_an_unregistered_language_neither_fails_the_load_nor_appears_
         .load_configuration()
         .expect("load succeeds despite the unknown row");
 
-    assert_eq!(configuration.languages.len(), 2);
+    assert_eq!(configuration.languages.len(), LANGUAGE_DEFINITIONS.len());
     assert!(!configuration
         .languages
         .keys()
-        .any(|language| language.as_str() == "go"));
+        .any(|language| language.as_str() == "ruby"));
 }
 
 #[test]

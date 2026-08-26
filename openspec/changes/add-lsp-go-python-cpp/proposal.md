@@ -21,7 +21,7 @@ None. The registry from `extend-lsp-language-registry` already carries the shape
 
 ### Modified Capabilities
 
-- `lsp-server-management`: gains the three registered languages with their declared executables and startup arguments, a declared precedence rule for languages whose root markers differ in strength, and a distinct compilation-database root rule for C/C++ including the explicit unavailable outcome when no compilation database exists.
+- `lsp-server-management`: gains the three registered languages with their declared executables and startup arguments, a statement of how a language with several root markers behaves, and a distinct compilation-database root rule for C/C++ including the explicit unavailable outcome when no compilation database exists.
 
 **No `settings-center-ui` delta.** An earlier draft of this proposal claimed one, written before `extend-lsp-language-registry` landed. That change made the settings surface render one card per backend-supplied descriptor, so three new languages need no requirement change there at all — which is precisely what it was for. Inventing a delta to match a stale plan would be recording work that is not happening.
 
