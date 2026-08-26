@@ -26,7 +26,7 @@
 - [x] 2.5 Implement policy load/update transactions and typed conflict results without whole-`AppSettings` replacement.
 - [x] 2.6 Implement the SQLite memory projection and cursor pagination without loading memory bodies for list pages.
 - [x] 2.7 Implement candidate persistence and bounded rejected-candidate retention through the existing local retention policy.
-- [ ] 2.8 Add migration/repository tests for fresh database creation, upgrade, constraints, indexes, rollback on failure, optimistic conflicts, paging stability, and Web/mock-equivalent fixtures.
+- [x] 2.8 Add migration/repository tests for fresh database creation, upgrade, constraints, indexes, rollback on failure, optimistic conflicts, paging stability, and Web/mock-equivalent fixtures.
 
 ## 3. Stable Memory Storage and Data-Loss Fixes
 
@@ -92,11 +92,11 @@
 ## 8. Session Mode and Multi-Agent Propagation
 
 - [x] 8.1 Extend session domain/storage/service types with `personalizationMode`, defaulting legacy and new unspecified sessions to `standard`.
-- [ ] 8.2 Validate that `project-only` creation requires a resolvable workspace and reject invalid requests in both Tauri and Web/mock runtimes.
+- [x] 8.2 Validate that `project-only` creation requires a resolvable workspace and reject invalid requests in both Tauri and Web/mock runtimes.
 - [x] 8.3 Persist session mode across restart, archive/unarchive, worktree creation, and active-session switching.
 - [x] 8.4 Propagate the shared session mode and workspace to every multi-Agent seat while resolving each seat's own Agent policy.
 - [x] 8.5 Ensure Loop workers, scheduled runs, and sub-Agent paths that use the standard session/generation service cannot bypass snapshot resolution.
-- [ ] 8.6 Add session migration, create/read/update, Web parity, multi-seat, worktree, background-run, project-only, and temporary-mode tests.
+- [x] 8.6 Add session migration, create/read/update, Web parity, multi-seat, worktree, background-run, project-only, and temporary-mode tests.
 
 ## 9. Native Commands and Frontend Service Parity
 

@@ -64,6 +64,23 @@ describe("session personalization mode over the service boundary", () => {
     );
   });
 
+  it("refuses project-only with nothing to be isolated to, in the native runtime's words", async () => {
+    // Refused outright rather than as a failed operation, matching the native runtime: starting an
+    // operation for a request that was never answerable leaves the user a failed task to dismiss.
+    // The message is the contract the frontend matches on, so the mock refusing in different words
+    // would pass a looser assertion while leaving the desktop wording untested.
+    await expect(
+      webAgentClient.createSession({
+        agentId: "codex-cli",
+        interactionMode: "cli",
+        personalizationMode: "project-only",
+        title: "no workspace",
+        projectPath: null,
+        folder: null,
+      }),
+    ).rejects.toThrow("A project-only session needs a workspace to be isolated to.");
+  });
+
   it("keeps two sessions' modes independent of each other", async () => {
     const temporary = await createSession("temporary");
     const standard = await createSession("standard");

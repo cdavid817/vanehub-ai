@@ -2661,6 +2661,78 @@ fn a_project_only_session_is_accepted_with_a_folder_a_project_or_a_remote_worksp
     }
 }
 
+/// Every seat in a group chat answers to the same promise.
+///
+/// The mode belongs to the conversation, not to whoever is speaking: a seat added later must not
+/// arrive under different terms, or a user would have to check which Agent replied before knowing
+/// whether the turn was recorded.
+#[test]
+fn adding_a_seat_leaves_the_session_mode_alone() {
+    let fixture = fixture();
+    let mut request = creation_request(
+        Some(SessionPersonalizationMode::Temporary),
+        local_workspace(),
+    );
+    request.seats = vec![active_seat("seat-one", "codex-cli", None)];
+    let session = fixture
+        .service
+        .prepare_new_session_creation(request)
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    let updated = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: vec![
+                active_seat("seat-one", "codex-cli", None),
+                active_seat("seat-two", "claude-code", None),
+            ],
+        })
+        .expect("add a seat");
+
+    assert_eq!(updated.seats.len(), 2);
+    assert_eq!(
+        updated.personalization_mode,
+        SessionPersonalizationMode::Temporary
+    );
+}
+
+/// A background run is still the session's conversation.
+///
+/// Creating one without bringing it to the front changes what the user is looking at, not what the
+/// session retains. Tying the mode to activation would make a run started in the background behave
+/// differently from the same run started in view.
+#[test]
+fn a_session_created_without_being_activated_keeps_its_mode() {
+    let fixture = fixture();
+    let mut request = creation_request(
+        Some(SessionPersonalizationMode::ProjectOnly),
+        local_workspace(),
+    );
+    request.activation = SessionActivation::PreserveActive;
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(request)
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+    let stored = fixture.store.sessions.lock().expect("sessions");
+    let reread = stored
+        .get(session.id())
+        .expect("the created session is in the store");
+    assert_eq!(
+        reread.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+}
+
 /// Creating a worktree does not reopen what the session retains.
 ///
 /// The worktree is where the work happens; the mode is what the user asked the conversation to
