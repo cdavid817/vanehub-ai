@@ -101,4 +101,63 @@ test.describe("Personalization settings", () => {
     await expect(memoryToggle).toHaveAttribute("aria-checked", "false");
     await expect(subToggle).toBeDisabled();
   });
+  for (const viewport of [
+    { name: "900px", width: 900, height: 720 },
+    { name: "640px", width: 640, height: 720 },
+  ]) {
+    test(`keeps the instruction workflow usable at ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await openPersonalization(page);
+      await openView(page, "instructions");
+
+      // The controls stack rather than overflow. A field the user cannot reach without a
+      // horizontal scrollbar is a field they will not fill in.
+      for (const testId of [
+        "personalization-scope-kind",
+        "personalization-merge-mode",
+        "personalization-field-aboutUser",
+        "personalization-field-styleRules",
+        "personalization-save",
+      ]) {
+        const box = await page.getByTestId(testId).boundingBox();
+        expect(box, testId).not.toBeNull();
+        expect(box!.x + box!.width, testId).toBeLessThanOrEqual(viewport.width);
+      }
+
+      await expect(page.locator("body")).toHaveJSProperty("scrollWidth", viewport.width);
+    });
+  }
+
+  test("moves between destinations with the arrow keys", async ({ page }) => {
+    await page.getByTestId("personalization-view-tab-overview").focus();
+    await page.keyboard.press("ArrowRight");
+
+    await expect(page.getByTestId("personalization-view-tab-instructions")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    // Selection follows focus, so a second arrow press has to continue from the new tab rather
+    // than from wherever the keyboard was left behind.
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("personalization-view-tab-memory")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  test("saves with the keyboard alone", async ({ page }) => {
+    await openView(page, "instructions");
+    const styleField = page.getByTestId("personalization-field-styleRules");
+    await styleField.fill("Saved from the keyboard.");
+
+    await page.keyboard.press("ControlOrMeta+s");
+
+    await expect(page.getByTestId("personalization-dirty")).toBeHidden();
+    await page.reload();
+    await page.getByRole("button", { name: "AI Personalization", exact: true }).click();
+    await openView(page, "instructions");
+    await expect(page.getByTestId("personalization-field-styleRules")).toHaveValue(
+      "Saved from the keyboard.",
+    );
+  });
 });

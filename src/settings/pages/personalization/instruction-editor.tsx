@@ -83,6 +83,17 @@ function Field({
  * the store, and there is no moment at which the user has said the text is ready. It also has
  * nowhere to put a validation failure: the field is already saved by the time anyone looks.
  */
+/**
+ * Whether a key event is the IME committing a candidate rather than the user pressing a key.
+ *
+ * Without this, confirming a Japanese or Chinese candidate with Enter -- or typing `s` while a
+ * modifier is held by the input method -- reaches the shortcut, and the half-composed text is
+ * saved. `keyCode === 229` is the legacy signal browsers still send when `isComposing` is absent.
+ */
+function isComposing(event: React.KeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+}
+
 export function InstructionEditor({
   draft,
   onDiscard,
@@ -102,8 +113,20 @@ export function InstructionEditor({
     || draft.values.instructionMergeMode !== draft.baseline.instructionMergeMode;
   const blocked = !dirty || draft.saving || draft.conflict !== null || overLimit.length > 0;
 
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (isComposing(event)) return;
+    const isSaveChord = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s";
+    if (!isSaveChord) return;
+    event.preventDefault();
+    if (!blocked) onSave();
+  }
+
   return (
-    <div className="flex flex-col gap-4" data-testid="personalization-instruction-editor">
+    <div
+      className="flex flex-col gap-4"
+      data-testid="personalization-instruction-editor"
+      onKeyDown={onKeyDown}
+    >
       <label className="flex max-w-xs flex-col gap-1 text-xs font-medium">
         {t("personalization.editor.mergeMode")}
         <select
@@ -148,11 +171,11 @@ export function InstructionEditor({
         >
           {t("personalization.editor.discard")}
         </Button>
-        {dirty ? (
-          <span className="text-xs text-muted-foreground" data-testid="personalization-dirty">
-            {t("personalization.editor.unsaved")}
-          </span>
-        ) : null}
+        <span aria-live="polite" className="text-xs text-muted-foreground">
+          {dirty ? (
+            <span data-testid="personalization-dirty">{t("personalization.editor.unsaved")}</span>
+          ) : null}
+        </span>
         <span className="ml-auto text-xs text-muted-foreground" data-testid="personalization-tokens">
           {t("personalization.editor.approximateTokens", { count: approximateTokens(draft.values) })}
         </span>

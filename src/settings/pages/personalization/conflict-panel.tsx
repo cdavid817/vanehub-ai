@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { InstructionDraft, InstructionValues } from "./instruction-drafts";
@@ -63,13 +64,25 @@ export function ConflictPanel({
   onTakeTheirs: () => void;
 }) {
   const { t } = useTranslation();
+  const panel = useRef<HTMLDivElement>(null);
+  const conflicted = draft.conflict !== null;
+
+  // Focus moves to the panel when it appears. `role="alert"` gets it announced, but a keyboard
+  // user would otherwise be left on a Save button that has just gone dead with no way to find out
+  // why except by tabbing forward and guessing.
+  useEffect(() => {
+    if (conflicted) panel.current?.focus();
+  }, [conflicted]);
+
   if (!draft.conflict) return null;
 
   return (
     <div
-      className="flex flex-col gap-3 rounded-md border p-4 ucd-status-warning"
+      className="flex flex-col gap-3 rounded-md border p-4 ucd-status-warning focus-visible:outline-2 focus-visible:outline-offset-2"
       data-testid="personalization-conflict"
+      ref={panel}
       role="alert"
+      tabIndex={-1}
     >
       <div>
         <h4 className="text-sm font-semibold">{t("personalization.conflict.title")}</h4>

@@ -7,7 +7,12 @@ import { AgentMemorySection } from "./personalization/agent-memory-section";
 import { PersonalizationInstructionsView } from "./personalization/instructions-view";
 import { PersonalizationOverviewSection } from "./personalization/overview-section";
 import { RuntimePreviewSection } from "./personalization/runtime-preview-section";
-import { PersonalizationViewTabs, type PersonalizationView } from "./personalization/view-tabs";
+import {
+  panelId,
+  PersonalizationViewTabs,
+  tabId,
+  type PersonalizationView,
+} from "./personalization/view-tabs";
 
 export function PersonalizationPage() {
   const { t } = useTranslation();
@@ -20,8 +25,16 @@ export function PersonalizationPage() {
       {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger" role="alert">{error}</div> : null}
       <PersonalizationViewTabs onSelect={setView} view={view} />
       {/* Only the selected view mounts: the Memory view issues its own queries, and keeping all
-          four mounted would fetch on every visit to the page regardless of what the user opened. */}
-      <div className="grid gap-5">
+          four mounted would fetch on every visit to the page regardless of what the user opened.
+          The panel is a tab stop of its own, so arrowing to a destination and pressing Tab lands
+          in it rather than skipping past the whole thing. */}
+      <div
+        aria-labelledby={tabId(view)}
+        className="grid gap-5 focus-visible:outline-2 focus-visible:outline-offset-2"
+        id={panelId(view)}
+        role="tabpanel"
+        tabIndex={0}
+      >
         {view === "overview" ? <PersonalizationOverviewSection /> : null}
         {view === "instructions" ? <PersonalizationInstructionsView /> : null}
         {view === "memory" ? <AgentMemorySection /> : null}
