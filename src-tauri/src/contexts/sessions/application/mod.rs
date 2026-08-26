@@ -54,11 +54,16 @@ pub(crate) use report::{
     ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
     SessionRunReport, SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
 };
+/// Exported for the boundary test that proves all three witnesses cross as one reason code. The
+/// command layer matches the error, not the witness; 13.10 renders the distinction from state the
+/// Review Center already holds, so nothing in production needs to name this yet.
+#[cfg(test)]
+pub(crate) use review::StaleReviewWitness;
 pub(crate) use review::{
     AddReviewCommentRequest, CreateReviewRequest, PreparedReviewFeedback, ReviewAction,
     ReviewActionFindingInput, ReviewApplicationError, ReviewApplicationService, ReviewClockPort,
-    ReviewDecisionRepository, ReviewFeedbackPort, ReviewIdPort, ReviewLogEvent, ReviewLoggingPort,
-    ReviewOperationPort, ReviewRepository, ReviewSnapshotPort,
+    ReviewDecisionRepository, ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewIdPort,
+    ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewRepository, ReviewSnapshotPort,
 };
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
 pub(crate) use usage_accounting::{

@@ -52,6 +52,30 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
     ) -> Result<Vec<ReviewHunkDecision>, ReviewApplicationError>;
 }
 
+/// What the current diff still contains, for one file.
+///
+/// A decision is about a hunk, and a hunk is a range of a diff that changes whenever anybody
+/// writes to the file. Nothing in the review store can answer whether the hunk a reviewer is
+/// looking at is still there — the review holds which files changed, not what the change is now —
+/// so this reaches the workspace that owns the diff.
+pub(crate) trait ReviewHunkWitnessPort: Send + Sync {
+    /// The fingerprints the current bounded diff holds for one file, in the diff's own order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    fn hunk_fingerprints(
+        &self,
+        session_id: &str,
+        path: &str,
+        expected_snapshot: &str,
+    ) -> Result<Vec<String>, ReviewApplicationError>;
+}
+
 pub(crate) trait ReviewClockPort: Send + Sync {
     fn now(&self) -> String;
 }
@@ -142,12 +166,12 @@ pub(crate) struct PreparedReviewFeedback {
     pub(crate) prepared_at: String,
 }
 
-/// What a caller is asking to mark.
+/// What a caller is asking to mark, and the diff they were looking at when they asked.
 ///
-/// No expected snapshot yet. The service records the review's own current fingerprint, so nothing
-/// stored is ever a claim about a diff that was not the one being reviewed; 13.3 adds the caller's
-/// expectation and the refusal when the two disagree. Accepting an expectation here and ignoring
-/// it would be a parameter that documents a check nobody performs.
+/// The expectation is the caller's, and it is the whole point: a reviewer decides about the diff
+/// on their screen, which may be several writes behind the one on disk. Without it the service
+/// would record a decision about whatever the diff happens to be when the click arrives — a
+/// decision the reviewer never made, indistinguishable from one they did.
 #[cfg_attr(
     not(test),
     expect(
@@ -160,7 +184,33 @@ pub(crate) struct PreparedReviewFeedback {
 pub(crate) struct SetHunkDecisionRequest {
     pub(crate) path: String,
     pub(crate) hunk_fingerprint: String,
+    /// The snapshot the reviewer was looking at.
+    pub(crate) expected_snapshot_fingerprint: String,
     pub(crate) decision: ReviewDecision,
+}
+
+/// Which witness stopped a decision.
+///
+/// One reason code crosses the boundary, because a caller's next move is the same for all three:
+/// reload and look again. The distinction is kept for the reviewer-facing message 13.10 renders —
+/// "this file is no longer in the review" and "this hunk moved" are different things to be told —
+/// and for a log that would otherwise say only that something was stale.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+    )
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StaleReviewWitness {
+    /// The review has been reconciled against a newer diff than the caller saw.
+    Snapshot,
+    /// The file is no longer among the review's changed files.
+    File,
+    /// The file is still changed, but not in the way the caller was looking at.
+    Hunk,
 }
 
 #[derive(Clone)]
@@ -175,6 +225,15 @@ pub(crate) struct ReviewApplicationService {
         )
     )]
     decisions: Arc<dyn ReviewDecisionRepository>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    hunk_witnesses: Arc<dyn ReviewHunkWitnessPort>,
     clock: Arc<dyn ReviewClockPort>,
     ids: Arc<dyn ReviewIdPort>,
     feedback: Arc<dyn ReviewFeedbackPort>,
@@ -191,6 +250,7 @@ impl ReviewApplicationService {
     pub(crate) fn new(
         repository: Arc<dyn ReviewRepository>,
         decisions: Arc<dyn ReviewDecisionRepository>,
+        hunk_witnesses: Arc<dyn ReviewHunkWitnessPort>,
         clock: Arc<dyn ReviewClockPort>,
         ids: Arc<dyn ReviewIdPort>,
         feedback: Arc<dyn ReviewFeedbackPort>,
@@ -202,6 +262,7 @@ impl ReviewApplicationService {
         Self {
             repository,
             decisions,
+            hunk_witnesses,
             clock,
             ids,
             feedback,
@@ -218,6 +279,7 @@ impl ReviewApplicationService {
     pub(crate) fn new_for_test_without_evidence(
         repository: Arc<dyn ReviewRepository>,
         decisions: Arc<dyn ReviewDecisionRepository>,
+        hunk_witnesses: Arc<dyn ReviewHunkWitnessPort>,
         clock: Arc<dyn ReviewClockPort>,
         ids: Arc<dyn ReviewIdPort>,
         feedback: Arc<dyn ReviewFeedbackPort>,
@@ -228,6 +290,7 @@ impl ReviewApplicationService {
         Self::new(
             repository,
             decisions,
+            hunk_witnesses,
             clock,
             ids,
             feedback,
@@ -426,8 +489,13 @@ impl ReviewApplicationService {
         request: SetHunkDecisionRequest,
     ) -> Result<ReviewHunkDecision, ReviewApplicationError> {
         let review = self.find(review_id)?;
-        // The review's fingerprint, not one supplied by the caller. What is being recorded is the
-        // diff this decision was made about, and the only authority on that is the review.
+        // Every witness before anything is written. A refusal that had already stored something
+        // would be a decision recorded against a diff the service just declared it cannot vouch
+        // for.
+        self.assert_witnesses(&review, &request)?;
+        // The review's fingerprint rather than the request's, even though the check above proved
+        // them equal. What is recorded is the diff the decision was made about, and the authority
+        // on that is the review — the caller's copy is what was verified, not what is stored.
         let decision = ReviewHunkDecision::try_new(
             request.path,
             request.hunk_fingerprint,
@@ -456,6 +524,54 @@ impl ReviewApplicationService {
                 });
         }
         Ok(decision)
+    }
+
+    /// Whether the review, the file, and the hunk are all still what the caller saw.
+    ///
+    /// In that order, cheapest first, and each is a different way of being out of date. The
+    /// snapshot moved, so everything the caller saw is suspect; the file is no longer part of the
+    /// review, so the hunk cannot be either; the file is still changing but not there any more.
+    /// Collapsing them into one check would answer the reviewer with the least specific of the
+    /// three.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    fn assert_witnesses(
+        &self,
+        review: &ReviewSession,
+        request: &SetHunkDecisionRequest,
+    ) -> Result<(), ReviewApplicationError> {
+        if review.fingerprint != request.expected_snapshot_fingerprint {
+            return Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Snapshot,
+            ));
+        }
+        if !review.files().iter().any(|file| file.path == request.path) {
+            return Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::File,
+            ));
+        }
+        // Last because it is the only one that reads the workspace. The two above are answered
+        // from the review already in memory, so a stale snapshot never costs a diff read.
+        let current = self.hunk_witnesses.hunk_fingerprints(
+            &review.session_id,
+            &request.path,
+            &review.fingerprint,
+        )?;
+        if !current
+            .iter()
+            .any(|fingerprint| fingerprint == &request.hunk_fingerprint)
+        {
+            return Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Hunk,
+            ));
+        }
+        Ok(())
     }
 
     /// Every hunk decision this review holds.
@@ -620,6 +736,8 @@ pub(crate) enum ReviewApplicationError {
     CommentNotFound(String),
     NoSelectedComments,
     StaleAcknowledgementRequired,
+    /// The diff the caller decided about is not the diff the review holds.
+    StaleWitness(StaleReviewWitness),
     InvalidActionOutput,
 }
 
@@ -733,6 +851,35 @@ mod tests {
         }
     }
 
+    /// The hunks the workspace would report, and whether it can be reached at all.
+    struct MemoryWitnesses {
+        fingerprints: Mutex<Vec<String>>,
+        /// When set, the workspace read fails. A witness check that cannot be answered must not
+        /// read as a witness that passed.
+        unreachable: Mutex<bool>,
+    }
+    impl Default for MemoryWitnesses {
+        fn default() -> Self {
+            Self {
+                fingerprints: Mutex::new(vec!["hunk-1".into(), "hunk-2".into()]),
+                unreachable: Mutex::new(false),
+            }
+        }
+    }
+    impl ReviewHunkWitnessPort for MemoryWitnesses {
+        fn hunk_fingerprints(
+            &self,
+            _session_id: &str,
+            _path: &str,
+            _expected_snapshot: &str,
+        ) -> Result<Vec<String>, ReviewApplicationError> {
+            if *self.unreachable.lock().unwrap() {
+                return Err(ReviewApplicationError::Repository("unreachable".into()));
+            }
+            Ok(self.fingerprints.lock().unwrap().clone())
+        }
+    }
+
     #[derive(Default)]
     struct CapturingEvidence(Mutex<Vec<super::super::SessionEvidenceSignal>>);
     impl super::super::SessionEvidencePort for CapturingEvidence {
@@ -793,6 +940,7 @@ mod tests {
         ReviewApplicationService::new_for_test_without_evidence(
             Arc::new(MemoryRepository::default()),
             Arc::new(MemoryDecisions::default()),
+            Arc::new(MemoryWitnesses::default()),
             Arc::new(Fixed),
             Arc::new(Fixed),
             Arc::new(Fixed),
@@ -802,17 +950,20 @@ mod tests {
         )
     }
 
-    /// A service whose decision store and evidence publisher the caller can inspect.
+    /// A service whose decision store, workspace witnesses, and publisher the caller can inspect.
     fn reviewing() -> (
         ReviewApplicationService,
         Arc<MemoryDecisions>,
+        Arc<MemoryWitnesses>,
         Arc<CapturingEvidence>,
     ) {
         let decisions = Arc::new(MemoryDecisions::default());
+        let witnesses = Arc::new(MemoryWitnesses::default());
         let evidence = Arc::new(CapturingEvidence::default());
         let service = ReviewApplicationService::new(
             Arc::new(MemoryRepository::default()),
             decisions.clone(),
+            witnesses.clone(),
             Arc::new(Fixed),
             Arc::new(Fixed),
             Arc::new(Fixed),
@@ -821,17 +972,20 @@ mod tests {
             Arc::new(CapturingLog::default()),
             evidence.clone(),
         );
-        (service, decisions, evidence)
+        (service, decisions, witnesses, evidence)
     }
 
     fn opened(service: &ReviewApplicationService) -> ReviewSession {
         service.open("session-1").unwrap()
     }
 
+    /// A request that agrees with the fixture review, so a case that is not about staleness is
+    /// not accidentally about staleness.
     fn mark(path: &str, hunk: &str, decision: ReviewDecision) -> SetHunkDecisionRequest {
         SetHunkDecisionRequest {
             path: path.into(),
             hunk_fingerprint: hunk.into(),
+            expected_snapshot_fingerprint: "snapshot".into(),
             decision,
         }
     }
@@ -972,7 +1126,7 @@ mod tests {
     // reported as accepted. Neither inference is available once the two are stored apart.
     #[test]
     fn a_review_decision_and_a_hunk_decision_do_not_move_each_other() {
-        let (service, _decisions, _evidence) = reviewing();
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
         let review = opened(&service);
 
         service
@@ -1001,7 +1155,7 @@ mod tests {
 
     #[test]
     fn a_second_decision_for_the_same_hunk_replaces_the_first() {
-        let (service, _decisions, _evidence) = reviewing();
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
         let review = opened(&service);
 
         service
@@ -1026,7 +1180,7 @@ mod tests {
 
     #[test]
     fn a_hunk_decision_is_witnessed_to_the_review_s_own_snapshot() {
-        let (service, _decisions, evidence) = reviewing();
+        let (service, _decisions, _witnesses, evidence) = reviewing();
         let review = opened(&service);
 
         let recorded = service
@@ -1052,7 +1206,7 @@ mod tests {
 
     #[test]
     fn a_pending_hunk_is_recorded_and_published_as_nothing() {
-        let (service, _decisions, evidence) = reviewing();
+        let (service, _decisions, _witnesses, evidence) = reviewing();
         let review = opened(&service);
 
         service
@@ -1071,7 +1225,7 @@ mod tests {
 
     #[test]
     fn a_write_that_did_not_land_publishes_nothing() {
-        let (service, decisions, evidence) = reviewing();
+        let (service, decisions, _witnesses, evidence) = reviewing();
         let review = opened(&service);
         *decisions.refuse.lock().unwrap() = true;
 
@@ -1089,7 +1243,7 @@ mod tests {
 
     #[test]
     fn a_hunk_decision_for_a_review_that_does_not_exist_is_refused() {
-        let (service, decisions, evidence) = reviewing();
+        let (service, decisions, _witnesses, evidence) = reviewing();
 
         assert!(matches!(
             service.set_hunk_decision(
@@ -1104,7 +1258,7 @@ mod tests {
 
     #[test]
     fn a_hunk_decision_refuses_a_path_that_leaves_the_workspace() {
-        let (service, decisions, _evidence) = reviewing();
+        let (service, decisions, _witnesses, _evidence) = reviewing();
         let review = opened(&service);
 
         assert!(service
@@ -1114,6 +1268,148 @@ mod tests {
             )
             .is_err());
         assert!(decisions.rows.lock().unwrap().is_empty());
+    }
+
+    // Three ways to be looking at a diff that no longer exists, and each is refused before
+    // anything is written. A decision recorded against a diff the service cannot vouch for is
+    // indistinguishable from one recorded against the diff the reviewer actually read.
+    #[test]
+    fn a_decision_about_an_older_snapshot_is_refused_without_writing() {
+        let (service, decisions, _witnesses, evidence) = reviewing();
+        let review = opened(&service);
+
+        let result = service.set_hunk_decision(
+            &review.id,
+            SetHunkDecisionRequest {
+                path: "src/a.rs".into(),
+                hunk_fingerprint: "hunk-1".into(),
+                expected_snapshot_fingerprint: "an-older-snapshot".into(),
+                decision: ReviewDecision::Accepted,
+            },
+        );
+
+        assert_eq!(
+            result,
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Snapshot
+            ))
+        );
+        assert!(decisions.rows.lock().unwrap().is_empty());
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    #[test]
+    fn a_decision_about_a_file_the_review_does_not_hold_is_refused_without_writing() {
+        let (service, decisions, _witnesses, evidence) = reviewing();
+        let review = opened(&service);
+
+        let result = service.set_hunk_decision(
+            &review.id,
+            mark("src/gone.rs", "hunk-1", ReviewDecision::Accepted),
+        );
+
+        assert_eq!(
+            result,
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::File
+            ))
+        );
+        assert!(decisions.rows.lock().unwrap().is_empty());
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    #[test]
+    fn a_decision_about_a_hunk_the_diff_no_longer_has_is_refused_without_writing() {
+        let (service, decisions, witnesses, evidence) = reviewing();
+        let review = opened(&service);
+        // The file is still changed; the change is just not the one the reviewer was reading.
+        *witnesses.fingerprints.lock().unwrap() = vec!["hunk-rewritten".into()];
+
+        let result = service.set_hunk_decision(
+            &review.id,
+            mark("src/a.rs", "hunk-1", ReviewDecision::Accepted),
+        );
+
+        assert_eq!(
+            result,
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Hunk
+            ))
+        );
+        assert!(decisions.rows.lock().unwrap().is_empty());
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    // Cheapest first, and the ordering is worth holding: a reviewer whose snapshot has moved on
+    // would otherwise pay a workspace diff read to be told something the review already knew.
+    #[test]
+    fn a_stale_snapshot_is_answered_without_reading_the_workspace() {
+        let (service, _decisions, witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        *witnesses.unreachable.lock().unwrap() = true;
+
+        let result = service.set_hunk_decision(
+            &review.id,
+            SetHunkDecisionRequest {
+                path: "src/a.rs".into(),
+                hunk_fingerprint: "hunk-1".into(),
+                expected_snapshot_fingerprint: "an-older-snapshot".into(),
+                decision: ReviewDecision::Accepted,
+            },
+        );
+
+        // The workspace was unreachable throughout, so reaching it would have produced a
+        // repository error rather than this one.
+        assert_eq!(
+            result,
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Snapshot
+            ))
+        );
+    }
+
+    #[test]
+    fn a_witness_that_cannot_be_checked_is_not_a_witness_that_passed() {
+        let (service, decisions, witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        *witnesses.unreachable.lock().unwrap() = true;
+
+        // Treating an unanswerable check as a pass would record decisions about a diff nobody
+        // could read — which is exactly the state the check exists to refuse.
+        assert!(matches!(
+            service.set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted)
+            ),
+            Err(ReviewApplicationError::Repository(_))
+        ));
+        assert!(decisions.rows.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_refused_decision_leaves_the_one_already_recorded_alone() {
+        let (service, _decisions, witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted),
+            )
+            .unwrap();
+
+        *witnesses.fingerprints.lock().unwrap() = vec!["hunk-rewritten".into()];
+        assert!(service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::ChangesRequested)
+            )
+            .is_err());
+
+        // The prior decision survives. A refusal that cleared it would lose a reviewer's work to
+        // an edit somebody else made.
+        let recorded = service.hunk_decisions(&review.id).unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].decision, ReviewDecision::Accepted);
     }
 
     #[test]

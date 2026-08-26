@@ -7,8 +7,9 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::{ArchivalPolicy, SessionsApi};
 use crate::contexts::sessions::application::{
     PreparedReviewFeedback, ReviewAction, ReviewApplicationError, ReviewApplicationService,
-    ReviewFeedbackPort, ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewSnapshotPort,
-    SessionApplicationPorts, SessionRecoveryCoordinator, SessionsApplicationService,
+    ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewLogEvent, ReviewLoggingPort,
+    ReviewOperationPort, ReviewSnapshotPort, SessionApplicationPorts, SessionRecoveryCoordinator,
+    SessionsApplicationService,
 };
 use crate::contexts::sessions::infrastructure::{
     AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
@@ -103,6 +104,7 @@ pub(crate) fn assemble_sessions_api(
     let review = ReviewApplicationService::new(
         Arc::new(SqliteReviewRepository::new(database.clone())),
         Arc::new(SqliteReviewDecisionRepository::new(database)),
+        Arc::new(WorkspaceReviewHunkWitnessAdapter(workspaces.clone())),
         Arc::new(SystemReviewClock),
         Arc::new(UuidReviewIds),
         Arc::new(SessionReviewFeedbackAdapter(service.clone())),
@@ -194,6 +196,31 @@ impl ReviewSnapshotPort for WorkspaceReviewSnapshotAdapter {
                 files,
             },
         )
+    }
+}
+
+struct WorkspaceReviewHunkWitnessAdapter(WorkspaceApi);
+
+impl ReviewHunkWitnessPort for WorkspaceReviewHunkWitnessAdapter {
+    fn hunk_fingerprints(
+        &self,
+        session_id: &str,
+        path: &str,
+        expected_snapshot: &str,
+    ) -> Result<Vec<String>, ReviewApplicationError> {
+        // The same bounded load the Review Center renders from, so the fingerprints checked here
+        // are the ones the reviewer was shown. A second way of computing them would eventually
+        // disagree with the first, and the disagreement would look like every decision being
+        // stale.
+        let file = self
+            .0
+            .load_review_file(session_id, path, expected_snapshot)
+            .map_err(|error| ReviewApplicationError::Repository(error.to_string()))?;
+        Ok(file
+            .hunks
+            .into_iter()
+            .map(|hunk| hunk.fingerprint)
+            .collect())
     }
 }
 

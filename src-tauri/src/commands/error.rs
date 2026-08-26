@@ -56,6 +56,18 @@ impl CommandError {
         }
     }
 
+    /// A refusal because the state moved, not because the request was malformed.
+    ///
+    /// The message is the stable reason code and nothing else: it is what the frontend matches on,
+    /// and prefixing it the way `validation` does would make the code a substring rather than the
+    /// value.
+    pub(crate) fn conflict(code: impl Into<String>) -> Self {
+        Self {
+            category: CommandErrorCategory::Conflict,
+            message: code.into(),
+        }
+    }
+
     pub(crate) fn storage(message: impl Into<String>) -> Self {
         Self {
             category: CommandErrorCategory::Infrastructure,
