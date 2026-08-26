@@ -203,6 +203,7 @@ fn only_a_committed_generation_lets_memory_be_used() {
         legacy_rows_migrated_at: Some(issued_at()),
         last_error_code: None,
         repair_required: false,
+        last_reconciled_at: None,
     };
     assert_eq!(ready.health(), MemoryRuntimeHealth::Ready { generation: 4 });
     assert!(ready.health().allows_memory_use());

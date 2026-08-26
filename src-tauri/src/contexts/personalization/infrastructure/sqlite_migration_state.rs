@@ -39,6 +39,7 @@ type StateRow = (
     Option<String>,
     Option<String>,
     i64,
+    Option<String>,
 );
 
 /// The singleton row that says whether stored personalization data is trustworthy yet.
@@ -60,10 +61,19 @@ impl SqliteMigrationState {
 impl MigrationStatePort for SqliteMigrationState {
     fn load(&self) -> Result<MigrationState> {
         let conn = self.connection()?;
-        let (generation, phase, started_at, completed_at, rows_migrated_at, error_code, repair): StateRow = conn
+        let (
+            generation,
+            phase,
+            started_at,
+            completed_at,
+            rows_migrated_at,
+            error_code,
+            repair,
+            reconciled_at,
+        ): StateRow = conn
             .query_row(
                 "SELECT generation, phase, started_at, completed_at, legacy_rows_migrated_at, \
-                 last_error_code, repair_required \
+                 last_error_code, repair_required, last_reconciled_at \
                  FROM personalization_migration_state WHERE id = 1",
                 [],
                 |row| {
@@ -75,6 +85,7 @@ impl MigrationStatePort for SqliteMigrationState {
                         row.get(4)?,
                         row.get(5)?,
                         row.get(6)?,
+                        row.get(7)?,
                     ))
                 },
             )
@@ -88,6 +99,7 @@ impl MigrationStatePort for SqliteMigrationState {
             legacy_rows_migrated_at: parse_timestamp(rows_migrated_at)?,
             last_error_code: error_code,
             repair_required: repair != 0,
+            last_reconciled_at: parse_timestamp(reconciled_at)?,
         })
     }
 
@@ -100,7 +112,8 @@ impl MigrationStatePort for SqliteMigrationState {
             .execute(
                 "UPDATE personalization_migration_state
                  SET generation = ?1, phase = ?2, started_at = ?3, completed_at = ?4,
-                     legacy_rows_migrated_at = ?5, last_error_code = ?6, repair_required = ?7
+                     legacy_rows_migrated_at = ?5, last_error_code = ?6, repair_required = ?7,
+                     last_reconciled_at = ?8
                  WHERE id = 1",
                 params![
                     i64::try_from(state.generation).unwrap_or(i64::MAX),
@@ -110,6 +123,7 @@ impl MigrationStatePort for SqliteMigrationState {
                     state.legacy_rows_migrated_at.map(timestamp),
                     state.last_error_code.as_deref(),
                     i64::from(state.repair_required),
+                    state.last_reconciled_at.map(timestamp),
                 ],
             )
             .map_err(storage)?;

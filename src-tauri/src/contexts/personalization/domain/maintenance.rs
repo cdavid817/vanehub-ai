@@ -292,6 +292,9 @@ pub(crate) struct MigrationState {
     /// A stable code, never a message: this is persisted and surfaced.
     pub(crate) last_error_code: Option<String>,
     pub(crate) repair_required: bool,
+    /// When a rebuild last completed. `None` means one has never run, which is a different answer
+    /// from "it ran and found nothing" and the two must not render the same.
+    pub(crate) last_reconciled_at: Option<DateTime<Utc>>,
 }
 
 impl MigrationState {
@@ -304,6 +307,7 @@ impl MigrationState {
             legacy_rows_migrated_at: None,
             last_error_code: None,
             repair_required: false,
+            last_reconciled_at: None,
         }
     }
 

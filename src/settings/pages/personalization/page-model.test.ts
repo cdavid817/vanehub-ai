@@ -28,6 +28,8 @@ describe("personalization page model", () => {
       state: "ready",
       memoryAvailable: true,
       pendingCandidates: 2,
+      lastReconciledAt: null,
+      repairRequired: false,
     });
 
     expect(acceptsWrites(ready.maintenance)).toBe(true);
@@ -39,6 +41,8 @@ describe("personalization page model", () => {
       state: "ready",
       memoryAvailable: true,
       pendingCandidates: 0,
+      lastReconciledAt: null,
+      repairRequired: false,
     });
 
     // A query result cannot report this: the rebuild is in flight from this page.
@@ -53,6 +57,8 @@ describe("personalization page model", () => {
         state,
         memoryAvailable: false,
         pendingCandidates: 0,
+        lastReconciledAt: null,
+        repairRequired: false,
       });
 
       expect(acceptsWrites(health.maintenance)).toBe(false);

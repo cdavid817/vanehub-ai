@@ -115,6 +115,7 @@ pub(super) fn mark_ready(fixture: &Fixture) {
             legacy_rows_migrated_at: Some(now()),
             last_error_code: None,
             repair_required: false,
+            last_reconciled_at: None,
         })
         .expect("mark migration complete");
 }
@@ -252,6 +253,7 @@ fn a_repair_required_generation_is_not_usable() {
             legacy_rows_migrated_at: Some(now()),
             last_error_code: Some("derived_rebuild_failed".to_string()),
             repair_required: true,
+            last_reconciled_at: None,
         })
         .expect("save state");
 

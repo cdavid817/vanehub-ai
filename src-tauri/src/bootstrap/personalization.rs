@@ -120,7 +120,7 @@ pub(crate) fn assemble_personalization(
         );
     let maintenance = Arc::new(StartupMaintenanceService::new(StartupMaintenancePorts {
         gate: gate.clone(),
-        state,
+        state: state.clone(),
         policies: policies.clone(),
         policy_migration: Arc::new(SqliteLegacyPolicyMigration::new(database.clone())),
         legacy_settings: Arc::new(DesktopLegacySettingsAdapter::new(settings.clone())),
@@ -177,6 +177,7 @@ pub(crate) fn assemble_personalization(
         )),
         aliases,
         workspace_identity: Arc::new(WorkspaceIdentityResolver::for_this_platform()),
+        migration_state: state.clone(),
     });
     // Bound here rather than by the caller, so there is no assembly order in which the settings
     // page is live while the legacy rows are still its truth.

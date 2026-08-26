@@ -14,12 +14,12 @@ use crate::contexts::personalization::application::{
 };
 use crate::contexts::personalization::domain::{
     AgentId, InstructionMergeMode, MemoryAudience, MemoryCandidate, MemoryCandidateOperation,
-    MemoryCursor, MemoryId, MemoryPage, MemoryProvenance, MemoryQuery, MemoryRecord, MemoryScope,
-    MemoryScopeFilter, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
-    PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
-    PolicyToggle, ReconcileMemoryOutcome, ResetMemoryOutcome, ResetMemoryPreview, ReviewAction,
-    ReviewOutcome, SessionId, SessionPersonalizationMode, WorkspaceIdentity, WorkspaceKey,
-    WorkspaceKind,
+    MemoryCursor, MemoryId, MemoryPage, MemoryProvenance, MemoryQuery, MemoryRecord,
+    MemoryRuntimeHealth, MemoryScope, MemoryScopeFilter, MemorySensitivity, MemorySource,
+    MemoryStatus, MemoryType, PersonalizationPolicyPatch, PersonalizationPolicyRecord,
+    PersonalizationPolicyScope, PolicyToggle, ReconcileMemoryOutcome, ResetMemoryOutcome,
+    ResetMemoryPreview, ReviewAction, ReviewOutcome, SessionId, SessionPersonalizationMode,
+    WorkspaceIdentity, WorkspaceKey, WorkspaceKind,
 };
 
 fn invalid(field: &str, value: &str) -> CommandError {
@@ -683,5 +683,7 @@ pub(super) fn health_to_dto(api: &PersonalizationApi) -> dto::PersonalizationHea
         // A queue a user can read is not a memory a runtime can act on, so an unreadable count
         // reports zero rather than failing the whole health call.
         pending_candidates: api.pending_memory_candidate_count().unwrap_or(0),
+        last_reconciled_at: api.last_reconciled_at().map(|value| value.to_rfc3339()),
+        repair_required: matches!(health, MemoryRuntimeHealth::RepairRequired),
     }
 }

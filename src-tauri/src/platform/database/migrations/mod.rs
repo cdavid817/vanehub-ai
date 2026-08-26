@@ -522,6 +522,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-personalization-mode",
         crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        84,
+        "personalization-last-reconciled",
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -627,6 +633,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     // collision is resolved when the branches meet, by renumbering whichever lands second — and it
     // is detectable, because a colliding migration is silently skipped and only the name diverges.
     (83, "session-personalization-mode"),
+    (84, "personalization-last-reconciled"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

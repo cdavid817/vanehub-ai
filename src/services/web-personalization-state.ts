@@ -234,6 +234,17 @@ export function removeWebCandidate(candidateId: string): void {
   candidates.delete(candidateId);
 }
 
+const reconciledStorageKey = "vanehub.mock.personalizationLastReconciled";
+
+/** Persisted for the same reason policies are: on the desktop this survives a restart. */
+export function readWebLastReconciledAt(): string | null {
+  return readWebMockStorage<string | null>(reconciledStorageKey, null);
+}
+
+export function writeWebLastReconciledAt(value: string): void {
+  writeWebMockStorage(reconciledStorageKey, value);
+}
+
 export function webPendingCandidateCount(): number {
   return candidates.size;
 }

@@ -114,6 +114,7 @@ fn mark_ready(fixture: &Fixture) {
             legacy_rows_migrated_at: Some(now()),
             last_error_code: None,
             repair_required: false,
+            last_reconciled_at: None,
         })
         .expect("mark migration complete");
 }

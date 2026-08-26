@@ -64,8 +64,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 20546 -> 20550: 记忆列表需要按"谁可读取"过滤。native 的 MemoryQuery 本来就有
 // audience_agent_id，只是没有暴露到 DTO；这 4 行是类型字段与 mock 的过滤实现。
 // "谁记录的"与"谁可读取"是两个问题，合并成一个控件会让某些记忆从其中一侧彻底搜不到。
+// 20550 -> 20572: 健康状态新增"上次重建时间"与"需要修复"两个字段，
+// mock 跟着把时间戳持久化——桌面端它本就能活过重启，不持久化的 mock 会让
+// "从未重建"与"重建过但没发现问题"在页面上长得一样。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20550, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 20572, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

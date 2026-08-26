@@ -49,6 +49,9 @@ export interface PersonalizationHealth {
   state: PersonalizationHealthState;
   memoryAvailable: boolean;
   pendingCandidates: number;
+  /** Null means a rebuild has never run, which is not the same as one that found nothing. */
+  lastReconciledAt: string | null;
+  repairRequired: boolean;
 }
 
 export interface PersonalizationPolicy {

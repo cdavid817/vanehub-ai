@@ -402,4 +402,9 @@ pub(crate) struct PersonalizationHealthView {
     pub(crate) state: String,
     pub(crate) memory_available: bool,
     pub(crate) pending_candidates: usize,
+    /// RFC 3339, or absent when a rebuild has never run. Absent is a different answer
+    /// from "it ran and found nothing", and the two must not render the same.
+    pub(crate) last_reconciled_at: Option<String>,
+    /// Whether the store says it needs repair before it can be used at all.
+    pub(crate) repair_required: bool,
 }

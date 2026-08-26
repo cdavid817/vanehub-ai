@@ -297,6 +297,7 @@ fn the_migration_state_row_is_seeded_and_round_trips() {
         legacy_rows_migrated_at: Some(base_time()),
         last_error_code: Some("quarantined_entries".to_string()),
         repair_required: true,
+        last_reconciled_at: None,
     };
     fixture.migration_state.save(&updated).expect("save");
 

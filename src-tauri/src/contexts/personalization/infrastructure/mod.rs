@@ -26,6 +26,7 @@ mod memory_document_tests;
 #[cfg(test)]
 mod memory_eligibility_tests;
 mod memory_id_generator;
+mod reconciliation_schema;
 mod schema;
 #[cfg(test)]
 mod schema_tests;
@@ -69,6 +70,7 @@ pub(crate) use memory_document::{
     compose, content_hash, normalize_body, parse, MEMORY_SCHEMA_VERSION,
 };
 pub(crate) use memory_id_generator::UuidMemoryIdGenerator;
+pub(crate) use reconciliation_schema::apply_reconciliation_schema;
 pub(crate) use schema::apply_schema;
 pub(crate) use secret_redaction::PlatformSecretRedaction;
 pub(crate) use sqlite_candidate_repository::SqliteCandidateRepository;

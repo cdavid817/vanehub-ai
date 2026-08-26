@@ -2,6 +2,7 @@ import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import { AgentMemorySection } from "./agent-memory-section";
 import { CandidateReviewSection } from "./candidate-review-section";
+import { PersonalizationMaintenanceSection } from "./maintenance-section";
 import { MemoryListSection } from "./memory-list-section";
 
 /**
@@ -21,6 +22,7 @@ export function PersonalizationMemoryView({
       <AgentMemorySection />
       <CandidateReviewSection service={service} />
       <MemoryListSection service={service} />
+      <PersonalizationMaintenanceSection service={service} />
     </div>
   );
 }

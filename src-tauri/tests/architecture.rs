@@ -2470,8 +2470,11 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
     SubtreeBudget {
+        // Raised from 2,965 by `add-unified-personalization-governance`: migration 84 adds one
+        // registry call, one expected-sequence entry, and the three version assertions that move
+        // with them. Registering a migration anywhere costs those lines here; nothing was copied.
         root: "src-tauri/src/platform/database",
-        budget: 2_965,
+        budget: 2_969,
         owner: "split-database-migrations",
     },
 ];

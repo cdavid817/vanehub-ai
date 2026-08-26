@@ -23,9 +23,9 @@ use super::application::{
     CandidateSubmissionOutcome, CandidateSubmissionService, ClockPort, CreateMemoryInput,
     DeleteMemoryOutcome, EffectivePreview, LastKnownGoodPolicyCache, LegacyAddressAliasPort,
     LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort,
-    MemoryApplicationService, MemoryHealthPort, MemoryIdGeneratorPort, MutationAdmission,
-    PersonalizationApplicationError, PersonalizationPreviewService, PolicyRepository,
-    PolicyResolutionService, ResolutionRequest, ReviewRequest, UpdateMemoryPatch,
+    MemoryApplicationService, MemoryHealthPort, MemoryIdGeneratorPort, MigrationStatePort,
+    MutationAdmission, PersonalizationApplicationError, PersonalizationPreviewService,
+    PolicyRepository, PolicyResolutionService, ResolutionRequest, ReviewRequest, UpdateMemoryPatch,
     WorkspaceIdentityPort, WorkspaceIdentityRequest,
 };
 use super::domain::{
@@ -145,6 +145,7 @@ pub(crate) struct PersonalizationApi {
     /// Used only to derive a comparable key from the display path a pre-governance caller sends.
     /// The raw path is preserved regardless, so a failure to derive one loses nothing.
     workspace_identity: Arc<dyn WorkspaceIdentityPort>,
+    migration_state: Arc<dyn MigrationStatePort>,
 }
 
 /// Everything the boundary is assembled from.
@@ -168,6 +169,7 @@ pub(crate) struct PersonalizationApiParts {
     pub(crate) settings: Arc<LegacySettingsCompatibility>,
     pub(crate) aliases: Arc<dyn LegacyAddressAliasPort>,
     pub(crate) workspace_identity: Arc<dyn WorkspaceIdentityPort>,
+    pub(crate) migration_state: Arc<dyn MigrationStatePort>,
 }
 
 impl PersonalizationApi {
@@ -188,6 +190,7 @@ impl PersonalizationApi {
             settings,
             aliases,
             workspace_identity,
+            migration_state,
         } = parts;
         Self {
             memories,
@@ -205,6 +208,7 @@ impl PersonalizationApi {
             settings,
             aliases,
             workspace_identity,
+            migration_state,
         }
     }
 
@@ -444,7 +448,20 @@ impl PersonalizationApi {
     /// Rebuilds derived state from the authoritative files.
     pub(crate) fn reconcile_memories(&self) -> Result<ReconcileMemoryOutcome> {
         let _admission = self.admit_write()?;
-        self.memories.reconcile()
+        let outcome = self.memories.reconcile()?;
+        // Stamped after the rebuild, not before: a timestamp written first would claim a rebuild
+        // that a failure half-way through never finished. A stamp that cannot be written is not
+        // worth failing the rebuild over -- the work is done either way.
+        if let Ok(mut state) = self.migration_state.load() {
+            state.last_reconciled_at = Some(self.clock.now());
+            let _ = self.migration_state.save(&state);
+        }
+        Ok(outcome)
+    }
+
+    /// When a rebuild last completed, or `None` when one never has.
+    pub(crate) fn last_reconciled_at(&self) -> Option<DateTime<Utc>> {
+        self.migration_state.load().ok()?.last_reconciled_at
     }
 
     /// Proposals waiting for a decision.
@@ -805,9 +822,8 @@ pub(crate) fn build_for_tests(
         clock.clone(),
     ));
     let policies = Arc::new(SqlitePolicyRepository::new(database.clone()));
-    let health = Arc::new(DurableMemoryHealth::new(Arc::new(
-        SqliteMigrationState::new(database.clone()),
-    )));
+    let migration_state = Arc::new(SqliteMigrationState::new(database.clone()));
+    let health = Arc::new(DurableMemoryHealth::new(migration_state.clone()));
     let cache = Arc::new(LastKnownGoodPolicyCache::default());
     let resolver = Arc::new(PolicyResolutionService::new(
         policies.clone(),
@@ -846,6 +862,7 @@ pub(crate) fn build_for_tests(
         workspace_identity: Arc::new(
             super::application::WorkspaceIdentityResolver::for_this_platform(),
         ),
+        migration_state,
     });
     (api, service)
 }

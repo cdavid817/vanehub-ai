@@ -128,7 +128,7 @@
 - [x] 11.4 Add a pending-review workflow with approve, edit-and-approve, reject, scope/audience change, merge, and conflict handling.
 - [x] 11.5 Add explicit memory creation from Settings and message-menu actions for remember globally, remember for project, and forget/correct a surfaced memory.
 - [x] 11.6 Add reset preview and execution dialog with exact counts, scope/status selection, typed confirmation, short-lived token, and structured result display.
-- [ ] 11.7 Add maintenance/health UI for migration state, malformed/quarantined entries, projection/index mismatch, last reconciliation, and rebuild action.
+- [x] 11.7 Add maintenance/health UI for migration state, malformed/quarantined entries, projection/index mismatch, last reconciliation, and rebuild action.
 - [ ] 11.8 Add Runtime Preview inputs and provenance/exclusion output, including clear statements that CLI internal compaction is not managed by VaneHub.
 - [ ] 11.9 Use normal paged document flow; add measured virtualization only if the rendered result set can exceed the established 500-row threshold.
 - [ ] 11.10 Add tests for paging/filtering, candidate review, edit conflicts, duplicate names, scoped reset, partial reset failure, reconciliation, preview redaction, message actions, keyboard/focus behavior, and 500+ row performance if virtualization is used.

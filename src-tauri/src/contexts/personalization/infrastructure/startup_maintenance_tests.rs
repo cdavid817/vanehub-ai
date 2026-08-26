@@ -352,6 +352,7 @@ fn reopen(
         )),
         aliases,
         workspace_identity: Arc::new(WorkspaceIdentityResolver::for_this_platform()),
+        migration_state: state.clone(),
     });
 
     Fixture {

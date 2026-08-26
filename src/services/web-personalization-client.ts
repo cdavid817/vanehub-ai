@@ -30,7 +30,9 @@ import {
   readWebPolicy,
   removeWebCandidate,
   removeWebMemory,
+  readWebLastReconciledAt,
   webPendingCandidateCount,
+  writeWebLastReconciledAt,
   writeWebPolicy,
 } from "./web-personalization-state";
 import {
@@ -62,7 +64,13 @@ import {
  */
 export const webPersonalizationClient: PersonalizationService = {
   async getPersonalizationHealth(): Promise<PersonalizationHealth> {
-    return { state: "ready", memoryAvailable: true, pendingCandidates: webPendingCandidateCount() };
+    return {
+      state: "ready",
+      memoryAvailable: true,
+      pendingCandidates: webPendingCandidateCount(),
+      lastReconciledAt: readWebLastReconciledAt(),
+      repairRequired: false,
+    };
   },
 
   async listPersonalizationPolicies() {
@@ -253,6 +261,9 @@ export const webPersonalizationClient: PersonalizationService = {
   },
 
   async reconcilePersonalizationMemories() {
+    // Stamped here for the same reason the desktop stamps it: a maintenance screen that
+    // could not say when a rebuild last ran would leave the user re-running it blindly.
+    writeWebLastReconciledAt(new Date().toISOString());
     return maintenance({ matched: listWebMemories().length });
   },
 };
