@@ -19,11 +19,14 @@ import type { PreviewStatus } from "./use-file-preview";
  */
 export function FilePreview({
   file,
+  observations = 0,
   onShowEvidence,
   status,
   targetLine,
 }: {
   file: FileContent;
+  /** How many recorded changes this file has. Zero withholds the evidence action entirely. */
+  observations?: number;
   /** Absent where nothing owns the evidence scope, in which case the action is not offered. */
   onShowEvidence?: (path: string) => void;
   /** Why this may not be the file that was last asked for. */
@@ -75,6 +78,7 @@ export function FilePreview({
         file={file}
         lineCount={lines.length}
         matchCount={matches.length}
+        observations={observations}
         onGoToLine={(line) => {
           setQuery("");
           setSelectedLine(Math.min(Math.max(line, 1), lines.length));

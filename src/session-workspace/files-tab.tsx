@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { agentService } from "../services/runtime-agent-client";
 import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { parentDirectoryOf, selectionStillExists } from "./workspace-invalidation-targets";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
+import { workspaceQueryKeys } from "./workspace-query-keys";
 import { QuickOpenDialog } from "./quick-open-dialog";
 import { ContentSearchPanel } from "./content-search-panel";
 import { FilesToolbar } from "./files-toolbar";
@@ -48,6 +51,13 @@ export function FilesTab({
   const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
 
   const preview = useFilePreview(sessionId, selectedPath);
+  // Asked per selection rather than per file in the tree: the answer is only needed for the one
+  // being previewed, and asking for every row would be a query per listing.
+  const evidenceLinks = useQuery({
+    enabled: Boolean(sessionId) && Boolean(selectedPath),
+    queryKey: workspaceQueryKeys.fileEvidence(sessionId ?? "", selectedPath ?? ""),
+    queryFn: () => agentService.getFileEvidenceLinks(sessionId ?? "", selectedPath ?? ""),
+  });
 
   useEffect(() => {
     setSelectedPath(null);
@@ -160,6 +170,7 @@ export function FilesTab({
         ) : (
           <FilePreview
             file={preview.shown}
+            observations={evidenceLinks.data?.observations ?? 0}
             onShowEvidence={onShowEvidence}
             status={preview.status}
             targetLine={previewLine}

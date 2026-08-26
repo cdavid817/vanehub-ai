@@ -379,6 +379,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
     ));
 
+    // Cloned before the move into communications: the file-evidence read side needs its own
+    // handle, and it is assembled after this point.
+    let evidence_link_database = database.clone();
     let communications = super::assemble_communications(super::CommunicationsDependencies {
         app: app.handle().clone(),
         database,
@@ -414,6 +417,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     super::start_session_shell_idle_job(workspace_api.clone());
+    // Assembled here rather than inside either context: workspaces knows where a file is and
+    // evidence knows what happened to it, and neither should learn the other half.
+    app.manage(super::SessionFileEvidence::new(
+        workspace_api.clone(),
+        super::assemble_file_evidence_links(evidence_link_database),
+    ));
     app.manage(workspace_api.clone());
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());

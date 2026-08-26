@@ -357,7 +357,7 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
                 // The file's own name. The directory it sits in stays here: a workspace path says
                 // where someone works, which is not what "this file changed" needs to say.
                 basename: basename.to_string(),
-                path_fingerprint: path_fingerprint(
+                path_fingerprint: workspace_path_fingerprint(
                     &mutation.canonical_workspace,
                     &mutation.relative_path,
                 ),
@@ -394,7 +394,10 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
 /// needs is that two changes to one file group together, and a digest gives that without the
 /// journal ever holding a location. The separator is a NUL so no workspace-and-path pair can
 /// collide with a different pair that happens to concatenate the same way.
-fn path_fingerprint(canonical_workspace: &Path, relative_path: &str) -> String {
+pub(crate) fn workspace_path_fingerprint(
+    canonical_workspace: &Path,
+    relative_path: &str,
+) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(canonical_workspace.to_string_lossy().as_bytes());

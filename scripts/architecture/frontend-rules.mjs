@@ -154,8 +154,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 让 shell 脚本和 JSON 解析器失败,混合换行会把一次普通编辑变成整文件 diff。一个永远返回
 // `utf-8` / `lf` 的元数据行,是一行永远不变、因而永远不告诉任何人任何事的 UI。
 // 上限按实测值 21811 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.11):+27 是"这个文件被记录过什么"这条查询在服务边界上的
+// 三处——接口方法、Tauri 侧的 invoke 与 Zod 解析、Web 侧的固定零回答。
+// 值得说明的是为什么 Web 侧那个不能省、也不能编:浏览器构建没有执行日志,所以每个文件的
+// observations **真的**是 0。一个编出几条记录的夹具,会在界面上放一个通向不存在记录的链接——
+// 那比没有链接更糟,因为读者会以为是应用坏了。
+// 上限按实测值 21838 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21811, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21838, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

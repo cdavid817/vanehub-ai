@@ -143,6 +143,11 @@ function SessionWorkspaceTabs({
   // selected, and an action that navigated with an absent session would move the reader to a tab
   // scoped to nothing.
   const scopedSessionId = scope?.sessionId;
+  const showFileChanges =
+    scope && scopedSessionId
+      ? (relativePath: string) =>
+          navigate({ tab: "changes", scope: { ...scope, relativePath, sessionId: scopedSessionId } })
+      : undefined;
   const showFileEvidence =
     scope && scopedSessionId
       ? (relativePath: string) =>
@@ -198,7 +203,7 @@ function SessionWorkspaceTabs({
       return <AgentTerminalTab isVisible={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
     }
     if (id === "changes") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadChangesTab} />;
-    if (id === "documents") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadDocumentsTab} />;
+    if (id === "documents") return <LazyFeature componentProps={{ isVisible, onOpenChanges: showFileChanges, sessionId }} loader={loadDocumentsTab} />;
     if (id === "files") return <LazyFeature componentProps={{ isVisible, onNavigateToShell: () => activateTab("shell"), onShowEvidence: showFileEvidence, sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
       return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, recordsRevision, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;

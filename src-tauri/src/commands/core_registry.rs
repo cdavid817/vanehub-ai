@@ -154,6 +154,7 @@ pub(crate) fn invoke_handler(
         crate::commands::workspaces::search_session_files::search_session_files,
         crate::commands::workspaces::get_session_git_status::get_session_git_status,
         crate::commands::workspaces::get_workspace_inspection_capabilities::get_workspace_inspection_capabilities,
+        crate::commands::workspaces::get_file_evidence_links::get_file_evidence_links,
         crate::commands::workspaces::search_workspace_paths::search_workspace_paths,
         crate::commands::workspaces::search_workspace_content::search_workspace_content,
         crate::commands::workspaces::search_workspace_content::cancel_workspace_search,

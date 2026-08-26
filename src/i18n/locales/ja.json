@@ -4136,5 +4136,6 @@
   "sessionTabs.documents.outline": "アウトライン",
   "sessionTabs.documents.noMatches": "一致するドキュメントがありません。",
   "sessionTabs.documents.mode.preview": "プレビュー",
-  "sessionTabs.documents.mode.source": "ソース"
+  "sessionTabs.documents.mode.source": "ソース",
+  "sessionTabs.documents.openChanges": "Changes で開く"
 }

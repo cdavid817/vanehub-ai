@@ -4136,5 +4136,6 @@
   "sessionTabs.documents.outline": "개요",
   "sessionTabs.documents.noMatches": "일치하는 문서가 없습니다.",
   "sessionTabs.documents.mode.preview": "미리보기",
-  "sessionTabs.documents.mode.source": "소스"
+  "sessionTabs.documents.mode.source": "소스",
+  "sessionTabs.documents.openChanges": "Changes에서 열기"
 }

@@ -8,6 +8,7 @@ import type {
   GitStatusResult,
 } from "../types/session-workspace";
 import type {
+  FileEvidenceLinks,
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
   WorkspaceContentSearchResult,
@@ -94,6 +95,14 @@ export interface SessionWorkspaceInspectionService {
    * search's own completion, so `false` means "nothing to stop", not "you did something wrong".
    */
   cancelWorkspaceSearch(searchId: string): Promise<boolean>;
+  /**
+   * What is retained about one file, so a panel knows whether to offer a link to it.
+   *
+   * Takes a workspace-relative path; the digest the journal stores is computed on the native side
+   * from the session's own root. A caller cannot ask about a file in somebody else's workspace
+   * because there is nowhere to supply one.
+   */
+  getFileEvidenceLinks(sessionId: string, relativePath: string): Promise<FileEvidenceLinks>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

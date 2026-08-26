@@ -15,6 +15,7 @@ export function PreviewToolbar({
   file,
   lineCount,
   matchCount,
+  observations,
   onGoToLine,
   onQueryChange,
   onShowEvidence,
@@ -25,6 +26,8 @@ export function PreviewToolbar({
   file: FileContent;
   lineCount: number;
   matchCount: number;
+  /** How many recorded changes this file has. Zero withholds the evidence action entirely. */
+  observations: number;
   onGoToLine: (line: number) => void;
   onQueryChange: (query: string) => void;
   onShowEvidence?: (path: string) => void;
@@ -96,12 +99,16 @@ export function PreviewToolbar({
         value={lineInput}
       />
 
-      {onShowEvidence ? (
+      {/* Offered only when something is retained about this file. An action that always appeared
+          would send a reader to an empty list for most of the files they open, and they would stop
+          believing it the third time. */}
+      {onShowEvidence && observations > 0 ? (
         <IconButton
           label={t("sessionTabs.files.preview.showEvidence")}
           onClick={() => onShowEvidence(file.path)}
         >
           <Link2 className="h-3.5 w-3.5" />
+          <span className="ml-1 tabular-nums">{observations}</span>
         </IconButton>
       ) : null}
 

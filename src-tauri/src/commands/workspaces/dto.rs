@@ -356,6 +356,22 @@ pub(crate) struct WorkspaceContentMatchDto {
     pub(crate) snippet_truncated: bool,
 }
 
+/// What is retained about one file.
+///
+/// `observations` counts recorded changes and is what decides whether an action is worth offering
+/// at all. Zero is a real answer and the common one: most files in a workspace were never touched
+/// by an agent, and a link that led to nothing would be worse than no link.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FileEvidenceLinksDto {
+    pub(crate) observations: u32,
+    pub(crate) run_ids: Vec<String>,
+    pub(crate) command_ids: Vec<String>,
+    /// Whether more identifiers exist than are listed. Distinct from `observations`, which counts
+    /// events rather than distinct runs.
+    pub(crate) truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceSearchCoverageDto {

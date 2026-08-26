@@ -4136,5 +4136,6 @@
   "sessionTabs.documents.outline": "大綱",
   "sessionTabs.documents.noMatches": "沒有符合的文件。",
   "sessionTabs.documents.mode.preview": "預覽",
-  "sessionTabs.documents.mode.source": "原始碼"
+  "sessionTabs.documents.mode.source": "原始碼",
+  "sessionTabs.documents.openChanges": "在 Changes 中開啟"
 }

@@ -4136,5 +4136,6 @@
   "sessionTabs.documents.outline": "大纲",
   "sessionTabs.documents.noMatches": "没有匹配的文档。",
   "sessionTabs.documents.mode.preview": "预览",
-  "sessionTabs.documents.mode.source": "源码"
+  "sessionTabs.documents.mode.source": "源码",
+  "sessionTabs.documents.openChanges": "在 Changes 中打开"
 }

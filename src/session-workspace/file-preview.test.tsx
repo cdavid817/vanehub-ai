@@ -135,6 +135,7 @@ describe("FilePreview", () => {
     renderWithAppProviders(
       <FilePreview
         file={file()}
+        observations={3}
         onShowEvidence={onShowEvidence}
         status={{ kind: "current" }}
         targetLine={null}
@@ -144,6 +145,44 @@ describe("FilePreview", () => {
     fireEvent.click(screen.getByRole("button", { name: /records for this file|此文件的记录/ }));
 
     expect(onShowEvidence).toHaveBeenCalledWith("src/main.rs");
+  });
+
+  it("shows how much is retained beside the action", () => {
+    renderWithAppProviders(
+      <FilePreview
+        file={file()}
+        observations={3}
+        onShowEvidence={vi.fn()}
+        status={{ kind: "current" }}
+        targetLine={null}
+      />,
+    );
+
+    // Read off the button rather than the document: the line numbers contain a "3" too, and an
+    // assertion that matched either would pass even if the count were never rendered.
+    const action = screen.getByRole("button", { name: /records for this file|此文件的记录/ });
+    // The count is what makes the action worth pressing: "there are three" and "there is something"
+    // send a reader to the same place with different expectations.
+    expect(action.textContent).toContain("3");
+  });
+
+  it("omits the evidence action for a file nothing was recorded against", () => {
+    renderWithAppProviders(
+      <FilePreview
+        file={file()}
+        observations={0}
+        onShowEvidence={vi.fn()}
+        status={{ kind: "current" }}
+        targetLine={null}
+      />,
+    );
+
+    // Most files in a workspace were never touched by an agent. An action that always appeared
+    // would send a reader to an empty list for most of the files they open, and they would stop
+    // believing it the third time.
+    expect(
+      screen.queryByRole("button", { name: /records for this file|此文件的记录/ }),
+    ).toBeNull();
   });
 
   it("omits the evidence action where nothing can act on it", () => {

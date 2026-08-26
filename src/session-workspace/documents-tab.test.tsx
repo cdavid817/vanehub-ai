@@ -149,6 +149,47 @@ describe("DocumentsTab", () => {
     expect((window as unknown as { __owned?: boolean }).__owned).toBeUndefined();
   });
 
+  it("offers Changes only for a document Git reports as changed", async () => {
+    const onOpenChanges = vi.fn();
+    vi.spyOn(agentService, "getSessionGitStatus").mockResolvedValue({
+      context: CONTEXT,
+      isGit: true,
+      branch: "main",
+      items: [
+        { path: "README.md", previousPath: null, index: "unmodified", worktree: "modified" },
+      ],
+      truncated: false,
+      nextCursor: null,
+    });
+    renderWithAppProviders(
+      <DocumentsTab onOpenChanges={onOpenChanges} sessionId="session-1" />,
+    );
+
+    const action = await screen.findByRole("button", { name: /Open in Changes|在 Changes 中打开/ });
+    fireEvent.click(action);
+
+    expect(onOpenChanges).toHaveBeenCalledWith("README.md");
+  });
+
+  it("withholds Changes for a document Git does not list", async () => {
+    vi.spyOn(agentService, "getSessionGitStatus").mockResolvedValue({
+      context: CONTEXT,
+      isGit: true,
+      branch: "main",
+      items: [],
+      truncated: false,
+      nextCursor: null,
+    });
+    renderWithAppProviders(<DocumentsTab onOpenChanges={vi.fn()} sessionId="session-1" />);
+    await waitFor(() => expect(screen.getAllByText("Section").length).toBeGreaterThan(0));
+
+    // An action that always appeared would open Changes on a file it does not list, which reads as
+    // Changes being broken rather than as the document being unmodified.
+    expect(
+      screen.queryByRole("button", { name: /Open in Changes|在 Changes 中打开/ }),
+    ).toBeNull();
+  });
+
   it("reports a provider that cannot read rather than an empty workspace", async () => {
     vi.spyOn(agentService, "getWorkspaceInspectionCapabilities").mockResolvedValue({
       provider: "ssh",

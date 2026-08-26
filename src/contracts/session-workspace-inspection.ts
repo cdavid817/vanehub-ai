@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
+  FileEvidenceLinks,
   WorkspaceContentSearchResult,
   WorkspacePathSearchResult,
 } from "../types/session-workspace-inspection";
@@ -72,6 +73,17 @@ export const workspaceContentSearchResultSchema = z.object({
 
 export function parseWorkspaceContentSearchResult(value: unknown): WorkspaceContentSearchResult {
   return workspaceContentSearchResultSchema.parse(value);
+}
+
+export const fileEvidenceLinksSchema = z.object({
+  observations: z.number().int().nonnegative(),
+  runIds: z.array(z.string()),
+  commandIds: z.array(z.string()),
+  truncated: z.boolean(),
+});
+
+export function parseFileEvidenceLinks(value: unknown): FileEvidenceLinks {
+  return fileEvidenceLinksSchema.parse(value);
 }
 
 export const workspaceInvalidationNoticeSchema = z.object({

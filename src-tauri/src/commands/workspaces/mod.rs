@@ -1,5 +1,6 @@
 mod dto;
 pub(crate) mod export_session_logs;
+pub(crate) mod get_file_evidence_links;
 pub(crate) mod get_session_git_diff;
 pub(crate) mod get_session_git_status;
 pub(crate) mod get_workspace_inspection_capabilities;

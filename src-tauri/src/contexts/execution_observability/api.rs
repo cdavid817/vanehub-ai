@@ -29,6 +29,9 @@ pub(crate) mod evidence {
         ExecutionRecordProjection, ExecutionRecordQuery, WorkspaceEvidenceSummary,
         WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
     };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::file_links::{
+        FileEvidenceLinkPort, FileEvidenceLinkQuery, FileEvidenceLinks,
+    };
     pub(crate) use crate::contexts::execution_observability::application::evidence::ports::EvidenceApplicationError;
     /// What a session-run report may ask this context for, and the shapes it answers with.
     ///

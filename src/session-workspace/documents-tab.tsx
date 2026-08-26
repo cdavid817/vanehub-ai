@@ -20,10 +20,13 @@ const MAX_RECENT_DOCUMENTS = 5;
 
 export function DocumentsTab({
   isVisible = true,
+  onOpenChanges,
   sessionId,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
+  /** Absent where nothing owns the tabs, in which case the action is not offered. */
+  onOpenChanges?: (path: string) => void;
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
@@ -35,6 +38,13 @@ export function DocumentsTab({
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
 
   const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
+  // Read here rather than by the viewer: the same status decides whether the action is offered, and
+  // a second read would be a second answer that can disagree with the first.
+  const statusQuery = useQuery({
+    enabled: Boolean(sessionId) && isVisible,
+    queryKey: workspaceQueryKeys.gitStatus(sessionId ?? ""),
+    queryFn: () => agentService.getSessionGitStatus(sessionId ?? ""),
+  });
   const listQuery = useQuery({
     // Nothing is discarded when the tab is hidden: the list, the selection, and the rendered
     // document stay exactly as the reader left them, and only the discovery walk stops.
@@ -50,6 +60,13 @@ export function DocumentsTab({
   const outline = useMemo(
     () => documentOutline(preview.shown?.content ?? ""),
     [preview.shown?.content],
+  );
+
+  /** Whether Git currently reports the open document as changed. */
+  const isChanged = useMemo(
+    () =>
+      Boolean(selected && statusQuery.data?.items.some((entry) => entry.path === selected.path)),
+    [selected, statusQuery.data],
   );
 
   const filtered = useMemo(() => {
@@ -137,6 +154,14 @@ export function DocumentsTab({
           document={selected}
           mode={mode}
           onModeChange={setMode}
+          onOpenChanges={
+            // Offered only when the document is actually among the working tree's changes. An
+            // action that always appeared would open Changes on a file it does not list, which
+            // reads as Changes being broken rather than as the document being unmodified.
+            isChanged && onOpenChanges && selected
+              ? () => onOpenChanges(selected.path)
+              : undefined
+          }
           outline={outline}
           scrollToAnchor={scrollToAnchor}
           scrollToLine={scrollToLine}

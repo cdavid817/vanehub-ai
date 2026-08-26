@@ -9,6 +9,8 @@ mod code_intelligence;
 mod communications;
 mod desktop;
 mod evidence_bridge;
+mod file_evidence;
+pub(crate) use file_evidence::SessionFileEvidence;
 #[cfg(test)]
 mod evidence_bridge_tests;
 mod execution_observability;
@@ -52,7 +54,8 @@ pub(crate) use desktop::{
 pub(crate) use evidence_bridge::{start_evidence_bridge, EvidenceBridgeShutdown};
 pub(crate) use execution_observability::{
     assemble_evaluation_api, assemble_execution_evidence_api, assemble_execution_observability_api,
-    relay_telemetry, start_evidence_maintenance_job, start_execution_retention_job,
+    assemble_file_evidence_links, relay_telemetry, start_evidence_maintenance_job,
+    start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use log_index_bridge::{start_log_index_bridge, LogIndexBridgeWorker};

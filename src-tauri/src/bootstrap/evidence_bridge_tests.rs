@@ -2718,3 +2718,45 @@ fn every_producer_bounds_its_longest_identifier() {
     assert_eq!(source_event_ids(&harness).len(), 5);
     assert!(longest_source_event_id(&harness) <= 128);
 }
+
+/// What the Files panel asks before it offers a link.
+///
+/// Driven through the same bridge that records a mutation, so the digest under test is the one the
+/// producer actually wrote. A test that computed its own would prove the two agree only as long as
+/// nobody changed either.
+#[cfg(test)]
+mod file_evidence_links {
+    use super::*;
+    use crate::contexts::execution_observability::api::evidence::{
+        EvidenceFileMutationId, EvidenceSessionId, FileEvidenceLinkPort, FileEvidenceLinkQuery,
+    };
+    use crate::contexts::execution_observability::infrastructure::SqliteEvidenceRepository;
+
+    fn links(
+        subject: &Harness,
+        fingerprint: &str,
+    ) -> crate::contexts::execution_observability::api::evidence::FileEvidenceLinks {
+        let repository = SqliteEvidenceRepository::new(subject.database.clone());
+        repository
+            .file_evidence_links(&FileEvidenceLinkQuery {
+                session_id: EvidenceSessionId::parse(SESSION.to_string()).expect("session"),
+                file_mutation_id: EvidenceFileMutationId::parse(fingerprint.to_string())
+                    .expect("mutation"),
+            })
+            .expect("links")
+    }
+
+    #[test]
+    fn a_file_nobody_touched_has_nothing_to_link_to() {
+        let subject = harness("file-links-empty");
+
+        // The common answer, and the one that decides whether an action is offered at all. Most
+        // files in a workspace were never touched by an agent, and a link that led to an empty list
+        // would be worse than no link.
+        let answer = links(&subject, "0123456789abcdef0123456789abcdef");
+
+        assert_eq!(answer.observations, 0);
+        assert!(answer.run_ids.is_empty());
+        assert!(!answer.truncated);
+    }
+}

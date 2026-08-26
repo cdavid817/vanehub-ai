@@ -2,6 +2,7 @@
 //!
 //! Submodules stay reachable inside the crate so the repository and command layers can name the
 //! models they map, while the re-exports below carry the names the rest of the crate uses today.
+pub(crate) mod file_links;
 pub(crate) mod models;
 pub(crate) mod ports;
 pub(crate) mod report_models;

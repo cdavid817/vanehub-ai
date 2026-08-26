@@ -102,6 +102,9 @@ export function invalidationFiltersFor(
     // file: nothing is cached under that key, so nothing refetches.
     { queryKey: workspaceQueryKeys.directory(sessionId, relativePath) },
     { queryKey: workspaceQueryKeys.preview(sessionId, relativePath) },
+    // A write is exactly the event that changes what is retained about a file, so the two refresh
+    // together. Leaving this out would show a stale count beside fresh content.
+    { queryKey: workspaceQueryKeys.fileEvidence(sessionId, relativePath) },
     { queryKey: workspaceQueryKeys.gitDiffsFor(sessionId, relativePath) },
     ...shared,
   ];

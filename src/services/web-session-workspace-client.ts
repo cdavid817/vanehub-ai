@@ -27,6 +27,7 @@ type SessionWorkspaceMethods = Pick<
   | "getWorkspaceInspectionCapabilities"
   | "subscribeWorkspaceInvalidation"
   | "searchWorkspacePaths"
+  | "getFileEvidenceLinks"
   | "searchWorkspaceContent"
   | "cancelWorkspaceSearch"
   | "listSessionDirectory"
@@ -133,6 +134,16 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
    */
   async cancelWorkspaceSearch() {
     return false;
+  },
+  /**
+   * Nothing is retained, and saying so is the honest answer.
+   *
+   * The browser build has no execution journal, so every file genuinely has zero observations —
+   * and a fixture that invented some would put a link on screen leading to records that do not
+   * exist, which is a worse demo than an absent link.
+   */
+  async getFileEvidenceLinks() {
+    return { observations: 0, runIds: [], commandIds: [], truncated: false };
   },
   async listSessionDirectory(_sessionId, path = "") {
     return {

@@ -4136,5 +4136,6 @@
   "sessionTabs.documents.outline": "Outline",
   "sessionTabs.documents.noMatches": "No documents match.",
   "sessionTabs.documents.mode.preview": "Preview",
-  "sessionTabs.documents.mode.source": "Source"
+  "sessionTabs.documents.mode.source": "Source",
+  "sessionTabs.documents.openChanges": "Open in Changes"
 }

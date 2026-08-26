@@ -63,6 +63,21 @@ export interface WorkspacePathSearchResult {
   nextCursor?: string;
 }
 
+/**
+ * What is retained about one file.
+ *
+ * `observations` counts recorded changes and is what decides whether an action is worth offering.
+ * Zero is a real answer and the common one: most files in a workspace were never touched by an
+ * agent, and a link that led to nothing would be worse than no link.
+ */
+export interface FileEvidenceLinks {
+  observations: number;
+  runIds: string[];
+  commandIds: string[];
+  /** Whether more identifiers exist than are listed. Counts events, not distinct runs. */
+  truncated: boolean;
+}
+
 /** One position inside one file. */
 export interface WorkspaceContentMatch {
   /** Workspace-relative, with forward slashes. */

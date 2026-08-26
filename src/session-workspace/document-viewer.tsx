@@ -34,6 +34,7 @@ export function DocumentViewer({
   document,
   mode,
   onModeChange,
+  onOpenChanges,
   outline,
   scrollToAnchor,
   scrollToLine,
@@ -43,6 +44,8 @@ export function DocumentViewer({
   document: SessionDocument | null;
   mode: DocumentMode;
   onModeChange: (mode: DocumentMode) => void;
+  /** Absent unless Git reports this document as changed. */
+  onOpenChanges?: () => void;
   outline: readonly OutlineEntry[];
   /** The heading Preview should reveal, or null. */
   scrollToAnchor: string | null;
@@ -67,9 +70,9 @@ export function DocumentViewer({
     <article className="flex min-h-0 flex-col rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
       {/* Offered only where the two modes differ. A plain text file rendered as Markdown is the
           same text, and a toggle that changed nothing would be a control a reader stops trusting. */}
-      {isMarkdown ? (
+      {isMarkdown || onOpenChanges ? (
         <div className="flex items-center gap-1 border-b border-border p-2">
-          {(["preview", "source"] as const).map((value) => (
+          {(isMarkdown ? (["preview", "source"] as const) : []).map((value) => (
             <button
               className={cn(
                 "rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted",
@@ -82,6 +85,15 @@ export function DocumentViewer({
               {t(`sessionTabs.documents.mode.${value}`)}
             </button>
           ))}
+          {onOpenChanges ? (
+            <button
+              className="ml-auto rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+              onClick={onOpenChanges}
+              type="button"
+            >
+              {t("sessionTabs.documents.openChanges")}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

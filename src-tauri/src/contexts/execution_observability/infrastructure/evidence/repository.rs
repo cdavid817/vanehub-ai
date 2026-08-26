@@ -2,6 +2,9 @@ use super::cursor::{filter_fingerprint, RecordCursor};
 use super::payload_row::to_stored;
 use super::projection::{project_event, ProjectionUpdate};
 use super::rows::{coverage_for_session, read_record_row, record_columns};
+use crate::contexts::execution_observability::application::evidence::file_links::{
+    FileEvidenceLinkPort, FileEvidenceLinkQuery, FileEvidenceLinks, MAX_LINKED_IDENTIFIERS,
+};
 use crate::contexts::execution_observability::application::evidence::models::{
     EvidenceCorrelationCounts, EvidenceRecordPage, EvidenceSubscriptionBootstrap,
     ExecutionRecordDetailQuery, ExecutionRecordDetailView, ExecutionRecordProjection,
@@ -55,6 +58,95 @@ impl SqliteEvidenceRepository {
         self.database
             .connection()
             .map_err(|error| EvidenceApplicationError::Storage(error.to_string()))
+    }
+
+    /// Distinct values of one correlation column for a file, newest first.
+    ///
+    /// One row past the bound is fetched deliberately, so the caller can tell "exactly ten" from
+    /// "at least ten" without a second counting query. Cutting at the bound first would make those
+    /// two indistinguishable, and the difference is the whole content of `truncated`.
+    fn linked_identifiers(
+        &self,
+        connection: &rusqlite::Connection,
+        session_id: &str,
+        mutation_id: &str,
+        column: LinkedColumn,
+    ) -> Result<Vec<String>, EvidenceApplicationError> {
+        // Two whole statements rather than one with an interpolated column name. A column cannot be
+        // bound as a parameter, so the only way to vary it safely is to not let it vary: the caller
+        // picks a variant, never a string.
+        let statement = match column {
+            LinkedColumn::Run => {
+                "SELECT DISTINCT run_id FROM execution_evidence_events \
+                 WHERE session_id = ?1 AND file_mutation_id = ?2 AND run_id IS NOT NULL \
+                 ORDER BY occurred_at DESC LIMIT ?3"
+            }
+            LinkedColumn::Command => {
+                "SELECT DISTINCT command_id FROM execution_evidence_events \
+                 WHERE session_id = ?1 AND file_mutation_id = ?2 AND command_id IS NOT NULL \
+                 ORDER BY occurred_at DESC LIMIT ?3"
+            }
+        };
+        let mut prepared = connection.prepare(statement).map_err(storage)?;
+        let rows = prepared
+            .query_map(
+                params![session_id, mutation_id, (MAX_LINKED_IDENTIFIERS + 1) as i64],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(storage)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(storage)
+    }
+}
+
+/// Which correlation column a link query reads. A closed set, because it selects a statement.
+#[derive(Debug, Clone, Copy)]
+enum LinkedColumn {
+    Run,
+    Command,
+}
+
+impl FileEvidenceLinkPort for SqliteEvidenceRepository {
+    fn file_evidence_links(
+        &self,
+        query: &FileEvidenceLinkQuery,
+    ) -> Result<FileEvidenceLinks, EvidenceApplicationError> {
+        let connection = self.connection()?;
+        let mutation_id = query.file_mutation_id.as_str();
+        let session_id = query.session_id.as_str();
+
+        // Counted separately from the identifier lists, because they answer different questions: a
+        // file touched twenty times by one run has twenty observations and one run, and a panel
+        // deciding whether to offer an action wants the first number.
+        let observations: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM execution_evidence_events \
+                 WHERE session_id = ?1 AND file_mutation_id = ?2 \
+                 AND kind = 'file.mutation.observed'",
+                params![session_id, mutation_id],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        if observations == 0 {
+            // The common answer, and the reason it is answered first: most files in a workspace
+            // were never touched by an agent, and two more statements to confirm that would be work
+            // done on every selection a reader makes.
+            return Ok(FileEvidenceLinks::default());
+        }
+
+        let run_ids =
+            self.linked_identifiers(&connection, session_id, mutation_id, LinkedColumn::Run)?;
+        let command_ids =
+            self.linked_identifiers(&connection, session_id, mutation_id, LinkedColumn::Command)?;
+        Ok(FileEvidenceLinks {
+            observations: observations.max(0) as u32,
+            truncated: run_ids.len() > MAX_LINKED_IDENTIFIERS
+                || command_ids.len() > MAX_LINKED_IDENTIFIERS,
+            run_ids: run_ids.into_iter().take(MAX_LINKED_IDENTIFIERS).collect(),
+            command_ids: command_ids
+                .into_iter()
+                .take(MAX_LINKED_IDENTIFIERS)
+                .collect(),
+        })
     }
 }
 

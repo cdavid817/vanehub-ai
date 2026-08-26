@@ -23,6 +23,7 @@ export const workspaceQueryFamilies = Object.freeze({
   gitStatus: "git-status",
   gitDiff: "git-diff",
   review: "review",
+  fileEvidence: "file-evidence",
   capabilities: "capabilities",
 } as const);
 
@@ -73,6 +74,15 @@ export const workspaceQueryKeys = {
   gitDiffs: (sessionId: string) => [root, sessionId, workspaceQueryFamilies.gitDiff] as const,
 
   review: (sessionId: string) => [root, sessionId, workspaceQueryFamilies.review] as const,
+
+  /**
+   * What is retained about one file.
+   *
+   * Under the same session prefix as everything else, so a change notice that refreshes a file's
+   * preview refreshes what is known about it too — a write is exactly the event that changes both.
+   */
+  fileEvidence: (sessionId: string, path: string) =>
+    [root, sessionId, workspaceQueryFamilies.fileEvidence, path] as const,
 
   capabilities: (sessionId: string) =>
     [root, sessionId, workspaceQueryFamilies.capabilities] as const,

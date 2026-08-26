@@ -42,6 +42,13 @@ pub(crate) fn assemble_execution_observability_api(
 ///
 /// The returned API is the only handle anything outside the context receives. Commands take it
 /// from managed state, so no handler builds a repository, and none of them is rebuilt per request.
+/// The read side of evidence, for callers that ask about a file rather than record one.
+pub(crate) fn assemble_file_evidence_links(
+    database: NativeDatabase,
+) -> Arc<dyn crate::contexts::execution_observability::api::evidence::FileEvidenceLinkPort> {
+    Arc::new(SqliteEvidenceRepository::new(database))
+}
+
 pub(crate) fn assemble_execution_evidence_api(
     database: NativeDatabase,
     app: tauri::AppHandle,
