@@ -60,6 +60,19 @@ describe("i18n resources", () => {
     }
   });
 
+  it.each(appLanguages)("keeps %s free of codepoints that render as a blank box", (language) => {
+    // Private-use and unpaired-surrogate codepoints have no glyph in any shipped font, so a string
+    // carrying one renders as a box and reads as a font problem rather than as corrupt text. They
+    // arrive from hand-edited escapes, and nothing else in the bundle would notice.
+    for (const [key, value] of Object.entries(resources[language])) {
+      const suspect = [...value].find((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return (code >= 0xe000 && code <= 0xf8ff) || (code >= 0xd800 && code <= 0xdfff);
+      });
+      expect(suspect, `${language}:${key}`).toBeUndefined();
+    }
+  });
+
   it.each(appLanguages)("has no duplicate keys in the raw %s locale source", (language) => {
     expect(findDuplicateKeys(`src/i18n/locales/${language}.json`)).toEqual([]);
   });

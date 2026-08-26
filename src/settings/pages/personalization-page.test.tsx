@@ -36,7 +36,7 @@ describe("PersonalizationPage", () => {
     await renderPage();
 
     expect(screen.getByTestId("personalization-view-tab-overview").getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByTestId("personalization-overview-empty")).toBeTruthy();
+    expect(screen.getByTestId("personalization-overview")).toBeTruthy();
   });
 
   it("mounts only the selected view", async () => {
@@ -51,7 +51,7 @@ describe("PersonalizationPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("personalization-runtime-preview-empty")).toBeTruthy();
     });
-    expect(screen.queryByTestId("personalization-overview-empty")).toBeNull();
+    expect(screen.queryByTestId("personalization-overview")).toBeNull();
   });
 
   it("marks the selected destination for assistive technology", async () => {
