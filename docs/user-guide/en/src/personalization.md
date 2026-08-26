@@ -19,9 +19,11 @@ Fill in two fields under **Settings → AI Personalization → Instructions → 
 
 For example, put "Always answer in Chinese. Lead with the conclusion." under **Response style**, and "I'm a backend engineer working mainly in Rust and TypeScript." under **About you**.
 
-The **Enable custom instructions** switch turns injection off entirely — **new sessions stop applying it, and what you saved is not lost**.
+Setting **How this layer combines** to **Apply no instructions here** turns injection off — **new sessions stop applying it, and what you saved is not lost**.
 
-![The Instructions view of the AI Personalization settings page](assets/screenshots/personalization-en.png)
+> Edits are written only when you press **Save**; leaving a field does not save it, and **Discard** puts the text back the way it is stored.
+
+![The Instructions view of the AI Personalization settings page, showing scope selection and the instruction editor](assets/screenshots/personalization-en.png)
 
 ## Agent memory
 

@@ -58,8 +58,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 20478 -> 20530: 工作区 scope 选择需要一个只有 native 能给的 workspace key。
 // 接口、Tauri 映射与 Web/mock 解析器共 52 行；mock 镜像的是优先级规则而不是键的字节，
 // 因为键对调用方不透明，但 stable id 胜过推导、worktree 胜过所属项目这两条不能错。
+// 20530 -> 20546: mock 的策略改成过 localStorage 持久化。桌面端策略本就能活过重启，
+// 不持久化的 mock 会放行一个"保存看似成功、重新加载后还是旧文本"的页面——
+// 设置页最不能有的那一种故障，也正是这份 mock 存在的意义。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20530, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 20546, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

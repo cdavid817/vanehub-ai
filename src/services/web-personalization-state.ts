@@ -1,6 +1,7 @@
 import type { PersonalizationPolicy, PersonalizationPolicyRef } from "../types/personalization";
 import type { MemoryCandidate, MemoryDetail } from "../types/personalization-memory";
 import { daysAgoIso } from "./web-mock-clock";
+import { readWebMockStorage, writeWebMockStorage } from "./web-mock-storage";
 
 /**
  * The mock personalization world (`add-unified-personalization-governance`).
@@ -36,43 +37,58 @@ function inheritedPolicy(scope: PersonalizationPolicyRef): PersonalizationPolicy
   };
 }
 
-const policies = new Map<string, PersonalizationPolicy>([
-  [
-    storageKey({ scopeKind: "global" }),
-    {
-      scopeKind: "global",
-      scopeKey: "",
-      revision: 3,
-      instructionMergeMode: "append",
-      aboutUser: "Works on a desktop Tauri app; prefers metric units.",
-      styleRules: "Answer in the language the question was asked in.",
-      memoryReadMode: "enabled",
-      explicitSaveMode: "enabled",
-      automaticExtractionMode: "enabled",
-      globalMemoryAccessMode: "enabled",
-    },
-  ],
-]);
+const policyStorageKey = "vanehub.mock.personalizationPolicies";
+
+const seededPolicies: Record<string, PersonalizationPolicy> = {
+  [storageKey({ scopeKind: "global" })]: {
+    scopeKind: "global",
+    scopeKey: "",
+    revision: 3,
+    instructionMergeMode: "append",
+    aboutUser: "Works on a desktop Tauri app; prefers metric units.",
+    styleRules: "Answer in the language the question was asked in.",
+    memoryReadMode: "enabled",
+    explicitSaveMode: "enabled",
+    automaticExtractionMode: "enabled",
+    globalMemoryAccessMode: "enabled",
+  },
+};
+
+/**
+ * Policies survive a reload, because on the desktop they do.
+ *
+ * A mock that lost them would let a page ship whose save appears to work and whose reload shows the
+ * old text -- the one failure a settings screen must not have, and the one this mock exists to make
+ * reachable in a test.
+ */
+function readPolicies(): Record<string, PersonalizationPolicy> {
+  return readWebMockStorage(policyStorageKey, seededPolicies);
+}
+
+function writePolicies(value: Record<string, PersonalizationPolicy>): void {
+  writeWebMockStorage(policyStorageKey, value);
+}
 
 function storageKey(scope: PersonalizationPolicyRef): string {
   return `${scope.scopeKind}\u001F${policyScopeKey(scope)}`;
 }
 
 export function readWebPolicy(scope: PersonalizationPolicyRef): PersonalizationPolicy | null {
-  return policies.get(storageKey(scope)) ?? null;
+  return readPolicies()[storageKey(scope)] ?? null;
 }
 
 export function listWebPolicies(): PersonalizationPolicy[] {
-  return [...policies.values()];
+  return Object.values(readPolicies());
 }
 
 export function writeWebPolicy(
   scope: PersonalizationPolicyRef,
   apply: (current: PersonalizationPolicy) => PersonalizationPolicy,
 ): PersonalizationPolicy {
-  const current = policies.get(storageKey(scope)) ?? inheritedPolicy(scope);
+  const policies = readPolicies();
+  const current = policies[storageKey(scope)] ?? inheritedPolicy(scope);
   const next = { ...apply(current), revision: current.revision + 1 };
-  policies.set(storageKey(scope), next);
+  writePolicies({ ...policies, [storageKey(scope)]: next });
   return next;
 }
 

@@ -1,22 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
-import { SlidersHorizontal } from "lucide-react";
+import { FileText, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { PersonalizationPolicyRef } from "../../../types/personalization";
 import { SectionPanel } from "../page-parts";
-import { CustomInstructionsSection } from "./custom-instructions-section";
+import { InstructionEditor } from "./instruction-editor";
 import { isIncomplete, PersonalizationScopeSelector } from "./scope-selector";
-import { scopeKeyOf } from "./instruction-drafts";
+import { useInstructionDrafts } from "./use-instruction-drafts";
 import { useScopeOptions } from "./use-scope-options";
 
 /**
  * The Instructions destination: which layer, then that layer's text.
  *
- * Task 10.5 replaces the editor below with one bound to the selected scope. Until then the
- * selector reports the layer's stored state, which is the same thing tasks 10.6 and 10.7 expand
- * rather than something thrown away.
+ * The two panels stay separate because they fail separately -- an unreadable layer still leaves the
+ * selector usable, and an incomplete selection has no text to show at all.
  */
 export function PersonalizationInstructionsView({
   service = defaultAgentService,
@@ -26,15 +24,8 @@ export function PersonalizationInstructionsView({
   const { t } = useTranslation();
   const [scope, setScope] = useState<PersonalizationPolicyRef>({ scopeKind: "global" });
   const { agents, workspaces } = useScopeOptions(service);
+  const drafts = useInstructionDrafts(service, scope);
   const incomplete = isIncomplete(scope);
-
-  const policyQuery = useQuery({
-    // Keyed by the scope so switching back does not show the previous layer's revision while the
-    // new one loads.
-    queryKey: ["personalization", "policy", scopeKeyOf(scope)] as const,
-    queryFn: () => service.getPersonalizationPolicy(scope),
-    enabled: !incomplete,
-  });
 
   return (
     <div className="grid gap-5">
@@ -53,17 +44,58 @@ export function PersonalizationInstructionsView({
           {scopeStatus()}
         </p>
       </SectionPanel>
-      <CustomInstructionsSection />
+
+      <SectionPanel
+        description={t("personalization.editor.description")}
+        icon={FileText}
+        title={t("personalization.editor.title")}
+      >
+        {editorBody()}
+      </SectionPanel>
     </div>
   );
 
   function scopeStatus(): string {
     if (incomplete) return t("personalization.scope.status.incomplete");
-    if (policyQuery.isPending) return t("personalization.scope.status.loading");
-    if (policyQuery.error) return t("personalization.scope.status.unavailable");
+    if (drafts.isLoading) return t("personalization.scope.status.loading");
+    if (drafts.loadError) return t("personalization.scope.status.unavailable");
     // A layer that has never been written is not the same as one written to all-inherit: the first
     // has no revision to conflict against, and saying so is what makes the next save legible.
-    if (!policyQuery.data) return t("personalization.scope.status.neverWritten");
-    return t("personalization.scope.status.written", { revision: policyQuery.data.revision });
+    if (!drafts.draft || drafts.draft.baseRevision === 0) {
+      return t("personalization.scope.status.neverWritten");
+    }
+    return t("personalization.scope.status.written", { revision: drafts.draft.baseRevision });
+  }
+
+  function editorBody() {
+    if (incomplete) {
+      return (
+        <p className="text-sm text-muted-foreground" data-testid="personalization-editor-unselected">
+          {t("personalization.scope.incomplete")}
+        </p>
+      );
+    }
+    if (drafts.loadError) {
+      return (
+        <p className="text-sm ucd-status-danger" data-testid="personalization-editor-error" role="alert">
+          {t("personalization.editor.loadFailed")}
+        </p>
+      );
+    }
+    if (!drafts.draft) {
+      return (
+        <p className="text-sm text-muted-foreground" data-testid="personalization-editor-loading">
+          {t("personalization.scope.status.loading")}
+        </p>
+      );
+    }
+    return (
+      <InstructionEditor
+        draft={drafts.draft}
+        onDiscard={drafts.discard}
+        onEdit={drafts.edit}
+        onSave={drafts.save}
+      />
+    );
   }
 }
