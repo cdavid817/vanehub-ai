@@ -119,6 +119,10 @@ export function useInstructionDrafts(service: AgentService, scope: Personalizati
       if (current && canSave(current)) saveMutation.mutate(current.values);
     },
     keepMine: () => setDrafts((current) => keepMine(current, scope)),
+    /** Re-reads the stored side. `mergePolicies` then restates the conflict against fresh text,
+     * because a conflict left open while someone else keeps editing is otherwise answered against
+     * a snapshot taken when the save was refused. */
+    reload: () => void queryClient.invalidateQueries({ queryKey: policyQueryKey(scope) }),
     takeTheirs: () => setDrafts((current) => takeTheirs(current, scope)),
     /** Only for a scope the caller knows is complete; a missing draft renders as still loading. */
     seed: () => setDrafts((current) => ({ ...current, [key]: draftFromPolicy(scope, null) })),

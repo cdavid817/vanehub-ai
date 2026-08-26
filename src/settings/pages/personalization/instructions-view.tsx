@@ -6,6 +6,7 @@ import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { PersonalizationPolicyRef } from "../../../types/personalization";
 import { SectionPanel } from "../page-parts";
+import { ConflictPanel } from "./conflict-panel";
 import { InheritancePanel } from "./inheritance-panel";
 import { layersBelow } from "./inheritance-model";
 import { InstructionEditor } from "./instruction-editor";
@@ -108,12 +109,20 @@ export function PersonalizationInstructionsView({
       );
     }
     return (
-      <InstructionEditor
-        draft={drafts.draft}
-        onDiscard={drafts.discard}
-        onEdit={drafts.edit}
-        onSave={drafts.save}
-      />
+      <div className="flex flex-col gap-4">
+        <ConflictPanel
+          draft={drafts.draft}
+          onKeepMine={drafts.keepMine}
+          onReload={drafts.reload}
+          onTakeTheirs={drafts.takeTheirs}
+        />
+        <InstructionEditor
+          draft={drafts.draft}
+          onDiscard={drafts.discard}
+          onEdit={drafts.edit}
+          onSave={drafts.save}
+        />
+      </div>
     );
   }
 }
