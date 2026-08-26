@@ -337,6 +337,11 @@ pub(super) fn memory_query(input: dto::MemoryQueryInput) -> Result<MemoryQuery, 
             .map(|value| vec![value])
             .unwrap_or_default(),
         source_agent_id: input.source_agent_id.as_deref().map(agent_id).transpose()?,
+        audience_agent_id: input
+            .audience_agent_id
+            .as_deref()
+            .map(agent_id)
+            .transpose()?,
         ..MemoryQuery::default()
     };
     if let Some(cursor) = input.cursor {

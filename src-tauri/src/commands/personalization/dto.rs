@@ -202,6 +202,11 @@ pub(crate) struct MemoryQueryInput {
     pub(crate) status: Option<String>,
     #[serde(default)]
     pub(crate) source_agent_id: Option<String>,
+    /// Which Agent may read it, as opposed to which one produced it. The two answer different
+    /// questions -- "who wrote this" and "who sees this" -- and a filter that conflated them would
+    /// hide a memory an Agent reads because a different Agent happened to record it.
+    #[serde(default)]
+    pub(crate) audience_agent_id: Option<String>,
     #[serde(default)]
     pub(crate) cursor: Option<String>,
     #[serde(default)]

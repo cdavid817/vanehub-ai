@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../settings-provider";
 import { PageHeader } from "./page-parts";
-import { AgentMemorySection } from "./personalization/agent-memory-section";
+import { PersonalizationMemoryView } from "./personalization/memory-view";
 import { PersonalizationInstructionsView } from "./personalization/instructions-view";
 import { PersonalizationOverviewSection } from "./personalization/overview-section";
 import { RuntimePreviewSection } from "./personalization/runtime-preview-section";
@@ -37,7 +37,7 @@ export function PersonalizationPage() {
       >
         {view === "overview" ? <PersonalizationOverviewSection /> : null}
         {view === "instructions" ? <PersonalizationInstructionsView /> : null}
-        {view === "memory" ? <AgentMemorySection /> : null}
+        {view === "memory" ? <PersonalizationMemoryView /> : null}
         {view === "runtimePreview" ? <RuntimePreviewSection /> : null}
       </div>
     </div>

@@ -26,6 +26,9 @@ export interface MemoryQuery {
   memoryType?: Exclude<MemoryType, "untyped">;
   status?: MemoryQueryStatus;
   sourceAgentId?: string;
+  /** Which Agent may read it, as opposed to which one produced it. A memory recorded by one
+   * Agent and readable by another answers differently to each. */
+  audienceAgentId?: string;
   /** Opaque, and only ever one a page handed back: a hand-built cursor encodes a sort order the
    * store never promised. */
   cursor?: string;

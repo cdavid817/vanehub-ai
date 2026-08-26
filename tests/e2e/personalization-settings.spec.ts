@@ -35,7 +35,23 @@ test.describe("Personalization settings", () => {
     await openView(page, "memory");
     await expect(page.getByRole("heading", { name: "Memory", exact: true, level: 3 })).toBeVisible();
     await expect(page.getByRole("switch", { name: "Enable memory" })).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText("No memories saved yet.")).toBeVisible();
+
+    // The list is its own panel, paged and filtered, and carries names rather than bodies.
+    await expect(page.getByRole("heading", { name: "Saved memories", exact: true, level: 3 })).toBeVisible();
+    await expect(page.getByTestId("personalization-memory-filters")).toBeVisible();
+    await expect(page.getByTestId("personalization-memory-list")).toBeVisible();
+    await expect(page.getByText("prefers-metric-units")).toBeVisible();
+    await expect(page.getByText("The user prefers metric units and 24-hour time.")).toHaveCount(0);
+  });
+
+  test("filters the memory list without reloading the page", async ({ page }) => {
+    await openView(page, "memory");
+    await expect(page.getByText("vanehub-uses-npm")).toBeVisible();
+
+    await page.getByTestId("personalization-memory-type").selectOption("user");
+
+    await expect(page.getByText("prefers-metric-units")).toBeVisible();
+    await expect(page.getByText("vanehub-uses-npm")).toHaveCount(0);
   });
 
   test("writes nothing until Save, then keeps it across a reload", async ({ page }) => {

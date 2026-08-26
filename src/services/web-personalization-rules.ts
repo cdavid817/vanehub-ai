@@ -115,6 +115,10 @@ export function matchesQuery(memory: MemoryDetail, query: MemoryQuery): boolean 
   if (!query.status && memory.status === "candidate") return false;
   if (query.memoryType && memory.memoryType !== query.memoryType) return false;
   if (query.sourceAgentId && memory.sourceAgentId !== query.sourceAgentId) return false;
+  if (query.audienceAgentId && memory.audienceAgentIds
+    && !memory.audienceAgentIds.includes(query.audienceAgentId)) {
+    return false;
+  }
   if (query.scopeKind === "global" && memory.scopeKind !== "global") return false;
   if (query.scopeKind === "workspace" && memory.workspaceKey !== query.workspaceKey) return false;
   if (query.text) {
