@@ -345,7 +345,7 @@ The settings center SHALL include Personalization as a first-class settings page
 - **THEN** the settings center SHALL render the Personalization settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Settings expose LSP configuration and runtime status
-The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, executable override controls, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set rather than from a fixed list compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
+The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, executable override controls, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
 
 #### Scenario: User configures Rust LSP
 - **WHEN** a user enables LSP and Rust, selects a discovered `rust-analyzer` or valid executable override, supplies valid bounded initialization options, and saves
@@ -386,6 +386,16 @@ The Agent configuration area SHALL provide a localized service-backed LSP sectio
 - **WHEN** a user attempts to save startup arguments that are not a bounded list of strings or that exceed the declared size limit
 - **THEN** shared form validation SHALL reject the submission
 - **AND** the last valid persisted configuration SHALL remain active
+
+#### Scenario: Negotiated method list determines the rendered capability rows
+- **WHEN** the status surface renders a ready server's negotiated capabilities
+- **THEN** it SHALL render one supported-or-unsupported row per method the backend reports, in the order reported
+- **AND** adding a method to the backend SHALL require no new frontend row
+
+#### Scenario: A reported method has no localized label
+- **WHEN** the backend reports a negotiated method whose localization key is absent from the active locale
+- **THEN** the row SHALL fall back to the raw method identifier
+- **AND** it SHALL NOT render the missing key or an empty label
 
 ### Requirement: Workflow-oriented settings navigation order
 The Settings sidebar SHALL order destinations by expected workflow frequency: general setup and recurring Agent behavior first, reusable capabilities and customization next, one-time CLI installation and external integrations after that, and diagnostics and product information last.
