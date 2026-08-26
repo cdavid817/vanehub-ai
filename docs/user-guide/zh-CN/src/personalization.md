@@ -8,7 +8,7 @@
 
 ## Custom Instructions
 
-在**设置 → 个性化**的**自定义指令**区填写两段内容：
+在**设置 → AI 个性化 → 指令**的**自定义指令**区填写两段内容：
 
 | 字段 | 写什么 | 上限 |
 | --- | --- | --- |
@@ -19,7 +19,7 @@
 
 用**启用自定义指令**开关可整体停用注入——**关闭后新会话不再应用，已保存的内容不会丢失**。
 
-![设置中的个性化页面，显示自定义指令与记忆两个区块](assets/screenshots/personalization-zh-CN.png)
+![AI 个性化页面的指令视图，显示自定义指令与记忆两个区块](assets/screenshots/personalization-zh-CN.png)
 
 ## Agent 记忆
 

@@ -10,6 +10,11 @@ async function waitForPersistedSetting(page: Page, needle: string) {
   );
 }
 
+/** The page opens on Overview, so every test names the destination it is about. */
+async function openView(page: Page, view: "overview" | "instructions" | "memory" | "runtimePreview") {
+  await page.getByTestId(`personalization-view-tab-${view}`).click();
+}
+
 test.describe("Personalization settings", () => {
   test.beforeEach(async ({ page }) => {
     // Merge rather than overwrite: `addInitScript` re-runs on every navigation, including
@@ -21,24 +26,27 @@ test.describe("Personalization settings", () => {
       window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ ...existing, applicationLanguage: "en" }));
     });
     await page.goto("/settings");
-    await page.getByRole("button", { name: "Personalization", exact: true }).click();
+    await page.getByRole("button", { name: "AI Personalization", exact: true }).click();
   });
 
   test("renders the custom instructions and memory sections", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Personalization", exact: true, level: 2 })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Custom Instructions", exact: true, level: 3 })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Memory", exact: true, level: 3 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "AI Personalization", exact: true, level: 2 })).toBeVisible();
 
+    await openView(page, "instructions");
+    await expect(page.getByRole("heading", { name: "Custom Instructions", exact: true, level: 3 })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Response style" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "About you" })).toBeVisible();
     await expect(page.getByRole("switch", { name: "Enable custom instructions" })).toHaveAttribute("aria-checked", "true");
 
+    await openView(page, "memory");
+    await expect(page.getByRole("heading", { name: "Memory", exact: true, level: 3 })).toBeVisible();
     await expect(page.getByRole("switch", { name: "Enable memory" })).toHaveAttribute("aria-checked", "true");
     await expect(page.getByRole("switch", { name: "Remember from tool-assisted chats" })).toHaveAttribute("aria-checked", "true");
     await expect(page.getByText("No memories saved yet.")).toBeVisible();
   });
 
   test("saves custom instructions on blur, persists across reload, and rejects an oversized value", async ({ page }) => {
+    await openView(page, "instructions");
     const styleField = page.getByRole("textbox", { name: "Response style" });
     await styleField.fill("Always answer in Chinese.");
     await styleField.blur();
@@ -46,7 +54,8 @@ test.describe("Personalization settings", () => {
     await waitForPersistedSetting(page, "Always answer in Chinese.");
 
     await page.reload();
-    await page.getByRole("button", { name: "Personalization", exact: true }).click();
+    await page.getByRole("button", { name: "AI Personalization", exact: true }).click();
+    await openView(page, "instructions");
     await expect(page.getByRole("textbox", { name: "Response style" })).toHaveValue("Always answer in Chinese.");
 
     const overLimitField = page.getByRole("textbox", { name: "About you" });
@@ -55,11 +64,13 @@ test.describe("Personalization settings", () => {
     await overLimitField.blur();
 
     await page.reload();
-    await page.getByRole("button", { name: "Personalization", exact: true }).click();
+    await page.getByRole("button", { name: "AI Personalization", exact: true }).click();
+    await openView(page, "instructions");
     await expect(page.getByRole("textbox", { name: "About you" })).toHaveValue("");
   });
 
   test("disables both custom instructions fields when the enable toggle is off", async ({ page }) => {
+    await openView(page, "instructions");
     const toggle = page.getByRole("switch", { name: "Enable custom instructions" });
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -68,6 +79,7 @@ test.describe("Personalization settings", () => {
   });
 
   test("disables the tool-assisted sub-toggle when the memory master toggle is off", async ({ page }) => {
+    await openView(page, "memory");
     const memoryToggle = page.getByRole("switch", { name: "Enable memory" });
     const subToggle = page.getByRole("switch", { name: "Remember from tool-assisted chats" });
     await expect(subToggle).toBeEnabled();

@@ -10,7 +10,7 @@ Three layers cover different ground: **Custom Instructions** (written by hand), 
 
 ## Custom Instructions
 
-Fill in two fields under **Settings → Personalization → Custom Instructions**:
+Fill in two fields under **Settings → AI Personalization → Instructions → Custom Instructions**:
 
 | Field | What to write | Limit |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ For example, put "Always answer in Chinese. Lead with the conclusion." under **R
 
 The **Enable custom instructions** switch turns injection off entirely — **new sessions stop applying it, and what you saved is not lost**.
 
-![The Personalization settings page showing the custom instructions and memory sections](assets/screenshots/personalization-en.png)
+![The Instructions view of the AI Personalization settings page](assets/screenshots/personalization-en.png)
 
 ## Agent memory
 
