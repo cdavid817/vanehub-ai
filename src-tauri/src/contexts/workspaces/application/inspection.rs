@@ -227,6 +227,44 @@ pub(crate) struct ReadTextFileRequest {
     pub(crate) path: String,
 }
 
+/// How many directories one fingerprint request may cover.
+///
+/// The bound exists for the remote case, where the whole batch is one round trip: without it, a
+/// console with many directories open would decide how much work a poll does on somebody else's
+/// machine.
+pub(crate) const MAX_FINGERPRINT_PATHS: usize = 32;
+
+/// Whether a directory's entries still look the way they did.
+///
+/// Cheap by design. A poll that re-listed every open directory would enumerate and sort thousands
+/// of names to answer a yes/no question, and over SSH it would do that once per directory per tick.
+/// A value that merely *changes* when the directory changes answers the same question for the cost
+/// of a stat.
+///
+/// What it does not catch is an in-place edit that leaves the directory's own metadata alone. That
+/// is a real limit and it is why this is a directory-level signal: it says the listing needs
+/// refetching, never that a file's contents did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DirectoryFingerprint {
+    pub(crate) relative_path: String,
+    pub(crate) state: DirectoryFingerprintState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DirectoryFingerprintState {
+    /// A value that changes when the directory's entries change. Opaque: only equality is defined,
+    /// so a provider is free to derive it however its filesystem allows.
+    Known(String),
+    /// The directory is not there. A change in its own right — something removed it.
+    Missing,
+    /// It is there and could not be read.
+    ///
+    /// Separate from `Missing` because only one of them means the tree changed. Treating an
+    /// unreadable directory as a removed one would announce a deletion every time a permission
+    /// tightened or a network share hiccuped.
+    Unreadable,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct WorkspaceSearchRequest {
     pub(crate) query: String,
@@ -266,6 +304,21 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
         target: &WorkspaceTarget,
         request: ListDirectoryRequest,
     ) -> Result<DirectoryListing, WorkspaceInspectionError>;
+
+    /// Whether the named directories still look the way they did, one call for all of them.
+    ///
+    /// Batched rather than one call per directory because the remote implementation is a round
+    /// trip: polling six open directories individually would be six SSH channels and six helper
+    /// launches for a question whose whole point is to be cheap enough to ask repeatedly.
+    ///
+    /// Every requested path gets an answer, including the ones that are gone. A provider that
+    /// omitted them would make "not there" indistinguishable from "not asked about", and the
+    /// caller compares against what it saw last time — an absent entry would read as no change.
+    async fn directory_fingerprints(
+        &self,
+        target: &WorkspaceTarget,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError>;
 
     async fn list_documents(
         &self,

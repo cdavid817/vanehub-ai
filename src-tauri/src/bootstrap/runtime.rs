@@ -356,6 +356,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     workspace_mutations
         .bind_code_index(code_index_api.clone())
         .map_err(boxed_message)?;
+    workspace_mutations
+        .bind_workspace_changes(workspace_api.change_observer())
+        .map_err(boxed_message)?;
     session_runtime_adapter
         .attach_agent_runtime(agent_runtime_api.clone())
         .map_err(boxed_message)?;

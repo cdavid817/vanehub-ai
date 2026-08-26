@@ -232,7 +232,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 ## 12. Files and Documents Workflow Upgrade
 
 - [x] 12.1 Add stable per-directory continuation cursors and query-bound validation to file listing DTOs and providers.
-- [ ] 12.2 Add normalized workspace invalidation notices from local watch, remote polling, and execution-evidence file mutations.
+- [x] 12.2 Add normalized workspace invalidation notices from local watch, remote polling, and execution-evidence file mutations.
 - [ ] 12.3 Invalidate only affected tree, preview, document, search, Git, diff, and review query keys; retain current selection when still valid.
 - [ ] 12.4 Add Quick Open path search with keyboard navigation, cancellation, stable ordering, provider coverage, and bounded pages.
 - [ ] 12.5 Add content search with line, column, bounded redacted snippet, provider coverage, cancellation, and result-to-preview navigation.

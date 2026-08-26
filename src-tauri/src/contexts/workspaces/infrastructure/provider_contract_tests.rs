@@ -19,12 +19,12 @@ use super::remote_helper::{
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
-    DirectoryCursor, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest,
-    LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget, SessionLogExportResult,
-    SessionLogPage, SessionLogQuery, WorkspaceApplicationError as AppError,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest,
-    WorkspaceSessionQueryPort, WorkspaceTarget,
+    DirectoryCursor, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
+    DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource,
+    GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
+    RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    WorkspaceApplicationError as AppError, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -57,6 +57,18 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, AppError> {
+        super::session_queries::session_directory_fingerprints(
+            &*self.connection()?,
+            session_id,
+            paths,
+        )
     }
 
     fn list_directory_page(
@@ -419,10 +431,122 @@ fn the_providers_declare_their_own_freshness_guarantee() {
 
     assert_eq!(local_capabilities.provider, "local");
     assert_eq!(remote_capabilities.provider, "ssh");
-    // Nothing on a remote host tells this process when a file changed, and a reader who believed
-    // otherwise would not know to refresh.
-    assert_eq!(local_capabilities.watch_mode.token(), "event-derived");
+    // The same answer from both, and it is the true one: neither side subscribes to its
+    // filesystem, both compare directory fingerprints on a timer. Claiming `native` here would
+    // promise a latency nothing delivers; claiming `event-derived` would tell a reader to press
+    // refresh for something that already arrives on its own.
+    assert_eq!(local_capabilities.watch_mode.token(), "polling");
     assert_eq!(remote_capabilities.watch_mode.token(), "polling");
+}
+
+const REMOTE_FINGERPRINTS: &str = r##"{"version":1,"ok":true,"result":{"fingerprints":[
+    {"path":"","state":"known","value":"1730000000000000000"},
+    {"path":"src","state":"known","value":"1730000000111111111"},
+    {"path":"gone","state":"missing","value":null}
+  ]}}"##;
+
+/// Both providers answer every path they were asked about, in order, with a comparable value.
+#[test]
+fn a_fingerprint_answers_every_directory_it_was_asked_about() {
+    let paths = vec!["".to_string(), "src".to_string(), "gone".to_string()];
+    for subject in [local_subject(), remote_subject(REMOTE_FINGERPRINTS)] {
+        let answers = block(
+            subject
+                .provider
+                .directory_fingerprints(&subject.target, &paths),
+        )
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+
+        // Every requested path, in the order asked. An omitted entry would read to the caller as
+        // "unchanged", because it compares against what it saw last time and absence is not a
+        // comparison.
+        assert_eq!(
+            answers
+                .iter()
+                .map(|answer| answer.relative_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["", "src", "gone"],
+            "{}",
+            subject.name
+        );
+        assert!(
+            matches!(answers[0].state, DirectoryFingerprintState::Known(_)),
+            "{}: the root is readable",
+            subject.name
+        );
+        assert!(
+            matches!(answers[1].state, DirectoryFingerprintState::Known(_)),
+            "{}: an existing subdirectory is readable",
+            subject.name
+        );
+        // Missing rather than unreadable: only one of the two means the tree changed.
+        assert_eq!(
+            answers[2].state,
+            DirectoryFingerprintState::Missing,
+            "{}",
+            subject.name
+        );
+    }
+}
+
+/// A fingerprint moves when the directory does, and holds still when it does not.
+///
+/// Local only: the remote value comes from the remote host's own stat, so asserting how it changes
+/// here would be asserting the script rather than the behaviour. What the shared case above pins is
+/// that both providers produce comparable values in the same shape.
+#[test]
+fn a_local_fingerprint_changes_only_when_the_directory_does() {
+    let subject = local_subject();
+    let paths = vec!["src".to_string()];
+    let before = block(
+        subject
+            .provider
+            .directory_fingerprints(&subject.target, &paths),
+    )
+    .expect("before");
+
+    let unchanged = block(
+        subject
+            .provider
+            .directory_fingerprints(&subject.target, &paths),
+    )
+    .expect("unchanged");
+    // Reading it twice must not look like a change; otherwise every poll would announce one.
+    assert_eq!(before[0].state, unchanged[0].state);
+
+    let WorkspaceTarget::Local(local) = &subject.target else {
+        panic!("local target");
+    };
+    fs::write(local.root.join("src").join("added.rs"), "fn added() {}").expect("added");
+    let after = block(
+        subject
+            .provider
+            .directory_fingerprints(&subject.target, &paths),
+    )
+    .expect("after");
+
+    assert_ne!(
+        before[0].state, after[0].state,
+        "adding an entry changes the directory"
+    );
+}
+
+/// A poll is a read, and the one that runs unattended is the last that should get a weaker rule.
+#[test]
+fn a_fingerprint_refuses_a_path_that_leaves_the_root() {
+    let subject = local_subject();
+    for escape in ["../elsewhere", "/etc", "src/../../elsewhere"] {
+        let refusal = block(
+            subject
+                .provider
+                .directory_fingerprints(&subject.target, &[escape.to_string()]),
+        );
+        assert_eq!(
+            refusal,
+            Err(WorkspaceInspectionError::PathEscaped),
+            "{escape}"
+        );
+    }
 }
 
 /// Each refuses the other's kind of target rather than answering about the wrong machine.

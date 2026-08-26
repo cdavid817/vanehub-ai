@@ -12,9 +12,9 @@
 //! they came from.
 
 use super::inspection::{
-    GitDiffRequest, ListDirectoryRequest, ReadTextFileRequest, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
-    WorkspaceTargetResolver,
+    DirectoryFingerprint, GitDiffRequest, ListDirectoryRequest, ReadTextFileRequest,
+    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
@@ -77,6 +77,21 @@ impl WorkspaceInspectionRouter {
     ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?.capabilities(&target).await
+    }
+
+    /// Whether a session's open directories still look the way they did.
+    ///
+    /// Outside the block below because this one has a caller: the poller runs today, and routing it
+    /// through here is what makes polling a remote workspace the same code as polling a local one.
+    pub(crate) async fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError> {
+        let target = self.target(session_id)?;
+        self.provider(&target)?
+            .directory_fingerprints(&target, paths)
+            .await
     }
 }
 

@@ -213,6 +213,75 @@ fn the_helper_program_resumes_a_listing_after_the_key_it_was_given() {
     assert_eq!(second["result"]["listing"]["truncated"], false);
 }
 
+/// Fingerprints, against a real filesystem.
+///
+/// The property that matters cannot be scripted: the value has to actually move when the
+/// directory does and actually hold still when it does not. A fixture asserting either would be
+/// asserting the fixture.
+#[test]
+fn the_helper_program_fingerprints_directories_without_listing_them() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+
+    let request = r#"{"kind":"directoryFingerprints","paths":["","src","nowhere"]}"#;
+    let first = run_helper(interpreter, &root, request);
+    let answers = first["result"]["fingerprints"]
+        .as_array()
+        .expect("fingerprints")
+        .clone();
+
+    // Every requested path, in the order asked, including the one that is not there: the client
+    // compares against what it saw last time, and an omitted entry would read as unchanged.
+    assert_eq!(answers.len(), 3, "{first}");
+    assert_eq!(answers[0]["state"], "known");
+    assert_eq!(answers[1]["state"], "known");
+    assert_eq!(answers[2]["state"], "missing");
+    assert!(answers[2]["value"].is_null());
+
+    // Asking twice must not look like a change; otherwise every poll would announce one.
+    let repeated = run_helper(interpreter, &root, request);
+    assert_eq!(
+        repeated["result"]["fingerprints"][1]["value"],
+        answers[1]["value"]
+    );
+
+    fs::write(root.join("src").join("added.rs"), "fn added() {}").expect("added");
+    let after = run_helper(interpreter, &root, request);
+    assert_ne!(
+        after["result"]["fingerprints"][1]["value"], answers[1]["value"],
+        "adding an entry changes the directory"
+    );
+}
+
+/// A poll is a read, and the one that runs unattended is the last that should get a weaker rule.
+#[test]
+fn the_helper_program_refuses_to_fingerprint_a_path_that_leaves_the_root() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+
+    let answer = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"directoryFingerprints","paths":["../..","/etc"]}"#,
+    );
+
+    // Refused as missing rather than answered: the helper never stats outside its root, so an
+    // escaping path has nothing to report beyond not being here.
+    let answers = answer["result"]["fingerprints"]
+        .as_array()
+        .expect("fingerprints");
+    assert_eq!(answers.len(), 2, "{answer}");
+    for entry in answers {
+        assert_eq!(entry["state"], "missing", "{entry}");
+    }
+}
+
 #[test]
 fn the_helper_program_previews_text_and_refuses_to_decode_binary() {
     let Some(interpreter) = python() else {

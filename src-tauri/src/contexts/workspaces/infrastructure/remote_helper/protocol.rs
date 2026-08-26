@@ -76,6 +76,14 @@ pub(crate) enum HelperOperation {
         after_name_key: Option<String>,
         limit: usize,
     },
+    /// Whether these directories still look the way they did, all in one round trip.
+    ///
+    /// Batched because the alternative is a channel and a Python launch per directory, per tick.
+    /// The answer is a stat each, never a listing: a poll that enumerated would spend the cost the
+    /// whole operation exists to avoid.
+    DirectoryFingerprints {
+        paths: Vec<String>,
+    },
     ReadTextFile {
         path: String,
     },
@@ -111,6 +119,8 @@ pub(crate) struct HelperResult {
     #[serde(default)]
     pub(crate) listing: Option<HelperListing>,
     #[serde(default)]
+    pub(crate) fingerprints: Option<Vec<HelperFingerprint>>,
+    #[serde(default)]
     pub(crate) file: Option<HelperFile>,
     #[serde(default)]
     pub(crate) search: Option<HelperSearch>,
@@ -145,6 +155,22 @@ pub(crate) struct HelperEntry {
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) size: Option<u64>,
+}
+
+/// One directory's answer to "does it still look the same".
+///
+/// `state` rather than a nullable value, because three outcomes matter and only two of them are a
+/// change: a directory that is gone was removed, and one that cannot be read was not.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperFingerprint {
+    pub(crate) path: String,
+    /// `known`, `missing`, or `unreadable`.
+    pub(crate) state: String,
+    /// Present only with `known`. Opaque on this side: the helper decides what makes a directory
+    /// look different, and this process only ever compares two of them for equality.
+    #[serde(default)]
+    pub(crate) value: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

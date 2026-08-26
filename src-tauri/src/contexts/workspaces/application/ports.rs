@@ -1,3 +1,4 @@
+use super::inspection::DirectoryFingerprint;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
@@ -123,6 +124,17 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<DirectoryListing, WorkspaceApplicationError>;
+
+    /// A cheap answer to "do these directories still look the same".
+    ///
+    /// Deliberately not built from `list_directory_page`: enumerating and sorting a directory to
+    /// decide whether it changed does the expensive half of the work to avoid the cheap half. Every
+    /// requested path is answered, including the ones that are gone.
+    fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceApplicationError>;
 
     fn list_documents(
         &self,

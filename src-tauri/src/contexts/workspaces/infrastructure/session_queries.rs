@@ -1,12 +1,12 @@
 use crate::contexts::workspaces::application::{
-    kind_rank, DirectoryCursor, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
-    FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
-    GitStatusEntry, GitStatusResult, ReviewDiffFile, ReviewDiffHunk, ReviewFileSummary,
-    ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot, SessionDocument, SessionLogEntry,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext,
-    WorkspaceApplicationError as AppError, WorkspaceLogLevel, WorkspaceReviewPort,
-    WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE, MAX_REVIEW_DIFF_BYTES,
-    MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
+    kind_rank, DirectoryCursor, DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState,
+    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile, GitDiffHunk,
+    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, ReviewDiffFile,
+    ReviewDiffHunk, ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
+    SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    SessionWorkspaceContext, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
+    WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
+    MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -70,6 +70,14 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         limit: usize,
     ) -> Result<DirectoryListing, AppError> {
         list_session_directory_page(&*self.connection()?, session_id, path, cursor, limit)
+    }
+
+    fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, AppError> {
+        session_directory_fingerprints(&*self.connection()?, session_id, paths)
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
@@ -453,6 +461,74 @@ pub(crate) fn list_session_directory_page(
         truncated,
         next_cursor,
     })
+}
+
+/// A stat per directory, and no enumeration.
+///
+/// A directory's own modified time moves when an entry is added, removed, or renamed, which is
+/// exactly the set of changes a file tree renders. Reading the directory to compare its contents
+/// would answer the same question by doing the work the answer is supposed to avoid.
+///
+/// Paths are confined the same way every other read is. A poll is still a read, and one that
+/// resolved its own paths would be a second way into the filesystem whose boundary is whatever it
+/// was handed.
+pub(crate) fn session_directory_fingerprints(
+    conn: &Connection,
+    session_id: &str,
+    paths: &[String],
+) -> Result<Vec<DirectoryFingerprint>, AppError> {
+    let Some(root) = resolve_session_root(conn, session_id)? else {
+        // No local root: every directory is unreadable rather than missing. Nothing was removed —
+        // this session simply has nowhere for the poll to look.
+        return Ok(paths
+            .iter()
+            .map(|relative_path| DirectoryFingerprint {
+                relative_path: relative_path.clone(),
+                state: DirectoryFingerprintState::Unreadable,
+            })
+            .collect());
+    };
+    Ok(paths
+        .iter()
+        .take(MAX_FINGERPRINT_PATHS)
+        .map(|relative_path| DirectoryFingerprint {
+            relative_path: relative_path.clone(),
+            state: directory_fingerprint_at(&root, relative_path),
+        })
+        .collect())
+}
+
+fn directory_fingerprint_at(root: &Path, relative: &str) -> DirectoryFingerprintState {
+    let directory = if relative.is_empty() {
+        root.to_path_buf()
+    } else {
+        match resolve_existing_path(root, relative) {
+            Ok(path) => path,
+            // The confined resolution refuses what is not there and what escapes alike. An escape
+            // cannot reach here — the provider classifies those from the request — so what is left
+            // is a directory that is gone, which is itself a change worth reporting.
+            Err(_) => return DirectoryFingerprintState::Missing,
+        }
+    };
+    let Ok(metadata) = fs::metadata(&directory) else {
+        return DirectoryFingerprintState::Missing;
+    };
+    if !metadata.is_dir() {
+        return DirectoryFingerprintState::Missing;
+    }
+    match metadata.modified() {
+        Ok(modified) => match modified.duration_since(std::time::UNIX_EPOCH) {
+            Ok(since_epoch) => {
+                DirectoryFingerprintState::Known(format!("{}", since_epoch.as_nanos()))
+            }
+            // A modified time before the epoch is a clock nobody can compare against. Unreadable
+            // rather than a made-up value, which would compare equal forever.
+            Err(_) => DirectoryFingerprintState::Unreadable,
+        },
+        // Some filesystems do not keep one. Saying so is better than substituting a constant, which
+        // would report "unchanged" for every poll on that volume.
+        Err(_) => DirectoryFingerprintState::Unreadable,
+    }
 }
 
 fn collect_documents(

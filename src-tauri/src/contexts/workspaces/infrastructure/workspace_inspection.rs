@@ -13,10 +13,10 @@
 
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
-    bounded_page_size, CapabilityState, DirectoryListing, DocumentListing, FileContent,
-    FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
-    LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode,
-    WorkspaceApplicationError as AppError, WorkspaceInspectionCapabilities,
+    bounded_page_size, CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult,
+    ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
+    WatchMode, WorkspaceApplicationError as AppError, WorkspaceInspectionCapabilities,
     WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest,
     WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
 };
@@ -189,11 +189,12 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
             search_files: CapabilityState::available(),
             git_status: CapabilityState::available(),
             git_diff: CapabilityState::available(),
-            // Nothing watches the local tree yet. `EventDerived` rather than `Native` is the honest
-            // answer: the panel refreshes on the file-mutation notices this application already
-            // emits, which means a change made outside it is invisible until an explicit refresh —
-            // and a reader who believed a watcher was running would not know to press it.
-            watch_mode: WatchMode::EventDerived,
+            // `Polling`, not `Native`. The local side compares directory timestamps on a timer
+            // rather than subscribing to the operating system, so a change made outside this
+            // application does show up — within a tick, not the instant it happens. Claiming
+            // `Native` would promise a latency nothing here delivers, and claiming `EventDerived`
+            // would tell a reader to press refresh for something that arrives on its own.
+            watch_mode: WatchMode::Polling,
         })
     }
 
@@ -216,6 +217,23 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
             )
         })
         .await
+    }
+
+    async fn directory_fingerprints(
+        &self,
+        target: &WorkspaceTarget,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError> {
+        let session_id = require_local(target)?.session_id.clone();
+        // An escaping path is classified before the poll runs, same as every other operation. A
+        // poll is a read, and the one that runs unattended on a timer is the last one that should
+        // get a weaker rule than the reads a user triggers.
+        for path in paths {
+            classify_relative_path(path)?;
+        }
+        let paths = paths.to_vec();
+        self.blocking(move |queries| queries.directory_fingerprints(&session_id, &paths))
+            .await
     }
 
     async fn list_documents(

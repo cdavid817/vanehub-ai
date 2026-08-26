@@ -39,6 +39,9 @@ SUBPROCESS_TIMEOUT_SECONDS = 10
 # remote host. A reader comparing two sessions would otherwise see a difference that is about the
 # transport rather than about the work.
 DIRECTORY_ENTRY_LIMIT = 500
+# How many directories one fingerprint request may cover. Bounded on both sides: the client refuses
+# to send more, and this refuses to stat more, because the bound protects the machine being asked.
+FINGERPRINT_PATH_LIMIT = 32
 FILE_BYTE_LIMIT = 1024 * 1024
 SEARCH_RESULT_LIMIT = 200
 GIT_OUTPUT_LIMIT = 2 * 1024 * 1024
@@ -237,6 +240,42 @@ def list_directory(root, relative, after_kind_rank, after_name_key, limit):
     return {"path": relative, "entries": entries, "truncated": truncated}, None
 
 
+def directory_fingerprints(root, paths):
+    """A stat per directory, and no enumeration.
+
+    The whole point is to be cheap enough to ask on a timer. Listing each directory to decide
+    whether it changed would do the expensive half of the work in order to skip the cheap half, and
+    over a network that cost is paid twice.
+
+    Every requested path gets an answer, including the ones that escape or are gone. An omitted
+    entry would read to the client as "unchanged" — it compares against what it saw last time, and
+    absence is not a comparison.
+    """
+    resolved = resolve_root(root)
+    answers = []
+    for relative in paths[:FINGERPRINT_PATH_LIMIT]:
+        if not isinstance(relative, str):
+            continue
+        if resolved is None:
+            answers.append({"path": relative, "state": "unreadable", "value": None})
+            continue
+        directory = resolve_within(resolved, relative)
+        if directory is None or not os.path.isdir(directory):
+            # An escape and a deletion look the same from here, and both mean the client should
+            # stop expecting that directory to be where it was.
+            answers.append({"path": relative, "state": "missing", "value": None})
+            continue
+        try:
+            stat = os.stat(directory)
+        except OSError:
+            answers.append({"path": relative, "state": "unreadable", "value": None})
+            continue
+        # Nanoseconds, as an integer string. A float would compare unequal across a JSON round trip
+        # on some values, which would report a change on every single poll.
+        answers.append({"path": relative, "state": "known", "value": str(stat.st_mtime_ns)})
+    return answers, None
+
+
 def read_text_file(root, relative):
     path = resolve_within(root, relative)
     if path is None:
@@ -410,6 +449,12 @@ def dispatch(root, operation):
             int(operation.get("limit", 0) or 0),
         )
         return ({"listing": listing} if listing else None), error
+    if kind == "directoryFingerprints":
+        paths = operation.get("paths")
+        answer, error = directory_fingerprints(root, paths if isinstance(paths, list) else [])
+        # `is not None`, not truthiness: asking about no directories is a valid request whose
+        # answer is an empty list, and an empty list is falsy.
+        return ({"fingerprints": answer} if answer is not None else None), error
     if kind == "readTextFile":
         answer, error = read_text_file(root, operation.get("path", ""))
         return ({"file": answer} if answer else None), error

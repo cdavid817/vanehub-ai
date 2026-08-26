@@ -265,6 +265,13 @@ pub(crate) struct WorkspaceMutationFanout {
     code_intelligence: CodeIntelligenceApi,
     code_index: OnceLock<CodeIndexApi>,
     evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    /// Where a change is reported so the console can refresh what it is showing.
+    ///
+    /// Bound after construction for the same reason the code index is: the workspaces API is
+    /// assembled later in the startup order, and reordering startup to satisfy a notification
+    /// would be letting the tail wag the dog. Absent means nothing is listening yet, not that the
+    /// mutation should be dropped.
+    changes: OnceLock<Arc<dyn crate::contexts::workspaces::api::WorkspaceChangeObserverPort>>,
     /// This runtime's observation ordinal. The fanout is the single point every successful
     /// mutation passes through, so its own count is an authoritative order for the observations
     /// it makes — and the only part of the witness that cannot repeat.
@@ -284,6 +291,7 @@ impl WorkspaceMutationFanout {
             code_intelligence,
             code_index: OnceLock::new(),
             evidence,
+            changes: OnceLock::new(),
             observations: AtomicU64::new(0),
         }
     }
@@ -292,6 +300,15 @@ impl WorkspaceMutationFanout {
         self.code_index
             .set(code_index)
             .map_err(|_| "workspace mutation code-index target is already bound".to_string())
+    }
+
+    pub(crate) fn bind_workspace_changes(
+        &self,
+        changes: Arc<dyn crate::contexts::workspaces::api::WorkspaceChangeObserverPort>,
+    ) -> Result<(), String> {
+        self.changes
+            .set(changes)
+            .map_err(|_| "workspace mutation change target is already bound".to_string())
     }
 }
 
@@ -304,6 +321,26 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
         if let Some(code_index) = self.code_index.get() {
             code_index
                 .notify_targeted_change(&mutation.canonical_workspace, &mutation.relative_path);
+        }
+        if let Some(changes) = self.changes.get() {
+            // The exact path, which no poll could produce: a fingerprint says a directory changed,
+            // and this says which file did. Reported before the evidence signal because the console
+            // is waiting on it, while the journal is not.
+            changes.observe(
+                &mutation.session_id,
+                crate::contexts::workspaces::api::WorkspaceInvalidationSource::ExecutionEvidence,
+                crate::contexts::workspaces::api::WorkspaceInvalidationScope::Path {
+                    relative_path: mutation.relative_path.clone(),
+                    change: match mutation.change_kind {
+                        crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created => {
+                            crate::contexts::workspaces::api::WorkspaceInvalidationChange::Created
+                        }
+                        crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified => {
+                            crate::contexts::workspaces::api::WorkspaceInvalidationChange::Modified
+                        }
+                    },
+                },
+            );
         }
         let observed_at = chrono::Utc::now().to_rfc3339();
         let Some(basename) = mutation

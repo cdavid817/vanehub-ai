@@ -11,16 +11,17 @@
 
 use super::probe::{capabilities_from, revalidate};
 use super::protocol::{
-    HelperEntry, HelperFile, HelperGitOutput, HelperListing, HelperOperation, HelperRequest,
-    HelperResult, HelperSearch, RemoteHelperError,
+    HelperEntry, HelperFile, HelperFingerprint, HelperGitOutput, HelperListing, HelperOperation,
+    HelperRequest, HelperResult, HelperSearch, RemoteHelperError,
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    bounded_page_size, DirectoryCursor, DirectoryEntry, DirectoryListing, DocumentListing,
-    FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource,
-    GitStatusResult, ListDirectoryRequest, ReadTextFileRequest, RemoteWorkspaceTarget,
-    SessionWorkspaceContext, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
+    bounded_page_size, DirectoryCursor, DirectoryEntry, DirectoryFingerprint,
+    DirectoryFingerprintState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
+    FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
+    ListDirectoryRequest, ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext,
+    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspaceSearchRequest, WorkspaceTarget, MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -205,6 +206,24 @@ fn entry(value: HelperEntry) -> DirectoryEntry {
     }
 }
 
+fn fingerprints(values: Vec<HelperFingerprint>) -> Vec<DirectoryFingerprint> {
+    values
+        .into_iter()
+        .map(|value| DirectoryFingerprint {
+            relative_path: value.path,
+            state: match (value.state.as_str(), value.value) {
+                ("known", Some(digest)) => DirectoryFingerprintState::Known(digest),
+                ("missing", _) => DirectoryFingerprintState::Missing,
+                // `known` with no value, or a state this client does not know. Unreadable rather
+                // than missing: an answer that cannot be understood is not evidence that a
+                // directory went away, and reporting its removal would announce a change the
+                // remote host never made.
+                _ => DirectoryFingerprintState::Unreadable,
+            },
+        })
+        .collect()
+}
+
 fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryListing {
     let path = value.path;
     let items: Vec<DirectoryEntry> = value.entries.into_iter().map(entry).collect();
@@ -309,6 +328,32 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         result.listing.map(|value| listing(&remote, value)).ok_or(
             WorkspaceInspectionError::RemoteUnavailable("remote_helper_malformed_response"),
         )
+    }
+
+    async fn directory_fingerprints(
+        &self,
+        target: &WorkspaceTarget,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError> {
+        if paths.is_empty() {
+            // No round trip for a question with no subject. A poll with nothing open should cost
+            // nothing on the remote host, and that is only true if it does not connect.
+            return Ok(Vec::new());
+        }
+        let (_, result) = self
+            .call(
+                target,
+                HelperOperation::DirectoryFingerprints {
+                    paths: paths.iter().take(MAX_FINGERPRINT_PATHS).cloned().collect(),
+                },
+            )
+            .await?;
+        result
+            .fingerprints
+            .map(fingerprints)
+            .ok_or(WorkspaceInspectionError::RemoteUnavailable(
+                "remote_helper_malformed_response",
+            ))
     }
 
     async fn list_documents(

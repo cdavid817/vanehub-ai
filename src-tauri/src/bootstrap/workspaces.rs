@@ -4,7 +4,7 @@ use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
     SessionShellRegistry, ShellCapacities, ShellStore, WorkspaceApplicationService,
-    WorkspaceInspectionRouter, WorkspaceQueryApplicationService,
+    WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher, WorkspaceQueryApplicationService,
 };
 use crate::contexts::workspaces::infrastructure::{
     LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider, RetainedLocalShellRuntime,
@@ -12,7 +12,8 @@ use crate::contexts::workspaces::infrastructure::{
     SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
     SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
     SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
-    TauriSessionShellNotices, UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter,
+    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UuidShellIds,
+    WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -63,10 +64,85 @@ pub(crate) fn assemble_workspace_api(
         Arc::new(SqliteWorkspaceHistoryRepository::new(database)),
         Arc::new(WorkspaceFilesystemAdapter::new(logging.clone())),
         Arc::new(WorkspaceGitAdapter::new(logging)),
-        Arc::new(TauriProjectDirectorySelection::new(app)),
+        Arc::new(TauriProjectDirectorySelection::new(app.clone())),
         Arc::new(SystemWorkspaceClock),
     );
-    WorkspaceApi::new(service, queries, review_adapter, shells, inspection)
+    let invalidation = Arc::new(WorkspaceInvalidationDispatcher::new(Arc::new(
+        TauriWorkspaceInvalidationNotices::new(app),
+    )));
+    start_workspace_invalidation_job(inspection.clone(), invalidation.clone());
+    WorkspaceApi::new(
+        service,
+        queries,
+        review_adapter,
+        shells,
+        inspection,
+        invalidation,
+    )
+}
+
+/// How often the driver wakes while a console has something open.
+///
+/// The coalescing window sets the floor: waking less often than it would hold a finished burst past
+/// the point where publishing it still feels like a consequence of the change.
+const INVALIDATION_TICK: Duration = Duration::from_millis(250);
+
+/// How often it wakes when nothing is open.
+///
+/// Four wakeups a second for the life of the process is a real cost on a laptop, and when nothing is
+/// observed there is nothing for any of them to do. The latency it buys back is only ever paid by
+/// the first change after a quiet period, and a quiet period here means no console has read a
+/// directory in a minute — so nobody is looking at the answer that arrives a beat late.
+const IDLE_TICK: Duration = Duration::from_secs(1);
+
+/// How many ticks pass between polls.
+///
+/// Polling is the expensive half — over SSH it is a round trip — and it answers a question that
+/// changes on human timescales. Flushing is nearly free and answers one that does not.
+const POLL_TICKS: u32 = 8;
+
+/// Drives coalescing, polling, and expiry on one timer.
+///
+/// One loop rather than three, because all three depend on the same liveness condition: a session
+/// with nothing open needs no poll, has nothing pending to flush, and has nothing left to expire.
+/// Observations age out on their own, so a console that was hidden, closed, or crashed stops
+/// costing anything without having to say so — which matters most for the clients least likely to.
+fn start_workspace_invalidation_job(
+    inspection: Arc<WorkspaceInspectionRouter>,
+    dispatcher: Arc<WorkspaceInvalidationDispatcher>,
+) {
+    let poller = Arc::new(WorkspaceInvalidationPoller::new(
+        inspection,
+        dispatcher.clone(),
+    ));
+    tauri::async_runtime::spawn(async move {
+        let mut tick: u32 = 0;
+        let mut interval = IDLE_TICK;
+        loop {
+            sleep(interval).await;
+            tick = tick.wrapping_add(1);
+            let now = unix_milliseconds();
+            if tick.is_multiple_of(POLL_TICKS) {
+                poller.poll_observed(now).await;
+            }
+            // After the poll, so a change it just found is published in this cycle rather than
+            // waiting for the next one.
+            dispatcher.flush_due(now);
+            interval = if dispatcher.expire(now) > 0 {
+                INVALIDATION_TICK
+            } else {
+                IDLE_TICK
+            };
+        }
+    });
+}
+
+/// Wall-clock milliseconds for the driver's own bookkeeping.
+fn unix_milliseconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// How often idle Shells are considered for reclamation.

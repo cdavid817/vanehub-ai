@@ -27,6 +27,9 @@ mod sqlite_repository;
 mod workspace_inspection;
 #[cfg(test)]
 mod workspace_inspection_tests;
+mod workspace_invalidation;
+#[cfg(test)]
+mod workspace_invalidation_tests;
 
 pub(crate) use evaluation_fixture::{
     changed_evaluation_paths, cleanup_evaluation_fixture, prepare_evaluation_fixture,
@@ -50,4 +53,7 @@ pub(crate) use session_shell_workspace::SqliteShellWorkspaceAdapter;
 pub(crate) use sqlite_repository::SqliteWorkspaceHistoryRepository;
 pub(crate) use workspace_inspection::{
     LocalWorkspaceInspectionProvider, SessionWorkspaceTargetResolver,
+};
+pub(crate) use workspace_invalidation::{
+    SystemWorkspaceChangeObserver, TauriWorkspaceInvalidationNotices, WorkspaceInvalidationPoller,
 };

@@ -21,6 +21,15 @@ pub(crate) use super::application::{
     WorkspaceReviewPort,
 };
 use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationService};
+/// Normalized workspace change notices.
+///
+/// The scope and source vocabularies are published because producers outside this context observe
+/// changes — the runtime knows it wrote a file long before any watcher could see it. The dispatcher
+/// is published so bootstrap can assemble it once and hand the same one to every producer.
+pub(crate) use super::application::{
+    WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
+    WorkspaceInvalidationScope, WorkspaceInvalidationSource,
+};
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
@@ -31,8 +40,22 @@ pub(crate) use super::domain::{
 };
 pub(crate) use super::domain::{SessionShellError, ShellId};
 pub(crate) use super::infrastructure::PreparedEvaluationFixture;
+use super::infrastructure::SystemWorkspaceChangeObserver;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Wall-clock milliseconds, for the coalescing window and the observation lifetime.
+///
+/// A clock before the epoch is treated as zero rather than refused: the consequence is one poll
+/// cycle behaving oddly on a machine whose clock is badly wrong, which is not worth failing a file
+/// listing over.
+fn unix_milliseconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceApi {
@@ -43,6 +66,12 @@ pub(crate) struct WorkspaceApi {
     /// Provider-neutral inspection. Shared rather than owned per call because selection is a
     /// property of the session, not of the caller, and two routers could disagree about it.
     inspection: Arc<WorkspaceInspectionRouter>,
+    /// Where change notices are buffered, and what remembers which directories are open.
+    ///
+    /// Held here because the reads that populate it come through this API. A separate "subscribe to
+    /// this directory" call would be a second statement of what a console is looking at, and the
+    /// two would disagree the first time one of them was forgotten.
+    invalidation: Arc<WorkspaceInvalidationDispatcher>,
 }
 
 impl WorkspaceApi {
@@ -75,6 +104,7 @@ impl WorkspaceApi {
         review: Arc<dyn WorkspaceReviewPort>,
         shells: Arc<SessionShellRegistry>,
         inspection: Arc<WorkspaceInspectionRouter>,
+        invalidation: Arc<WorkspaceInvalidationDispatcher>,
     ) -> Self {
         Self {
             service,
@@ -82,7 +112,18 @@ impl WorkspaceApi {
             review,
             shells,
             inspection,
+            invalidation,
         }
+    }
+
+    /// How a producer elsewhere in the process reports a change it saw.
+    ///
+    /// Handed out as the narrow port rather than as this API, so the runtime's mutation fanout takes
+    /// a dependency on "somewhere to report a change" instead of on workspaces as a whole.
+    pub(crate) fn change_observer(&self) -> Arc<dyn WorkspaceChangeObserverPort> {
+        Arc::new(SystemWorkspaceChangeObserver::new(
+            self.invalidation.clone(),
+        ))
     }
 
     pub(crate) fn create_review_snapshot(
@@ -188,7 +229,13 @@ impl WorkspaceApi {
         session_id: &str,
         path: &str,
     ) -> Result<DirectoryListing, WorkspaceError> {
-        self.queries.list_directory(session_id, path)
+        let listing = self.queries.list_directory(session_id, path)?;
+        // Recorded on the way out, and only when the read worked. A directory that could not be
+        // listed is not one a console is showing, and polling it would be spending a stat every
+        // tick to rediscover that.
+        self.invalidation
+            .note_directory_read(session_id, path, unix_milliseconds());
+        Ok(listing)
     }
 
     pub(crate) fn list_session_documents(

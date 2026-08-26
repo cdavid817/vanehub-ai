@@ -3,6 +3,8 @@ mod evidence;
 mod inspection;
 mod inspection_cursor;
 mod inspection_router;
+mod invalidation;
+mod invalidation_dispatcher;
 mod models;
 mod ports;
 mod query_service;
@@ -18,15 +20,21 @@ pub(crate) use evidence::{
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use inspection::{
-    CapabilityState, GitDiffRequest, ListDirectoryRequest, LocalWorkspaceTarget,
-    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget,
-    WorkspaceTargetResolver,
+    CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, GitDiffRequest,
+    ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
+    WatchMode, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
+    MAX_FINGERPRINT_PATHS,
 };
 pub(crate) use inspection_cursor::{
     bounded_page_size, kind_rank, DirectoryCursor, DEFAULT_DIRECTORY_PAGE_SIZE,
 };
 pub(crate) use inspection_router::WorkspaceInspectionRouter;
+pub(crate) use invalidation::{
+    WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationNotice,
+    WorkspaceInvalidationPublisher, WorkspaceInvalidationScope, WorkspaceInvalidationSource,
+};
+pub(crate) use invalidation_dispatcher::WorkspaceInvalidationDispatcher;
 pub(crate) use models::{
     CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine,
@@ -57,6 +65,8 @@ pub(crate) use session_shell::{
 pub(crate) use session_shell_registry::SessionShellRegistry;
 pub(crate) use session_shell_store::ShellStore;
 
+#[cfg(test)]
+mod invalidation_tests;
 #[cfg(test)]
 mod session_shell_retention_tests;
 #[cfg(test)]

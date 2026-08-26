@@ -11,11 +11,11 @@
 
 use super::workspace_inspection::SessionWorkspaceTargetResolver;
 use crate::contexts::workspaces::application::{
-    CapabilityState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest, ReadTextFileRequest,
-    RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceInspectionRouter, WorkspaceSearchRequest,
-    WorkspaceTarget, WorkspaceTargetResolver,
+    CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing, FileContent,
+    FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
+    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceInspectionRouter,
+    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -208,6 +208,18 @@ impl WorkspaceInspectionProvider for RecordingProvider {
             git_diff: CapabilityState::available(),
             watch_mode: WatchMode::EventDerived,
         })
+    }
+
+    async fn directory_fingerprints(
+        &self,
+        _target: &WorkspaceTarget,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("fingerprints:{}", paths.len()));
+        Ok(Vec::new())
     }
 
     async fn list_directory(
