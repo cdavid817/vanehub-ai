@@ -117,6 +117,17 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         path: &str,
     ) -> Result<DirectoryListing, WorkspaceApplicationError>;
 
+    /// A directory inside the workspace, as an absolute path, or a refusal.
+    ///
+    /// Resolved against the canonical root rather than joined onto it: a `..` that lands on a real
+    /// directory is exactly what a textual check lets through. `None` means the session has no
+    /// local workspace, which is different from a path that is not inside one.
+    fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError>;
+
     /// One page of a directory, resuming after a cursor.
     ///
     /// `list_directory` is the first page of this with the default bound. Keeping them separate

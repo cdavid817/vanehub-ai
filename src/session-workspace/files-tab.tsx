@@ -12,6 +12,8 @@ import { workspaceQueryKeys } from "./workspace-query-keys";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
 import { QuickOpenDialog } from "./quick-open-dialog";
 import { ContentSearchPanel } from "./content-search-panel";
+import { FilesToolbar } from "./files-toolbar";
+import { useWorkspaceCapabilities } from "./workspace-capability-notice";
 
 export { flattenFileRows, type TreeRow } from "./use-workspace-file-tree";
 
@@ -56,10 +58,13 @@ function PreviewLines({ content, highlighted }: { content: string; highlighted: 
 
 export function FilesTab({
   isVisible = true,
+  onNavigateToShell,
   sessionId,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
+  /** Absent where nothing owns the tabs, in which case opening a Shell simply creates one. */
+  onNavigateToShell?: () => void;
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
@@ -76,6 +81,9 @@ export function FilesTab({
    */
   const [previewLine, setPreviewLine] = useState<number | null>(null);
   const tree = useWorkspaceFileTree(sessionId, isVisible);
+  // Read here rather than inside the toolbar: the same answer decides whether a reveal is possible
+  // and, later, what the panel says when a capability is missing. Two reads would be two answers.
+  const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
 
   const previewQuery = useQuery({
     enabled: Boolean(sessionId) && Boolean(selectedPath),
@@ -130,20 +138,14 @@ export function FilesTab({
         sessionId={sessionId}
       />
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        <button
-          className="mb-2 h-7 w-full rounded border border-border px-2 text-left text-xs text-muted-foreground hover:bg-muted"
-          onClick={() => setQuickOpen(true)}
-          type="button"
-        >
-          {t("sessionTabs.files.quickOpen.open")}
-        </button>
-        <button
-          className="mb-2 h-7 w-full rounded border border-border px-2 text-left text-xs text-muted-foreground hover:bg-muted"
-          onClick={() => setContentSearch(true)}
-          type="button"
-        >
-          {t("sessionTabs.files.contentSearch.open")}
-        </button>
+        <FilesToolbar
+          isRemote={capabilities?.provider === "ssh"}
+          onContentSearch={() => setContentSearch(true)}
+          onQuickOpen={() => setQuickOpen(true)}
+          onShellOpened={() => onNavigateToShell?.()}
+          selectedPath={selectedPath}
+          sessionId={sessionId}
+        />
         {tree.truncated ? <PartialNotice /> : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
         {tree.rows.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.files.empty")} /> : tree.rows.map(({ entry, depth }) => (

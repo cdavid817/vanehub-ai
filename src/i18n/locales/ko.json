@@ -4106,5 +4106,11 @@
   "sessionTabs.files.contentSearch.searching": "검색 중…",
   "sessionTabs.files.contentSearch.cancel": "취소",
   "sessionTabs.files.contentSearch.coverage.partial": "이 작업 공간의 일부는 검색되지 않았습니다.",
-  "sessionTabs.files.contentSearch.coverage.unavailable": "이 작업 공간에서는 내용 검색을 사용할 수 없습니다."
+  "sessionTabs.files.contentSearch.coverage.unavailable": "이 작업 공간에서는 내용 검색을 사용할 수 없습니다.",
+  "sessionTabs.files.toolbar.refresh": "새로 고침",
+  "sessionTabs.files.toolbar.copyPath": "경로 복사",
+  "sessionTabs.files.toolbar.reveal": "파일 관리자에서 표시",
+  "sessionTabs.files.toolbar.openShell": "여기에서 Shell 열기",
+  "sessionTabs.files.toolbar.needsSelection": "먼저 파일을 선택하세요.",
+  "sessionTabs.files.toolbar.remoteUnsupported": "이 작업 공간은 다른 컴퓨터에 있습니다."
 }

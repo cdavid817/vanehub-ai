@@ -64,6 +64,29 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
             .map(|root| root.map(|path| path.to_string_lossy().to_string()))
     }
 
+    fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, AppError> {
+        let connection = self.connection()?;
+        let Some(root) = resolve_session_root(&connection, session_id)? else {
+            return Ok(None);
+        };
+        if relative.is_empty() {
+            return Ok(Some(root.to_string_lossy().to_string()));
+        }
+        // The same confinement every other read uses. A second one written for this caller would
+        // be a second boundary, and boundaries written twice disagree.
+        let resolved = resolve_existing_path(&root, relative)?;
+        if !resolved.is_dir() {
+            return Err(AppError::Validation(
+                "Requested workspace path is not a directory.".to_string(),
+            ));
+        }
+        Ok(Some(resolved.to_string_lossy().to_string()))
+    }
+
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         list_session_directory(&*self.connection()?, session_id, path)
     }

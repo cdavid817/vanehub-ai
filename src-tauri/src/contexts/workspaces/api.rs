@@ -172,6 +172,19 @@ impl WorkspaceApi {
         self.queries.resolve_session_root(session_id)
     }
 
+    /// A directory inside a session's workspace, as an absolute path.
+    ///
+    /// The one place that turns a workspace-relative directory into something an external tool can
+    /// be handed. `None` means the session has no local workspace at all, which is a different
+    /// answer from a path that is not inside one — the second is a refusal.
+    pub(crate) fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceError> {
+        self.queries.resolve_session_directory(session_id, relative)
+    }
+
     pub(crate) fn list_known_remote_workspaces(
         &self,
     ) -> Result<Vec<KnownRemoteWorkspace>, WorkspaceError> {

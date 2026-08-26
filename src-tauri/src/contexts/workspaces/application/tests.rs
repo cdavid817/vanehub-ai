@@ -224,6 +224,18 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         Ok(Some("D:/workspace".to_string()))
     }
 
+    fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:directory:{session_id}:{relative}"));
+        Ok(Some(format!("D:/workspace/{relative}")))
+    }
+
     fn search_content(
         &self,
         session_id: &str,

@@ -29,6 +29,14 @@ export interface CreateSessionShellInput {
    */
   requestId?: string;
   title?: string;
+  /**
+   * Where the Shell starts, relative to the workspace root. Absent means the root.
+   *
+   * Not a boundary, and worth saying so: a Shell can `cd` anywhere the account can reach the
+   * moment it opens. What this prevents is the application starting one somewhere the reader did
+   * not pick.
+   */
+  workingDirectory?: string;
 }
 
 export interface AttachSessionShellInput {

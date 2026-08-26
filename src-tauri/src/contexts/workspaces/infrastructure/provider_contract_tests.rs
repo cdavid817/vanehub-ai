@@ -61,6 +61,16 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
     }
 
+    fn resolve_session_directory(
+        &self,
+        _session_id: &str,
+        _relative: &str,
+    ) -> Result<Option<String>, AppError> {
+        // Not part of the provider contract: revealing a directory in a file manager is a local
+        // desktop action, not something a workspace provider answers.
+        unimplemented!("not part of the inspection contract")
+    }
+
     fn search_content(
         &self,
         session_id: &str,

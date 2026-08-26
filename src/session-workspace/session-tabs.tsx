@@ -190,7 +190,7 @@ function SessionWorkspaceTabs({
     }
     if (id === "changes") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadChangesTab} />;
     if (id === "documents") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadDocumentsTab} />;
-    if (id === "files") return <LazyFeature componentProps={{ isVisible, sessionId }} loader={loadFilesTab} />;
+    if (id === "files") return <LazyFeature componentProps={{ isVisible, onNavigateToShell: () => activateTab("shell"), sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
       return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", isVisible, messages, partial: messagesPartial, recordsRevision, seatId, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }

@@ -64,6 +64,7 @@ export function createTauriSessionShellClient(
             seatId: input.seatId ?? null,
             requestId: input.requestId ?? null,
             title: input.title ?? null,
+            workingDirectory: input.workingDirectory ?? null,
           },
         }),
       );

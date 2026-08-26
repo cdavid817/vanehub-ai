@@ -76,6 +76,7 @@ fn work_in_one_session_never_disturbs_another_sessions_shells() {
             cols: 80,
             request_id: None,
             title: None,
+            working_directory: None,
         })
         .expect("other session shell")
         .shell_id;

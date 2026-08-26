@@ -170,6 +170,20 @@ impl Default for FakeWorkspaces {
 }
 
 impl SessionShellWorkspacePort for FakeWorkspaces {
+    fn resolve_at(
+        &self,
+        session_id: &str,
+        relative_directory: &str,
+    ) -> Result<SessionShellWorkspace, SessionShellError> {
+        // The fake joins rather than resolves: there is no filesystem here, and a test that needed
+        // one to prove the registry passes a subdirectory through would be testing the filesystem.
+        let base = self.resolve(session_id)?;
+        Ok(SessionShellWorkspace {
+            root: format!("{}/{relative_directory}", base.root),
+            ..base
+        })
+    }
+
     fn resolve(&self, _session_id: &str) -> Result<SessionShellWorkspace, SessionShellError> {
         Ok(SessionShellWorkspace {
             root: "D:/project".to_string(),
@@ -239,6 +253,7 @@ pub(super) fn create(
             cols: 80,
             request_id: request_id.map(|id| ShellCreateRequestId::parse(id).expect("request id")),
             title: None,
+            working_directory: None,
         })
         .map(|descriptor| descriptor.shell_id)
 }
@@ -270,6 +285,7 @@ fn concurrent_default_creates_produce_one_runtime() {
                 cols: 80,
                 request_id: None,
                 title: None,
+                working_directory: None,
             })
         }
     });
@@ -280,6 +296,7 @@ fn concurrent_default_creates_produce_one_runtime() {
         cols: 80,
         request_id: None,
         title: None,
+        working_directory: None,
     });
 
     let first = first.expect("first create");

@@ -4106,5 +4106,11 @@
   "sessionTabs.files.contentSearch.searching": "検索中…",
   "sessionTabs.files.contentSearch.cancel": "キャンセル",
   "sessionTabs.files.contentSearch.coverage.partial": "このワークスペースの一部は検索されていません。",
-  "sessionTabs.files.contentSearch.coverage.unavailable": "このワークスペースでは内容検索を利用できません。"
+  "sessionTabs.files.contentSearch.coverage.unavailable": "このワークスペースでは内容検索を利用できません。",
+  "sessionTabs.files.toolbar.refresh": "更新",
+  "sessionTabs.files.toolbar.copyPath": "パスをコピー",
+  "sessionTabs.files.toolbar.reveal": "ファイルマネージャーで表示",
+  "sessionTabs.files.toolbar.openShell": "ここで Shell を開く",
+  "sessionTabs.files.toolbar.needsSelection": "先にファイルを選択してください。",
+  "sessionTabs.files.toolbar.remoteUnsupported": "このワークスペースは別のマシン上にあります。"
 }

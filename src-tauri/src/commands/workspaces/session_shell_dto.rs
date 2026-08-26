@@ -84,6 +84,9 @@ pub(crate) struct CreateSessionShellInput {
     pub(crate) request_id: Option<String>,
     #[serde(default)]
     pub(crate) title: Option<String>,
+    /// Where the Shell starts, relative to the workspace root. Absent means the root.
+    #[serde(default)]
+    pub(crate) working_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -156,6 +159,7 @@ pub(super) fn create_request(
         cols: input.cols,
         request_id,
         title,
+        working_directory: blank_to_none(input.working_directory),
     })
 }
 
@@ -349,6 +353,7 @@ mod tests {
             seat_id: Some("   ".to_string()),
             request_id: Some(String::new()),
             title: Some("  ".to_string()),
+            working_directory: None,
         })
         .expect("request");
 

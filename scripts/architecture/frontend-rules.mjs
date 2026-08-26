@@ -142,8 +142,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 到达进程,这正是取消的全部意义。一个带 cancel 标志的搜索请求只会在下一次搜索时才被读到,
 // 而那时上一次扫描已经把整个工作区读完了。
 // 上限按实测值 21769 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.6):+25 是 Files 工具栏需要的两个既有方法的扩展——
+// `openSessionFolder` 多一个可选的子目录参数、Shell 创建多一个可选的起始目录。
+// 两个都做成可选而不是必填,是为了让所有既有调用点保持它原来的含义(工作区根目录);
+// 而不是在服务层再加两个方法,那会让"打开工作区"和"打开工作区的某个子目录"变成两件事,
+// 调用方迟早会挑错那一个。
+// 上限按实测值 21794 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21769, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21794, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

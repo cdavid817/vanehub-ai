@@ -100,8 +100,19 @@ impl SqliteSessionShellWorkspace {
     }
 }
 
-impl SessionShellWorkspacePort for SqliteSessionShellWorkspace {
-    fn resolve(&self, session_id: &str) -> Result<SessionShellWorkspace, SessionShellError> {
+impl SqliteSessionShellWorkspace {
+    /// The workspace, optionally rebased onto one of its subdirectories.
+    ///
+    /// Local paths are resolved against the canonical root, which is the only way to tell a
+    /// subdirectory from a symlink pointing out of the workspace. Remote paths cannot be: this
+    /// machine has no filesystem to resolve them on, so the relative path is *classified* here —
+    /// no absolute replacement, no `..` — and joined. That is weaker, and it is the honest
+    /// difference between checking a fact and checking a claim.
+    fn resolve_workspace(
+        &self,
+        session_id: &str,
+        relative_directory: Option<&str>,
+    ) -> Result<SessionShellWorkspace, SessionShellError> {
         let workspace = self
             .context
             .load_shell_workspace(session_id)
@@ -113,19 +124,77 @@ impl SessionShellWorkspacePort for SqliteSessionShellWorkspace {
             (Some(endpoint), Some(binding)) => Some(ShellRemoteTarget {
                 connection_id: binding.connection_id,
                 profile_revision: binding.revision,
-                path: endpoint.path.clone(),
+                path: match relative_directory {
+                    Some(relative) => join_remote_directory(&endpoint.path, relative)?,
+                    None => endpoint.path.clone(),
+                },
             }),
             _ => None,
         };
         if remote.is_none() && workspace.root.is_none() {
             return Err(SessionShellError::WorkspaceUnavailable);
         }
+        let root = match (workspace.root.as_deref(), relative_directory) {
+            (Some(root), Some(relative)) => resolve_local_directory(root, relative)?,
+            (Some(root), None) => root.to_string(),
+            (None, _) => String::new(),
+        };
         Ok(SessionShellWorkspace {
-            root: workspace.root.unwrap_or_default(),
+            root,
             remote,
             read_only: workspace.read_only,
             seat_count: self.seat_count(session_id),
         })
+    }
+}
+
+/// A subdirectory of a local root, or a refusal.
+///
+/// Canonicalized, then checked against the canonical root. Checking the unresolved strings would
+/// let a symlinked child escape, and checking a resolved child against an unresolved root would
+/// make every child of a symlinked root look like an escape.
+fn resolve_local_directory(root: &str, relative: &str) -> Result<String, SessionShellError> {
+    let canonical_root = std::path::Path::new(root)
+        .canonicalize()
+        .map_err(|_| SessionShellError::WorkspaceUnavailable)?;
+    let candidate = canonical_root
+        .join(relative.replace('/', std::path::MAIN_SEPARATOR_STR))
+        .canonicalize()
+        .map_err(|_| SessionShellError::WorkspaceUnavailable)?;
+    if !candidate.starts_with(&canonical_root) || !candidate.is_dir() {
+        return Err(SessionShellError::WorkspaceUnavailable);
+    }
+    Ok(candidate.to_string_lossy().to_string())
+}
+
+/// A subdirectory of a remote root, classified rather than resolved.
+///
+/// No filesystem here to ask, so this refuses what is an escape by inspection alone and joins the
+/// rest. A path that escapes through a symlink on the remote host is not caught, which is why this
+/// is a starting directory rather than a boundary: the Shell it opens can reach anything the
+/// account can, the instant it exists.
+fn join_remote_directory(root: &str, relative: &str) -> Result<String, SessionShellError> {
+    let normalized = relative.replace('\\', "/");
+    if normalized.starts_with('/')
+        || normalized.starts_with('~')
+        || normalized.split('/').any(|part| part == "..")
+    {
+        return Err(SessionShellError::WorkspaceUnavailable);
+    }
+    Ok(format!("{}/{normalized}", root.trim_end_matches('/')))
+}
+
+impl SessionShellWorkspacePort for SqliteSessionShellWorkspace {
+    fn resolve_at(
+        &self,
+        session_id: &str,
+        relative_directory: &str,
+    ) -> Result<SessionShellWorkspace, SessionShellError> {
+        self.resolve_workspace(session_id, Some(relative_directory))
+    }
+
+    fn resolve(&self, session_id: &str) -> Result<SessionShellWorkspace, SessionShellError> {
+        self.resolve_workspace(session_id, None)
     }
 }
 
@@ -215,6 +284,70 @@ impl SessionShellNoticePort for TauriSessionShellNotices {
 
 #[cfg(test)]
 mod tests {
+    use super::{join_remote_directory, resolve_local_directory};
+
+    #[test]
+    fn a_local_subdirectory_resolves_inside_its_root() {
+        let directory = crate::test_support::TempDirectory::new("shell-cwd");
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(root.join("src")).expect("src");
+
+        let resolved = resolve_local_directory(&root.to_string_lossy(), "src").expect("resolve");
+
+        assert!(std::path::Path::new(&resolved).ends_with("src"));
+    }
+
+    #[test]
+    fn a_local_path_that_leaves_the_root_is_refused() {
+        let directory = crate::test_support::TempDirectory::new("shell-cwd-escape");
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::create_dir_all(directory.path().join("elsewhere")).expect("elsewhere");
+
+        // Resolved and then compared, not string-joined. A `..` that lands on a real directory is
+        // exactly the case a textual check would let through.
+        assert!(resolve_local_directory(&root.to_string_lossy(), "../elsewhere").is_err());
+    }
+
+    #[test]
+    fn a_local_file_is_not_a_directory_to_start_in() {
+        let directory = crate::test_support::TempDirectory::new("shell-cwd-file");
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::write(root.join("main.rs"), "fn main() {}").expect("file");
+
+        // A Shell started in a file would fail at the process level with a message about a path,
+        // which reads as a bug in the terminal rather than as a bad request.
+        assert!(resolve_local_directory(&root.to_string_lossy(), "main.rs").is_err());
+    }
+
+    #[test]
+    fn a_remote_subdirectory_is_joined_onto_its_root() {
+        assert_eq!(
+            join_remote_directory("/work/app", "src/deep").expect("join"),
+            "/work/app/src/deep"
+        );
+        // A trailing slash on the root must not produce a doubled separator: some shells accept it
+        // and some do not, and the ones that do not fail after the Shell already exists.
+        assert_eq!(
+            join_remote_directory("/work/app/", "src").expect("join"),
+            "/work/app/src"
+        );
+    }
+
+    #[test]
+    fn a_remote_path_that_escapes_by_inspection_is_refused() {
+        // No filesystem here to ask, so this catches what is an escape by inspection alone. A
+        // symlink on the remote host is not caught, which is why this is a starting directory
+        // rather than a boundary — the Shell can reach anything the account can, immediately.
+        for escape in ["/etc", "~/secrets", "../elsewhere", "src/../../elsewhere"] {
+            assert!(
+                join_remote_directory("/work/app", escape).is_err(),
+                "{escape}"
+            );
+        }
+    }
+
     use super::*;
     use crate::contexts::workspaces::domain::{
         shell_reason, SessionShellState, ShellId, ShellOutputFrame, ShellStream,

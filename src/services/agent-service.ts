@@ -199,7 +199,19 @@ export interface AgentService extends
   refreshFolderOpeners(): Promise<FolderOpenerAvailability[]>;
   getFolderOpenerPreferences(): Promise<FolderOpenerPreferences>;
   saveFolderOpenerPreferences(input: SaveFolderOpenerPreferencesInput): Promise<FolderOpenerPreferences>;
-  openSessionFolder(sessionId: string, openerId: FolderOpenerId): Promise<OpenSessionFolderResult>;
+  /**
+   * Reveals a session's workspace in an external tool.
+   *
+   * `relativePath` narrows it to a subdirectory. Optional rather than required so every existing
+   * caller keeps meaning "the workspace root", and resolved against the canonical root on the
+   * native side — a file manager opens whatever absolute path it is handed, so that is the last
+   * place a path assembled from a stale tree row can be checked.
+   */
+  openSessionFolder(
+    sessionId: string,
+    openerId: FolderOpenerId,
+    relativePath?: string,
+  ): Promise<OpenSessionFolderResult>;
   subscribeFolderOpenerEvents(handler: () => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
 }

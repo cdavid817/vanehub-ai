@@ -65,8 +65,12 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   async saveFolderOpenerPreferences(input) {
     return normalizeFolderOpenerPreferences(await invoke<FolderOpenerPreferences>("save_folder_opener_preferences", { input }));
   },
-  openSessionFolder(sessionId, openerId) {
-    return invoke<OpenSessionFolderResult>("open_session_folder", { sessionId, openerId });
+  openSessionFolder(sessionId, openerId, relativePath) {
+    return invoke<OpenSessionFolderResult>("open_session_folder", {
+      sessionId,
+      openerId,
+      relativePath: relativePath ?? null,
+    });
   },
   async subscribeFolderOpenerEvents(handler) {
     return listen<string>("folder-openers:event", () => handler());

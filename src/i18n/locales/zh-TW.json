@@ -4106,5 +4106,11 @@
   "sessionTabs.files.contentSearch.searching": "搜尋中…",
   "sessionTabs.files.contentSearch.cancel": "取消",
   "sessionTabs.files.contentSearch.coverage.partial": "此工作區有一部分未被搜尋。",
-  "sessionTabs.files.contentSearch.coverage.unavailable": "此工作區不支援內容搜尋。"
+  "sessionTabs.files.contentSearch.coverage.unavailable": "此工作區不支援內容搜尋。",
+  "sessionTabs.files.toolbar.refresh": "重新整理",
+  "sessionTabs.files.toolbar.copyPath": "複製路徑",
+  "sessionTabs.files.toolbar.reveal": "在檔案總管中顯示",
+  "sessionTabs.files.toolbar.openShell": "在此處開啟 Shell",
+  "sessionTabs.files.toolbar.needsSelection": "請先選擇一個檔案。",
+  "sessionTabs.files.toolbar.remoteUnsupported": "此工作區位於另一台機器上。"
 }

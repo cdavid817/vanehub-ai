@@ -4106,5 +4106,11 @@
   "sessionTabs.files.contentSearch.searching": "搜索中…",
   "sessionTabs.files.contentSearch.cancel": "取消",
   "sessionTabs.files.contentSearch.coverage.partial": "此工作区有一部分未被搜索。",
-  "sessionTabs.files.contentSearch.coverage.unavailable": "此工作区不支持内容搜索。"
+  "sessionTabs.files.contentSearch.coverage.unavailable": "此工作区不支持内容搜索。",
+  "sessionTabs.files.toolbar.refresh": "刷新",
+  "sessionTabs.files.toolbar.copyPath": "复制路径",
+  "sessionTabs.files.toolbar.reveal": "在文件管理器中显示",
+  "sessionTabs.files.toolbar.openShell": "在此处打开 Shell",
+  "sessionTabs.files.toolbar.needsSelection": "请先选择一个文件。",
+  "sessionTabs.files.toolbar.remoteUnsupported": "此工作区位于另一台机器上。"
 }

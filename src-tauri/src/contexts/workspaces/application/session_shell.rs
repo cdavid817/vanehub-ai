@@ -71,6 +71,14 @@ pub(crate) struct CreateSessionShellRequest {
     /// pressed Add, and a retry of that same press must not produce a second one.
     pub(crate) request_id: Option<ShellCreateRequestId>,
     pub(crate) title: Option<ShellTitle>,
+    /// Where the Shell starts, relative to the workspace root. Absent means the root itself.
+    ///
+    /// Worth being precise about what this is and is not. A Shell can `cd` anywhere the user's
+    /// account can reach the moment it opens, so confining this value is not a sandbox and nothing
+    /// here should be read as one. What it prevents is *this application* starting a Shell somewhere
+    /// the reader did not pick — a path assembled from a stale tree row, or one that escaped the
+    /// root through a symlink nobody noticed.
+    pub(crate) working_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +172,17 @@ pub(crate) trait SessionShellRuntimePort: Send + Sync {
 /// Where a Shell may be opened, resolved from the registered session rather than from a client.
 pub(crate) trait SessionShellWorkspacePort: Send + Sync {
     fn resolve(&self, session_id: &str) -> Result<SessionShellWorkspace, SessionShellError>;
+
+    /// The same workspace, starting in one of its subdirectories.
+    ///
+    /// A second method rather than an `Option` on the first, so every existing caller keeps the
+    /// meaning it had. The relative path is resolved where the filesystem is, because only that
+    /// side can tell a symlink from a directory.
+    fn resolve_at(
+        &self,
+        session_id: &str,
+        relative_directory: &str,
+    ) -> Result<SessionShellWorkspace, SessionShellError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -93,7 +93,12 @@ impl SessionShellRegistry {
         &self,
         request: &CreateSessionShellRequest,
     ) -> Result<SessionShellDescriptor, SessionShellError> {
-        let workspace = self.workspaces.resolve(&request.session_id)?;
+        let workspace = match request.working_directory.as_deref() {
+            Some(relative) if !relative.is_empty() => {
+                self.workspaces.resolve_at(&request.session_id, relative)?
+            }
+            _ => self.workspaces.resolve(&request.session_id)?,
+        };
         if workspace.read_only {
             return Err(SessionShellError::PolicyDenied);
         }

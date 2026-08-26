@@ -4106,5 +4106,11 @@
   "sessionTabs.files.contentSearch.searching": "Searching…",
   "sessionTabs.files.contentSearch.cancel": "Cancel",
   "sessionTabs.files.contentSearch.coverage.partial": "Part of this workspace was not searched.",
-  "sessionTabs.files.contentSearch.coverage.unavailable": "Content search is unavailable for this workspace."
+  "sessionTabs.files.contentSearch.coverage.unavailable": "Content search is unavailable for this workspace.",
+  "sessionTabs.files.toolbar.refresh": "Refresh",
+  "sessionTabs.files.toolbar.copyPath": "Copy path",
+  "sessionTabs.files.toolbar.reveal": "Reveal in file manager",
+  "sessionTabs.files.toolbar.openShell": "Open Shell here",
+  "sessionTabs.files.toolbar.needsSelection": "Select a file first.",
+  "sessionTabs.files.toolbar.remoteUnsupported": "This workspace is on another machine."
 }
