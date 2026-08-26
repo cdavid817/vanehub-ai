@@ -1,6 +1,6 @@
 use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewComment, ReviewDecision, ReviewDomainError, ReviewFile, ReviewFinding,
-    ReviewSession,
+    ReviewHunkDecision, ReviewSession,
 };
 use std::fmt;
 use std::sync::Arc;
@@ -12,6 +12,44 @@ pub(crate) trait ReviewRepository: Send + Sync {
     ) -> Result<Option<ReviewSession>, ReviewApplicationError>;
     fn find(&self, review_id: &str) -> Result<Option<ReviewSession>, ReviewApplicationError>;
     fn save(&self, review: &ReviewSession) -> Result<(), ReviewApplicationError>;
+}
+
+/// Where hunk decisions are written, separately from the review they belong to.
+///
+/// A port of its own rather than two more methods on `ReviewRepository`, because the distinction
+/// is the requirement: `ReviewRepository::save` rewrites the aggregate, and a hunk decision that
+/// travelled through it would rewrite the review's decision along with everything else. Two traits
+/// make "this write touches one row" something the type system says rather than something a
+/// reviewer has to notice.
+pub(crate) trait ReviewDecisionRepository: Send + Sync {
+    /// Records a decision for one hunk, replacing whatever that hunk's decision was.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    fn upsert_hunk_decision(
+        &self,
+        review_id: &str,
+        decision: &ReviewHunkDecision,
+    ) -> Result<(), ReviewApplicationError>;
+
+    /// Every hunk decision recorded for a review, in path then fingerprint order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    fn list_hunk_decisions(
+        &self,
+        review_id: &str,
+    ) -> Result<Vec<ReviewHunkDecision>, ReviewApplicationError>;
 }
 
 pub(crate) trait ReviewClockPort: Send + Sync {
@@ -104,9 +142,39 @@ pub(crate) struct PreparedReviewFeedback {
     pub(crate) prepared_at: String,
 }
 
+/// What a caller is asking to mark.
+///
+/// No expected snapshot yet. The service records the review's own current fingerprint, so nothing
+/// stored is ever a claim about a diff that was not the one being reviewed; 13.3 adds the caller's
+/// expectation and the refusal when the two disagree. Accepting an expectation here and ignoring
+/// it would be a parameter that documents a check nobody performs.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+    )
+)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SetHunkDecisionRequest {
+    pub(crate) path: String,
+    pub(crate) hunk_fingerprint: String,
+    pub(crate) decision: ReviewDecision,
+}
+
 #[derive(Clone)]
 pub(crate) struct ReviewApplicationService {
     repository: Arc<dyn ReviewRepository>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    decisions: Arc<dyn ReviewDecisionRepository>,
     clock: Arc<dyn ReviewClockPort>,
     ids: Arc<dyn ReviewIdPort>,
     feedback: Arc<dyn ReviewFeedbackPort>,
@@ -122,6 +190,7 @@ impl ReviewApplicationService {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         repository: Arc<dyn ReviewRepository>,
+        decisions: Arc<dyn ReviewDecisionRepository>,
         clock: Arc<dyn ReviewClockPort>,
         ids: Arc<dyn ReviewIdPort>,
         feedback: Arc<dyn ReviewFeedbackPort>,
@@ -132,6 +201,7 @@ impl ReviewApplicationService {
     ) -> Self {
         Self {
             repository,
+            decisions,
             clock,
             ids,
             feedback,
@@ -147,6 +217,7 @@ impl ReviewApplicationService {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_for_test_without_evidence(
         repository: Arc<dyn ReviewRepository>,
+        decisions: Arc<dyn ReviewDecisionRepository>,
         clock: Arc<dyn ReviewClockPort>,
         ids: Arc<dyn ReviewIdPort>,
         feedback: Arc<dyn ReviewFeedbackPort>,
@@ -156,6 +227,7 @@ impl ReviewApplicationService {
     ) -> Self {
         Self::new(
             repository,
+            decisions,
             clock,
             ids,
             feedback,
@@ -334,6 +406,75 @@ impl ReviewApplicationService {
         Ok(review)
     }
 
+    /// Records a decision about one hunk, leaving the review's own decision alone.
+    ///
+    /// The two are independent in both directions: accepting a review does not accept its hunks,
+    /// and accepting every hunk does not accept the review. Deriving either from the other was the
+    /// shortcut this whole group exists to remove — a reviewer who accepted three hunks out of
+    /// twenty had that rendered as an accepted review.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    pub(crate) fn set_hunk_decision(
+        &self,
+        review_id: &str,
+        request: SetHunkDecisionRequest,
+    ) -> Result<ReviewHunkDecision, ReviewApplicationError> {
+        let review = self.find(review_id)?;
+        // The review's fingerprint, not one supplied by the caller. What is being recorded is the
+        // diff this decision was made about, and the only authority on that is the review.
+        let decision = ReviewHunkDecision::try_new(
+            request.path,
+            request.hunk_fingerprint,
+            review.fingerprint.clone(),
+            request.decision,
+            self.clock.now(),
+        )?;
+        self.decisions.upsert_hunk_decision(&review.id, &decision)?;
+        self.logging.record(ReviewLogEvent {
+            kind: "hunk-decision-changed",
+            review_id: review.id.clone(),
+            item_count: 1,
+        });
+        // After the upsert commits, for the same reason the review-level decision publishes after
+        // its save: a reference to a decision that then rolled back is a record of something
+        // nobody decided. `Pending` publishes nothing — it is the absence of a decision.
+        if let Some(value) = review_evidence_decision(decision.decision) {
+            self.evidence
+                .try_publish(super::SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+                    session_id: review.session_id.clone(),
+                    review_id: review.id.clone(),
+                    hunk_fingerprint: decision.hunk_fingerprint.clone(),
+                    decision: value,
+                    witness_fingerprint: decision.snapshot_fingerprint.clone(),
+                    occurred_at: decision.decided_at.clone(),
+                });
+        }
+        Ok(decision)
+    }
+
+    /// Every hunk decision this review holds.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    pub(crate) fn hunk_decisions(
+        &self,
+        review_id: &str,
+    ) -> Result<Vec<ReviewHunkDecision>, ReviewApplicationError> {
+        self.find(review_id)?;
+        self.decisions.list_hunk_decisions(review_id)
+    }
+
     pub(crate) fn add_findings(
         &self,
         review_id: &str,
@@ -508,6 +649,7 @@ fn review_evidence_decision(decision: ReviewDecision) -> Option<super::SessionRe
 
 #[cfg(test)]
 mod tests {
+    use super::super::SessionReviewDecision;
     use super::*;
     use crate::contexts::sessions::domain::{ReviewAnchorState, ReviewFindingSeverity};
     use std::sync::Mutex;
@@ -546,6 +688,59 @@ mod tests {
             Ok(())
         }
     }
+    /// Hunk decisions, keyed the way the table keys them.
+    #[derive(Default)]
+    struct MemoryDecisions {
+        rows: Mutex<Vec<(String, ReviewHunkDecision)>>,
+        /// When set, every write fails. Used to prove nothing is published for a write that did
+        /// not land.
+        refuse: Mutex<bool>,
+    }
+    impl ReviewDecisionRepository for MemoryDecisions {
+        fn upsert_hunk_decision(
+            &self,
+            review_id: &str,
+            decision: &ReviewHunkDecision,
+        ) -> Result<(), ReviewApplicationError> {
+            if *self.refuse.lock().unwrap() {
+                return Err(ReviewApplicationError::Repository("refused".into()));
+            }
+            let mut rows = self.rows.lock().unwrap();
+            rows.retain(|(id, row)| {
+                id != review_id
+                    || row.path != decision.path
+                    || row.hunk_fingerprint != decision.hunk_fingerprint
+            });
+            rows.push((review_id.to_string(), decision.clone()));
+            Ok(())
+        }
+        fn list_hunk_decisions(
+            &self,
+            review_id: &str,
+        ) -> Result<Vec<ReviewHunkDecision>, ReviewApplicationError> {
+            let mut rows: Vec<ReviewHunkDecision> = self
+                .rows
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(id, _)| id == review_id)
+                .map(|(_, row)| row.clone())
+                .collect();
+            rows.sort_by(|left, right| {
+                (&left.path, &left.hunk_fingerprint).cmp(&(&right.path, &right.hunk_fingerprint))
+            });
+            Ok(rows)
+        }
+    }
+
+    #[derive(Default)]
+    struct CapturingEvidence(Mutex<Vec<super::super::SessionEvidenceSignal>>);
+    impl super::super::SessionEvidencePort for CapturingEvidence {
+        fn try_publish(&self, signal: super::super::SessionEvidenceSignal) {
+            self.0.lock().unwrap().push(signal);
+        }
+    }
+
     struct Fixed;
     impl ReviewClockPort for Fixed {
         fn now(&self) -> String {
@@ -597,6 +792,7 @@ mod tests {
     fn service() -> ReviewApplicationService {
         ReviewApplicationService::new_for_test_without_evidence(
             Arc::new(MemoryRepository::default()),
+            Arc::new(MemoryDecisions::default()),
             Arc::new(Fixed),
             Arc::new(Fixed),
             Arc::new(Fixed),
@@ -604,6 +800,64 @@ mod tests {
             Arc::new(Fixed),
             Arc::new(CapturingLog::default()),
         )
+    }
+
+    /// A service whose decision store and evidence publisher the caller can inspect.
+    fn reviewing() -> (
+        ReviewApplicationService,
+        Arc<MemoryDecisions>,
+        Arc<CapturingEvidence>,
+    ) {
+        let decisions = Arc::new(MemoryDecisions::default());
+        let evidence = Arc::new(CapturingEvidence::default());
+        let service = ReviewApplicationService::new(
+            Arc::new(MemoryRepository::default()),
+            decisions.clone(),
+            Arc::new(Fixed),
+            Arc::new(Fixed),
+            Arc::new(Fixed),
+            Arc::new(Fixed),
+            Arc::new(Fixed),
+            Arc::new(CapturingLog::default()),
+            evidence.clone(),
+        );
+        (service, decisions, evidence)
+    }
+
+    fn opened(service: &ReviewApplicationService) -> ReviewSession {
+        service.open("session-1").unwrap()
+    }
+
+    fn mark(path: &str, hunk: &str, decision: ReviewDecision) -> SetHunkDecisionRequest {
+        SetHunkDecisionRequest {
+            path: path.into(),
+            hunk_fingerprint: hunk.into(),
+            decision,
+        }
+    }
+
+    fn published_hunk_decisions(
+        evidence: &CapturingEvidence,
+    ) -> Vec<(String, SessionReviewDecision, String)> {
+        evidence
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|signal| match signal {
+                super::super::SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+                    hunk_fingerprint,
+                    decision,
+                    witness_fingerprint,
+                    ..
+                } => Some((
+                    hunk_fingerprint.clone(),
+                    *decision,
+                    witness_fingerprint.clone(),
+                )),
+                _ => None,
+            })
+            .collect()
     }
     fn file() -> ReviewFile {
         ReviewFile::try_new("src/a.rs".into(), None, "modified".into(), None, None).unwrap()
@@ -711,6 +965,155 @@ mod tests {
             ),
             Err(ReviewApplicationError::InvalidActionOutput)
         );
+    }
+
+    // The whole reason this group exists. A reviewer who accepted three hunks out of twenty had
+    // that rendered as an accepted review, and a reviewer who accepted the review had every hunk
+    // reported as accepted. Neither inference is available once the two are stored apart.
+    #[test]
+    fn a_review_decision_and_a_hunk_decision_do_not_move_each_other() {
+        let (service, _decisions, _evidence) = reviewing();
+        let review = opened(&service);
+
+        service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted),
+            )
+            .unwrap();
+        assert_eq!(
+            service.find(&review.id).unwrap().decision,
+            ReviewDecision::Pending,
+            "accepting a hunk decided the review"
+        );
+
+        service
+            .set_decision(&review.id, ReviewDecision::ChangesRequested)
+            .unwrap();
+        let recorded = service.hunk_decisions(&review.id).unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(
+            recorded[0].decision,
+            ReviewDecision::Accepted,
+            "the review's decision overwrote the hunk's"
+        );
+    }
+
+    #[test]
+    fn a_second_decision_for_the_same_hunk_replaces_the_first() {
+        let (service, _decisions, _evidence) = reviewing();
+        let review = opened(&service);
+
+        service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted),
+            )
+            .unwrap();
+        service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::ChangesRequested),
+            )
+            .unwrap();
+
+        // One answer per hunk. Two rows would leave a reader with two decisions and nothing saying
+        // which one the reviewer meant.
+        let recorded = service.hunk_decisions(&review.id).unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].decision, ReviewDecision::ChangesRequested);
+    }
+
+    #[test]
+    fn a_hunk_decision_is_witnessed_to_the_review_s_own_snapshot() {
+        let (service, _decisions, evidence) = reviewing();
+        let review = opened(&service);
+
+        let recorded = service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted),
+            )
+            .unwrap();
+
+        // Taken from the review rather than from the caller, so a stored decision is never a claim
+        // about a diff that was not the one under review. 13.3 adds the caller's expectation and
+        // refuses when the two disagree; until then there is nothing for them to disagree about.
+        assert_eq!(recorded.snapshot_fingerprint, review.fingerprint);
+        assert_eq!(
+            published_hunk_decisions(&evidence),
+            vec![(
+                "hunk-1".to_string(),
+                SessionReviewDecision::Accepted,
+                review.fingerprint.clone()
+            )]
+        );
+    }
+
+    #[test]
+    fn a_pending_hunk_is_recorded_and_published_as_nothing() {
+        let (service, _decisions, evidence) = reviewing();
+        let review = opened(&service);
+
+        service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Pending),
+            )
+            .unwrap();
+
+        // Stored, because clearing a decision is something a reviewer does. Not published, because
+        // "nobody has decided yet" is the absence of a decision and a journal of things that
+        // happened has no entry for it.
+        assert_eq!(service.hunk_decisions(&review.id).unwrap().len(), 1);
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    #[test]
+    fn a_write_that_did_not_land_publishes_nothing() {
+        let (service, decisions, evidence) = reviewing();
+        let review = opened(&service);
+        *decisions.refuse.lock().unwrap() = true;
+
+        assert!(service
+            .set_hunk_decision(
+                &review.id,
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted)
+            )
+            .is_err());
+
+        // A reference to a decision that rolled back is a record of something nobody decided, and
+        // it is indistinguishable from one that stuck.
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    #[test]
+    fn a_hunk_decision_for_a_review_that_does_not_exist_is_refused() {
+        let (service, decisions, evidence) = reviewing();
+
+        assert!(matches!(
+            service.set_hunk_decision(
+                "review-missing",
+                mark("src/a.rs", "hunk-1", ReviewDecision::Accepted)
+            ),
+            Err(ReviewApplicationError::NotFound(_))
+        ));
+        assert!(decisions.rows.lock().unwrap().is_empty());
+        assert_eq!(published_hunk_decisions(&evidence), vec![]);
+    }
+
+    #[test]
+    fn a_hunk_decision_refuses_a_path_that_leaves_the_workspace() {
+        let (service, decisions, _evidence) = reviewing();
+        let review = opened(&service);
+
+        assert!(service
+            .set_hunk_decision(
+                &review.id,
+                mark("../outside.rs", "hunk-1", ReviewDecision::Accepted)
+            )
+            .is_err());
+        assert!(decisions.rows.lock().unwrap().is_empty());
     }
 
     #[test]

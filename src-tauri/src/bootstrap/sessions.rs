@@ -12,9 +12,10 @@ use crate::contexts::sessions::application::{
 };
 use crate::contexts::sessions::infrastructure::{
     AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
-    SessionFileAdapter, SessionOperationAdapter, SqliteReviewRepository,
-    SqliteSessionChatProfileAdapter, SqliteSessionsRepository, SystemReviewClock,
-    SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
+    SessionFileAdapter, SessionOperationAdapter, SqliteReviewDecisionRepository,
+    SqliteReviewRepository, SqliteSessionChatProfileAdapter, SqliteSessionsRepository,
+    SystemReviewClock, SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds,
+    UuidSessionIdentities,
 };
 use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -100,7 +101,8 @@ pub(crate) fn assemble_sessions_api(
         evidence.clone(),
     );
     let review = ReviewApplicationService::new(
-        Arc::new(SqliteReviewRepository::new(database)),
+        Arc::new(SqliteReviewRepository::new(database.clone())),
+        Arc::new(SqliteReviewDecisionRepository::new(database)),
         Arc::new(SystemReviewClock),
         Arc::new(UuidReviewIds),
         Arc::new(SessionReviewFeedbackAdapter(service.clone())),

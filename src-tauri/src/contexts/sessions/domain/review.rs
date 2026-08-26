@@ -93,6 +93,47 @@ impl ReviewAnchor {
     }
 }
 
+/// A decision about one hunk, and the diff it was made about.
+///
+/// Not part of `ReviewSession`. The aggregate is loaded and rewritten whole, so a hunk decision
+/// living inside it would mean every hunk anybody marks rewrites the review row, its files, its
+/// comments, and its findings — and the independence this type exists to express would hold only
+/// as long as nobody looked closely.
+///
+/// `snapshot_fingerprint` is the diff the decision is about. A decision without it is a claim
+/// about a hunk that may no longer exist, rendered beside a diff that has moved on, with nothing
+/// to say the two disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewHunkDecision {
+    pub(crate) path: String,
+    pub(crate) hunk_fingerprint: String,
+    pub(crate) snapshot_fingerprint: String,
+    pub(crate) decision: ReviewDecision,
+    pub(crate) decided_at: String,
+}
+
+impl ReviewHunkDecision {
+    pub(crate) fn try_new(
+        path: String,
+        hunk_fingerprint: String,
+        snapshot_fingerprint: String,
+        decision: ReviewDecision,
+        decided_at: String,
+    ) -> Result<Self, ReviewDomainError> {
+        validate_relative_path(&path)?;
+        validate_required(&hunk_fingerprint, "hunk fingerprint")?;
+        validate_required(&snapshot_fingerprint, "snapshot fingerprint")?;
+        validate_required(&decided_at, "decision time")?;
+        Ok(Self {
+            path,
+            hunk_fingerprint,
+            snapshot_fingerprint,
+            decision,
+            decided_at,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReviewFile {
     pub(crate) path: String,

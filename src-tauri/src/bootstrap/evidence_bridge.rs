@@ -971,6 +971,7 @@ fn session_session(signal: &SessionEvidenceSignal) -> &str {
     match signal {
         SessionEvidenceSignal::UsageObserved { session_id, .. }
         | SessionEvidenceSignal::ReviewDecisionRecorded { session_id, .. }
+        | SessionEvidenceSignal::ReviewHunkDecisionRecorded { session_id, .. }
         | SessionEvidenceSignal::VerificationCompleted { session_id, .. } => session_id,
     }
 }
@@ -1051,10 +1052,53 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
                 status: None,
                 fidelity: ExecutionFidelity::Native,
                 payload: SafeEvidencePayload::ReviewDecisionRecorded {
-                    // Review scope only. Hunk and file-viewed scopes exist in this enum for 13.2
-                    // and 13.5; publishing one now would mean deriving it from a review-level
-                    // decision, which is a guess wearing an observation's clothes.
+                    // Review scope. The hunk scope is published by its own signal below, from its
+                    // own store; the file-viewed scope waits for 13.5. Deriving either from this
+                    // one would be a guess wearing an observation's clothes.
                     scope: ReviewDecisionScope::Review,
+                    decision: match decision {
+                        SessionReviewDecision::Accepted => ReviewDecisionValue::Accepted,
+                        SessionReviewDecision::ChangesRequested => {
+                            ReviewDecisionValue::ChangesRequested
+                        }
+                    },
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+            session_id,
+            review_id,
+            hunk_fingerprint,
+            decision,
+            witness_fingerprint,
+            occurred_at,
+        } => {
+            let correlation = correlation(session_id, None, None)?;
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Sessions,
+                // The review and the hunk, then the transition folded into a revision, exactly as
+                // the review-level decision does. The hunk fingerprint rather than the path: it
+                // identifies the hunk without putting workspace content in the journal, and it is
+                // already what the decision is keyed by.
+                source_event_id: source_event_id(
+                    "review-hunk-decision",
+                    &[
+                        review_id,
+                        hunk_fingerprint,
+                        &transition_revision(&[
+                            witness_fingerprint,
+                            review_decision_token(*decision),
+                            occurred_at,
+                        ]),
+                    ],
+                )?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: None,
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::ReviewDecisionRecorded {
+                    scope: ReviewDecisionScope::Hunk,
                     decision: match decision {
                         SessionReviewDecision::Accepted => ReviewDecisionValue::Accepted,
                         SessionReviewDecision::ChangesRequested => {

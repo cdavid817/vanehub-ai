@@ -15,15 +15,40 @@ pub(crate) enum SessionEvidenceSignal {
     },
     /// A decision recorded about a whole review.
     ///
-    /// Hunk-level decisions and file Viewed state are not here: their store arrives in 13.1, and
-    /// deriving them from this one would mean asserting that accepting a review accepted every
-    /// hunk. 13.2 and 13.5 publish them once there is something to observe.
+    /// File Viewed state is still not here: its store exists, but nothing writes it until 13.5,
+    /// and deriving it from a decision would mean asserting that deciding about a file is the same
+    /// as having read it.
     ReviewDecisionRecorded {
         session_id: String,
         review_id: String,
         decision: SessionReviewDecision,
         /// The snapshot the decision was made against. Without it a reader cannot tell a decision
         /// about the current diff from one about a diff that has since changed.
+        witness_fingerprint: String,
+        occurred_at: String,
+    },
+    /// A decision recorded about one hunk.
+    ///
+    /// Separate from the review-level decision rather than derived from it. The two are
+    /// independent, so a journal that inferred one from the other would report decisions nobody
+    /// made — which is precisely what a journal exists not to do.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reachable from 13.4's setCodeReviewHunkDecision command; \
+                 an expect rather than an allow so wiring it removes this line"
+        )
+    )]
+    ReviewHunkDecisionRecorded {
+        session_id: String,
+        review_id: String,
+        /// Which hunk, by fingerprint. The path stays in the review store: a journal entry does
+        /// not need workspace content to identify the hunk a decision was about.
+        hunk_fingerprint: String,
+        decision: SessionReviewDecision,
+        /// The snapshot the decision was made against, for the same reason the review-level one
+        /// carries it.
         witness_fingerprint: String,
         occurred_at: String,
     },

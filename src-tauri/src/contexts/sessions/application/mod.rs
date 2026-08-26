@@ -57,8 +57,8 @@ pub(crate) use report::{
 pub(crate) use review::{
     AddReviewCommentRequest, CreateReviewRequest, PreparedReviewFeedback, ReviewAction,
     ReviewActionFindingInput, ReviewApplicationError, ReviewApplicationService, ReviewClockPort,
-    ReviewFeedbackPort, ReviewIdPort, ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort,
-    ReviewRepository, ReviewSnapshotPort,
+    ReviewDecisionRepository, ReviewFeedbackPort, ReviewIdPort, ReviewLogEvent, ReviewLoggingPort,
+    ReviewOperationPort, ReviewRepository, ReviewSnapshotPort,
 };
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
 pub(crate) use usage_accounting::{

@@ -1105,10 +1105,89 @@ fn a_review_decision_records_its_scope_and_witness() {
         stored.contains("review"),
         "the scope is review-level: {stored}"
     );
-    // Hunk and file-viewed scopes belong to 13.2 and 13.5. Emitting one now would mean deriving it
-    // from a review-level decision, which is a guess wearing an observation's clothes.
+    // A review-level decision says nothing about any hunk or any file. The hunk scope has its own
+    // signal and its own store; the file-viewed scope waits for 13.5. Deriving either from this
+    // would be a guess wearing an observation's clothes.
     assert!(!stored.contains("hunk"));
     assert!(!stored.contains("fileViewed"));
+}
+
+/// A hunk decision reaches the journal under its own scope, from its own signal.
+#[test]
+fn a_hunk_decision_records_the_hunk_scope() {
+    let harness = harness("bridge-hunk-decision");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+            session_id: SESSION.to_string(),
+            review_id: "review-1".to_string(),
+            hunk_fingerprint: "hunk-1".to_string(),
+            decision: SessionReviewDecision::Accepted,
+            witness_fingerprint: "snapshot-a".to_string(),
+            occurred_at: "2026-08-27T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(stored.contains("hunk"), "the scope is the hunk: {stored}");
+    // The fingerprint identifies the hunk in the event id; the path never enters the journal, so a
+    // reader learns which hunk without the journal holding workspace content.
+    assert!(!stored.contains("src/"));
+}
+
+/// Two hunks decided in the same review are two decisions. Keying on the review alone would fold
+/// them into one and report a reviewer who accepted two hunks as having accepted one.
+#[test]
+fn two_hunks_decided_in_one_review_record_separately() {
+    let harness = harness("bridge-hunk-decision-pair");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for hunk in ["hunk-1", "hunk-2"] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                hunk_fingerprint: hunk.to_string(),
+                decision: SessionReviewDecision::Accepted,
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: "2026-08-27T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+}
+
+/// The same decision published twice is one event. The bridge retries, and a retry that minted a
+/// second identity would report a reviewer as having decided as many times as the machine stumbled.
+#[test]
+fn the_same_hunk_decision_published_twice_records_once() {
+    let harness = harness("bridge-hunk-decision-retry");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for _ in 0..2 {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewHunkDecisionRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                hunk_fingerprint: "hunk-1".to_string(),
+                decision: SessionReviewDecision::Accepted,
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: "2026-08-27T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 1);
 }
 
 /// Re-deciding a review after its diff moved on is a second decision. Keying on the review alone
