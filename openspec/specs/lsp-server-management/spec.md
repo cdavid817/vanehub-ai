@@ -90,7 +90,7 @@ Every LSP request SHALL have a fixed bounded deadline and SHALL observe the owni
 - **THEN** the request SHALL stop waiting, attempt protocol cancellation for its actual id, and return through bounded cleanup
 
 ### Requirement: Server capabilities are negotiated before use
-The client SHALL advertise only implemented capabilities, complete `initialize` followed by `initialized`, record the selected position encoding and text-document synchronization mode, and issue a semantic request only when the server reports support for that method. Protocol readiness SHALL remain distinct from optional background indexing progress.
+The client SHALL advertise only implemented capabilities, complete `initialize` followed by `initialized`, record the selected position encoding and text-document synchronization mode, and record which of the semantic methods it implements the server advertises. It SHALL issue a semantic request only when that record reports support for the method. The record SHALL be a list of negotiated methods rather than a fixed set of fields, so a method added to the client appears in it without any consumer being told the method's name in advance. Protocol readiness SHALL remain distinct from optional background indexing progress.
 
 #### Scenario: Server selects no position encoding
 - **WHEN** the initialize result omits a selected position encoding
@@ -104,6 +104,21 @@ The client SHALL advertise only implemented capabilities, complete `initialize` 
 - **WHEN** a server publishes work-done progress after initialization
 - **THEN** server status SHALL expose bounded warming or indexing detail
 - **AND** protocol-ready requests SHALL remain eligible to run
+
+#### Scenario: A server advertises a method the client does not implement
+- **WHEN** an initialize result advertises a capability outside the set of methods the client implements
+- **THEN** the negotiated record SHALL omit it
+- **AND** the client SHALL NOT report it as available anywhere
+
+#### Scenario: A method the client implements is absent from the initialize result
+- **WHEN** an initialize result omits a capability for a method the client implements
+- **THEN** the negotiated record SHALL report that method as unsupported rather than omitting it
+- **AND** a request for it SHALL return unavailable without being sent
+
+#### Scenario: Negotiated methods are reported in a stable order
+- **WHEN** two servers negotiate the same set of methods
+- **THEN** their negotiated records SHALL list those methods in the same order
+- **AND** a consumer rendering the list SHALL NOT have to sort it to be deterministic
 
 ### Requirement: Disk content is the authoritative document state
 Before a text-document operation, the system SHALL resolve a bounded UTF-8 disk snapshot inside the current canonical workspace, send `didOpen` for a new document lease, and send a versioned full or incremental `didChange` matching the negotiated synchronization mode when the disk content changes. It SHALL send `didClose` when a lease expires or its server stops.
