@@ -90,6 +90,10 @@ pub(crate) struct Session {
     pub(crate) archived: bool,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    /// `standard`, `project-only` or `temporary`. Read back rather than assumed: a session
+    /// keeps the mode it was created with, and a screen that guessed would tell the user
+    /// their temporary session is retaining things it is not.
+    pub(crate) personalization_mode: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

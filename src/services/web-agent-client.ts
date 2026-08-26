@@ -104,7 +104,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     title: `IM ${connector}`,
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

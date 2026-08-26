@@ -67,8 +67,10 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 20550 -> 20572: 健康状态新增"上次重建时间"与"需要修复"两个字段，
 // mock 跟着把时间戳持久化——桌面端它本就能活过重启，不持久化的 mock 会让
 // "从未重建"与"重建过但没发现问题"在页面上长得一样。
+// 20572 -> 20576: mock 创建会话时保留调用方要求的个性化模式。写死成 standard
+// 会放行一个"临时会话却照常保留一切"的页面，而 mock 正是让这件事在测试里可观测的地方。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20572, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 20576, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

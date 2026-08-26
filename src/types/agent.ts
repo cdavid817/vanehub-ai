@@ -1,3 +1,5 @@
+import type { SessionPersonalizationMode } from "./personalization";
+
 export type InteractionMode = "browser" | "native-desktop" | "cli" | "api";
 
 export type AvailabilityState =
@@ -349,6 +351,8 @@ export interface UpdateSessionSeatsInput {
 
 export interface Session {
   id: string;
+  /** The mode this session was created with. It never changes for an existing session. */
+  personalizationMode: SessionPersonalizationMode;
   title: string;
   agentId: string;
   /**
@@ -525,6 +529,8 @@ export interface CreateSessionInput {
    */
   seats?: SessionSeat[];
   interactionMode: InteractionMode;
+  /** Absent means `standard`, matching what the native side defaults an omitted mode to. */
+  personalizationMode?: SessionPersonalizationMode;
   title?: string;
   folder?: string | null;
   projectPath?: string | null;

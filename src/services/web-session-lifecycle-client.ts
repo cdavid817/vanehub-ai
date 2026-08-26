@@ -114,6 +114,10 @@ export const webSessionLifecycleClient: SessionLifecycleService = {
       // Mirrors the native normalization: no seats means one seat built from the Agent.
       seats: normalizedSeats,
       interactionMode: input.interactionMode,
+      // Whatever the caller asked for. Forcing `standard` here would let a page ship whose
+      // temporary session quietly retains everything, and the mock is where that has to be
+      // reachable in a test.
+      personalizationMode: input.personalizationMode ?? "standard",
       lifecycleState: "idle",
       recoveryStatus: "clean",
       recoveryRevision: 0,

@@ -249,7 +249,7 @@ describe("resolveCreatedSession", () => {
       { seatId: "seat-implementer", agentId: "claude-code", roleId: "builtin-implementer", joinedAt: "2026-08-10T00:00:00Z", leftAt: null },
     ],
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     folder: "D:\\work\\app",
     projectPath: "D:\\work\\app",
     worktreePath: null,

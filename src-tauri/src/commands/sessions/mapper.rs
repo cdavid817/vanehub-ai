@@ -110,6 +110,7 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
         id: session.id().to_string(),
         title: session.aggregate.title().as_str().to_string(),
         agent_id: session.agent_id,
+        personalization_mode: session.personalization_mode.as_str().to_string(),
         seats: session
             .seats
             .into_iter()

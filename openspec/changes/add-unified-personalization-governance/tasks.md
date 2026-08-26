@@ -135,11 +135,11 @@
 
 ## 12. Session Creation and Conversation UI
 
-- [ ] 12.1 Add localized Standard, Project-only, and Temporary choices near workspace selection in every session-creation surface.
-- [ ] 12.2 Disable Project-only without a workspace and show a specific accessible explanation.
-- [ ] 12.3 Add a persistent Project-only/Temporary badge in the conversation header and a concise explanation of what VaneHub does and does not retain.
-- [ ] 12.4 Ensure changing global settings does not mutate the mode of an existing session and policy changes apply only to later generations.
-- [ ] 12.5 Add React, Web/mock, Playwright, and desktop tests for creation, persistence, switching, restart, multi-seat sessions, project-only validation, and temporary behavior.
+- [x] 12.1 Add localized Standard, Project-only, and Temporary choices near workspace selection in every session-creation surface.
+- [x] 12.2 Disable Project-only without a workspace and show a specific accessible explanation.
+- [x] 12.3 Add a persistent Project-only/Temporary badge in the conversation header and a concise explanation of what VaneHub does and does not retain.
+- [x] 12.4 Ensure changing global settings does not mutate the mode of an existing session and policy changes apply only to later generations.
+- [x] 12.5 Add React, Web/mock, Playwright, and desktop tests for creation, persistence, switching, restart, multi-seat sessions, project-only validation, and temporary behavior.
 
 ## 13. Localization, Documentation, and Cleanup
 

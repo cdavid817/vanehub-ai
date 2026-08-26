@@ -79,7 +79,11 @@ export default tseslint.config(
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],
-    ["src/main-layout/create-session-dialog.tsx", 318],
+    // 318 -> 335: 会话创建需要选一个个性化模式，而这个选择又必须在没有工作区时被纠正——
+    // 否则存储会拒绝一个用户看不见的控件造成的提交。新增的是 state、两个派生值
+    // 与三个 prop，外加打开对话框时把模式复位——记住上一次的隐私选择等于替用户重做一个
+    // 他没有再确认过的决定。没有任何逻辑是从别处复制来的。
+    ["src/main-layout/create-session-dialog.tsx", 335],
   ].map(([file, max]) => ({
     files: [file],
     rules: {

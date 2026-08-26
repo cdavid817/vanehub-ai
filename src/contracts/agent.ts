@@ -8,6 +8,8 @@ export type AgentOrigin = "builtin" | "user";
 export type SessionLifecycleState =
   "idle" | "starting" | "running" | "failed" | "stopped";
 
+export type SessionPersonalizationMode = "standard" | "project-only" | "temporary";
+
 export type SessionRecoveryStatus =
   "clean" | "reconciling" | "action_required" | "quarantined";
 
@@ -283,6 +285,8 @@ export interface Session {
   id: string;
   title: string;
   agentId: string;
+  /** The mode this session was created with. It never changes for an existing session. */
+  personalizationMode: SessionPersonalizationMode;
   /**
    * Optional because sessions predate seats. When absent the session is a one-seat session whose
    * seat is `agentId`; when present, `agentId` mirrors `seats[0].agentId`.
@@ -348,6 +352,8 @@ export interface CreateSessionInput {
    */
   seats?: SessionSeat[];
   interactionMode: InteractionMode;
+  /** Absent means `standard`, matching what the native side defaults an omitted mode to. */
+  personalizationMode?: SessionPersonalizationMode;
   title?: string;
   folder?: string | null;
   projectPath?: string | null;
