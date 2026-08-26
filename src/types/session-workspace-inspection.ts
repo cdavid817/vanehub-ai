@@ -25,3 +25,46 @@ export interface WorkspaceInspectionCapabilities {
   gitDiff: CapabilityState;
   watchMode: WorkspaceWatchMode;
 }
+
+/**
+ * Which mechanism noticed a workspace change.
+ *
+ * Carried so a reader can weigh the notice, not so it can decide what to refresh. A poll's answer
+ * is true as of the poll; a write this application performed is exact. Same instruction, different
+ * guarantees.
+ */
+export type WorkspaceInvalidationSource = "watch" | "poll" | "execution-evidence";
+
+/** What happened to a path, when that is known. `unknown` is an answer, not a placeholder. */
+export type WorkspaceInvalidationChange = "created" | "modified" | "removed" | "unknown";
+
+/**
+ * How much of the workspace one notice is about.
+ *
+ * The cost of acting on these rises steeply: `path` refreshes one row and its parent, `workspace`
+ * refreshes everything open. A producer sends the most specific one it can justify, so a broad
+ * notice can be read as "observation was genuinely lost" rather than as somebody's shortcut.
+ */
+export type WorkspaceInvalidationScope = "path" | "directory" | "workspace";
+
+export interface WorkspaceInvalidationNotice {
+  sessionId: string;
+  source: WorkspaceInvalidationSource;
+  scope: WorkspaceInvalidationScope;
+  /** Workspace-relative, with forward slashes. Absent exactly when the scope is `workspace`. */
+  relativePath?: string;
+  /** Present only alongside a `path` scope. */
+  change?: WorkspaceInvalidationChange;
+  /**
+   * Monotonic per session, from 1. A gap is the only evidence available that a notice was lost,
+   * and without it a silent channel and a quiet workspace look identical.
+   */
+  sequence: number;
+  occurredAt: string;
+  /**
+   * How many further observations this notice stands in for. Absent when it stands only for
+   * itself — absent rather than zero, because "one change" and "a burst that collapsed" are
+   * different facts and zero would read as the first while meaning either.
+   */
+  coalesced?: number;
+}

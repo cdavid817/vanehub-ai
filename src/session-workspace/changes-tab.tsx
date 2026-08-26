@@ -8,6 +8,7 @@ import { DiffView, type DiffViewMode } from "./diff-view";
 import { gitStatusPresentation } from "./git-status-presentation";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { workspaceQueryKeys } from "./workspace-query-keys";
 import { ReviewCenter } from "./review-center";
 import {
   useWorkspaceCapabilities,
@@ -32,7 +33,6 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
   const [source, setSource] = useState<GitDiffSource>("working");
   const [mode, setMode] = useState<DiffViewMode>("unified");
   const [diff, setDiff] = useState<GitDiffResult | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const initialized = useRef(false);
   const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
@@ -40,7 +40,7 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
     // Disabled rather than unmounted while hidden: the status list stays cached and on screen, and
     // the tab stops re-reading the working tree behind another panel.
     enabled: Boolean(sessionId) && isVisible,
-    queryKey: ["session-workspace", "git-status", sessionId],
+    queryKey: workspaceQueryKeys.gitStatus(sessionId ?? ""),
     queryFn: () => agentService.getSessionGitStatus(sessionId ?? ""),
   });
 
@@ -59,14 +59,19 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
     if (statusQuery.error) setError(workspaceErrorKey(statusQuery.error));
   }, [statusQuery.data, statusQuery.error]);
 
+  // A query rather than an effect, so a change notice can refresh the diff a reader is looking at.
+  // The imperative version had no key, which meant the only way to see a rewritten hunk was to
+  // click away and back.
+  const diffQuery = useQuery({
+    enabled: Boolean(sessionId) && Boolean(selected) && isVisible,
+    queryKey: workspaceQueryKeys.gitDiff(sessionId ?? "", selected?.path ?? "", source),
+    queryFn: () => agentService.getSessionGitDiff(sessionId ?? "", selected?.path ?? "", source),
+  });
+
   useEffect(() => {
-    if (!sessionId || !selected) { setDiff(null); return; }
-    let cancelled = false; setLoading(true); setError(null);
-    agentService.getSessionGitDiff(sessionId, selected.path, source).then((result) => { if (!cancelled) setDiff(result); })
-      .catch((reason: unknown) => { if (!cancelled) setError(workspaceErrorKey(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected, sessionId, source]);
+    setDiff(diffQuery.data ?? null);
+    if (diffQuery.error) setError(workspaceErrorKey(diffQuery.error));
+  }, [diffQuery.data, diffQuery.error]);
 
   const gitStatus = statusQuery.data;
 
@@ -81,7 +86,7 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
       />
     );
   }
-  if ((loading || statusQuery.isLoading) && !gitStatus) return <WorkspaceState kind="loading" />;
+  if ((statusQuery.isLoading || diffQuery.isLoading) && !gitStatus) return <WorkspaceState kind="loading" />;
   if (error && !gitStatus) return <WorkspaceState kind="error" message={t(error)} />;
   if (gitStatus && !gitStatus.isGit) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.notGit")} />;
   if (gitStatus && gitStatus.items.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.clean")} />;
@@ -105,7 +110,7 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
           {diff?.truncated ? <PartialNotice /> : null}
-          <DiffBody diff={diff} error={error} loading={loading} mode={mode} />
+          <DiffBody diff={diff} error={error} loading={diffQuery.isFetching} mode={mode} />
         </div>
       </section>
     </div>

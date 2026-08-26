@@ -15,10 +15,19 @@ import type {
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
+import { safeParseWorkspaceInvalidationNotice } from "../contracts/session-workspace-inspection";
+
+/**
+ * The native event channel. It has to match `WORKSPACE_INVALIDATION_EVENT` in the Rust publisher
+ * verbatim; a mismatch produces a subscription that never fires and never errors, which on screen
+ * is a workspace that simply never changes.
+ */
+export const WORKSPACE_INVALIDATION_EVENT_CHANNEL = "workspace-invalidation:notice";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
   | "getWorkspaceInspectionCapabilities"
+  | "subscribeWorkspaceInvalidation"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -54,6 +63,14 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   async subscribeFolderOpenerEvents(handler) {
     return listen<string>("folder-openers:event", () => handler());
+  },
+  async subscribeWorkspaceInvalidation(handler) {
+    return listen<unknown>(WORKSPACE_INVALIDATION_EVENT_CHANNEL, (event) => {
+      // Dropped rather than thrown. An event handler has no caller to reject to, and one notice
+      // this build cannot read must not tear down the subscription carrying the rest.
+      const notice = safeParseWorkspaceInvalidationNotice(event.payload);
+      if (notice) handler(notice);
+    });
   },
   listSessionDirectory(sessionId, path = "") {
     return invoke<DirectoryListing>("list_session_directory", { sessionId, path });

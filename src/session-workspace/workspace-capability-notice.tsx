@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { workspaceQueryKeys } from "./workspace-query-keys";
 import { useTranslation } from "react-i18next";
 import { agentService as defaultAgentService } from "../services/runtime-agent-client";
 import type { AgentService } from "../services/agent-service";
@@ -25,7 +26,7 @@ export function useWorkspaceCapabilities(
 ): { capabilities: WorkspaceInspectionCapabilities | undefined; isLoading: boolean } {
   const query = useQuery({
     enabled: sessionId !== null,
-    queryKey: ["workspace-inspection-capabilities", sessionId],
+    queryKey: workspaceQueryKeys.capabilities(sessionId ?? ""),
     queryFn: () => {
       if (sessionId === null) throw new Error("Workspace capabilities need a session.");
       return service.getWorkspaceInspectionCapabilities(sessionId);

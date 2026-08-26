@@ -24,6 +24,7 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences 
 type SessionWorkspaceMethods = Pick<
   AgentService,
   | "getWorkspaceInspectionCapabilities"
+  | "subscribeWorkspaceInvalidation"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -114,6 +115,17 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
    */
   async getWorkspaceInspectionCapabilities() {
     return structuredClone(inspectionCapabilitiesFixture);
+  },
+  /**
+   * The browser build publishes no notices, and that is deliberate.
+   *
+   * Its fixtures never change, so any notice it emitted would describe an event that did not
+   * happen — and a timer-driven fake would make the invalidation routing look exercised while
+   * nothing had ever gone stale. The capability fixture already reports `watchMode: "none"`, so a
+   * panel reading it knows not to wait for one.
+   */
+  async subscribeWorkspaceInvalidation() {
+    return () => {};
   },
   async getSessionGitStatus() {
     return statusFixture;

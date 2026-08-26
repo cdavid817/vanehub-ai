@@ -120,8 +120,17 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 本机的 demo 会让人去找根本不存在的文件,而 `watchMode: "none"` 同理——夹具永远不变,说 native
 // 就是在描述一个不存在的监视器。能力全部 available 是诚实的:夹具里确实有这些东西,真正的缺口
 // 是 provider 名字,不是假装缺少某个前置条件。上限按实测值 21563 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.3):+63 是工作区失效通知在服务边界上的三处——新拆出的
+// `session-workspace-inspection-service.ts`、Tauri 侧的 `listen` 与解析、Web 侧的空订阅。
+// 净增没有 52 行那么少的原因是这次顺带做了一次拆分:`agent-service.ts` 已经顶到 300 行硬规则,
+// 再加一个方法就过线,所以工作区检查那一组方法整体移进了自己的文件。移动本身不增加行数,增加的是
+// 新文件的 import 块与那段说明「为什么这组方法值得单独一个文件」的注释——而下一个方法(12.4 的
+// Quick Open)因此有了明确的去处,不必再在 300 行的边缘上挤。
+// 值得说明的是为什么 Web 侧那个空订阅不能省:浏览器夹具永远不变,任何它发出的通知都是在描述一件
+// 没发生的事;而按定时器造假的通知会让整条失效路由看起来被跑过,实际上没有任何东西真的过期过。
+// 上限按实测值 21626 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21563, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21626, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

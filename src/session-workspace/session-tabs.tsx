@@ -15,6 +15,7 @@ import { ChatTab } from "./chat-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
 import { ConversationOverflowMenu } from "./conversation-overflow-menu";
 import { SessionConversationHeader } from "./session-conversation-header";
+import { useWorkspaceInvalidation } from "./use-workspace-invalidation";
 import { useMountedWorkspaceTabs } from "./use-mounted-workspace-tabs";
 import {
   useWorkspaceEvidenceNotices,
@@ -142,6 +143,10 @@ function SessionWorkspaceTabs({
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const roles = useSessionRoles(seats.length > 1);
   const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId, activeTab);
+  // Mounted here rather than in each panel: the panels come and go as a reader switches tabs, and a
+  // subscription that came and went with them would leave a window on every switch in which a
+  // notice is published to nobody. Nothing on screen would say one had been missed.
+  useWorkspaceInvalidation(sessionId);
 
   useEffect(() => {
     setSelectedSeat(null);

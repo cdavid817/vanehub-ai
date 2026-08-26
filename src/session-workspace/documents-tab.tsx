@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { FileText } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +7,7 @@ import { agentService } from "../services/runtime-agent-client";
 import type { FileContent, SessionDocument } from "../types/session-workspace";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { workspaceQueryKeys } from "./workspace-query-keys";
 
 export function DocumentsTab({
   isVisible = true,
@@ -16,41 +18,45 @@ export function DocumentsTab({
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
-  const [documents, setDocuments] = useState<SessionDocument[]>([]);
   const [selected, setSelected] = useState<SessionDocument | null>(null);
-  const [content, setContent] = useState<FileContent | null>(null);
-  const [partial, setPartial] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<WorkspaceErrorKey | null>(null);
 
-  useEffect(() => {
+  // Queries rather than effects, so a change notice can refresh the list and the open document.
+  // The imperative version had no key to invalidate, which meant a document an agent had just
+  // written stayed missing from the list until the whole tab was rebuilt.
+  const listQuery = useQuery({
     // Nothing is discarded when the tab is hidden: the list, the selection, and the rendered
-    // document stay exactly as the user left them, and only the discovery walk stops.
-    if (!isVisible) return;
-    setDocuments([]); setSelected(null); setContent(null); setPartial(false); setError(null);
-    if (!sessionId) return;
-    let cancelled = false;
-    setLoading(true);
-    agentService.listSessionDocuments(sessionId).then((result) => {
-      if (cancelled) return;
-      setDocuments(result.items); setPartial(result.truncated); setSelected(result.items[0] ?? null);
-    }).catch((reason: unknown) => {
-      if (!cancelled) setError(workspaceErrorKey(reason));
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [isVisible, sessionId]);
+    // document stay exactly as the reader left them, and only the discovery walk stops.
+    enabled: Boolean(sessionId) && isVisible,
+    queryKey: workspaceQueryKeys.documents(sessionId ?? ""),
+    queryFn: () => agentService.listSessionDocuments(sessionId ?? ""),
+  });
+  const contentQuery = useQuery({
+    enabled: Boolean(sessionId) && Boolean(selected),
+    queryKey: workspaceQueryKeys.preview(sessionId ?? "", selected?.path ?? ""),
+    queryFn: () => agentService.readSessionFile(sessionId ?? "", selected?.path ?? ""),
+  });
+
+  const documents: SessionDocument[] = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
+  const partial = listQuery.data?.truncated ?? false;
+  const content: FileContent | null = contentQuery.data ?? null;
+  const loading = listQuery.isLoading || contentQuery.isLoading;
+  const error: WorkspaceErrorKey | null = listQuery.error
+    ? workspaceErrorKey(listQuery.error)
+    : contentQuery.error
+      ? workspaceErrorKey(contentQuery.error)
+      : null;
 
   useEffect(() => {
-    if (!sessionId || !selected) { setContent(null); return; }
-    let cancelled = false;
-    setLoading(true); setError(null);
-    agentService.readSessionFile(sessionId, selected.path).then((result) => {
-      if (!cancelled) setContent(result);
-    }).catch((reason: unknown) => {
-      if (!cancelled) setError(workspaceErrorKey(reason));
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected, sessionId]);
+    setSelected(null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    // Retained while the refreshed list still holds it. Reselecting the first row on every refresh
+    // would move a reader off the document they were reading whenever an agent wrote another one.
+    if (documents.length === 0) return;
+    if (selected && documents.some((document) => document.path === selected.path)) return;
+    setSelected(documents[0] ?? null);
+  }, [documents, selected]);
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
   if (loading && documents.length === 0) return <WorkspaceState kind="loading" />;

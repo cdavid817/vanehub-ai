@@ -93,19 +93,12 @@ import type {
   OnePieceProviderService,
 } from "./api-provider-service";
 import type {
-  DirectoryListing,
-  WorkspaceInspectionCapabilities,
-  DocumentListing,
-  FileContent,
-  FileSearchListing,
-  GitDiffResult,
-  GitDiffSource,
-  GitStatusResult,
   SessionLogExportResult,
   SessionLogEntry,
   SessionLogPage,
   SessionLogQuery,
 } from "../types/session-workspace";
+import type { SessionWorkspaceInspectionService } from "./session-workspace-inspection-service";
 import type { SkillBindingService, SkillCatalogService, SkillOverlayService } from "./skill-service";
 import type { PromptHookService } from "./prompt-hook-service";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
@@ -181,6 +174,7 @@ export interface AgentService extends
   SessionQueryService,
   SessionRecoveryService,
   SessionSeatService,
+  SessionWorkspaceInspectionService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -197,19 +191,6 @@ export interface AgentService extends
   testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
   getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  /**
-   * What this session's workspace can be asked, before anything asks it.
-   *
-   * Read first by every panel that inspects a workspace: a remote host missing a prerequisite is
-   * an ordinary situation, and finding out one failed call at a time turns it into five errors.
-   */
-  getWorkspaceInspectionCapabilities(sessionId: string): Promise<WorkspaceInspectionCapabilities>;
-  listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
-  readSessionFile(sessionId: string, path: string): Promise<FileContent>;
-  listSessionDocuments(sessionId: string): Promise<DocumentListing>;
-  searchSessionFiles(sessionId: string, query: string, maxResults?: number): Promise<FileSearchListing>;
-  getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
-  getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
   /** One row by id, which is how a live notice becomes a row without the event carrying one. */
   getSessionLogRecord(recordId: string): Promise<SessionLogEntry | null>;
