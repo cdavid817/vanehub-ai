@@ -1,9 +1,10 @@
 use crate::contexts::workspaces::application::{
-    kind_rank, DirectoryCursor, DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState,
-    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile, GitDiffHunk,
-    GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, ReviewDiffFile,
-    ReviewDiffHunk, ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
-    SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
+    detect_encoding, detect_newline, kind_rank, DirectoryCursor, DirectoryEntry,
+    DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
+    GitDiffSource, GitStatusEntry, GitStatusResult, ReviewDiffFile, ReviewDiffHunk,
+    ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot, SessionDocument,
+    SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
     SessionWorkspaceContext, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
     WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
     MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
@@ -676,6 +677,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "missing",
             size: 0,
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     let path = resolve_existing_path(root, relative)?;
@@ -696,6 +699,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "oversized",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     let bytes = fs::read(&path).map_err(|error| AppError::Storage(error.to_string()))?;
@@ -706,6 +711,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "binary",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     match String::from_utf8(bytes) {
@@ -714,6 +721,10 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             name,
             status: "text",
             size: metadata.len(),
+            // Classified from the decoded text by the shared detector, so a file reports the same
+            // encoding and line endings whichever machine it is on.
+            encoding: Some(detect_encoding(&content).token()),
+            newline: Some(detect_newline(&content).token()),
             content: Some(content),
         }),
         Err(_) => Ok(FileContent {
@@ -722,6 +733,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "binary",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         }),
     }
 }

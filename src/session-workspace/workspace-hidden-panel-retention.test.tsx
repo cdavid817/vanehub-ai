@@ -44,6 +44,11 @@ function searchValue(): string | null {
   return input instanceof HTMLInputElement ? input.value : null;
 }
 
+/** The first previewed line, as text, whatever the highlighter wrapped it in. */
+function previewedLine(): string {
+  return screen.getByTestId("preview-line-1").textContent ?? "";
+}
+
 describe("hidden mounted panels", () => {
   beforeAll(async () => {
     await activateAppLanguage("en");
@@ -101,18 +106,21 @@ describe("hidden mounted panels", () => {
 
     await waitFor(() => expect(screen.getByText("main.rs")).toBeTruthy());
     await user.click(screen.getByText("main.rs"));
-    await waitFor(() => expect(screen.getByText("fn main() {}")).toBeTruthy());
+    // Read off the line row rather than matched as one string: the preview highlights, so the
+    // content arrives as token spans. Asserting the row keeps the question the same — is the file
+    // still on screen — without depending on how it is coloured.
+    await waitFor(() => expect(previewedLine()).toContain("fn main() {}"));
     const readsBeforeHiding = mockAgentService.listSessionDirectory.mock.calls.length;
 
     rerenderPanel(<FilesTab isVisible={false} sessionId="session-1" />);
 
-    expect(screen.getByText("fn main() {}")).toBeTruthy();
+    expect(previewedLine()).toContain("fn main() {}");
     expect(mockAgentService.listSessionDirectory.mock.calls.length).toBe(readsBeforeHiding);
 
     rerenderPanel(<FilesTab isVisible sessionId="session-1" />);
 
     // Selection, not just cache: the panel comes back to the file the user was reading.
-    expect(screen.getByText("fn main() {}")).toBeTruthy();
+    expect(previewedLine()).toContain("fn main() {}");
   });
 
   it("keeps the Changes selection and diff source while the working tree stops being read", async () => {

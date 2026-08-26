@@ -17,15 +17,15 @@ use super::protocol::{
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    bounded_page_size, bounded_search_page, DirectoryCursor, DirectoryEntry, DirectoryFingerprint,
-    DirectoryFingerprintState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
-    FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
-    ListDirectoryRequest, PathSearchCursor, ReadTextFileRequest, RemoteWorkspaceTarget,
-    SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
-    MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    bounded_page_size, bounded_search_page, detect_encoding, detect_newline, DirectoryCursor,
+    DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
+    DocumentListing, FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest,
+    GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest, PathSearchCursor,
+    ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext, WorkspaceContentMatch,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathMatch,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
+    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -382,6 +382,16 @@ fn file(value: HelperFile) -> FileContent {
             _ => "binary",
         },
         size: value.size,
+        // Classified on this side from the decoded text, by the same detector the local provider
+        // uses. Asking the helper would be a second implementation of a rule that has to agree.
+        encoding: value
+            .content
+            .as_deref()
+            .map(|text| detect_encoding(text).token()),
+        newline: value
+            .content
+            .as_deref()
+            .map(|text| detect_newline(text).token()),
         content: value.content,
     }
 }

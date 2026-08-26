@@ -359,6 +359,8 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             .expect("calls")
             .push(format!("query:file:{session_id}:{path}"));
         Ok(FileContent {
+            encoding: Some("utf-8"),
+            newline: Some("lf"),
             path: path.to_string(),
             name: "readme.md".to_string(),
             status: "text",

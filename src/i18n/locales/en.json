@@ -4112,5 +4112,19 @@
   "sessionTabs.files.toolbar.reveal": "Reveal in file manager",
   "sessionTabs.files.toolbar.openShell": "Open Shell here",
   "sessionTabs.files.toolbar.needsSelection": "Select a file first.",
-  "sessionTabs.files.toolbar.remoteUnsupported": "This workspace is on another machine."
+  "sessionTabs.files.toolbar.remoteUnsupported": "This workspace is on another machine.",
+  "sessionTabs.files.preview.find": "Find in file",
+  "sessionTabs.files.preview.goToLine": "Line",
+  "sessionTabs.files.preview.nextMatch": "Next match",
+  "sessionTabs.files.preview.previousMatch": "Previous match",
+  "sessionTabs.files.preview.showEvidence": "Show records for this file",
+  "sessionTabs.files.preview.emptyFile": "This file is empty.",
+  "sessionTabs.files.preview.lines_one": "{{count, number}} line",
+  "sessionTabs.files.preview.lines_other": "{{count, number}} lines",
+  "sessionTabs.files.preview.encoding.utf-8": "UTF-8",
+  "sessionTabs.files.preview.encoding.utf-8-bom": "UTF-8 with BOM",
+  "sessionTabs.files.preview.newline.lf": "LF",
+  "sessionTabs.files.preview.newline.crlf": "CRLF",
+  "sessionTabs.files.preview.newline.mixed": "Mixed line endings",
+  "sessionTabs.files.preview.newline.none": "No line ending"
 }

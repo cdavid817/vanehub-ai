@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { cn } from "../lib/utils";
 import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
 import { agentService } from "../services/runtime-agent-client";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
@@ -13,58 +12,24 @@ import { useWorkspaceFileTree } from "./use-workspace-file-tree";
 import { QuickOpenDialog } from "./quick-open-dialog";
 import { ContentSearchPanel } from "./content-search-panel";
 import { FilesToolbar } from "./files-toolbar";
+import { FilePreview } from "./file-preview";
 import { useWorkspaceCapabilities } from "./workspace-capability-notice";
 
 export { flattenFileRows, type TreeRow } from "./use-workspace-file-tree";
 
-/**
- * The preview, with the matched line marked and scrolled to.
- *
- * Rendering line by line rather than as one block is what makes "go to line" mean anything: a
- * result that opened the file at the top would leave a reader searching a second time, by eye, for
- * the thing the search already found.
- */
-function PreviewLines({ content, highlighted }: { content: string; highlighted: number | null }) {
-  const target = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    target.current?.scrollIntoView({ block: "center" });
-  }, [highlighted, content]);
-
-  if (!highlighted) {
-    return (
-      <pre className="whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5">{content}</pre>
-    );
-  }
-  return (
-    <div className="font-mono text-xs leading-5">
-      {content.split("\n").map((line, index) => (
-        <div
-          className={cn(
-            "flex gap-3 whitespace-pre-wrap wrap-break-word",
-            index + 1 === highlighted && "bg-muted text-primary",
-          )}
-          key={index}
-          ref={index + 1 === highlighted ? target : undefined}
-        >
-          <span aria-hidden="true" className="w-10 shrink-0 select-none text-right text-muted-foreground">
-            {index + 1}
-          </span>
-          <span className="min-w-0 flex-1">{line}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function FilesTab({
   isVisible = true,
   onNavigateToShell,
+  onShowEvidence,
   sessionId,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
   /** Absent where nothing owns the tabs, in which case opening a Shell simply creates one. */
   onNavigateToShell?: () => void;
+  /** Absent where nothing owns the evidence scope, in which case the action is not offered. */
+  onShowEvidence?: (path: string) => void;
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
@@ -189,12 +154,7 @@ export function FilesTab({
       </section>
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
         {previewQuery.isLoading && selectedPath ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !preview ? <WorkspaceState kind="empty" message={t("sessionTabs.files.select")} /> : preview.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${preview.status}`)} /> : (
-          <>
-            <h3 className="mb-3 truncate text-sm font-semibold">
-              {previewLine ? `${preview.path}:${previewLine}` : preview.path}
-            </h3>
-            <PreviewLines content={preview.content ?? ""} highlighted={previewLine} />
-          </>
+          <FilePreview file={preview} onShowEvidence={onShowEvidence} targetLine={previewLine} />
         )}
       </section>
     </div>

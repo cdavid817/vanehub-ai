@@ -146,7 +146,24 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async readSessionFile(_sessionId, path): Promise<FileContent> {
     const content = fileFixtures[path];
     if (content === undefined) return { path, name: path.split("/").pop() ?? path, status: "missing", size: 0, content: null };
-    return { path, name: path.split("/").pop() ?? path, status: "text", size: content.length, content };
+    return {
+      path,
+      name: path.split("/").pop() ?? path,
+      status: "text",
+      size: content.length,
+      content,
+      // Classified from the fixture rather than hard-coded, so the browser build reports what its
+      // own content actually is. A constant here would be a metadata line that never changes and
+      // therefore never tells anyone anything.
+      encoding: content.startsWith("\ufeff") ? "utf-8-bom" : "utf-8",
+      newline: content.includes("\r\n")
+        ? content.replace(/\r\n/g, "").includes("\n")
+          ? "mixed"
+          : "crlf"
+        : content.includes("\n")
+          ? "lf"
+          : "none",
+    };
   },
   async listSessionDocuments() {
     return { context: availableContext, items: documentFixtures, truncated: false, nextCursor: null };

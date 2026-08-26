@@ -104,6 +104,8 @@ pub(super) fn file_content_to_dto(file: FileContent) -> dto::FileContent {
         status: file.status,
         size: file.size,
         content: file.content,
+        encoding: file.encoding,
+        newline: file.newline,
     }
 }
 
@@ -324,6 +326,8 @@ mod tests {
             status: "text",
             size: 7,
             content: Some("fixture".to_string()),
+            encoding: Some("utf-8"),
+            newline: Some("none"),
         });
         let diff = git_diff_to_dto(GitDiffResult {
             context,
@@ -348,7 +352,11 @@ mod tests {
                 "name": "README.md",
                 "status": "text",
                 "size": 7,
-                "content": "fixture"
+                "content": "fixture",
+                // Both present because this fixture is text. A binary or oversized file omits them
+                // entirely rather than sending nulls, which is asserted where those are produced.
+                "encoding": "utf-8",
+                "newline": "none"
             })
         );
         assert_eq!(

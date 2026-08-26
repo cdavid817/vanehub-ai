@@ -4112,5 +4112,19 @@
   "sessionTabs.files.toolbar.reveal": "在文件管理器中显示",
   "sessionTabs.files.toolbar.openShell": "在此处打开 Shell",
   "sessionTabs.files.toolbar.needsSelection": "请先选择一个文件。",
-  "sessionTabs.files.toolbar.remoteUnsupported": "此工作区位于另一台机器上。"
+  "sessionTabs.files.toolbar.remoteUnsupported": "此工作区位于另一台机器上。",
+  "sessionTabs.files.preview.find": "在文件中查找",
+  "sessionTabs.files.preview.goToLine": "行号",
+  "sessionTabs.files.preview.nextMatch": "下一个匹配",
+  "sessionTabs.files.preview.previousMatch": "上一个匹配",
+  "sessionTabs.files.preview.showEvidence": "查看此文件的记录",
+  "sessionTabs.files.preview.emptyFile": "此文件为空。",
+  "sessionTabs.files.preview.lines_one": "{{count, number}} 行",
+  "sessionTabs.files.preview.lines_other": "{{count, number}} 行",
+  "sessionTabs.files.preview.encoding.utf-8": "UTF-8",
+  "sessionTabs.files.preview.encoding.utf-8-bom": "UTF-8(含 BOM)",
+  "sessionTabs.files.preview.newline.lf": "LF",
+  "sessionTabs.files.preview.newline.crlf": "CRLF",
+  "sessionTabs.files.preview.newline.mixed": "混合换行符",
+  "sessionTabs.files.preview.newline.none": "无换行符"
 }

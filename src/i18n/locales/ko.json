@@ -4112,5 +4112,19 @@
   "sessionTabs.files.toolbar.reveal": "파일 관리자에서 표시",
   "sessionTabs.files.toolbar.openShell": "여기에서 Shell 열기",
   "sessionTabs.files.toolbar.needsSelection": "먼저 파일을 선택하세요.",
-  "sessionTabs.files.toolbar.remoteUnsupported": "이 작업 공간은 다른 컴퓨터에 있습니다."
+  "sessionTabs.files.toolbar.remoteUnsupported": "이 작업 공간은 다른 컴퓨터에 있습니다.",
+  "sessionTabs.files.preview.find": "파일에서 찾기",
+  "sessionTabs.files.preview.goToLine": "줄",
+  "sessionTabs.files.preview.nextMatch": "다음 일치",
+  "sessionTabs.files.preview.previousMatch": "이전 일치",
+  "sessionTabs.files.preview.showEvidence": "이 파일의 기록 보기",
+  "sessionTabs.files.preview.emptyFile": "이 파일은 비어 있습니다.",
+  "sessionTabs.files.preview.lines_one": "{{count, number}}줄",
+  "sessionTabs.files.preview.lines_other": "{{count, number}}줄",
+  "sessionTabs.files.preview.encoding.utf-8": "UTF-8",
+  "sessionTabs.files.preview.encoding.utf-8-bom": "UTF-8(BOM 포함)",
+  "sessionTabs.files.preview.newline.lf": "LF",
+  "sessionTabs.files.preview.newline.crlf": "CRLF",
+  "sessionTabs.files.preview.newline.mixed": "혼합된 줄바꿈",
+  "sessionTabs.files.preview.newline.none": "줄바꿈 없음"
 }

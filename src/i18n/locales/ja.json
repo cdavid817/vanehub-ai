@@ -4112,5 +4112,19 @@
   "sessionTabs.files.toolbar.reveal": "ファイルマネージャーで表示",
   "sessionTabs.files.toolbar.openShell": "ここで Shell を開く",
   "sessionTabs.files.toolbar.needsSelection": "先にファイルを選択してください。",
-  "sessionTabs.files.toolbar.remoteUnsupported": "このワークスペースは別のマシン上にあります。"
+  "sessionTabs.files.toolbar.remoteUnsupported": "このワークスペースは別のマシン上にあります。",
+  "sessionTabs.files.preview.find": "ファイル内を検索",
+  "sessionTabs.files.preview.goToLine": "行",
+  "sessionTabs.files.preview.nextMatch": "次の一致",
+  "sessionTabs.files.preview.previousMatch": "前の一致",
+  "sessionTabs.files.preview.showEvidence": "このファイルの記録を表示",
+  "sessionTabs.files.preview.emptyFile": "このファイルは空です。",
+  "sessionTabs.files.preview.lines_one": "{{count, number}} 行",
+  "sessionTabs.files.preview.lines_other": "{{count, number}} 行",
+  "sessionTabs.files.preview.encoding.utf-8": "UTF-8",
+  "sessionTabs.files.preview.encoding.utf-8-bom": "UTF-8(BOM 付き)",
+  "sessionTabs.files.preview.newline.lf": "LF",
+  "sessionTabs.files.preview.newline.crlf": "CRLF",
+  "sessionTabs.files.preview.newline.mixed": "混在した改行コード",
+  "sessionTabs.files.preview.newline.none": "改行なし"
 }

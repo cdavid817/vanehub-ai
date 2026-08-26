@@ -53,12 +53,27 @@ export interface FileSearchListing {
 
 export type FileContentStatus = "text" | "binary" | "oversized" | "missing";
 
+/** How a text file was encoded. Two variants, because this application does not transcode. */
+export type FileEncoding = "utf-8" | "utf-8-bom";
+
+/** Which line endings a file uses. `mixed` is the one worth surfacing. */
+export type FileNewlineStyle = "lf" | "crlf" | "mixed" | "none";
+
 export interface FileContent {
   path: string;
   name: string;
   status: FileContentStatus;
   size: number;
   content: string | null;
+  /**
+   * Absent for anything that is not text.
+   *
+   * Absent rather than defaulted: a binary file has no encoding this application established, and
+   * naming one would describe a decode that never happened.
+   */
+  encoding?: FileEncoding;
+  /** Absent for anything that is not text. */
+  newline?: FileNewlineStyle;
 }
 
 export type GitChangeKind =

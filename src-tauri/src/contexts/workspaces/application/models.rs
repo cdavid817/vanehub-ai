@@ -107,6 +107,13 @@ pub(crate) struct FileContent {
     pub(crate) status: &'static str,
     pub(crate) size: u64,
     pub(crate) content: Option<String>,
+    /// `utf-8` or `utf-8-bom`, and absent for anything that is not text.
+    ///
+    /// Absent rather than defaulted: a binary file has no encoding this application established,
+    /// and reporting one would be describing a decode that never happened.
+    pub(crate) encoding: Option<&'static str>,
+    /// `lf`, `crlf`, `mixed`, or `none`. Absent for anything that is not text.
+    pub(crate) newline: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

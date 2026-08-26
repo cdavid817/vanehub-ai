@@ -148,8 +148,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 而不是在服务层再加两个方法,那会让"打开工作区"和"打开工作区的某个子目录"变成两件事,
 // 调用方迟早会挑错那一个。
 // 上限按实测值 21794 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.7):+17 全部在 Web adapter 的 `readSessionFile`——从夹具
+// 自身推导编码与换行,而不是写死两个常量。
+// 值得说明的是为什么不能写死:这两个字段的全部意义就是"内容里看不见、但会改变读者行为"——BOM 会
+// 让 shell 脚本和 JSON 解析器失败,混合换行会把一次普通编辑变成整文件 diff。一个永远返回
+// `utf-8` / `lf` 的元数据行,是一行永远不变、因而永远不告诉任何人任何事的 UI。
+// 上限按实测值 21811 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21794, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21811, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

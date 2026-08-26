@@ -4112,5 +4112,19 @@
   "sessionTabs.files.toolbar.reveal": "在檔案總管中顯示",
   "sessionTabs.files.toolbar.openShell": "在此處開啟 Shell",
   "sessionTabs.files.toolbar.needsSelection": "請先選擇一個檔案。",
-  "sessionTabs.files.toolbar.remoteUnsupported": "此工作區位於另一台機器上。"
+  "sessionTabs.files.toolbar.remoteUnsupported": "此工作區位於另一台機器上。",
+  "sessionTabs.files.preview.find": "在檔案中尋找",
+  "sessionTabs.files.preview.goToLine": "行號",
+  "sessionTabs.files.preview.nextMatch": "下一個符合",
+  "sessionTabs.files.preview.previousMatch": "上一個符合",
+  "sessionTabs.files.preview.showEvidence": "檢視此檔案的記錄",
+  "sessionTabs.files.preview.emptyFile": "此檔案為空。",
+  "sessionTabs.files.preview.lines_one": "{{count, number}} 行",
+  "sessionTabs.files.preview.lines_other": "{{count, number}} 行",
+  "sessionTabs.files.preview.encoding.utf-8": "UTF-8",
+  "sessionTabs.files.preview.encoding.utf-8-bom": "UTF-8(含 BOM)",
+  "sessionTabs.files.preview.newline.lf": "LF",
+  "sessionTabs.files.preview.newline.crlf": "CRLF",
+  "sessionTabs.files.preview.newline.mixed": "混合換行符號",
+  "sessionTabs.files.preview.newline.none": "無換行符號"
 }

@@ -98,6 +98,14 @@ pub(crate) struct FileContent {
     pub(crate) status: &'static str,
     pub(crate) size: u64,
     pub(crate) content: Option<String>,
+    /// `utf-8` or `utf-8-bom`. Omitted for anything that is not text, because a binary file has
+    /// no encoding this application established and naming one would describe a decode that never
+    /// happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) encoding: Option<&'static str>,
+    /// `lf`, `crlf`, `mixed`, or `none`. Omitted for anything that is not text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) newline: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

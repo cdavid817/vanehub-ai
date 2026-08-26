@@ -14,6 +14,7 @@ mod service;
 mod session_shell;
 mod session_shell_registry;
 mod session_shell_store;
+mod text_metadata;
 
 /// Published to tests only.
 ///
@@ -79,6 +80,7 @@ pub(crate) use session_shell::{
 };
 pub(crate) use session_shell_registry::SessionShellRegistry;
 pub(crate) use session_shell_store::ShellStore;
+pub(crate) use text_metadata::{detect_encoding, detect_newline};
 
 #[cfg(test)]
 mod invalidation_tests;
