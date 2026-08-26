@@ -106,7 +106,7 @@
 - [x] 9.4 Implement Tauri adapter mappings; React components must not invoke Tauri directly.
 - [x] 9.5 Implement Web/mock behavior with deterministic policies, revisions, candidates, cursor pages, conflicts, reset tokens, session modes, and safe maintenance results.
 - [ ] 9.6 Remove or deprecate `listAllMemories`, unscoped delete/reset methods, and legacy personalization settings mutations after all callers migrate.
-- [ ] 9.7 Add frontend contract tests proving Tauri serialization names and Web/mock return shapes remain equivalent.
+- [x] 9.7 Add frontend contract tests proving Tauri serialization names and Web/mock return shapes remain equivalent.
 
 ## 10. AI Personalization Settings UI
 

@@ -53,8 +53,10 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 缺失的 workspace。一个一律放行的 mock 会让页面的冲突分支一次也跑不到,而那正是真实桌面上
 // 最先触发的一条。类型定义不在这笔里——它们住在 `src/types/`,不属于本预算。
 // 任务 9.6 下线 `listAllMemories` 与无 scope 的 delete/reset 后,这条上限应当回落。
+// 20475 -> 20478: `agent-memory-service.ts` 上的废弃声明。那三个方法要到 10-11 组
+// 重建设置页后才能删,在那之前得有一句话拦住新的调用方。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20475, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 20478, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([
