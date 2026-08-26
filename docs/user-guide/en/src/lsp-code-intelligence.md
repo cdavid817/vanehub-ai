@@ -6,10 +6,12 @@ Language Server Protocol (LSP) integration lets the native API Agent ask a local
 
 ## Supported servers and tools
 
-| Language | Server | Project-root markers |
-| --- | --- | --- |
-| Rust | `rust-analyzer` | nearest `Cargo.toml` |
-| TypeScript and JavaScript | `typescript-language-server --stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| Language | Server | Default startup arguments | Project-root markers |
+| --- | --- | --- | --- |
+| Rust | `rust-analyzer` | none | nearest `Cargo.toml` |
+| TypeScript and JavaScript | `typescript-language-server` | `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+
+Which languages exist is decided by the desktop build, not by the settings page. The page renders one card per language the running build registers, so a language your build does not know about cannot be configured, and a language your build knows but cannot run on this operating system is shown as unsupported rather than as merely undetected.
 
 The Agent can use four read-only tools:
 
@@ -45,7 +47,7 @@ npm install -g typescript-language-server typescript
 typescript-language-server --version
 ```
 
-VaneHub AI supplies the required `--stdio` argument. See the upstream [TypeScript Language Server project](https://github.com/typescript-language-server/typescript-language-server#installing) for its current prerequisites.
+VaneHub AI supplies `--stdio` as this server's default startup argument; you can replace it under **Startup arguments** if your installation needs something else. See the upstream [TypeScript Language Server project](https://github.com/typescript-language-server/typescript-language-server#installing) for its current prerequisites.
 
 ## Enable LSP for a workspace
 
@@ -54,13 +56,14 @@ Use the desktop application for these steps:
 1. Open **Settings > Agent Configurations** and find **Language server intelligence**.
 2. Turn on **Enable LSP integration**, then enable Rust and/or TypeScript/JavaScript.
 3. Select **Refresh discovery**. If the desktop process cannot see the executable, enter its absolute path in **Executable override**.
-4. Keep initialization options as `{}` unless you need server-specific settings. The value must be a bounded JSON object.
-5. Save the configuration.
-6. Under **Test language server**, run the isolated test. Review the discovery, process start, initialization, and cleanup phases.
-7. Read the trust disclosure, enter the absolute local workspace path under **Trusted workspaces**, and select **Trust workspace**.
-8. Open a native API Agent session for that local workspace. The four LSP tools become eligible without requiring a code index.
+4. Leave **Startup arguments** blank to use the defaults in the table above. To pass your own, enter one argument per line — the list you enter replaces the defaults rather than adding to them, so a server that needs `--stdio` must still list it. An entered-but-empty list means "start this server with no arguments at all", which is not the same as leaving the field blank.
+5. Keep initialization options as `{}` unless you need server-specific settings. The value must be a bounded JSON object.
+6. Save the configuration.
+7. Under **Test language server**, run the isolated test. Review the discovery, process start, initialization, and cleanup phases.
+8. Read the trust disclosure, enter the absolute local workspace path under **Trusted workspaces**, and select **Trust workspace**.
+9. Open a native API Agent session for that local workspace. The four LSP tools become eligible without requiring a code index.
 
-Testing a server uses an isolated minimal project; it does not grant workspace trust. Enabling a Tree-sitter code index also does not grant LSP trust.
+Changing startup arguments changes the command line a server runs under, so any server already running for that configuration is drained and restarted before the next request. Testing a server uses an isolated minimal project; it does not grant workspace trust. Enabling a Tree-sitter code index also does not grant LSP trust.
 
 ## Understand workspace trust
 
@@ -119,6 +122,10 @@ Use the failed phase to narrow the cause:
 - **Process start:** dependencies, permissions, or the executable itself prevented launch.
 - **Initialization:** the server rejected the minimal project, returned malformed capabilities, or timed out.
 - **Cleanup:** graceful shutdown failed and forced cleanup could not finish.
+
+### A language is shown as unsupported on this operating system
+
+That is different from an undiscovered executable. The running build registers the language but declares that its server does not run on this platform, so there is no executable to install and the enablement switch and isolated test are unavailable. An undiscovered executable, by contrast, reports **Unavailable** with a reason and can be fixed by installing the server or setting an override.
 
 ### The Agent does not receive LSP tools
 

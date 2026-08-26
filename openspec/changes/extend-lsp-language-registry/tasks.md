@@ -104,8 +104,11 @@
 
 ## 8. Documentation
 
-- [ ] 8.1 Update `docs/{user,developer}-guide/{en,zh-CN}/src/lsp-code-intelligence.md` to describe the registry, configurable startup arguments, and the unsupported-on-host state
-- [ ] 8.2 Run `npm run docs:check` and fix every CommonMark issue, keeping sentence-final punctuation outside the bold delimiters in Chinese text
+- [x] 8.1 Update `docs/{user,developer}-guide/{en,zh-CN}/src/lsp-code-intelligence.md` to describe the registry, configurable startup arguments, and the unsupported-on-host state
+  - User guides gained the default-startup-arguments column, the replace-not-append semantics with the blank-versus-empty distinction, and a troubleshooting entry separating "unsupported on this operating system" from "executable not discovered".
+  - Developer guides gained a registry section stating that no `LanguageFamily`/`ServerKind` enum exists, that a language is one `Copy` reference carrying both ids, that the frontend holds no copy of the set, and why the unregistered-row and nullable-startup-arguments decisions are what they are. The extension-limits section no longer claims Python/Go/Java/C++ are excluded by the foundation — the registry removed that cost — and instead says what each still needs, including the launch shape `jdtls` requires and this model does not yet express.
+- [x] 8.2 Run `npm run docs:check` and fix every CommonMark issue, keeping sentence-final punctuation outside the bold delimiters in Chinese text
+  - Passed. Two of my lines had `。**` followed by a space, which CommonMark does close correctly, but the house rule is `**结论**。` — normalized both rather than relying on the flanking subtlety.
 
 ## 9. Verification
 
