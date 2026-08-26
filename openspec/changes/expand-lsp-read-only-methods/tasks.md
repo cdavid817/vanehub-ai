@@ -119,26 +119,40 @@
 
 ## 9. Verification
 
-- [ ] 9.1 `npm run lint:ci`
-- [ ] 9.2 `npm run test`
-- [ ] 9.3 `npm run build`
-- [ ] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 9.5 `cargo check --workspace`
-- [ ] 9.6 `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] 9.7 `npm run native:panic:check`
-- [ ] 9.8 `cargo test --workspace`
-- [ ] 9.9 `npm run architecture:check`, `npm run contracts:check`, `npm run coverage:policy:test`, `npm run version:unit:test`
-- [ ] 9.10 `npx playwright test`
-- [ ] 9.11 `npm run desktop:unit:test`, then `npm run test:desktop` — which builds first. Never run a single layer script against a stale binary: it reports the pre-fix failure and reads like the fix did not work
-- [ ] 9.12 `openspec validate expand-lsp-read-only-methods --strict` and `openspec validate --specs --strict`
-- [ ] 9.13 Simulate the archive merge with `buildUpdatedSpec`
+- [x] 9.1 `npm run lint:ci`
+- [x] 9.2 `npm run test` — 318 files, **1,666 tests**, all passing
+- [x] 9.3 `npm run build` — 16 lazy chunks, 142.8 KiB gzip static closure
+- [x] 9.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 9.5 `cargo check --workspace`
+- [x] 9.6 `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] 9.7 `npm run native:panic:check`
+  - Caught a real violation: `call_hierarchy_schema` reached back into `document_schema`'s output with `expect()`. Rewritten so the extra properties are passed in and appended where the map is still local — no fallible lookup, and no silent-skip branch either.
+- [x] 9.8 `cargo test --workspace` — **4,581 passed, 0 failed**, including `initialize_timeout_forces_bounded_process_tree_cleanup_without_cancellation`, which had failed on two earlier runs of this change
+  - Two other full runs during this group failed on load-sensitive tests only: five in a run that overlapped a `vitest` invocation (`relay_stdio` timing, the playwright sidecar, and the initialize timeout — the exact contention the `flaky-mcp-relay-tests` note describes), and one on `native_lsp_runtime_covers_...`, which passed alone in 67s and passed again on the clean full run. No isolated re-run was treated as proof on its own.
+- [x] 9.9 `npm run architecture:check`, `npm run contracts:check`, `npm run coverage:policy:test`, `npm run version:unit:test`
+  - Three budgets moved, each with its reason in the same commit: the two `agent_runtime/infrastructure` subtree ceilings (+375 aggregate, +285 production) and `src/services` (+35). One did **not** have to move: `native_tools.rs` stayed under its per-path budget because `execute_code_intelligence_tool` moved into its own module. `web-lsp-client.ts` hit the 300-line ESLint rule and was split the same way.
+- [x] 9.10 `npx playwright test` — **184 passed**. Ran with `all_proxy`/`ALL_PROXY` unset and `PLAYWRIGHT_PORT` pinned
+- [x] 9.11 `npm run desktop:unit:test`, then `npm run test:desktop` — which builds first. Never run a single layer script against a stale binary: it reports the pre-fix failure and reads like the fix did not work
+  - `desktop:unit:test`: **56 passed**.
+  - `test:desktop`: **all seven layers PASSED on Windows** — `desktop-smoke` (25 specs, 0 failed), `desktop-cli-terminal`, `desktop-cli-management`, `desktop-session-workspace`, `desktop-dialogs`, `desktop-settings-persistence`, `desktop-agent-mcp`. The layer list has grown to seven since AGENTS.md described six; `desktop-agent-mcp` is the addition.
+  - `domain-lsp.e2e.mjs` is in the smoke layer's required-fixture gate, so the layer passing is that spec passing. It is the surface that caught the required-field defect in `add-lsp-go-python-cpp`, which is why this change's DTO additions were kept output-only or defaulted.
+  - **Windows only.** macOS and Linux are NOT RUN here; CI's `Desktop Smoke` runs them on native runners and is the only evidence for those platforms. A local Windows pass says nothing about either.
+- [x] 9.12 `openspec validate expand-lsp-read-only-methods --strict` and `openspec validate --specs --strict` — valid; 138/138 specs
+- [x] 9.13 Simulate the archive merge with `buildUpdatedSpec`
+  - `agent-tool-execution ~1`, `lsp-code-intelligence +4 ~2`, `lsp-server-management ~1`, `settings-center-ui ~1`. All four merge cleanly.
 
 ## 10. Acceptance
 
-- [ ] 10.1 Confirm the task 2.10 checkpoint held: the refactor alone changed no test outcome
-- [ ] 10.2 Confirm the frontend changed once, for the capability list, and not again for any of the five methods
-- [ ] 10.3 Confirm no database migration was added and the highest migration number is unchanged
+- [x] 10.1 Confirm the task 2.10 checkpoint held: the refactor alone changed no test outcome
+  - Held. Group 2 left the frontend at 746 and `code_intelligence` at 192, where the +2 were that group's own new domain tests. Group 3's factoring then landed at the same 192.
+- [x] 10.2 Confirm the frontend changed once, for the capability list, and not again for any of the five methods
+  - **Held, with one qualification.** Across the whole change the frontend components changed exactly once, in group 2: `lsp-runtime-status-card.tsx` (-5 net) and its test. No component, hook, or page was touched again for any of the five methods.
+  - What did change afterwards is not component code: the Web/mock runtime needed five `unavailable` envelopes and five capability entries, `types/lsp.ts` gained the symbol and relation result shapes, and five locale bundles gained a capability label each. The mock is a deliberate mirror of a backend registry and the locale bundles are copy; neither is the coupling the checkpoint was written to catch.
+- [x] 10.3 Confirm no database migration was added and the highest migration number is unchanged
+  - `git diff ae579ff9..HEAD -- src-tauri/src/platform/database/` is **empty**. The highest migration is still 86, from `extend-lsp-language-registry`. Five protocol methods, a new source kind, and nine tools needed no schema at all.
 - [x] 10.4 Compare the task 1.3 measurement against the new tool-definition size and state the increase rather than leaving it unmeasured
   - 1,782 -> 4,546 bytes (+2,764, 2.55x). Both measured from the same build, so the comparison is exact rather than a before-and-after across two trees.
   - Worth stating plainly: this is the largest single cost of the change and it falls on every eligible session, used or not. It is bounded by eligibility — a session without a trusted local workspace and a discoverable server is offered none of them — but it is not free, and the assertion above is what keeps it from drifting further without anyone noticing.
-- [ ] 10.5 Confirm the read-only invariant is intact: no mutating request is sent anywhere, and `workspace/applyEdit` is still rejected
+- [x] 10.5 Confirm the read-only invariant is intact: no mutating request is sent anywhere, and `workspace/applyEdit` is still rejected
+  - Every request this change added is a query: `textDocument/typeDefinition`, `textDocument/implementation`, `workspace/symbol`, `textDocument/documentSymbol`, `textDocument/prepareCallHierarchy`, and the two `callHierarchy/*` directions. The only notifications the context sends remain the document-lease trio, which describe the client's own view of a file and change nothing on disk.
+  - `workspace/applyEdit` still answers `{"applied": false, "failureReason": "read_only_client"}` in `lsp_server_requests.rs`, and `build_initialize_params` still declares no `workspaceEdit` capability — two tests assert each.
