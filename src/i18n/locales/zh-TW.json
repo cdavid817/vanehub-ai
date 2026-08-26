@@ -4086,5 +4086,14 @@
   "executionRecords.legacy.source": "歷史活動由已載入的聊天訊息推斷而來，並非記錄下來的證據。",
   "executionRecords.legacy.windowPartial": "僅包含已載入的訊息範圍。",
   "executionRecords.legacy.rowSource": "來自訊息歷史",
-  "executionRecords.legacy.listLabel": "歷史活動"
+  "executionRecords.legacy.listLabel": "歷史活動",
+  "sessionTabs.files.quickOpen.open": "快速開啟",
+  "sessionTabs.files.quickOpen.title": "快速開啟",
+  "sessionTabs.files.quickOpen.placeholder": "輸入路徑的一部分",
+  "sessionTabs.files.quickOpen.results": "符合的路徑",
+  "sessionTabs.files.quickOpen.empty": "沒有符合的路徑。",
+  "sessionTabs.files.quickOpen.failed": "無法搜尋此工作區。",
+  "sessionTabs.files.quickOpen.more": "載入更多",
+  "sessionTabs.files.quickOpen.coverage.partial": "此工作區有一部分未被搜尋。",
+  "sessionTabs.files.quickOpen.coverage.unavailable": "無法搜尋此工作區。"
 }

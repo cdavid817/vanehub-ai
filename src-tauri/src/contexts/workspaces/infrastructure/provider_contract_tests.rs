@@ -24,7 +24,8 @@ use crate::contexts::workspaces::application::{
     GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
     RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage, SessionLogQuery,
     WorkspaceApplicationError as AppError, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -57,6 +58,14 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, AppError> {
+        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
     }
 
     fn directory_fingerprints(
@@ -437,6 +446,107 @@ fn the_providers_declare_their_own_freshness_guarantee() {
     // refresh for something that already arrives on its own.
     assert_eq!(local_capabilities.watch_mode.token(), "polling");
     assert_eq!(remote_capabilities.watch_mode.token(), "polling");
+}
+
+const REMOTE_PATH_CANDIDATES: &str = r##"{"version":1,"ok":true,"result":{"paths":{"entries":[
+    {"name":"src","path":"src","kind":"directory","size":null},
+    {"name":"main.rs","path":"src/main.rs","kind":"file","size":12},
+    {"name":"readme.md","path":"readme.md","kind":"file","size":7}
+  ],"truncated":false}}}"##;
+
+/// Both providers rank the same way and label the same kinds.
+#[test]
+fn a_path_search_ranks_and_labels_identically_on_both_sides() {
+    for subject in [local_subject(), remote_subject(REMOTE_PATH_CANDIDATES)] {
+        let result = block(subject.provider.search_paths(
+            &subject.target,
+            WorkspacePathSearchRequest {
+                query: "main".to_string(),
+                cursor: None,
+                limit: None,
+            },
+        ))
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+
+        assert_eq!(
+            result
+                .matches
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/main.rs"],
+            "{}",
+            subject.name
+        );
+        // The kind travels with the match because a reader acts on it: a file opens a preview and
+        // a directory reveals a folder. A list that made them look alike would offer one action
+        // for two different things.
+        assert_eq!(result.matches[0].kind, "file", "{}", subject.name);
+        assert_eq!(
+            result.coverage.state.token(),
+            "complete",
+            "{}",
+            subject.name
+        );
+        // Nothing more to fetch, so no cursor. One on the last page invites a request that returns
+        // nothing, and a reader waiting on it cannot tell that from a slow search.
+        assert!(result.next_cursor.is_none(), "{}", subject.name);
+    }
+}
+
+/// A directory is offered by both, which is what makes this a different operation from the
+/// mention-candidate search that skips them.
+#[test]
+fn a_path_search_offers_directories_on_both_sides() {
+    for subject in [local_subject(), remote_subject(REMOTE_PATH_CANDIDATES)] {
+        let result = block(subject.provider.search_paths(
+            &subject.target,
+            WorkspacePathSearchRequest {
+                query: "src".to_string(),
+                cursor: None,
+                limit: None,
+            },
+        ))
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+
+        let directory = result
+            .matches
+            .iter()
+            .find(|entry| entry.path == "src")
+            .unwrap_or_else(|| panic!("{}: src missing", subject.name));
+        assert_eq!(directory.kind, "directory", "{}", subject.name);
+    }
+}
+
+/// A cursor issued for one query is refused by another, on both sides.
+#[test]
+fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
+    for subject in [local_subject(), remote_subject(REMOTE_PATH_CANDIDATES)] {
+        let first = block(subject.provider.search_paths(
+            &subject.target,
+            WorkspacePathSearchRequest {
+                query: "".to_string(),
+                cursor: None,
+                limit: Some(1),
+            },
+        ))
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+        let Some(cursor) = first.next_cursor else {
+            panic!("{}: expected more than one page", subject.name);
+        };
+
+        let refusal = block(subject.provider.search_paths(
+            &subject.target,
+            WorkspacePathSearchRequest {
+                // The same file ranks differently under a different query, so this cursor names a
+                // position the new ordering never produced.
+                query: "main".to_string(),
+                cursor: Some(cursor),
+                limit: Some(1),
+            },
+        ));
+        assert!(refusal.is_err(), "{}", subject.name);
+    }
 }
 
 const REMOTE_FINGERPRINTS: &str = r##"{"version":1,"ok":true,"result":{"fingerprints":[

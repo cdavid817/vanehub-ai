@@ -10,7 +10,16 @@ import type {
 import type {
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
+  WorkspacePathSearchResult,
 } from "../types/session-workspace-inspection";
+
+export interface WorkspacePathSearchInput {
+  sessionId: string;
+  query: string;
+  /** From a previous page. A cursor issued for another query is refused rather than applied. */
+  cursor?: string;
+  limit?: number;
+}
 
 /**
  * Reading a session's workspace, wherever it is.
@@ -44,6 +53,14 @@ export interface SessionWorkspaceInspectionService {
     handler: (notice: WorkspaceInvalidationNotice) => void,
   ): Promise<() => void>;
 
+  /**
+   * Quick Open: relative paths matching what was typed, ranked and paged.
+   *
+   * Distinct from `searchSessionFiles`, which ranks prompt-mention candidates and therefore
+   * filters to source extensions and skips directories. Widening that one would have changed what
+   * an `@` offers, which is a different feature.
+   */
+  searchWorkspacePaths(input: WorkspacePathSearchInput): Promise<WorkspacePathSearchResult>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

@@ -15,6 +15,7 @@ use crate::contexts::workspaces::application::{
     FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
     ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
     WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceInspectionRouter,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
     WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use crate::platform::database::NativeDatabase;
@@ -207,6 +208,22 @@ impl WorkspaceInspectionProvider for RecordingProvider {
             git_status: CapabilityState::available(),
             git_diff: CapabilityState::available(),
             watch_mode: WatchMode::EventDerived,
+        })
+    }
+
+    async fn search_paths(
+        &self,
+        _target: &WorkspaceTarget,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("search_paths:{}", request.query));
+        Ok(WorkspacePathSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
+            next_cursor: None,
         })
     }
 

@@ -1,4 +1,6 @@
-use super::inspection::DirectoryFingerprint;
+use super::inspection::{
+    DirectoryFingerprint, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+};
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
@@ -135,6 +137,16 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         session_id: &str,
         paths: &[String],
     ) -> Result<Vec<DirectoryFingerprint>, WorkspaceApplicationError>;
+
+    /// Quick Open, over the confined walk.
+    ///
+    /// Separate from `search_files`, which ranks prompt-mention candidates and therefore filters
+    /// to source extensions and skips directories.
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
     fn list_documents(
         &self,

@@ -87,6 +87,13 @@ pub(crate) enum HelperOperation {
     ReadTextFile {
         path: String,
     },
+    /// Quick Open. Ranking happens here rather than on the remote host so both providers order the
+    /// same way: a rule implemented twice is one that disagrees first about the ties nobody tests.
+    /// The helper returns candidate paths; this side scores and pages them.
+    SearchPaths {
+        query: String,
+        limit: usize,
+    },
     Search {
         query: String,
         max_results: usize,
@@ -120,6 +127,8 @@ pub(crate) struct HelperResult {
     pub(crate) listing: Option<HelperListing>,
     #[serde(default)]
     pub(crate) fingerprints: Option<Vec<HelperFingerprint>>,
+    #[serde(default)]
+    pub(crate) paths: Option<HelperPathCandidates>,
     #[serde(default)]
     pub(crate) file: Option<HelperFile>,
     #[serde(default)]
@@ -171,6 +180,17 @@ pub(crate) struct HelperFingerprint {
     /// look different, and this process only ever compares two of them for equality.
     #[serde(default)]
     pub(crate) value: Option<String>,
+}
+
+/// What a remote walk found, before this side ranks it.
+///
+/// `truncated` is the honest half: a walk that stopped at its bound has left part of the workspace
+/// unexamined, and a result list that did not say so is how somebody concludes a file is not there.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperPathCandidates {
+    pub(crate) entries: Vec<HelperEntry>,
+    pub(crate) truncated: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

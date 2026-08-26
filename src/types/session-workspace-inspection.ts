@@ -26,6 +26,33 @@ export interface WorkspaceInspectionCapabilities {
   watchMode: WorkspaceWatchMode;
 }
 
+/** One thing Quick Open found. `kind` is carried because a reader acts on the two differently. */
+export interface WorkspacePathMatch {
+  name: string;
+  /** Workspace-relative, with forward slashes. */
+  path: string;
+  kind: "file" | "directory";
+}
+
+/**
+ * How much of the workspace a search examined.
+ *
+ * Separate from the cursor, and the distinction is the point: a cursor says more matches follow,
+ * coverage says part of the workspace was never looked at. Paging fixes the first and can never fix
+ * the second, so a reader who reached the end of the list still needs to know which end it was.
+ */
+export interface WorkspaceSearchCoverage {
+  state: "complete" | "partial" | "unavailable";
+  reasonCode?: string;
+}
+
+export interface WorkspacePathSearchResult {
+  coverage: WorkspaceSearchCoverage;
+  matches: WorkspacePathMatch[];
+  /** Absent on the last page, never an empty string. */
+  nextCursor?: string;
+}
+
 /**
  * Which mechanism noticed a workspace change.
  *

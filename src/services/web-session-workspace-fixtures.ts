@@ -8,6 +8,7 @@ import type {
   SessionLogLevel,
   WorkspaceInspectionCapabilities,
 } from "../types/session-workspace";
+import type { WorkspacePathMatch } from "../types/session-workspace-inspection";
 
 export const availableContext = { availability: "available" as const, rootName: "vanehub-demo", reason: null };
 
@@ -24,6 +25,18 @@ export const directoryFixtures: Record<string, DirectoryEntry[]> = {
   ],
   src: [{ name: "main.ts", path: "src/main.ts", kind: "file", size: 128 }],
 };
+
+/**
+ * Everything the tree fixture contains, flattened, for Quick Open.
+ *
+ * Derived from `directoryFixtures` rather than written out again: a second list is one that
+ * eventually offers a path the tree does not have, and a result that opens nothing is worse than
+ * no result.
+ */
+export const pathSearchFixture: WorkspacePathMatch[] = Object.values(directoryFixtures)
+  .flat()
+  .map((entry) => ({ name: entry.name, path: entry.path, kind: entry.kind }))
+  .sort((left, right) => left.path.localeCompare(right.path));
 
 // Line N reads `export const valueN`, so a preview that mislabels a line is visible at a
 // glance — and long enough that selecting across it requires the line list to scroll.

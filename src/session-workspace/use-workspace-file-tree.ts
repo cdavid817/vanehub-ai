@@ -117,6 +117,25 @@ export function useWorkspaceFileTree(sessionId: string | null, isVisible: boolea
     [expanded, failedPaths],
   );
 
+  /**
+   * Opens every directory along a path.
+   *
+   * Quick Open lands a reader somewhere they have not expanded to, and revealing only the leaf's
+   * parent would leave a row with no visible ancestors — present in the tree and unreachable by
+   * scrolling to it.
+   */
+  const revealDirectory = useCallback((path: string) => {
+    if (!path) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      const segments = path.split("/");
+      for (let index = 0; index < segments.length; index += 1) {
+        next.add(segments.slice(0, index + 1).join("/"));
+      }
+      return next;
+    });
+  }, []);
+
   const rootListing = listings[0];
   // The first failure, not a collected list. A reader acts on one message, and a tree with three
   // unreachable folders has one cause far more often than three.
@@ -126,6 +145,7 @@ export function useWorkspaceFileTree(sessionId: string | null, isVisible: boolea
     entriesByPath,
     expanded,
     isOpen,
+    revealDirectory,
     rows,
     toggleDirectory,
     error: failure ? workspaceErrorKey(failure.error) : (null as WorkspaceErrorKey | null),

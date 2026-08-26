@@ -14,7 +14,8 @@
 use super::inspection::{
     DirectoryFingerprint, GitDiffRequest, ListDirectoryRequest, ReadTextFileRequest,
     WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceTarget,
+    WorkspaceTargetResolver,
 };
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
@@ -145,6 +146,15 @@ impl WorkspaceInspectionRouter {
     ) -> Result<FileSearchListing, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?.search(&target, request).await
+    }
+
+    pub(crate) async fn search_paths(
+        &self,
+        session_id: &str,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        let target = self.target(session_id)?;
+        self.provider(&target)?.search_paths(&target, request).await
     }
 
     pub(crate) async fn git_status(

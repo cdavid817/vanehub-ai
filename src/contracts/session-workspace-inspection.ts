@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
+  WorkspacePathSearchResult,
 } from "../types/session-workspace-inspection";
 
 export const capabilityStateSchema = z.object({
@@ -31,6 +32,25 @@ export function parseWorkspaceInspectionCapabilities(value: unknown): WorkspaceI
  * nobody recognises would otherwise fall through to "refresh nothing", which on screen is
  * indistinguishable from a workspace where nothing happened.
  */
+export const workspacePathSearchResultSchema = z.object({
+  coverage: z.object({
+    state: z.enum(["complete", "partial", "unavailable"]),
+    reasonCode: z.string().optional(),
+  }),
+  matches: z.array(
+    z.object({
+      name: z.string(),
+      path: z.string(),
+      kind: z.enum(["file", "directory"]),
+    }),
+  ),
+  nextCursor: z.string().optional(),
+});
+
+export function parseWorkspacePathSearchResult(value: unknown): WorkspacePathSearchResult {
+  return workspacePathSearchResultSchema.parse(value);
+}
+
 export const workspaceInvalidationNoticeSchema = z.object({
   sessionId: z.string().min(1),
   source: z.enum(["watch", "poll", "execution-evidence"]),

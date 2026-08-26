@@ -224,6 +224,22 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         Ok(Some("D:/workspace".to_string()))
     }
 
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:paths:{session_id}:{}", request.query));
+        Ok(WorkspacePathSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
+            next_cursor: None,
+        })
+    }
+
     fn directory_fingerprints(
         &self,
         session_id: &str,

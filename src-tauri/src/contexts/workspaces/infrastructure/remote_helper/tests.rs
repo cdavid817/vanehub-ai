@@ -485,10 +485,30 @@ fn a_stale_revision_is_reported_even_when_the_host_is_also_untrusted() {
 #[test]
 fn the_program_is_embedded_and_declares_the_protocol_version() {
     assert!(HELPER_PROGRAM.contains("HELPER_VERSION = 1"));
-    // Only the standard library, and only under isolation.
-    for forbidden in ["import requests", "pip ", "site-packages"] {
-        assert!(!HELPER_PROGRAM.contains(forbidden));
+
+    // Only the standard library. Checked by reading the import lines rather than by scanning for
+    // suspicious substrings: the substring version flagged the *word* `site-packages` the moment
+    // the walk started skipping a directory by that name, which is a directory to avoid rather
+    // than a dependency to have. Enumerating what is imported cannot make that mistake, and it
+    // catches a third-party module the substring list never thought to name.
+    const STANDARD_LIBRARY: &[&str] = &["base64", "json", "os", "shutil", "subprocess", "sys"];
+    for line in HELPER_PROGRAM.lines() {
+        let trimmed = line.trim();
+        let Some(module) = trimmed.strip_prefix("import ") else {
+            continue;
+        };
+        assert!(
+            STANDARD_LIBRARY.contains(&module.trim()),
+            "{module} is not in the standard library set this helper is allowed to use"
+        );
     }
+    // `from x import y` would slip past the check above, so it is refused outright: every module
+    // the helper needs is available as a plain import.
+    assert!(!HELPER_PROGRAM.contains("\nfrom "));
+    assert!(!HELPER_PROGRAM.contains("pip "));
+    // Nothing may reach the interpreter's own module search path. `-S` already disables site
+    // packages, and rebuilding the path here would be the one way to get around it.
+    assert!(!HELPER_PROGRAM.contains("sys.path"));
     // Subprocess calls are argument arrays. A string command would be a shell, and a shell is where
     // a remote path becomes an injection.
     assert!(!HELPER_PROGRAM.contains("shell=True"));

@@ -23,11 +23,13 @@ pub(crate) use inspection::{
     CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, GitDiffRequest,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
     WatchMode, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
-    MAX_FINGERPRINT_PATHS,
+    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
+    WorkspaceTargetResolver, MAX_FINGERPRINT_PATHS,
 };
 pub(crate) use inspection_cursor::{
-    bounded_page_size, kind_rank, DirectoryCursor, DEFAULT_DIRECTORY_PAGE_SIZE,
+    bounded_page_size, bounded_search_page, kind_rank, DirectoryCursor, PathSearchCursor,
+    DEFAULT_DIRECTORY_PAGE_SIZE,
 };
 pub(crate) use inspection_router::WorkspaceInspectionRouter;
 pub(crate) use invalidation::{

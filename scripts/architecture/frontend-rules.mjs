@@ -129,8 +129,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 值得说明的是为什么 Web 侧那个空订阅不能省:浏览器夹具永远不变,任何它发出的通知都是在描述一件
 // 没发生的事;而按定时器造假的通知会让整条失效路由看起来被跑过,实际上没有任何东西真的过期过。
 // 上限按实测值 21626 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.4):+58 是 Quick Open 在服务边界上的四处——接口方法与
+// 它的输入类型、Tauri 侧的 invoke 与 Zod 解析、Web 侧的夹具排名,以及夹具本身那份从
+// `directoryFixtures` 派生出来的扁平列表。
+// 值得说明的是为什么 Web 侧那份不能省、也不能手写成第二份清单:浏览器构建的 Quick Open 必须只能
+// 提供树里真实存在的路径。一份单独维护的搜索夹具迟早会给出一条树里没有的路径,而点开什么都不发生
+// 的结果,比没有结果更糟——读者会以为是应用坏了,而不是以为这是个 demo。
+// 上限按实测值 21684 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21626, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21684, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

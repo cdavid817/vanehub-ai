@@ -6,6 +6,9 @@ mod evaluation_fixture;
 mod filesystem;
 mod git;
 mod output_search;
+mod path_search;
+#[cfg(test)]
+mod path_search_tests;
 #[cfg(test)]
 mod provider_contract_tests;
 mod remote_helper;

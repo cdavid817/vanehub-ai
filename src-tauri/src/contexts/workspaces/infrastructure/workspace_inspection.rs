@@ -17,8 +17,9 @@ use crate::contexts::workspaces::application::{
     FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
     WatchMode, WorkspaceApplicationError as AppError, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceSearchRequest,
-    WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
+    WorkspaceTargetResolver,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
@@ -233,6 +234,16 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         }
         let paths = paths.to_vec();
         self.blocking(move |queries| queries.directory_fingerprints(&session_id, &paths))
+            .await
+    }
+
+    async fn search_paths(
+        &self,
+        target: &WorkspaceTarget,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        let session_id = require_local(target)?.session_id.clone();
+        self.blocking(move |queries| queries.search_paths(&session_id, &request))
             .await
     }
 

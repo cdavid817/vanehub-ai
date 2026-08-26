@@ -4086,5 +4086,14 @@
   "executionRecords.legacy.source": "历史活动由已加载的聊天消息推断而来，并非记录下来的证据。",
   "executionRecords.legacy.windowPartial": "仅包含已加载的消息窗口。",
   "executionRecords.legacy.rowSource": "来自消息历史",
-  "executionRecords.legacy.listLabel": "历史活动"
+  "executionRecords.legacy.listLabel": "历史活动",
+  "sessionTabs.files.quickOpen.open": "快速打开",
+  "sessionTabs.files.quickOpen.title": "快速打开",
+  "sessionTabs.files.quickOpen.placeholder": "输入路径的一部分",
+  "sessionTabs.files.quickOpen.results": "匹配的路径",
+  "sessionTabs.files.quickOpen.empty": "没有匹配的路径。",
+  "sessionTabs.files.quickOpen.failed": "无法搜索此工作区。",
+  "sessionTabs.files.quickOpen.more": "加载更多",
+  "sessionTabs.files.quickOpen.coverage.partial": "此工作区有一部分未被搜索。",
+  "sessionTabs.files.quickOpen.coverage.unavailable": "无法搜索此工作区。"
 }

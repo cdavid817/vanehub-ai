@@ -271,6 +271,87 @@ pub(crate) struct WorkspaceSearchRequest {
     pub(crate) max_results: usize,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct WorkspacePathSearchRequest {
+    /// What the reader typed. Empty is a valid query: it browses rather than searches.
+    pub(crate) query: String,
+    pub(crate) cursor: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+/// One thing a path search found.
+///
+/// Carries its kind because a reader acts on it: opening a file shows a preview, and "opening" a
+/// directory means revealing it in the tree. A result list that made them look alike would offer
+/// one action for two different things.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspacePathMatch {
+    pub(crate) name: String,
+    pub(crate) path: String,
+    /// `file` or `directory`.
+    pub(crate) kind: &'static str,
+}
+
+/// How much of the workspace a search actually looked at.
+///
+/// Separate from `next_cursor`, and the distinction is the point. A cursor says "more matches
+/// follow"; coverage says "and some of the workspace was never examined". Paging fixes the first
+/// and cannot fix the second, so collapsing them would let a reader page to the end of a result
+/// list and conclude they had seen everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceSearchCoverageState {
+    Complete,
+    Partial,
+    Unavailable,
+}
+
+impl WorkspaceSearchCoverageState {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Partial => "partial",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspaceSearchCoverage {
+    pub(crate) state: WorkspaceSearchCoverageState,
+    /// Why it is not complete, as a token the frontend translates. Absent when it is.
+    pub(crate) reason_code: Option<&'static str>,
+}
+
+impl WorkspaceSearchCoverage {
+    pub(crate) fn complete() -> Self {
+        Self {
+            state: WorkspaceSearchCoverageState::Complete,
+            reason_code: None,
+        }
+    }
+
+    pub(crate) fn partial(reason_code: &'static str) -> Self {
+        Self {
+            state: WorkspaceSearchCoverageState::Partial,
+            reason_code: Some(reason_code),
+        }
+    }
+
+    pub(crate) fn unavailable(reason_code: &'static str) -> Self {
+        Self {
+            state: WorkspaceSearchCoverageState::Unavailable,
+            reason_code: Some(reason_code),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspacePathSearchResult {
+    pub(crate) coverage: WorkspaceSearchCoverage,
+    pub(crate) matches: Vec<WorkspacePathMatch>,
+    pub(crate) next_cursor: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitDiffRequest {
     pub(crate) path: String,
@@ -336,6 +417,18 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
         target: &WorkspaceTarget,
         request: WorkspaceSearchRequest,
     ) -> Result<FileSearchListing, WorkspaceInspectionError>;
+
+    /// Quick Open: relative paths matching what was typed, ranked and paged.
+    ///
+    /// Its own operation rather than a shape on `search`. That one exists to rank prompt-mention
+    /// candidates, so it filters to source extensions and skips directories — right for composing a
+    /// message and wrong for a reader trying to reach `package-lock.json` or a folder. Widening it
+    /// would change what a mention offers, which nobody asked for.
+    async fn search_paths(
+        &self,
+        target: &WorkspaceTarget,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError>;
 
     async fn git_status(
         &self,

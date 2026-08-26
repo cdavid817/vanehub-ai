@@ -4086,5 +4086,14 @@
   "executionRecords.legacy.source": "過去の活動は読み込み済みのチャットメッセージから推定したもので、記録されたエビデンスではありません。",
   "executionRecords.legacy.windowPartial": "読み込み済みのメッセージ範囲のみが対象です。",
   "executionRecords.legacy.rowSource": "メッセージ履歴より",
-  "executionRecords.legacy.listLabel": "過去の活動"
+  "executionRecords.legacy.listLabel": "過去の活動",
+  "sessionTabs.files.quickOpen.open": "クイックオープン",
+  "sessionTabs.files.quickOpen.title": "クイックオープン",
+  "sessionTabs.files.quickOpen.placeholder": "パスの一部を入力",
+  "sessionTabs.files.quickOpen.results": "一致するパス",
+  "sessionTabs.files.quickOpen.empty": "一致するパスがありません。",
+  "sessionTabs.files.quickOpen.failed": "このワークスペースを検索できませんでした。",
+  "sessionTabs.files.quickOpen.more": "さらに読み込む",
+  "sessionTabs.files.quickOpen.coverage.partial": "このワークスペースの一部は検索されていません。",
+  "sessionTabs.files.quickOpen.coverage.unavailable": "このワークスペースを検索できませんでした。"
 }

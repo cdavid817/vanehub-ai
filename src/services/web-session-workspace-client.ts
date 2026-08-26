@@ -8,6 +8,7 @@ import {
   fileFixtures,
   inspectionCapabilitiesFixture,
   logFixtures,
+  pathSearchFixture,
   searchFixtures,
   statusFixture,
 } from "./web-session-workspace-fixtures";
@@ -25,6 +26,7 @@ type SessionWorkspaceMethods = Pick<
   AgentService,
   | "getWorkspaceInspectionCapabilities"
   | "subscribeWorkspaceInvalidation"
+  | "searchWorkspacePaths"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -84,6 +86,18 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   async openSessionFolder(_sessionId, openerId) { return { status: "unavailable", openerId, reason: "web-runtime" }; },
   async subscribeFolderOpenerEvents(handler) { openerSubscribers.add(handler); return () => openerSubscribers.delete(handler); },
+  /**
+   * Ranked from the same fixture the tree renders, so the browser build cannot offer a path that is
+   * not in its own workspace. Coverage is `complete` because the fixture really is all of it — the
+   * honest gap in this build is the provider, not a scan that stopped early.
+   */
+  async searchWorkspacePaths(input) {
+    const needle = input.query.trim().toLowerCase();
+    const matches = pathSearchFixture
+      .filter((entry) => !needle || entry.path.toLowerCase().includes(needle))
+      .slice(0, input.limit ?? 25);
+    return { coverage: { state: "complete" as const }, matches };
+  },
   async listSessionDirectory(_sessionId, path = "") {
     return {
       context: availableContext,

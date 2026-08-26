@@ -276,6 +276,104 @@ def directory_fingerprints(root, paths):
     return answers, None
 
 
+# How many entries a path walk will look at before it stops and says so. A monorepo has millions
+# of files and a reader is waiting on a keystroke; stopping is not the interesting part, reporting
+# that it stopped is.
+PATH_SCAN_LIMIT = 20000
+PATH_DEPTH_LIMIT = 10
+PATH_CANDIDATE_LIMIT = 2000
+
+# Trees a reader is never trying to reach by name. The same list the local walk uses, so a workspace
+# does not appear to have a different shape depending on which machine it is on. `bin` is
+# deliberately absent: Cargo treats `src/bin` as real source.
+EXCLUDED_DIRECTORIES = (
+    "node_modules", "bower_components", "jspm_packages", "vendor", "dist", "build", "out",
+    "target", "obj", "__pycache__", "venv", "site-packages", "coverage", "pods", "deriveddata",
+)
+
+
+def search_paths(root, query, limit):
+    """Candidate paths for Quick Open, unranked.
+
+    Ranking stays on the client. Scoring here would be a second implementation of an ordering the
+    local provider already has, and the two would disagree first about the ties nobody writes tests
+    for. What this side owns is the walk, its bounds, and the confinement — all three of which can
+    only happen on the machine holding the files.
+    """
+    resolved = resolve_root(root)
+    if resolved is None:
+        return None, "workspace_path_escaped"
+    needle = query.strip().lower().replace("\\", "/")
+
+    entries = []
+    truncated = False
+    scanned = 0
+    queue = [("", 0)]
+    seen = set()
+    while queue:
+        relative, depth = queue.pop(0)
+        directory = resolve_within(resolved, relative)
+        if directory is None:
+            continue
+        try:
+            with os.scandir(directory) as scan:
+                children = list(scan)
+        except OSError:
+            # An unreadable subdirectory is a permission quirk rather than a failure, but it does
+            # leave part of the workspace unexamined.
+            truncated = True
+            continue
+        for entry in children:
+            if entry.name.startswith("."):
+                continue
+            scanned += 1
+            if scanned > PATH_SCAN_LIMIT:
+                truncated = True
+                break
+            child_relative = entry.name if not relative else relative + "/" + entry.name
+            target = resolve_within(resolved, child_relative)
+            if target is None:
+                continue
+            try:
+                is_directory = entry.is_dir(follow_symlinks=True)
+                is_file = entry.is_file(follow_symlinks=True)
+            except OSError:
+                continue
+            if not is_directory and not is_file:
+                continue
+            if is_directory:
+                if entry.name.lower() in EXCLUDED_DIRECTORIES:
+                    continue
+                if depth + 1 > PATH_DEPTH_LIMIT:
+                    truncated = True
+                elif target not in seen:
+                    seen.add(target)
+                    queue.append((child_relative, depth + 1))
+            if len(entries) >= PATH_CANDIDATE_LIMIT:
+                truncated = True
+                continue
+            if needle and needle not in entry.name.lower() and needle not in child_relative.lower():
+                continue
+            entries.append(
+                {
+                    "name": entry.name,
+                    "path": relative_to(resolved, target),
+                    "kind": "directory" if is_directory else "file",
+                    "size": None,
+                }
+            )
+        if scanned > PATH_SCAN_LIMIT:
+            truncated = True
+            break
+    # The limit bounds what crosses the wire, not what the client shows: it ranks first, so cutting
+    # here by anything other than the walk order would drop candidates that would have ranked well.
+    bound = max(1, min(limit or PATH_CANDIDATE_LIMIT, PATH_CANDIDATE_LIMIT))
+    if len(entries) > bound:
+        truncated = True
+        entries = entries[:bound]
+    return {"entries": entries, "truncated": truncated}, None
+
+
 def read_text_file(root, relative):
     path = resolve_within(root, relative)
     if path is None:
@@ -455,6 +553,9 @@ def dispatch(root, operation):
         # `is not None`, not truthiness: asking about no directories is a valid request whose
         # answer is an empty list, and an empty list is falsy.
         return ({"fingerprints": answer} if answer is not None else None), error
+    if kind == "searchPaths":
+        answer, error = search_paths(root, operation.get("query", ""), int(operation.get("limit", 0) or 0))
+        return ({"paths": answer} if answer else None), error
     if kind == "readTextFile":
         answer, error = read_text_file(root, operation.get("path", ""))
         return ({"file": answer} if answer else None), error

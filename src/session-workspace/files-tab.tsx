@@ -9,6 +9,7 @@ import { workspaceErrorKey } from "./workspace-error";
 import { parentDirectoryOf, selectionStillExists } from "./workspace-invalidation-targets";
 import { workspaceQueryKeys } from "./workspace-query-keys";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
+import { QuickOpenDialog } from "./quick-open-dialog";
 
 export { flattenFileRows, type TreeRow } from "./use-workspace-file-tree";
 
@@ -23,6 +24,7 @@ export function FilesTab({
   const { t } = useTranslation();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
   const tree = useWorkspaceFileTree(sessionId, isVisible);
 
   const previewQuery = useQuery({
@@ -52,8 +54,29 @@ export function FilesTab({
   if (error && !tree.hasRoot) return <WorkspaceState kind="error" message={t(error)} />;
 
   return (
-    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(180px,0.38fr)_minmax(0,1fr)]">
+    <div className="relative grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(180px,0.38fr)_minmax(0,1fr)]">
+      <QuickOpenDialog
+        isOpen={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        onSelect={(match) => {
+          // A directory is revealed rather than previewed: there is nothing to show in the preview
+          // pane for a folder, and opening one would leave the reader looking at an empty panel.
+          if (match.kind === "directory") tree.revealDirectory(match.path);
+          else {
+            tree.revealDirectory(parentDirectoryOf(match.path));
+            setSelectedPath(match.path);
+          }
+        }}
+        sessionId={sessionId}
+      />
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
+        <button
+          className="mb-2 h-7 w-full rounded border border-border px-2 text-left text-xs text-muted-foreground hover:bg-muted"
+          onClick={() => setQuickOpen(true)}
+          type="button"
+        >
+          {t("sessionTabs.files.quickOpen.open")}
+        </button>
         {tree.truncated ? <PartialNotice /> : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
         {tree.rows.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.files.empty")} /> : tree.rows.map(({ entry, depth }) => (

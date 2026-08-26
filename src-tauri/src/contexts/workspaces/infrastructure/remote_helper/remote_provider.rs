@@ -9,6 +9,7 @@
 //! workspace, sends a Shell command, or writes a file — so re-issuing one after a dropped
 //! connection repeats an observation rather than an action.
 
+use super::super::path_search::{normalize_query, path_match_score};
 use super::probe::{capabilities_from, revalidate};
 use super::protocol::{
     HelperEntry, HelperFile, HelperFingerprint, HelperGitOutput, HelperListing, HelperOperation,
@@ -16,12 +17,14 @@ use super::protocol::{
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    bounded_page_size, DirectoryCursor, DirectoryEntry, DirectoryFingerprint,
+    bounded_page_size, bounded_search_page, DirectoryCursor, DirectoryEntry, DirectoryFingerprint,
     DirectoryFingerprintState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
-    ListDirectoryRequest, ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext,
-    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspaceSearchRequest, WorkspaceTarget, MAX_FINGERPRINT_PATHS,
+    ListDirectoryRequest, PathSearchCursor, ReadTextFileRequest, RemoteWorkspaceTarget,
+    SessionWorkspaceContext, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
+    MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -206,6 +209,86 @@ fn entry(value: HelperEntry) -> DirectoryEntry {
     }
 }
 
+/// How many candidates one remote walk may return.
+///
+/// Ranking happens on this side, so this bounds what crosses the wire rather than what a reader
+/// sees. It matches the local walk's collection bound, because a workspace should not appear to
+/// hold a different number of things depending on which machine it is on.
+const MAX_REMOTE_PATH_CANDIDATES: usize = 2_000;
+
+/// Ranks, resumes, and pages a remote walk's candidates.
+///
+/// A free function so the ordering can be exercised without a connection. Scoring on the remote
+/// host would be a second implementation of an ordering that already exists, and two of them
+/// disagree first about the ties nobody writes tests for -- which is why the scorer itself is
+/// imported from the local walk rather than reimplemented here.
+fn rank_path_candidates(
+    query: &str,
+    cursor: Option<&PathSearchCursor>,
+    limit: usize,
+    truncated: bool,
+    entries: Vec<HelperEntry>,
+) -> WorkspacePathSearchResult {
+    let mut scored: Vec<(u32, u32, WorkspacePathMatch)> = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let score = path_match_score(query, &entry.name, &entry.path)?;
+            let depth = entry.path.matches('/').count() as u32;
+            Some((
+                score,
+                depth,
+                WorkspacePathMatch {
+                    name: entry.name,
+                    path: entry.path,
+                    kind: if entry.kind == "directory" {
+                        "directory"
+                    } else {
+                        "file"
+                    },
+                },
+            ))
+        })
+        .collect();
+
+    scored.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then(left.1.cmp(&right.1))
+            .then_with(|| left.2.path.to_lowercase().cmp(&right.2.path.to_lowercase()))
+    });
+
+    // Resumed after the sort, because the key the cursor holds is the key this ordering produces.
+    let remaining: Vec<(u32, u32, WorkspacePathMatch)> = match cursor {
+        Some(cursor) => scored
+            .into_iter()
+            .filter(|(score, depth, entry)| cursor.precedes(*score, *depth, &entry.path))
+            .collect(),
+        None => scored,
+    };
+
+    let has_more = remaining.len() > limit;
+    let page: Vec<(u32, u32, WorkspacePathMatch)> = remaining.into_iter().take(limit).collect();
+    let next_cursor = match (has_more, page.last()) {
+        (true, Some((score, depth, entry))) => {
+            Some(PathSearchCursor::after(query, *score, *depth, &entry.path).encode())
+        }
+        _ => None,
+    };
+
+    WorkspacePathSearchResult {
+        // A walk that stopped at its bound left part of the workspace unexamined, which is a
+        // different fact from "more matches follow" and one that paging can never fix.
+        coverage: if truncated {
+            WorkspaceSearchCoverage::partial("workspace_search_scan_limit")
+        } else {
+            WorkspaceSearchCoverage::complete()
+        },
+        matches: page.into_iter().map(|(_, _, entry)| entry).collect(),
+        next_cursor,
+    }
+}
+
 fn fingerprints(values: Vec<HelperFingerprint>) -> Vec<DirectoryFingerprint> {
     values
         .into_iter()
@@ -354,6 +437,42 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             .ok_or(WorkspaceInspectionError::RemoteUnavailable(
                 "remote_helper_malformed_response",
             ))
+    }
+
+    async fn search_paths(
+        &self,
+        target: &WorkspaceTarget,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        let normalized = normalize_query(&request.query);
+        let cursor = match request.cursor.as_deref() {
+            Some(encoded) => Some(PathSearchCursor::decode(encoded, &normalized)?),
+            None => None,
+        };
+        let (_, result) = self
+            .call(
+                target,
+                HelperOperation::SearchPaths {
+                    query: normalized.clone(),
+                    // The whole candidate set, not the page. This side ranks, so cutting on the
+                    // remote by anything but walk order would drop candidates that would have
+                    // ranked well and leave worse ones in.
+                    limit: MAX_REMOTE_PATH_CANDIDATES,
+                },
+            )
+            .await?;
+        let candidates = result
+            .paths
+            .ok_or(WorkspaceInspectionError::RemoteUnavailable(
+                "remote_helper_malformed_response",
+            ))?;
+        Ok(rank_path_candidates(
+            &normalized,
+            cursor.as_ref(),
+            bounded_search_page(request.limit),
+            candidates.truncated,
+            candidates.entries,
+        ))
     }
 
     async fn list_documents(

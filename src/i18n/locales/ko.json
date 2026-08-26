@@ -4086,5 +4086,14 @@
   "executionRecords.legacy.source": "이전 활동은 불러온 채팅 메시지에서 추론한 것이며 기록된 증거가 아닙니다.",
   "executionRecords.legacy.windowPartial": "불러온 메시지 범위만 포함합니다.",
   "executionRecords.legacy.rowSource": "메시지 기록에서",
-  "executionRecords.legacy.listLabel": "이전 활동"
+  "executionRecords.legacy.listLabel": "이전 활동",
+  "sessionTabs.files.quickOpen.open": "빠른 열기",
+  "sessionTabs.files.quickOpen.title": "빠른 열기",
+  "sessionTabs.files.quickOpen.placeholder": "경로의 일부를 입력하세요",
+  "sessionTabs.files.quickOpen.results": "일치하는 경로",
+  "sessionTabs.files.quickOpen.empty": "일치하는 경로가 없습니다.",
+  "sessionTabs.files.quickOpen.failed": "이 작업 공간을 검색할 수 없습니다.",
+  "sessionTabs.files.quickOpen.more": "더 불러오기",
+  "sessionTabs.files.quickOpen.coverage.partial": "이 작업 공간의 일부는 검색되지 않았습니다.",
+  "sessionTabs.files.quickOpen.coverage.unavailable": "이 작업 공간을 검색할 수 없습니다."
 }

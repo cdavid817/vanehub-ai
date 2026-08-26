@@ -14,8 +14,8 @@ use crate::contexts::workspaces::application::{
     WorkspaceChangeObserverPort, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
     WorkspaceInspectionProvider, WorkspaceInspectionRouter, WorkspaceInvalidationChange,
     WorkspaceInvalidationDispatcher, WorkspaceInvalidationNotice, WorkspaceInvalidationPublisher,
-    WorkspaceInvalidationScope, WorkspaceInvalidationSource, WorkspaceSearchRequest,
-    WorkspaceTarget, WorkspaceTargetResolver,
+    WorkspaceInvalidationScope, WorkspaceInvalidationSource, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -110,6 +110,14 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
             .expect("answers")
             .pop()
             .unwrap_or_else(|| Ok(Vec::new()))
+    }
+
+    async fn search_paths(
+        &self,
+        _target: &WorkspaceTarget,
+        _request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        panic!("a poll must not search")
     }
 
     async fn list_directory(

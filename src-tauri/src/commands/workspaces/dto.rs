@@ -303,6 +303,44 @@ pub(crate) struct WorkspaceInspectionCapabilitiesDto {
     pub(crate) watch_mode: String,
 }
 
+/// One page of Quick Open results.
+///
+/// `coverage` and `next_cursor` answer different questions and both are here. The cursor says more
+/// matches follow; coverage says part of the workspace was never examined. A reader who paged to
+/// the end still needs to know whether that was the end of the workspace, and one field cannot say
+/// both.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspacePathSearchDto {
+    pub(crate) coverage: WorkspaceSearchCoverageDto,
+    pub(crate) matches: Vec<WorkspacePathMatchDto>,
+    /// Absent when this page is the last one, never an empty string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceSearchCoverageDto {
+    /// `complete`, `partial`, or `unavailable`.
+    pub(crate) state: String,
+    /// Why it is not complete, as a token the frontend translates. Absent when it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspacePathMatchDto {
+    pub(crate) name: String,
+    /// Workspace-relative, with forward slashes. An absolute path would put this machine's layout
+    /// into a list a reader can copy from.
+    pub(crate) path: String,
+    /// `file` or `directory`. A reader acts on them differently: one opens a preview, the other
+    /// reveals a folder in the tree.
+    pub(crate) kind: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CapabilityStateDto {

@@ -10,7 +10,8 @@ pub(crate) use super::application::{
 /// which machine an answer came from — but nothing outside this context can construct one.
 pub(crate) use super::application::{
     CapabilityState, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionRouter, WorkspaceTarget,
+    WorkspaceInspectionRouter, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceTarget,
 };
 pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
@@ -287,6 +288,16 @@ impl WorkspaceApi {
         session_id: &str,
     ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
         self.inspection.capabilities(session_id).await
+    }
+
+    /// Quick Open. Routed through the same seam as every other read, so a remote workspace answers
+    /// for the same reason a local one does.
+    pub(crate) async fn search_workspace_paths(
+        &self,
+        session_id: &str,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        self.inspection.search_paths(session_id, request).await
     }
 
     pub(crate) fn get_session_git_status(

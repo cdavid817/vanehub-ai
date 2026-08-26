@@ -106,6 +106,107 @@ impl DirectoryCursor {
     }
 }
 
+/// How many matches one page of a path search holds when the caller does not say.
+pub(crate) const DEFAULT_PATH_SEARCH_RESULTS: usize = 25;
+
+/// The most a path search will return in one page.
+pub(crate) const MAX_PATH_SEARCH_RESULTS: usize = 50;
+
+/// Where a ranked search resumes.
+///
+/// Bound to the query, not just to a position. A search's ordering is a function of what was
+/// typed — the same file scores differently for `main` and for `ma` — so a cursor applied to a
+/// different query would resume at a rank that ordering never produced, and hand back a page from
+/// the middle of nowhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PathSearchCursor {
+    pub(crate) query: String,
+    pub(crate) score: u32,
+    pub(crate) depth: u32,
+    pub(crate) path_key: String,
+}
+
+impl PathSearchCursor {
+    pub(crate) fn after(query: &str, score: u32, depth: u32, path: &str) -> Self {
+        Self {
+            query: query.to_string(),
+            score,
+            depth,
+            path_key: path.to_lowercase(),
+        }
+    }
+
+    /// Whether a candidate belongs to the page after this cursor.
+    ///
+    /// Strictly after, by the same comparison the ranking uses: better score first, then shallower,
+    /// then by path. An entry equal to the cursor ended the previous page, and including it would
+    /// repeat a row — which in a result list reads as a duplicate file rather than a paging bug.
+    pub(crate) fn precedes(&self, score: u32, depth: u32, path: &str) -> bool {
+        rank_key(score, depth, &path.to_lowercase())
+            > rank_key(self.score, self.depth, &self.path_key)
+    }
+
+    pub(crate) fn encode(&self) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            self.score, self.depth, self.path_key, self.query
+        ))
+    }
+
+    pub(crate) fn decode(
+        encoded: &str,
+        expected_query: &str,
+    ) -> Result<Self, WorkspaceInspectionError> {
+        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| WorkspaceInspectionError::InvalidCursor)?;
+        let text = String::from_utf8(raw).map_err(|_| WorkspaceInspectionError::InvalidCursor)?;
+        let mut parts = text.splitn(4, '\u{1f}');
+        let score = parts
+            .next()
+            .and_then(|value| value.parse::<u32>().ok())
+            .ok_or(WorkspaceInspectionError::InvalidCursor)?;
+        let depth = parts
+            .next()
+            .and_then(|value| value.parse::<u32>().ok())
+            .ok_or(WorkspaceInspectionError::InvalidCursor)?;
+        let path_key = parts
+            .next()
+            .ok_or(WorkspaceInspectionError::InvalidCursor)?
+            .to_string();
+        let query = parts
+            .next()
+            .ok_or(WorkspaceInspectionError::InvalidCursor)?
+            .to_string();
+        if query != expected_query {
+            return Err(WorkspaceInspectionError::InvalidCursor);
+        }
+        Ok(Self {
+            query,
+            score,
+            depth,
+            path_key,
+        })
+    }
+}
+
+/// The ordering, as one comparable value.
+///
+/// Score is negated rather than the comparison being reversed, so "after the cursor" is a plain
+/// `>` everywhere. A ranking expressed as a mix of ascending and descending comparisons is one
+/// somebody eventually gets backwards in exactly one of the places it appears.
+fn rank_key(score: u32, depth: u32, path_key: &str) -> (i64, u32, String) {
+    (-(i64::from(score)), depth, path_key.to_string())
+}
+
+/// The page size a path search actually uses.
+pub(crate) fn bounded_search_page(limit: Option<usize>) -> usize {
+    match limit {
+        None | Some(0) => DEFAULT_PATH_SEARCH_RESULTS,
+        Some(value) => value.min(MAX_PATH_SEARCH_RESULTS),
+    }
+}
+
 /// Directories first. The same rank the local listing sorts by, named once so the cursor and the
 /// ordering cannot drift apart.
 pub(crate) fn kind_rank(kind: &str) -> u8 {

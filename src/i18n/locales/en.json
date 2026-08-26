@@ -4086,5 +4086,14 @@
   "executionRecords.legacy.source": "Legacy activity is projected from loaded chat messages, not from recorded evidence.",
   "executionRecords.legacy.windowPartial": "Only the loaded message window is included.",
   "executionRecords.legacy.rowSource": "from message history",
-  "executionRecords.legacy.listLabel": "Legacy activity"
+  "executionRecords.legacy.listLabel": "Legacy activity",
+  "sessionTabs.files.quickOpen.open": "Quick Open",
+  "sessionTabs.files.quickOpen.title": "Quick Open",
+  "sessionTabs.files.quickOpen.placeholder": "Type part of a path",
+  "sessionTabs.files.quickOpen.results": "Matching paths",
+  "sessionTabs.files.quickOpen.empty": "No matching paths.",
+  "sessionTabs.files.quickOpen.failed": "This workspace could not be searched.",
+  "sessionTabs.files.quickOpen.more": "Load more",
+  "sessionTabs.files.quickOpen.coverage.partial": "Part of this workspace was not searched.",
+  "sessionTabs.files.quickOpen.coverage.unavailable": "This workspace could not be searched."
 }

@@ -8,6 +8,9 @@ use crate::contexts::workspaces::application::{
     WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
     MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
+use crate::contexts::workspaces::application::{
+    WorkspacePathSearchRequest, WorkspacePathSearchResult,
+};
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
@@ -78,6 +81,14 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         paths: &[String],
     ) -> Result<Vec<DirectoryFingerprint>, AppError> {
         session_directory_fingerprints(&*self.connection()?, session_id, paths)
+    }
+
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, AppError> {
+        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {

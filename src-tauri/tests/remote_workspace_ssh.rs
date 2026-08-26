@@ -282,6 +282,72 @@ fn the_helper_program_refuses_to_fingerprint_a_path_that_leaves_the_root() {
     }
 }
 
+/// The Quick Open walk, against a real filesystem.
+///
+/// The helper returns candidates and the client ranks them, so what has to be proved here is the
+/// walk: that it descends, that it offers directories as well as files, that it confines, and that
+/// it skips the trees nobody is trying to reach by name.
+#[test]
+fn the_helper_program_walks_paths_without_ranking_them() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+    fs::create_dir_all(root.join("node_modules").join("left-pad")).expect("node_modules");
+    fs::write(
+        root.join("node_modules").join("left-pad").join("main.js"),
+        "x",
+    )
+    .expect("vendored");
+
+    let answer = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"searchPaths","query":"main","limit":100}"#,
+    );
+    let entries = answer["result"]["paths"]["entries"]
+        .as_array()
+        .expect("entries")
+        .clone();
+    let paths: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry["path"].as_str().expect("path"))
+        .collect();
+
+    // Descends into subdirectories: the file it is looking for is one level down.
+    assert!(paths.contains(&"src/main.rs"), "{answer}");
+    // A reader is never trying to reach a vendored tree by name, and the budget spent there is
+    // budget not spent on their own files.
+    assert!(
+        !paths.iter().any(|path| path.starts_with("node_modules")),
+        "{answer}"
+    );
+    // Unranked on this side. The client scores, so the helper must not have pre-filtered to what it
+    // guessed was best -- that would be a second ordering, and two of them disagree.
+    assert_eq!(answer["result"]["paths"]["truncated"], false);
+
+    let directories = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"searchPaths","query":"src","limit":100}"#,
+    );
+    let kinds: Vec<(&str, &str)> = directories["result"]["paths"]["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().expect("path"),
+                entry["kind"].as_str().expect("kind"),
+            )
+        })
+        .collect();
+    // Directories are offered, which is the difference between this and the mention-candidate
+    // search that skips them.
+    assert!(kinds.contains(&("src", "directory")), "{directories}");
+}
+
 #[test]
 fn the_helper_program_previews_text_and_refuses_to_decode_binary() {
     let Some(interpreter) = python() else {

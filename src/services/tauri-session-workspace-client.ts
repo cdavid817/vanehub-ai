@@ -15,7 +15,10 @@ import type {
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
-import { safeParseWorkspaceInvalidationNotice } from "../contracts/session-workspace-inspection";
+import {
+  parseWorkspacePathSearchResult,
+  safeParseWorkspaceInvalidationNotice,
+} from "../contracts/session-workspace-inspection";
 
 /**
  * The native event channel. It has to match `WORKSPACE_INVALIDATION_EVENT` in the Rust publisher
@@ -28,6 +31,7 @@ type SessionWorkspaceMethods = Pick<
   AgentService,
   | "getWorkspaceInspectionCapabilities"
   | "subscribeWorkspaceInvalidation"
+  | "searchWorkspacePaths"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -71,6 +75,16 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
       const notice = safeParseWorkspaceInvalidationNotice(event.payload);
       if (notice) handler(notice);
     });
+  },
+  async searchWorkspacePaths(input) {
+    return parseWorkspacePathSearchResult(
+      await invoke("search_workspace_paths", {
+        sessionId: input.sessionId,
+        query: input.query,
+        cursor: input.cursor ?? null,
+        limit: input.limit ?? null,
+      }),
+    );
   },
   listSessionDirectory(sessionId, path = "") {
     return invoke<DirectoryListing>("list_session_directory", { sessionId, path });
