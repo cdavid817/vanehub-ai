@@ -9,6 +9,7 @@ import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { MemoryQuery, MemorySummary } from "../../../types/personalization-memory";
 import { SectionPanel } from "../page-parts";
+import { MemoryCreateForm } from "./memory-create-form";
 import { MemoryDetailPanel } from "./memory-detail-panel";
 import { MemoryFilters } from "./memory-filters";
 import { useScopeOptions } from "./use-scope-options";
@@ -27,6 +28,7 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
   const [query, setQuery] = useState<MemoryQuery>({ limit: PAGE_SIZE });
   const [pageStack, setPageStack] = useState<(string | undefined)[]>([undefined]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const { agents, workspaces } = useScopeOptions(service);
 
   const cursor = pageStack[pageStack.length - 1];
@@ -59,6 +61,19 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
       icon={Database}
       title={t("personalization.memoryList.title")}
     >
+      <div className="mb-3 flex justify-end">
+        <Button data-testid="personalization-create-open" onClick={() => setCreating((open) => !open)} size="sm">
+          {t("personalization.create.open")}
+        </Button>
+      </div>
+      {creating ? (
+        <div className="mb-4 rounded-md border border-border/70 p-3">
+          <h4 className="mb-1 text-sm font-semibold">{t("personalization.create.title")}</h4>
+          <p className="mb-3 text-xs text-muted-foreground">{t("personalization.create.description")}</p>
+          <MemoryCreateForm onCreated={() => setCreating(false)} service={service} workspaces={workspaces} />
+        </div>
+      ) : null}
+
       <MemoryFilters agents={agents} onChange={applyFilter} query={query} workspaces={workspaces} />
 
       <p
