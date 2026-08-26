@@ -199,6 +199,15 @@ impl SessionsApi {
         self.review()?.set_hunk_decision(review_id, request)
     }
 
+    pub(crate) fn set_review_file_viewed(
+        &self,
+        review_id: &str,
+        request: super::application::SetFileViewedRequest,
+    ) -> Result<super::domain::ReviewFileViewState, super::application::ReviewApplicationError>
+    {
+        self.review()?.set_file_viewed(review_id, request)
+    }
+
     pub(crate) fn resolve_review_comment(
         &self,
         review_id: &str,

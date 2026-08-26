@@ -2396,9 +2396,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // so the failure always arrived looking like a regression in whatever was being changed. Two
     // of the three were found only by a full `cargo test`, which is the argument for the change:
     // grep does not find a number, and the third one is always in the file you did not open.
+    //
+    // Raised again from 2,988 by +8 for migration 84, which adds the per-file witness Viewed marks
+    // are keyed on: 6 lines of registration, 1 repair call, 1 history entry. Same shape as 83, and
+    // the schema again lives in the context that owns the review.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_988,
+        budget: 2_996,
         owner: "split-database-migrations",
     },
 ];

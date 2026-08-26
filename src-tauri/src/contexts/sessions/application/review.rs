@@ -1,6 +1,6 @@
 use crate::contexts::sessions::domain::{
-    ReviewAnchor, ReviewComment, ReviewDecision, ReviewDomainError, ReviewFile, ReviewFinding,
-    ReviewHunkDecision, ReviewSession,
+    ReviewAnchor, ReviewComment, ReviewDecision, ReviewDomainError, ReviewFile,
+    ReviewFileViewState, ReviewFinding, ReviewHunkDecision, ReviewSession,
 };
 use std::fmt;
 use std::sync::Arc;
@@ -28,6 +28,27 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
         review_id: &str,
         decision: &ReviewHunkDecision,
     ) -> Result<(), ReviewApplicationError>;
+
+    /// Records whether one file has been read, replacing whatever it said before.
+    fn upsert_file_view_state(
+        &self,
+        review_id: &str,
+        state: &ReviewFileViewState,
+    ) -> Result<(), ReviewApplicationError>;
+
+    /// Every file view state recorded for a review, in path order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the write path is live; reading view states back arrives with 13.6's \
+                 review summary counts"
+        )
+    )]
+    fn list_file_view_states(
+        &self,
+        review_id: &str,
+    ) -> Result<Vec<ReviewFileViewState>, ReviewApplicationError>;
 
     /// Every hunk decision recorded for a review, in path then fingerprint order.
     #[cfg_attr(
@@ -163,6 +184,18 @@ pub(crate) struct SetHunkDecisionRequest {
     /// The snapshot the reviewer was looking at.
     pub(crate) expected_snapshot_fingerprint: String,
     pub(crate) decision: ReviewDecision,
+}
+
+/// What a caller is asking to mark as read, and the diff they read.
+///
+/// The witness is not supplied by the caller: it is derived from the review's own copy of the
+/// file, so a mark can never claim to be about a version of the file the review does not hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SetFileViewedRequest {
+    pub(crate) path: String,
+    /// The snapshot the reviewer was looking at.
+    pub(crate) expected_snapshot_fingerprint: String,
+    pub(crate) viewed: bool,
 }
 
 /// Which witness stopped a decision.
@@ -470,6 +503,82 @@ impl ReviewApplicationService {
         Ok(decision)
     }
 
+    /// Records that a reviewer has read a file, or that they have not.
+    ///
+    /// Witnessed to the file rather than to the review, so an agent writing to one file does not
+    /// clear the marks on the other eleven. A file whose own content moved becomes unviewed on its
+    /// next read, because the witness stored with the mark no longer matches the file — nothing
+    /// sweeps, and nothing needs to.
+    pub(crate) fn set_file_viewed(
+        &self,
+        review_id: &str,
+        request: SetFileViewedRequest,
+    ) -> Result<ReviewFileViewState, ReviewApplicationError> {
+        let review = self.find(review_id)?;
+        if review.fingerprint != request.expected_snapshot_fingerprint {
+            return Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Snapshot,
+            ));
+        }
+        let file = review
+            .files()
+            .iter()
+            .find(|file| file.path == request.path)
+            .ok_or(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::File,
+            ))?;
+        let now = self.clock.now();
+        let state = ReviewFileViewState::try_new(
+            request.path.clone(),
+            review.fingerprint.clone(),
+            file.witness(),
+            request.viewed,
+            // Present exactly when the file is viewed. Keeping the previous mark's time on an
+            // unviewed row would leave a moment attached to something that is no longer true.
+            request.viewed.then_some(now),
+        )?;
+        self.decisions.upsert_file_view_state(&review.id, &state)?;
+        self.logging.record(ReviewLogEvent {
+            kind: "file-viewed-changed",
+            review_id: review.id.clone(),
+            item_count: 1,
+        });
+        // After the upsert commits, for the same reason every other reference here does. Only a
+        // file that was read is published: unviewing is a reviewer taking a claim back, and a
+        // journal entry saying somebody stopped having read something is not an observation.
+        if state.viewed {
+            self.evidence
+                .try_publish(super::SessionEvidenceSignal::ReviewFileViewedRecorded {
+                    session_id: review.session_id.clone(),
+                    review_id: review.id.clone(),
+                    file_witness: state.file_witness.clone(),
+                    witness_fingerprint: state.snapshot_fingerprint.clone(),
+                    occurred_at: state
+                        .viewed_at
+                        .clone()
+                        .unwrap_or_else(|| review.updated_at.clone()),
+                });
+        }
+        Ok(state)
+    }
+
+    /// Every file view state this review holds, whether or not it still applies.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the write path is live; reading view states back arrives with 13.6's \
+                 review summary counts"
+        )
+    )]
+    pub(crate) fn file_view_states(
+        &self,
+        review_id: &str,
+    ) -> Result<Vec<ReviewFileViewState>, ReviewApplicationError> {
+        self.find(review_id)?;
+        self.decisions.list_file_view_states(review_id)
+    }
+
     /// Whether the review, the file, and the hunk are all still what the caller saw.
     ///
     /// In that order, cheapest first, and each is a different way of being out of date. The
@@ -746,11 +855,40 @@ mod tests {
     #[derive(Default)]
     struct MemoryDecisions {
         rows: Mutex<Vec<(String, ReviewHunkDecision)>>,
+        views: Mutex<Vec<(String, ReviewFileViewState)>>,
         /// When set, every write fails. Used to prove nothing is published for a write that did
         /// not land.
         refuse: Mutex<bool>,
     }
     impl ReviewDecisionRepository for MemoryDecisions {
+        fn upsert_file_view_state(
+            &self,
+            review_id: &str,
+            state: &ReviewFileViewState,
+        ) -> Result<(), ReviewApplicationError> {
+            if *self.refuse.lock().unwrap() {
+                return Err(ReviewApplicationError::Repository("refused".into()));
+            }
+            let mut rows = self.views.lock().unwrap();
+            rows.retain(|(id, row)| id != review_id || row.path != state.path);
+            rows.push((review_id.to_string(), state.clone()));
+            Ok(())
+        }
+        fn list_file_view_states(
+            &self,
+            review_id: &str,
+        ) -> Result<Vec<ReviewFileViewState>, ReviewApplicationError> {
+            let mut rows: Vec<ReviewFileViewState> = self
+                .views
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(id, _)| id == review_id)
+                .map(|(_, row)| row.clone())
+                .collect();
+            rows.sort_by(|left, right| left.path.cmp(&right.path));
+            Ok(rows)
+        }
         fn upsert_hunk_decision(
             &self,
             review_id: &str,
@@ -1346,6 +1484,192 @@ mod tests {
         let recorded = service.hunk_decisions(&review.id).unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].decision, ReviewDecision::Accepted);
+    }
+
+    fn read(path: &str, viewed: bool) -> SetFileViewedRequest {
+        SetFileViewedRequest {
+            path: path.into(),
+            expected_snapshot_fingerprint: "snapshot".into(),
+            viewed,
+        }
+    }
+
+    fn published_file_views(evidence: &CapturingEvidence) -> Vec<String> {
+        evidence
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|signal| match signal {
+                super::super::SessionEvidenceSignal::ReviewFileViewedRecorded {
+                    file_witness,
+                    ..
+                } => Some(file_witness.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // The behaviour the whole per-file witness exists for. A review snapshot covers every changed
+    // file, so a mark witnessed to it would be cleared by an agent writing to a different file —
+    // and a progress count that resets on unrelated work is a count nobody can act on.
+    #[test]
+    fn a_viewed_mark_is_witnessed_to_its_own_file_not_to_the_review() {
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+
+        let state = service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .unwrap();
+
+        let file = review
+            .files()
+            .iter()
+            .find(|file| file.path == "src/a.rs")
+            .expect("the fixture review holds this file");
+        assert_eq!(state.file_witness, file.witness());
+        assert_ne!(state.file_witness, review.fingerprint);
+    }
+
+    #[test]
+    fn a_file_that_changed_no_longer_matches_the_mark_that_was_made_about_it() {
+        let unchanged =
+            ReviewFile::try_new("src/a.rs".into(), None, "modified".into(), None, None).unwrap();
+        let rewritten = ReviewFile::try_new(
+            "src/a.rs".into(),
+            None,
+            "modified".into(),
+            None,
+            Some("a-new-blob".into()),
+        )
+        .unwrap();
+
+        // Nothing sweeps and nothing needs to: the mark stops applying because the witness stored
+        // with it stops matching the file.
+        assert_ne!(unchanged.witness(), rewritten.witness());
+        // And a file nobody touched keeps its mark, which is the half that makes the count usable.
+        let same =
+            ReviewFile::try_new("src/a.rs".into(), None, "modified".into(), None, None).unwrap();
+        assert_eq!(unchanged.witness(), same.witness());
+    }
+
+    #[test]
+    fn a_file_that_was_deleted_is_not_the_file_that_was_read() {
+        let modified = ReviewFile::try_new(
+            "src/a.rs".into(),
+            None,
+            "modified".into(),
+            Some("before".into()),
+            Some("after".into()),
+        )
+        .unwrap();
+        let deleted = ReviewFile::try_new(
+            "src/a.rs".into(),
+            None,
+            "deleted".into(),
+            Some("before".into()),
+            Some("after".into()),
+        )
+        .unwrap();
+
+        // Same hashes, different change. A witness made only of the content hash would call these
+        // the same file and leave a deleted file marked as read.
+        assert_ne!(modified.witness(), deleted.witness());
+    }
+
+    #[test]
+    fn unmarking_a_file_leaves_no_moment_at_which_it_was_read() {
+        let (service, _decisions, _witnesses, evidence) = reviewing();
+        let review = opened(&service);
+
+        let viewed = service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .unwrap();
+        assert!(viewed.viewed_at.is_some());
+
+        let unviewed = service
+            .set_file_viewed(&review.id, read("src/a.rs", false))
+            .unwrap();
+        assert_eq!(unviewed.viewed_at, None);
+
+        // One publication, not two. Reading a file is an observation; deciding you had not read it
+        // is a reviewer taking a claim back, and a journal has no entry for that.
+        assert_eq!(published_file_views(&evidence).len(), 1);
+    }
+
+    #[test]
+    fn a_mark_replaces_the_previous_one_for_the_same_file() {
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+
+        service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .unwrap();
+        service
+            .set_file_viewed(&review.id, read("src/a.rs", false))
+            .unwrap();
+
+        let states = service.file_view_states(&review.id).unwrap();
+        assert_eq!(states.len(), 1);
+        assert!(!states[0].viewed);
+    }
+
+    #[test]
+    fn a_mark_about_an_older_snapshot_or_an_absent_file_is_refused_without_writing() {
+        let (service, decisions, _witnesses, evidence) = reviewing();
+        let review = opened(&service);
+
+        assert_eq!(
+            service.set_file_viewed(
+                &review.id,
+                SetFileViewedRequest {
+                    path: "src/a.rs".into(),
+                    expected_snapshot_fingerprint: "an-older-snapshot".into(),
+                    viewed: true,
+                }
+            ),
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::Snapshot
+            ))
+        );
+        assert_eq!(
+            service.set_file_viewed(&review.id, read("src/gone.rs", true)),
+            Err(ReviewApplicationError::StaleWitness(
+                StaleReviewWitness::File
+            ))
+        );
+        assert!(decisions.views.lock().unwrap().is_empty());
+        assert_eq!(published_file_views(&evidence), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_mark_that_did_not_land_publishes_nothing() {
+        let (service, decisions, _witnesses, evidence) = reviewing();
+        let review = opened(&service);
+        *decisions.refuse.lock().unwrap() = true;
+
+        assert!(service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .is_err());
+        assert_eq!(published_file_views(&evidence), Vec::<String>::new());
+    }
+
+    #[test]
+    fn reading_a_file_is_not_deciding_about_it() {
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+
+        service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .unwrap();
+
+        // Neither the review's decision nor any hunk's. A surface that conflated them would report
+        // a reviewer who scrolled through a diff as having approved it.
+        assert_eq!(
+            service.find(&review.id).unwrap().decision,
+            ReviewDecision::Pending
+        );
+        assert!(service.hunk_decisions(&review.id).unwrap().is_empty());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::platform::database::DatabaseError;
+use crate::platform::database::{table_has_column, DatabaseError};
 use rusqlite::Connection;
 
 /// Where a hunk decision and a file's Viewed state live.
@@ -64,6 +64,61 @@ pub(crate) fn apply_review_decision_schema(connection: &Connection) -> Result<()
         "#,
     )?;
     Ok(())
+}
+
+/// What decides whether a file's Viewed mark still applies.
+///
+/// Separate from `snapshot_fingerprint`, and the separation is the whole behaviour. A review's
+/// snapshot fingerprint covers every changed file, so it moves whenever *any* of them is written
+/// to — witnessing Viewed to it would un-view all twelve files because an agent touched one, which
+/// makes "8 files · 4 unviewed" say nothing a reviewer can use. The file's own witness moves only
+/// when that file changes.
+///
+/// The snapshot column stays and stays truthful: it records which review snapshot the reviewer was
+/// looking at when they marked the file, which is worth keeping and is not what the reset keys on.
+///
+/// Nullable because it is added to a table that already exists. Nothing has ever written a row —
+/// 13.5 is the first writer — so there is nothing to backfill and no default that would be a
+/// guess. A row without one is a row from before this column, and `NULL` says exactly that.
+pub(crate) fn apply_review_file_witness_schema(
+    connection: &Connection,
+) -> Result<(), DatabaseError> {
+    if !table_has_column(connection, "review_file_states", "file_witness")? {
+        connection.execute(
+            "ALTER TABLE review_file_states ADD COLUMN file_witness TEXT",
+            [],
+        )?;
+    }
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_review_file_states_witness
+            ON review_file_states(review_id, file_witness, viewed);",
+    )?;
+    Ok(())
+}
+
+/// Creates the file witness when the version gate skipped its migration, for the same reason the
+/// decision schema carries one.
+pub(crate) fn repair_missing_review_file_witness(
+    connection: &Connection,
+) -> Result<(), DatabaseError> {
+    // Guarded on the table rather than the column: a database that never got migration 83 has no
+    // table to alter, and the decision repair above runs first and creates it.
+    if !table_exists(connection, "review_file_states")? {
+        return Ok(());
+    }
+    if table_has_column(connection, "review_file_states", "file_witness")? {
+        return Ok(());
+    }
+    apply_review_file_witness_schema(connection)
+}
+
+fn table_exists(connection: &Connection, name: &str) -> Result<bool, DatabaseError> {
+    let present: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [name],
+        |row| row.get(0),
+    )?;
+    Ok(present > 0)
 }
 
 /// Creates the decision schema when the version gate skipped its migration.
@@ -165,6 +220,7 @@ mod tests {
         for index in [
             "idx_review_hunk_decisions_snapshot",
             "idx_review_file_states_progress",
+            "idx_review_file_states_witness",
         ] {
             assert_eq!(count(&connection, "index", index), 1, "{index} must exist");
         }
@@ -172,6 +228,80 @@ mod tests {
 
     // The header reads "viewed files out of the files that changed", once per render of the Review
     // tab. Without the index that is a scan of every decision the review ever recorded.
+    // Migration 84's column, and the reason it is not the snapshot one beside it: a review
+    // snapshot covers every changed file, so a mark witnessed to it is cleared by an edit to a
+    // different file.
+    #[test]
+    fn a_file_view_row_carries_its_own_witness_beside_the_snapshot_it_was_made_in() {
+        let connection = reviewed();
+        connection
+            .execute(
+                "INSERT INTO review_file_states \
+                 (review_id, relative_path, snapshot_fingerprint, file_witness, viewed, viewed_at) \
+                 VALUES ('review-1', 'src/main.rs', 'snapshot-a', 'file-witness-1', 1, \
+                 '2026-08-27T00:00:00Z')",
+                [],
+            )
+            .expect("view row");
+
+        let (snapshot, witness): (String, String) = connection
+            .query_row(
+                "SELECT snapshot_fingerprint, file_witness FROM review_file_states",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("row");
+        assert_eq!(snapshot, "snapshot-a");
+        assert_ne!(witness, snapshot);
+    }
+
+    // Nullable on purpose: nothing had ever written a row when the column arrived, so there was
+    // nothing to backfill and no default that would not be a guess.
+    #[test]
+    fn a_row_may_predate_the_witness_column() {
+        let connection = reviewed();
+        connection
+            .execute(
+                "INSERT INTO review_file_states \
+                 (review_id, relative_path, snapshot_fingerprint, viewed, viewed_at) \
+                 VALUES ('review-1', 'src/main.rs', 'snapshot-a', 0, NULL)",
+                [],
+            )
+            .expect("row without a witness");
+    }
+
+    #[test]
+    fn the_witness_repair_restores_a_skipped_migration() {
+        let connection = reviewed();
+        // The version gate recorded 84 for another branch's migration, so the column never landed.
+        connection
+            .execute_batch(
+                "DROP INDEX idx_review_file_states_witness; \
+                 ALTER TABLE review_file_states DROP COLUMN file_witness;",
+            )
+            .expect("simulate the skipped migration");
+
+        repair_missing_review_file_witness(&connection).expect("repair");
+        assert_eq!(
+            count(&connection, "index", "idx_review_file_states_witness"),
+            1
+        );
+        // And again over a database that already has it.
+        repair_missing_review_file_witness(&connection).expect("second repair");
+    }
+
+    #[test]
+    fn the_witness_repair_does_nothing_when_the_table_itself_is_missing() {
+        let connection = reviewed();
+        connection
+            .execute_batch("DROP TABLE review_file_states;")
+            .expect("simulate a database that never got migration 83");
+
+        // The decision repair creates the table; this one must not fail trying to alter a table
+        // that is not there yet, because the two run in that order at startup.
+        repair_missing_review_file_witness(&connection).expect("repair with no table");
+    }
+
     #[test]
     fn the_viewed_progress_count_uses_its_index() {
         let connection = reviewed();

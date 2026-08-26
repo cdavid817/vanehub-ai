@@ -145,6 +145,61 @@ describe("web code review parity", () => {
     expect((await client.getCodeReview(review.id)).decision).toBe("pending");
   });
 
+  it("witnesses a viewed mark to the file rather than to the review snapshot", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+
+    const receipt = await client.setCodeReviewFileViewed({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      expectedSnapshotFingerprint: review.fingerprint,
+      viewed: true,
+    });
+
+    // A review snapshot covers every changed file, so a mark witnessed to it would be cleared by
+    // an edit to a different file. The fixture reproduces the distinction rather than papering
+    // over it, because a mock that agreed with itself would let the desktop path drift.
+    expect(receipt.viewed).toBe(true);
+    expect(receipt.fileWitness).not.toBe(review.fingerprint);
+    expect(receipt.viewedAt).toBeTruthy();
+    expect(receipt.simulated).toBe(true);
+  });
+
+  it("leaves no moment on a file the reviewer unmarks", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+    await client.setCodeReviewFileViewed({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      expectedSnapshotFingerprint: review.fingerprint,
+      viewed: true,
+    });
+
+    const cleared = await client.setCodeReviewFileViewed({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      expectedSnapshotFingerprint: review.fingerprint,
+      viewed: false,
+    });
+
+    expect(cleared.viewed).toBe(false);
+    expect(cleared.viewedAt).toBeUndefined();
+  });
+
+  it("refuses a viewed mark witnessed against an older snapshot", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+
+    await expect(
+      client.setCodeReviewFileViewed({
+        reviewId: review.id,
+        relativePath: "src/main.ts",
+        expectedSnapshotFingerprint: "an-older-snapshot",
+        viewed: true,
+      }),
+    ).rejects.toThrow("stale_witness");
+  });
+
   it("marks an anchor stale when its file disappears from a later snapshot", async () => {
     const source = workspace();
     const client = createWebCodeReviewClient(source);

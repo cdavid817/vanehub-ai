@@ -160,8 +160,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // observations **真的**是 0。一个编出几条记录的夹具,会在界面上放一个通向不存在记录的链接——
 // 那比没有链接更糟,因为读者会以为是应用坏了。
 // 上限按实测值 21838 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.5):+27 是"这个文件读过了吗"这条状态在服务边界上的三处——
+// 接口方法、Tauri 侧的 invoke、Web 侧按文件自身指纹记账的夹具。
+// 值得说明的是为什么 Web 侧那个夹具不能只存一个布尔:见证必须取自文件自身的指纹,而不是 review
+// 快照的指纹。快照指纹覆盖全部变更文件,任何一个文件被写就会变;把 Viewed 挂在它上面,等于
+// agent 动了一个文件就把其余十一个的"已读"全部清掉,于是"8 个文件 · 4 个未读"这类计数在真实
+// 会话里永远在归零,读者没法据此做任何事。夹具照着真实语义实现,才能在桌面侧走偏时先挂掉。
+// 上限按实测值 21865 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21838, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21865, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

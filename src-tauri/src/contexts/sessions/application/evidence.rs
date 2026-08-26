@@ -14,10 +14,6 @@ pub(crate) enum SessionEvidenceSignal {
         occurred_at: String,
     },
     /// A decision recorded about a whole review.
-    ///
-    /// File Viewed state is still not here: its store exists, but nothing writes it until 13.5,
-    /// and deriving it from a decision would mean asserting that deciding about a file is the same
-    /// as having read it.
     ReviewDecisionRecorded {
         session_id: String,
         review_id: String,
@@ -41,6 +37,21 @@ pub(crate) enum SessionEvidenceSignal {
         decision: SessionReviewDecision,
         /// The snapshot the decision was made against, for the same reason the review-level one
         /// carries it.
+        witness_fingerprint: String,
+        occurred_at: String,
+    },
+    /// A reviewer read one file.
+    ///
+    /// Never derived from a decision: deciding about a file and having read it are different
+    /// claims, and the second is the one a progress count is made of. Only reading is published —
+    /// unmarking is a reviewer taking a claim back, and "somebody stopped having read this" is not
+    /// an observation of anything that happened.
+    ReviewFileViewedRecorded {
+        session_id: String,
+        review_id: String,
+        /// Which version of the file, as its witness. The path stays in the review store, for the
+        /// same reason the hunk decision carries a fingerprint rather than a path.
+        file_witness: String,
         witness_fingerprint: String,
         occurred_at: String,
     },

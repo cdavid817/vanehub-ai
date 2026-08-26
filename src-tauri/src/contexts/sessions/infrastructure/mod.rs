@@ -16,7 +16,8 @@ mod usage_accounting_projection;
 
 pub(crate) use review_decision_repository::SqliteReviewDecisionRepository;
 pub(crate) use review_decision_schema::{
-    apply_review_decision_schema, repair_missing_review_decision_schema,
+    apply_review_decision_schema, apply_review_file_witness_schema,
+    repair_missing_review_decision_schema, repair_missing_review_file_witness,
 };
 pub(crate) use review_repository::{
     apply_schema as apply_review_schema, SqliteReviewRepository, SystemReviewClock, UuidReviewIds,

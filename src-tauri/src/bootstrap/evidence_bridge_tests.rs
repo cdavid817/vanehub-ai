@@ -1105,11 +1105,68 @@ fn a_review_decision_records_its_scope_and_witness() {
         stored.contains("review"),
         "the scope is review-level: {stored}"
     );
-    // A review-level decision says nothing about any hunk or any file. The hunk scope has its own
-    // signal and its own store; the file-viewed scope waits for 13.5. Deriving either from this
-    // would be a guess wearing an observation's clothes.
+    // A review-level decision says nothing about any hunk or any file. Both of those have their
+    // own signals and their own stores; deriving either from this would be a guess wearing an
+    // observation's clothes.
     assert!(!stored.contains("hunk"));
-    assert!(!stored.contains("fileViewed"));
+    assert!(!stored.contains("file_viewed"));
+}
+
+/// Reading a file reaches the journal under its own scope, carrying no judgement.
+#[test]
+fn a_file_viewed_records_the_file_viewed_scope_without_a_decision() {
+    let harness = harness("bridge-file-viewed");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    SessionEvidencePort::try_publish(
+        &bridge,
+        SessionEvidenceSignal::ReviewFileViewedRecorded {
+            session_id: SESSION.to_string(),
+            review_id: "review-1".to_string(),
+            file_witness: "file-witness-1".to_string(),
+            witness_fingerprint: "snapshot-a".to_string(),
+            occurred_at: "2026-08-27T10:00:00Z".to_string(),
+        },
+    );
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 1));
+    worker.shutdown();
+    let stored = stored_payload_json(&harness);
+    assert!(
+        stored.contains("file_viewed"),
+        "the scope says a file was read: {stored}"
+    );
+    // Having read a file is not a judgement about it, and `pending` is the value that says so.
+    // Recording it as accepted would report an approval the reviewer never gave.
+    assert!(!stored.contains("accepted"));
+    assert!(!stored.contains("changes_requested"));
+    // The path is not in the journal, for the same reason a hunk decision carries a fingerprint.
+    assert!(!stored.contains("src/"));
+}
+
+/// Re-reading the same version of the same file is the same observation. Reading it again after it
+/// changed is a different one, because the witness changed with it.
+#[test]
+fn re_reading_the_same_file_records_once_and_a_changed_file_records_again() {
+    let harness = harness("bridge-file-viewed-again");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+
+    for witness in ["file-witness-1", "file-witness-1", "file-witness-2"] {
+        SessionEvidencePort::try_publish(
+            &bridge,
+            SessionEvidenceSignal::ReviewFileViewedRecorded {
+                session_id: SESSION.to_string(),
+                review_id: "review-1".to_string(),
+                file_witness: witness.to_string(),
+                witness_fingerprint: "snapshot-a".to_string(),
+                occurred_at: "2026-08-27T10:00:00Z".to_string(),
+            },
+        );
+    }
+
+    assert!(wait_until(|| journal_event_count(&harness) >= 2));
+    worker.shutdown();
+    assert_eq!(journal_event_count(&harness), 2);
 }
 
 /// A hunk decision reaches the journal under its own scope, from its own signal.

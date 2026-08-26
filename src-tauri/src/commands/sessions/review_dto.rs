@@ -1,8 +1,8 @@
 use crate::commands::error::CommandError;
 use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
-    ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision, ReviewSession,
-    ReviewStatus,
+    ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision,
+    ReviewSession, ReviewStatus,
 };
 use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
 use serde::{Deserialize, Serialize};
@@ -223,6 +223,36 @@ impl ReviewHunkDecisionReceiptDto {
             relative_path: recorded.path,
             hunk_fingerprint: recorded.hunk_fingerprint,
             decision: decision(recorded.decision),
+            simulated: false,
+        }
+    }
+}
+
+/// What was recorded about a file being read.
+///
+/// The witness is echoed so a caller can tell a mark that survived a refresh from one that was
+/// re-made: same path, different witness means the file changed and the mark is about the new one.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewFileViewedReceiptDto {
+    review_id: String,
+    relative_path: String,
+    file_witness: String,
+    viewed: bool,
+    /// Absent when the file is not viewed, because there is no moment at which it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewed_at: Option<String>,
+    simulated: bool,
+}
+
+impl ReviewFileViewedReceiptDto {
+    pub(crate) fn recorded(review_id: String, state: ReviewFileViewState) -> Self {
+        Self {
+            review_id,
+            relative_path: state.path,
+            file_witness: state.file_witness,
+            viewed: state.viewed,
+            viewed_at: state.viewed_at,
             simulated: false,
         }
     }

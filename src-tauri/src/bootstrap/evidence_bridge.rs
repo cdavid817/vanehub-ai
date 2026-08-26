@@ -972,6 +972,7 @@ fn session_session(signal: &SessionEvidenceSignal) -> &str {
         SessionEvidenceSignal::UsageObserved { session_id, .. }
         | SessionEvidenceSignal::ReviewDecisionRecorded { session_id, .. }
         | SessionEvidenceSignal::ReviewHunkDecisionRecorded { session_id, .. }
+        | SessionEvidenceSignal::ReviewFileViewedRecorded { session_id, .. }
         | SessionEvidenceSignal::VerificationCompleted { session_id, .. } => session_id,
     }
 }
@@ -1105,6 +1106,41 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
                             ReviewDecisionValue::ChangesRequested
                         }
                     },
+                },
+                redaction: RedactionReceipt::none(),
+            })
+        }
+        SessionEvidenceSignal::ReviewFileViewedRecorded {
+            session_id,
+            review_id,
+            file_witness,
+            witness_fingerprint,
+            occurred_at,
+        } => {
+            let correlation = correlation(session_id, None, None)?;
+            Some(RecordEvidenceInput {
+                source_context: EvidenceSourceContext::Sessions,
+                // The review and the file's witness, then the moment folded in. Re-reading the
+                // same version of the same file is the same observation and records once; reading
+                // it again after it changed is a different one, because the witness changed with
+                // it.
+                source_event_id: source_event_id(
+                    "review-file-viewed",
+                    &[
+                        review_id,
+                        file_witness,
+                        &transition_revision(&[witness_fingerprint, occurred_at]),
+                    ],
+                )?,
+                occurred_at: occurred_at.clone(),
+                correlation,
+                status: None,
+                fidelity: ExecutionFidelity::Native,
+                payload: SafeEvidencePayload::ReviewDecisionRecorded {
+                    scope: ReviewDecisionScope::FileViewed,
+                    // Reading a file is not a judgement about it. `Pending` is the value that says
+                    // so, and the scope is what distinguishes this from a decision nobody made.
+                    decision: ReviewDecisionValue::Pending,
                 },
                 redaction: RedactionReceipt::none(),
             })

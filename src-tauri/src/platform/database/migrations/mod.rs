@@ -531,9 +531,16 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "review-decision-state",
         crate::contexts::sessions::infrastructure::apply_review_decision_schema,
     )?;
+    apply_migration(
+        conn,
+        84,
+        "review-file-viewed-witness",
+        crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -634,6 +641,7 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (81, "execution-evidence-journal"),
     (82, "unified-log-query-index"),
     (83, "review-decision-state"),
+    (84, "review-file-viewed-witness"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

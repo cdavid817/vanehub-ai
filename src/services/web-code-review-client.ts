@@ -5,9 +5,11 @@ import type {
   ReviewComment,
   ReviewDecision,
   ReviewDiffFile,
+  ReviewFileViewedReceipt,
   ReviewHunkDecisionReceipt,
   ReviewRevertReceipt,
   RevertReviewChangeInput,
+  SetReviewFileViewedInput,
   SetReviewHunkDecisionInput,
 } from "../types/code-review";
 import type { GitDiffResult, GitDiffSource, GitStatusResult } from "../types/session-workspace";
@@ -28,6 +30,8 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
   const reviews = new Map<string, CodeReview>();
   // Keyed by review, path, and hunk fingerprint so a decision cannot leak across hunks.
   const hunkDecisions = new Map<string, ReviewDecision>();
+  /** Keyed by review and path, holding the witness the mark was made against. */
+  const fileViews = new Map<string, { fileWitness: string; viewed: boolean; viewedAt?: string }>();
   let sequence = 0;
   const find = (reviewId: string) => {
     const review = reviews.get(reviewId);
@@ -158,6 +162,21 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         decision: input.decision,
         simulated: true,
       };
+    },
+    async setCodeReviewFileViewed(input: SetReviewFileViewedInput): Promise<ReviewFileViewedReceipt> {
+      const review = reviews.get(input.reviewId);
+      if (!review) throw new Error("review-not-found");
+      if (review.fingerprint !== input.expectedSnapshotFingerprint) throw new Error("stale_witness");
+      const file = review.files.find((entry) => entry.path === input.relativePath);
+      if (!file) throw new Error("review-file-not-found");
+      // Witnessed to the file, not to the review, so the fixture reproduces the behaviour that
+      // matters: an edit to one file leaves the marks on the others standing.
+      const fileWitness = fingerprint(
+        [file.path, file.previousPath ?? "", file.changeType, file.oldHash ?? "", file.newHash ?? ""].join("\u0000"),
+      );
+      const viewedAt = input.viewed ? new Date().toISOString() : undefined;
+      fileViews.set(JSON.stringify([input.reviewId, input.relativePath]), { fileWitness, viewed: input.viewed, viewedAt });
+      return { reviewId: input.reviewId, relativePath: input.relativePath, fileWitness, viewed: input.viewed, viewedAt, simulated: true };
     },
     async revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt> {
       if (!input.confirmed) throw new Error("review-revert-confirmation-required");

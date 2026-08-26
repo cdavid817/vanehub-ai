@@ -183,7 +183,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewHunkDecisionReceipt, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewHunkDecisionInput } from "../types/code-review";
+import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewFileViewedReceipt, ReviewHunkDecisionReceipt, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewFileViewedInput, SetReviewHunkDecisionInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -256,6 +256,9 @@ export const tauriAgentClient: AgentService = {
     // Its own command, never a fall-back to the review-level mutation. That fall-back is the
     // defect this method exists to remove: accepting one hunk accepted the whole review.
     return invoke<ReviewHunkDecisionReceipt>("set_code_review_hunk_decision", { input });
+  },
+  setCodeReviewFileViewed(input: SetReviewFileViewedInput) {
+    return invoke<ReviewFileViewedReceipt>("set_code_review_file_viewed", { input });
   },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });

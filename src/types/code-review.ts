@@ -68,6 +68,33 @@ export interface SetReviewHunkDecisionInput {
   decision: ReviewDecision;
 }
 
+export interface SetReviewFileViewedInput {
+  reviewId: string;
+  relativePath: string;
+  /** The review snapshot the user was looking at. A later snapshot rejects the mark. */
+  expectedSnapshotFingerprint: string;
+  viewed: boolean;
+}
+
+/**
+ * What was recorded about a file being read.
+ *
+ * `fileWitness` is what the mark is about, and it is not the review's snapshot fingerprint. A
+ * review snapshot covers every changed file, so witnessing Viewed to it would clear all twelve
+ * marks because an agent wrote to one — a progress count that resets on unrelated work is one
+ * nobody can act on. The witness moves only when that file moves.
+ */
+export interface ReviewFileViewedReceipt {
+  reviewId: string;
+  relativePath: string;
+  fileWitness: string;
+  viewed: boolean;
+  /** Absent when the file is not viewed, because there is no moment at which it was. */
+  viewedAt?: string;
+  /** True when only fixture memory changed: no review row, Git index, or working tree was touched. */
+  simulated: boolean;
+}
+
 export interface ReviewHunkDecisionReceipt {
   reviewId: string;
   relativePath: string;

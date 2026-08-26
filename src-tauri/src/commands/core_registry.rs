@@ -99,6 +99,7 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::select_code_review_comment::select_code_review_comment,
         crate::commands::sessions::set_code_review_decision::set_code_review_decision,
         crate::commands::sessions::set_code_review_hunk_decision::set_code_review_hunk_decision,
+        crate::commands::sessions::set_code_review_file_viewed::set_code_review_file_viewed,
         crate::commands::sessions::revert_code_review_change::revert_code_review_change,
         crate::commands::sessions::send_code_review_feedback::send_code_review_feedback,
         crate::commands::sessions::start_code_review_action::start_code_review_action,

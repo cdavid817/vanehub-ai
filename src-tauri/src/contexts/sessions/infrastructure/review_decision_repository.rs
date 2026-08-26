@@ -1,5 +1,5 @@
 use crate::contexts::sessions::application::{ReviewApplicationError, ReviewDecisionRepository};
-use crate::contexts::sessions::domain::{ReviewDecision, ReviewHunkDecision};
+use crate::contexts::sessions::domain::{ReviewDecision, ReviewFileViewState, ReviewHunkDecision};
 use crate::platform::database::NativeDatabase;
 use rusqlite::params;
 
@@ -20,6 +20,71 @@ impl SqliteReviewDecisionRepository {
 }
 
 impl ReviewDecisionRepository for SqliteReviewDecisionRepository {
+    fn upsert_file_view_state(
+        &self,
+        review_id: &str,
+        state: &ReviewFileViewState,
+    ) -> Result<(), ReviewApplicationError> {
+        let connection = self.database.connection().map_err(repository_error)?;
+        connection
+            .execute(
+                "INSERT INTO review_file_states                  (review_id, relative_path, snapshot_fingerprint, file_witness, viewed, viewed_at)                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)                  ON CONFLICT(review_id, relative_path) DO UPDATE SET                  snapshot_fingerprint = excluded.snapshot_fingerprint,                  file_witness = excluded.file_witness,                  viewed = excluded.viewed,                  viewed_at = excluded.viewed_at",
+                params![
+                    review_id,
+                    state.path,
+                    state.snapshot_fingerprint,
+                    state.file_witness,
+                    i64::from(state.viewed),
+                    state.viewed_at,
+                ],
+            )
+            .map_err(repository_error)?;
+        Ok(())
+    }
+
+    fn list_file_view_states(
+        &self,
+        review_id: &str,
+    ) -> Result<Vec<ReviewFileViewState>, ReviewApplicationError> {
+        let connection = self.database.connection().map_err(repository_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT relative_path, snapshot_fingerprint, file_witness, viewed, viewed_at                  FROM review_file_states WHERE review_id = ?1 ORDER BY relative_path",
+            )
+            .map_err(repository_error)?;
+        let rows = statement
+            .query_map(params![review_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(repository_error)?;
+
+        let mut states = Vec::new();
+        for row in rows {
+            let (path, snapshot_fingerprint, file_witness, viewed, viewed_at) =
+                row.map_err(repository_error)?;
+            // A row written before migration 84 has no witness, so nothing can say whether its
+            // mark still applies. Skipped rather than shown: presenting it as viewed would claim a
+            // reviewer read a version of the file this database cannot identify.
+            let Some(file_witness) = file_witness else {
+                continue;
+            };
+            states.push(ReviewFileViewState::try_new(
+                path,
+                snapshot_fingerprint,
+                file_witness,
+                viewed != 0,
+                viewed_at,
+            )?);
+        }
+        Ok(states)
+    }
+
     fn upsert_hunk_decision(
         &self,
         review_id: &str,
@@ -128,6 +193,7 @@ fn repository_error(error: impl std::fmt::Display) -> ReviewApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::sessions::domain::ReviewFileViewState;
     use crate::test_support::TempDirectory;
 
     /// A database holding one review to record decisions against.
@@ -256,6 +322,63 @@ mod tests {
             .expect("review row");
         assert_eq!(review_decision, "pending");
         assert!(!updated_at.is_empty());
+    }
+
+    fn view_state(path: &str, viewed: bool) -> ReviewFileViewState {
+        ReviewFileViewState::try_new(
+            path.into(),
+            "snapshot-a".into(),
+            format!("witness-{path}"),
+            viewed,
+            viewed.then(|| "2026-08-27T00:00:00Z".to_string()),
+        )
+        .expect("view state")
+    }
+
+    #[test]
+    fn a_view_state_round_trips_and_replaces_itself() {
+        let (_directory, repository) = reviewed("review-file-views");
+        repository
+            .upsert_file_view_state("review-1", &view_state("src/a.rs", true))
+            .expect("first");
+        repository
+            .upsert_file_view_state("review-1", &view_state("src/a.rs", false))
+            .expect("second");
+
+        let states = repository.list_file_view_states("review-1").expect("list");
+        assert_eq!(states, vec![view_state("src/a.rs", false)]);
+    }
+
+    #[test]
+    fn a_row_from_before_the_witness_column_is_skipped_rather_than_shown_as_viewed() {
+        let (directory, repository) = reviewed("review-file-views-legacy");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
+        // What migration 83 could write and migration 84 could not backfill: a mark with nothing
+        // to say which version of the file it was made about.
+        database
+            .connection()
+            .expect("connection")
+            .execute(
+                "INSERT INTO review_file_states \
+                 (review_id, relative_path, snapshot_fingerprint, file_witness, viewed, viewed_at) \
+                 VALUES ('review-1', 'src/legacy.rs', 'snapshot-a', NULL, 1, \
+                 '2026-08-27T00:00:00Z')",
+                [],
+            )
+            .expect("legacy row");
+        repository
+            .upsert_file_view_state("review-1", &view_state("src/a.rs", true))
+            .expect("current row");
+
+        // Showing it as viewed would claim a reviewer read a version of the file this database
+        // cannot identify, which is the one thing a witness exists to prevent.
+        let listed: Vec<String> = repository
+            .list_file_view_states("review-1")
+            .expect("list")
+            .into_iter()
+            .map(|state| state.path)
+            .collect();
+        assert_eq!(listed, vec!["src/a.rs".to_string()]);
     }
 
     #[test]
