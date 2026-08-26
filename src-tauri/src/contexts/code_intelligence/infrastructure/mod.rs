@@ -90,6 +90,7 @@ mod shutdown_coordinator_tests;
 pub(crate) use configuration_repository::SqliteCodeIntelligenceRepository;
 pub(crate) use document_invalidation::LspDocumentInvalidationQueue;
 pub(crate) use lsp_diagnostics::LspDiagnosticLogger;
+pub(crate) use position_conversion::AgentPosition;
 pub(crate) use process_registry::{ActivationReason, LifecyclePolicy};
 pub(crate) use project_root::{ProcessKey, ProjectRootError, ProjectRootResolver};
 pub(crate) use runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};

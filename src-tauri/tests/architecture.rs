@@ -2412,9 +2412,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // output framer's skip-and-resume path. They are increments over different bases against
     // different files, so the merged tree is neither figure and not their sum. The number below is
     // a direct measurement of the merged tree.
+    //
+    // `expand-lsp-read-only-methods` raises it to 61,799 for five new read-only LSP tools. The
+    // Agent-facing cost of a tool here is not one function: `AgentCodeIntelligencePort` and
+    // `AgentCodeIntelligenceResponderPort` each gain a method, the runtime adapter and the
+    // unavailable responder each implement it, and three test doubles do the same. Five tools
+    // across seven implementations is where the +375 goes; there is no duplication in it to
+    // remove. What was removable was removed in the same commit: `execute_code_intelligence_tool`
+    // moved out of `native_tools.rs` into its own module, which is why the per-path budget below
+    // did not have to move.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_424,
+        budget: 61_799,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2480,7 +2489,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // `main` to 33,049, for the provider framer's skip-and-resume path and its post-stream
         // discarded-records log. Different files, so the merged tree is measured rather than
         // guessed at from either.
-        budget: 33_457,
+        //
+        // `expand-lsp-read-only-methods` raises it to 33,742. Every line of the +285 is production:
+        // port methods, adapter implementations, and the symbol and call-relation result shapes.
+        // The three test doubles that also gained methods are counted by the aggregate above and
+        // deliberately not by this one.
+        budget: 33_742,
         owner: "decompose-api-tool-use-loop",
     },
 ];

@@ -39,9 +39,14 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
     assert_eq!(
         tool_names,
         [
+            "find_call_hierarchy",
             "find_definition",
+            "find_implementations",
             "find_references",
+            "find_type_definition",
+            "find_workspace_symbols",
             "get_diagnostics",
+            "get_document_symbols",
             "get_hover",
         ]
     );

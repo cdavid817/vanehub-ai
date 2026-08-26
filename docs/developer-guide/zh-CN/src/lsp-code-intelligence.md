@@ -98,7 +98,7 @@ Agent 坐标与规范化的结果范围是 1 起始的。协议坐标是 0 起�
 
 ## Agent 工具与硬上限
 
-provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只读工具:
+provider 中立的目录在普通与 Plan Mode 生成中按条件暴露九个只读工具:
 
 | 工具 | 协议方法或来源 | 约束 |
 | --- | --- | --- |
@@ -106,6 +106,19 @@ provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只
 | `find_references` | `textDocument/references` | 50 个接受的位置,确定性顺序 |
 | `get_hover` | `textDocument/hover` | 有界的签名、文档与序列化输出 |
 | `get_diagnostics` | `textDocument/publishDiagnostics` 缓存 | 有界的数量与消息内容 |
+| `find_type_definition` | `textDocument/typeDefinition` | 20 个接受的位置 |
+| `find_implementations` | `textDocument/implementation` | 20 个接受的位置 |
+| `find_workspace_symbols` | `workspace/symbol` | 50 个接受的符号 |
+| `get_document_symbols` | `textDocument/documentSymbol` | 200 个接受的符号,深度 8 |
+| `find_call_hierarchy` | `textDocument/prepareCallHierarchy` 然后 `callHierarchy/incomingCalls` 或 `outgoingCalls` | 50 条关系,每条 20 个调用点,整个交换共用**一个** 10 秒预算 |
+
+**工具只追加,绝不插入。** provider 会缓存工具定义前缀,重排前面的条目会让每个符合条件的会话白白丢掉 prompt cache——而 diff 里看不出这一点,因为所有名字都还在。`the_first_four_code_intelligence_tools_keep_their_declaration_order` 会在前缀被挪动时失败。
+
+调用层级是三个请求包装成一个工具,并且**整体只有一个**截止时间,而不是每一步各用单请求预算。两步各用单请求预算,会让一个慢服务端花掉其他工具两倍的时间,而每个单独请求看上去都还健康。准备阶段解析出多个条目时只跟进第一个,并以 `ready` 加 `call_hierarchy_items_not_followed` 报告;全部跟进会让请求数乘上一个由服务端决定的倍数。
+
+`find_workspace_symbols` 指定了文档但并不以它为范围。路径用来选服务端——也就是选 project root——因为 LSP 里没有"仓库"这个概念,而一个仓库可以装下多个项目。它也是唯一没有文档租约的方法:完全跳过准入,因此可以在不打开任何文件的情况下运行,并且不报告文档版本——它根本没有。
+
+协商能力以 `SemanticMethod::ALL` 上的列表形式承载,本次构建实现的每个方法一条,带 `supported` 标志。"缺席"和 `supported: false` 是两件不同的事:缺席意味着客户端压根没实现这个方法,只有后者是用户换个服务端就能解决的。`SemanticMethod::ALL` 与工具目录同理,只能追加——它的顺序就是设置卡片的渲染顺序。
 
 工作区作用域始终来自当前会话。模型不能选择工作区、根、服务端路径或 URI scheme。只有规范工作区内通过准入的 `file:` 位置能在规范化后留存。
 
@@ -142,7 +155,7 @@ SQLite 持有默认禁用的主机配置与规范工作区信任记录。可执�
 
 路线图上剩下的是 Java,而它不适配:`jdtls` 经由 JVM 启动、带一个每工作区独立的 data 目录、launcher jar 名字还带版本号通配,而不是"可执行文件 + 固定参数",需要这个模型尚未表达的启动形态。
 
-本基础同样有意排除远程工作区、下载的服务端、格式化、补全、重命名、code action、工作区编辑、调用/类型层级、文件系统监听、未保存缓冲区与持久化的 LSP 增强。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
+本基础同样有意排除远程工作区、下载的服务端、格式化、补全、重命名、code action、工作区编辑、文件系统监听、未保存缓冲区与持久化的 LSP 增强。调用层级与类型定义在 `expand-lsp-read-only-methods` 之前也在这份排除清单上;它们是只读的,因此移入了范围而不是继续被排除。类型**层级**(`typeHierarchy/supertypes`)仍在范围之外。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
 
 LSP 不标准化可移植的服务端内存或已索引文件数,因此状态契约必须将这些指标保持为不支持,而不是捏造它们。
 
@@ -225,7 +238,7 @@ sequenceDiagram
 
 LSP 是只读基础，安全性由四道闸门共同保证，而不是依赖单一检查：
 
-1. **只读工具目录**：`find_definition`/`find_references`/`get_hover`/`get_diagnostics` 全部只读；服务端到客户端的工作区编辑（`workspace/applyEdit` 等）被这个只读基础直接拒绝。
+1. **只读工具目录**：九个工具全部只读，包括后加的类型定义、实现、符号搜索与调用层级；服务端到客户端的工作区编辑（`workspace/applyEdit` 等）被这个只读基础直接拒绝。
 2. **会话工作区作用域**：工作区始终来自当前会话；只有规范工作区内通过准入的 `file:` 位置能在规范化后留存。
 3. **磁盘为准**：VaneHub 不维护未保存编辑器缓冲区；磁盘内容是权威，Agent 的精确写入会立即使匹配的租约失效。
 4. **隔离测试四阶段**：服务端测试走 `Discovery → Spawn → Initialize → Cleanup` 四阶段，畸形的能力必须失败关闭，且清理仍须运行。

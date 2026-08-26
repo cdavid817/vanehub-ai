@@ -18,9 +18,6 @@ import {
   type LspServerDiscovery,
   type LspServerKind,
   type LspServerStatus,
-  type LspToolName,
-  type LspToolResult,
-  type LspToolResultMetadata,
   type LspWorkspaceTrust,
 } from "../types/lsp";
 
@@ -77,13 +74,22 @@ function invalidLanguage(language: string): never {
   throw new Error(`The Web LSP mock does not register the language "${language}".`);
 }
 
+// Mirrors what the desktop registry declares it implements. Adding a method there means adding
+// an entry here, which is the same mock-registry arrangement the languages use.
 const capabilities: LspNegotiatedCapabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+    { method: "type_definition", supported: true },
+    { method: "implementation", supported: true },
+    { method: "workspace_symbols", supported: true },
+    { method: "document_symbols", supported: true },
+    { method: "call_hierarchy", supported: true },
+  ],
 };
 
 function defaultConfiguration(): LspConfiguration {
@@ -241,44 +247,5 @@ export const webLspClient: WebLspClient = {
 
   async getLspServerStatus() {
     return clone(normalizeLspServerStatuses(enabledLanguages().map(statusFor)));
-  },
-};
-
-export interface WebLspToolClient {
-  execute(tool: LspToolName): Promise<LspToolResult>;
-}
-
-function unavailableToolMetadata(): LspToolResultMetadata {
-  return {
-    status: "unavailable",
-    server: null,
-    language: null,
-    document_version: null,
-    stale: false,
-    returned_count: 0,
-    total: 0,
-    truncated: false,
-    filtered_count: 0,
-    reason_code: "web_runtime_unavailable",
-  };
-}
-
-function unavailableToolResult(tool: LspToolName): LspToolResult {
-  const metadata = unavailableToolMetadata();
-  switch (tool) {
-    case "find_definition":
-      return { metadata, definitions: [] };
-    case "find_references":
-      return { metadata, references: [] };
-    case "get_hover":
-      return { metadata, hover: null };
-    case "get_diagnostics":
-      return { metadata, diagnostics: [] };
-  }
-}
-
-export const webLspToolClient: WebLspToolClient = {
-  async execute(tool) {
-    return clone(unavailableToolResult(tool));
   },
 };

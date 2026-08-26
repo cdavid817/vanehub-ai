@@ -1,11 +1,14 @@
 use super::document_invalidation::LspDocumentInvalidationQueue;
 use super::lsp_diagnostics::LspDiagnosticLogger;
+use super::position_conversion::AgentPosition;
 use super::process_registry::LifecyclePolicy;
 use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};
 use super::semantic_query_coordinator::SemanticQueryCoordinator;
 use super::shutdown_coordinator::LspShutdownCoordinator;
-use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, QueryStatus};
+use crate::contexts::code_intelligence::domain::models::{
+    CallDirection, ConfigurationFingerprint, NormalizedSymbol, QueryStatus,
+};
 use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
@@ -186,6 +189,296 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     }
 }
 
+#[tokio::test]
+async fn type_definition_and_implementations_reuse_the_definition_shape() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let type_definition = queries
+        .find_type_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(type_definition.status(), QueryStatus::Ready);
+    let located = type_definition.value().expect("type definitions");
+    assert_eq!(located.len(), 1);
+    assert_eq!(located[0].file(), "src/lib.rs");
+    // The fixture answers in LocationLink form with a wide target range and a narrow selection
+    // range. Columns 4..9 are the selection range, so the link path is not silently falling back
+    // to the enclosing target range.
+    assert_eq!(located[0].range.start_column, 4);
+    assert_eq!(located[0].range.end_column, 9);
+
+    let implementations = queries
+        .find_implementations(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    // Nothing implements it. `ready` with an empty list says that; `unavailable` would say the
+    // server could not answer, which is a different thing and would send the agent looking again.
+    assert_eq!(implementations.status(), QueryStatus::Ready);
+    assert!(implementations.value().expect("implementations").is_empty());
+    assert_eq!(implementations.total, 0);
+    assert!(!implementations.truncated);
+}
+
+#[tokio::test]
+async fn an_unadvertised_method_is_refused_without_reaching_the_server() {
+    let fixture = SemanticFixture::with_mode("lsp-unadvertised");
+    let queries = coordinator();
+
+    let refused = queries
+        .find_implementations(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(refused.status(), QueryStatus::Unavailable);
+    assert_eq!(refused.reason_code(), Some("method_unsupported"));
+
+    // That mode exits on an unadvertised request, so a definition query still being answered is
+    // the evidence that nothing was sent -- an assertion on the outcome alone would also pass if
+    // the request went out and the server merely declined it.
+    let definition = queries
+        .find_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(definition.status(), QueryStatus::Ready);
+}
+
+#[tokio::test]
+async fn workspace_symbols_are_bounded_filtered_and_refuse_an_empty_query() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let empty = queries
+        .find_workspace_symbols(fixture.launch.clone(), registry::rust(), "  ", active())
+        .await;
+    // Refused here rather than sent on: the servers that answer an empty query answer it with the
+    // whole index, and the ones that do not disagree about what it means.
+    assert_eq!(empty.status(), QueryStatus::Failed);
+    assert_eq!(empty.reason_code(), Some("invalid_query"));
+
+    // Opened by an earlier query, because workspace symbols themselves open nothing -- the fixture
+    // answers with locations in that document.
+    let opened = queries
+        .find_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(opened.status(), QueryStatus::Ready);
+
+    let symbols = queries
+        .find_workspace_symbols(fixture.launch.clone(), registry::rust(), "alpha", active())
+        .await;
+    assert_eq!(symbols.status(), QueryStatus::Ready);
+    let found = symbols.value().expect("workspace symbols");
+    assert_eq!(found.len(), 50);
+    assert_eq!(symbols.total, 55);
+    assert!(symbols.truncated);
+    // The match outside the canonical workspace, dropped before the Agent sees it.
+    assert_eq!(symbols.filtered_count, 1);
+    assert_eq!(found[0].name, "alpha_0");
+    assert_eq!(found[0].kind, "function");
+    assert_eq!(found[0].container.as_deref(), Some("fixture"));
+    assert_eq!(found[0].location.file(), "src/lib.rs");
+    // No document was named, so there is no version to report and none is invented.
+    assert!(symbols.document_version().is_none());
+}
+
+#[tokio::test]
+async fn nested_and_flat_document_symbols_produce_the_same_shape() {
+    let nested = document_symbols_from("lsp-semantic").await;
+    let flat = document_symbols_from("lsp-flat-symbols").await;
+
+    // The protocol lets a server answer in either form for the same content. Which one it picks is
+    // not something the Agent should be able to tell.
+    assert_eq!(nested, flat);
+    assert_eq!(nested.len(), 2);
+    assert_eq!(nested[0].name, "alpha");
+    assert_eq!(nested[0].kind, "function");
+    assert_eq!(nested[0].container, None);
+    assert_eq!(nested[0].location.range.start_column, 4);
+    assert_eq!(nested[0].location.range.end_column, 9);
+    // The nesting is flattened away, so each entry names what encloses it or the hierarchy is lost.
+    assert_eq!(nested[1].name, "inner");
+    assert_eq!(nested[1].container.as_deref(), Some("alpha"));
+}
+
+#[tokio::test]
+async fn a_rejected_document_never_reaches_the_server() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    // Outside the workspace. Admission refuses it before a lease exists, so nothing is sent and
+    // the server never learns the path was asked for.
+    let escaped = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "../outside.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(escaped.status(), QueryStatus::Failed);
+    assert_eq!(escaped.reason_code(), Some("document_unavailable"));
+
+    let missing = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/absent.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(missing.status(), QueryStatus::Failed);
+    assert_eq!(missing.reason_code(), Some("document_unavailable"));
+}
+
+#[tokio::test]
+async fn call_hierarchy_follows_one_prepared_item_and_reports_the_rest() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let incoming = queries
+        .find_call_hierarchy(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            AgentPosition::new(1, 1),
+            CallDirection::Incoming,
+            active(),
+        )
+        .await;
+    assert_eq!(incoming.status(), QueryStatus::Ready);
+    let relations = incoming.value().expect("call relations");
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0].symbol.name, "caller");
+    assert_eq!(relations[0].symbol.kind, "function");
+    // `detail` is what the protocol offers about the containing signature, so it lands in the
+    // field a flattened symbol uses for the same purpose.
+    assert_eq!(
+        relations[0].symbol.container.as_deref(),
+        Some("fn caller()")
+    );
+    assert_eq!(relations[0].symbol.location.file(), "src/lib.rs");
+    assert_eq!(relations[0].call_sites.len(), 1);
+    // The fixture prepares two items and only the first is walked, so a ready answer that is not
+    // the whole answer has to say so.
+    assert!(incoming.truncated);
+    assert_eq!(
+        incoming.reason_code(),
+        Some("call_hierarchy_items_not_followed")
+    );
+
+    // Preparation resolving nothing is an answer, not a failure, and no calls request follows it.
+    // The fixture exits if one arrives naming an item it did not prepare.
+    let none = queries
+        .find_call_hierarchy(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            AgentPosition::new(1, 5),
+            CallDirection::Outgoing,
+            active(),
+        )
+        .await;
+    assert_eq!(none.status(), QueryStatus::Ready);
+    assert!(none.value().expect("empty relations").is_empty());
+    assert!(!none.truncated);
+    assert_eq!(none.reason_code(), None);
+}
+
+#[tokio::test]
+async fn cancelling_between_the_two_call_hierarchy_steps_sends_nothing_further() {
+    let fixture = SemanticFixture::with_mode("lsp-hang-calls");
+    let queries = coordinator();
+    let cancelled = Arc::new(AtomicBool::new(false));
+
+    // That mode prepares normally and then never answers the direction request, so the only thing
+    // that can end this is the client's own cancellation.
+    let pending = tokio::spawn({
+        let queries = queries.clone();
+        let launch = fixture.launch.clone();
+        let cancelled = cancelled.clone();
+        async move {
+            queries
+                .find_call_hierarchy(
+                    launch,
+                    registry::rust(),
+                    "src/lib.rs",
+                    AgentPosition::new(1, 1),
+                    CallDirection::Incoming,
+                    cancelled,
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    cancelled.store(true, Ordering::Release);
+    let outcome = tokio::time::timeout(Duration::from_secs(3), pending)
+        .await
+        .expect("cancellation completes inside the cleanup reserve, not the request deadline")
+        .expect("cancelled call hierarchy");
+
+    assert_eq!(outcome.status(), QueryStatus::Failed);
+    assert_eq!(outcome.reason_code(), Some("generation_cancelled"));
+}
+
+async fn document_symbols_from(server_mode: &str) -> Vec<NormalizedSymbol> {
+    let fixture = SemanticFixture::with_mode(server_mode);
+    let queries = coordinator();
+    let symbols = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(symbols.status(), QueryStatus::Ready, "{server_mode}");
+    assert_eq!(
+        symbols.document_version().map(|version| version.value()),
+        Some(1),
+        "{server_mode}"
+    );
+    symbols.into_value().expect("document symbols")
+}
+
+fn coordinator() -> SemanticQueryCoordinator {
+    let processes = RuntimeProcessCoordinator::new(
+        LspShutdownCoordinator::new(),
+        LifecyclePolicy::default(),
+        LspDiagnosticLogger::new(Arc::new(CapturingLogs::default())),
+    );
+    SemanticQueryCoordinator::new(processes, LspDocumentInvalidationQueue::default())
+}
+
 #[derive(Default)]
 struct CapturingLogs(Mutex<Vec<DiagnosticLog>>);
 
@@ -208,6 +501,10 @@ struct SemanticFixture {
 
 impl SemanticFixture {
     fn new() -> Self {
+        Self::with_mode("lsp-semantic")
+    }
+
+    fn with_mode(server_mode: &str) -> Self {
         let workspace = tempfile::tempdir().expect("workspace");
         std::fs::write(
             workspace.path().join("Cargo.toml"),
@@ -232,7 +529,7 @@ impl SemanticFixture {
                     .join("tests/fixtures/lsp_stdio_server.cjs")
                     .to_string_lossy()
                     .into_owned(),
-                "lsp-semantic".to_owned(),
+                server_mode.to_owned(),
             ],
             initialization_options: json!({}),
         };

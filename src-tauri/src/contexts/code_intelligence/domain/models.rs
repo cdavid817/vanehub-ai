@@ -139,32 +139,86 @@ pub(crate) enum DocumentSyncMode {
     Incremental,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum SemanticMethod {
     Definition,
     References,
     Hover,
     Diagnostics,
+    TypeDefinition,
+    Implementation,
+    WorkspaceSymbols,
+    DocumentSymbols,
+    CallHierarchy,
+}
+
+impl SemanticMethod {
+    /// Every method this client implements, in the order every negotiated record lists them. Two
+    /// servers negotiating the same set therefore report it identically, and nothing that renders
+    /// the list has to sort it to be deterministic.
+    ///
+    /// A variant missing from here is negotiated for no server and offered to nobody. The
+    /// compiler cannot catch that, so `all_lists_every_semantic_method` does.
+    ///
+    /// Append, never insert. The order is what the settings card renders, and reordering it moves
+    /// rows under a reader for no reason a reader can see.
+    pub(crate) const ALL: &'static [Self] = &[
+        Self::Definition,
+        Self::References,
+        Self::Hover,
+        Self::Diagnostics,
+        Self::TypeDefinition,
+        Self::Implementation,
+        Self::WorkspaceSymbols,
+        Self::DocumentSymbols,
+        Self::CallHierarchy,
+    ];
+
+    /// Stable wire and localization identifier. Not the LSP method name: that is a protocol
+    /// detail the transport owns, while this crosses the command boundary.
+    pub(crate) const fn id(self) -> &'static str {
+        match self {
+            Self::Definition => "definition",
+            Self::References => "references",
+            Self::Hover => "hover",
+            Self::Diagnostics => "diagnostics",
+            Self::TypeDefinition => "type_definition",
+            Self::Implementation => "implementation",
+            Self::WorkspaceSymbols => "workspace_symbols",
+            Self::DocumentSymbols => "document_symbols",
+            // One identifier for all three requests: preparing a hierarchy and then walking it in
+            // one direction is one operation from the caller's side, and one capability from the
+            // server's.
+            Self::CallHierarchy => "call_hierarchy",
+        }
+    }
+}
+
+/// One method the client implements, and whether this server advertised it.
+///
+/// `supported: false` is deliberately different from the method being absent. Absent means the
+/// client does not implement it at all; present-and-false means the server does not offer it, and
+/// only the second is something a user can fix by changing servers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NegotiatedMethod {
+    pub(crate) method: SemanticMethod,
+    pub(crate) supported: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NegotiatedCapabilities {
+    // Position encoding and synchronization stay fields. Neither has a supported-or-not axis, so
+    // folding them into the method list would mean inventing a `supported` value for a setting.
     pub(crate) position_encoding: PositionEncoding,
     pub(crate) document_sync: DocumentSyncMode,
-    pub(crate) definition: bool,
-    pub(crate) references: bool,
-    pub(crate) hover: bool,
-    pub(crate) diagnostics: bool,
+    pub(crate) methods: Vec<NegotiatedMethod>,
 }
 
 impl NegotiatedCapabilities {
-    pub(crate) const fn supports(&self, method: SemanticMethod) -> bool {
-        match method {
-            SemanticMethod::Definition => self.definition,
-            SemanticMethod::References => self.references,
-            SemanticMethod::Hover => self.hover,
-            SemanticMethod::Diagnostics => self.diagnostics,
-        }
+    pub(crate) fn supports(&self, method: SemanticMethod) -> bool {
+        self.methods
+            .iter()
+            .any(|entry| entry.method == method && entry.supported)
     }
 }
 
@@ -264,6 +318,56 @@ pub(crate) enum DiagnosticSeverity {
     Warning,
     Information,
     Hint,
+}
+
+/// A symbol as the Agent sees it: workspace-relative, with its enclosing symbol named so a
+/// flattened list still says where each entry sits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedSymbol {
+    pub(crate) name: String,
+    /// One of a closed set this build maps from the protocol's numeric kinds, so it is a `&'static
+    /// str` rather than whatever the server sent.
+    pub(crate) kind: &'static str,
+    pub(crate) container: Option<String>,
+    pub(crate) location: NormalizedLocation,
+}
+
+impl NormalizedSymbol {
+    pub(crate) fn new(
+        name: impl Into<String>,
+        kind: &'static str,
+        container: Option<String>,
+        location: NormalizedLocation,
+    ) -> Result<Self, DomainModelError> {
+        let name = name.into();
+        if name.trim().is_empty() {
+            return Err(DomainModelError::EmptyValue("normalized symbol name"));
+        }
+        Ok(Self {
+            name,
+            kind,
+            container: container.filter(|value| !value.trim().is_empty()),
+            location,
+        })
+    }
+}
+
+/// Which way a call hierarchy is walked. The protocol asks for one direction per request, and
+/// asking for both would double a budget the caller cannot see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallDirection {
+    Incoming,
+    Outgoing,
+}
+
+/// One end of a call relation, with the sites that produce it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedCallRelation {
+    pub(crate) symbol: NormalizedSymbol,
+    /// Where the call appears. For an incoming call these sit inside the caller's own file; for an
+    /// outgoing call they sit inside the file the query started from. The protocol calls both
+    /// `fromRanges`, which is the same word for two different files.
+    pub(crate) call_sites: Vec<NormalizedRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,6 +494,30 @@ impl<T> QueryOutcome<T> {
             value: Some(value),
             language: Some(language),
             document_version: Some(document_version),
+            stale: false,
+            returned_count,
+            total,
+            truncated,
+            filtered_count,
+            reason_code: None,
+        }
+    }
+
+    /// A ready outcome for a query that names no document. A workspace-wide answer has no version
+    /// to report, and inventing one would let a caller compare it against a real one.
+    pub(crate) fn ready_without_document(
+        value: T,
+        language: Language,
+        returned_count: usize,
+        total: usize,
+        truncated: bool,
+        filtered_count: usize,
+    ) -> Self {
+        Self {
+            status: QueryStatus::Ready,
+            value: Some(value),
+            language: Some(language),
+            document_version: None,
             stale: false,
             returned_count,
             total,

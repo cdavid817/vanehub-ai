@@ -13,12 +13,6 @@ function stateTone(state: LspProcessState): "success" | "warning" | "danger" | "
 
 function CapabilitySummary({ capabilities }: { capabilities: LspNegotiatedCapabilities }) {
   const { t } = useTranslation();
-  const booleanCapabilities = [
-    ["definition", capabilities.definition],
-    ["references", capabilities.references],
-    ["hover", capabilities.hover],
-    ["diagnostics", capabilities.diagnostics],
-  ] as const;
   const positionEncoding = capabilities.positionEncoding === "utf16" ? "UTF-16" : "UTF-8";
 
   return (
@@ -35,12 +29,14 @@ function CapabilitySummary({ capabilities }: { capabilities: LspNegotiatedCapabi
           <dt>{t("lspSettings.capability.documentSync")}</dt>
           <dd><code>{capabilities.documentSync}</code></dd>
         </div>
-        {booleanCapabilities.map(([capability, enabled]) => (
-          <div className="flex items-center justify-between gap-2 rounded-md bg-background/70 p-2" key={capability}>
-            <dt>{t(`lspSettings.capability.${capability}`)}</dt>
+        {capabilities.methods.map(({ method, supported }) => (
+          <div className="flex items-center justify-between gap-2 rounded-md bg-background/70 p-2" key={method}>
+            {/* Falls back to the raw identifier rather than rendering the missing key, so a method
+                added to the backend does not blank out its row in every stale locale. */}
+            <dt>{t(`lspSettings.capability.${method}`, { defaultValue: method })}</dt>
             <dd>
-              <Badge tone={enabled ? "success" : "muted"}>
-                {t(enabled ? "lspSettings.capability.enabled" : "lspSettings.capability.disabled")}
+              <Badge tone={supported ? "success" : "muted"}>
+                {t(supported ? "lspSettings.capability.enabled" : "lspSettings.capability.disabled")}
               </Badge>
             </dd>
           </div>

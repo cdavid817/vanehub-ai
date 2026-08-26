@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { LspConfiguration } from "../types/lsp";
+import { lspToolNames, type LspConfiguration } from "../types/lsp";
 import { webAgentClient } from "./web-agent-client";
-import { resetWebLspMockStateForTest, webLspToolClient } from "./web-lsp-client";
+import { resetWebLspMockStateForTest } from "./web-lsp-client";
+import { webLspToolClient } from "./web-lsp-tool-client";
 import { lspTestDescriptors } from "../test/lsp-fixtures";
 
 const enabledRustConfiguration: LspConfiguration = {
@@ -131,6 +132,11 @@ describe("Web LSP adapter", () => {
     ["find_references", "references"],
     ["get_hover", "hover"],
     ["get_diagnostics", "diagnostics"],
+    ["find_type_definition", "definitions"],
+    ["find_implementations", "definitions"],
+    ["find_workspace_symbols", "symbols"],
+    ["get_document_symbols", "symbols"],
+    ["find_call_hierarchy", "relations"],
   ] as const)("returns a deterministic unavailable %s tool result", async (tool, payloadKey) => {
     const first = await webLspToolClient.execute(tool);
     const second = await webLspToolClient.execute(tool);
@@ -150,5 +156,15 @@ describe("Web LSP adapter", () => {
     });
     expect(Object.keys(first).sort()).toEqual(["metadata", payloadKey].sort());
     expect(first).toHaveProperty(payloadKey, payloadKey === "hover" ? null : []);
+  });
+
+  it("covers every declared tool name", () => {
+    // The table above is written out rather than generated from `lspToolNames`, so a tool added
+    // to the list without a mock envelope would otherwise be tested by nothing.
+    expect([...lspToolNames].sort()).toEqual([
+      "find_call_hierarchy", "find_definition", "find_implementations", "find_references",
+      "find_type_definition", "find_workspace_symbols", "get_diagnostics",
+      "get_document_symbols", "get_hover",
+    ]);
   });
 });

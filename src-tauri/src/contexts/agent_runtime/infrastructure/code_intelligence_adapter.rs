@@ -1,8 +1,9 @@
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
-    AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus,
-    AgentCodeLocation, AgentDocumentInput, AgentDocumentPositionInput,
+    AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover,
+    AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome,
+    AgentCodeIntelligencePending, AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort,
+    AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeSymbol, AgentDocumentInput,
+    AgentDocumentPositionInput, AgentWorkspaceSymbolInput,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -122,6 +123,71 @@ impl AgentCodeIntelligencePort for RuntimeAgentCodeIntelligenceAdapter {
             &cancelled,
         )
     }
+
+    fn find_type_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.wait(
+            self.responder
+                .start_find_type_definition(context.clone(), input.clone()),
+            &cancelled,
+        )
+    }
+
+    fn find_implementations(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.wait(
+            self.responder
+                .start_find_implementations(context.clone(), input.clone()),
+            &cancelled,
+        )
+    }
+
+    fn find_workspace_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentWorkspaceSymbolInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        self.wait(
+            self.responder
+                .start_find_workspace_symbols(context.clone(), input.clone()),
+            &cancelled,
+        )
+    }
+
+    fn get_document_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        self.wait(
+            self.responder
+                .start_get_document_symbols(context.clone(), input.clone()),
+            &cancelled,
+        )
+    }
+
+    fn find_call_hierarchy(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentCallHierarchyInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
+        self.wait(
+            self.responder
+                .start_find_call_hierarchy(context.clone(), input.clone()),
+            &cancelled,
+        )
+    }
 }
 
 #[derive(Default)]
@@ -161,6 +227,46 @@ impl AgentCodeIntelligenceResponderPort for UnavailableAgentCodeIntelligenceResp
         _: AgentCodeIntelligenceContext,
         _: AgentDocumentInput,
     ) -> AgentCodeIntelligencePending<Vec<AgentCodeDiagnostic>> {
+        unavailable_pending()
+    }
+
+    fn start_find_type_definition(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        unavailable_pending()
+    }
+
+    fn start_find_implementations(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        unavailable_pending()
+    }
+
+    fn start_find_workspace_symbols(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentWorkspaceSymbolInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        unavailable_pending()
+    }
+
+    fn start_get_document_symbols(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        unavailable_pending()
+    }
+
+    fn start_find_call_hierarchy(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentCallHierarchyInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeCallRelation>> {
         unavailable_pending()
     }
 }

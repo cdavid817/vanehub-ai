@@ -1,3 +1,4 @@
+mod code_intelligence;
 mod compaction;
 mod endpoint;
 mod execution;

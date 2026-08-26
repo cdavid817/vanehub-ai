@@ -64,10 +64,13 @@ fn negotiated_capabilities_report_supported_queries() {
     let capabilities = NegotiatedCapabilities {
         position_encoding: PositionEncoding::Utf16,
         document_sync: DocumentSyncMode::Incremental,
-        definition: true,
-        references: false,
-        hover: true,
-        diagnostics: true,
+        methods: SemanticMethod::ALL
+            .iter()
+            .map(|method| NegotiatedMethod {
+                method: *method,
+                supported: *method != SemanticMethod::References,
+            })
+            .collect(),
     };
 
     assert!(capabilities.supports(SemanticMethod::Definition));
@@ -76,6 +79,68 @@ fn negotiated_capabilities_report_supported_queries() {
     assert!(capabilities.supports(SemanticMethod::Diagnostics));
     assert_eq!(supported_encodings.len(), 2);
     assert_eq!(supported_sync_modes.len(), 3);
+}
+
+#[test]
+fn all_lists_every_semantic_method() {
+    // The compiler cannot check that `ALL` is complete, so this is where a new variant is caught:
+    // the exhaustive match below stops compiling, and the arm you add to fix it is the reminder to
+    // add the variant to `ALL` too. A variant missing from `ALL` is negotiated for no server and
+    // offered to nobody, which looks like a server problem rather than a build one.
+    for method in SemanticMethod::ALL {
+        match method {
+            SemanticMethod::Definition
+            | SemanticMethod::References
+            | SemanticMethod::Hover
+            | SemanticMethod::Diagnostics
+            | SemanticMethod::TypeDefinition
+            | SemanticMethod::Implementation
+            | SemanticMethod::WorkspaceSymbols
+            | SemanticMethod::DocumentSymbols
+            | SemanticMethod::CallHierarchy => (),
+        }
+    }
+
+    let mut unique = SemanticMethod::ALL.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        SemanticMethod::ALL.len(),
+        "ALL lists a method twice"
+    );
+
+    let mut ids = SemanticMethod::ALL
+        .iter()
+        .map(|method| method.id())
+        .collect::<Vec<_>>();
+    let listed = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), listed, "two methods share a wire identifier");
+}
+
+#[test]
+fn an_unadvertised_method_is_reported_rather_than_omitted() {
+    // "The server does not offer this" and "this client does not implement it" must stay
+    // distinguishable: only the first is something a user can fix by changing servers.
+    let capabilities = NegotiatedCapabilities {
+        position_encoding: PositionEncoding::Utf16,
+        document_sync: DocumentSyncMode::Incremental,
+        methods: SemanticMethod::ALL
+            .iter()
+            .map(|method| NegotiatedMethod {
+                method: *method,
+                supported: false,
+            })
+            .collect(),
+    };
+
+    assert_eq!(capabilities.methods.len(), SemanticMethod::ALL.len());
+    assert!(capabilities.methods.iter().all(|entry| !entry.supported));
+    assert!(SemanticMethod::ALL
+        .iter()
+        .all(|method| !capabilities.supports(*method)));
 }
 
 #[test]
