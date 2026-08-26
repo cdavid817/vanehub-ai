@@ -53,6 +53,10 @@ Preparation returning several items resolves to the first in the server's order,
 
 `get_document_symbols` flattens rather than returning a tree. A tree would make the result shape recursive and unbounded in depth, and an Agent reading an outline wants the names, not the nesting structure; each entry carries its enclosing symbol's name so the nesting is still recoverable.
 
+**Decided during implementation:** `find_workspace_symbols` still takes a `relative_path`, which *anchors* the search rather than scoping it. LSP has no notion of "the repository" — a server indexes one project root, and a repository can hold several (two Rust crates, two `compile_commands.json` trees). Without a path there is no language and no project root, so there is no server to ask. The alternatives were a language argument, which still cannot pick between two project roots of the same language, and fanning out across every running server, which multiplies the deadline and makes the truncation and filtered counts a merge of things the Agent cannot separate. Anchoring reuses the existing resolution unchanged and keeps one server per query.
+
+**Decided during implementation:** the depth bound on the nested walk stops the recursion rather than only stopping emission. The response is server-controlled, so walking it to whatever depth arrives is a stack overflow waiting for a malformed one. Subtrees the bound leaves unwalked set `truncated` but are not counted in `total` — `total` is what was examined and accepted, and counting nodes nobody looked at would be a number the code cannot stand behind.
+
 ### 5. Tools are appended, and the catalog order is now a spec requirement
 
 New tools go after every existing one. Inserting among them changes the tool-definition prefix a provider caches, which silently costs every session its prompt cache. This was a comment in the previous change's task list; it is a requirement now because it is a property a reviewer cannot see in a diff.

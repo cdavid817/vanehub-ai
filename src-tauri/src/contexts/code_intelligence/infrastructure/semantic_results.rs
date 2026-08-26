@@ -1,10 +1,11 @@
 use super::document_snapshot::DocumentAdmission;
 use super::position_conversion::PositionConverter;
 use crate::contexts::code_intelligence::domain::models::{
-    NormalizedHover, NormalizedLocation, PositionEncoding, QueryStatus,
+    NormalizedHover, NormalizedLocation, NormalizedSymbol, PositionEncoding, QueryStatus,
 };
 use lsp_types::{
-    GotoDefinitionResponse, Hover, HoverContents, Location, LocationLink, MarkedString, Range, Uri,
+    DocumentSymbol, DocumentSymbolResponse, GotoDefinitionResponse, Hover, HoverContents, Location,
+    LocationLink, MarkedString, OneOf, Range, SymbolKind, Uri, WorkspaceSymbolResponse,
 };
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -15,6 +16,12 @@ pub(crate) const MAX_REFERENCES: usize = 50;
 pub(crate) const MAX_PREVIEW_BYTES: usize = 512;
 pub(crate) const MAX_HOVER_SIGNATURE_BYTES: usize = 1_024;
 pub(crate) const MAX_HOVER_DOCUMENTATION_BYTES: usize = 4_096;
+pub(crate) const MAX_WORKSPACE_SYMBOLS: usize = 50;
+pub(crate) const MAX_DOCUMENT_SYMBOLS: usize = 200;
+pub(crate) const MAX_SYMBOL_NAME_BYTES: usize = 256;
+/// How deep a nested document-symbol response is walked. The response is server-controlled, so an
+/// unbounded walk is a stack overflow waiting for a malformed one.
+pub(crate) const MAX_SYMBOL_DEPTH: usize = 8;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SemanticResultError {
@@ -28,6 +35,25 @@ pub(crate) struct NormalizedLocations {
     pub(crate) total: usize,
     pub(crate) truncated: bool,
     pub(crate) filtered_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedSymbols {
+    pub(crate) symbols: Vec<NormalizedSymbol>,
+    /// Accepted, in-bound symbols before the cap. Symbols the depth bound left unwalked are not
+    /// counted here -- they were never examined -- but they do set `truncated`.
+    pub(crate) total: usize,
+    pub(crate) truncated: bool,
+    pub(crate) filtered_count: usize,
+}
+
+/// What a nested walk accumulates. Separate from `NormalizedSymbols` because `unwalked` is a
+/// property of the walk rather than of the answer.
+#[derive(Default)]
+struct SymbolWalk {
+    symbols: Vec<NormalizedSymbol>,
+    visited: usize,
+    unwalked: usize,
 }
 
 pub(crate) struct SemanticResultNormalizer {
@@ -102,6 +128,127 @@ impl SemanticResultNormalizer {
         })
     }
 
+    pub(crate) fn workspace_symbols(
+        &self,
+        response: Option<WorkspaceSymbolResponse>,
+    ) -> NormalizedSymbols {
+        let (visited, symbols) = match response {
+            None => (0, Vec::new()),
+            Some(WorkspaceSymbolResponse::Flat(entries)) => (
+                entries.len(),
+                entries
+                    .into_iter()
+                    .filter_map(|entry| self.flat_symbol(entry))
+                    .collect(),
+            ),
+            Some(WorkspaceSymbolResponse::Nested(entries)) => (
+                entries.len(),
+                entries
+                    .into_iter()
+                    .filter_map(|entry| {
+                        // A location without a range needs a resolve round trip this client does
+                        // not make, so the entry is dropped rather than reported at a range we
+                        // invented for it.
+                        let OneOf::Left(location) = entry.location else {
+                            return None;
+                        };
+                        self.symbol(
+                            entry.name,
+                            entry.kind,
+                            entry.container_name,
+                            self.normalize_location(location.uri, location.range),
+                        )
+                    })
+                    .collect(),
+            ),
+        };
+        bounded_symbols(
+            SymbolWalk {
+                symbols,
+                visited,
+                unwalked: 0,
+            },
+            MAX_WORKSPACE_SYMBOLS,
+        )
+    }
+
+    pub(crate) fn document_symbols(
+        &self,
+        relative_path: &str,
+        response: Option<DocumentSymbolResponse>,
+    ) -> NormalizedSymbols {
+        let walk = match response {
+            None => SymbolWalk::default(),
+            // The flat form carries its own URIs, so it goes through the same workspace check the
+            // location paths use rather than trusting the document it was requested for.
+            Some(DocumentSymbolResponse::Flat(entries)) => SymbolWalk {
+                visited: entries.len(),
+                symbols: entries
+                    .into_iter()
+                    .filter_map(|entry| self.flat_symbol(entry))
+                    .collect(),
+                unwalked: 0,
+            },
+            Some(DocumentSymbolResponse::Nested(entries)) => {
+                let mut walk = SymbolWalk::default();
+                self.flatten(relative_path, &entries, None, 1, &mut walk);
+                walk
+            }
+        };
+        bounded_symbols(walk, MAX_DOCUMENT_SYMBOLS)
+    }
+
+    /// Depth-first so a flattened list reads in source order, with each entry naming the symbol
+    /// that encloses it -- the hierarchy the flattening throws away is otherwise unrecoverable.
+    fn flatten(
+        &self,
+        relative_path: &str,
+        entries: &[DocumentSymbol],
+        container: Option<&str>,
+        depth: usize,
+        walk: &mut SymbolWalk,
+    ) {
+        for entry in entries {
+            if depth > MAX_SYMBOL_DEPTH {
+                walk.unwalked += 1;
+                continue;
+            }
+            walk.visited += 1;
+            if let Some(symbol) = self.symbol(
+                entry.name.clone(),
+                entry.kind,
+                container.map(str::to_owned),
+                self.normalize_in_document(relative_path, entry.selection_range),
+            ) {
+                walk.symbols.push(symbol);
+            }
+            if let Some(children) = entry.children.as_ref() {
+                self.flatten(relative_path, children, Some(&entry.name), depth + 1, walk);
+            }
+        }
+    }
+
+    fn flat_symbol(&self, entry: lsp_types::SymbolInformation) -> Option<NormalizedSymbol> {
+        self.symbol(
+            entry.name,
+            entry.kind,
+            entry.container_name,
+            self.normalize_location(entry.location.uri, entry.location.range),
+        )
+    }
+
+    fn symbol(
+        &self,
+        name: String,
+        kind: SymbolKind,
+        container: Option<String>,
+        location: Option<NormalizedLocation>,
+    ) -> Option<NormalizedSymbol> {
+        let (name, _) = truncate_utf8(&name, MAX_SYMBOL_NAME_BYTES);
+        let (container, _) = bounded_optional(container, MAX_SYMBOL_NAME_BYTES);
+        NormalizedSymbol::new(name, symbol_kind_id(kind), container, location?).ok()
+    }
+
     fn normalize_locations(
         &self,
         targets: Vec<(Uri, Range)>,
@@ -131,8 +278,13 @@ impl SemanticResultNormalizer {
         let uri = Url::parse(uri.as_str()).ok()?;
         let canonical = uri.to_file_path().ok()?.canonicalize().ok()?;
         let relative = canonical.strip_prefix(&self.workspace_root).ok()?;
-        let relative = relative.to_string_lossy().replace('\\', "/");
-        let snapshot = self.admission.read(&relative).ok()?;
+        self.normalize_in_document(&relative.to_string_lossy().replace('\\', "/"), range)
+    }
+
+    /// The half of `normalize_location` that runs once the file is known to be workspace-relative.
+    /// Document symbols arrive without a URI, so they start here.
+    fn normalize_in_document(&self, relative: &str, range: Range) -> Option<NormalizedLocation> {
+        let snapshot = self.admission.read(relative).ok()?;
         let normalized_range = PositionConverter::new(snapshot.text(), self.encoding)
             .range_to_normalized(range)
             .ok()?;
@@ -148,6 +300,59 @@ pub(crate) const fn query_status_label(status: QueryStatus) -> &'static str {
         QueryStatus::Timeout => "timeout",
         QueryStatus::Unavailable => "unavailable",
         QueryStatus::Failed => "failed",
+    }
+}
+
+fn bounded_symbols(walk: SymbolWalk, limit: usize) -> NormalizedSymbols {
+    let SymbolWalk {
+        mut symbols,
+        visited,
+        unwalked,
+    } = walk;
+    let filtered_count = visited.saturating_sub(symbols.len());
+    let total = symbols.len();
+    symbols.truncate(limit);
+    NormalizedSymbols {
+        symbols,
+        total,
+        truncated: total > limit || unwalked > 0,
+        filtered_count,
+    }
+}
+
+/// The protocol's numeric kinds, mapped once. An id the Agent reads has to be stable across server
+/// versions, and a number is not something a tool result should make a reader look up.
+const fn symbol_kind_id(kind: SymbolKind) -> &'static str {
+    match kind {
+        SymbolKind::FILE => "file",
+        SymbolKind::MODULE => "module",
+        SymbolKind::NAMESPACE => "namespace",
+        SymbolKind::PACKAGE => "package",
+        SymbolKind::CLASS => "class",
+        SymbolKind::METHOD => "method",
+        SymbolKind::PROPERTY => "property",
+        SymbolKind::FIELD => "field",
+        SymbolKind::CONSTRUCTOR => "constructor",
+        SymbolKind::ENUM => "enum",
+        SymbolKind::INTERFACE => "interface",
+        SymbolKind::FUNCTION => "function",
+        SymbolKind::VARIABLE => "variable",
+        SymbolKind::CONSTANT => "constant",
+        SymbolKind::STRING => "string",
+        SymbolKind::NUMBER => "number",
+        SymbolKind::BOOLEAN => "boolean",
+        SymbolKind::ARRAY => "array",
+        SymbolKind::OBJECT => "object",
+        SymbolKind::KEY => "key",
+        SymbolKind::NULL => "null",
+        SymbolKind::ENUM_MEMBER => "enum_member",
+        SymbolKind::STRUCT => "struct",
+        SymbolKind::EVENT => "event",
+        SymbolKind::OPERATOR => "operator",
+        SymbolKind::TYPE_PARAMETER => "type_parameter",
+        // The protocol reserves room to grow and a server may already use it. Reporting the
+        // symbol under a placeholder beats dropping it for a kind nobody asked about.
+        _ => "unknown",
     }
 }
 

@@ -94,7 +94,9 @@ fn all_lists_every_semantic_method() {
             | SemanticMethod::Hover
             | SemanticMethod::Diagnostics
             | SemanticMethod::TypeDefinition
-            | SemanticMethod::Implementation => (),
+            | SemanticMethod::Implementation
+            | SemanticMethod::WorkspaceSymbols
+            | SemanticMethod::DocumentSymbols => (),
         }
     }
 

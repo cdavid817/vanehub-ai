@@ -5,7 +5,11 @@ const { fileURLToPath } = require("node:url");
 const mode = process.argv[2];
 const semanticMode = mode === "lsp-semantic"
   || mode === "lsp-native-e2e"
-  || mode === "lsp-unadvertised";
+  || mode === "lsp-unadvertised"
+  || mode === "lsp-flat-symbols";
+// Answers documentSymbol in the flat SymbolInformation form instead of the nested one, so the two
+// response shapes can be compared for equal output.
+const flatSymbols = mode === "lsp-flat-symbols";
 // The one semantic mode that answers position queries without advertising typeDefinition or
 // implementation. It exits on either request, so a client that asks anyway is caught doing it.
 const advertisesGotoExtras = semanticMode && mode !== "lsp-unadvertised";
@@ -23,6 +27,7 @@ if (mode === "oversized") {
   "lsp-semantic",
   "lsp-native-e2e",
   "lsp-unadvertised",
+  "lsp-flat-symbols",
   "lsp-crash",
   "lsp-protocol-limit",
 ].includes(mode)) {
@@ -74,6 +79,8 @@ if (mode === "oversized") {
           hoverProvider: semanticMode,
           typeDefinitionProvider: advertisesGotoExtras,
           implementationProvider: advertisesGotoExtras,
+          workspaceSymbolProvider: semanticMode,
+          documentSymbolProvider: semanticMode,
           textDocumentSync: semanticMode ? 1 : 2,
         } };
       send(message.id, result);
@@ -153,6 +160,81 @@ if (mode === "oversized") {
       if (!advertisesGotoExtras) process.exit(4);
       // Nothing implements it. That is an answer, not a failure to answer.
       send(message.id, []);
+    } else if (semanticMode && message.method === "workspace/symbol") {
+      // Deliberately more than the cap of 50, plus one outside the workspace, so the truncation
+      // and filtered counts are both non-trivial.
+      const matches = Array.from({ length: 55 }, (_, index) => ({
+        name: `alpha_${index}`,
+        kind: 12,
+        containerName: "fixture",
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        },
+      }));
+      matches.push({
+        name: "outside",
+        kind: 12,
+        location: {
+          uri: "https://outside.invalid/source.rs",
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 1 },
+          },
+        },
+      });
+      send(message.id, matches);
+    } else if (semanticMode && message.method === "textDocument/documentSymbol") {
+      // The nested form. `lsp-flat-symbols` answers the same content in the flat form, so the two
+      // shapes can be compared without a second server behaviour to keep in sync.
+      send(message.id, flatSymbols ? [{
+        name: "alpha",
+        kind: 12,
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 3 },
+            end: { line: 0, character: 8 },
+          },
+        },
+      }, {
+        name: "inner",
+        kind: 13,
+        containerName: "alpha",
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        },
+      }] : [{
+        name: "alpha",
+        kind: 12,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 13 },
+        },
+        selectionRange: {
+          start: { line: 0, character: 3 },
+          end: { line: 0, character: 8 },
+        },
+        children: [{
+          name: "inner",
+          kind: 13,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+          selectionRange: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        }],
+      }]);
     } else if (semanticMode && message.method === "textDocument/hover") {
       send(message.id, {
         contents: [

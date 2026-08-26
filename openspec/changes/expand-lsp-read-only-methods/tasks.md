@@ -51,9 +51,19 @@
 
 ## 5. Symbol methods
 
-- [ ] 5.1 Add `find_workspace_symbols`: bounded query string, cap of 50, workspace filtering with a reported filtered count, and an invalid-input status for an empty query. This is the one method with no document, so it skips admission and the lease
-- [ ] 5.2 Add `get_document_symbols`: flattened to a bounded depth, each entry carrying its enclosing symbol's name, with symbols past the bound counted as truncated
-- [ ] 5.3 Add tests including a nested response and a flat response producing the same shape, and a rejected document never reaching the server
+- [x] 5.1 Add `find_workspace_symbols`: bounded query string, cap of 50, workspace filtering with a reported filtered count, and an invalid-input status for an empty query. This is the one method with no document, so it skips admission and the lease
+  - `prepare` split into `admit` (acquire + advertise check) and the document half, so this query gets a server without getting a lease. It returns `ready_without_document`: there is no version to report and inventing one would let a caller compare it against a real one.
+  - An empty or whitespace query is refused before anything is sent. The servers that answer it answer with the whole index, and the ones that do not disagree about what it means.
+  - `relative_path` stays in the signature as an **anchor**, not a scope. Recorded as a decision in design.md: LSP has no "the repository", a server indexes one project root, and a repository can hold several.
+- [x] 5.2 Add `get_document_symbols`: flattened to a bounded depth, each entry carrying its enclosing symbol's name, with symbols past the bound counted as truncated
+  - `document_query` is the sibling of `position_query` for a method that names a document but no position inside it; `PositionRequest` became `QueryRequest` and the position travels separately.
+  - The depth bound stops the recursion, not just the emission — a server-controlled response walked to arbitrary depth is a stack overflow waiting for a malformed one. Unwalked subtrees set `truncated` and are deliberately not counted in `total`; that reversal is recorded in design.md.
+  - `normalize_location` split so the half that runs after the file is known workspace-relative is reusable: nested document symbols carry no URI, so they start there.
+- [x] 5.3 Add tests including a nested response and a flat response producing the same shape, and a rejected document never reaching the server
+  - A new `lsp-flat-symbols` fixture mode answers `documentSymbol` in the flat `SymbolInformation` form with the same content as the nested one, and the test asserts the two normalize to an **equal `Vec<NormalizedSymbol>`**. Which form a server picks is not something the Agent should be able to tell.
+  - Rejection is asserted on both an escaping path and an absent one; admission refuses before a lease exists, so nothing is sent.
+  - Workspace symbols: 55 in-workspace matches plus one outside → 50 returned, total 55, truncated, filtered 1, and no document version.
+  - Suite: `code_intelligence` **195 -> 198**. The known load-sensitive `initialize_timeout_...` test failed on the first run and passed on the re-run, as recorded at 2.10.
 
 ## 6. Call hierarchy
 

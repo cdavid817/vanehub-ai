@@ -5,7 +5,9 @@ use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};
 use super::semantic_query_coordinator::SemanticQueryCoordinator;
 use super::shutdown_coordinator::LspShutdownCoordinator;
-use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, QueryStatus};
+use crate::contexts::code_intelligence::domain::models::{
+    ConfigurationFingerprint, NormalizedSymbol, QueryStatus,
+};
 use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
@@ -261,6 +263,120 @@ async fn an_unadvertised_method_is_refused_without_reaching_the_server() {
         )
         .await;
     assert_eq!(definition.status(), QueryStatus::Ready);
+}
+
+#[tokio::test]
+async fn workspace_symbols_are_bounded_filtered_and_refuse_an_empty_query() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let empty = queries
+        .find_workspace_symbols(fixture.launch.clone(), registry::rust(), "  ", active())
+        .await;
+    // Refused here rather than sent on: the servers that answer an empty query answer it with the
+    // whole index, and the ones that do not disagree about what it means.
+    assert_eq!(empty.status(), QueryStatus::Failed);
+    assert_eq!(empty.reason_code(), Some("invalid_query"));
+
+    // Opened by an earlier query, because workspace symbols themselves open nothing -- the fixture
+    // answers with locations in that document.
+    let opened = queries
+        .find_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(opened.status(), QueryStatus::Ready);
+
+    let symbols = queries
+        .find_workspace_symbols(fixture.launch.clone(), registry::rust(), "alpha", active())
+        .await;
+    assert_eq!(symbols.status(), QueryStatus::Ready);
+    let found = symbols.value().expect("workspace symbols");
+    assert_eq!(found.len(), 50);
+    assert_eq!(symbols.total, 55);
+    assert!(symbols.truncated);
+    // The match outside the canonical workspace, dropped before the Agent sees it.
+    assert_eq!(symbols.filtered_count, 1);
+    assert_eq!(found[0].name, "alpha_0");
+    assert_eq!(found[0].kind, "function");
+    assert_eq!(found[0].container.as_deref(), Some("fixture"));
+    assert_eq!(found[0].location.file(), "src/lib.rs");
+    // No document was named, so there is no version to report and none is invented.
+    assert!(symbols.document_version().is_none());
+}
+
+#[tokio::test]
+async fn nested_and_flat_document_symbols_produce_the_same_shape() {
+    let nested = document_symbols_from("lsp-semantic").await;
+    let flat = document_symbols_from("lsp-flat-symbols").await;
+
+    // The protocol lets a server answer in either form for the same content. Which one it picks is
+    // not something the Agent should be able to tell.
+    assert_eq!(nested, flat);
+    assert_eq!(nested.len(), 2);
+    assert_eq!(nested[0].name, "alpha");
+    assert_eq!(nested[0].kind, "function");
+    assert_eq!(nested[0].container, None);
+    assert_eq!(nested[0].location.range.start_column, 4);
+    assert_eq!(nested[0].location.range.end_column, 9);
+    // The nesting is flattened away, so each entry names what encloses it or the hierarchy is lost.
+    assert_eq!(nested[1].name, "inner");
+    assert_eq!(nested[1].container.as_deref(), Some("alpha"));
+}
+
+#[tokio::test]
+async fn a_rejected_document_never_reaches_the_server() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    // Outside the workspace. Admission refuses it before a lease exists, so nothing is sent and
+    // the server never learns the path was asked for.
+    let escaped = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "../outside.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(escaped.status(), QueryStatus::Failed);
+    assert_eq!(escaped.reason_code(), Some("document_unavailable"));
+
+    let missing = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/absent.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(missing.status(), QueryStatus::Failed);
+    assert_eq!(missing.reason_code(), Some("document_unavailable"));
+}
+
+async fn document_symbols_from(server_mode: &str) -> Vec<NormalizedSymbol> {
+    let fixture = SemanticFixture::with_mode(server_mode);
+    let queries = coordinator();
+    let symbols = queries
+        .get_document_symbols(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            active(),
+        )
+        .await;
+    assert_eq!(symbols.status(), QueryStatus::Ready, "{server_mode}");
+    assert_eq!(
+        symbols.document_version().map(|version| version.value()),
+        Some(1),
+        "{server_mode}"
+    );
+    symbols.into_value().expect("document symbols")
 }
 
 fn coordinator() -> SemanticQueryCoordinator {

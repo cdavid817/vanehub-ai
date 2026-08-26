@@ -147,6 +147,8 @@ pub(crate) enum SemanticMethod {
     Diagnostics,
     TypeDefinition,
     Implementation,
+    WorkspaceSymbols,
+    DocumentSymbols,
 }
 
 impl SemanticMethod {
@@ -166,6 +168,8 @@ impl SemanticMethod {
         Self::Diagnostics,
         Self::TypeDefinition,
         Self::Implementation,
+        Self::WorkspaceSymbols,
+        Self::DocumentSymbols,
     ];
 
     /// Stable wire and localization identifier. Not the LSP method name: that is a protocol
@@ -178,6 +182,8 @@ impl SemanticMethod {
             Self::Diagnostics => "diagnostics",
             Self::TypeDefinition => "type_definition",
             Self::Implementation => "implementation",
+            Self::WorkspaceSymbols => "workspace_symbols",
+            Self::DocumentSymbols => "document_symbols",
         }
     }
 }
@@ -308,6 +314,38 @@ pub(crate) enum DiagnosticSeverity {
     Hint,
 }
 
+/// A symbol as the Agent sees it: workspace-relative, with its enclosing symbol named so a
+/// flattened list still says where each entry sits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedSymbol {
+    pub(crate) name: String,
+    /// One of a closed set this build maps from the protocol's numeric kinds, so it is a `&'static
+    /// str` rather than whatever the server sent.
+    pub(crate) kind: &'static str,
+    pub(crate) container: Option<String>,
+    pub(crate) location: NormalizedLocation,
+}
+
+impl NormalizedSymbol {
+    pub(crate) fn new(
+        name: impl Into<String>,
+        kind: &'static str,
+        container: Option<String>,
+        location: NormalizedLocation,
+    ) -> Result<Self, DomainModelError> {
+        let name = name.into();
+        if name.trim().is_empty() {
+            return Err(DomainModelError::EmptyValue("normalized symbol name"));
+        }
+        Ok(Self {
+            name,
+            kind,
+            container: container.filter(|value| !value.trim().is_empty()),
+            location,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NormalizedDiagnostic {
     pub(crate) range: NormalizedRange,
@@ -432,6 +470,30 @@ impl<T> QueryOutcome<T> {
             value: Some(value),
             language: Some(language),
             document_version: Some(document_version),
+            stale: false,
+            returned_count,
+            total,
+            truncated,
+            filtered_count,
+            reason_code: None,
+        }
+    }
+
+    /// A ready outcome for a query that names no document. A workspace-wide answer has no version
+    /// to report, and inventing one would let a caller compare it against a real one.
+    pub(crate) fn ready_without_document(
+        value: T,
+        language: Language,
+        returned_count: usize,
+        total: usize,
+        truncated: bool,
+        filtered_count: usize,
+    ) -> Self {
+        Self {
+            status: QueryStatus::Ready,
+            value: Some(value),
+            language: Some(language),
+            document_version: None,
             stale: false,
             returned_count,
             total,

@@ -9,12 +9,12 @@ use super::project_root::ProcessKey;
 use super::runtime_process_coordinator::{
     LspProcessAcquisition, LspProcessHandle, LspProcessLaunch, RuntimeProcessCoordinator,
 };
-use super::semantic_results::{NormalizedLocations, SemanticResultNormalizer};
+use super::semantic_results::{NormalizedLocations, NormalizedSymbols, SemanticResultNormalizer};
 use crate::contexts::code_intelligence::domain::models::{
-    Language, NormalizedDiagnostic, NormalizedHover, NormalizedLocation, QueryOutcome, QueryStatus,
-    SemanticMethod,
+    DocumentVersion, Language, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
+    NormalizedSymbol, QueryOutcome, QueryStatus, SemanticMethod,
 };
-use lsp_types::{Hover, Location};
+use lsp_types::{DocumentSymbolResponse, Hover, Location, WorkspaceSymbolResponse};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -42,14 +42,13 @@ struct PreparedQuery {
     diagnostics: Arc<DiagnosticsCache>,
 }
 
-/// What every position-based query needs from its caller. Named so the helper below stays inside
-/// clippy's argument budget, and so adding a method does not re-thread six parameters by hand.
-struct PositionRequest<'a> {
+/// What every document-scoped query needs from its caller. Named so the helpers below stay inside
+/// clippy's argument budget, and so adding a method does not re-thread four parameters by hand.
+/// The position, where there is one, travels separately: not every method has one.
+struct QueryRequest<'a> {
     launch: LspProcessLaunch,
     language: Language,
     relative_path: &'a str,
-    line: u32,
-    column: u32,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -57,7 +56,7 @@ struct QueryFailure {
     status: QueryStatus,
     reason: &'static str,
     language: Option<Language>,
-    document_version: Option<crate::contexts::code_intelligence::domain::models::DocumentVersion>,
+    document_version: Option<DocumentVersion>,
 }
 
 impl QueryFailure {
@@ -101,16 +100,16 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let request = PositionRequest {
+        let request = QueryRequest {
             launch,
             language,
             relative_path,
-            line,
-            column,
             cancelled,
         };
+        let position = AgentPosition::new(line, column);
         self.located_query(
             request,
+            position,
             SemanticMethod::Definition,
             |normalizer, response| normalizer.definitions(response),
         )
@@ -126,16 +125,16 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let request = PositionRequest {
+        let request = QueryRequest {
             launch,
             language,
             relative_path,
-            line,
-            column,
             cancelled,
         };
+        let position = AgentPosition::new(line, column);
         self.located_query(
             request,
+            position,
             SemanticMethod::References,
             |normalizer, response: Option<Vec<Location>>| {
                 normalizer.references(response.unwrap_or_default())
@@ -159,18 +158,18 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let request = PositionRequest {
+        let request = QueryRequest {
             launch,
             language,
             relative_path,
-            line,
-            column,
             cancelled,
         };
+        let position = AgentPosition::new(line, column);
         // `textDocument/typeDefinition` answers in the same three shapes as `definition`, so it
         // reuses that normalization -- and with it the cap of 20 and the truncation metadata.
         self.located_query(
             request,
+            position,
             SemanticMethod::TypeDefinition,
             |normalizer, response| normalizer.definitions(response),
         )
@@ -190,16 +189,16 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let request = PositionRequest {
+        let request = QueryRequest {
             launch,
             language,
             relative_path,
-            line,
-            column,
             cancelled,
         };
+        let position = AgentPosition::new(line, column);
         self.located_query(
             request,
+            position,
             SemanticMethod::Implementation,
             |normalizer, response| normalizer.definitions(response),
         )
@@ -215,22 +214,22 @@ impl SemanticQueryCoordinator {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Option<NormalizedHover>> {
-        let request = PositionRequest {
+        let request = QueryRequest {
             launch,
             language,
             relative_path,
-            line,
-            column,
             cancelled,
         };
+        let position = AgentPosition::new(line, column);
         let (prepared, response) = match self
-            .position_query::<Option<Hover>>(request, SemanticMethod::Hover)
+            .position_query::<Option<Hover>>(request, position, SemanticMethod::Hover)
             .await
         {
             Ok(result) => result,
             Err(failure) => return failure.outcome(),
         };
-        let normalizer = match normalizer_for(&prepared, language) {
+        let version = Some(prepared.document.version());
+        let normalizer = match normalizer_for(&prepared.handle, language, version) {
             Ok(normalizer) => normalizer,
             Err(failure) => return failure.outcome(),
         };
@@ -246,6 +245,94 @@ impl SemanticQueryCoordinator {
             truncated,
             0,
         )
+    }
+
+    /// The one query with no document: it names a project through its launch, not a file, so it
+    /// skips admission and the document lease entirely.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
+    )]
+    pub(crate) async fn find_workspace_symbols(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        query: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        // Refused here rather than sent on: servers differ on what an empty query means, and the
+        // ones that answer it answer with the whole index.
+        if query.trim().is_empty() {
+            return QueryOutcome::degraded_with_identity(
+                QueryStatus::Failed,
+                "invalid_query",
+                Some(language),
+                None,
+            );
+        }
+        let handle = match self
+            .admit(launch, language, SemanticMethod::WorkspaceSymbols)
+            .await
+        {
+            Ok(handle) => handle,
+            Err(failure) => return failure.outcome(),
+        };
+        let response: Result<Option<WorkspaceSymbolResponse>, JsonRpcError> = self
+            .request(
+                &handle,
+                "workspace/symbol",
+                json!({"query": query}),
+                cancelled,
+            )
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => return request_failure(error, language, None).outcome(),
+        };
+        match normalizer_for(&handle, language, None) {
+            Ok(normalizer) => {
+                symbol_outcome(language, None, normalizer.workspace_symbols(response))
+            }
+            Err(failure) => failure.outcome(),
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
+    )]
+    pub(crate) async fn get_document_symbols(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        relative_path: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        let request = QueryRequest {
+            launch,
+            language,
+            relative_path,
+            cancelled,
+        };
+        let (prepared, response) = match self
+            .document_query::<Option<DocumentSymbolResponse>>(
+                request,
+                SemanticMethod::DocumentSymbols,
+            )
+            .await
+        {
+            Ok(result) => result,
+            Err(failure) => return failure.outcome(),
+        };
+        let version = Some(prepared.document.version());
+        match normalizer_for(&prepared.handle, language, version) {
+            Ok(normalizer) => symbol_outcome(
+                language,
+                version,
+                normalizer.document_symbols(relative_path, response),
+            ),
+            Err(failure) => failure.outcome(),
+        }
     }
 
     pub(crate) async fn get_diagnostics(
@@ -319,7 +406,8 @@ impl SemanticQueryCoordinator {
     /// normalization differ between them, and both are supplied by the caller.
     async fn located_query<R, F>(
         &self,
-        request: PositionRequest<'_>,
+        request: QueryRequest<'_>,
+        position: AgentPosition,
         method: SemanticMethod,
         normalize: F,
     ) -> QueryOutcome<Vec<NormalizedLocation>>
@@ -328,11 +416,12 @@ impl SemanticQueryCoordinator {
         F: FnOnce(&SemanticResultNormalizer, R) -> NormalizedLocations,
     {
         let language = request.language;
-        let (prepared, response) = match self.position_query::<R>(request, method).await {
+        let (prepared, response) = match self.position_query::<R>(request, position, method).await {
             Ok(result) => result,
             Err(failure) => return failure.outcome(),
         };
-        match normalizer_for(&prepared, language) {
+        let version = Some(prepared.document.version());
+        match normalizer_for(&prepared.handle, language, version) {
             Ok(normalizer) => {
                 located_outcome(language, &prepared, normalize(&normalizer, response))
             }
@@ -344,29 +433,65 @@ impl SemanticQueryCoordinator {
     /// path has already released the request slot by the time this returns `Err`.
     async fn position_query<R: DeserializeOwned>(
         &self,
-        request: PositionRequest<'_>,
+        request: QueryRequest<'_>,
+        position: AgentPosition,
         method: SemanticMethod,
     ) -> Result<(PreparedQuery, R), QueryFailure> {
-        let prepared = self
-            .prepare(
-                request.launch,
-                request.language,
-                request.relative_path,
-                method,
-            )
-            .await?;
-        let position = self
-            .position(&prepared, request.line, request.column)
-            .await?;
+        let language = request.language;
+        let cancelled = request.cancelled.clone();
+        let prepared = self.prepared(request, method).await?;
+        let position = self.position(&prepared, position).await?;
         let (lsp_method, mut params) = wire_request(method);
         params["textDocument"] = json!({"uri": prepared.document.uri()});
         params["position"] = json!(position);
+        self.finish(prepared, lsp_method, params, cancelled, language)
+            .await
+    }
+
+    /// The same shape for a method that names a document but no position inside it.
+    async fn document_query<R: DeserializeOwned>(
+        &self,
+        request: QueryRequest<'_>,
+        method: SemanticMethod,
+    ) -> Result<(PreparedQuery, R), QueryFailure> {
+        let language = request.language;
+        let cancelled = request.cancelled.clone();
+        let prepared = self.prepared(request, method).await?;
+        let (lsp_method, mut params) = wire_request(method);
+        params["textDocument"] = json!({"uri": prepared.document.uri()});
+        self.finish(prepared, lsp_method, params, cancelled, language)
+            .await
+    }
+
+    async fn prepared(
+        &self,
+        request: QueryRequest<'_>,
+        method: SemanticMethod,
+    ) -> Result<PreparedQuery, QueryFailure> {
+        self.prepare(
+            request.launch,
+            request.language,
+            request.relative_path,
+            method,
+        )
+        .await
+    }
+
+    async fn finish<R: DeserializeOwned>(
+        &self,
+        prepared: PreparedQuery,
+        lsp_method: &str,
+        params: Value,
+        cancelled: Arc<AtomicBool>,
+        language: Language,
+    ) -> Result<(PreparedQuery, R), QueryFailure> {
+        let version = Some(prepared.document.version());
         match self
-            .request(&prepared, lsp_method, params, request.cancelled)
+            .request(&prepared.handle, lsp_method, params, cancelled)
             .await
         {
             Ok(response) => Ok((prepared, response)),
-            Err(error) => Err(request_failure(&prepared, request.language, error)),
+            Err(error) => Err(request_failure(error, language, version)),
         }
     }
 
@@ -374,14 +499,13 @@ impl SemanticQueryCoordinator {
     /// request slot, which leaks silently: nothing fails, the server just stops admitting work.
     async fn request<R: DeserializeOwned>(
         &self,
-        prepared: &PreparedQuery,
+        handle: &LspProcessHandle,
         lsp_method: &str,
         params: Value,
         cancelled: Arc<AtomicBool>,
     ) -> Result<R, JsonRpcError> {
         let started = Instant::now();
-        let response: Result<R, JsonRpcError> = prepared
-            .handle
+        let response: Result<R, JsonRpcError> = handle
             .client()
             .request_with_control(
                 lsp_method,
@@ -390,14 +514,14 @@ impl SemanticQueryCoordinator {
             )
             .await;
         match response.as_ref() {
-            Ok(_) => self.processes.record_response(prepared.handle.key()).await,
+            Ok(_) => self.processes.record_response(handle.key()).await,
             Err(error) => {
                 self.processes
-                    .record_request_failure(prepared.handle.key(), *error, started.elapsed())
+                    .record_request_failure(handle.key(), *error, started.elapsed())
                     .await;
             }
         }
-        self.processes.release_request(prepared.handle.key()).await;
+        self.processes.release_request(handle.key()).await;
         response
     }
 
@@ -408,6 +532,48 @@ impl SemanticQueryCoordinator {
         relative_path: &str,
         method: SemanticMethod,
     ) -> Result<PreparedQuery, QueryFailure> {
+        let handle = self.admit(launch, language, method).await?;
+        self.apply_invalidations(handle.key().session_root_ref())
+            .await;
+        let resources = match self.manager(&handle).await {
+            Ok(resources) => resources,
+            Err(reason) => {
+                self.processes.release_request(handle.key()).await;
+                return Err(failure(QueryStatus::Failed, reason, language));
+            }
+        };
+        let mut manager = resources.manager.lock().await;
+        let document = manager.prepare(relative_path, self.epoch.elapsed()).await;
+        let count = manager.active_count();
+        drop(manager);
+        self.processes
+            .set_document_leases(handle.key(), count)
+            .await;
+        match document {
+            Ok(document) => Ok(PreparedQuery {
+                handle,
+                document,
+                diagnostics: resources.diagnostics,
+            }),
+            Err(_) => {
+                self.processes.release_request(handle.key()).await;
+                Err(failure(
+                    QueryStatus::Failed,
+                    "document_unavailable",
+                    language,
+                ))
+            }
+        }
+    }
+
+    /// A ready process that advertises the method, or the failure to report instead. Split out of
+    /// `prepare` because the workspace-wide query needs a server but no document.
+    async fn admit(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        method: SemanticMethod,
+    ) -> Result<LspProcessHandle, QueryFailure> {
         let key = launch.key.clone();
         let acquisition = self
             .processes
@@ -440,37 +606,7 @@ impl SemanticQueryCoordinator {
                 language,
             ));
         }
-        self.apply_invalidations(handle.key().session_root_ref())
-            .await;
-        let resources = match self.manager(&handle).await {
-            Ok(resources) => resources,
-            Err(reason) => {
-                self.processes.release_request(handle.key()).await;
-                return Err(failure(QueryStatus::Failed, reason, language));
-            }
-        };
-        let mut manager = resources.manager.lock().await;
-        let document = manager.prepare(relative_path, self.epoch.elapsed()).await;
-        let count = manager.active_count();
-        drop(manager);
-        self.processes
-            .set_document_leases(handle.key(), count)
-            .await;
-        match document {
-            Ok(document) => Ok(PreparedQuery {
-                handle,
-                document,
-                diagnostics: resources.diagnostics,
-            }),
-            Err(_) => {
-                self.processes.release_request(handle.key()).await;
-                Err(failure(
-                    QueryStatus::Failed,
-                    "document_unavailable",
-                    language,
-                ))
-            }
-        }
+        Ok(handle)
     }
 
     async fn manager(&self, handle: &LspProcessHandle) -> Result<LeaseResources, &'static str> {
@@ -542,14 +678,13 @@ impl SemanticQueryCoordinator {
     async fn position(
         &self,
         prepared: &PreparedQuery,
-        line: u32,
-        column: u32,
+        position: AgentPosition,
     ) -> Result<lsp_types::Position, QueryFailure> {
         match PositionConverter::new(
             prepared.document.text(),
             prepared.handle.capabilities().position_encoding,
         )
-        .agent_to_lsp(AgentPosition::new(line, column))
+        .agent_to_lsp(position)
         {
             Ok(position) => Ok(position),
             Err(_) => {
@@ -571,9 +706,9 @@ async fn wait_for_cancellation(cancelled: Arc<AtomicBool>) {
 }
 
 fn request_failure(
-    prepared: &PreparedQuery,
-    language: Language,
     error: JsonRpcError,
+    language: Language,
+    document_version: Option<DocumentVersion>,
 ) -> QueryFailure {
     let (status, reason) = match error {
         JsonRpcError::Timeout => (QueryStatus::Timeout, "request_timeout"),
@@ -581,9 +716,12 @@ fn request_failure(
         JsonRpcError::ActorStopped => (QueryStatus::Unavailable, "server_unavailable"),
         _ => (QueryStatus::Failed, "request_failed"),
     };
-    let mut failure = prepared_failure(prepared, language, reason);
-    failure.status = status;
-    failure
+    QueryFailure {
+        status,
+        reason,
+        language: Some(language),
+        document_version,
+    }
 }
 
 /// The wire method and the parameters beyond the document position, derived from the semantic
@@ -602,18 +740,55 @@ fn wire_request(method: SemanticMethod) -> (&'static str, Value) {
         SemanticMethod::Diagnostics => ("textDocument/publishDiagnostics", json!({})),
         SemanticMethod::TypeDefinition => ("textDocument/typeDefinition", json!({})),
         SemanticMethod::Implementation => ("textDocument/implementation", json!({})),
+        SemanticMethod::DocumentSymbols => ("textDocument/documentSymbol", json!({})),
+        // Sent without a document, so it never goes through the helpers that read this table. The
+        // arm keeps the match exhaustive and names the endpoint in the same place as the others.
+        SemanticMethod::WorkspaceSymbols => ("workspace/symbol", json!({})),
     }
 }
 
 fn normalizer_for(
-    prepared: &PreparedQuery,
+    handle: &LspProcessHandle,
     language: Language,
+    document_version: Option<DocumentVersion>,
 ) -> Result<SemanticResultNormalizer, QueryFailure> {
     SemanticResultNormalizer::new(
-        prepared.handle.key().session_root_ref(),
-        prepared.handle.capabilities().position_encoding,
+        handle.key().session_root_ref(),
+        handle.capabilities().position_encoding,
     )
-    .map_err(|_| prepared_failure(prepared, language, "workspace_unavailable"))
+    .map_err(|_| QueryFailure {
+        status: QueryStatus::Failed,
+        reason: "workspace_unavailable",
+        language: Some(language),
+        document_version,
+    })
+}
+
+fn symbol_outcome(
+    language: Language,
+    document_version: Option<DocumentVersion>,
+    normalized: NormalizedSymbols,
+) -> QueryOutcome<Vec<NormalizedSymbol>> {
+    let returned = normalized.symbols.len();
+    match document_version {
+        Some(version) => QueryOutcome::ready_with_metadata(
+            normalized.symbols,
+            language,
+            version,
+            returned,
+            normalized.total,
+            normalized.truncated,
+            normalized.filtered_count,
+        ),
+        None => QueryOutcome::ready_without_document(
+            normalized.symbols,
+            language,
+            returned,
+            normalized.total,
+            normalized.truncated,
+            normalized.filtered_count,
+        ),
+    }
 }
 
 fn located_outcome(

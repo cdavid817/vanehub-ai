@@ -19,7 +19,8 @@ pub(crate) use super::domain::language_id::LspLanguageId;
 pub(crate) use super::domain::models::{
     resolve_language, ConfigurationFingerprint, DiagnosticSeverity, DocumentSyncMode, Language,
     NegotiatedCapabilities, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
-    NormalizedRange, PositionEncoding, ProcessState, QueryOutcome, QueryStatus, WorkspaceTrust,
+    NormalizedRange, NormalizedSymbol, PositionEncoding, ProcessState, QueryOutcome, QueryStatus,
+    WorkspaceTrust,
 };
 // Published so a command-layer test can build a negotiated record from the client's own method
 // list rather than restating it. Only tests need it in this build.
@@ -340,6 +341,42 @@ impl CodeIntelligenceApi {
         };
         self.semantic_queries
             .get_hover(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    /// `relative_path` anchors the search rather than scoping it. LSP has no notion of "the
+    /// repository": a server indexes one project root, and a repository can hold several, so the
+    /// file the Agent is working in is what says which index to search.
+    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
+    pub(crate) async fn find_workspace_symbols(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        query: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_workspace_symbols(launch, language, query, cancelled)
+            .await
+    }
+
+    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
+    pub(crate) async fn get_document_symbols(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .get_document_symbols(launch, language, relative_path, cancelled)
             .await
     }
 

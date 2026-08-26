@@ -47,6 +47,7 @@ pub(crate) fn build_initialize_params(
             "window": {"workDoneProgress": true},
             "workspace": {
                 "configuration": true,
+                "symbol": {"dynamicRegistration": true},
                 "didChangeConfiguration": {"dynamicRegistration": true},
                 "workspaceFolders": true
             },
@@ -61,6 +62,10 @@ pub(crate) fn build_initialize_params(
                 "typeDefinition": {"dynamicRegistration": true, "linkSupport": true},
                 "implementation": {"dynamicRegistration": true, "linkSupport": true},
                 "references": {"dynamicRegistration": true},
+                "documentSymbol": {
+                    "dynamicRegistration": true,
+                    "hierarchicalDocumentSymbolSupport": true
+                },
                 "hover": {
                     "dynamicRegistration": true,
                     "contentFormat": ["markdown", "plaintext"]
@@ -131,6 +136,12 @@ fn advertised(capabilities: &ServerCapabilities, method: SemanticMethod) -> bool
                     | ImplementationProviderCapability::Simple(true)
             )
         ),
+        SemanticMethod::WorkspaceSymbols => {
+            one_of_enabled(capabilities.workspace_symbol_provider.clone())
+        }
+        SemanticMethod::DocumentSymbols => {
+            one_of_enabled(capabilities.document_symbol_provider.clone())
+        }
     }
 }
 

@@ -89,6 +89,8 @@ const capabilities: LspNegotiatedCapabilities = {
     { method: "diagnostics", supported: true },
     { method: "type_definition", supported: true },
     { method: "implementation", supported: true },
+    { method: "workspace_symbols", supported: true },
+    { method: "document_symbols", supported: true },
   ],
 };
 
