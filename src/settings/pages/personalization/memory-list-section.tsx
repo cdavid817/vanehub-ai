@@ -9,6 +9,7 @@ import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { MemoryQuery, MemorySummary } from "../../../types/personalization-memory";
 import { SectionPanel } from "../page-parts";
+import { MemoryDetailPanel } from "./memory-detail-panel";
 import { MemoryFilters } from "./memory-filters";
 import { useScopeOptions } from "./use-scope-options";
 
@@ -25,6 +26,7 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState<MemoryQuery>({ limit: PAGE_SIZE });
   const [pageStack, setPageStack] = useState<(string | undefined)[]>([undefined]);
+  const [openId, setOpenId] = useState<string | null>(null);
   const { agents, workspaces } = useScopeOptions(service);
 
   const cursor = pageStack[pageStack.length - 1];
@@ -84,7 +86,13 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
         ) : (
           <ul className="grid gap-2" data-testid="personalization-memory-list">
             {items.map((memory) => (
-              <MemoryRow key={memory.id} language={i18n.language} memory={memory} />
+              <MemoryRow
+                key={memory.id}
+                language={i18n.language}
+                memory={memory}
+                onOpen={() => setOpenId(memory.id)}
+                open={openId === memory.id}
+              />
             ))}
           </ul>
         )}
@@ -117,14 +125,45 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
             : t("personalization.memoryList.matched", { count: page.totalMatched })}
         </span>
       </div>
+
+      <div
+        aria-label={t("personalization.detail.title")}
+        className="mt-5 border-t border-border/70 pt-4"
+        role="region"
+      >
+        <h4 className="mb-3 text-sm font-semibold">{t("personalization.detail.title")}</h4>
+        <MemoryDetailPanel memoryId={openId} onClose={() => setOpenId(null)} service={service} />
+      </div>
     </SectionPanel>
   );
 }
 
-function MemoryRow({ language, memory }: { language: string; memory: MemorySummary }) {
+function MemoryRow({
+  language,
+  memory,
+  onOpen,
+  open,
+}: {
+  language: string;
+  memory: MemorySummary;
+  onOpen: () => void;
+  open: boolean;
+}) {
   const { t } = useTranslation();
   return (
-    <li className="ucd-panel rounded-md p-3" data-testid={`personalization-memory-row-${memory.id}`}>
+    <li
+      className={`ucd-panel rounded-md ${open ? "ring-1 ring-primary" : ""}`}
+      data-testid={`personalization-memory-row-${memory.id}`}
+    >
+      {/* The whole row opens it. A row that carried a separate "open" control would make the
+          obvious click do nothing, and a summary has no other action of its own. */}
+      <button
+        aria-expanded={open}
+        className="w-full p-3 text-left"
+        data-testid={`personalization-memory-open-${memory.id}`}
+        onClick={onOpen}
+        type="button"
+      >
       <p className="wrap-break-word text-sm font-medium leading-5">{memory.name}</p>
       <p className="mt-0.5 wrap-break-word text-xs text-muted-foreground">{memory.description}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -139,6 +178,7 @@ function MemoryRow({ language, memory }: { language: string; memory: MemorySumma
         <span>{t(`personalization.memoryList.source.${memory.source}`)}</span>
         <span>{formatAppDateTime(memory.updatedAt, language, { dateStyle: "medium", timeStyle: "short" })}</span>
       </div>
+      </button>
     </li>
   );
 }

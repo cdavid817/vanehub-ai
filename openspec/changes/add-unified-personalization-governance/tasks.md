@@ -124,7 +124,7 @@
 
 - [x] 11.1 Replace the flat full-body memory list with a paged summary list and filters for search, scope, status, type, source Agent, and Agent audience.
 - [x] 11.2 Keep previous page data visible during refresh, reset the cursor when filters change, and avoid per-row body requests.
-- [ ] 11.3 Add a detail panel for body, metadata, provenance, timestamps, scope, audience, status, revision, edit, archive/reactivate, and delete.
+- [x] 11.3 Add a detail panel for body, metadata, provenance, timestamps, scope, audience, status, revision, edit, archive/reactivate, and delete.
 - [ ] 11.4 Add a pending-review workflow with approve, edit-and-approve, reject, scope/audience change, merge, and conflict handling.
 - [ ] 11.5 Add explicit memory creation from Settings and message-menu actions for remember globally, remember for project, and forget/correct a surfaced memory.
 - [ ] 11.6 Add reset preview and execution dialog with exact counts, scope/status selection, typed confirmation, short-lived token, and structured result display.
