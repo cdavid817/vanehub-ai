@@ -2,6 +2,9 @@ mod capture_maintenance;
 mod capture_queue;
 mod command_runs;
 mod command_templates;
+mod content_search;
+#[cfg(test)]
+mod content_search_tests;
 mod evaluation_fixture;
 mod filesystem;
 mod git;

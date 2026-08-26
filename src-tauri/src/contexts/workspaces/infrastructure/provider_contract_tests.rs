@@ -23,7 +23,8 @@ use crate::contexts::workspaces::application::{
     DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource,
     GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
     RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    WorkspaceApplicationError as AppError, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionProvider,
     WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
     WorkspaceSessionQueryPort, WorkspaceTarget,
 };
@@ -58,6 +59,20 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn search_content(
+        &self,
+        session_id: &str,
+        request: &WorkspaceContentSearchRequest,
+        cancelled: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, AppError> {
+        super::content_search::search_session_content(
+            &*self.connection()?,
+            session_id,
+            request,
+            cancelled,
+        )
     }
 
     fn search_paths(
@@ -446,6 +461,90 @@ fn the_providers_declare_their_own_freshness_guarantee() {
     // refresh for something that already arrives on its own.
     assert_eq!(local_capabilities.watch_mode.token(), "polling");
     assert_eq!(remote_capabilities.watch_mode.token(), "polling");
+}
+
+const REMOTE_CONTENT: &str = r##"{"version":1,"ok":true,"result":{"content":{"matches":[
+    {"path":"src/main.rs","line":1,"column":4,"snippet":"fn main() {}","truncated":false}
+  ],"truncated":false,"unavailable":false}}}"##;
+
+const REMOTE_RIPGREP_MISSING: &str = r##"{"version":1,"ok":true,"result":{"content":{"matches":[],"truncated":false,"unavailable":true}}}"##;
+
+/// Both providers report a position, not just a file.
+#[test]
+fn a_content_match_carries_a_position_on_both_sides() {
+    for subject in [local_subject(), remote_subject(REMOTE_CONTENT)] {
+        let result = block(subject.provider.search_content(
+            &subject.target,
+            WorkspaceContentSearchRequest {
+                query: "main".to_string(),
+                search_id: "search-1".to_string(),
+                limit: None,
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ))
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+
+        let first = result
+            .matches
+            .first()
+            .unwrap_or_else(|| panic!("{}: no match", subject.name));
+        assert_eq!(first.path, "src/main.rs", "{}", subject.name);
+        // 1-based on both axes, from both providers. A reader clicking a result lands in an editor,
+        // and an off-by-one that only happens on remote workspaces is the worst kind to find.
+        assert_eq!(first.line, 1, "{}", subject.name);
+        assert_eq!(first.column, 4, "{}", subject.name);
+        assert!(first.snippet.contains("main"), "{}", subject.name);
+    }
+}
+
+/// A cancelled search is answered, not failed, on both sides.
+#[test]
+fn a_cancelled_content_search_is_partial_rather_than_an_error() {
+    for subject in [local_subject(), remote_subject(REMOTE_CONTENT)] {
+        let result = block(subject.provider.search_content(
+            &subject.target,
+            WorkspaceContentSearchRequest {
+                query: "main".to_string(),
+                search_id: "search-1".to_string(),
+                limit: None,
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        ))
+        .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+
+        // Nothing went wrong; the reader stopped waiting. An error here would put a failure notice
+        // on screen for something they did on purpose.
+        assert!(result.matches.is_empty(), "{}", subject.name);
+        assert_eq!(result.coverage.state.token(), "partial", "{}", subject.name);
+        assert_eq!(
+            result.coverage.reason_code,
+            Some("workspace_search_cancelled"),
+            "{}",
+            subject.name
+        );
+    }
+}
+
+/// A remote host without ripgrep is unavailable, not empty.
+#[test]
+fn a_remote_host_without_ripgrep_says_so_rather_than_matching_nothing() {
+    let subject = remote_subject(REMOTE_RIPGREP_MISSING);
+
+    let result = block(subject.provider.search_content(
+        &subject.target,
+        WorkspaceContentSearchRequest {
+            query: "main".to_string(),
+            search_id: "search-1".to_string(),
+            limit: None,
+        },
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    ))
+    .expect("search");
+
+    // An empty result would tell a reader their query matched nothing, which is a claim about
+    // their workspace rather than about the host — and the two have different remediations.
+    assert_eq!(result.coverage.state.token(), "unavailable");
+    assert_eq!(result.coverage.reason_code, Some("remote_ripgrep_missing"));
 }
 
 const REMOTE_PATH_CANDIDATES: &str = r##"{"version":1,"ok":true,"result":{"paths":{"entries":[

@@ -224,6 +224,22 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         Ok(Some("D:/workspace".to_string()))
     }
 
+    fn search_content(
+        &self,
+        session_id: &str,
+        request: &WorkspaceContentSearchRequest,
+        _cancelled: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:content:{session_id}:{}", request.query));
+        Ok(WorkspaceContentSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
+        })
+    }
+
     fn search_paths(
         &self,
         session_id: &str,

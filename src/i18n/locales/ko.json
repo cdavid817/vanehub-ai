@@ -4095,5 +4095,16 @@
   "sessionTabs.files.quickOpen.failed": "이 작업 공간을 검색할 수 없습니다.",
   "sessionTabs.files.quickOpen.more": "더 불러오기",
   "sessionTabs.files.quickOpen.coverage.partial": "이 작업 공간의 일부는 검색되지 않았습니다.",
-  "sessionTabs.files.quickOpen.coverage.unavailable": "이 작업 공간을 검색할 수 없습니다."
+  "sessionTabs.files.quickOpen.coverage.unavailable": "이 작업 공간을 검색할 수 없습니다.",
+  "sessionTabs.files.contentSearch.open": "파일에서 검색",
+  "sessionTabs.files.contentSearch.title": "파일에서 검색",
+  "sessionTabs.files.contentSearch.placeholder": "이 작업 공간에서 텍스트 찾기",
+  "sessionTabs.files.contentSearch.results": "일치하는 줄",
+  "sessionTabs.files.contentSearch.prompt": "입력하여 파일 내용을 검색하세요.",
+  "sessionTabs.files.contentSearch.empty": "일치하는 줄이 없습니다.",
+  "sessionTabs.files.contentSearch.failed": "이 작업 공간을 검색할 수 없습니다.",
+  "sessionTabs.files.contentSearch.searching": "검색 중…",
+  "sessionTabs.files.contentSearch.cancel": "취소",
+  "sessionTabs.files.contentSearch.coverage.partial": "이 작업 공간의 일부는 검색되지 않았습니다.",
+  "sessionTabs.files.contentSearch.coverage.unavailable": "이 작업 공간에서는 내용 검색을 사용할 수 없습니다."
 }

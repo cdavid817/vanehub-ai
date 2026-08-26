@@ -4095,5 +4095,16 @@
   "sessionTabs.files.quickOpen.failed": "無法搜尋此工作區。",
   "sessionTabs.files.quickOpen.more": "載入更多",
   "sessionTabs.files.quickOpen.coverage.partial": "此工作區有一部分未被搜尋。",
-  "sessionTabs.files.quickOpen.coverage.unavailable": "無法搜尋此工作區。"
+  "sessionTabs.files.quickOpen.coverage.unavailable": "無法搜尋此工作區。",
+  "sessionTabs.files.contentSearch.open": "在檔案中搜尋",
+  "sessionTabs.files.contentSearch.title": "在檔案中搜尋",
+  "sessionTabs.files.contentSearch.placeholder": "在此工作區中尋找文字",
+  "sessionTabs.files.contentSearch.results": "符合的行",
+  "sessionTabs.files.contentSearch.prompt": "輸入以搜尋檔案內容。",
+  "sessionTabs.files.contentSearch.empty": "沒有符合的行。",
+  "sessionTabs.files.contentSearch.failed": "無法搜尋此工作區。",
+  "sessionTabs.files.contentSearch.searching": "搜尋中…",
+  "sessionTabs.files.contentSearch.cancel": "取消",
+  "sessionTabs.files.contentSearch.coverage.partial": "此工作區有一部分未被搜尋。",
+  "sessionTabs.files.contentSearch.coverage.unavailable": "此工作區不支援內容搜尋。"
 }

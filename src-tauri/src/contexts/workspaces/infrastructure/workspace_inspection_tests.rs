@@ -13,10 +13,11 @@ use super::workspace_inspection::SessionWorkspaceTargetResolver;
 use crate::contexts::workspaces::application::{
     CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
-    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceInspectionRouter,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
-    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
+    ReadTextFileRequest, RemoteWorkspaceTarget, WatchMode, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspaceInspectionRouter, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
+    WorkspaceTargetResolver,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -208,6 +209,22 @@ impl WorkspaceInspectionProvider for RecordingProvider {
             git_status: CapabilityState::available(),
             git_diff: CapabilityState::available(),
             watch_mode: WatchMode::EventDerived,
+        })
+    }
+
+    async fn search_content(
+        &self,
+        _target: &WorkspaceTarget,
+        request: WorkspaceContentSearchRequest,
+        _cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("search_content:{}", request.query));
+        Ok(WorkspaceContentSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
         })
     }
 

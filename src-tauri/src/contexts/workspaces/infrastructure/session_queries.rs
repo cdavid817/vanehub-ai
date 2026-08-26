@@ -9,7 +9,8 @@ use crate::contexts::workspaces::application::{
     MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 use crate::contexts::workspaces::application::{
-    WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -21,6 +22,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
@@ -89,6 +92,20 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         request: &WorkspacePathSearchRequest,
     ) -> Result<WorkspacePathSearchResult, AppError> {
         super::path_search::search_session_paths(&*self.connection()?, session_id, request)
+    }
+
+    fn search_content(
+        &self,
+        session_id: &str,
+        request: &WorkspaceContentSearchRequest,
+        cancelled: &Arc<AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, AppError> {
+        super::content_search::search_session_content(
+            &*self.connection()?,
+            session_id,
+            request,
+            cancelled,
+        )
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {

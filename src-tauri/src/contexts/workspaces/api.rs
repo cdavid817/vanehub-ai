@@ -31,6 +31,10 @@ pub(crate) use super::application::{
     WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
     WorkspaceInvalidationScope, WorkspaceInvalidationSource,
 };
+/// Content search, and the registry that lets one be stopped.
+pub(crate) use super::application::{
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceSearchCancellation,
+};
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
@@ -73,6 +77,11 @@ pub(crate) struct WorkspaceApi {
     /// this directory" call would be a second statement of what a console is looking at, and the
     /// two would disagree the first time one of them was forgotten.
     invalidation: Arc<WorkspaceInvalidationDispatcher>,
+    /// Which content searches are in flight.
+    ///
+    /// Owned here rather than by the router, because cancelling is a different command from
+    /// searching and both need to reach the same registry.
+    searches: Arc<WorkspaceSearchCancellation>,
 }
 
 impl WorkspaceApi {
@@ -114,6 +123,7 @@ impl WorkspaceApi {
             shells,
             inspection,
             invalidation,
+            searches: Arc::new(WorkspaceSearchCancellation::default()),
         }
     }
 
@@ -288,6 +298,31 @@ impl WorkspaceApi {
         session_id: &str,
     ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
         self.inspection.capabilities(session_id).await
+    }
+
+    /// Content search, registered so it can be stopped.
+    ///
+    /// The flag is taken before the search starts and released after it ends, in this one place.
+    /// Registering inside the provider would put the lifetime of the registration inside the thing
+    /// being registered, and a provider that returned early would leave an id running forever.
+    pub(crate) async fn search_workspace_content(
+        &self,
+        session_id: &str,
+        request: WorkspaceContentSearchRequest,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        let search_id = request.search_id.clone();
+        let cancelled = self.searches.begin(&search_id);
+        let outcome = self
+            .inspection
+            .search_content(session_id, request, cancelled)
+            .await;
+        self.searches.finish(&search_id);
+        outcome
+    }
+
+    /// Asks a running search to stop, and says whether one was there to ask.
+    pub(crate) fn cancel_workspace_search(&self, search_id: &str) -> bool {
+        self.searches.cancel(search_id)
     }
 
     /// Quick Open. Routed through the same seam as every other read, so a remote workspace answers

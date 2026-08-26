@@ -470,6 +470,106 @@ def search(root, query, max_results):
     return {"matches": matches, "truncated": truncated}, None
 
 
+# How much of a matching line travels back. The same bound the local scan uses, trimmed here
+# rather than on the client: sending a megabyte-long minified line so the client can cut it would
+# put the cost of the bound on the wire the bound exists to protect.
+SNIPPET_CHAR_LIMIT = 200
+
+
+def safe_snippet(line, column_index):
+    """A bounded, control-free slice of a line, centred on the match.
+
+    Control characters are removed rather than escaped: they are not content anybody searches for,
+    and an ANSI escape reaching a styled panel would be a match that repaints the interface around
+    it. Centred rather than taken from the start, so a hit near the end of a long line is visible.
+    """
+    cleaned = "".join(
+        " " if character == "\t" else character
+        for character in line
+        if character == "\t" or not (ord(character) < 32 or ord(character) == 127)
+    )
+    if len(cleaned) <= SNIPPET_CHAR_LIMIT:
+        return cleaned, False
+    half = SNIPPET_CHAR_LIMIT // 2
+    start = min(max(column_index - half, 0), max(len(cleaned) - SNIPPET_CHAR_LIMIT, 0))
+    return cleaned[start:start + SNIPPET_CHAR_LIMIT], True
+
+
+def search_content(root, query, max_results):
+    """Positions inside files, via ripgrep.
+
+    ripgrep or nothing, for the same reason the path-mention search says so: a hand-rolled walk
+    would be a second search with different bounds, ordering, and ignore rules, reached exactly when
+    nobody could tell which one answered. `unavailable` is its own answer rather than an error,
+    because a host without ripgrep is perfectly usable for everything else.
+    """
+    resolved = resolve_root(root)
+    if resolved is None:
+        return None, "workspace_path_escaped"
+    if not query.strip():
+        return {"matches": [], "truncated": False, "unavailable": False}, None
+    limit = max(1, min(max_results or SEARCH_RESULT_LIMIT, SEARCH_RESULT_LIMIT))
+
+    completed = run_tool(
+        "rg",
+        [
+            "--json",
+            "--fixed-strings",
+            "--ignore-case",
+            # One match per line, matching the local scan: a line containing the query six times is
+            # one place to go, and six rows for it would push five other files off a bounded list.
+            "--max-count",
+            str(limit),
+            "--",
+            query,
+        ],
+        resolved,
+    )
+    if completed is None:
+        return {"matches": [], "truncated": False, "unavailable": True}, None
+    if completed.returncode not in (0, 1):
+        return None, "remote_search_failed"
+
+    matches = []
+    truncated = False
+    for raw in completed.stdout.splitlines():
+        if len(matches) >= limit:
+            truncated = True
+            break
+        try:
+            event = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if event.get("type") != "match":
+            continue
+        data = event.get("data", {})
+        text = data.get("path", {}).get("text")
+        line_text = data.get("lines", {}).get("text")
+        submatches = data.get("submatches") or []
+        if not isinstance(text, str) or not isinstance(line_text, str) or not submatches:
+            # A path or line ripgrep could not encode as text. Skipped rather than guessed at: a
+            # mangled path in a result list is a link that goes nowhere.
+            continue
+        candidate = resolve_within(
+            resolved, text if not os.path.isabs(text) else os.path.relpath(text, resolved)
+        )
+        if candidate is None:
+            continue
+        byte_start = submatches[0].get("start", 0)
+        column_index = len(line_text.encode("utf-8", "ignore")[:byte_start].decode("utf-8", "ignore"))
+        snippet, snippet_truncated = safe_snippet(line_text.rstrip("\n"), column_index)
+        matches.append(
+            {
+                "path": relative_to(resolved, candidate),
+                "line": data.get("line_number") or 0,
+                "column": column_index + 1,
+                "snippet": snippet,
+                "truncated": snippet_truncated,
+            }
+        )
+    return {"matches": matches, "truncated": truncated, "unavailable": False}, None
+
+
 def git_command(root, arguments):
     resolved = resolve_root(root)
     if resolved is None:
@@ -562,6 +662,9 @@ def dispatch(root, operation):
     if kind == "search":
         answer, error = search(root, operation.get("query", ""), int(operation.get("maxResults", 0) or 0))
         return ({"search": answer} if answer else None), error
+    if kind == "searchContent":
+        answer, error = search_content(root, operation.get("query", ""), int(operation.get("maxResults", 0) or 0))
+        return ({"content": answer} if answer is not None else None), error
     if kind == "gitStatus":
         answer, error = git_status(root)
         return ({"git": answer} if answer else None), error

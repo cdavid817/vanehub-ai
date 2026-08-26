@@ -136,8 +136,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 提供树里真实存在的路径。一份单独维护的搜索夹具迟早会给出一条树里没有的路径,而点开什么都不发生
 // 的结果,比没有结果更糟——读者会以为是应用坏了,而不是以为这是个 demo。
 // 上限按实测值 21684 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.5):+85 是内容搜索在服务边界上的四处——接口的两个方法与
+// 输入类型、Tauri 侧的 invoke 与 Zod 解析、Web 侧的夹具扫描,以及取消。
+// 值得说明的是为什么「取消」必须占一个独立方法而不能折进搜索请求里:取消要在搜索**还没返回**时
+// 到达进程,这正是取消的全部意义。一个带 cancel 标志的搜索请求只会在下一次搜索时才被读到,
+// 而那时上一次扫描已经把整个工作区读完了。
+// 上限按实测值 21769 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21684, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21769, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

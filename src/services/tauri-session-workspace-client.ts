@@ -16,6 +16,7 @@ import type {
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
 import {
+  parseWorkspaceContentSearchResult,
   parseWorkspacePathSearchResult,
   safeParseWorkspaceInvalidationNotice,
 } from "../contracts/session-workspace-inspection";
@@ -32,6 +33,8 @@ type SessionWorkspaceMethods = Pick<
   | "getWorkspaceInspectionCapabilities"
   | "subscribeWorkspaceInvalidation"
   | "searchWorkspacePaths"
+  | "searchWorkspaceContent"
+  | "cancelWorkspaceSearch"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -85,6 +88,19 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
         limit: input.limit ?? null,
       }),
     );
+  },
+  async searchWorkspaceContent(input) {
+    return parseWorkspaceContentSearchResult(
+      await invoke("search_workspace_content", {
+        sessionId: input.sessionId,
+        query: input.query,
+        searchId: input.searchId,
+        limit: input.limit ?? null,
+      }),
+    );
+  },
+  cancelWorkspaceSearch(searchId) {
+    return invoke<boolean>("cancel_workspace_search", { searchId });
   },
   listSessionDirectory(sessionId, path = "") {
     return invoke<DirectoryListing>("list_session_directory", { sessionId, path });

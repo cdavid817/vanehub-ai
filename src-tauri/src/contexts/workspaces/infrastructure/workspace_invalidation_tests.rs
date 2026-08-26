@@ -11,11 +11,12 @@ use crate::contexts::workspaces::application::{
     CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
     DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult,
     GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, WatchMode,
-    WorkspaceChangeObserverPort, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceInspectionRouter, WorkspaceInvalidationChange,
-    WorkspaceInvalidationDispatcher, WorkspaceInvalidationNotice, WorkspaceInvalidationPublisher,
-    WorkspaceInvalidationScope, WorkspaceInvalidationSource, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
+    WorkspaceChangeObserverPort, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspaceInspectionRouter, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
+    WorkspaceInvalidationNotice, WorkspaceInvalidationPublisher, WorkspaceInvalidationScope,
+    WorkspaceInvalidationSource, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -110,6 +111,15 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
             .expect("answers")
             .pop()
             .unwrap_or_else(|| Ok(Vec::new()))
+    }
+
+    async fn search_content(
+        &self,
+        _target: &WorkspaceTarget,
+        _request: WorkspaceContentSearchRequest,
+        _cancelled: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        panic!("a poll must not search")
     }
 
     async fn search_paths(

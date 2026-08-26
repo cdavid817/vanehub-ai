@@ -10,8 +10,22 @@ import type {
 import type {
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
+  WorkspaceContentSearchResult,
   WorkspacePathSearchResult,
 } from "../types/session-workspace-inspection";
+
+export interface WorkspaceContentSearchInput {
+  sessionId: string;
+  query: string;
+  /**
+   * Chosen by the caller so the same caller can cancel it.
+   *
+   * An id this side returned would arrive with the answer, which is exactly too late to stop the
+   * search that produced it.
+   */
+  searchId: string;
+  limit?: number;
+}
 
 export interface WorkspacePathSearchInput {
   sessionId: string;
@@ -61,6 +75,25 @@ export interface SessionWorkspaceInspectionService {
    * an `@` offers, which is a different feature.
    */
   searchWorkspacePaths(input: WorkspacePathSearchInput): Promise<WorkspacePathSearchResult>;
+
+  /**
+   * Content search: positions inside files, bounded and interruptible.
+   *
+   * Fixed-string and case-insensitive on both providers. Not because patterns would be less useful,
+   * but because the two implementations are different engines and a pattern language is the one
+   * thing two engines cannot be made to agree about.
+   */
+  searchWorkspaceContent(
+    input: WorkspaceContentSearchInput,
+  ): Promise<WorkspaceContentSearchResult>;
+
+  /**
+   * Stops a running content search.
+   *
+   * Resolves to whether one was still running. A caller cannot know whether their cancel beat the
+   * search's own completion, so `false` means "nothing to stop", not "you did something wrong".
+   */
+  cancelWorkspaceSearch(searchId: string): Promise<boolean>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;

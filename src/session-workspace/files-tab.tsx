@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "../lib/utils";
 import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
 import { agentService } from "../services/runtime-agent-client";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
@@ -10,8 +11,48 @@ import { parentDirectoryOf, selectionStillExists } from "./workspace-invalidatio
 import { workspaceQueryKeys } from "./workspace-query-keys";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
 import { QuickOpenDialog } from "./quick-open-dialog";
+import { ContentSearchPanel } from "./content-search-panel";
 
 export { flattenFileRows, type TreeRow } from "./use-workspace-file-tree";
+
+/**
+ * The preview, with the matched line marked and scrolled to.
+ *
+ * Rendering line by line rather than as one block is what makes "go to line" mean anything: a
+ * result that opened the file at the top would leave a reader searching a second time, by eye, for
+ * the thing the search already found.
+ */
+function PreviewLines({ content, highlighted }: { content: string; highlighted: number | null }) {
+  const target = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    target.current?.scrollIntoView({ block: "center" });
+  }, [highlighted, content]);
+
+  if (!highlighted) {
+    return (
+      <pre className="whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5">{content}</pre>
+    );
+  }
+  return (
+    <div className="font-mono text-xs leading-5">
+      {content.split("\n").map((line, index) => (
+        <div
+          className={cn(
+            "flex gap-3 whitespace-pre-wrap wrap-break-word",
+            index + 1 === highlighted && "bg-muted text-primary",
+          )}
+          key={index}
+          ref={index + 1 === highlighted ? target : undefined}
+        >
+          <span aria-hidden="true" className="w-10 shrink-0 select-none text-right text-muted-foreground">
+            {index + 1}
+          </span>
+          <span className="min-w-0 flex-1">{line}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function FilesTab({
   isVisible = true,
@@ -25,6 +66,15 @@ export function FilesTab({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [contentSearch, setContentSearch] = useState(false);
+  /**
+   * Which line the preview should show first.
+   *
+   * Held beside the selection rather than folded into it, because they change for different
+   * reasons: picking a file in the tree selects without a line, and a content match selects with
+   * one. A single value would make "no particular line" and "line 1" the same state.
+   */
+  const [previewLine, setPreviewLine] = useState<number | null>(null);
   const tree = useWorkspaceFileTree(sessionId, isVisible);
 
   const previewQuery = useQuery({
@@ -69,6 +119,16 @@ export function FilesTab({
         }}
         sessionId={sessionId}
       />
+      <ContentSearchPanel
+        isOpen={contentSearch}
+        onClose={() => setContentSearch(false)}
+        onSelect={(match) => {
+          tree.revealDirectory(parentDirectoryOf(match.path));
+          setSelectedPath(match.path);
+          setPreviewLine(match.line);
+        }}
+        sessionId={sessionId}
+      />
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
         <button
           className="mb-2 h-7 w-full rounded border border-border px-2 text-left text-xs text-muted-foreground hover:bg-muted"
@@ -76,6 +136,13 @@ export function FilesTab({
           type="button"
         >
           {t("sessionTabs.files.quickOpen.open")}
+        </button>
+        <button
+          className="mb-2 h-7 w-full rounded border border-border px-2 text-left text-xs text-muted-foreground hover:bg-muted"
+          onClick={() => setContentSearch(true)}
+          type="button"
+        >
+          {t("sessionTabs.files.contentSearch.open")}
         </button>
         {tree.truncated ? <PartialNotice /> : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
@@ -85,7 +152,16 @@ export function FilesTab({
               className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left text-sm"
               // Only a file is referenceable, so only a file is draggable.
               draggable={entry.kind === "file"}
-              onClick={() => entry.kind === "directory" ? tree.toggleDirectory(entry.path) : setSelectedPath(entry.path)}
+              onClick={() => {
+                if (entry.kind === "directory") {
+                  tree.toggleDirectory(entry.path);
+                  return;
+                }
+                setSelectedPath(entry.path);
+                // Picking a file in the tree is not a request to go anywhere in it. Keeping the
+                // previous match's line would drop the reader partway down an unrelated file.
+                setPreviewLine(null);
+              }}
               onDragStart={(event) => writeFileReferenceDrag(event.dataTransfer, entry.path)}
               type="button"
             >
@@ -111,7 +187,12 @@ export function FilesTab({
       </section>
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
         {previewQuery.isLoading && selectedPath ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !preview ? <WorkspaceState kind="empty" message={t("sessionTabs.files.select")} /> : preview.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${preview.status}`)} /> : (
-          <><h3 className="mb-3 truncate text-sm font-semibold">{preview.path}</h3><pre className="whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5">{preview.content}</pre></>
+          <>
+            <h3 className="mb-3 truncate text-sm font-semibold">
+              {previewLine ? `${preview.path}:${previewLine}` : preview.path}
+            </h3>
+            <PreviewLines content={preview.content ?? ""} highlighted={previewLine} />
+          </>
         )}
       </section>
     </div>

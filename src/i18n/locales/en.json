@@ -4095,5 +4095,16 @@
   "sessionTabs.files.quickOpen.failed": "This workspace could not be searched.",
   "sessionTabs.files.quickOpen.more": "Load more",
   "sessionTabs.files.quickOpen.coverage.partial": "Part of this workspace was not searched.",
-  "sessionTabs.files.quickOpen.coverage.unavailable": "This workspace could not be searched."
+  "sessionTabs.files.quickOpen.coverage.unavailable": "This workspace could not be searched.",
+  "sessionTabs.files.contentSearch.open": "Search in files",
+  "sessionTabs.files.contentSearch.title": "Search in files",
+  "sessionTabs.files.contentSearch.placeholder": "Find text in this workspace",
+  "sessionTabs.files.contentSearch.results": "Matching lines",
+  "sessionTabs.files.contentSearch.prompt": "Type to search file contents.",
+  "sessionTabs.files.contentSearch.empty": "No matching lines.",
+  "sessionTabs.files.contentSearch.failed": "This workspace could not be searched.",
+  "sessionTabs.files.contentSearch.searching": "Searching…",
+  "sessionTabs.files.contentSearch.cancel": "Cancel",
+  "sessionTabs.files.contentSearch.coverage.partial": "Part of this workspace was not searched.",
+  "sessionTabs.files.contentSearch.coverage.unavailable": "Content search is unavailable for this workspace."
 }

@@ -12,8 +12,8 @@
 use super::super::path_search::{normalize_query, path_match_score};
 use super::probe::{capabilities_from, revalidate};
 use super::protocol::{
-    HelperEntry, HelperFile, HelperFingerprint, HelperGitOutput, HelperListing, HelperOperation,
-    HelperRequest, HelperResult, HelperSearch, RemoteHelperError,
+    HelperContentMatches, HelperEntry, HelperFile, HelperFingerprint, HelperGitOutput,
+    HelperListing, HelperOperation, HelperRequest, HelperResult, HelperSearch, RemoteHelperError,
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
@@ -21,13 +21,15 @@ use crate::contexts::workspaces::application::{
     DirectoryFingerprintState, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
     ListDirectoryRequest, PathSearchCursor, ReadTextFileRequest, RemoteWorkspaceTarget,
-    SessionWorkspaceContext, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
     WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
     WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
-    MAX_FINGERPRINT_PATHS,
+    MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// What a binding looks like right now.
@@ -289,6 +291,47 @@ fn rank_path_candidates(
     }
 }
 
+/// What a cancelled search returns.
+///
+/// Partial with a reason rather than an error: nothing went wrong, the reader simply stopped
+/// waiting, and an error would put a failure notice on screen for something they did on purpose.
+fn cancelled_result() -> WorkspaceContentSearchResult {
+    WorkspaceContentSearchResult {
+        coverage: WorkspaceSearchCoverage::partial("workspace_search_cancelled"),
+        matches: Vec::new(),
+    }
+}
+
+fn content_matches(value: HelperContentMatches) -> WorkspaceContentSearchResult {
+    // A host without ripgrep is unavailable rather than empty. An empty result would tell a reader
+    // their query matched nothing, which is a claim about their workspace rather than about the
+    // host, and the two have completely different remediations.
+    if value.unavailable {
+        return WorkspaceContentSearchResult {
+            coverage: WorkspaceSearchCoverage::unavailable("remote_ripgrep_missing"),
+            matches: Vec::new(),
+        };
+    }
+    WorkspaceContentSearchResult {
+        coverage: if value.truncated {
+            WorkspaceSearchCoverage::partial("workspace_search_match_limit")
+        } else {
+            WorkspaceSearchCoverage::complete()
+        },
+        matches: value
+            .matches
+            .into_iter()
+            .map(|entry| WorkspaceContentMatch {
+                path: entry.path,
+                line: entry.line,
+                column: entry.column,
+                snippet: entry.snippet,
+                snippet_truncated: entry.truncated,
+            })
+            .collect(),
+    }
+}
+
 fn fingerprints(values: Vec<HelperFingerprint>) -> Vec<DirectoryFingerprint> {
     values
         .into_iter()
@@ -473,6 +516,40 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             candidates.truncated,
             candidates.entries,
         ))
+    }
+
+    async fn search_content(
+        &self,
+        target: &WorkspaceTarget,
+        request: WorkspaceContentSearchRequest,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        // Checked before connecting rather than only after. A reader who cancels while the request
+        // is still being assembled has already stopped waiting, and opening an SSH channel to
+        // answer them would spend a remote host's effort on a result nobody will read.
+        if cancelled.load(Ordering::Relaxed) {
+            return Ok(cancelled_result());
+        }
+        let (_, result) = self
+            .call(
+                target,
+                HelperOperation::SearchContent {
+                    query: request.query.clone(),
+                    max_results: request.limit.unwrap_or(MAX_CONTENT_MATCHES),
+                },
+            )
+            .await?;
+        // Checked again afterwards. The round trip is where the waiting actually happens, and a
+        // result that arrives for an abandoned search must not be handed back as if it were wanted.
+        if cancelled.load(Ordering::Relaxed) {
+            return Ok(cancelled_result());
+        }
+        let content = result
+            .content
+            .ok_or(WorkspaceInspectionError::RemoteUnavailable(
+                "remote_helper_malformed_response",
+            ))?;
+        Ok(content_matches(content))
     }
 
     async fn list_documents(

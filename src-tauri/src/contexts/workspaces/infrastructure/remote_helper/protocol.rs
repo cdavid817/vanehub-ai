@@ -98,6 +98,14 @@ pub(crate) enum HelperOperation {
         query: String,
         max_results: usize,
     },
+    /// Content search. Fixed-string and case-insensitive, matching the local scan exactly: two
+    /// different engines can agree about a literal and cannot be made to agree about a pattern
+    /// language, and a reader whose query means something else on a remote host has been handed a
+    /// puzzle rather than a feature.
+    SearchContent {
+        query: String,
+        max_results: usize,
+    },
     GitStatus,
     GitDiff {
         path: String,
@@ -133,6 +141,8 @@ pub(crate) struct HelperResult {
     pub(crate) file: Option<HelperFile>,
     #[serde(default)]
     pub(crate) search: Option<HelperSearch>,
+    #[serde(default)]
+    pub(crate) content: Option<HelperContentMatches>,
     /// Git answers arrive as the bytes git printed.
     ///
     /// Parsed on this side with the same parser the local provider uses, so the
@@ -211,6 +221,32 @@ pub(crate) struct HelperFile {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HelperSearch {
     pub(crate) matches: Vec<HelperEntry>,
+    pub(crate) truncated: bool,
+}
+
+/// Positions inside remote files.
+///
+/// The snippet arrives already bounded and control-free: the trimming happens where the line is,
+/// because sending a megabyte-long minified line so this side can cut it would put the cost of the
+/// bound on the wire the bound exists to protect.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperContentMatches {
+    pub(crate) matches: Vec<HelperContentMatch>,
+    pub(crate) truncated: bool,
+    /// Set when ripgrep is not installed. Distinct from an empty result, which means the query
+    /// genuinely matched nothing.
+    #[serde(default)]
+    pub(crate) unavailable: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperContentMatch {
+    pub(crate) path: String,
+    pub(crate) line: u32,
+    pub(crate) column: u32,
+    pub(crate) snippet: String,
     pub(crate) truncated: bool,
 }
 

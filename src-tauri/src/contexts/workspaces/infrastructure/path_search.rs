@@ -70,12 +70,12 @@ const EXCLUDED_DIRECTORIES: &[&str] = &[
     "deriveddata",
 ];
 
-struct Candidate {
+pub(crate) struct Candidate {
     score: u32,
     depth: u32,
     name: String,
-    path: String,
-    kind: &'static str,
+    pub(crate) path: String,
+    pub(crate) kind: &'static str,
 }
 
 pub(crate) fn search_session_paths(
@@ -105,7 +105,7 @@ pub(crate) fn search_session_paths(
     };
 
     let limit = bounded_search_page(request.limit);
-    let (mut candidates, partial_reason) = walk(&root, &normalized)?;
+    let (mut candidates, partial_reason) = walk_workspace_paths(&root, &normalized)?;
 
     candidates.sort_by(|left, right| {
         right
@@ -159,7 +159,14 @@ pub(crate) fn normalize_query(query: &str) -> String {
 }
 
 /// Every match, and why the walk stopped if it did.
-fn walk(root: &Path, query: &str) -> Result<(Vec<Candidate>, Option<&'static str>), AppError> {
+///
+/// Shared with the content search rather than duplicated there. Two traversals with their own
+/// exclusion lists would let a file be findable by name and not by content, which reads as the
+/// search being broken for that one file.
+pub(crate) fn walk_workspace_paths(
+    root: &Path,
+    query: &str,
+) -> Result<(Vec<Candidate>, Option<&'static str>), AppError> {
     // Entries are canonicalized before the containment check, so the root must be too: a short
     // (8.3) or symlinked root would otherwise fail every check and return nothing.
     let canonical_root = root

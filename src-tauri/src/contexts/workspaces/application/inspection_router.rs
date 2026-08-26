@@ -11,6 +11,7 @@
 //! would be real, the paths would look plausible, and nothing on screen would say which computer
 //! they came from.
 
+use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::inspection::{
     DirectoryFingerprint, GitDiffRequest, ListDirectoryRequest, ReadTextFileRequest,
     WorkspaceInspectionCapabilities, WorkspaceInspectionError, WorkspaceInspectionProvider,
@@ -21,6 +22,7 @@ use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitStatusResult,
 };
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 pub(crate) struct WorkspaceInspectionRouter {
@@ -146,6 +148,19 @@ impl WorkspaceInspectionRouter {
     ) -> Result<FileSearchListing, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?.search(&target, request).await
+    }
+
+    /// Content search, with the flag the caller will use to stop it.
+    pub(crate) async fn search_content(
+        &self,
+        session_id: &str,
+        request: WorkspaceContentSearchRequest,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        let target = self.target(session_id)?;
+        self.provider(&target)?
+            .search_content(&target, request, cancelled)
+            .await
     }
 
     pub(crate) async fn search_paths(

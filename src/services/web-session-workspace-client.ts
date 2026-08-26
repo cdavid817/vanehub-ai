@@ -27,6 +27,8 @@ type SessionWorkspaceMethods = Pick<
   | "getWorkspaceInspectionCapabilities"
   | "subscribeWorkspaceInvalidation"
   | "searchWorkspacePaths"
+  | "searchWorkspaceContent"
+  | "cancelWorkspaceSearch"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -97,6 +99,40 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
       .filter((entry) => !needle || entry.path.toLowerCase().includes(needle))
       .slice(0, input.limit ?? 25);
     return { coverage: { state: "complete" as const }, matches };
+  },
+  /**
+   * Scanned from the same file fixtures the preview renders, so a result the browser build offers
+   * is a result it can then open. Coverage is `complete` because the fixture really is all of it.
+   */
+  async searchWorkspaceContent(input) {
+    const needle = input.query.trim().toLowerCase();
+    if (!needle) return { coverage: { state: "complete" as const }, matches: [] };
+    const matches = Object.entries(fileFixtures)
+      .flatMap(([path, content]) =>
+        content.split("\n").flatMap((line, index) => {
+          const column = line.toLowerCase().indexOf(needle);
+          if (column < 0) return [];
+          return [
+            {
+              path,
+              line: index + 1,
+              column: column + 1,
+              snippet: line,
+              snippetTruncated: false,
+            },
+          ];
+        }),
+      )
+      .slice(0, input.limit ?? 200);
+    return { coverage: { state: "complete" as const }, matches };
+  },
+  /**
+   * Nothing to cancel: the fixture scan is synchronous and has already finished by the time a
+   * reader could press anything. `false` is the honest answer, and it is the same answer the
+   * desktop build gives for a search that completed first.
+   */
+  async cancelWorkspaceSearch() {
+    return false;
   },
   async listSessionDirectory(_sessionId, path = "") {
     return {

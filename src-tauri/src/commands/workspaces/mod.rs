@@ -12,6 +12,7 @@ pub(crate) mod list_session_logs;
 mod mapper;
 pub(crate) mod read_session_file;
 pub(crate) mod search_session_files;
+pub(crate) mod search_workspace_content;
 pub(crate) mod search_workspace_paths;
 pub(crate) mod select_project_directory;
 pub(crate) mod session_log_index;

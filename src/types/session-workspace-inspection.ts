@@ -53,6 +53,28 @@ export interface WorkspacePathSearchResult {
   nextCursor?: string;
 }
 
+/** One position inside one file. */
+export interface WorkspaceContentMatch {
+  /** Workspace-relative, with forward slashes. */
+  path: string;
+  /** 1-based, because that is what every editor and every error message uses. */
+  line: number;
+  /** 1-based and counted in characters, not bytes. */
+  column: number;
+  /** A bounded, control-free slice of the matching line. */
+  snippet: string;
+  /**
+   * Whether the line was cut to fit. Separate from the search's own bound, because a complete
+   * result made of trimmed lines is still complete.
+   */
+  snippetTruncated: boolean;
+}
+
+export interface WorkspaceContentSearchResult {
+  coverage: WorkspaceSearchCoverage;
+  matches: WorkspaceContentMatch[];
+}
+
 /**
  * Which mechanism noticed a workspace change.
  *

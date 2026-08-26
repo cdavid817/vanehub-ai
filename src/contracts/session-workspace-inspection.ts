@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   WorkspaceInspectionCapabilities,
   WorkspaceInvalidationNotice,
+  WorkspaceContentSearchResult,
   WorkspacePathSearchResult,
 } from "../types/session-workspace-inspection";
 
@@ -49,6 +50,28 @@ export const workspacePathSearchResultSchema = z.object({
 
 export function parseWorkspacePathSearchResult(value: unknown): WorkspacePathSearchResult {
   return workspacePathSearchResultSchema.parse(value);
+}
+
+export const workspaceContentSearchResultSchema = z.object({
+  coverage: z.object({
+    state: z.enum(["complete", "partial", "unavailable"]),
+    reasonCode: z.string().optional(),
+  }),
+  matches: z.array(
+    z.object({
+      path: z.string(),
+      // Positive rather than merely non-negative: line and column are 1-based, and a zero would be
+      // a position no editor can go to.
+      line: z.number().int().positive(),
+      column: z.number().int().positive(),
+      snippet: z.string(),
+      snippetTruncated: z.boolean(),
+    }),
+  ),
+});
+
+export function parseWorkspaceContentSearchResult(value: unknown): WorkspaceContentSearchResult {
+  return workspaceContentSearchResultSchema.parse(value);
 }
 
 export const workspaceInvalidationNoticeSchema = z.object({

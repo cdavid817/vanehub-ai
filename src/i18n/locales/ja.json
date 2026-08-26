@@ -4095,5 +4095,16 @@
   "sessionTabs.files.quickOpen.failed": "このワークスペースを検索できませんでした。",
   "sessionTabs.files.quickOpen.more": "さらに読み込む",
   "sessionTabs.files.quickOpen.coverage.partial": "このワークスペースの一部は検索されていません。",
-  "sessionTabs.files.quickOpen.coverage.unavailable": "このワークスペースを検索できませんでした。"
+  "sessionTabs.files.quickOpen.coverage.unavailable": "このワークスペースを検索できませんでした。",
+  "sessionTabs.files.contentSearch.open": "ファイル内を検索",
+  "sessionTabs.files.contentSearch.title": "ファイル内を検索",
+  "sessionTabs.files.contentSearch.placeholder": "このワークスペース内のテキストを検索",
+  "sessionTabs.files.contentSearch.results": "一致する行",
+  "sessionTabs.files.contentSearch.prompt": "入力してファイルの内容を検索します。",
+  "sessionTabs.files.contentSearch.empty": "一致する行がありません。",
+  "sessionTabs.files.contentSearch.failed": "このワークスペースを検索できませんでした。",
+  "sessionTabs.files.contentSearch.searching": "検索中…",
+  "sessionTabs.files.contentSearch.cancel": "キャンセル",
+  "sessionTabs.files.contentSearch.coverage.partial": "このワークスペースの一部は検索されていません。",
+  "sessionTabs.files.contentSearch.coverage.unavailable": "このワークスペースでは内容検索を利用できません。"
 }

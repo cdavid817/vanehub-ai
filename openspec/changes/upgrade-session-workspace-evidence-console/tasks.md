@@ -235,7 +235,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 12.2 Add normalized workspace invalidation notices from local watch, remote polling, and execution-evidence file mutations.
 - [x] 12.3 Invalidate only affected tree, preview, document, search, Git, diff, and review query keys; retain current selection when still valid.
 - [x] 12.4 Add Quick Open path search with keyboard navigation, cancellation, stable ordering, provider coverage, and bounded pages.
-- [ ] 12.5 Add content search with line, column, bounded redacted snippet, provider coverage, cancellation, and result-to-preview navigation.
+- [x] 12.5 Add content search with line, column, bounded redacted snippet, provider coverage, cancellation, and result-to-preview navigation.
 - [ ] 12.6 Add Files toolbar actions for Quick Open, Content Search, Refresh, Copy Relative Path, Reveal/Open externally when supported, and Open Shell at directory when supported.
 - [ ] 12.7 Upgrade text preview with line numbers, syntax highlighting through existing libraries, in-preview find, line navigation, encoding/newline metadata, and evidence actions.
 - [ ] 12.8 Keep the previous file preview visible while a new selection or refresh loads; show stale/refreshing status and preserve another selection after failure.

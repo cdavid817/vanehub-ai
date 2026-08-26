@@ -1,3 +1,4 @@
+mod content_search;
 mod error;
 mod evidence;
 mod inspection;
@@ -14,6 +15,18 @@ mod session_shell;
 mod session_shell_registry;
 mod session_shell_store;
 
+/// Published to tests only.
+///
+/// Production has no caller: the snippet bound is applied inside `safe_snippet`, and nothing
+/// outside needs to know the number. A test does — asserting the named bound rather than `200`
+/// keeps the two from drifting apart the day somebody changes it.
+#[cfg(test)]
+pub(crate) use content_search::MAX_SNIPPET_CHARS;
+pub(crate) use content_search::{
+    safe_snippet, WorkspaceContentMatch, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceSearchCancellation, MAX_CONTENT_MATCHES,
+    MAX_SEARCHED_FILE_BYTES,
+};
 pub(crate) use error::WorkspaceApplicationError;
 pub(crate) use evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,

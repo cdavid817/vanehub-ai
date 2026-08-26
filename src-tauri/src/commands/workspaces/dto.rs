@@ -319,6 +319,35 @@ pub(crate) struct WorkspacePathSearchDto {
     pub(crate) next_cursor: Option<String>,
 }
 
+/// Positions inside files.
+///
+/// No cursor here, unlike Quick Open. Content search is bounded by a match count rather than paged:
+/// a reader who gets two hundred hits narrows the query, they do not page through them, and a
+/// cursor would have to survive a file changing underneath it between pages.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceContentSearchDto {
+    pub(crate) coverage: WorkspaceSearchCoverageDto,
+    pub(crate) matches: Vec<WorkspaceContentMatchDto>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceContentMatchDto {
+    /// Workspace-relative, with forward slashes.
+    pub(crate) path: String,
+    /// 1-based, because that is what every editor and every error message uses.
+    pub(crate) line: u32,
+    /// 1-based and counted in characters, not bytes: a byte column is meaningless on a line with an
+    /// accented character in it, and it is not what an editor would jump to.
+    pub(crate) column: u32,
+    /// A bounded, control-free slice of the matching line, never the whole file.
+    pub(crate) snippet: String,
+    /// Whether the line was cut to fit. Separate from the search's own bound, because a complete
+    /// result made of trimmed lines is still complete.
+    pub(crate) snippet_truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceSearchCoverageDto {

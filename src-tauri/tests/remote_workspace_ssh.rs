@@ -348,6 +348,95 @@ fn the_helper_program_walks_paths_without_ranking_them() {
     assert!(kinds.contains(&("src", "directory")), "{directories}");
 }
 
+/// Content search under a real interpreter.
+///
+/// What only a real run proves: that the helper's ripgrep invocation parses, that a host *without*
+/// ripgrep answers `unavailable` rather than failing, and that the snippet bound is applied where
+/// the line is rather than after it has crossed the wire.
+#[test]
+fn the_helper_program_searches_content_or_says_it_cannot() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+
+    let answer = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"searchContent","query":"fn main","maxResults":10}"#,
+    );
+    assert_eq!(answer["ok"], true, "{answer}");
+    let content = &answer["result"]["content"];
+
+    if content["unavailable"] == true {
+        // A host without ripgrep is a normal host. Reported as unavailable rather than as an empty
+        // result, because "nothing matched" is a claim about the workspace and this is a claim
+        // about the machine.
+        skip("ripgrep is not installed; content search reported unavailable");
+        assert_eq!(content["matches"].as_array().map(Vec::len), Some(0));
+        return;
+    }
+
+    let matches = content["matches"].as_array().expect("matches");
+    let first = matches.first().unwrap_or_else(|| panic!("{answer}"));
+    assert_eq!(first["path"], "src/main.rs");
+    // 1-based on both axes, from the remote side too. An off-by-one that only appears on remote
+    // workspaces is the worst kind to find.
+    assert_eq!(first["line"], 1);
+    assert_eq!(first["column"], 1);
+    assert!(first["snippet"]
+        .as_str()
+        .expect("snippet")
+        .contains("fn main"));
+    assert_eq!(first["truncated"], false);
+}
+
+/// A long line is trimmed on the remote host rather than on the wire.
+#[test]
+fn the_helper_program_bounds_a_snippet_where_the_line_is() {
+    let Some(interpreter) = python() else {
+        skip("no python3 on PATH");
+        return;
+    };
+    let (_directory, root) = workspace();
+    let padding = "x".repeat(1_000);
+    fs::write(
+        root.join("bundle.js"),
+        format!("{padding}needle{padding}\n"),
+    )
+    .expect("bundle");
+
+    let answer = run_helper(
+        interpreter,
+        &root,
+        r#"{"kind":"searchContent","query":"needle","maxResults":10}"#,
+    );
+    let content = &answer["result"]["content"];
+    if content["unavailable"] == true {
+        skip("ripgrep is not installed; snippet bound not exercised");
+        return;
+    }
+
+    let first = content["matches"]
+        .as_array()
+        .expect("matches")
+        .first()
+        .unwrap_or_else(|| panic!("{answer}"))
+        .clone();
+    // Sending two kilobytes so this side could cut it would put the cost of the bound on the wire
+    // the bound exists to protect.
+    assert_eq!(first["truncated"], true);
+    assert_eq!(
+        first["snippet"].as_str().expect("snippet").chars().count(),
+        200
+    );
+    assert!(first["snippet"]
+        .as_str()
+        .expect("snippet")
+        .contains("needle"));
+}
+
 #[test]
 fn the_helper_program_previews_text_and_refuses_to_decode_binary() {
     let Some(interpreter) = python() else {

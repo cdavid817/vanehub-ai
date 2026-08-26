@@ -16,6 +16,7 @@
 //! still run a Shell, and a panel that failed the whole workspace because one prerequisite is
 //! missing would take away the thing the user came for.
 
+use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::error::WorkspaceApplicationError;
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
@@ -23,6 +24,8 @@ use super::models::{
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Which workspace an inspection is about.
 ///
@@ -400,6 +403,18 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
         target: &WorkspaceTarget,
         paths: &[String],
     ) -> Result<Vec<DirectoryFingerprint>, WorkspaceInspectionError>;
+
+    /// Content search: positions inside files, bounded and interruptible.
+    ///
+    /// Takes the cancellation flag rather than looking one up. A provider that consulted a registry
+    /// would be a second place that decides whether a search is still wanted, and the two would
+    /// disagree exactly when a reader cancelled at the wrong moment.
+    async fn search_content(
+        &self,
+        target: &WorkspaceTarget,
+        request: WorkspaceContentSearchRequest,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError>;
 
     async fn list_documents(
         &self,
